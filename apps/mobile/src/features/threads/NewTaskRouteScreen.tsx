@@ -497,7 +497,7 @@ function PlanModeToggle(props: {
 }
 
 /**
- * Mission mode: makes the new session a lead, which plans the work, starts
+ * Coordinator mode: makes the new session a lead, which plans the work, starts
  * other sessions to do it, and reports back. The choice goes with the first
  * prompt and is fixed after it. Selected, the control fills, as every selected
  * inline control does.
@@ -518,10 +518,10 @@ function LeadToggle(props: {
   return (
     <ComposerInlineControl
       accessibilityHint="Plans the work, starts other sessions to do it, and reports back. It does not do the work itself. Fixed once the session starts."
-      accessibilityLabel="Mission mode: plan the work and start other sessions to do it"
+      accessibilityLabel="Coordinator mode: plan the work and start other sessions to do it"
       disabled={props.disabled}
       icon={LEAD_SYMBOL}
-      label="Mission mode"
+      label="Coordinator mode"
       onPress={toggle}
       selected={props.meta.lead}
       showChevron={false}
@@ -870,7 +870,9 @@ function NewTaskDraftContent(props: {
                     />
                   </View>
                   <PlanModeToggle disabled={isComposerInteractionLocked} meta={meta} store={store} />
-                  <LeadToggle disabled={isComposerInteractionLocked} meta={meta} store={store} />
+                  {props.chat ? null : (
+                    <LeadToggle disabled={isComposerInteractionLocked} meta={meta} store={store} />
+                  )}
                 </View>
                 <ComposerActionButton
                   accessibilityLabel={

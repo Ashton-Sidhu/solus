@@ -205,7 +205,7 @@ export const iosInput = {
     taggedJson(IOS_MSG_TOUCH, { type: phase, x, y }),
   scroll: (x: number, y: number, dx: number, dy: number) => taggedJson(IOS_MSG_SCROLL, { x, y, dx, dy }),
   key: (phase: 'down' | 'up', usage: number) => taggedJson(IOS_MSG_KEY, { type: phase, usage }),
-  button: (button: 'home' | 'app_switcher' | 'lock') => taggedJson(IOS_MSG_BUTTON, { button }),
+  button: (button: 'home' | 'app_switcher' | 'lock' | 'back') => taggedJson(IOS_MSG_BUTTON, { button }),
   orientation: (orientation: DeviceOrientation) => taggedJson(IOS_MSG_ORIENTATION, { orientation }),
 }
 

@@ -42,6 +42,20 @@ export class IntegrationAccounts {
     return this.extra.get(accountsKey(serverId, integrationId)) ?? []
   }
 
+  /** Every account after the first, on every host, that matches `test`. */
+  count(test: (connection: IntegrationConnection) => boolean): number {
+    let count = 0
+    for (const connections of this.extra.values()) count += connections.filter(test).length
+    return count
+  }
+
+  /** Forgets the accounts of a host that was removed. */
+  forget(serverId: string): void {
+    for (const key of [...this.extra.keys()]) {
+      if (key.startsWith(`${serverId}\u0000`)) this.extra.delete(key)
+    }
+  }
+
   addState(serverId: string, integrationId: string): AddingAccount | null {
     return this.adding.get(accountsKey(serverId, integrationId)) ?? null
   }
@@ -53,9 +67,7 @@ export class IntegrationAccounts {
       if (isFirstIntegrationAccount(connection)) continue
       byIntegration.set(connection.integrationId, [...(byIntegration.get(connection.integrationId) ?? []), connection])
     }
-    for (const key of [...this.extra.keys()]) {
-      if (key.startsWith(`${serverId}\u0000`)) this.extra.delete(key)
-    }
+    this.forget(serverId)
     for (const [integrationId, connections] of byIntegration) this.extra.set(accountsKey(serverId, integrationId), connections)
   }
 

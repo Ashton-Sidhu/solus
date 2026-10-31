@@ -85,6 +85,25 @@ rejoins. The decision card disappears only after the host confirms a queued retr
 Attention applies to Connect, RateLimit, Permission, and blocking Question
 cards.
 
+### Connect card
+
+When agents ask for external accounts or integration sign-ins
+(`connection.connectNeeded`, `integration.connectNeeded`), the conversation
+shows one group card for all of them (`ConnectCard`). The store
+(`connectRequestStore`) keeps every open request for each conversation. A
+repeated request for the same service replaces its row and does not add one.
+The card uses the same surface as the agent conversation card: the transcript
+card fill and radius, with the attention lift. It has an eyebrow with the count
+("3 sign-ins needed", "1 of 3 connected") and one row for each service
+(`ConnectRequestRow`). Each row shows a 24px round mark, the name, and a line
+that tells why the service is needed. When the service is connected, a green
+check badge shows on the corner of the mark and the line says "Connected". The action is on the right. When a
+sign-in needs more steps (a running flow, a code, an OAuth client, a key),
+those steps open under the row, indented to the name. The footer has Not now,
+which cancels the waiting sign-ins, and Continue, which sends a prompt that
+names each connected account. When all rows are connected, the card becomes
+quiet. On mobile, the connect sheet shows one card for each integration.
+
 ### Sign-in panel
 
 The Claude and Codex sign-in card (`SeatConnectCard`) is the one card that does
@@ -120,14 +139,17 @@ restore, or reload. A later turn after the row, or an older page, does not open 
 
 `AttentionCard` uses the `TranscriptCard` shell. `InterruptCard` (permission,
 question, and secret requests) is its own glass shell: the card background, the
-attention lift, a 16px radius, and no header line, inner rule, or footer rule.
+attention lift, and no header line, inner rule, or footer rule. It uses the
+geometry of the agent conversation card: the 12px card radius, 24px pills
+(32px on touch) with a 6px radius and 12px type, and option rows in the type of
+an agent row (a 12px label and an 11px description).
 One eyebrow line in meta type says who asks ("Claude asks", "Claude asks for
 permission", "Alice's turn asks to run a shell command") with the count and the
-clock at its right. The body's one bold line is the question, or what the agent
-wants to do with a chip naming the worktree. Options are soft rows with a short
-centered rule between them; the selected row takes the accent tint, an inset
-ring, and a check. The own-words field is a bar with the Send or Next action
-inside it, and "Let Claude decide" is a text link under it. A permission ends in
+clock at its right. The body's lead line is the question, or what the agent wants
+to do with a chip naming the worktree. No text on the card is bold. Options are
+soft rows with a hairline between them, inset to the text column as in Settings; the selected row takes the accent tint, an inset
+ring, and a check. The own-words field is a bar at full size (14px text, a 28px
+Send or Next action inside it, 36px on touch), and "Let Claude decide" is a text link under it. A permission ends in
 one row: Deny as text, broader grants as quiet pills, the narrowest grant as the
 filled pill, and the scope of the pill under the pointer or focus written at the
 left of the row (`permissionScope`). The command is the only boxed thing, a

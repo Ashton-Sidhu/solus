@@ -233,7 +233,8 @@
      and never fire, so the row overflows in a narrow pane instead of shedding
      labels. -->
 <div
-  class="@container/composer flex flex-col rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3 transition-[box-shadow] duration-[180ms] {focused
+  data-session-drop-area
+  class="@container/composer flex flex-col rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3 transition-[box-shadow] duration-[180ms] has-[[data-session-drop-target]]:outline-1 has-[[data-session-drop-target]]:outline-dashed has-[[data-session-drop-target]]:outline-primary/50 {focused
     ? 'shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]'
     : 'shadow-[shadow:0_0_0_0.03125rem_var(--solus-container-border)]'}"
   style:display={collapsed ? "none" : null}

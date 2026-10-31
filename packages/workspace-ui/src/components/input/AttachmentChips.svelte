@@ -1,12 +1,9 @@
 <script lang="ts">
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { scale, fly } from 'svelte/transition'
   import { flip } from 'svelte/animate'
   import {
     X as XIcon,
-    FileText as FileTextIcon,
-    Image as ImageIcon,
-    FileCode as FileCodeIcon,
-    File as FileIcon,
     RotateCw as RotateCwIcon,
     LoaderCircle as LoaderCircleIcon,
   } from "@lucide/svelte";
@@ -23,7 +20,6 @@
   import { attachmentUploads } from './lib/attachment-uploads.svelte'
   import { uploadProgressPercent } from './lib/attachment-upload'
   import type { Attachment } from '@solus/contracts/types'
-  import type { Component } from 'svelte'
 
   interface Props {
     attachments: Attachment[]
@@ -55,18 +51,6 @@
   useScope('attachment-preview', { exclusive: true, active: () => !!previewSrc || !!previewVideo });
   useKeybinding('attachment.close-preview', closePreview, { enabled: () => !!previewSrc || !!previewVideo });
 
-  const FILE_ICON_COMPONENTS = {
-    'image/png': ImageIcon,
-    'image/jpeg': ImageIcon,
-    'image/gif': ImageIcon,
-    'image/webp': ImageIcon,
-    'image/svg+xml': ImageIcon,
-    'text/plain': FileTextIcon,
-    'text/markdown': FileTextIcon,
-    'application/json': FileCodeIcon,
-    'text/yaml': FileCodeIcon,
-    'text/toml': FileCodeIcon,
-  } satisfies Record<string, Component>
 
 </script>
 
@@ -161,10 +145,8 @@
                 </span>
               {/if}
             {:else}
-              {@const IconComponent =
-                upload?.status === 'failed' ? RotateCwIcon : FILE_ICON_COMPONENTS[a.mimeType || ''] || FileIcon}
               <span class="flex-shrink-0 {upload?.status === 'failed' ? 'text-(--destructive)' : 'text-(--solus-text-tertiary)'}">
-                <IconComponent size={14} />
+                {#if upload?.status === 'failed'}<RotateCwIcon size={14} />{:else}<FileIcon path={a.name} size={14} />{/if}
               </span>
               <span class="min-w-0 flex-1 truncate font-normal">
                 {label}
@@ -204,7 +186,7 @@
       aria-modal="true"
       aria-label={previewVideo.label}
       tabindex="-1"
-      class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
+      class="fixed inset-0 z-[9999] flex items-center justify-center modal-backdrop p-4"
       transition:fly={{ duration: 150 }}
     >
       <!-- Focus moves into the dialog, so Tab reaches the player's controls. -->

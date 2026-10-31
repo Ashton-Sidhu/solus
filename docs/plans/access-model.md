@@ -246,6 +246,26 @@ Not changed here: a Solus API list of works or sessions also returns what a
 task the caller can open links to (`workspaceResourceVisibility`), and a get
 does not. That expansion is outside `roleOf` and stays until it is decided.
 
+### 2.3.3 A session passes its role down to its works (decided 2026-10-30)
+
+A work belongs to the session it was made in (`works.session_id`) and to each
+session linked to it later (`meta.sessionIds`), in the work's organization.
+Who may open one of those sessions holds the same role on the work
+(`roleThroughSession`); a custom role passes down only `viewer`, because its
+leaves are session actions. The work's role is the higher of its own and the
+passed-down one. Without this, a person who opens a shared session sees
+artifact cards in the transcript that never load.
+
+- `ShareManager.standingFor` and `accessOf` raise a work's role
+  (`withSessionRoles`); `filterVisible` and `workspaceResourceVisibility` list
+  it (`visibleThroughSession`, `data/works/session-access.ts`). A get and a
+  list agree.
+- Linking a work to a session (`linkWorkSession`) needs `work.edit`, so only
+  someone who may already edit the work opens it to the session's readers.
+- Not changed: the work's share list and its link still read only the work's
+  own entries. A session reader can open the work but does not see or change
+  who it is shared with.
+
 ### 2.4 One gate for RPC and the Solus API
 
 `assertRpcAccess` keeps its order (permission, then resource) and gets the
@@ -415,7 +435,7 @@ shown. The composer says "Shared with you to view".
 On the wire the names are the names of §1. A Solus API record (task, work,
 session, session admission) and a share list carry `ownerKey`, the owner's
 person key. A share list has `entries`, each an `AclEntry`, and `shareSet`
-takes `entries`. `share.changed` names no owner: a client reads the list again.
+takes `entries`. `share.changed` names no owner: a client reads the session again.
 A share list and a share write need the resource's row. A session that is being
 started has a role for its starter, but it has no owner until it is claimed, so
 its list and its writes answer `NOT_FOUND`. They never name the host's user as

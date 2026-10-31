@@ -1,3 +1,4 @@
+import { modelProfileForAgent } from '@solus/contracts/provider-instance-models'
 import {
   defaultContextWindowFor,
   isLegacyModel,
@@ -99,15 +100,15 @@ export function canRouteAuto(run: { readonly started: boolean; readonly agentSes
  * this, as the desktop does for a session it has no tab snapshot of
  * (`restoredModelConfig`); a live run's own value replaces it.
  */
-export function rememberedFastMode(provider: AgentId, modelId: string | null, defaults: RunDefaults | null): boolean {
-  if (!modelId || !supportsFastMode(provider, modelId)) return false
+export function rememberedFastMode(provider: AgentId, modelId: string | null, defaults: RunDefaults | null, metadata?: Pick<AgentMetadata, 'modelProfiles'>): boolean {
+  if (!modelId || !supportsFastMode(provider, modelId, metadata)) return false
   return defaults?.modelOptionsByProvider[provider]?.[modelId]?.fastMode === true
 }
 
 /** Fast mode is a Codex model option, as on desktop; Auto has no model to speed up. */
-export function supportsFastMode(provider: AgentId, modelId: string | null): boolean {
+export function supportsFastMode(provider: AgentId, modelId: string | null, metadata?: Pick<AgentMetadata, 'modelProfiles'>): boolean {
   if (provider !== 'codex' || !modelId || modelId === AUTO_MODEL_ID) return false
-  return MODEL_PROFILES[provider]?.[modelId]?.supportsFastMode === true
+  return modelProfileForAgent(provider, modelId, metadata)?.supportsFastMode === true
 }
 
 /** Models a picker offers: current ones, plus the session's own model if it is legacy. */
@@ -117,8 +118,8 @@ export function modelChoices(provider: AgentId, currentModel: string | null): Ar
     .map(([id, profile]) => ({ id, label: profile.label }))
 }
 
-export function effortChoices(provider: AgentId, modelId: string | null): ReasoningEffort[] {
-  return (modelId ? MODEL_PROFILES[provider]?.[modelId]?.reasoningLevels : undefined) ?? ['low', 'medium', 'high']
+export function effortChoices(provider: AgentId, modelId: string | null, metadata?: Pick<AgentMetadata, 'modelProfiles'>): ReasoningEffort[] {
+  return modelProfileForAgent(provider, modelId, metadata)?.reasoningLevels ?? ['low', 'medium', 'high']
 }
 
 export function effortLabel(effort: ReasoningEffort): string {
@@ -148,17 +149,17 @@ export function modelOptionsSummary(run: {
 }
 
 /** A model with the person's saved options for it, clamped to what it offers. */
-export function selectModel(provider: AgentId, modelId: string, defaults: RunDefaults | null): ModelSelection {
+export function selectModel(provider: AgentId, modelId: string, defaults: RunDefaults | null, metadata?: Pick<AgentMetadata, 'modelProfiles'>): ModelSelection {
   // Auto is routed by the host on the first prompt, with fixed options.
   if (modelId === AUTO_MODEL_ID) return { preferredModel: modelId, reasoningEffort: 'medium', contextWindow: null, fastMode: false }
-  const profile = MODEL_PROFILES[provider]?.[modelId]
+  const profile = modelProfileForAgent(provider, modelId, metadata)
   const saved = defaults?.modelOptionsByProvider[provider]?.[modelId]
   const levels = profile?.reasoningLevels ?? []
   const effort = saved && levels.includes(saved.reasoningEffort) ? saved.reasoningEffort : profile?.defaultReasoningEffort ?? 'high'
   const window = saved?.contextWindow && profile?.contextWindows.includes(saved.contextWindow)
     ? saved.contextWindow
-    : defaultContextWindowFor(provider, modelId)
-  return { preferredModel: modelId, reasoningEffort: effort, contextWindow: window, fastMode: rememberedFastMode(provider, modelId, defaults) }
+    : profile?.defaultContextWindow ?? defaultContextWindowFor(provider, modelId)
+  return { preferredModel: modelId, reasoningEffort: effort, contextWindow: window, fastMode: rememberedFastMode(provider, modelId, defaults, metadata) }
 }
 
 /** An agent and a model with that model's options. */
@@ -172,13 +173,13 @@ export function leadModelRun(selection: LeadModelSelection, defaults: RunDefault
 }
 
 /** A new session's model: the person's default for the provider, else the profile's. */
-export function newSessionModel(provider: AgentId, defaults: RunDefaults | null): ModelSelection {
+export function newSessionModel(provider: AgentId, defaults: RunDefaults | null, metadata?: Pick<AgentMetadata, 'modelProfiles'>, allowAuto = true): ModelSelection {
   const chosen = defaults?.defaultModels[provider]
-  const profiles = MODEL_PROFILES[provider] ?? {}
-  if (chosen === AUTO_MODEL_ID) return selectModel(provider, AUTO_MODEL_ID, defaults)
-  if (chosen && profiles[chosen]) return selectModel(provider, chosen, defaults)
+  const profiles = metadata?.modelProfiles ?? MODEL_PROFILES[provider] ?? {}
+  if (chosen === AUTO_MODEL_ID && allowAuto) return selectModel(provider, AUTO_MODEL_ID, defaults, metadata)
+  if (chosen && profiles[chosen]) return selectModel(provider, chosen, defaults, metadata)
   const fallback = Object.keys(profiles).find((id) => profiles[id]?.isDefault)
-  return fallback ? selectModel(provider, fallback, defaults) : { preferredModel: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
+  return fallback ? selectModel(provider, fallback, defaults, metadata) : { preferredModel: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
 }
 
 /** A saved session's model as it ran: Claude reports its long-context variant

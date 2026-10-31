@@ -34,6 +34,7 @@ export const solusApiOperations = {
   admitSessionTurn: { method: 'post', path: '/sessions/:sessionId/turns', scope: 'sessions:admit', query: empty, body: empty, status: 204 },
   /** Settle a session for every person, or archive and snooze it in the caller's own list. */
   updateSession: { method: 'patch', path: '/sessions/:sessionId', scope: 'sessions:write', query: empty, body: schemas.workspaceUpdateSessionSchema, response: schemas.workspaceSessionChangedSchema, status: 200 },
+  listSessionLinks: { method: 'get', path: '/sessions/:sessionId/links', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionLinkListSchema, status: 200 },
   listSessionPullRequests: { method: 'get', path: '/sessions/:sessionId/pull-requests', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionPullRequestListSchema, status: 200 },
   /**
    * Link a task or a session to another record. The same link again changes nothing.

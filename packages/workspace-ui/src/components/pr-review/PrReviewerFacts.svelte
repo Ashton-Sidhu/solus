@@ -8,17 +8,17 @@
   } from "@lucide/svelte";
   import type { PrReviewer, PrReviewerCandidate } from "@solus/contracts/providers";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import { AvatarBadge } from "../ui/avatar-badge";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Skeleton } from "../ui/skeleton";
+  import * as TooltipUI from "../ui/tooltip";
   import ReviewerRequestMenu from "./ReviewerRequestMenu.svelte";
   import ReviewerVerdictIcon from "./ReviewerVerdictIcon.svelte";
-  import { reviewerRowAction, reviewerStateLabel } from "./lib/reviewer-state";
+  import { reviewerRingColor, reviewerRowAction, reviewerStateColor, reviewerStateLabel } from "./lib/reviewer-state";
 
   /**
    * The reviewers as one row of the facts list, for the pane too narrow to
-   * keep the rail's column. Avatars at the meta rung — 16px, overlapped into
-   * one short stack as T3 Code draws them — with a verdict badge, and the
+   * keep the rail's column. Avatars overlapped into one short stack as T3
+   * Code draws them, each in a ring of its verdict's colour, and the
    * same two moves the rail's rows offer: the add-person glyph asks someone new, and
    * each avatar opens a menu with the one thing you can do to that person —
    * take a pending request back, or ask someone who has answered to look
@@ -73,16 +73,20 @@
   }
 </script>
 
-<!-- The verdict as an icon on the avatar's corner, as the rail shows it
-     beside the name. A pending request carries no badge: the bare avatar
-     already reads as "not answered yet". -->
+<!-- The verdict as a ring around the avatar. Each reviewer has the same 20px
+     slot: a 2px ring, a 1.5px gap in the page colour, then a 13px face. The
+     gap keeps the ring apart from an avatar of the same colour, and the 1px
+     page-coloured edge outside keeps two overlapping rings apart. A pending
+     request has a faint neutral ring, so no avatar is a different size. -->
 {#snippet verdictAvatar(reviewer: PrReviewer)}
-  {#snippet verdict()}
-    <ReviewerVerdictIcon state={reviewer.state} size={10} />
-  {/snippet}
-  <AvatarBadge badge={reviewer.state !== null ? verdict : undefined}>
-    <PrAvatar name={reviewer.login} url={reviewer.avatarUrl ?? ""} size="size-4 text-[9px]" />
-  </AvatarBadge>
+  <span
+    class="grid size-5 shrink-0 place-items-center rounded-full bg-background shadow-[inset_0_0_0_2px_var(--ring-color),0_0_0_1px_var(--background)]"
+    style:--ring-color={reviewerRingColor(reviewer.state)}
+  >
+    <span class="grid {reviewer.state === null ? 'opacity-60' : ''}">
+      <PrAvatar name={reviewer.login} url={reviewer.avatarUrl ?? ""} size="size-[13px] text-[7px]" />
+    </span>
+  </span>
 {/snippet}
 
 <dt class="flex items-center gap-2">
@@ -91,7 +95,7 @@
 </dt>
 <dd class="flex min-h-6 min-w-0 flex-wrap items-center gap-1">
   {#if loading}
-    <Skeleton class="size-4 rounded-full bg-muted" />
+    <Skeleton class="size-5 rounded-full bg-muted" />
   {:else if loadFailed}
     <span>Couldn’t load reviewers.</span>
     {#if onRetry}
@@ -104,7 +108,12 @@
       </button>
     {/if}
   {:else}
-    <span class="flex items-center -space-x-1">
+    <!-- One tooltip over the whole stack names every reviewer and their
+         verdict, so the overlapped faces never need reading one by one. -->
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+    <span {...tooltipProps} class="flex items-center -space-x-[5px]">
     {#each reviewers as reviewer (reviewer.login)}
       {@const action = reviewerAction(reviewer)}
       {@const busy = mutation === reviewer.login}
@@ -116,8 +125,7 @@
               <button
                 {...props}
                 type="button"
-                class="relative grid size-4 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] hover:z-10 hover:outline-2 hover:-outline-offset-0 hover:outline-[var(--hairline-strong)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-                title={`${reviewer.login} · ${verdict}`}
+                class="relative grid size-5 shrink-0 cursor-pointer place-items-center rounded-full focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
                 aria-label={`${reviewer.login}, ${verdict}`}
               >
                 {#if busy}
@@ -151,8 +159,7 @@
         </DropdownMenu.Root>
       {:else}
         <span
-          class="relative grid size-4 shrink-0 place-items-center rounded-full"
-          title={`${reviewer.login} · ${verdict}`}
+          class="relative grid size-5 shrink-0 place-items-center rounded-full"
           role="img"
           aria-label={`${reviewer.login}, ${verdict}`}
         >
@@ -161,6 +168,23 @@
       {/if}
     {/each}
     </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      {#if reviewers.length > 0}
+        <TooltipUI.Content side="bottom" class="flex-col items-stretch gap-1 px-2 py-1.5">
+          {#each reviewers as reviewer (reviewer.login)}
+            <span class="flex items-center gap-2">
+              <PrAvatar name={reviewer.login} url={reviewer.avatarUrl ?? ""} size="size-4 text-[8px]" />
+              <span class="min-w-0 truncate">{reviewer.login}</span>
+              <span class="ml-auto inline-flex shrink-0 items-center gap-1 pl-3 font-normal" style:color={reviewerStateColor(reviewer.state)}>
+                <ReviewerVerdictIcon state={reviewer.state} size={12} />
+                {reviewerStateLabel(reviewer.state)}
+              </span>
+            </span>
+          {/each}
+        </TooltipUI.Content>
+      {/if}
+    </TooltipUI.Root>
     {#if onRequest}
       <button
         bind:this={addTrigger}

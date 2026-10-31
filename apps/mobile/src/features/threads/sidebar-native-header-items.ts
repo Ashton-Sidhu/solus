@@ -42,8 +42,20 @@ export function createSidebarHeaderItems(input: {
   readonly filterIcon: string;
   readonly filterMenu: HomeListFilterMenu;
   readonly onOpenSettings: () => void;
+  readonly onAddProject?: () => void;
 }): NativeStackHeaderItem[] {
   return [
+    ...(input.onAddProject
+      ? [
+          withNativeGlassHeaderItem({
+            type: "button" as const,
+            label: "",
+            accessibilityLabel: "Add project",
+            icon: sfSymbolIcon("folder.badge.plus"),
+            onPress: input.onAddProject,
+          }),
+        ]
+      : []),
     withNativeGlassHeaderItem({
       type: "menu",
       label: "",

@@ -11,18 +11,14 @@
 </script>
 
 <div
-  class="flex h-full overflow-hidden [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
+  class="flex h-full w-full min-w-0 overflow-hidden [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)]"
   role="status"
   aria-label="Loading settings"
 >
   <div
-    class="relative hidden w-[clamp(18.75rem,24cqi,22.5rem)] shrink-0 flex-col bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))] border-r border-r-sidebar-border md:flex"
+    class="relative flex w-60 shrink-0 flex-col border-r border-r-sidebar-border bg-[color-mix(in_oklch,var(--card)_99%,var(--foreground))] @max-[48rem]/pane:hidden"
   >
-    <div
-      class="workspace-titlebar absolute inset-x-0 top-0 h-(--solus-titlebar-height)"
-      aria-hidden="true"
-    ></div>
-    <div class="px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
+    <div class="px-4 pt-5 pb-3">
       <Skeleton class="h-8 w-full rounded opacity-70" />
     </div>
     <div
@@ -48,7 +44,7 @@
 
   <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
     <header
-      class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-b-border px-[clamp(2rem,3cqi,3rem)]"
+      class="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-5"
     >
       <div class="flex items-center gap-2.5">
         <Skeleton class="h-2.5 w-16 rounded-[0.1875rem] opacity-70" />

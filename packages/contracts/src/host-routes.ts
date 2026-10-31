@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { MachineKind } from './uplink'
 
 /**
  * The ways to reach a host (docs/plans/host-routes.md D1). This file is the one
@@ -30,6 +31,12 @@ export const hostRouteSchema = z.object({
   seenAt: z.number().optional(),
 })
 export type HostRoute = z.infer<typeof hostRouteSchema>
+
+/** Managed machines live in a cloud network. Its addresses are not client LAN routes,
+ * even when an older host advertised them and a client saved them. */
+export function routesForMachine(routes: readonly HostRoute[], kind?: MachineKind): HostRoute[] {
+  return routes.filter((route) => kind !== 'managed' || route.kind === 'tunnel')
+}
 
 /** A route the host advertised, or discovery found, is forgotten when no read names it for this long. */
 export const LEARNED_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000

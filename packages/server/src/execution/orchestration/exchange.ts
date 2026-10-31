@@ -13,7 +13,7 @@ export type ExchangeState = 'dispatched' | 'queued' | 'running' | 'awaiting_inpu
 
 export interface Exchange {
   exchangeId: string
-  kind: 'create' | 'prompt'
+  kind: 'create' | 'independent' | 'prompt'
   /** The session that sent the message; its cards hear every change, and its report is delivered to it. */
   senderSessionId: string
   /** The target session, known from dispatch: a created session's id is chosen before its provider starts. */

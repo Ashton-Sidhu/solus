@@ -24,7 +24,7 @@
     "android": {
       "package": "sh.solus.mobile",
       "permissions": [
-        "CAMERA"
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "plugins": [
@@ -130,6 +130,29 @@
           "widgets": []
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ExpoWidgetsTarget",
+                  "bundleIdentifier": "sh.solus.mobile.widgets",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.sh.solus.mobile"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "04713de8-1dcf-4aeb-8abd-49d7acc242de"
+      }
+    },
+    "owner": "ashtonsidhus-team"
   }
 }

@@ -1,3 +1,5 @@
+import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
+import { modelProfileForAgent } from '@solus/contracts/provider-instance-models'
 import { MODEL_PROFILES, isLegacyModel } from "@solus/contracts/types";
 import type { AgentId, AgentMetadata, ReasoningEffort } from "@solus/contracts/types";
 
@@ -77,7 +79,7 @@ export function modelOptionsFor(
   metadataByAgent: Record<string, AgentMetadata | null>,
 ): Array<{ id: string; label: string }> {
   const metaModels = metadataByAgent[provider]?.models ?? [];
-  if (metaModels.length > 0) return metaModels;
+  if (metaModels.length > 0 || metadataByAgent[provider]?.modelProfiles) return metaModels;
   const profiles = MODEL_PROFILES[provider];
   return profiles
     ? Object.entries(profiles).map(([id, profile]) => ({ id, label: profile.label }))
@@ -110,32 +112,38 @@ export function splitLegacyModels(
   return { current, legacy };
 }
 
+/** Personal defaults take precedence over the catalog default. */
 export function defaultModelIdFor(
   provider: AgentId,
   metadataByAgent: Record<string, AgentMetadata | null>,
+  savedModel?: string,
+  allowAuto = true,
 ): string | null {
-  const metaDefault = metadataByAgent[provider]?.defaultModel;
-  if (metaDefault) return metaDefault;
-  const profiles = MODEL_PROFILES[provider];
-  if (!profiles) return null;
-  const defaultEntry = Object.entries(profiles).find(([, profile]) => profile.isDefault);
-  return defaultEntry?.[0] ?? Object.keys(profiles)[0] ?? null;
+  const metadata = metadataByAgent[provider];
+  const profiles = metadata?.modelProfiles ?? MODEL_PROFILES[provider] ?? {};
+  const chosen = savedModel;
+  if (chosen !== undefined && chosen !== null && (allowAuto || chosen !== "auto")) {
+    const configured = providerDefaultModel(provider, chosen, profiles);
+    if (configured) return configured;
+  }
+  return providerDefaultModel(provider, undefined, profiles) ?? metadata?.defaultModel ?? Object.keys(profiles)[0] ?? null;
 }
 
-export function reasoningLevelsFor(provider: AgentId, modelId: string | null): ReasoningEffort[] {
-  return MODEL_PROFILES[provider]?.[modelId ?? ""]?.reasoningLevels ?? ["low", "medium", "high"];
+export function reasoningLevelsFor(provider: AgentId, modelId: string | null, metadata?: AgentMetadata | null): ReasoningEffort[] {
+  return modelProfileForAgent(provider, modelId, metadata)?.reasoningLevels ?? ["low", "medium", "high"];
 }
 
 /** The effort a model lands on when it is picked — the menu previews this on hover. */
 export function defaultReasoningFor(
   provider: AgentId,
   modelId: string | null,
+  metadata?: AgentMetadata | null,
 ): ReasoningEffort | null {
-  return MODEL_PROFILES[provider]?.[modelId ?? ""]?.defaultReasoningEffort ?? null;
+  return modelProfileForAgent(provider, modelId, metadata)?.defaultReasoningEffort ?? null;
 }
 
-export function supportsFastModeFor(provider: AgentId, modelId: string | null): boolean {
-  return MODEL_PROFILES[provider]?.[modelId ?? ""]?.supportsFastMode ?? false;
+export function supportsFastModeFor(provider: AgentId, modelId: string | null, metadata?: AgentMetadata | null): boolean {
+  return modelProfileForAgent(provider, modelId, metadata)?.supportsFastMode ?? false;
 }
 
 /** Keep the chosen effort when the model supports it; otherwise fall back to the model's default. */

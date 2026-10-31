@@ -71,7 +71,7 @@
 
 {#if store.isOpen && (store.host || store.pairingTarget)}
   <div
-    class="picker-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 text-workspace-chrome"
+    class="modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 text-workspace-chrome"
     role="presentation"
     onkeydown={(event) => {
       if (event.key === "Escape") close();

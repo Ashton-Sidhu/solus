@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FileText } from "@lucide/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { reviewCommentLocation, type ReviewInlineComment } from "@solus/contracts/review-comment";
   import { requestFilePreview } from "../../lib/filePreview";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -15,7 +15,7 @@
     class="flex w-full items-center gap-2 overflow-hidden border-b border-border px-3 py-2 text-left hover:bg-muted"
   >
     <span class="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-muted text-muted-foreground">
-      <FileText size={13} />
+      <FileIcon path={comment.filePath} size={13} />
     </span>
     <span class="min-w-0 flex-1">
       <span class="block truncate font-mono text-xs text-foreground">{comment.filePath}</span>

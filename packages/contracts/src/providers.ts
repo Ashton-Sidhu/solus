@@ -176,6 +176,8 @@ export interface PullRequest {
   deletions: number
   body: string
   baseRef: string
+  /** The base repository’s default branch; absent when the host did not report it. */
+  defaultBranch?: string | null
   headRef: string
   /** Host-computed size; null while the host is still computing it. */
   changedFiles: number | null
@@ -383,6 +385,10 @@ export interface PrViewerPermissions {
   resolveThreads: boolean
   requestReviewers: boolean
   manageLabels: boolean
+  /** May change the title and description: on GitHub, the author or someone
+   *  with write access. An older host leaves it out; a client then offers the
+   *  edit and the host refuses it if the viewer may not. */
+  editPullRequest?: boolean
 }
 
 /** One repository label, in the form the host uses for PR metadata. */

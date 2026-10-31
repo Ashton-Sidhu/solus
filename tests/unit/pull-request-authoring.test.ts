@@ -1,10 +1,23 @@
-import { describe, expect, test } from 'bun:test'
-import {
+import { describe, expect, mock, test } from 'bun:test'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
+import type { PullRequestAuthoringContext } from '@solus/server/git/pull-request-authoring'
+
+// The host's git probe asks `xcode-select`, which a sandbox can refuse. These
+// tests make their own repositories with the git on PATH.
+const gitAvailability = await import('@solus/server/git/git-availability')
+mock.module('@solus/server/git/git-availability', () => ({ ...gitAvailability, isGitUsable: () => true }))
+const {
   buildPullRequestAuthoringPrompt,
   fallbackPullRequestDraft,
   readHouseBodyRules,
-  type PullRequestAuthoringContext,
-} from '@solus/server/git/pull-request-authoring'
+  readPullRequestAuthoringContext,
+} = await import('@solus/server/git/pull-request-authoring')
+
+actAsHostForTests()
 
 function context(overrides: Partial<PullRequestAuthoringContext> = {}): PullRequestAuthoringContext {
   return {
@@ -71,5 +84,54 @@ describe('pull request authoring', () => {
     expect(draft.body).toContain('## What changed')
     expect(draft.body).toContain('## Verification')
     expect(draft.body).not.toContain('<!--')
+  })
+
+  // GitHub accepts a template in any letter case and as text, so the draft
+  // must follow every template GitHub itself would show.
+  describe('repository template', () => {
+    function repoWith(files: Record<string, string>): string {
+      const cwd = mkdtempSync(join(tmpdir(), 'pr-template-'))
+      const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' })
+      git('init', '-q', '-b', 'main')
+      for (const [path, content] of Object.entries(files)) {
+        mkdirSync(join(cwd, dirname(path)), { recursive: true })
+        writeFileSync(join(cwd, path), content)
+      }
+      git('add', '-A')
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base')
+      git('checkout', '-qb', 'feature')
+      return cwd
+    }
+
+    async function templateIn(files: Record<string, string>): Promise<string | null> {
+      const cwd = repoWith({ 'README.md': 'project', ...files })
+      try {
+        return (await readPullRequestAuthoringContext(cwd, 'main', 'feature')).template
+      } finally {
+        rmSync(cwd, { recursive: true, force: true })
+      }
+    }
+
+    test.each([
+      '.github/pull_request_template.txt',
+      '.github/Pull_Request_Template.md',
+      'docs/PULL_REQUEST_TEMPLATE.TXT',
+      'pull_request_template.md',
+    ])('reads %s', async (path) => {
+      expect(await templateIn({ [path]: '## Summary' })).toBe('## Summary')
+    })
+
+    test('keeps the folder priority and prefers Markdown in one folder', async () => {
+      expect(await templateIn({
+        'PULL_REQUEST_TEMPLATE.md': 'root',
+        'docs/pull_request_template.md': 'docs',
+        '.github/PULL_REQUEST_TEMPLATE.txt': 'github text',
+        '.github/pull_request_template.MD': 'github markdown',
+      })).toBe('github markdown')
+    })
+
+    test('ignores other files and a repository with no template', async () => {
+      expect(await templateIn({ 'docs/pull_request_template.md.bak': 'no', 'docs/guide/pull_request_template.md': 'no' })).toBeNull()
+    })
   })
 })

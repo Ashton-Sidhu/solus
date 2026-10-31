@@ -88,9 +88,9 @@ const updateAutomationFields = {
   trigger: triggerSchema.optional(),
 }
 
-const readRunFields = {
+const listRunsFields = {
   automation_id: z.string().describe('The id of the automation.'),
-  run_id: z.string().describe('The id of the run (from list_automation_runs).'),
+  run_id: z.string().optional().describe('Read only this run (from run_automation or list_automation_runs).'),
 }
 
 interface AutomationToolArgs {
@@ -118,10 +118,8 @@ const READ_DESC = 'Read the full definition of one automation by id.'
 const UPDATE_DESC = 'Update fields of an existing automation (any subset). Unspecified fields are left unchanged. Pause or resume with enabled alone. To stop future checks and archive, set archived: true. Cadence and history are kept until the host retention period expires. A check already queued or running can still finish.'
 const DELETE_DESC = 'Permanently delete an automation and its run history.'
 const RUN_DESC =
-  'Trigger an automation to run now. Returns a run_id immediately; the run executes in the background. Poll read_automation_run with the run_id to get the result.'
-const LIST_RUNS_DESC = 'List the run history of an automation (newest first), with status and timing.'
-const READ_RUN_DESC =
-  'Read the full result of a single automation run: status, the agent output, the spawned session id, and any error.'
+  'Trigger an automation to run now. Returns a run_id immediately; the run executes in the background. Use list_automation_runs with automation_id and run_id for status and the session_id, then read_session for agent output.'
+const LIST_RUNS_DESC = 'List automation runs newest first, with status, timing, session_id, and errors, including failures before a session starts. Optionally filter by run_id. Use read_session with session_id for agent output.'
 
 // ─── Helpers ───
 
@@ -170,8 +168,7 @@ function describeRun(r: {
   status: string
   startedAt: string
   finishedAt?: string
-  agentSessionId?: string | null
-  output?: string
+  sessionId?: string | null
   error?: string
 }): string {
   const lines = [
@@ -179,10 +176,9 @@ function describeRun(r: {
     `status: ${r.status}`,
     `started: ${r.startedAt}`,
     ...(r.finishedAt ? [`finished: ${r.finishedAt}`] : []),
-    ...(r.agentSessionId ? [`session_id: ${r.agentSessionId}`] : []),
+    ...(r.sessionId ? [`session_id: ${r.sessionId}`] : []),
   ]
   if (r.error) lines.push(`error: ${r.error}`)
-  if (r.output) lines.push('', 'output:', r.output)
   return lines.join('\n')
 }
 
@@ -395,28 +391,21 @@ export async function executeAutomationTool(
       if (!a.enabled) return { ok: false, text: `Automation "${a.name}" is paused. Enable it before running.` }
       if (hasActiveRun(a.id)) return { ok: false, text: `Automation "${a.name}" already has a run in progress. Wait for it to finish (list_automation_runs shows its status) or cancel it first.` }
       const run = await triggerAutomationRun(a)
-      return { ok: true, text: `Started run ${run.id} for "${a.name}". It runs in the background — read_automation_run with run_id "${run.id}" to get the result.` }
+      return { ok: true, text: `Started run ${run.id} for "${a.name}". It runs in the background — use list_automation_runs with automation_id "${a.id}" and run_id "${run.id}" for status and session_id, then read_session for agent output.` }
     }
 
     if (name === 'list_automation_runs') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'list_automation_runs requires an automation_id.' }
       if (!mayReach(id, 'read')) return { ok: false, text: `No automation found with id "${id}".` }
+      if (args.run_id !== undefined) {
+        const run = await loadRun(id, args.run_id)
+        if (!run) return { ok: false, text: `No run "${args.run_id}" found for automation "${id}".` }
+        return { ok: true, text: describeRun(run) }
+      }
       const runs = await listRuns(id)
       if (runs.length === 0) return { ok: true, text: 'This automation has no runs yet.' }
-      const lines = runs.map(
-        (r) => `- ${r.id} — ${r.status}, started ${r.startedAt}${r.finishedAt ? `, finished ${r.finishedAt}` : ''}`,
-      )
-      return { ok: true, text: `Runs (newest first):\n${lines.join('\n')}` }
-    }
-
-    if (name === 'read_automation_run') {
-      const id = String(args.automation_id ?? '')
-      const runId = String(args.run_id ?? '')
-      if (!id || !runId) return { ok: false, text: 'read_automation_run requires automation_id and run_id.' }
-      const run = mayReach(id, 'read') ? await loadRun(id, runId) : null
-      if (!run) return { ok: false, text: `No run "${runId}" found for automation "${id}".` }
-      return { ok: true, text: describeRun(run) }
+      return { ok: true, text: `Runs (newest first):\n${runs.map(describeRun).join('\n\n')}` }
     }
 
     return { ok: false, text: `Unknown automation tool: ${name}` }
@@ -460,8 +449,7 @@ export const readAutomationAgentTool = automationAgentTool('read_automation', RE
 export const updateAutomationAgentTool = automationAgentTool('update_automation', UPDATE_DESC, updateAutomationFields, true)
 export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, automationIdFields, true)
 export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, automationIdFields, true)
-export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, automationIdFields, false)
-export const readAutomationRunAgentTool = automationAgentTool('read_automation_run', READ_RUN_DESC, readRunFields, false)
+export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, listRunsFields, false)
 
 export const automationAgentTools: AgentTool[] = [
   createAutomationAgentTool,
@@ -471,5 +459,4 @@ export const automationAgentTools: AgentTool[] = [
   deleteAutomationAgentTool,
   runAutomationAgentTool,
   listAutomationRunsAgentTool,
-  readAutomationRunAgentTool,
 ]

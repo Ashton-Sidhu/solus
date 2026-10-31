@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { z } from 'zod'
-import type { SessionState, SessionView } from '@solus/contracts/session-state'
+import { EMPTY_SESSION_VIEW, settleFor, type SessionState, type SessionView } from '@solus/contracts/session-state'
 import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
 import type { ResourceRole } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -37,7 +37,7 @@ export interface ListedSession {
   branch: string | null
   /** The person the session belongs to (docs/plans/access-model.md §2.2). */
   ownerKey: string
-  /** Started in Mission mode: a lead (docs/plans/lead-session.md). */
+  /** Started in Coordinator mode: a lead (docs/plans/lead-session.md). */
   isLead?: boolean
   /** The reader's role on the session; absent on a host that is theirs. */
   role?: ResourceRole
@@ -109,10 +109,11 @@ const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedA
 /**
  * This person's session list (docs/plans/session-archive.md): every root
  * session in the list each home keeps for them, with whether its work is
- * finished, and their own archive and snooze.
+ * finished, and their own settle, archive, and snooze.
  *
- * A change arrives with what it leaves: `session.stateChanged` for the shared
- * settle, `session.viewChanged` for this person's view. It is written here,
+ * A change arrives with what it leaves: `session.stateChanged` for the settle
+ * by a session's pull requests or task, `session.viewChanged` for this
+ * person's view. It is written here,
  * and nothing is read back.
  *
  * Each session has one home. A published organization session's home is its
@@ -126,15 +127,18 @@ const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedA
 export class SessionListStore {
   /** The sessions in this person's list, by stable session id. */
   private listedBySession = new SvelteMap<string, ListedSession>()
-  /** The settled sessions this client knows, by stable session id. */
+  /** The sessions their pull requests or task settled, by stable session id. */
   private statesBySession = new SvelteMap<string, SessionState>()
-  /** This person's view of each session they archived or snoozed. */
+  /** This person's view of each session they settled, archived, or snoozed. */
   private viewsBySession = new SvelteMap<string, SessionView>()
   private watchedServerIds = new Set<string>()
   /** Per home, the latest grant this client told the reader about. */
   private grantsSeenUntil = new Map<string, number>()
   private shareListeners = new Set<(granted: ListedSession[]) => void>()
-  private formerShares = new Map<string, FormerShare>()
+  /** Shared sessions this client knows that are not in the list: archived, or
+   *  opened from a link or a notice. An open tab of one is still in Shared with
+   *  you (docs/plans/shared-with-you.md §2, rule 1). */
+  private formerShares = new SvelteMap<string, FormerShare>()
   private openedShares = new SvelteMap<string, number>(loadOpenedShares())
 
   constructor(
@@ -143,58 +147,96 @@ export class SessionListStore {
     private readonly startedAt = Date.now(),
   ) {}
 
-  /** Read every connected home's list. A home that fails the read keeps what
-   *  it answered last time. */
+  /** Read every connected home's list. */
   async load(): Promise<void> {
     await Promise.all(this.hosts.connectedServerIds().map((serverId) => this.loadHost(serverId)))
   }
 
+  /** Read one home's list. A home that fails the read keeps what it answered last time. */
   private async loadHost(serverId: string): Promise<void> {
     this.watchHost(serverId)
     const api = serverConnections.apiFor(serverId)
     const answer = await api.sessionRecordList().catch(() => null)
     if (!answer || serverConnections.apiFor(serverId) !== api) return
-    const isCloud = isSolusApiId(serverId)
     // A published organization session a machine lists is its Solus API's to list.
-    const records = isCloud ? answer.records : answer.records.filter((record) => this.homeOf(serverId, record) === serverId)
+    const records = isSolusApiId(serverId) ? answer.records : answer.records.filter((record) => this.homeOf(serverId, record) === serverId)
     const answered = new Set(records.map((record) => record.sessionId))
     for (const [sessionId, listed] of this.listedBySession) {
       if (listed.homeServerId !== serverId || answered.has(sessionId)) continue
-      this.rememberFormerShare(listed)
-      this.listedBySession.delete(sessionId)
-      this.statesBySession.delete(sessionId)
-      this.viewsBySession.delete(sessionId)
+      this.removeListed(listed)
     }
-    for (const record of records) {
-      const runner = isCloud && record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
-      // The composer and the cards ask "may I drive it" of the host it opens on (access-model.md §2.7).
-      rememberRoles(runner ?? serverId, [{ kind: 'session', id: record.sessionId, role: record.role }])
-      // Each reconnect reads the list again: an equal row keeps its object, so
-      // its sidebar row does not draw again.
-      const listed: ListedSession = {
-        serverId: runner ?? serverId,
-        homeServerId: serverId,
-        runnerOffline: isCloud && !runner,
-        sessionId: record.sessionId,
-        organizationId: record.organizationId,
-        title: record.customTitle ?? record.title ?? record.slug,
-        projectPath: record.projectRoot ?? record.projectPath,
-        createdAt: record.createdAt,
-        lastActivityAt: record.lastActivityAt,
-        status: record.status,
-        branch: record.branch,
-        ownerKey: record.ownerKey,
-        opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
-        share: sessionShareOf(record),
-      }
-      if (record.isLead) listed.isLead = true
-      if (record.role) listed.role = record.role
-      this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
-      this.writeState(record.sessionId, record.state)
-      this.writeView(record.sessionId, record.view)
-    }
+    for (const record of records) this.writeListed(serverId, record)
     sessionPullRequestsStore.adopt(serverId, records)
     this.announceNewGrants(serverId, records)
+  }
+
+  /** A host connected: read its list, and each Solus API's, whose sessions
+   *  open on the machine that ran them while it is connected. A Solus API
+   *  that connects takes the published sessions every machine listed, so
+   *  every home is read. */
+  async loadConnected(serverId: string): Promise<void> {
+    if (isSolusApiId(serverId)) return this.load()
+    const homes = this.hosts.connectedServerIds().filter((id) => id === serverId || isSolusApiId(id))
+    await Promise.all(homes.map((id) => this.loadHost(id)))
+  }
+
+  /** Read one session again: a share or a return changed its place in the
+   *  list, and nothing else in this home's list. */
+  private async loadSession(serverId: string, sessionId: string): Promise<void> {
+    const api = serverConnections.apiFor(serverId)
+    const record = await api.sessionRecordGet(sessionId).catch(() => undefined)
+    if (record === undefined || serverConnections.apiFor(serverId) !== api) return
+    // The rows the list answers: root sessions in the reader's list that this home keeps.
+    const isListed = !!record && record.listed !== false && !record.parentSessionId
+      && (isSolusApiId(serverId) || this.homeOf(serverId, record) === serverId)
+    if (isListed) {
+      this.writeListed(serverId, record)
+      this.announceNewGrants(serverId, [record])
+    } else {
+      const listed = this.listedBySession.get(sessionId)
+      if (listed?.homeServerId === serverId) this.removeListed(listed)
+      const share = record ? sessionShareOf(record) : undefined
+      if (record && share) this.formerShares.set(sessionId, { title: record.customTitle ?? record.title ?? record.slug, share })
+    }
+    sessionPullRequestsStore.adoptSession(serverId, sessionId, isListed ? record : null)
+  }
+
+  private removeListed(listed: ListedSession): void {
+    this.rememberFormerShare(listed)
+    this.listedBySession.delete(listed.sessionId)
+    this.statesBySession.delete(listed.sessionId)
+    this.viewsBySession.delete(listed.sessionId)
+  }
+
+  private writeListed(serverId: string, record: SessionRecord): void {
+    const isCloud = isSolusApiId(serverId)
+    const runner = isCloud && record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
+    // The composer and the cards ask "may I drive it" of the host it opens on (access-model.md §2.7).
+    rememberRoles(runner ?? serverId, [{ kind: 'session', id: record.sessionId, role: record.role }])
+    // Each reconnect reads the list again: an equal row keeps its object, so
+    // its sidebar row does not draw again.
+    const listed: ListedSession = {
+      serverId: runner ?? serverId,
+      homeServerId: serverId,
+      runnerOffline: isCloud && !runner,
+      sessionId: record.sessionId,
+      organizationId: record.organizationId,
+      title: record.customTitle ?? record.title ?? record.slug,
+      // `record.projectPath` is the provider's encoded folder key, not a path.
+      projectPath: record.projectRoot ?? record.cwd ?? null,
+      createdAt: record.createdAt,
+      lastActivityAt: record.lastActivityAt,
+      status: record.status,
+      branch: record.branch,
+      ownerKey: record.ownerKey,
+      opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
+      share: sessionShareOf(record),
+    }
+    if (record.isLead) listed.isLead = true
+    if (record.role) listed.role = record.role
+    this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
+    this.writeState(record.sessionId, record.state)
+    this.writeView(record.sessionId, record.view)
   }
 
   /** Tell the listeners of each direct share this read shows for the first time. */
@@ -251,7 +293,7 @@ export class SessionListStore {
     })
     // A share gives or takes a place in the reader's list (docs/plans/shared-with-you.md §2).
     events.subscribe('share.changed', ({ resource }) => {
-      if (resource.kind === 'session') void this.loadHost(serverId)
+      if (resource.kind === 'session') void this.loadSession(serverId, resource.id)
     })
   }
 
@@ -268,12 +310,15 @@ export class SessionListStore {
   }
 
   /** This person's view changed. A session that came back to their list and
-   *  is not listed here is read with its home's list. */
+   *  is not listed here is read again. */
   private applyView(serverId: string, sessionId: string, view: SessionView | null): void {
     if (!this.isHomeOf(serverId, sessionId)) return
     this.writeView(sessionId, view)
-    if (view?.archivedAt != null) this.listedBySession.delete(sessionId)
-    else if (!this.listedBySession.has(sessionId)) void this.loadHost(serverId)
+    const listed = this.listedBySession.get(sessionId)
+    if (view?.archivedAt != null) {
+      if (listed) this.rememberFormerShare(listed)
+      this.listedBySession.delete(sessionId)
+    } else if (!this.listedBySession.has(sessionId)) void this.loadSession(serverId, sessionId)
   }
 
   private writeState(sessionId: string, state: SessionState | null | undefined): void {
@@ -282,7 +327,7 @@ export class SessionListStore {
   }
 
   private writeView(sessionId: string, view: SessionView | null | undefined): void {
-    if (view && (view.archivedAt !== null || view.snoozedUntil !== null)) this.viewsBySession.set(sessionId, keepEqual(view, this.viewsBySession.get(sessionId) ?? view))
+    if (view && (view.settledAt != null || view.archivedAt !== null || view.snoozedUntil !== null)) this.viewsBySession.set(sessionId, keepEqual(view, this.viewsBySession.get(sessionId) ?? view))
     else this.viewsBySession.delete(sessionId)
   }
 
@@ -302,8 +347,12 @@ export class SessionListStore {
     return this.openedShares.get(sessionId)
   }
 
-  /** The person opened a session: a shared one stops showing as new. */
-  markOpened(sessionId: string): void {
+  /** The person opened a session: a shared one stops showing as new. One
+   *  that is not in the list is read from its home, so its tab's row knows
+   *  whose it is. */
+  markOpened(target: SessionListTarget): void {
+    const { sessionId } = target
+    if (!this.listedBySession.has(sessionId) && !this.formerShares.has(sessionId)) void this.loadSession(this.homeFor(target), sessionId)
     const grantedAt = this.listedBySession.get(sessionId)?.share?.grantedAt
     if (grantedAt == null || this.openedShares.get(sessionId) === grantedAt) return
     this.openedShares.delete(sessionId)
@@ -325,11 +374,16 @@ export class SessionListStore {
     return [...this.viewsBySession.values()]
   }
 
+  /** A shared session leaves the sidebar only when this person completes it. */
+  isCompletedShare(sessionId: string): boolean {
+    return !!this.listedBySession.get(sessionId)?.share && this.viewsBySession.get(sessionId)?.settledAt != null
+  }
+
   /** Where one session is in this person's list. Null for an active session. */
   stateFor(sessionId: string): SessionListState | null {
     const state = this.statesBySession.get(sessionId)
     const view = this.viewsBySession.get(sessionId)
-    return state || view ? { ...NO_STATE, ...state, ...view } : null
+    return state || view ? { ...NO_STATE, ...state, ...view, ...settleFor(state, view) } : null
   }
 
   /** The home that keeps one session's list state. */
@@ -338,18 +392,24 @@ export class SessionListStore {
       ?? sessionHomeId(target.serverId, target, this.hosts)
   }
 
-  /** Settle a session for everyone, or make a settled one active again. The list
-   *  changes at once; a refusal from the home puts the previous state back. */
+  /** Settle a session in this person's list, or make a settled one active
+   *  again. The list changes at once; a refusal from the home puts the
+   *  previous state back. */
   async setSettled(target: SessionListTarget, isSettled: boolean): Promise<void> {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
-    const previous = this.statesBySession.get(target.sessionId)
-    this.writeState(target.sessionId, isSettled ? { settledAt: Date.now(), settledBy: 'person' } : null)
+    const previousState = this.statesBySession.get(target.sessionId)
+    const previousView = this.viewsBySession.get(target.sessionId)
+    this.writeView(target.sessionId, { ...(previousView ?? EMPTY_SESSION_VIEW), settledAt: isSettled ? Date.now() : null })
+    if (!isSettled) this.writeState(target.sessionId, null)
     try {
-      const { state } = await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { settled: isSettled })
-      if (state) this.applyState(serverId, target.sessionId, state)
+      const { state, view } = await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { settled: isSettled })
+      // Only an editor's unsettle ends the shared settle; the answer says when it did.
+      this.writeState(target.sessionId, state ?? this.statesBySession.get(target.sessionId) ?? previousState)
+      if (view) this.applyView(serverId, target.sessionId, view)
     } catch (error) {
-      this.writeState(target.sessionId, previous)
+      this.writeState(target.sessionId, previousState)
+      this.writeView(target.sessionId, previousView)
       throw error
     }
   }
@@ -368,11 +428,14 @@ export class SessionListStore {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
     const listed = isArchived ? this.listedBySession.get(target.sessionId) : undefined
-    if (listed) this.listedBySession.delete(target.sessionId)
+    if (listed) {
+      this.rememberFormerShare(listed)
+      this.listedBySession.delete(target.sessionId)
+    }
     try {
       const { view } = await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { archived: isArchived })
       this.writeView(target.sessionId, view)
-      if (!isArchived && !this.listedBySession.has(target.sessionId)) void this.loadHost(serverId)
+      if (!isArchived && !this.listedBySession.has(target.sessionId)) void this.loadSession(serverId, target.sessionId)
     } catch (error) {
       if (listed && !this.listedBySession.has(target.sessionId)) this.listedBySession.set(target.sessionId, listed)
       throw error

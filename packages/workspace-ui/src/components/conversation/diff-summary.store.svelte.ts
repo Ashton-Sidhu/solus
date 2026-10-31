@@ -11,7 +11,8 @@ function scopeKey(scope: DiffSummaryScope): string {
  * Per-file add/remove counts for a session or one of its turns.
  *
  * Counts live in git, so they come from `diffStats`. Session summaries refresh
- * when their changed-file set moves; immutable turn summaries fetch once.
+ * when their changed-file set moves; immutable turn summaries fetch once and
+ * stay, because every settled turn in the transcript keeps its own card.
  */
 export class DiffSummaryStore {
   private stats = $state<Record<string, Record<string, ChangedFileStat[]>>>({})
@@ -35,15 +36,6 @@ export class DiffSummaryStore {
     const summaryKey = scopeKey(scope)
     const cacheKey = `${sessionId}\n${summaryKey}`
     const revision = scope.kind === 'session' ? (changedFiles?.join('\n') ?? '') : summaryKey
-    if (scope.kind === 'turn') {
-      for (const key of Object.keys(this.stats[sessionId] ?? {})) {
-        if (key.startsWith('turn:') && key !== summaryKey) delete this.stats[sessionId][key]
-      }
-      const prefix = `${sessionId}\nturn:`
-      for (const key of Object.keys(this.fetchedKey)) {
-        if (key.startsWith(prefix) && key !== cacheKey) delete this.fetchedKey[key]
-      }
-    }
     if (!revision) {
       if (this.stats[sessionId]?.[summaryKey]) delete this.stats[sessionId][summaryKey]
       delete this.fetchedKey[cacheKey]

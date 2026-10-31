@@ -17,6 +17,12 @@ export const NEW_CHAT_DIRECTORY = 'solus:new-chat'
 
 const CHAT_ID = /^[A-Za-z0-9_-]+$/
 
+/** The place of a session the host makes in this folder, or of a draft that has
+ *  no record yet (docs/plans/session-starter.md §3.1). Everything else reads the record. */
+export function placeOfFolder(workingDirectory: string | null | undefined): 'chat' | 'project' {
+  return isChat(workingDirectory) ? 'chat' : 'project'
+}
+
 /** True for a new chat, the folder of a chat, and the folder that holds them. */
 export function isChat(workingDirectory: string | null | undefined): boolean {
   if (!workingDirectory) return false

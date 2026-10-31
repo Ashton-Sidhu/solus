@@ -1,3 +1,5 @@
+import { providerInstanceTargetSchema, providerInstanceCodeSchema } from '@solus/contracts/provider-instances'
+import { ProviderInstanceAuth } from '../../execution/seats/provider-instance-auth'
 import { agentAuthFlowRequestSchema, agentAuthMcpTargetSchema, agentAuthSubmitRequestSchema, agentAuthTargetSchema } from '@solus/contracts/agent-auth'
 import { agentProfileCopySchema } from '@solus/contracts/agent-profile'
 import { seatConnectCodeRequestSchema, seatConnectTokenRequestSchema, seatProviderRequestSchema, seatRemoveRequestSchema } from '@solus/contracts/seats'
@@ -17,7 +19,17 @@ import type { SolusServer } from '../server'
  * by the access policy. Removal is the administrator's. The workspace service
  * refuses these execution-plane methods.
  */
-export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatStore; connector: SeatConnector; profiles: AgentProfileManager; agentAuth: AgentAuthFlows }): void {
+export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatStore; connector: SeatConnector; profiles: AgentProfileManager; agentAuth: AgentAuthFlows; providerInstancesChanged: () => void }): void {
+  const instances = new ProviderInstanceAuth({ seats: deps.seats, connector: deps.connector, changed: deps.providerInstancesChanged })
+  server.register('providerInstanceStatus', ([request], ctx) => instances.status(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId))
+  server.register('providerInstanceSignIn', ([request], ctx) => instances.start(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId))
+  server.register('providerInstanceSubmitCode', ([request], ctx) => {
+    const { instanceId, code } = providerInstanceCodeSchema.parse(request)
+    instances.submit(seatFor(ctx.actor), instanceId, code)
+    return { submitted: true as const }
+  })
+  server.register('providerInstanceCancelSignIn', async ([request], ctx) => ({ cancelled: await instances.cancel(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId) }))
+  server.register('providerInstanceSignOut', ([request], ctx) => instances.disconnect(seatFor(ctx.actor), providerInstanceTargetSchema.parse(request).instanceId))
   server.register('seatList', (_args, ctx) => deps.seats.list(seatFor(ctx.actor)))
 
   server.register('seatConnectStart', (args, ctx) => {

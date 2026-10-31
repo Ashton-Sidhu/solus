@@ -321,15 +321,15 @@ describe("an agent card's name", () => {
   // on the live card, on reload, and once the session index knows it.
   const brief = 'You are an implementation worker. Fix the server.'
 
-  test('a rebuilt start_session card keeps the name its starter gave it', () => {
+  test.each(['start_session', 'delegate_task'])('a rebuilt %s card keeps its title and brief', (toolName) => {
     const named: Message[] = []
     new TranscriptAgentConversations(named)
-      .applyToolRow('start_session', JSON.stringify({ prompt: brief, title: 'Server fixes' }), { sessionId: child, messageId: first }, 1)
+      .applyToolRow(toolName, JSON.stringify({ prompt: brief, title: 'Server fixes' }), { sessionId: child, messageId: first }, 1)
     expect(named[0]!.agentConversationRef!.title).toBe('Server fixes')
 
     const unnamed: Message[] = []
     new TranscriptAgentConversations(unnamed)
-      .applyToolRow('start_session', JSON.stringify({ prompt: brief }), { sessionId: child, messageId: first }, 1)
+      .applyToolRow(toolName, JSON.stringify({ prompt: brief }), { sessionId: child, messageId: first }, 1)
     expect(unnamed[0]!.agentConversationRef!.title).toBe('You are an implementation worker.')
   })
 

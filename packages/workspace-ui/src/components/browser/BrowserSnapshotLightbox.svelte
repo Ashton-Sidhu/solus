@@ -180,7 +180,7 @@
   data-solus-ui
   use:portal={document.body}
   role="presentation"
-  class="fixed inset-0 z-[9999] grid place-items-center bg-[color-mix(in_oklch,var(--foreground)_28%,transparent)] p-6 backdrop-blur-[2px] focus-visible:outline-none"
+  class="fixed inset-0 z-[9999] grid place-items-center modal-backdrop p-6 focus-visible:outline-none"
   onclick={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}

@@ -7,6 +7,7 @@ import { findOnPath, getCliPath } from '../cli-env'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { z } from 'zod'
 import type { HostRoute } from '@solus/contracts/host-routes'
+import { hostCategory } from '../host/host-category'
 
 const log = createLogger('main', 'endpoints')
 
@@ -105,6 +106,9 @@ const ENDPOINT_REACH = { tailnet: 0, lan: 1, loopback: 2 } satisfies Record<Reac
  * loopback serves no other machine, so it advertises none.
  */
 export async function advertisedRoutes(bindHost: string, port: number): Promise<HostRoute[]> {
+  // A managed host's internal cloud network is not reachable from its clients.
+  // The account directory supplies its tunnel route.
+  if (hostCategory() === 'managed') return []
   return (await listReachableEndpoints(bindHost, port))
     .filter((endpoint) => endpoint.kind !== 'loopback')
     .sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])

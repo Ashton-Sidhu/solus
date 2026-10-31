@@ -342,3 +342,27 @@ describe('notification page lifetime', () => {
     expect(lists(source)).toBe(1)
   })
 })
+
+describe('a new notice', () => {
+  test('a rise in a source\'s unread count is reported once, with its source; the first read and an unchanged count are not', async () => {
+    // WHY: a session shared with the reader arrives as a notice; the client reads
+    // the session list again on this signal, so the row and the toast come with
+    // the notice (docs/plans/shared-with-you.md §5).
+    const vm = new FakeNotificationSource()
+    vm.add({ id: 'old', createdAt: 1 })
+    const rose: string[] = []
+    const client = new NotificationHubClient({ identity: 'person-a', connect: () => vm.link(), onUnreadRose: (source) => rose.push(source.serverId) })
+    client.setSources([host('vm')])
+    await client.idle()
+    expect(rose).toEqual([])
+
+    vm.add({ id: 'shared', createdAt: 2 })
+    vm.emitChanged()
+    await client.idle()
+    expect(rose).toEqual(['vm'])
+
+    vm.emitChanged()
+    await client.idle()
+    expect(rose).toEqual(['vm'])
+  })
+})

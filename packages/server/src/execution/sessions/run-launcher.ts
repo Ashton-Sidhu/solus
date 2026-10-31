@@ -1,16 +1,15 @@
+import { providerAvailableForProject } from '../seats/provider-availability'
+import { captureServerEvent } from '../../analytics'
+import { startRun, credentialScopedAgentTools, type PendingStart, type StartedRun } from './run-lifecycle'
+export type { PendingStart } from './run-lifecycle'
 import { existsSync } from 'node:fs'
-import { withWorkspaceToolAuthority } from '../../admission/workspace-tool-authority'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { installedRoutingProviders, routeModelPrompt } from '../agents/model-routing'
 import { forkedFrom } from './thread-activity'
 import { createLogger } from '../../logger'
-import { captureServerEvent } from '../../analytics'
 import { computeGitState } from '../../git/git-helpers'
 import { warmFinder } from '../../files/file-finder'
 import { recordProjectUse } from '../../project-config/projects-manifest'
-import type { AgentTool } from '../agents/tools/agent-tool'
-import { createClaudeSubagentAgentTool } from '../agents/claude/claude-subagent-tool'
-import { createCodexSubagentAgentTool } from '../agents/codex/codex-subagent-tool'
 import { resolvePromptImages } from '../agents/prompt-image-refs'
 import { unattendedModelInputFor, providerConversationFor } from '../agents/run-input'
 import { composeHandoffSeed } from '../agents/session-handoff'
@@ -34,10 +33,9 @@ import { gitCheckoutFromState, isSessionBusyStatus, projectScopeOf } from '@solu
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { shareTurnTranscripts } from '../seats/member-transcripts'
 import { SeatRequiredError } from '../seats/seat-manager'
-import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { HOST_ACTOR, ownerKeyOf, type Actor } from '../../admission/actor'
 import { integrationAgentTools } from '../../integrations/integration-tools'
 import { withActorScope } from '../seats/acting-identity'
-import { userKey } from '@solus/contracts/user'
 import { AGENT_SETUP_STEP, WORKTREE_SETUP_STEPS, worktreeSetupCardId } from '@solus/contracts/setup-card'
 import { GithubConnectionRequiredError } from '../../providers/github/connection-required'
 import { getDefaultBranch, recreateMissingWorktree } from '../../git/worktree-manager'
@@ -46,38 +44,9 @@ import { writeMissingCopiedFiles } from '../../git/worktree-include'
 import { progressPercent, progressThrottle, type DispatchCheckoutPathOf, type PrepareDispatchCheckout } from './dispatch-repository'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
-import { taskOfTurn, linkPreparedTask, taskSystemContext, logNewSessionPrompt } from './run-task-context'
+import { taskSystemContext, logNewSessionPrompt } from './run-task-context'
 
 const log = createLogger('SessionRuntime', 'run-launcher.ts')
-
-export interface PendingStart {
-  run: SessionRunRequest
-  resolve: (value: { agentSessionId: string; taskId?: string }) => void
-  reject: (reason: Error) => void
-}
-
-function startedSession(agentSessionId: string, taskId?: string): Parameters<PendingStart['resolve']>[0] {
-  const result: Parameters<PendingStart['resolve']>[0] = { agentSessionId }
-  if (taskId) result.taskId = taskId
-  return result
-}
-
-/**
- * A member's turn calls GitHub, Google, and Atlassian as that member
- * (cloud-service-model.md §22): every tool the run is handed executes under
- * their credential scope. The host's own work keeps the host's connections.
- */
-function credentialScopedAgentTools(tools: AgentTool[], actor: Actor = HOST_ACTOR): AgentTool[] {
-  return tools.map((agentTool) => ({
-    ...agentTool,
-    execute: (input, context) => withActorScope(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context))),
-  }))
-}
-
-interface StartedRun {
-  handle: RunHandle
-  run: SessionRunRequest
-}
 
 /** The reason a worktree setup stops when the person chose to work in the
  *  project folder: the prompt goes on there, and the turn does not fail. */
@@ -222,201 +191,12 @@ export class RunLauncher {
     // its next check, so no provider starts for a stopped turn.
     const releaseLaunch = turn.onStop(() => true)
     try {
-      return await this.startRun(request, turn, releaseLaunch)
+      return await startRun(this.rt, this.pendingStarts, (run, traceId, stop, release) => this.launchRun(run, traceId, stop, release), request, turn, releaseLaunch)
     } catch (error) {
       this.rt.turnStops.end(request.sessionId, turn)
       throw error
     } finally {
       releaseLaunch()
-    }
-  }
-
-  private async startRun(request: SessionRunRequest, turn: TurnStop, releaseLaunch: () => void): Promise<SessionRunLifecycle> {
-    if (request.actor) this.rt.rememberSessionActor(request.sessionId, request.actor)
-    await this.rt.settleRunOrganization(request)
-    // Every prepared/initialized view of a run shares this one exchange array.
-    // The request is copied while setup resolves, but ownership must not be.
-    request.exchangeIds ??= []
-    request.runId ??= crypto.randomUUID()
-    if (request.reportExchangeIds?.length) this.rt.orchestration?.reportsAccepted(request.reportExchangeIds)
-    // Before launch: the provider can report this turn's own plan before the
-    // launch step returns, and that plan must survive.
-    this.rt.orchestration?.sessionTurnStarted(request.sessionId)
-    const runStartedAt = Date.now()
-    const promptSource = request.options.promptSource ?? 'typed'
-    // Read before dispatch: Auto routing overwrites the model with the one it
-    // picked, and the turn must still say what was asked for. `model`, not
-    // `preferredModel`: the preference is the session's stored choice, which
-    // outlives a switch of provider, while `model` is the choice resolved
-    // against the provider this turn runs on.
-    const requestedModel = request.input.model || undefined
-    // The session's organization and the acting account ride every span of the
-    // turn (organization-scope §6.1); the organization is the record's, read
-    // once here, never a window's later choice.
-    const organizationId = await this.rt.turnOrganization(request.sessionId)
-    this.rt.restarts.saveRestartRun(request, await sessionIsOrganizationWork(request.sessionId))
-    const account = insightsAccountOf(request.actor)
-    let actor: { userId: string; email?: string } | undefined
-    if (account) {
-      actor = { userId: userKey(account.id) }
-      if (account.email) actor.email = account.email
-    }
-    const turnTraceId = this.rt.sessionEmitter.beginTurn({
-      sessionId: request.sessionId,
-      prompt: request.options.displayPrompt ?? request.options.prompt,
-      promptSource,
-      startedAt: runStartedAt,
-      dispatchedAt: request.servedEnqueuedAt ?? runStartedAt,
-      // The backend and project a dispatch step runs for are settled before the
-      // dispatch starts; the executed model is not, and arrives with the setup
-      // the provider answers into.
-      provider: request.input.provider,
-      projectRoot: request.input.projectPath || request.input.workingDirectory,
-      actor,
-      organizationId,
-    })
-    let startedRun: StartedRun
-    try {
-      startedRun = await this.rt.sessionEmitter.runDispatch(
-        request.sessionId,
-        'launch_run',
-        { promptSource, fn: 'launchRun', file: 'run-launcher.ts' },
-        () => this.launchRun(request, turnTraceId, turn, releaseLaunch),
-      )
-    } catch (error) {
-      if (!this.rt.isShuttingDown) this.rt.restarts.restartRuns?.remove(request.sessionId, request.runId)
-      const interrupted = error instanceof Error && error.message === 'Interrupted'
-      this.rt.sessionEmitter.finishTurn(request.sessionId, interrupted ? 'interrupted' : 'failed', Date.now(), turnTraceId)
-      this.rt.cancelRunExchanges(request, interrupted ? 'interrupted' : 'failed',
-        interrupted ? undefined : `The turn could not start: ${error instanceof Error ? error.message : String(error)}`)
-      // No provider ran, so no provider exit starts the next queued prompt.
-      if (turn.signal.aborted) this.rt.scheduler.processQueueForSession(request.sessionId)
-      throw error
-    }
-    const { handle, run } = startedRun
-    const startedExchanges = this.rt.runExchanges(request)
-    // The provider can refuse the turn on a limit before its launch finishes
-    // reporting; a parked run has not started, and its release starts it again.
-    const parkedBeforeStart = this.rt.activeSessions.get(request.sessionId)?.status === 'rate_limited'
-    if (startedExchanges && !parkedBeforeStart) this.rt.orchestration?.runStarted(startedExchanges)
-    // Its own scope: this runs after `launch_run` resolved, so there is no
-    // ambient step left to nest under — but it is still inside the setup
-    // window, being awaited before setup is closed below.
-    const turnTask = await this.rt.sessionEmitter.runDispatch(
-      request.sessionId,
-      'task_dimension',
-      { taskId: run.options.taskId ?? '', fn: 'taskOfTurn', file: 'run-task-context.ts' },
-      async (annotate) => {
-        const task = await taskOfTurn(run)
-        annotate({ taskId: task?.id ?? '', title: task?.title ?? '' })
-        return task
-      },
-    )
-    this.rt.sessionEmitter.completeSetup(request.sessionId, {
-      provider: run.input.provider,
-      model: run.input.model,
-      contextWindow: run.input.contextWindow,
-      requestedModel,
-      projectRoot: run.input.projectPath || run.input.workingDirectory,
-      origin: promptSource,
-      reasoningEffort: run.input.reasoningEffort,
-      taskId: turnTask?.id,
-      automationId: run.options.automationId,
-      automationName: run.options.automationName,
-      taskTitle: turnTask?.title,
-      branch: run.input.gitContext?.branch ?? undefined,
-      isResume: !!run.input.agentSessionId,
-      organizationId: await this.rt.turnOrganization(request.sessionId),
-    })
-    if (request.servedEnqueuedAt !== undefined) {
-      this.rt.sessionEmitter.recordQueueWait(request.sessionId, request.servedEnqueuedAt, runStartedAt)
-    }
-    if (handle.agentSessionId && (!run.input.agentSessionId || run.input.forked) && run.options.taskId) {
-      await linkPreparedTask(run, request.sessionId)
-    }
-    const agentSessionId = handle.agentSessionId
-      ? Promise.resolve(startedSession(handle.agentSessionId, run.options.taskId))
-      : new Promise<{ agentSessionId: string; taskId?: string }>((resolve, reject) => {
-          this.pendingStarts.set(handle, {
-            run,
-            resolve,
-            reject,
-          })
-          handle.runPromise.then(
-            () => {
-              if (!this.pendingStarts.has(handle)) return
-              this.pendingStarts.delete(handle)
-              reject(new Error('Run completed before session_init'))
-            },
-            (err) => {
-              if (!this.pendingStarts.has(handle)) return
-              this.pendingStarts.delete(handle)
-              reject(err instanceof Error ? err : new Error(String(err)))
-            },
-          )
-        })
-    const settledSessionId = request.sessionId
-    const captureSettledRun = (status: 'completed' | 'interrupted' | 'failed'): void => {
-      const event = status === 'completed'
-        ? 'run_completed'
-        : status === 'interrupted'
-          ? 'run_interrupted'
-          : 'run_failed'
-      captureServerEvent(event, {
-        provider: run.input.provider,
-        duration_ms: Math.max(0, Date.now() - handle.startedAt),
-        tool_call_count: handle.toolCallCount,
-        saw_permission_request: handle.sawPermissionRequest,
-        permission_denial_count: handle.permissionDenials.length,
-      })
-    }
-    // A provider limit ends this attempt, but the prompt is still owned by Solus
-    // while it waits for a reset or a user decision. Its senders are not told it
-    // ended: the exchanges move with the parked queue entry, which shares their
-    // ids, or stay open until the user chooses what to do. Codex ends such a
-    // turn normally and Claude with an error, so both endings ask. A limit that
-    // defers to the next send leaves this turn to finish, like the exit handler.
-    const isParkedRateLimit = (): boolean => {
-      const limit = this.rt.rateLimitPark.currentRateLimitEvent(settledSessionId)
-      return !!limit && limit.deferCurrentRun !== true
-        && (request.input.rateLimitBehavior === 'ask' || request.input.rateLimitBehavior === 'queue')
-    }
-    const done = handle.runPromise.then(
-      () => {
-        const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'completed' as const
-        const status = this.rt.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
-        captureSettledRun(status)
-        if (!isParkedRateLimit()) {
-          this.rt.settleRunExchanges(request, status, handle, {
-            durationMs: Date.now() - runStartedAt,
-            toolCallCount: handle.toolCallCount,
-          })
-        }
-        return handle.resultText ? { output: handle.resultText } : {}
-      },
-      (error) => {
-        const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'failed' as const
-        const status = this.rt.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
-        captureSettledRun(status)
-        if (!isParkedRateLimit()) {
-          this.rt.settleRunExchanges(request, status, handle, {
-            durationMs: Date.now() - runStartedAt,
-            toolCallCount: handle.toolCallCount,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-        throw error
-      },
-    )
-    void done.catch(() => {})
-    return {
-      agentSessionId,
-      done,
-      cancel: () => {
-        if (handle.agentSessionId && this.rt.stopSession(handle.agentSessionId, HOST_ACTOR)) return
-        handle.abortController.abort()
-      },
-      disposition: 'started',
     }
   }
 
@@ -474,6 +254,7 @@ export class RunLauncher {
             controller.signal.throwIfAborted()
             const available: typeof metadata = []
             for (const agent of metadata) {
+              if (!providerAvailableForProject(agent.id, input.projectPath)) continue
               try { await this.rt.seatForTurn(request.actor, agent.id); available.push(agent) }
               catch (error) { if (!(error instanceof SeatRequiredError)) throw error }
             }
@@ -911,8 +692,9 @@ export class RunLauncher {
             contextWindow: input.contextWindow, nextPrompt: options.prompt + input.extraInstructions,
             historyTokens: input.executionPreferences?.handoffHistoryTokens ?? DEFAULT_EXECUTION_PREFERENCES.handoffHistoryTokens,
             sourceStatus: this.rt.handoffs.handoffCarry.get(pendingHandoff.fromSessionId)?.status ?? this.rt.activeSessions.get(sessionId)?.status,
-            loadSession: async (threadId, loadProjectPath) => this.rt.handoffs.handoffCarry.merge(threadId, await this.rt.history.loadSession(
-              pendingHandoff.fromProvider, threadId, loadProjectPath)),
+            loadPage: (threadId, loadProjectPath, turnLimit, before) => this.rt.history.loadHandoffPage(
+              pendingHandoff.fromProvider, threadId, loadProjectPath, turnLimit, before),
+            loadFirstTurn: (threadId, loadProjectPath) => this.rt.history.loadHandoffFirstTurn(pendingHandoff.fromProvider, threadId, loadProjectPath),
           })
           const seedSystemAppend = composeHandoffSeed({ fromProvider: pendingHandoff.fromProvider, ...handoff })
           annotate({ seedChars: seedSystemAppend.length })
@@ -1137,14 +919,10 @@ export class RunLauncher {
         provider,
         prompt: options.prompt,
         cwd: effectiveCwd,
+        projectRoot: resolvedProjectPath,
         tools: credentialScopedAgentTools([
           ...request.tools,
           ...integrationTools,
-          // The other backend's subagent runs on the turn author's own login.
-          (provider === 'codex' ? createClaudeSubagentAgentTool : createCodexSubagentAgentTool)(
-            this.rt,
-            (subagentProvider) => this.rt.seatForTurn(request.actor, subagentProvider),
-          ),
         ], request.actor),
         model: effectiveInput.model,
         reasoningEffort: effectiveInput.reasoningEffort,

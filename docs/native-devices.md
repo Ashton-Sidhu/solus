@@ -2,8 +2,8 @@
 
 Show an iOS Simulator or Android Emulator beside a conversation, use it with
 the mouse, keyboard or touch, and let the agent drive and screenshot the same
-device. Desktop and web clients show the devices; the mobile app shows the
-screenshots an agent takes (see [Agents](#agents)).
+device. Desktop, web, and native mobile clients show the devices. On mobile, open
+**Environment → Devices** in a session, or **Host settings → Devices**.
 
 ## Set up
 
@@ -23,7 +23,7 @@ that the host stored.
    `expo-device-hub` 0.12.0 into the host's data directory and starts it on
    loopback. Opening setup installs and starts nothing.
 2. **Agent access** is on by default: once device support is on, agents can
-   drive devices with `agent-device` 0.21.12. Turn it off to keep agents away
+   drive devices with `agent-device` 0.21.31. Turn it off to keep agents away
    from devices; manual previews work without it. Solus keeps that choice when
    device support is turned off and on again.
 3. **Show devices agents open.** When on, a device an agent opens appears
@@ -60,6 +60,75 @@ host.
   already appear under **This machine**.
 - Solus installs the pinned tools under `~/.solus/devices` on that machine and
   forwards their ports to the Solus host's loopback.
+
+### EAS Simulator
+
+In **Settings → Devices → Cloud devices**, choose **Add EAS Simulator**.
+The source form includes copyable Expo login, project linking, project ID,
+and simulator availability commands on desktop, web, and mobile. Run them
+in the Expo app folder on the selected Solus host, including when that host
+is remote. The form links to Expo's setup guide and access-token page.
+Expo Simulators requires access for the project's account; an Expo project
+alone does not enable it.
+Check the Expo account to choose a project, or enter its UUID from the project's
+Expo settings. Add an Expo
+access token, or leave it blank to use `EXPO_TOKEN` on the Solus host, then
+that host's `eas login` session. **Check connection** checks the account and
+EAS Simulator access without starting a paid session.
+
+Set the concurrent session limit, maximum session minutes, and idle minutes.
+Idle minutes must be smaller than session minutes. Opening an EAS device starts
+a paid Expo session with those limits. Closing its last preview stops the
+session. The toolbar also has **Stop EAS session**. Changing or removing the
+source stops its owned sessions before replacing its credentials.
+
+Solus records each session's unique name before requesting it. After a restart,
+it finds and stops sessions recorded by the previous process. It never stops
+sessions from another tool. An uncertain start remains in the recovery ledger;
+a missing answer is not proof that Expo did not start billing. An unobserved
+name is retained for up to a day. Open cloud previews refresh their status every
+15 seconds so a device that Expo stops disappears from all clients.
+
+EAS streams through the Solus host. Preview and agent credentials stay there;
+clients receive only a signed stream link. WebRTC video uses the preview's ICE
+settings, with AVCC as a fallback when the preview serves it. EAS device settings
+and local build installation are unavailable because Expo does not expose host
+commands. Use the bound `agent-device` CLI for supported app operations.
+
+### Simlock pool (alpha)
+
+Set up a [Simlock](https://github.com/callstackincubator/simlock) gateway and
+workers, then choose **Add Simlock pool**. Enter the gateway origin and an agent
+token for this Solus host. Create the token with
+`simlock --gateway token create --role agent`. A blank token uses
+`AGENT_DEVICE_DAEMON_AUTH_TOKEN` only when this host's
+`AGENT_DEVICE_DAEMON_BASE_URL` names the same gateway at `/v1/agent-device`.
+Saved tokens are not reused when the gateway URL changes.
+
+Set **Devices at once** and **Lease minutes**. The gateway's per-requester limit
+must permit that many leases. Workers must have screen streaming and input
+enabled, and use agent-device 0.21.31. The integration follows T3 Code's alpha
+integration and requires Simlock's lease-holder stream and input routes.
+
+The picker lists the models the pool can provide. Opening a model leases a
+device through `agent-device connect proxy` and `open`. Manual input and agent
+commands use that same lease. Solus renews it while tracked, releases it at its
+age limit, and returns it when its last preview closes. A lease abandoned by a
+crashed Solus host expires at the gateway's TTL. The toolbar has **Return device
+to the pool**. Local and SSH devices keep their existing close behavior.
+
+You can watch, tap, swipe, type, and use supported hardware buttons. Take control
+pauses agent actions; Release control leaves them paused until Resume agent.
+Device tools, rotation, and the screenshot button are hidden for Simlock, as in
+T3. Agents can use their bound CLI for supported operations and screenshots.
+Installs must run from the directory returned by `device_open`. Development
+servers must be reachable from the worker; its `localhost` is not the Solus host.
+
+Cloud sources use the same RPC contracts and revisioned state on desktop-local,
+desktop-hosted, web, and native mobile connections. Claude and Codex use the same
+device tools and control checks. The mobile preview stops streaming when its
+screen is hidden or the app goes into the background. It does not release the
+cloud device merely because the screen is hidden; Close ends the preview.
 
 ## Use a device
 

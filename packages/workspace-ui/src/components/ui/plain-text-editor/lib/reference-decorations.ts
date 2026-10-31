@@ -11,7 +11,7 @@ import {
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view";
-import { getFileIconPath, FILE_ICON_VIEWBOX, FOLDER_ICON_PATH } from "../../../editor/fileIcons";
+import { resolveFileIcon } from "@solus/client-core/file-icons";
 import {
   extractTrackedReferences,
   parseReferenceTokens,
@@ -74,16 +74,7 @@ function appendTokenIcon(parent: HTMLElement, token: ReferenceToken): void {
   const icon = document.createElement("span");
   icon.className = "solus-token__icon";
   if (token.kind === "file") {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", FILE_ICON_VIEWBOX);
-    svg.setAttribute("fill", "currentColor");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute(
-      "d",
-      token.path.endsWith("/") ? FOLDER_ICON_PATH : getFileIconPath(token.path),
-    );
-    svg.appendChild(path);
-    icon.appendChild(svg);
+    icon.innerHTML = resolveFileIcon(token.path).svg;
   } else if (token.kind !== "slash") {
     const iconName =
       token.kind === "login" ? "person" :

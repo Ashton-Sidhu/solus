@@ -9,6 +9,7 @@ import {
   personMentionMarkdown,
   type PersonMention,
 } from "@solus/contracts/mentions";
+import { sessionReferenceMarkdown } from "@solus/contracts/session-link";
 
 export interface FileReferenceToken {
   kind: "file";
@@ -260,15 +261,8 @@ export function serializeReferenceToken(token: ReferenceToken): string {
       const params = new URLSearchParams({ number: String(token.number) });
       return `[#${token.number} ${escapeLabel(token.title)}](pr://ref?${params})`;
     }
-    case "session": {
-      const params = new URLSearchParams({
-        sessionId: token.sessionId,
-        provider: token.provider,
-        cwd: token.cwd,
-      });
-      if (token.serverId) params.set("serverId", token.serverId);
-      return `[${escapeLabel(token.title)}](session://ref?${params})`;
-    }
+    case "session":
+      return sessionReferenceMarkdown(token);
     case "task": {
       const params = new URLSearchParams({ taskId: token.taskId });
       return `[${escapeLabel(token.title)}](task://ref?${params})`;

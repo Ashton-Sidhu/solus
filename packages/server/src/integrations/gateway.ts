@@ -233,7 +233,7 @@ export class IntegrationGateway {
     return accounts.length > 1 ? accounts.map(accountLabel) : []
   }
 
-  private async callAs(integration: Integration, tool: string, input: ToolArguments, context: AgentToolContext, accountId: string): Promise<AgentToolResult> {
+  private async callAs(integration: Integration, tool: string, input: ToolArguments, context: AgentToolContext, accountId: string, retried = false): Promise<AgentToolResult> {
     const integrationId = integration.id
     let timer: ReturnType<typeof setTimeout> | null = null
     const timeout = new AbortController()
@@ -251,10 +251,22 @@ export class IntegrationGateway {
         { signal: AbortSignal.any([context.abortSignal, timeout.signal]), timeout: SDK_TIMEOUT_OFF_MS },
       )
       if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
-      return mapCallResult(result)
+      const mapped = mapCallResult(result)
+      // Some servers take a revoked token when the session opens and refuse it only in
+      // the call: read the header again, not from a copy, and try once more.
+      if (refusedInFirstCall(session, mapped, retried)) {
+        this.readHeaderAgain(session)
+        return this.callAs(integration, tool, input, context, accountId, true)
+      }
+      return mapped
     } catch (error) {
       if (error instanceof ConnectionRequiredError) return this.connectionRequired(integration, context)
       if (session?.authorized && isAuthFailure(error)) {
+        // The session's header can outlive its token: a new session reads it again, refreshed, before the person is asked.
+        if (!retried) {
+          this.readHeaderAgain(session)
+          return this.callAs(integration, tool, input, context, accountId, true)
+        }
         this.signInRefused(session, integration, error)
         return this.connectionRequired(integration, context)
       }
@@ -381,7 +393,7 @@ export class IntegrationGateway {
     return cached.tools
   }
 
-  private async list(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
+  private async list(integrationId: string, personKey: string | null, allowAnonymous = false, retried = false): Promise<UpstreamTool[]> {
     const session = await this.session(integrationId, personKey, allowAnonymous)
     const key = sessionKey(integrationId, personKey)
     const tools: UpstreamTool[] = []
@@ -392,6 +404,11 @@ export class IntegrationGateway {
         page = await session.client.listTools(cursor ? { cursor } : undefined)
       } catch (error) {
         if (!session.authorized || !isAuthFailure(error)) throw error
+        // As a call does: one new session with the header read again, before the person is asked.
+        if (!retried) {
+          this.readHeaderAgain(session)
+          return this.list(integrationId, personKey, allowAnonymous, true)
+        }
         const integration = this.store.get(integrationId, ANY_ORGANIZATION)
         if (integration) this.signInRefused(session, integration, error)
         throw new ConnectionRequiredError()
@@ -508,6 +525,12 @@ export class IntegrationGateway {
     }
   }
 
+  /** The session's header stopped working: the next session reads it again, past any copy the credentials keep. */
+  private readHeaderAgain(session: UpstreamSession): void {
+    if (session.personKey !== null) this.credentials?.forgetCached?.(session.integrationId, session.personKey, session.accountId)
+    this.retire(sessionKey(session.integrationId, session.personKey, session.accountId))
+  }
+
   /** The server refused the person's header: drop the session so the next use asks for a new one. */
   private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: StreamableHTTPError): void {
     void this.closeSession(sessionKey(session.integrationId, session.personKey, session.accountId))
@@ -593,6 +616,14 @@ function splitAccount(input: ToolArguments): AccountCall {
 function sessionKey(integrationId: string, personKey: string | null, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): string {
   const base = `${integrationId}\u0000${personKey ?? ''}`
   return accountId === DEFAULT_INTEGRATION_ACCOUNT ? base : `${base}\u0000${accountId}`
+}
+
+/** A tool's error text that reports an HTTP 401, as "(status: 401)", "HTTP 401", or "401 Unauthorized". */
+const REFUSED_IN_RESULT = /\b(?:status|HTTP)\W{0,3}401\b|\b401\s+Unauthorized\b/i
+
+/** The first try's own answer reports HTTP 401 for a session that sent a header. */
+function refusedInFirstCall(session: UpstreamSession, result: AgentToolResult, retried: boolean): boolean {
+  return !retried && session.authorized && !result.ok && REFUSED_IN_RESULT.test(result.text)
 }
 
 /** The server answered 401 or 403: it refused the header. */

@@ -7,7 +7,7 @@ describe('conversation pool', () => {
   test('keeps the active conversation and only the most recent hidden ones', () => {
     expect(mountedConversationTabIds(
       ['tab-d', 'tab-c', 'tab-b', 'tab-a'], 'tab-e',
-      ['tab-a', 'tab-b', 'tab-c', 'tab-d', 'tab-e'], true, 4,
+      ['tab-a', 'tab-b', 'tab-c', 'tab-d', 'tab-e'], true, true, 4,
     )).toEqual(['tab-e', 'tab-d', 'tab-c', 'tab-b'])
   })
 
@@ -34,5 +34,15 @@ describe('conversation pool', () => {
 
   test('an inactive shell mounts nothing, so two shells never hold one conversation', () => {
     expect(mountedConversationTabIds(['tab-a'], 'tab-b', ['tab-a', 'tab-b'], false)).toEqual([])
+  })
+
+  test('a fresh login opening a draft does not mount a saved transcript behind it', () => {
+    expect(mountedConversationTabIds([], 'saved-tab', ['saved-tab'], true, false)).toEqual([])
+    expect(mountedConversationTabIds([], 'saved-tab', ['saved-tab'], true, true)).toEqual(['saved-tab'])
+  })
+
+  test('covering a conversation keeps its DOM without mounting a different hidden tab', () => {
+    expect(mountedConversationTabIds(['seen-tab'], 'unseen-tab', ['seen-tab', 'unseen-tab'], true, false))
+      .toEqual(['seen-tab'])
   })
 })

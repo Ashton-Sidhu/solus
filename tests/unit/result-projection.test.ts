@@ -108,10 +108,10 @@ describe('session result projection', () => {
     expect(projected[3].artifactWorkRef).toEqual({ workId: 'w-1', title: 'Latency', contentVersion: 4 })
   })
 
-  test('extracts agent-conversation correlation without shipping result text', () => {
+  test.each(['start_session', 'delegate_task'])('%s preserves correlation without shipping result text', (toolName) => {
     const sessionId = '11111111-1111-1111-1111-111111111111'
     const projected = projectSessionHistory([
-      { role: 'tool', content: '', toolName: 'start_session', toolId: 'create-1', timestamp: 1 },
+      { role: 'tool', content: '', toolName, toolId: 'create-1', timestamp: 1 },
       {
         role: 'tool_result',
         content: `Created a session with private provider output.\n${formatExchangeTag({ messageId: 'm1', sessionId, provider: 'codex' })}`,

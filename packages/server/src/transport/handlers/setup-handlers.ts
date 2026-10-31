@@ -606,7 +606,9 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   server.register('setupCloneProject', (args, ctx): Promise<SetupCloneProjectResult> => {
     const [request] = args
-    return cloneProject(request, projectsRootOf(ctx), eventSink(ctx.clientId))
+    return cloneProject(request, projectsRootOf(ctx), eventSink(ctx.clientId), ctx.abortSignal
+      ? { signal: ctx.abortSignal, onOutput: () => {} }
+      : undefined)
   })
 
   /** A clone into the caller's projects folder, or into the destination it names.

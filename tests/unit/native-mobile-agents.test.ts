@@ -24,10 +24,10 @@ const agents = (model: TranscriptModel) => model.order.map((id) => model.items.g
 const kinds = (model: TranscriptModel) => model.order.map((id) => model.items.get(id)?.kind)
 
 describe('native agent cards: live', () => {
-  test('a started session is one card that follows its exchange, and the delegation call is not shown beside it', () => {
+  test.each(['start_session', 'delegate_task'])('%s makes one card that follows its exchange', (toolName) => {
     const model = new TranscriptModel('parent')
     model.addOptimisticUser('u1', 'split this up')
-    model.apply({ type: 'tool_call', toolName: 'mcp__solus__start_session', toolId: 'call-1', index: 0, toolInput: '{"prompt":"Fix the header favicon."}' })
+    model.apply({ type: 'tool_call', toolName: `mcp__solus__${toolName}`, toolId: 'call-1', index: 0, toolInput: '{"prompt":"Fix the header favicon."}' })
     model.apply(dispatched('m1'))
     model.apply(update({ phase: 'accepted', sessionId: 'child-1', messageId: 'm1', state: 'running' }))
     expect(kinds(model)).toEqual(['user', 'agent'])
@@ -88,11 +88,11 @@ describe('native agent cards: history', () => {
   const report: SessionReport = { messageId: 'm1', sessionId: 'child-1', provider: 'codex', status: 'completed', outputs: [], reply: 'Favicon fixed.', durationMs: 3_000 }
   const page = (messages: SessionHistoryPage['messages']): SessionHistoryPage => ({ messages, before: null })
 
-  test('a reload rebuilds the card from the tool row and the report turn, and the report is not a bubble', () => {
+  test.each(['start_session', 'delegate_task'])('%s restores its card and report after reload', (toolName) => {
     const model = TranscriptModel.fromHistory('parent', page([
       { role: 'user', content: 'split this up', messageId: 'u1', timestamp: 1 },
       {
-        role: 'tool', toolId: 'call-1', toolName: 'mcp__solus__start_session', toolInput: '{"prompt":"Fix the header favicon.","model_id":"gpt-5.5"}',
+        role: 'tool', toolId: 'call-1', toolName: `mcp__solus__${toolName}`, toolInput: '{"prompt":"Fix the header favicon.","model_id":"gpt-5.5"}',
         toolStatus: 'completed', content: '', messageId: 't1', timestamp: 2,
         agentConversationResult: { sessionId: 'child-1', messageId: 'm1', provider: 'codex', progress: { state: 'running' } },
       },

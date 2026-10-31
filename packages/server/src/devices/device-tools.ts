@@ -20,7 +20,7 @@ import { resolveHomePath } from '../platform/paths'
  * pingdotgg/t3code@43bd667, apps/server/src/mcp/toolkits/device).
  */
 
-const TOOL_DEADLINE_MS = 4 * 60_000
+const TOOL_DEADLINE_MS = 30 * 60_000
 
 type Fields = NonNullable<AgentTool['inputFields']>
 
@@ -72,7 +72,7 @@ export function agentDeviceTargetArgs(device: DeviceSummary): string[] {
 const shellWord = (value: string) => (/^[a-zA-Z0-9_./:@-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`)
 
 /** The just-in-time guide `device_open` returns. Only sessions that open a device pay for it. */
-export function agentDeviceQuickStart(device: DeviceSummary, command: string, args: string[], hostLabel: string): string {
+export function agentDeviceQuickStart(device: DeviceSummary, command: string, args: string[], hostLabel: string, sourceKind?: 'local' | 'ssh' | 'eas' | 'simlock'): string {
   const exe = shellWord(command)
   const target = args.map(shellWord).join(' ')
   return [
@@ -91,11 +91,13 @@ export function agentDeviceQuickStart(device: DeviceSummary, command: string, ar
       ? 'First use builds an XCTest runner and can take a couple of minutes.'
       : 'The Android snapshot helper installs itself on first use.',
     'If the user takes control, device commands fail with a paused message: stop driving the device and wait, or open another available simulator.',
-    'For a remote device host, build and install the app there yourself, and make Metro reachable from that machine; Solus does not rewrite localhost.',
+    sourceKind === 'eas' || sourceKind === 'simlock'
+      ? 'This is a cloud device. Build the app for its platform, then install with this bound agent-device CLI. Make Metro reachable from the device worker; its localhost is not this host. Host shell commands are unavailable through the preview.'
+      : 'For a remote device host, build and install the app there yourself, and make Metro reachable from that machine; Solus does not rewrite localhost.',
   ].join('\n')
 }
 
-function pickDevice(devices: DeviceSummary[], input: { deviceId?: string | undefined; platform?: DevicePlatform | undefined; deviceHostId?: string | undefined }): DeviceSummary {
+function pickDevice(devices: DeviceSummary[], input: { deviceId?: string | undefined; platform?: DevicePlatform | undefined; deviceHostId?: string | undefined }, preferNew = false): DeviceSummary {
   const deviceHostId = input.deviceHostId ?? LOCAL_DEVICE_HOST_ID
   if (input.deviceId) {
     const match = devices.find((device) => device.deviceHostId === deviceHostId && device.deviceId === input.deviceId)
@@ -107,7 +109,7 @@ function pickDevice(devices: DeviceSummary[], input: { deviceId?: string | undef
   if (!input.platform && new Set(candidates.map((device) => device.platform)).size > 1) {
     throw new Error('Both iOS and Android devices are available; pass platform or deviceId.')
   }
-  return candidates.find((device) => device.booted) ?? candidates[0]!
+  return candidates.find((device) => preferNew ? !device.booted : device.booted) ?? candidates[0]!
 }
 
 export const deviceListAgentTool = deviceTool({
@@ -147,9 +149,15 @@ export const deviceOpenAgentTool = deviceTool({
   execute: async (input, context, domain, sessionId) => {
     const { manager, toolchain } = domain
     const state = await manager.list()
-    const target = pickDevice(state.devices, input)
+    const hostKind = state.hosts.find((host) => host.deviceHostId === (input.deviceHostId ?? LOCAL_DEVICE_HOST_ID))?.kind
+    const target = pickDevice(state.devices, input, hostKind === 'eas' || hostKind === 'simlock')
     // Agent tools must be running before the device is booted or bound.
     await manager.agentReadiness(target.deviceHostId)
+    // The CLI runs on this Solus host even when the device is on an SSH host.
+    const node = await resolveNodeRuntime(process.env, runDeviceCommand)
+    if ('error' in node) throw new Error(node.error)
+    const cli = await toolchain.ensure('agent')
+    const command = await ensureAgentDeviceShim({ dir: domain.agentConfigDir, nodePath: node.nodePath, entryPath: cli.entryPath })
     const preview = await manager.open({ sessionId, deviceHostId: target.deviceHostId, deviceId: target.deviceId, platform: target.platform }, 'agent')
     const device = manager.findDevice(preview.deviceHostId, preview.deviceId) ?? target
     const label = `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent`
@@ -157,13 +165,10 @@ export const deviceOpenAgentTool = deviceTool({
     const bridgeUrl = await domain.bridge.start()
     const token = domain.bridge.bind({ sessionId, deviceHostId: device.deviceHostId, deviceId: device.deviceId, platform: device.platform, agentSession, label })
     const configPath = agentDeviceConfigPath(domain.agentConfigDir, agentSession)
-    await writeAgentDeviceConfig(configPath, bridgeUrl, token)
-    // The CLI runs on this Solus host even when the device is on an SSH host.
-    const node = await resolveNodeRuntime(process.env, runDeviceCommand)
-    if ('error' in node) throw new Error(node.error)
-    const cli = await toolchain.ensure('agent')
-    const command = await ensureAgentDeviceShim({ dir: domain.agentConfigDir, nodePath: node.nodePath, entryPath: cli.entryPath })
-    const args = [...agentDeviceTargetArgs(device), '--config', configPath, '--session', agentSession]
+    const endpoint = manager.agentEndpoint(device.deviceHostId, device.deviceId)
+    await writeAgentDeviceConfig(configPath, bridgeUrl, token, endpoint?.stateDir)
+    const targetArgs = endpoint?.deviceId === null ? ['--platform', device.platform] : agentDeviceTargetArgs({ ...device, deviceId: endpoint?.deviceId ?? device.deviceId })
+    const args = [...targetArgs, '--config', configPath, '--session', endpoint?.session ?? agentSession]
     const hostLabel = state.hosts.find((host) => host.deviceHostId === device.deviceHostId)?.label ?? device.deviceHostId
     return {
       ok: true,
@@ -172,7 +177,8 @@ export const deviceOpenAgentTool = deviceTool({
         `Command: ${command}`,
         `Flags: ${args.map(shellWord).join(' ')}`,
         '',
-        agentDeviceQuickStart(device, command, args, hostLabel),
+        agentDeviceQuickStart(device, command, args, hostLabel, hostKind),
+        ...(endpoint?.installDirectory ? [`For installs, run the command from ${endpoint.installDirectory}.`] : []),
       ].join('\n'),
     }
   },
@@ -204,7 +210,7 @@ export const deviceScreenshotAgentTool = deviceTool({
 
 export const deviceCloseAgentTool = deviceTool({
   name: 'device_close',
-  description: 'Remove a device from this session\'s Devices pane. Pass shutdown=true to also power it off, which is refused while another session uses it.',
+  description: 'Remove a device from this session\'s Devices pane. Closing the last cloud preview stops its EAS session or returns its Simlock lease. Pass shutdown=true to also power it off, which is refused while another session uses it.',
   inputFields: {
     deviceId: z.string().max(256).optional().describe('Omit to close every device in this session.'),
     deviceHostId: z.string().max(128).optional(),
@@ -220,11 +226,19 @@ export const deviceCloseAgentTool = deviceTool({
         && closing.some((item) => item.deviceHostId === preview.deviceHostId && item.deviceId === preview.deviceId))
       if (others.length > 0) return { ok: false, text: 'Another session is using this device, so it was not powered off. Close it here without shutdown.' }
     }
-    manager.close({ sessionId, deviceHostId: input.deviceHostId, deviceId: input.deviceId })
-    for (const preview of closing) await removeAgentDeviceConfig(agentDeviceConfigPath(domain.agentConfigDir, agentSessionName(sessionId, preview.deviceHostId, preview.deviceId)))
-    if (!input.shutdown) return { ok: true, text: `Closed ${closing.length} device${closing.length === 1 ? '' : 's'}. They keep running.` }
     const holder = { kind: 'agent' as const, sessionId, label: `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent` }
+    const snapshot = manager.state()
     for (const preview of closing) {
+      const kind = snapshot.hosts.find((host) => host.deviceHostId === preview.deviceHostId)?.kind
+      const shared = snapshot.previews.some((other) => other.sessionId !== sessionId && other.deviceHostId === preview.deviceHostId && other.deviceId === preview.deviceId)
+      if ((kind === 'eas' || kind === 'simlock') && !shared) manager.control.acquireForAgent(preview, holder)
+    }
+    await manager.close({ sessionId, deviceHostId: input.deviceHostId, deviceId: input.deviceId })
+    for (const preview of closing) await removeAgentDeviceConfig(agentDeviceConfigPath(domain.agentConfigDir, agentSessionName(sessionId, preview.deviceHostId, preview.deviceId)))
+    if (!input.shutdown) return { ok: true, text: `Closed ${closing.length} device${closing.length === 1 ? '' : 's'}. Local and SSH devices keep running; unused cloud sessions and leases end.` }
+    for (const preview of closing) {
+      const kind = manager.state().hosts.find((host) => host.deviceHostId === preview.deviceHostId)?.kind
+      if (kind === 'eas' || kind === 'simlock') continue
       manager.control.acquireForAgent(preview, holder)
       await manager.shutdown(preview)
     }

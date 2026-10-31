@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
-  import { UserCheck as UserCheckIcon } from "@lucide/svelte";
+  import { UserCheck as UserCheckIcon, TriangleAlert } from "@lucide/svelte";
   import { compactCount } from "../ui/list-page/list-page";
   import LabelChip from "../ui/labels/LabelChip.svelte";
   import PrChecksChip from "./PrChecksChip.svelte";
@@ -106,15 +106,17 @@
     }}
     data-list-row
   >
-    <!-- The state as a shape and a tone, not a word: the same glyph the PR
-         detail header uses, so a row and its review agree at a glance. -->
+    <!-- Keep the PR state visible, with conflicts marked at its bottom-right corner. -->
     <span
-      class="flex size-4 items-center justify-center {glyph.toneClass}"
+      class="relative flex size-4 items-center justify-center {glyph.toneClass}"
       role="img"
-      aria-label={glyph.label}
-      title={glyph.label}
+      aria-label={row.conflictLabel ? `${glyph.label}, ${row.conflictLabel}` : glyph.label}
+      title={row.conflictLabel ?? glyph.label}
     >
       <glyph.icon size={16} />
+      {#if row.conflictLabel}
+        <TriangleAlert size={11} class="absolute -right-1 -bottom-1 rounded-xs bg-background text-red-600 dark:text-red-400" aria-hidden="true" />
+      {/if}
     </span>
 
     <span class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5">

@@ -34,6 +34,13 @@ export function reviewerStateColor(state: PrReviewer['state']): string {
   }
 }
 
+/** The ring around a reviewer's avatar in the overlapped stack. Every
+ *  reviewer gets one, so every avatar is the same size: the verdict's colour,
+ *  or a faint neutral ring while the request is still pending. */
+export function reviewerRingColor(state: PrReviewer['state']): string {
+  return state === null ? 'color-mix(in oklch, var(--foreground) 14%, transparent)' : reviewerStateColor(state)
+}
+
 export interface ReviewerRowAction {
   kind: 'remove' | 're-request'
   label: string

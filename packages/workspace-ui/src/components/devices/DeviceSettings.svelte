@@ -10,6 +10,7 @@
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import CloudDeviceHosts from "./CloudDeviceHosts.svelte";
   import DeviceToolVersions from "./DeviceToolVersions.svelte";
   import { emptySshHostDraft, sshHostDraftConfig, type SshHostDraft } from "./lib/device-host-draft";
   import { hostProgressLabel } from "./lib/device-settings";
@@ -166,6 +167,8 @@
         {/snippet}
       </SettingsRow>
     </SettingsSection>
+
+    <CloudDeviceHosts {serverId} hosts={deviceState.hosts.filter((host) => host.kind === "eas" || host.kind === "simlock")} statuses={deviceState.hostStatuses} />
 
     <SettingsSection
       label="Device hosts"

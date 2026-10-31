@@ -50,7 +50,7 @@
   <!-- Escape belongs on the dialog itself, as on the close confirmation: a key
        spent here must not also close the pane. -->
   <div
-    class="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150 dark:bg-black/55"
+    class="absolute inset-0 z-20 flex items-center justify-center modal-backdrop p-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
     role="presentation"
     onkeydown={(event) => {
       if (event.key !== "Escape") return;

@@ -120,6 +120,8 @@ const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisf
 const REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const satisfies readonly ReasoningEffort[]
 const MAX_INSTRUCTIONS = 20_000
 const MAX_MODEL_ID = 200
+const MAX_PROJECT_PANEL_ITEM_ID = 64
+const MAX_PROJECT_PANEL_HIDDEN_ITEMS = 64
 
 const modelSelectionSchema = z.object({
   provider: z.enum(['codex', 'claude-code']),
@@ -169,6 +171,9 @@ export const PERSONAL_SETTING_SCHEMAS = {
   /** The transcript shows the tool calls between the agent's messages. */
   showToolCalls: z.boolean(),
   showDiffSummaryAfterTurn: z.boolean(),
+  /** Each settled turn keeps its changed-files card. Off shows the latest turn's
+   *  card only, until the next prompt lands. */
+  keepDiffSummaryOnEarlierTurns: z.boolean(),
   /** The composer tucks its toolbar row away while the keyboard is elsewhere. */
   collapseComposerWhenIdle: z.boolean(),
   fontFamily: fontPresetSchema('fontFamily'),
@@ -190,6 +195,8 @@ export const PERSONAL_SETTING_SCHEMAS = {
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365),
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
   sidebarView: z.enum(SIDEBAR_VIEWS).describe('How the session sidebar on desktop and web groups sessions. status: by status, with a Working section. project: one folder per project.'),
+  /** Ids, not an enum: a client keeps the ids another version knows and it does not. */
+  projectPanelHiddenItems: z.array(z.string().min(1).max(MAX_PROJECT_PANEL_ITEM_ID)).max(MAX_PROJECT_PANEL_HIDDEN_ITEMS).describe('The rows and sections that the project panel on desktop and web does not show, by id: a section (environment, git, goal, agents, webhooks) or a row kind in one (environment.terminal, git.branch, goal.budget, agents.previous, and others). Empty shows all.'),
   /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
   leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new lead session starts on. Null uses the default for new sessions.'),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
@@ -260,6 +267,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   autoRenameSessions: true,
   showToolCalls: true,
   showDiffSummaryAfterTurn: true,
+  keepDiffSummaryOnEarlierTurns: true,
   collapseComposerWhenIdle: true,
   fontFamily: 'system',
   fontSize: 16,
@@ -277,6 +285,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
   sidebarView: 'status',
+  projectPanelHiddenItems: [],
   leadModel: null,
   agentTaskLifecyclePolicy: 'moderate',
   leadInstructions: defaultLeadInstructions(DEFAULT_MODEL_ROUTING),

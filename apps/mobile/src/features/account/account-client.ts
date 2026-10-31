@@ -9,6 +9,7 @@ import {
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
 import type { z } from 'zod'
+import type { AccountSettingsResponse } from '@solus/contracts/settings'
 import { settingsCloudRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import { agentProfileCloudRequests, type AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 
@@ -80,8 +81,8 @@ export class CloudAccountClient {
    * when each call is made. Answers are decoded in client-core, the same as on desktop
    * and web; `onUnauthorized` hears a 401.
    */
-  settingsRequests(accessToken: () => Promise<string | null>, onUnauthorized: () => void): SettingsCloudRequests {
-    return settingsCloudRequests((request) => this.accountRequest(request, accessToken, onUnauthorized))
+  settingsRequests(accessToken: () => Promise<string | null>, onUnauthorized: () => void, takeStartupSettings?: () => Promise<AccountSettingsResponse | null>): SettingsCloudRequests {
+    return settingsCloudRequests((request) => this.accountRequest(request, accessToken, onUnauthorized), takeStartupSettings)
   }
 
   /** The agent profile document (plans/020-agent-profile.md §3), with the same token. */

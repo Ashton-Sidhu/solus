@@ -1,3 +1,4 @@
+import { FILE_TREE_ICONS } from "@solus/client-core/file-icons";
 import { FileTree, type GitStatusEntry } from "@pierre/trees";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type { DiffComment } from "@solus/contracts/types";
@@ -67,6 +68,7 @@ export function mountDiffFileTree({
   onSelect,
 }: MountDiffFileTreeOptions): MountedDiffFileTree {
   const tree = new FileTree({
+    icons: FILE_TREE_ICONS,
     paths,
     flattenEmptyDirectories: true,
     initialExpansion: "open",

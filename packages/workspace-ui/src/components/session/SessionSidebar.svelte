@@ -13,6 +13,7 @@
     ChartBar as ChartBarIcon,
     GitPullRequest as GitPullRequestIcon,
     Plus as PlusIcon,
+    FolderPlus as FolderPlusIcon,
     Search as MagnifyingGlassIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -24,6 +25,7 @@
     getSessionSidebarStore,
     groupKeyFor,
     hosts,
+    runtime,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -58,6 +60,12 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { sharesStore } from "../../contexts/sharing/shares.store.svelte";
   import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
+  import { writeSessionDrag } from "../../lib/session-drag";
+  import {
+    referencesForRows,
+    type ReferencedRow,
+    type SessionReferenceSources,
+  } from "./lib/session-reference";
   import { shareToast } from "../../contexts/workspace/shared-sessions";
   import { noticeUnopenableSession } from "../../contexts/sharing/unopenable-session";
   import { memberByKey } from "../users/lib/organization-people";
@@ -119,8 +127,16 @@
         y: number;
       }
     | { kind: "pinned"; pin: PinnedSession; x: number; y: number }
-    /** A shared session in the list with no conversation open here. */
-    | { kind: "listed"; row: SidebarTask; x: number; y: number }
+    /** A session in the list with no conversation open here, such as a cloud
+     *  record or a shared session. `row` is set for a top-level row. */
+    | {
+        kind: "listed";
+        sessionId: string;
+        serverId: string | null;
+        row: SidebarTask | null;
+        x: number;
+        y: number;
+      }
     | {
         kind: "pull-request";
         row: SidebarTask;
@@ -169,6 +185,7 @@
     title: string;
   }
   let snoozeTargets = $state<SnoozeTarget[]>([]);
+  let snoozeCustomTime = $state(false);
   let snoozeAnchor = $state<TaskSnoozeAnchor | null>(null);
   let taskQuery = $state("");
   let sidebarNow = $state(Date.now());
@@ -469,6 +486,34 @@
     return openRows.filter((task) => selectedTaskIds.has(task.id));
   }
 
+  const referenceSources: SessionReferenceSources = {
+    sessionFor: (tabId) => session.sessionFor(tabId),
+    serverIdFor: (tabId) => session.serverIdFor(tabId),
+    listed: (sessionId) => sessionListStore.listed(sessionId),
+  };
+
+  /** A row dragged onto an input bar becomes its session's chip there. A row
+   *  in the selection carries every selected session. Touch has no drag: its
+   *  long press opens the menu, which has "Reference in Prompt". */
+  function dragSessions(event: DragEvent, rows: readonly ReferencedRow[]) {
+    // A session listed under a row is its own drag, not the row's.
+    event.stopPropagation();
+    const references = referencesForRows(referenceSources, rows);
+    if (!event.dataTransfer || references.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    writeSessionDrag(event.dataTransfer, references);
+  }
+
+  function dragRow(event: DragEvent, task: SidebarTask) {
+    dragSessions(event, selectedTaskIds.has(task.id) ? selectedTasks() : [task]);
+  }
+
+  function dragChild(event: DragEvent, child: SidebarSessionChild) {
+    dragSessions(event, [{ tabIds: child.tabId ? [child.tabId] : [], sessionId: child.sessionId }]);
+  }
+
   async function bulkComplete() {
     const rows = selectedTasks();
     const onScreenRow = rows.find((task) =>
@@ -580,7 +625,8 @@
     );
   }
 
-  function openSnooze(target: SnoozeTarget, anchor: TaskSnoozeAnchor) {
+  function openSnooze(target: SnoozeTarget, anchor: TaskSnoozeAnchor, customTime = false) {
+    snoozeCustomTime = customTime;
     snoozeAnchor = anchor;
     snoozeTargets = [target];
   }
@@ -685,7 +731,11 @@
       onToggleDone: sessionRow ? () => void completeTask(sessionRow) : undefined,
       onSnooze:
         sessionRow && sessionRow.lifecycle !== "snoozed" && sidebarStore.canShelve(sessionRow)
-          ? () => openSnooze({ rowKey: sessionRow.key, title: sessionRow.title }, menuPoint)
+          ? (until?: number) => {
+              const target = { rowKey: sessionRow.key, title: sessionRow.title };
+              if (until !== undefined) applySnooze([target], until, "");
+              else openSnooze(target, menuPoint, true);
+            }
           : undefined,
       onArchive:
         sessionRow && sidebarStore.canArchive(sessionRow)
@@ -721,23 +771,34 @@
     event: MouseEvent | PointerEvent,
     task: SidebarTask,
   ) {
-    // A session with no conversation here has its actions on the row; a
-    // shared one also archives from the menu.
-    if (!task.tabIds[0]) {
-      if (task.share && task.sessionId) {
-        event.preventDefault();
-        event.stopPropagation();
-        sessionContextMenu = { kind: "listed", row: task, x: event.clientX, y: event.clientY };
-      }
+    if (task.tabIds[0]) {
+      openSessionContextMenu(event, { kind: "tab", tabId: task.tabIds[0] });
       return;
     }
-    openSessionContextMenu(event, { kind: "tab", tabId: task.tabIds[0] });
+    // A session with no conversation here, such as a cloud record, gets the
+    // menu of its session id.
+    if (task.sessionId) openListedContextMenu(event, task.sessionId, task.serverId, task);
+  }
+
+  function openListedContextMenu(
+    event: MouseEvent | PointerEvent,
+    sessionId: string,
+    serverId: string | null,
+    row: SidebarTask | null,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    sessionContextMenu = { kind: "listed", sessionId, serverId, row, x: event.clientX, y: event.clientY };
   }
 
   function openChildContextMenu(
     event: MouseEvent | PointerEvent,
     child: SidebarSessionChild,
   ) {
+    if (!child.tabId && child.sessionId) {
+      openListedContextMenu(event, child.sessionId, child.serverId, null);
+      return;
+    }
     openSessionContextMenu(event, { kind: "tab", tabId: child.tabId ?? null });
   }
 
@@ -807,6 +868,8 @@
       })}
     onSelectSession={selectSession}
     onMoreSession={openChildContextMenu}
+    onDragRow={runtime.isTouchDevice ? undefined : (event) => dragRow(event, task)}
+    onDragSession={runtime.isTouchDevice ? undefined : dragChild}
     onCloseSession={removeChild}
   />
 {/snippet}
@@ -1029,7 +1092,18 @@
         {/if}
       </label>
     {/snippet}
-    {#snippet newDraft()}
+    {#snippet sidebarActions()}
+      {#if !isGuest}
+        <button
+          type="button"
+          class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+          aria-label="Add project"
+          title="Add project"
+          onclick={() => window.dispatchEvent(new CustomEvent("solus:open-project"))}
+        >
+          <FolderPlusIcon class="size-4" />
+        </button>
+      {/if}
       {#if hosts.runOn?.me.may("host.sessions.start") ?? true}
       <button
         type="button"
@@ -1042,7 +1116,7 @@
           onSessionSelect?.();
         }}
       >
-        <PlusIcon size={15} class="pointer-coarse:size-[15px]" />
+        <PlusIcon class="size-4" />
       </button>
       {/if}
     {/snippet}
@@ -1051,7 +1125,7 @@
       projectChoices={sidebarStore.projectFilterChoices}
       onFilter={filterToProject}
       leading={taskSearch}
-      trailing={newDraft}
+      trailing={sidebarActions}
     />
   </div>
 
@@ -1076,6 +1150,7 @@
             .filter((row) => sidebarStore.canShelve(row))
             .map((row) => ({ rowKey: row.key, title: row.title }));
           if (!targets.length) return;
+          snoozeCustomTime = false;
           snoozeAnchor = event.currentTarget;
           snoozeTargets = targets;
         }}>Snooze…</button
@@ -1264,9 +1339,9 @@
     <SessionContextMenu
       x={sessionContextMenu.x}
       y={sessionContextMenu.y}
-      sessionId={listedRow.sessionId}
-      serverId={listedRow.serverId}
-      rowActions={listedRowActions(listedRow)}
+      sessionId={sessionContextMenu.sessionId}
+      serverId={sessionContextMenu.serverId}
+      rowActions={listedRow ? listedRowActions(listedRow) : null}
       onClose={closeSessionContextMenu}
     />
   {:else if sessionContextMenu.kind === "pull-request"}
@@ -1298,6 +1373,7 @@
 
 {#if snoozeTargets.length > 0 && snoozeAnchor}
   <SnoozeTaskMenu
+    customTime={snoozeCustomTime}
     anchor={snoozeAnchor}
     taskTitle={snoozeTargets.length === 1
       ? snoozeTargets[0].title

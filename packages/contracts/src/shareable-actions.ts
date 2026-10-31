@@ -27,7 +27,7 @@ export const SHAREABLE_SESSION_ACTIONS = {
   'read.diffs': { label: 'See changes', detail: 'The diffs the agent made', linkDefault: true },
   'read.files': { label: 'See files', detail: 'Every file in the session’s checkout', linkDefault: false },
   'drive.propose': { label: 'Suggest messages', detail: 'Someone who can prompt sends or dismisses each one', linkDefault: true },
-  'drive.prompt': { label: 'Prompt directly', detail: 'Send turns, stop them, and change the queue', linkDefault: false },
+  'drive.prompt': { label: 'Prompt directly', detail: 'Send turns, stop them, and change the queue. Turns run on your login', linkDefault: false },
   'drive.attach': { label: 'Attach files', detail: 'With a suggestion or a prompt', linkDefault: true, requiresAny: ['drive.propose', 'drive.prompt'] },
   'drive.approve': {
     label: 'Approve tools and answer questions',

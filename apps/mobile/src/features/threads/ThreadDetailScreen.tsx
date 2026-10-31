@@ -7,7 +7,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/routes";
 import * as Haptics from "expo-haptics";
 import { hostReadinessCopy, type HostReadinessState } from "@solus/client-core/host-readiness";
-import { isSessionBusyStatus, type SessionOrigin, type SessionStatus } from "@solus/contracts/types";
+import { isSessionBusyStatus, type SessionStarterFromHost, type SessionStatus } from "@solus/contracts/types";
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -44,6 +44,7 @@ import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import { permissionForFeedback } from "../conversation/lib/transcript-model";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { PendingSecretCard } from "./PendingSecretCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { AgentPlanCard } from "./ThreadPlanCard";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
@@ -85,7 +86,7 @@ export interface ThreadDetailScreenProps {
   /** The readiness of this thread's host, not of any other host. */
   readonly hostReadiness: HostReadinessState;
   readonly historyControls?: ThreadFeedHistoryControls;
-  readonly startedBy?: SessionOrigin | null;
+  readonly startedBy?: SessionStarterFromHost | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
 }
@@ -446,6 +447,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     },
     [activeUserInputRequestId, store],
   );
+  const answerSecretRequest = useCallback(
+    async (values: (string | null)[]) => {
+      if (activeUserInputRequestId === null) return;
+      setRespondingRequestId(activeUserInputRequestId);
+      await (async () => {
+        await store.controller.answerSecretRequest(activeUserInputRequestId, values);
+      })().finally(() => {
+        setRespondingRequestId(null);
+      });
+    },
+    [activeUserInputRequestId, store],
+  );
 
   // A sleeping thread takes no touch, so it offers no jump to its end.
   const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled && !hostChrome.isAsleep;
@@ -609,7 +622,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       onRespond={answerPermission}
                     />
                   ) : null}
-                  {activePendingUserInput ? (
+                  {activePendingUserInput?.kind === "secret" ? (
+                    <PendingSecretCard
+                      key={activePendingUserInput.questionId}
+                      request={activePendingUserInput}
+                      maxHeight={pendingUserInputMaxHeight}
+                      responding={respondingRequestId === activePendingUserInput.questionId}
+                      mayDrive={mayApprove}
+                      onSubmit={answerSecretRequest}
+                    />
+                  ) : activePendingUserInput ? (
                     <PendingUserInputCard
                       key={activePendingUserInput.questionId}
                       pendingUserInput={activePendingUserInput}

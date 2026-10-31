@@ -7,6 +7,7 @@
   import ConversationTurn from "./ConversationTurn.svelte";
   import VirtualTranscript from "./VirtualTranscript.svelte";
   import SessionOriginDivider from "./SessionOriginDivider.svelte";
+  import { hostStarterOf } from "@solus/contracts/session-starter";
   import PendingHandoffDivider from "./PendingHandoffDivider.svelte";
   import { revealTranscriptMatch } from "./lib/transcript-navigation";
   import { SearchMessageNavigation } from "./lib/search-message-navigation.svelte";
@@ -46,6 +47,7 @@
 
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
+  import { turnSnapshotFor } from "./lib/turn-snapshot";
   import ConversationMinimap from "./ConversationMinimap.svelte";
   import { FindBar } from "../ui/find-bar";
   import { createNavItemBuilder } from "./lib/minimap";
@@ -119,6 +121,7 @@
 
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
+  const hostStarter = $derived(hostStarterOf(sess?.startedBy));
   // §16 — a turn collapses to one row when it ends. Until then it renders the
   // transcript it always did, in the order it happened.
   const isTurnLive = $derived(runIsLive(sess?.status));
@@ -427,24 +430,6 @@
     endFollow?.release();
     await virtualizer.reveal(turnId);
   }
-  $effect(() => {
-    // A hidden pool view doesn't need its work content eagerly hydrated — load
-    // on activation.
-    if (!isVisible) return;
-    for (const segment of transcript.segments) {
-      for (const item of segment.grouped) {
-        if (item.kind !== "document") continue;
-        for (const message of item.messages) {
-          const workId = message.workRef?.workId;
-          // Skip provisional (streaming) ids — their content lives in the store and
-          // there is nothing to load from disk yet.
-          if (workId && !session.worksStore.streaming[workId]) {
-            void session.worksStore.ensureContent(workId, "conversation-view");
-          }
-        }
-      }
-    }
-  });
 
   // Screen readers hear a turn start, wait, and end. A phase is only seen as it
   // arrives, so this cannot be a $derived of the current status.
@@ -552,26 +537,19 @@
   }
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
-  const latestTurnSnapshot = $derived(
-    sess ? session.lifecycle.turnSnapshots[sess.id]?.at(-1) : undefined,
+  // Each settled turn keeps its own closing summary: what that run touched. It
+  // stays with the turn when the next prompt lands, and the next turn gets its own.
+  const turnSnapshots = $derived(
+    sess ? (session.lifecycle.turnSnapshots[sess.id] ?? []) : [],
   );
-  const latestTurnScope = $derived(
-    latestTurnSnapshot
-      ? ({ kind: "turn", index: latestTurnSnapshot.index } as const)
-      : null,
-  );
-  // The turn's closing summary: what the run touched, standing at the end of the
-  // transcript while the user is still only reading it. It steps aside when the
-  // next ask actually lands in the transcript — not on the first keystroke,
-  // because the summary is usually what the composer is being typed *about*.
-  const hasAskedAgain = $derived(sess?.messages.at(-1)?.role === "user");
-  const showTurnDiffSummary = $derived(
-    settings.showDiffSummaryAfterTurn &&
-      !isTurnLive &&
-      !hasAskedAgain &&
-      latestTurnSnapshot !== undefined &&
-      latestTurnSnapshot.filesChanged > 0,
-  );
+  // Snapshots otherwise load when a live turn settles, so a conversation opened
+  // from history asks for its own once.
+  $effect(() => {
+    if (!settings.showDiffSummaryAfterTurn || !sess?.agentSessionId) return;
+    if (sess.id in session.lifecycle.turnSnapshots) return;
+    const sessionId = sess.id;
+    untrack(() => void session.lifecycle.refreshTurnSnapshots(sessionId));
+  });
 
   useKeybinding("conversation.find", () => openFind(), {
     enabled: () => tabId === session.focusedChatTabId,
@@ -783,8 +761,8 @@
             </div>
           {/if}
 
-          {#if sess.startedBy && !hasOlderTurnsToLoad}
-            <SessionOriginDivider origin={sess.startedBy} />
+          {#if hostStarter && !hasOlderTurnsToLoad}
+            <SessionOriginDivider origin={hostStarter} />
           {/if}
 
           <VirtualTranscript {tabId}
@@ -804,6 +782,23 @@
                 onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
                 serverId={runHost(sess.run)} {transcriptItem}
                 settledSetupCard={turnIdx === turns.length - 1 && sess.statusCard?.status === "done" ? sess.statusCard : undefined} />
+              {#if settings.showDiffSummaryAfterTurn}
+                {@const snapshot = turnSnapshotFor(turns, turnIdx, turnSnapshots, !settings.keepDiffSummaryOnEarlierTurns)}
+                {#if snapshot && snapshot.filesChanged > 0}
+                  {@const scope = { kind: "turn", index: snapshot.index } as const}
+                  <!-- Stands off the turn it reports on: the summary is a footnote to
+                       the turn's last message, not the next line of it. -->
+                  <div class="flex justify-center pt-3">
+                    <DiffSummaryCard
+                      {tabId}
+                      {scope}
+                      onOpenDiff={(filePath) => session.showDiff(tabId, scope, filePath)}
+                      onOpenFile={(filePath) =>
+                        session.openFileInFiles({ path: filePath }, tabId)}
+                    />
+                  </div>
+                {/if}
+              {/if}
             {/snippet}
           </VirtualTranscript>
 
@@ -839,8 +834,11 @@
 
           {#if sess.questionQueue.length > 0}
             {#if sess.questionQueue[0].kind === "secret"}
-              <!-- A request_secret card: answered with secretRequestAnswer, never respondQuestion. -->
-              <SecretRequestCard tabId={tab.id} request={sess.questionQueue[0]} />
+              <!-- A request_secret card: answered with secretRequestAnswer, never respondQuestion.
+                   Keyed so the next card starts with empty fields. -->
+              {#key sess.questionQueue[0].questionId}
+                <SecretRequestCard tabId={tab.id} request={sess.questionQueue[0]} />
+              {/key}
             {:else}
               <QuestionCard
                 tabId={tab.id}
@@ -884,21 +882,6 @@
           <SuggestionGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->
           <ComposingLine serverId={runHost(sess.run)} sessionId={sess.id} />
-
-          {#if showTurnDiffSummary && latestTurnScope}
-            <!-- Stands off the turn it reports on: the summary is a footnote to
-                 the last message, not the next line of it. -->
-            <div class="flex justify-center pt-3 animate-msg-in-up">
-              <DiffSummaryCard
-                {tabId}
-                scope={latestTurnScope}
-                onOpenDiff={(filePath) =>
-                  session.showDiff(tabId, latestTurnScope, filePath)}
-                onOpenFile={(filePath) =>
-                  session.openFileInFiles({ path: filePath }, tabId)}
-              />
-            </div>
-          {/if}
 
           {#if showSessionActions}
             <div class="min-h-12"></div>

@@ -1,5 +1,7 @@
 <script lang="ts">
-  import ReasoningEffortIcon from "./ReasoningEffortIcon.svelte";
+  import { checkoutGit } from "../../contexts/workspace/run-location";
+  import { agentForProject } from "@solus/contracts/provider-instance-models";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
   import { untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import { solusToolsStore } from "../settings/solus-tools.store.svelte";
@@ -13,7 +15,7 @@
   } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
-  import { getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import {
     REASONING_EFFORT_LABELS,
@@ -44,6 +46,7 @@
   } from "./lib/picker-selection";
 
   const session = getWorkspaceContext();
+  const settings = getSettingsContext();
   const agentContext = getAgentContext();
   const statusBar = getStatusBarContext();
 
@@ -61,9 +64,6 @@
     /** Model-only settings still use the shared provider/model picker, but do
      *  not expose reasoning effort that their setting cannot persist. */
     modelOnly?: boolean;
-    /** Draw the reasoning effort as a glyph instead of its word: the composer
-     *  row, where every setting is an icon. */
-    effortAsIcon?: boolean;
     /** Offer Auto in a model-only picker. Only a setting whose value seeds a new
      *  session may: Auto routes a first prompt, so nothing already running can
      *  take it. */
@@ -94,7 +94,6 @@
     isPrimary = false,
     menuSide = "top",
     modelOnly = false,
-    effortAsIcon = false,
     allowAuto = false,
     allowFastMode = true,
     agents,
@@ -121,8 +120,10 @@
   const activeAgent = $derived(selection?.provider ?? ctx.activeAgent);
 
   const metadata = $derived.by(() => {
-    if (!agents) return agentContext.metadata;
-    const entries = agents.map((agent) => [agent.id, agent] as const);
+    const hostId = serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined);
+    const hostAgents = agents ?? (hostId ? hosts.get(hostId).machineInfo?.agents : undefined);
+    if (!hostAgents) return agentContext.metadata;
+    const entries = hostAgents.map((agent) => [agent.id, agentForProject(agent, modelOnly ? undefined : checkoutGit(sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined))?.repoRoot ?? ctx.workingDirectory)] as const);
     return Object.fromEntries(entries);
   });
 
@@ -152,7 +153,7 @@
     if (targetServerId) return untrack(() => solusToolsStore.watch(targetServerId));
   });
   const autoNeedsKey = $derived(!!autoServerId && solusToolsStore.isTypeSafeKeyMissing(autoServerId));
-  const defaultModel = $derived(modelMeta?.defaultModel ?? models[0]?.id ?? null);
+  const defaultModel = $derived(defaultModelIdFor(activeAgent, metadata, settings.defaultModels[activeAgent], canRoute || routeInModelColumn) ?? models[0]?.id ?? null);
   const currentModelId = $derived(
     selection
       ? (selection.modelId ?? defaultModel)
@@ -168,7 +169,7 @@
     selection?.reasoningEffort ?? ctx.reasoningEffort,
   );
   const reasoningLevels = $derived(
-    isAuto ? reasoningLevelsFor(activeAgent, defaultModel) : detached ? reasoningLevelsFor(activeAgent, currentModelId) : ctx.reasoningLevels,
+    isAuto ? reasoningLevelsFor(activeAgent, defaultModel, modelMeta) : detached ? reasoningLevelsFor(activeAgent, currentModelId, modelMeta) : ctx.reasoningLevels,
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
   const fastMode = $derived(selection?.fastMode ?? ctx.fastMode);
@@ -198,7 +199,7 @@
   let hoveredLevel: ReasoningEffort | null = $state(null);
   const previewReasoning = $derived(
     hoveredModelId && hoveredModelId !== currentModelId
-      ? defaultReasoningFor(activeAgent, hoveredModelId)
+      ? defaultReasoningFor(activeAgent, hoveredModelId, modelMeta)
       : null,
   );
   // The model the Reasoning column belongs to. Once the cursor is on a level,
@@ -212,7 +213,7 @@
   // The right column tracks whatever model is under the cursor — otherwise the
   // preview check can land on a level that model doesn't offer.
   const shownReasoningLevels = $derived(
-    hoveredModelId ? reasoningLevelsFor(activeAgent, hoveredModelId) : reasoningLevels,
+    hoveredModelId ? reasoningLevelsFor(activeAgent, hoveredModelId, modelMeta) : reasoningLevels,
   );
   // Models offer different numbers of levels (Haiku 4, Sonnet 5, Opus 7), so the
   // column is held at the deepest set on offer. Without the reservation the menu
@@ -221,7 +222,7 @@
   const reservedLevelRows = $derived(
     models.reduce(
       (deepest, model) =>
-        Math.max(deepest, reasoningLevelsFor(activeAgent, model.id).length),
+        Math.max(deepest, reasoningLevelsFor(activeAgent, model.id, modelMeta).length),
       reasoningLevels.length,
     ),
   );
@@ -282,13 +283,15 @@
   function selectAgent(id: AgentId) {
     // The menu stays up across the switch, so the disclosure has to follow the
     // model the new agent lands on rather than keep the old agent's answer.
-    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata));
+    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn));
     if (selection && !draftId) {
-      const modelId = defaultModelIdFor(id, metadata);
+      const modelId = defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn);
       selection.provider = id;
       selection.modelId = modelId;
-      selection.reasoningEffort = clampReasoningEffort(id, modelId, selection.reasoningEffort);
-      if (!supportsFastModeFor(id, modelId)) selection.fastMode = false;
+      const run = sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined);
+      const config = session.config.modelConfigFor(id, modelId, run);
+      selection.reasoningEffort = modelId === AUTO_MODEL_ID ? "medium" : config.reasoningEffort;
+      selection.fastMode = modelId !== AUTO_MODEL_ID && config.fastMode;
       onSelectionChange?.(selection);
       return;
     }
@@ -467,17 +470,8 @@
              the same as the permission chip beside it. -->
         <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
-          <!-- In a composer the effort is a glyph, its level in the filled
-               bars and its name in the chip's tooltip. Elsewhere, Settings
-               for one, the word stays: there is room, and nothing beside it
-               to read the bars against. -->
-          <span class="flex-shrink-0 text-(--solus-text-tertiary)" title={effortAsIcon ? reasoningLabel : undefined}>
-            {#if effortAsIcon}
-              <ReasoningEffortIcon effort={reasoningEffort} size={14} />
-            {:else}
-              {reasoningLabel}
-            {/if}
-          </span>
+          <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
+          <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
         {/if}
         <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
              call site sets a width floor, keeping the caret on the edge. -->
@@ -657,7 +651,7 @@
           </DropdownMenu.RadioGroup>
           <div class="min-h-2 flex-1"></div>
           <DropdownMenu.Separator />
-          {#if allowFastMode && isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId)}
+          {#if allowFastMode && isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId, modelMeta)}
             <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary)">
               <span class="min-w-0 flex-1 text-(--solus-text-tertiary)">Fast mode</span>
               <Switch

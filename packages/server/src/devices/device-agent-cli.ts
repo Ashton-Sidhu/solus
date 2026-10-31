@@ -48,9 +48,9 @@ export function agentDeviceConfigPath(dir: string, agentSession: string): string
 }
 
 /** Write the CLI config for one binding atomically, readable only by the host user. */
-export async function writeAgentDeviceConfig(file: string, bridgeUrl: string, token: string): Promise<void> {
+export async function writeAgentDeviceConfig(file: string, bridgeUrl: string, token: string, stateDir?: string): Promise<void> {
   await mkdir(join(file, '..'), { recursive: true, mode: 0o700 })
-  const content = JSON.stringify({ daemonBaseUrl: bridgeUrl, daemonAuthToken: token, daemonTransport: 'http' })
+  const content = JSON.stringify({ daemonBaseUrl: bridgeUrl, daemonAuthToken: token, daemonTransport: 'http', stateDir })
   if ((await readFile(file, 'utf8').catch(() => '')) === content) return
   const temporary = `${file}.${process.pid}.tmp`
   await writeFile(temporary, content, { mode: 0o600 })

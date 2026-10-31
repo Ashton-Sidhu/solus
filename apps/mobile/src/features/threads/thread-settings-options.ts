@@ -38,6 +38,7 @@ export interface ModelOption {
 
 export interface ProviderGroup {
   readonly providerKey: AgentId
+  readonly modelProfiles?: AgentMetadata['modelProfiles']
   readonly providerLabel: string
   readonly models: ReadonlyArray<ModelOption>
   /** Why this agent cannot be picked now; null when it can. */
@@ -95,6 +96,7 @@ export function buildProviderGroups(input: {
       const models = hostAgent?.models ?? Object.entries(MODEL_PROFILES[provider.id] ?? {}).map(([id, profile]) => ({ id, label: profile.label }))
       return {
         providerKey: provider.id,
+        modelProfiles: hostAgent?.modelProfiles,
         providerLabel: provider.label,
         unavailableReason: agentUnavailableReason({ provider: provider.id, currentProvider: input.currentProvider, agents: input.agents }),
         models: models.map(({ id: model, label }) => ({

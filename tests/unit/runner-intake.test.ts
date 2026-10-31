@@ -127,7 +127,7 @@ describe('runner intake', () => {
     // Another host of the same organization has its own cursor.
     const other = principalModule.runnerPrincipalFor({ hostId: 'runner-2', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
     expect(await deliver([{ seq: 1, kind: 'session', payload: { sessionId: 's2', provider: 'codex', projectPath: '-repo', lastActivityAt: 1 } }], other)).toEqual({ lastSeq: 1, failed: [] })
-    expect((await records.listSessionRecords('org1')).map((record) => record.sessionId).sort()).toEqual(['s0', 's1', 's2'])
+    expect([...(await records.getSessionRecords('org1', ['s0', 's1', 's2'])).keys()].sort()).toEqual(['s0', 's1', 's2'])
     expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
   })
 

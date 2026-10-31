@@ -124,10 +124,26 @@ when a person reads, with the same match as the list and the access check.
   is `session.shared:<entry id>:<granted at>`, so a repeated read writes
   nothing and a higher role writes a new row. The rows then have the hub's
   normal read and archive state. A person who joins a team later gets the
-  team's recent shares the same way, and not its whole history.
-- `share.changed` does not change. The client reads the list again on it. A
-  shared row with a `grantedAt` newer than what this client saw before
-  shows the toast (§5).
+  team's recent shares the same way, and not its whole history. Only the
+  session's home writes these rows, the same home a client reads the
+  session's list from (`sessionHomeId`): the organization's Solus API for a
+  published organization session, the machine for any other. A client reads
+  the hub of both, so a row at each would show the share twice. The event id
+  is `session.shared:<session>:<subject kind>:<subject id>:<granted at>`, not
+  a row id: a Solus API writes a runner's share rows again, with new ids,
+  each time they arrive.
+- A share that gives a person a session, or a higher role on it, sends
+  `notifications.changed` to that person, so their client reads the hub at
+  once and the read writes the notice. A team share sends nothing: a host does
+  not know the team's members. They find the notice on their next read (the
+  window comes to the front, a reconnect, or Notifications opens).
+- `share.changed` does not change. The client reads that one session again on
+  it (`sessionRecordGet`): the row joins, changes, or leaves the list.
+  The client also reads the list again when a hub source's unread count goes
+  up (`onUnreadRose`), because a new notice can be a share. A shared row with a
+  `grantedAt` newer than what this client saw before shows the toast (§5). So
+  the row and the toast come with the notice, also when `share.changed` does
+  not reach the client.
 - Removed access uses `removedUserIds` as it does today, and the host writes
   a `session.unshared` notification for each of them, so that the notice
   stays after the toast. A removed team entry names nobody
@@ -159,7 +175,7 @@ state.
   have not opened shows the unread dot (`UnreadDot.svelte`).
 - The context menu has **Archive**. The archived session is in the session
   picker, as for your own session.
-- `SessionListStore` reads the list again on a `share.changed` for a session.
+- `SessionListStore` reads the session again on a `share.changed` for it.
 - When that read adds a shared row with a newer `grantedAt`, a toast shows
   "`<name>` shared `<title>` with you · Can edit". It has one action, **Open**.
   It does not take focus from the composer.
@@ -207,7 +223,6 @@ Client tests on `session-sidebar.store`:
 - A listed session with another `ownerKey` is in `sharedRows` and not in
   `sessionRows` or `workingRows`, also when it is running and when its tab is
   open.
-- A shared child of your own task stays in the task row.
 
 ## 10. Decisions (maintainer, 2026-10-27)
 
@@ -225,6 +240,11 @@ Client tests on `session-sidebar.store`:
 ## 12. As built (2026-10-28)
 
 Where the code differs from the sections above, the code and this section win.
+
+- **Personal completion removes a shared session from the sidebar.** This
+  applies on desktop, web, and mobile, including an open session. Undo or
+  marking it active in the session picker returns it. A shared settle by its
+  task or pull requests does not remove it from the reader's list.
 
 - **A client finds a shared session by its role.** A host answers `owner`
   only to the session's owner (`standingOf`), so a role other than `owner`

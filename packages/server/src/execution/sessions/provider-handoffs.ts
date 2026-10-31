@@ -104,7 +104,8 @@ export class ProviderHandoffs {
   /** Builds the handoff once to check that it fits the incoming model before the switch is committed. */
   async assertHandoffFits(threadId: string, sourceProvider: AgentId, target: SessionRunInput, nextPrompt: string, status: SessionStatus | undefined): Promise<void> {
     await this.handoffBuilder(threadId, target.projectPath, {
-      loadSession: async (id, path) => this.handoffCarry.merge(id, await this.rt.history.loadSession(sourceProvider, id, path)),
+      loadPage: (id, path, turnLimit, before) => this.rt.history.loadHandoffPage(sourceProvider, id, path, turnLimit, before),
+      loadFirstTurn: (id, path) => this.rt.history.loadHandoffFirstTurn(sourceProvider, id, path),
       fromProvider: sourceProvider, targetProvider: target.provider, targetModel: target.model,
       contextWindow: target.contextWindow, nextPrompt: nextPrompt + target.extraInstructions,
       historyTokens: target.executionPreferences?.handoffHistoryTokens ?? DEFAULT_EXECUTION_PREFERENCES.handoffHistoryTokens,

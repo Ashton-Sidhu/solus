@@ -48,6 +48,22 @@ function layout(threads: SolusThreadShell[], facts: ThreadListV2Facts = NO_FACTS
 }
 
 describe('Shared with you group', () => {
+  test('personal completion removes even the selected shared row, and Undo returns it', () => {
+    const thread = shell('shared', sharedRecord('shared', NOW))
+    const completed: ThreadListV2Facts = {
+      ...NO_FACTS,
+      views: new Map([[thread.key, { ...EMPTY_SESSION_VIEW, settledAt: NOW }]]),
+    }
+    expect(layout([thread], completed)).toEqual([])
+    const selected = buildThreadListV2Items({ threads: [thread], facts: completed, hostId: null, searchQuery: '', now: NOW, selectedThreadKey: thread.key })
+    expect(selected.items).toEqual([])
+    expect(selected.sharedCount).toBe(0)
+    expect(layout([thread], { ...NO_FACTS, views: new Map([[thread.key, EMPTY_SESSION_VIEW]]) }))
+      .toEqual(['v2-shared-section', 'shared'])
+    // A fresh read carries the same personal completion on the record.
+    expect(layout([shell('shared', { ...thread.record, view: { ...EMPTY_SESSION_VIEW, settledAt: NOW } })])).toEqual([])
+  })
+
   test('another person\'s session is in Shared with you, after the active rows and before the shelves, and in no other group', () => {
     // WHY: the owner decides the group (§2 rule 1): a shared session that is
     // working, snoozed, or settled must not mix with the reader's own work.

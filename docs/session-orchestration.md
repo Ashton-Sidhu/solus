@@ -7,7 +7,7 @@ orchestrator in `packages/server/src/execution/orchestration/`.
 
 ## What the user sees
 
-- **A card for each other session.** When an agent calls `start_session` or
+- **A card for each other session.** When an agent calls `delegate_task`, `start_session`, or
   `send_session`, a card appears in its conversation before the other session
   can answer. The card shows each message and its reply. On a reload, every
   client rebuilds the same card from the transcript.
@@ -104,17 +104,17 @@ before A receives B's final result. Queued child reports also keep the parent
 request open. Reported requests to an ancestor are refused to prevent a cycle;
 use `report=false` for an ordinary update to an ancestor.
 
-`start_session` and `send_session` accept an optional `request_id`. A retry
+`delegate_task`, `start_session`, and `send_session` accept an optional `request_id`. A retry
 with the same ID and the same work returns the original exchange. Different
 work with the same ID is refused. The key belongs to the calling session and
 is kept for thirty days after a closed request. Use a new key for each review
 round. The wait duration can change on a retry.
 
-Use provider-native agents for work the current provider can run with the
-needed model. Use Solus sessions for another provider or model, or for durable
-work that must remain visible across turns. Give each worker the full brief,
+Use `delegate_task` for child work on either provider. Native subagents remain
+available for provider-specific features such as context inheritance. Use
+`start_session` for an independent conversation. Give each child the full brief,
 choose its checkout before starting it, and inspect its result before reporting
-completion. Critical guidance is loaded with `start_session`; workers also get
+completion. Critical guidance is loaded with `delegate_task`; workers also get
 these completion rules in their system instruction.
 
 Both providers receive shared orchestration guidance when session tools are
@@ -167,7 +167,8 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 
 | Tool | Does |
 | --- | --- |
-| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. `title` (up to 120 characters) names the session and its card; without it the host names it from the prompt (see `session-titles.md`). `host` starts it on another of the owner's hosts (see below). |
+| `delegate_task` | Creates a durable child session on either provider. Reports default on; the parent waits for reported child work and Stop reaches its active children. `isolation` selects a shared checkout or a new worktree. Local children inherit an existing task; `task_id: null` opts out. Use `send_session` for follow-up. |
+| `start_session` | Creates an independent conversation. Reports default off. It does not hold its caller open or belong to the caller's stop tree. Optional `task: attempt` joins an existing task; the default is `none`. Both launch tools accept `title`, attachments, `request_id`, `wait_seconds` (up to 600), and `host`. Models inherit on the same provider; another provider uses its default model. Permission mode can be inherited or narrowed. |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on `start_session`) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
@@ -178,7 +179,7 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 
 ### Sessions on another host
 
-`start_session` can take `host`: a host id or name from `list_agent_targets`.
+Both `delegate_task` and `start_session` can take `host`: a host id or name from `list_agent_targets`.
 The session starts on that host as if the owner started it there. The other
 host shows "Started by an agent on <host>" at the top of the session, on every
 client. This host reaches the other host in one of two ways:
@@ -290,7 +291,7 @@ With `wait_seconds`, a report that arrives in time is the call's result and is
 not queued again; a notice ends the wait at once; when the time runs out the
 call returns and the session keeps going.
 
-How to orchestrate is described once, in `start_session`'s description, next to
+How to orchestrate is described once, in `delegate_task`'s description, next to
 the capability (the rule in `agents/system-hint.ts`). A turn that answers
 another session's message is asked, in its system prompt, to end with a summary
 of what it did, what it produced and what is still open.
@@ -359,3 +360,5 @@ interval can leave a held, uncertain turn that the author must inspect.
 - **Rate limits.** A run that answers another session's message always waits in
   its queue for the reset, never on a decision in the child's tab, where nobody
   is looking.
+
+See [Agent delegation](plans/agent-delegation.md) for the ownership boundary and retained Solus features.

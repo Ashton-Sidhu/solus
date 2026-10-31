@@ -143,6 +143,11 @@ async function readDelegatedSessions(scope: RecordScope, sessionId: string): Pro
   return found
 }
 
+/** Read only this session's links, without traversing delegated sessions. */
+export async function readOwnSessionArtifacts(scope: RecordScope, sessionId: string): Promise<SessionArtifact[]> {
+  return (await readArtifactsBySession(scope, [sessionId])).get(sessionId) ?? []
+}
+
 /** The session's own artifacts, then one group for each session below it in its delegation tree. */
 export async function readSessionArtifacts(scope: RecordScope, sessionId: string): Promise<SessionArtifacts> {
   const children = await readDelegatedSessions(scope, sessionId)

@@ -2,6 +2,7 @@
 /** Android draws each tab's own Material header (HomeHeader, PullRequestsHeader). */
 export function WorkspaceToolbar(_props: {
   readonly onOpenSettings: () => void;
+  readonly onAddProject?: () => void;
 }) {
   return null;
 }

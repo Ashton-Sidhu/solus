@@ -28,7 +28,7 @@
 <dialog
   bind:this={dialog}
   aria-label={label}
-  class="m-auto h-[min(85dvh,60rem)] w-[min(90vw,80rem)] max-w-none overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/70"
+  class="m-auto h-[min(85dvh,60rem)] w-[min(90vw,80rem)] max-w-none overflow-hidden rounded-xl border border-border bg-background p-0 text-foreground shadow-xl backdrop:modal-backdrop"
   {onclose}
   onclick={(event) => { if (event.target === dialog) dialog.close(); }}
 >

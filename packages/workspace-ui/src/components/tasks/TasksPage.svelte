@@ -31,7 +31,6 @@
   import TaskProviderPicker from "./provider/TaskProviderPicker.svelte";
   import type { TaskProviderChoice } from "./provider/lib/task-provider";
   import {
-    atlassianStore,
     getSurfaceContext,
     getProjectConfigStore,
     getSessionSidebarStore,
@@ -40,6 +39,7 @@
     serversStore,
     workspaceProjectsStore,
   } from "../../contexts";
+  import { atlassianStore } from "../../contexts/atlassian/atlassian.store.svelte";
   import { isRepositoryKey } from "@solus/contracts/repository-key";
   import { Button } from "../ui/button";
   import { toasts } from "../../lib/toasts";

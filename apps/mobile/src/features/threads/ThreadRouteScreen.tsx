@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/ThreadRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { isChat } from "@solus/contracts/chat";
+import { isChat, placeOfFolder } from "@solus/contracts/chat";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import { allSessionArtifacts } from "@solus/contracts/session-artifacts";
 import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
@@ -169,7 +169,8 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
       faviconRoot={threadFaviconRoot(
         "record" in target
           ? (shell?.record ?? target.record)
-          : { projectPath, cwd: target.newSession.workingDirectory },
+          // A new session has no record yet: its folder says whether it is a chat.
+          : { projectPath, cwd: target.newSession.workingDirectory, place: placeOfFolder(target.newSession.workingDirectory) },
         null,
       )}
     />

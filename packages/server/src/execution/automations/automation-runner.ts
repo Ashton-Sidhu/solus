@@ -21,6 +21,8 @@ export type AutomationBackgroundSessionDispatcher = (opts: {
   prompt: string
   automationId: string
   automationName: string
+  /** The run that starts the session, which the session's record names (session-starter.md). */
+  runId: string
   provider: AgentId
   modelId: string | null
   reasoningEffort: ReasoningEffort
@@ -231,6 +233,7 @@ async function executeRunAs(automation: Automation, run: AutomationRun, entry: A
       prompt,
       automationId: automation.id,
       automationName: automation.name,
+      runId,
       provider: action.agentProvider,
       modelId: action.modelId,
       reasoningEffort: action.reasoningEffort,

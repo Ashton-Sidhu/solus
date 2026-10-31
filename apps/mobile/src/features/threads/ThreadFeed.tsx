@@ -67,7 +67,7 @@ import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
 import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
-import type { SessionOrigin } from "@solus/contracts/types";
+import type { SessionStarterFromHost } from "@solus/contracts/types";
 import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
@@ -115,7 +115,7 @@ export interface ThreadFeedProps {
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
   /** The agent session on another host that started this one; shown above the first message. */
-  readonly startedBy?: SessionOrigin | null;
+  readonly startedBy?: SessionStarterFromHost | null;
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   readonly handoffPending?: boolean;
   /** The host is away and the thread sleeps under its veil (`threadHostChrome`): no placeholder shows. */
@@ -516,7 +516,7 @@ function ThreadFeedPlaceholder(props: {
 function ThreadFeedListHeader(props: {
   readonly searchMessageStatus?: string | null;
   readonly historyControls?: ThreadFeedHistoryControls;
-  readonly startedBy?: SessionOrigin | null;
+  readonly startedBy?: SessionStarterFromHost | null;
   readonly iconSubtleColor: ColorValue;
 }) {
   if (props.searchMessageStatus) return <Text accessibilityLiveRegion="polite" className="px-5 py-3 text-sm text-foreground-muted">{props.searchMessageStatus}</Text>;

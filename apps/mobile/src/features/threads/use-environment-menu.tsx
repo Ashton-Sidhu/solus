@@ -23,7 +23,7 @@ export function useEnvironmentMenu(input: {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Read per render, so a route reused for another session never shows this one's choice.
   const [, setChoiceVersion] = useState(0);
-  return environmentViewMenu(
+  const menu = environmentViewMenu(
     phoneEnvironmentFacts({
       chosen: chosenEnvironmentView(hostId, sessionId),
       artifactCount: artifacts.kind === "ready" ? allSessionArtifacts(artifacts.artifacts).length : 0,
@@ -36,4 +36,5 @@ export function useEnvironmentMenu(input: {
       if (view === "artifacts") navigation.navigate("ThreadArtifacts", { hostId, sessionId });
     },
   );
+  return { ...menu, items: [...menu.items, { id: 'devices', title: 'Devices', icon: 'iphone', onPress: () => navigation.navigate('Devices', { hostId, sessionId }) }] };
 }

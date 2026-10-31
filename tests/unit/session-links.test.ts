@@ -125,3 +125,56 @@ test('work membership cannot cross organization boundaries', async () => {
   const work = await operations.createWork(context, { title: 'Local work', type: 'doc', content: 'Private' }, 'session-links-local-work')
   await expect(linkSessionItem('remote-session', { target: { kind: 'work', targetId: work.id } }, actor)).rejects.toThrow('organization')
 })
+
+
+test('list_links includes all link types, filters by kind, and unlink keeps the targets', async () => {
+  const { linkAgentTool, listLinksAgentTool, unlinkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
+  const { createAutomation, loadAutomation } = await import('@solus/server/data/automations/automations-store')
+  const { linkSessionPullRequest } = await import('@solus/server/data/sessions/session-pull-requests')
+  const work = await operations.createWork(context, { title: 'Keep this document', type: 'doc', content: 'Keep content' }, 'generic-link-work')
+  const automation = await createAutomation('Keep this automation', { prompt: 'Later', cwd: directory, agentProvider: 'codex', modelId: null, reasoningEffort: 'medium' }, actor, false)
+  const path = join(directory, 'removed-file.png')
+  const url = 'https://github.com/acme/solus/pull/42'
+  writeFileSync(path, 'fixture')
+  const inputs = [
+    { kind: 'work', target_id: work.id },
+    { kind: 'automation', target_id: automation.id },
+    { kind: 'file', path },
+    { kind: 'pr', target_id: url },
+  ]
+  for (const input of inputs) expect((await linkAgentTool.execute(input, tools)).ok).toBe(true)
+  const listed = await listLinksAgentTool.execute({}, tools)
+  expect(listed.ok).toBe(true)
+  for (const identifier of [work.id, automation.id, path, url]) expect(listed.text).toContain(identifier)
+  const prs = await listLinksAgentTool.execute({ kind: 'pr' }, tools)
+  expect(prs.text).toContain(url)
+  expect(prs.text).not.toContain(work.id)
+  expect(prs.text).not.toContain(path)
+  rmSync(path)
+  for (const input of inputs) {
+    expect((await unlinkAgentTool.execute(input, tools)).ok).toBe(true)
+    expect((await unlinkAgentTool.execute(input, tools)).ok).toBe(true)
+  }
+  const after = await listLinksAgentTool.execute({}, tools)
+  for (const identifier of [work.id, automation.id, path, url]) expect(after.text).not.toContain(identifier)
+  expect((await operations.getWork(context, work.id)).content).toBe('Keep content')
+  expect((await loadAutomation(automation.id))?.enabled).toBe(false)
+  // Automatic PR discovery must respect the removal; explicit link restores it.
+  expect(await linkSessionPullRequest('session-1', { url, source: 'branch', by: actor })).toBe(false)
+  expect((await linkAgentTool.execute({ kind: 'pr', target_id: url }, tools)).ok).toBe(true)
+  expect((await listLinksAgentTool.execute({ kind: 'pr' }, tools)).text).toContain(url)
+})
+
+test('unlink and list_links reject invalid inputs and unauthorized sessions', async () => {
+  const { unlinkAgentTool, listLinksAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
+  const { withWorkspaceToolAuthority } = await import('@solus/server/admission/workspace-tool-authority')
+  for (const input of [{ kind: 'work' }, { kind: 'file' }, { kind: 'session', target_id: 'session-1' }]) {
+    expect((await unlinkAgentTool.execute(input, tools)).ok).toBe(false)
+  }
+  expect((await listLinksAgentTool.execute({ kind: 'session' }, tools)).ok).toBe(false)
+  const principal = { kind: 'org-member' as const, userId: 'bob', organizationId: 'organization-A', organizationRole: 'member' as const, teamIds: [], hostKind: 'personal' as const, displayName: 'Bob', deviceId: 'bob-device', deviceLabel: 'Test', expiresAt: Date.now() + 300000 }
+  const before = await storedLinks('session-1')
+  expect((await withWorkspaceToolAuthority(principal, () => unlinkAgentTool.execute({ kind: 'file', path: 'plan.md' }, tools))).ok).toBe(false)
+  expect((await withWorkspaceToolAuthority(principal, () => listLinksAgentTool.execute({}, tools))).ok).toBe(false)
+  expect(await storedLinks('session-1')).toEqual(before)
+})

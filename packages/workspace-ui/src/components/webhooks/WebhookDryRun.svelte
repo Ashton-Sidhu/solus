@@ -2,7 +2,7 @@
   /** Dry run (docs/plans/webhooks.md §3.3): paste a sample request and see each
    *  filter result and rendered prompt. It starts nothing and stores nothing. */
   import type { WebhookDryRunRequest, WebhookDryRunResult } from "@solus/contracts/webhooks";
-  import { webhooksStore } from "../../contexts";
+  import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
   import { Button } from "../ui/button";
   import { Textarea } from "../ui/textarea";
   import { Switch } from "../ui/switch";

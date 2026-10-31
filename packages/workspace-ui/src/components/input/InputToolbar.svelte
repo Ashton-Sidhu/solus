@@ -183,7 +183,7 @@
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
-  <SessionChip {tabId} {draftId} {isPrimary} effortAsIcon bind:selection returnFocusOnClose class="border-0" />
+  <SessionChip {tabId} {draftId} {isPrimary} bind:selection returnFocusOnClose class="border-0" />
   {#if chatSourceId && chatRun}
     <!-- No button of its own: the chat's + menu opens this list above itself. -->
     <RunOnPicker

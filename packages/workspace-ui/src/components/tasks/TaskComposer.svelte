@@ -302,7 +302,7 @@
   data-solus-ui
   class="fixed inset-0 z-[10008] flex items-start justify-center {expanded
  ? 'pt-[7vh]'
- : 'pt-[13vh]'} pointer-events-auto bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] [animation:backdrop-fade_160ms_ease_both]"
+ : 'pt-[13vh]'} pointer-events-auto modal-backdrop [animation:backdrop-fade_160ms_ease_both]"
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget && !saving) onCancel();

@@ -1,7 +1,10 @@
 import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { z } from 'zod'
 import type { PrPageRequest, RepositoryPage } from '../types'
-import type { GitHubClient } from './octokit'
+import { githubFailureFacts, type GitHubClient } from './octokit'
+import { createLogger } from '../../logger'
+import { randomUUID } from 'node:crypto'
+
 import {
   GITHUB_REPOSITORY_FACTS_FIELDS,
   rememberGithubRepositoryFacts,
@@ -9,6 +12,8 @@ import {
   type PullRequestAccess,
 } from './pull-request-actions'
 import { NEEDS_REVIEW_FIELDS, toNeedsReviewPullRequest, type GqlNeedsReviewPullRequest } from './pull-request-rows'
+
+const log = createLogger('main', 'github-pr-list')
 
 // ─── The pull request list ────────────────────────────────────────────────────
 // One GitHub search over many repositories answers a page of all of them:
@@ -131,15 +136,23 @@ export function pullRequestSearchQuery(
 /** One aliased field of a document. Every name and search text is a variable;
  *  only constants are written into the query. */
 interface Part {
-  field: (alias: string) => string
+  kind: 'list-search' | 'authored-search' | 'review-requested-search' | 'assigned-search' | 'facts' | 'listing'
+  repositories: string[]
+  field: (alias: string, rowsPerPage: number) => string
   variables: Array<{ name: string; type: string; value: string }>
 }
 
 const ROW_CONNECTION = `pageInfo { hasNextPage endCursor } nodes { ...NeedsReviewFields }`
 
-function searchPart(query: string): Part {
+function searchPart(
+  query: string,
+  repositories: string[],
+  kind: Extract<Part['kind'], `${string}-search`> = 'list-search',
+): Part {
   return {
-    field: (alias) => `${alias}: search(query: $${alias}q, type: ISSUE, first: ${ROWS_PER_PAGE}) { ${ROW_CONNECTION} }`,
+    kind,
+    repositories,
+    field: (alias, rowsPerPage) => `${alias}: search(query: $${alias}q, type: ISSUE, first: ${rowsPerPage}) { ${ROW_CONNECTION} }`,
     variables: [{ name: 'q', type: 'String!', value: query }],
   }
 }
@@ -147,6 +160,8 @@ function searchPart(query: string): Part {
 function factsPart(repo: RepoRef, countStates: string | null): Part {
   const count = countStates ? `pullRequests(states: ${countStates}) { totalCount }` : ''
   return {
+    kind: 'facts',
+    repositories: [slugOf(repo)],
     field: (alias) => `${alias}: repository(owner: $${alias}o, name: $${alias}n) {
       nameWithOwner ${GITHUB_REPOSITORY_FACTS_FIELDS} ${count}
     }`,
@@ -162,9 +177,11 @@ function listingPart(repo: RepoRef, state: NonNullable<PrFilter['state']>, after
   if (after) variables.push({ name: 'a', type: 'String', value: after })
   if (head) variables.push({ name: 'h', type: 'String', value: head })
   return {
-    field: (alias) => `${alias}: repository(owner: $${alias}o, name: $${alias}n) {
+    kind: 'listing',
+    repositories: [slugOf(repo)],
+    field: (alias, rowsPerPage) => `${alias}: repository(owner: $${alias}o, name: $${alias}n) {
       nameWithOwner ${GITHUB_REPOSITORY_FACTS_FIELDS}
-      pullRequests(first: ${ROWS_PER_PAGE}, states: ${statesLiteral(state)}${after ? `, after: $${alias}a` : ''}${head ? `, headRefName: $${alias}h` : ''}, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      pullRequests(first: ${rowsPerPage}, states: ${statesLiteral(state)}${after ? `, after: $${alias}a` : ''}${head ? `, headRefName: $${alias}h` : ''}, orderBy: { field: UPDATED_AT, direction: DESC }) {
         ${ROW_CONNECTION}
       }
     }`,
@@ -172,7 +189,7 @@ function listingPart(repo: RepoRef, state: NonNullable<PrFilter['state']>, after
   }
 }
 
-function documentOf(parts: Part[]) {
+function documentOf(parts: Part[], rowsPerPage: number) {
   const declarations: string[] = []
   const variables: { [name: string]: string } = {}
   const fields = parts.map((part, index) => {
@@ -181,29 +198,82 @@ function documentOf(parts: Part[]) {
       declarations.push(`$${alias}${variable.name}: ${variable.type}`)
       variables[`${alias}${variable.name}`] = variable.value
     }
-    return part.field(alias)
+    return part.field(alias, rowsPerPage)
   })
   return {
     query: `
       query PrListPages(${declarations.join(', ')}) {
         ${fields.join('\n')}
       }
-      ${NEEDS_REVIEW_FIELDS}
+      ${fields.some((field) => field.includes('...NeedsReviewFields')) ? NEEDS_REVIEW_FIELDS : ''}
     `,
     variables,
   }
 }
 
-/** Keep repository facts for an invalid search so it can retry by the current
- * name. Every other failed request reaches the shared request policy. */
-async function readAnswer(client: GitHubClient, parts: Part[]): Promise<Slot[]> {
-  const { query, variables } = documentOf(parts)
+const overloadedRequestSchema = z.object({
+  status: z.union([z.literal(502), z.literal(503), z.literal(504)]),
+})
+const exhaustedQuerySchema = z.object({
+  errors: z.array(z.object({ type: z.string() })),
+})
+
+/** Reduce failed gateway/resource reads before retrying. Keep auth and rate
+ * failures with the shared request policy. Each reduction is bounded: 100
+ * rows, then 50, then 25, then separate fields. */
+async function readAnswer(
+  client: GitHubClient,
+  parts: Part[],
+  rowsPerPage = ROWS_PER_PAGE,
+  readId = randomUUID(),
+  parentRequestId: string | null = null,
+): Promise<Slot[]> {
+  const { query, variables } = documentOf(parts, rowsPerPage)
+  const requestId = randomUUID()
+  const requestLog = log.child({
+    readId, requestId, parentRequestId,
+    source: client.credential.source,
+    repositories: [...new Set(parts.flatMap((part) => part.repositories))],
+    rowsPerPage,
+    partCount: parts.length,
+    parts: parts.map((part) => part.kind),
+    rowConnections: parts.filter((part) => part.kind !== 'facts').length,
+    queryBytes: Buffer.byteLength(query),
+  })
+  const startedAt = performance.now()
+  requestLog.info('github_pr_list_request_started')
   let answer: Answer
   try {
     answer = answerSchema.parse(await client.graphql(query, variables))
+    requestLog.info('github_pr_list_request_completed', { durationMs: Math.round(performance.now() - startedAt) })
   } catch (error) {
+    requestLog.warn('github_pr_list_request_failed', {
+      durationMs: Math.round(performance.now() - startedAt),
+      ...githubFailureFacts(error),
+      errorName: error instanceof Error ? error.name : null,
+    })
     const partial = invalidSearchAnswerSchema.safeParse(error)
-    if (!partial.success) throw error
+    if (!partial.success) {
+      const exhausted = exhaustedQuerySchema.safeParse(error)
+      const overloaded = overloadedRequestSchema.safeParse(error).success
+        || (exhausted.success && exhausted.data.errors.length > 0 && exhausted.data.errors.every(({ type }) =>
+          type === 'MAX_NODE_LIMIT_EXCEEDED' || type === 'RESOURCE_LIMITS_EXCEEDED' || type === 'TIMEOUT'))
+      if (!overloaded) throw error
+      if (rowsPerPage > 25) {
+        const nextRowsPerPage = rowsPerPage > 50 ? 50 : 25
+        requestLog.info('github_pr_list_request_reduced', { nextRowsPerPage })
+        return readAnswer(client, parts, nextRowsPerPage, readId, requestId)
+      }
+      if (parts.length <= 1) {
+        requestLog.warn('github_pr_list_retries_exhausted')
+        throw error
+      }
+      const middle = Math.ceil(parts.length / 2)
+      requestLog.info('github_pr_list_request_split', { leftParts: middle, rightParts: parts.length - middle })
+      const left = await readAnswer(client, parts.slice(0, middle), rowsPerPage, readId, requestId)
+      const right = await readAnswer(client, parts.slice(middle), rowsPerPage, readId, requestId)
+      return [...left, ...right]
+    }
     const failed = new Set(partial.data.errors.map((failure) => failure.path?.[0]))
     // An error with no alias is about the whole document.
     if (failed.has(undefined)) throw error
@@ -285,10 +355,10 @@ function searchBlock(targets: Target[], request: Request, client: GitHubClient, 
   })
   // A review request only stands on an open pull request.
   const withReviewSearches = withPriority && request.state !== 'closed'
-  const parts = [searchPart(query(request.state))]
-  if (withPriority) parts.push(searchPart(query(request.state, `author:${request.viewer}`)))
+  const parts = [searchPart(query(request.state), slugs)]
+  if (withPriority) parts.push(searchPart(query(request.state, `author:${request.viewer}`), slugs, 'authored-search'))
   if (withReviewSearches) {
-    parts.push(searchPart(query('open', `review-requested:${request.viewer}`)), searchPart(query('open', `assignee:${request.viewer}`)))
+    parts.push(searchPart(query('open', `review-requested:${request.viewer}`), slugs, 'review-requested-search'), searchPart(query('open', `assignee:${request.viewer}`), slugs, 'assigned-search'))
   }
   const priorityCount = parts.length
   // The count tells a repository search missed from one with nothing to show.

@@ -300,6 +300,13 @@ export const RPC_INVOKE_METHODS = [
   // The origin a resource's share link names (docs/plans/host-sharing.md §2)
   'shareLinkOrigin',
   // Provider seats: a member's own Claude or Codex login on this host
+  'providerInstanceStatus',
+  'providerInstanceSignIn',
+  'providerInstanceSubmitCode',
+  'providerInstanceCancelSignIn',
+  'providerInstanceSignOut',
+  'providerInstancesGet',
+  'providerInstancesWrite',
   'seatList',
   'seatConnectStart',
   'seatConnectSubmitCode',

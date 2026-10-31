@@ -1,7 +1,8 @@
 import type { HostApi } from './host-api'
 import type { SessionRecordSearchQuery, SessionRecordSearchResult } from '@solus/contracts/types'
 
-export interface SessionSearchHome { serverId: string; scope?: { projectRoot: string } | { repositoryKey: string } }
+/** One request to one home: a project, the chats, or, with no scope, every session. */
+export interface SessionSearchHome { serverId: string; scope?: { projectRoot: string } | { repositoryKey: string } | { chats: true } }
 export interface HostSessionSearchHit { serverId: string; result: SessionRecordSearchResult }
 export interface SessionSearchState {
   query: string

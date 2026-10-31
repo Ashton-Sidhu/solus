@@ -35,7 +35,7 @@ stores a sparse `solusTools` map: a missing entry means enabled. Patches merge
 individual entries so changes from two clients to different tools do not replace
 each other. Agents cannot change this map through `update_config`. A saved
 entry for a removed tool (`wait_for_session`, `answer_session`, `review_plan`,
-`create_session`, `prompt_session`, `find_sessions`) is dropped when the host
+`create_session`, `prompt_session`, `find_sessions`, `read_automation_run`) is dropped when the host
 reads its settings; any other unknown name is refused.
 
 The Browser group drives the pages in the user's browser pane. Besides open,
@@ -69,7 +69,7 @@ device with. `device_install` records an app build and installs it on a
 simulator, emulator or connected phone. See
 [Device previews](native-devices.md).
 
-The Sessions group holds the orchestration tools: `start_session`,
+The Sessions group holds the orchestration tools: `delegate_task`, `start_session`,
 `send_session`, `stop_session`, `read_session`,
 `search_sessions`, and `list_agent_targets`. See
 [Session orchestration](session-orchestration.md). It also holds
@@ -80,13 +80,16 @@ directory the session is bound to, its branch and target branch, and every
 checkout of its repository. See
 [Agent worktrees](worktree-names.md#agent-worktrees).
 
-The Sessions group holds `link`, `list_session_pull_requests`,
-`unlink_pull_request`, and `watch_pull_request`. `link` attaches a work,
+The Sessions group holds `link`, `list_links`,
+`unlink`, and `watch_pull_request`. `link` attaches a work,
 automation, pull request, or file to the calling session. It does not accept
 `task_id`, task session membership, or Solus plan links. Markdown plan files use
 `kind=file` and `path`. Task links remain available through the task interface.
-`list_session_pull_requests` lists this session's pull requests and their last
-known state. See [Session pull requests](plans/session-pull-requests.md).
+`unlink` removes a link using the same `kind`, `target_id`, or `path` as `link`;
+it does not delete the target. It can remove a file link after the file is gone.
+`list_links` lists this session's works, automations, files, and pull requests.
+Use the optional `kind` filter to select one type. PRs include their last known
+state. Removed PRs stay excluded from automatic linking until explicitly linked again. See [Session pull requests](plans/session-pull-requests.md).
 
 `read_task` includes linked session IDs. Use `read_session` for a session's
 status, pending input, and history. There is no separate task-session read tool.
@@ -100,3 +103,9 @@ providers. Publish sends a work to Confluence or Google Docs and keeps the link.
 Pull accepts exactly one of `url` (import into Solus) or `work_id` (refresh a
 linked work). The separate external document tools are removed. Read imported
 content with `read_work`; private replies use `reply_comment`.
+
+Automation results use two existing reads. `list_automation_runs` returns run
+status, start and finish times, errors, and the session ID when available. Pass
+`automation_id` and optional `run_id` to inspect one run. Failures before a
+session starts remain visible here. Use `read_session` with the returned
+`session_id` for agent output and history.

@@ -27,12 +27,15 @@
   import * as TooltipUI from "../ui/tooltip";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSection from "./SettingsSection.svelte";
+  import ProjectBranchNamingSetting from "./ProjectBranchNamingSetting.svelte";
+  import ProjectCopiedFilesSetting from "./ProjectCopiedFilesSetting.svelte";
   import WorktreeBranchNamingRow from "./WorktreeBranchNamingRow.svelte";
   import { isModelOffered } from "./lib/text-generation-models";
 
   interface Props {
     serverId: string;
     api: HostApi;
+    projectCwd?: string | null;
   }
 
   interface ModelOption extends TextGenerationModelSelection {
@@ -40,7 +43,7 @@
     label: string;
   }
 
-  let { serverId, api }: Props = $props();
+  let { serverId, api, projectCwd }: Props = $props();
   let customInstructionsElement = $state<HTMLTextAreaElement | null>(null);
   let customInstructionsDraft = $state("");
   let customInstructionsSource = $state<string | null>(null);
@@ -155,6 +158,16 @@
     requestInputFocus();
   }
 </script>
+
+{#if projectCwd}
+  <SettingsSection label="Project worktrees" description="Project branch names override your personal default. Copied files belong to this project.">
+    {#key `${serverId}:${projectCwd}`}
+      <ProjectBranchNamingSetting {serverId} {api} cwd={projectCwd} />
+      <ProjectCopiedFilesSetting {serverId} cwd={projectCwd} />
+    {/key}
+  </SettingsSection>
+{:else}
+
 
 {#if cloudConnectionsUrl}
   <SettingsSection label="Source control providers">
@@ -306,4 +319,6 @@
 
 {#if error}
   <p class="text-xs text-destructive" role="alert">{error}</p>
+{/if}
+
 {/if}

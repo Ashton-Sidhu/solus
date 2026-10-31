@@ -12,6 +12,14 @@ presents one credential in its handshake and no ws-ticket exists. There is no
 protocol version check (`SOLUS_PROTOCOL` was removed 2026-10-23). Rules 3, 6
 and 7 and §2.3 below are changed to match. Sections after §2 keep their history.
 
+**Amended 2026-10-30:** sign-in requests both server resources and returns their
+access token and the initial account, settings, and host directory data immediately. The client uses
+that token and initializes its stores before any refresh. Refresh
+renews it; host access still uses token exchange. Code and refresh grants load one
+request-scoped snapshot of identity and membership facts. Refresh rotation revokes
+the old row and inserts the replacement atomically. See
+`docs/plans/instant-share-open.md` §4.11–4.13 for the measured query reductions.
+
 ## 1. Context
 
 Plan 010 made app.solus.sh an OAuth 2.1 and OpenID Connect provider. The code
@@ -68,9 +76,10 @@ standard exists.
 2. **Identity is OIDC.** The ID token and `/userinfo` give `sub`, `email`,
    `email_verified`, `name`, and `picture`. Organizations are API data
    (`GET /v1/account`), not identity.
-3. **One refresh for our servers, an exchange for each host.** The client's refresh
-   token (RFC 8707 `resource` twice) gives one token for the account plane and the
-   Solus API, which we run with the same trust. A token for a host is a token exchange
+3. **One token for our servers, an exchange for each host.** Sign-in requests both
+   resources (RFC 8707 `resource` twice) and gives one token for the account plane
+   and the Solus API, which we run with the same trust. Refresh renews that token.
+   A token for a host is a token exchange
    (RFC 8693) of that token, for one host's audience: no rotation, so tokens for
    several hosts are minted at the same time. Life: one hour. Nobody forwards a host's
    token to another host.
@@ -371,7 +380,7 @@ directory read. The socket gains `authRenew` (`transport/websocket.ts`).
 | Authorization code + PKCE for public clients | Yes (`/oauth2/authorize`, `/oauth2/token`). |
 | ID token, `/oauth2/userinfo`, `/oauth2/end-session` | Yes. Back-channel logout also exists. |
 | Revocation (RFC 7009) | Yes (`/oauth2/revoke`). It marks the refresh token revoked and deletes its access tokens. |
-| Refresh with `resource` (RFC 8707) | Yes, with one limit: a refresh can only narrow to the resources of the sign-in. So a client signs in with no `resource`, and each host is registered as an `oauthResource` row at link time. Each resource can set its own access-token life. |
+| Refresh with `resource` (RFC 8707) | A refresh can only narrow to the resources of sign-in. A client signs in for `[account, api]` and refreshes for the same pair. Host tokens come from token exchange, so they need no broader refresh grant. Each resource can set its access-token life. |
 | `private_key_jwt` (RFC 7523) | Yes. The client must register `jwks` or `jwks_uri`. |
 | Device grant that gives OAuth tokens | Yes (`urn:ietf:params:oauth:grant-type:device_code` through the provider, not the plugin's `/device/token`). |
 | A grant id through rotation | Yes, through `referenceId` (§3.5). The provider's device grant sets no `referenceId`, so the CLI uses our own device grant at the token endpoint (§3.5). |

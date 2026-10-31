@@ -77,19 +77,19 @@ describe('webhook agent tools', () => {
 
   test('request_secret shows a private card; the secretRef creates the webhook and the value never reaches the agent', async () => {
     const events: NormalizedEvent[] = []
-    const asking = secretTool.requestSecretAgentTool.execute({ name: 'GitHub secret', reason: 'To check signatures.' }, context('session-a', events))
+    const asking = secretTool.requestSecretAgentTool.execute({ secrets: [{ name: 'GitHub secret', reason: 'To check signatures.' }] }, context('session-a', events))
     await Promise.resolve()
     const card = events.find((event) => event.type === 'question_request')
     expect(card).toMatchObject({ type: 'question_request', kind: 'secret' })
     const questionId = card?.type === 'question_request' ? card.questionId : ''
-    expect(secretRequests.answerSecretRequest('session-b', questionId, 'typed-secret')).toBe(false)
-    expect(secretRequests.answerSecretRequest('session-a', questionId, 'typed-secret')).toBe(true)
+    expect(secretRequests.answerSecretRequest('session-b', questionId, ['typed-secret'])).toBe(false)
+    expect(secretRequests.answerSecretRequest('session-a', questionId, ['typed-secret'])).toBe(true)
     const answer = await asking
     expect(answer.ok).toBe(true)
     expect(answer.text).not.toContain('typed-secret')
     expect(JSON.stringify(events)).not.toContain('typed-secret')
     expect(events.at(-1)).toEqual({ type: 'permission_resolved', questionId })
-    const { secretRef } = JSON.parse(answer.text) as { status: 'saved'; secretRef: string }
+    const [{ secretRef }] = (JSON.parse(answer.text) as { secrets: { status: 'saved'; secretRef: string }[] }).secrets
 
     const created = await tools.createWebhookAgentTool.execute({ name: 'GitHub', verification: { ...hmac, secretRef }, actions }, context('session-a', []))
     expect(created.ok).toBe(true)
@@ -104,24 +104,24 @@ describe('webhook agent tools', () => {
 
   test('a declined card and a stopped run give no secret', async () => {
     const events: NormalizedEvent[] = []
-    const declined = secretTool.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', events))
+    const declined = secretTool.requestSecretAgentTool.execute({ secrets: [{ name: 'x', reason: 'y' }] }, context('session-a', events))
     await Promise.resolve()
     const card = events[0]
-    secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', null)
-    expect(JSON.parse((await declined).text)).toEqual({ status: 'declined' })
+    secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', [null])
+    expect(JSON.parse((await declined).text)).toEqual({ secrets: [{ name: 'x', status: 'declined' }] })
     const abort = new AbortController()
-    const stopped = secretTool.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', [], abort))
+    const stopped = secretTool.requestSecretAgentTool.execute({ secrets: [{ name: 'x', reason: 'y' }] }, context('session-a', [], abort))
     abort.abort()
     expect(JSON.parse((await stopped).text)).toEqual({ status: 'cancelled' })
   })
 
   test('a secretRef belongs to the session that asked and ends after 15 minutes', async () => {
     const events: NormalizedEvent[] = []
-    const asking = secretTool.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', events))
+    const asking = secretTool.requestSecretAgentTool.execute({ secrets: [{ name: 'x', reason: 'y' }] }, context('session-a', events))
     await Promise.resolve()
     const card = events[0]
-    secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', 'v')
-    const ref = (JSON.parse((await asking).text) as { secretRef: string }).secretRef
+    secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', ['v'])
+    const ref = (JSON.parse((await asking).text) as { secrets: { secretRef: string }[] }).secrets[0].secretRef
     expect(secretRequests.takeSecretRef(ref, 'session-b')).toBeNull()
     expect(secretRequests.takeSecretRef(ref, 'session-a', Date.now() + 16 * 60 * 1000)).toBeNull()
   })

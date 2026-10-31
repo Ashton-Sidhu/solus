@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { IpcContext, Session, SessionProviderSwitchResult } from '@solus/contracts/types'
+import type { AgentMetadata, AgentId, ModelProfile, IpcContext, RunConfig, Session, SessionProviderSwitchResult } from '@solus/contracts/types'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
@@ -63,6 +63,8 @@ async function makeController(
     refreshGitState?: () => Promise<{ status: boolean; details: boolean; refs: boolean; registration: boolean; ok: boolean }>
     /** Every host method the controller called, by name. */
     hostCalls?: string[]
+    providerMetadataFor?: (provider: AgentId, run?: RunConfig) => AgentMetadata | undefined
+    modelProfileFor?: (provider: AgentId, modelId: string | null) => ModelProfile | undefined
   },
 ) {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -72,6 +74,8 @@ async function makeController(
   const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
   return new SessionConfigController({
     settings: settings as any,
+    providerMetadataFor: worktreeHarness?.providerMetadataFor,
+    modelProfileFor: worktreeHarness?.modelProfileFor,
     registry: { activeTabId: session ? 'tab-1' : null, activeSession: session, sessionFor: () => session } as any,
     statusBar: { ctx: { workingDirectory: '/repo' } } as any,
     setPluginCommands: () => {},
@@ -150,6 +154,14 @@ describe('first-send target resolution', () => {
 })
 
 describe('default model preference', () => {
+  test('a personal provider preference takes precedence over a host catalog default', async () => {
+    const custom: ModelProfile = { label: 'Private', reasoningLevels: ['low'], defaultReasoningEffort: 'low', contextWindows: [32000], defaultContextWindow: 32000, supportsFastMode: false }
+    const controller = await makeController(makeSettings({ codex: 'private-model' }, 'codex'), null, undefined, undefined, {
+      providerMetadataFor: () => ({ id: 'codex', label: 'Codex', defaultModel: 'private-model', models: [{ id: 'private-model', label: 'Private' }], modelProfiles: { 'private-model': custom } }),
+      modelProfileFor: (_provider, modelId) => modelId === 'private-model' ? custom : undefined,
+    })
+    expect(controller.defaultModelConfigFor('codex')).toEqual({ modelId: 'private-model', reasoningEffort: 'low', contextWindow: 32000, fastMode: false })
+  })
   test('starts new sessions on the model chosen in settings', async () => {
     const controller = await makeController(makeSettings({ 'claude-code': 'claude-haiku-4-5-20251001' }))
 
@@ -189,6 +201,36 @@ describe('default model preference', () => {
 
     controller.switchActiveAgent('claude-code')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-sonnet-5')
+  })
+
+  test('resetting one provider returns to its built-in model without changing another provider', async () => {
+    const settings = makeSettings({ 'claude-code': 'claude-sonnet-5', codex: 'gpt-5.4' })
+    const controller = await makeController(settings)
+    controller.setDefaultModel('claude-code', '')
+    expect(settings.defaultModels).toEqual({ codex: 'gpt-5.4' })
+    expect(settings.activeAgent).toBe('claude-code')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5-5')
+  })
+
+  test('refreshing provider options changes new-session defaults and leaves an open draft alone', async () => {
+    const settings = makeSettings({ codex: 'gpt-6-astra' }, 'codex')
+    const draft = makeDraft()
+    const controller = await makeController(settings, null, undefined, draft)
+    settings.modelOptionsByProvider.codex = {
+      'gpt-6-astra': { reasoningEffort: 'max', contextWindow: 1_050_000, fastMode: true },
+    }
+    controller.refreshDefaultModel('codex')
+    expect(controller.globalDefaults.modelConfig).toEqual({ modelId: 'gpt-6-astra', reasoningEffort: 'max', contextWindow: 1_050_000, fastMode: true })
+    expect(draft.run.modelConfig.modelId).toBe('claude-opus-5')
+    expect(draft.run.modelConfig.reasoningEffort).toBe('high')
+  })
+
+  test('uses the private host catalog for a custom default model', async () => {
+    const custom: ModelProfile = { label: 'Private model', reasoningLevels: ['low', 'high'], defaultReasoningEffort: 'low', contextWindows: [32000], defaultContextWindow: 32000, supportsFastMode: true }
+    const controller = await makeController(makeSettings({ codex: 'private-model' }, 'codex'), null, undefined, undefined, {
+      modelProfileFor: (_provider, modelId) => modelId === 'private-model' ? custom : undefined,
+    })
+    expect(controller.globalDefaults.modelConfig).toEqual({ modelId: 'private-model', reasoningEffort: 'low', contextWindow: 32000, fastMode: false })
   })
 
   test('starts new sessions on Auto when that is the choice in settings', async () => {
@@ -248,21 +290,36 @@ describe('agent pick on a session with a provider thread', () => {
     expect(session.messages).toEqual([])
   })
 
-  test('a pick back restores the model the thread ran with', async () => {
-    // WHY: an accidental pick must undo cleanly — the next send has to run on
-    // the thread's own model and options, not the agent's default.
+  test('each provider pick uses its saved default, including a pick back', async () => {
+    // WHY: switching providers must use the saved provider default on every pick,
+    // including returning to a provider whose thread used another model.
     const session = threadSession()
     const hostCalls: string[] = []
-    const controller = await makeController(makeSettings({ 'claude-code': 'claude-sonnet-5' }), session, undefined, undefined, { hostCalls })
+    const controller = await makeController(makeSettings({ 'claude-code': 'claude-sonnet-5', codex: 'gpt-5.4' }), session, undefined, undefined, { hostCalls })
 
     controller.switchActiveAgent('codex')
+    expect(session.run.modelConfig.modelId).toBe('gpt-5.4')
     controller.switchActiveAgent('claude-code')
 
     expect(hostCalls).toEqual([])
     expect(session.run.provider).toBe('claude-code')
-    expect(session.run.modelConfig).toEqual({
-      modelId: 'claude-opus-5', reasoningEffort: 'max', contextWindow: 1_000_000, fastMode: false,
+    expect(session.run.modelConfig).toEqual(controller.defaultModelConfigFor('claude-code', session.run))
+    expect(session.run.modelConfig.modelId).toBe('claude-sonnet-5')
+  })
+
+  test('provider picks use the personal default from the selected project catalog', async () => {
+    const session = threadSession()
+    const custom: ModelProfile = { label: 'Project model', reasoningLevels: ['low'], defaultReasoningEffort: 'low', contextWindows: [32000], defaultContextWindow: 32000, supportsFastMode: false }
+    const controller = await makeController(makeSettings({ codex: 'project-model' }), session, undefined, undefined, {
+      providerMetadataFor: (provider, run) => provider === 'codex' && run === session.run
+        ? { id: 'codex', label: 'Codex', defaultModel: 'project-model', models: [{ id: 'project-model', label: 'Project model' }], modelProfiles: { 'project-model': custom } } : undefined,
+      modelProfileFor: (_provider, model) => model === 'project-model' ? custom : undefined,
     })
+    controller.switchActiveAgent('codex')
+    expect(session.run.modelConfig).toEqual({ modelId: 'project-model', reasoningEffort: 'low', contextWindow: 32000, fastMode: false })
+    controller.switchActiveAgent('claude-code')
+    controller.switchActiveAgent('codex')
+    expect(session.run.modelConfig.modelId).toBe('project-model')
   })
 
   test('picks a concrete model even when the default is Auto', async () => {
@@ -340,6 +397,15 @@ describe('settings written against a draft composer', () => {
 
     expect(draft.run.provider).toBe('codex')
     expect(draft.run.modelConfig.modelId).toBe('gpt-6-astra')
+  })
+
+  test('draft provider switches use each saved model instead of the catalog default', async () => {
+    const draft = makeDraft()
+    const controller = await makeController(makeSettings({ codex: 'gpt-5.4', 'claude-code': 'claude-sonnet-5' }), null, undefined, draft)
+    controller.switchActiveAgent('codex', draft.id, 'keybinding')
+    expect(draft.run.modelConfig.modelId).toBe('gpt-5.4')
+    controller.switchActiveAgent('claude-code', draft.id)
+    expect(draft.run.modelConfig.modelId).toBe('claude-sonnet-5')
   })
 
   test('leave the agent the next composer opens on alone', async () => {

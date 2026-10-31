@@ -1,11 +1,12 @@
 <script lang="ts">
+  import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   /**
    * Settings → Agent profile → Files: the files of each provider home that are
    * not a skill — subagents, commands, and prompts, copied from a computer.
    * Listed, not edited: each can be removed, which takes it off every host.
    * Nothing when the profile holds none; a long list shows a page.
    */
-  import { FileCode, FileText, Trash2 } from "@lucide/svelte";
+  import { Trash2 } from "@lucide/svelte";
   import { agentProfileKeyOf, type AgentProfileKey } from "@solus/contracts/agent-profile";
   import { agentProfileLocalStore } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
@@ -43,7 +44,7 @@
       <ProfileEntryRow label={text.name} detail={text.detail} isPath testId="agent-profile-file-{group.provider}">
         {#snippet mark()}
           <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-(--solus-text-secondary)" aria-hidden="true">
-            {#if file.executable}<FileCode size={15} />{:else}<FileText size={15} />{/if}
+            <FileIcon path={file.path} size={15} />
           </span>
         {/snippet}
         {#snippet action()}

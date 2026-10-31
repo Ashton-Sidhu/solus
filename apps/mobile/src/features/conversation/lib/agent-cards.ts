@@ -38,7 +38,7 @@ export interface AgentItem {
  *  names). read/list/search only observe; they open no exchange. */
 export function isAgentConversationTool(name: string | undefined): boolean {
   if (!name) return false
-  return name.endsWith('start_session') || name.endsWith('send_session') || name.endsWith('stop_session')
+  return name.endsWith('delegate_task') || name.endsWith('start_session') || name.endsWith('send_session') || name.endsWith('stop_session')
 }
 
 const OPEN_STATUSES: ReadonlySet<AgentExchangeStatus> = new Set([
@@ -166,13 +166,13 @@ export class AgentCards {
       if (input.session_id) this.stop(input.session_id)
       return
     }
-    const sessionId = toolName.endsWith('start_session') ? result?.sessionId : input.session_id
+    const sessionId = (toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) ? result?.sessionId : input.session_id
     if (!sessionId) return
     const card = this.open(sessionId, {
       messageId: result?.messageId,
-      prompt: (toolName.endsWith('start_session') ? input.prompt : input.message) ?? '',
+      prompt: ((toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) ? input.prompt : input.message) ?? '',
       provider: result?.provider ?? input.agent_provider,
-      title: toolName.endsWith('start_session') ? input.title : undefined,
+      title: (toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) ? input.title : undefined,
       model: input.model_id,
       timestamp,
     })

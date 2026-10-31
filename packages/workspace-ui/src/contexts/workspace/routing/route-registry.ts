@@ -26,6 +26,8 @@ export type SettingsTab =
   | 'agent-profile'
   | 'organization'
   | 'host'
+  | 'chat'
+  | 'sessions'
   | 'general'
   | 'appearance'
   | 'notifications'
@@ -42,7 +44,7 @@ export type SettingsTab =
   | 'voice'
   | 'telemetry'
   | 'experimental'
-  | 'projects'
+  | 'projects' // Legacy links resolve to Providers with a project scope.
   | 'keybindings'
   | 'webhooks'
 
@@ -51,6 +53,8 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'agent-profile',
   'organization',
   'host',
+  'chat',
+  'sessions',
   'general',
   'appearance',
   'notifications',
@@ -199,9 +203,6 @@ export interface RouteDescriptor<K extends RouteName> {
    *  key are one surface: opening the second updates the first in place.
    *  Defaults to the serialized params. */
   surfaceKey?: (params: RouteParams[K]) => string
-  /** A utility page the user steps into and back out of. Closing it returns its
-   *  pane to the main-workspace route it replaced, not to home or to history. */
-  returnsOnClose?: boolean
   /** The surface draws a shared-height header that consumes the window-control
    *  lead inset itself. Page outlets must not add a second titlebar-height pad. */
   ownsTitlebarChrome?: boolean
@@ -370,7 +371,7 @@ export const ROUTES: RouteTable = {
       let settingsTab: SettingsTab | undefined
       if (tab) {
         if (!isSettingsTab(tab)) return null
-        settingsTab = tab
+        settingsTab = tab === 'projects' ? 'providers' : tab
       }
       const rest = optional(cwd.join('/'))
       if (settingsTab === 'webhooks') return rest ? { tab: settingsTab, webhooks: rest } : { tab: settingsTab }
@@ -381,14 +382,11 @@ export const ROUTES: RouteTable = {
     },
     serialize: (p) => {
       if (p.tab === 'webhooks') return p.webhooks ? `webhooks/${p.webhooks}` : 'webhooks'
-      return p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''
+      return p.projectCwd ? `${p.tab === 'projects' ? 'providers' : p.tab ?? 'providers'}/${p.projectCwd}` : p.tab === 'projects' ? 'providers' : p.tab ?? ''
     },
     placement: 'destination',
-    returnsOnClose: true,
-    // The nav column paints to the window's top edge, so the page clears the
-    // window controls inside its own header band rather than being padded down.
-    ownsTitlebarChrome: true,
-    component: () => import('../../../components/settings/SettingsPage.svelte'),
+    // The router holds Settings over the panes; it does not replace a destination.
+    component: () => import('../../../components/settings/SettingsDialog.svelte'),
   },
   folio: {
     parse: () => ({}),

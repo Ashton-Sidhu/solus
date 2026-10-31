@@ -2,7 +2,8 @@ import { activeSessionShareTarget, sharesStore } from "@solus/workspace-ui/conte
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
 
-import { hosts, serversStore, updatesStore } from "@solus/workspace-ui/contexts";
+import { hosts, serversStore } from "@solus/workspace-ui/contexts";
+import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 

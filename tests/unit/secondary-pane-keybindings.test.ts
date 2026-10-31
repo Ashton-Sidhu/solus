@@ -26,6 +26,21 @@ function modKeyEvent(code: string): KeyboardEvent {
 }
 
 describe('global shortcuts with a secondary document pane', () => {
+  test('settings blocks shortcuts in the workspace and restores them on close', () => {
+    // WHY: the mounted page behind Settings must not act on keys typed in the dialog.
+    const keybindings = new KeybindingsContext()
+    keybindings.pushScope('document-modal')
+    let finds = 0
+    keybindings.register('document-modal.find', () => { finds += 1 })
+    const closeSettingsScope = keybindings.pushScope('settings-dialog', true)
+
+    keybindings.dispatch(modKeyEvent('KeyF'))
+    expect(finds).toBe(0)
+    closeSettingsScope()
+    keybindings.dispatch(modKeyEvent('KeyF'))
+    expect(finds).toBe(1)
+  })
+
   test('Settings reaches the global scope while a pane scope is active', () => {
     // WHY: opening a document beside a conversation must not disable Command+,.
     const keybindings = new KeybindingsContext()

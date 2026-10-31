@@ -300,6 +300,11 @@
   const canManageLabels = $derived(
     !!detail?.capabilities.labelManagement && detail.viewerPermissions.manageLabels,
   );
+  // Someone else's pull request offers no Edit unless the viewer may push to
+  // the repository. A host too old to say offers it, and refuses the save.
+  const canEditPullRequest = $derived(
+    detail?.viewerPermissions.editPullRequest !== false,
+  );
   // A PR opened by number alone (deep link, `#123` in a message) carries no
   // title until detail lands — hold the masthead's space instead of letting the
   // heading collapse and shove everything below it up a line.
@@ -932,16 +937,18 @@
             </span>
             {#if detail && !editing}
               <span class="flex-1"></span>
-              <Button
-                type="button"
-                variant="ghost"
-                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                title="Edit pull request title and description"
-                onclick={beginEditing}
-              >
-                <PencilSimpleIcon size={12} />
-                Edit
-              </Button>
+              {#if canEditPullRequest}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                  title="Edit pull request title and description"
+                  onclick={beginEditing}
+                >
+                  <PencilSimpleIcon size={12} />
+                  Edit
+                </Button>
+              {/if}
               {#if railFolded && menu}
                 {@render menu()}
               {/if}

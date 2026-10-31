@@ -328,6 +328,31 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     expect(searched.items.map(item => item.session.id).sort()).toEqual(['s-laptop', 's-vm-a'])
   })
 
+  test('the chats are searched apart from every project, as they are listed', async () => {
+    // WHY: a chat has no repository, so a project scope asks for the chats on
+    // their own. Without this filter a chat shared from a cloud machine was
+    // found only with every project selected. The runner reports the place;
+    // the service never reads it from a path (session-starter.md §3.1).
+    const server = await bootServer()
+    const { getDatabase } = await import('@solus/server/db/database')
+    const { sql } = await import('drizzle-orm')
+    const upsert = (sessionId: string, projectPath: string, projectRemote: string | null, place: 'chat' | 'project') =>
+      server.handle('sessionRecordUpsert', [{ sessionId, provider: 'codex', projectPath, projectRemote, place, title: 'Understand MCP', lastActivityAt: 7 }], ctx(runner1))
+    await upsert('s-chat', '-data-projects-u-solus-chats-s-chat', null, 'chat')
+    // A project whose path holds the chat folder name is still a project.
+    await upsert('s-project', '-data-projects-u-solus-chats-web', 'github.com/acme/web', 'project')
+    for (const id of ['s-chat', 's-project']) {
+      await getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, search_text, updated_at)
+        VALUES ('org1', ${id}, 0, 'runner-1', ${JSON.stringify({ role: 'user', content: 'a visual of mcp', timestamp: 1 })}, 'a visual of mcp', 1)`)
+    }
+
+    const searched = await api.searchSessions(authority(alice), { q: 'visual', chats: 'true' })
+    const listed = await api.listSessions(authority(alice), { scope: 'all', limit: 50, chats: 'true' })
+
+    expect(searched.items.map(item => item.session.id)).toEqual(['s-chat'])
+    expect(listed.items.map(item => item.id)).toEqual(['s-chat'])
+  })
+
   test('a member finds a session by its title and by words said in different messages, a page at a time', async () => {
     // WHY: search treats a session as a whole (docs/plans/unified-search.md):
     // its title counts, its words need not share one message, and every match

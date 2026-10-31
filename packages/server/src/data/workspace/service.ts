@@ -41,6 +41,7 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     getSession: withWorkspaceBudget((context, sessionId) => sessions.get(context, sessionId)),
     admitSessionTurn: withWorkspaceBudget((context, sessionId) => sessions.admitTurn(context, sessionId)),
     updateSession: withWorkspaceBudget((context, sessionId, input) => sessions.update(context, sessionId, input)),
+    listSessionLinks: withWorkspaceBudget((context, sessionId) => sessions.links(context, sessionId)),
     listSessionPullRequests: withWorkspaceBudget((context, sessionId) => sessions.pullRequests(context, sessionId)),
     putLink: withWorkspaceBudget((context, input) => links.put(context, input)),
     deleteLink: withWorkspaceBudget((context, input) => links.delete(context, input)),

@@ -226,3 +226,42 @@ them (`uplinkControl` in `packages/client-core/src/uplink-control.ts`).
 Deploy the control plane with the settings tables and API before the clients. Clients
 need it for sync and for the Organization page. There is no compatibility with older
 hosts, clients, or stored settings: release the host and the clients together.
+
+## Settings dialog
+
+Settings sections end with a centered divider at 90% of the section width on
+desktop, web, and mobile. The divider uses the theme border color in light and
+dark mode.
+
+Desktop and web dialogs, sheets, pickers, media dialogs, and their loading
+screens use the shared `modal-backdrop` utility: a 4px blur with a theme tint.
+Native HTML dialogs apply it to `::backdrop`. The Settings dialog has a maximum
+size of 88rem by 66rem, with a 1rem margin at the window edges.
+Mobile custom confirmation and document loading dialogs use the existing glass
+background, with a solid fallback
+where native blur is unavailable. System sheets and alerts keep the operating
+system's background.
+
+On desktop and web, Settings opens in a centered dialog over the workspace.
+The current page, session, companion pane, and sidebar stay in place. Use the
+settings shortcut (`Cmd+,` on macOS or `Ctrl+,` on other platforms), the command
+palette, or an existing settings link to open it.
+
+Use the section list and search field to find a setting. In a narrow container,
+section buttons replace the list. `Cmd+F` or `Ctrl+F` focuses settings search.
+Escape clears an active search first. With no search, Escape closes Settings.
+The close button and a press on the background also close it. Focus returns to
+the active input. A menu or child dialog handles its own Escape key first.
+
+Settings links keep the `/settings/<section>` path. The optional `from` query
+parameter names the page behind the dialog; the existing pane parameters keep
+the companion strip and its selection. Refresh, Back, and Forward restore this
+state. A direct link with no `from` parameter opens over the conversation pool.
+
+Mobile keeps its native settings navigation: a sheet on compact iOS and a
+settings flow on Android and wide layouts. Each returns to the previous
+workspace. Settings values, host selection, and provider behavior do not change.
+
+The dialog structure follows the route-backed modal in
+[T3 Code](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/AppRouteModal.tsx).
+Solus uses its existing Svelte dialog primitive and settings stores.

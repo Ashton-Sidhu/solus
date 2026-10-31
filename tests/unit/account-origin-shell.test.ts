@@ -34,4 +34,15 @@ describe('the account origin shell', () => {
     expect(accountOriginShell(page({ 'meta[name="solus-account-origin"]': '', 'script#solus-oidc-discovery': '{not json' }))).toEqual({ discovery: undefined })
     expect(accountOriginShell(page({ 'meta[name="solus-account-origin"]': '', 'script#solus-oidc-discovery': '{"issuer":"https://app.solus.sh"}' }))).toEqual({ discovery: undefined })
   })
+
+  // §4.14: signed in, the shell also names the person's directory, so a fresh
+  // browser dials its hosts while the sign-in completes.
+  test('a directory in the shell is parsed; a broken one is ignored', () => {
+    const directory = { hosts: [], workspaces: [] }
+    const marker = { 'meta[name="solus-account-origin"]': '' }
+    expect(accountOriginShell(page({ ...marker, 'script#solus-host-directory': JSON.stringify(directory) }))?.directory).toEqual(directory)
+    expect(accountOriginShell(page({ ...marker, 'script#solus-host-directory': '{not json' }))?.directory).toBeUndefined()
+    expect(accountOriginShell(page({ ...marker, 'script#solus-host-directory': '{"hosts":"x"}' }))?.directory).toBeUndefined()
+    expect(accountOriginShell(page(marker))?.directory).toBeUndefined()
+  })
 })

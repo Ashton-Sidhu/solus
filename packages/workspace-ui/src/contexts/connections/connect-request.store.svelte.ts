@@ -5,8 +5,8 @@ import type { ConnectionProvider, ConnectionReason } from '@solus/contracts/conn
  * The one place the renderer knows that an agent is waiting on a connection.
  *
  * It owns the *interrupt*, not the credential: each provider keeps its own
- * store for status and connecting, and this only decides whether a card is up,
- * for which conversation, and about which account. No token passes through it.
+ * store for status and connecting, and this only decides which cards are up,
+ * for which conversation, and about which accounts. No token passes through it.
  */
 
 /** An account Solus knows by name: GitHub, Atlassian, Google. */
@@ -30,19 +30,43 @@ export interface IntegrationConnectRequest {
 
 export type ConnectRequest = AccountConnectRequest | IntegrationConnectRequest
 
-export class ConnectRequestStore {
-  /** One at a time. A second request replaces the first: two cards stacked at
-   *  the tail of a transcript is noise, and the agent asks again if it still
-   *  needs the other one. */
-  request = $state<ConnectRequest | null>(null)
+/** The service a request asks for. A second ask for the same service in a session is the same request. */
+export function connectRequestKey(request: ConnectRequest): string {
+  return request.kind === 'integration' ? `integration:${request.integrationId}` : `account:${request.provider}`
+}
 
-  visibleFor(serverId: string | undefined, sessionId: string): boolean {
-    const request = this.request
-    return request !== null && request.serverId === serverId && request.sessionId === sessionId
+function sameSession(request: ConnectRequest, serverId: string | undefined, sessionId: string): boolean {
+  return request.serverId === serverId && request.sessionId === sessionId
+}
+
+export class ConnectRequestStore {
+  /** Every open request, in the order the agents asked. A turn that needs
+   *  several services gets one group card that lists each of them; a repeated
+   *  ask for a service already listed replaces its row in place. */
+  requests = $state<ConnectRequest[]>([])
+
+  requestsFor(serverId: string | undefined, sessionId: string): ConnectRequest[] {
+    return this.requests.filter((request) => sameSession(request, serverId, sessionId))
   }
 
-  dismiss(): void {
-    this.request = null
+  visibleFor(serverId: string | undefined, sessionId: string): boolean {
+    return this.requests.some((request) => sameSession(request, serverId, sessionId))
+  }
+
+  /** Retires the card of one conversation. */
+  dismiss(serverId: string | undefined, sessionId: string): void {
+    for (let index = this.requests.length - 1; index >= 0; index--) {
+      if (sameSession(this.requests[index], serverId, sessionId)) this.requests.splice(index, 1)
+    }
+  }
+
+  private add(request: ConnectRequest): void {
+    const key = connectRequestKey(request)
+    const index = this.requests.findIndex(
+      (open) => sameSession(open, request.serverId, request.sessionId) && connectRequestKey(open) === key,
+    )
+    if (index === -1) this.requests.push(request)
+    else this.requests[index] = request
   }
 
   /**
@@ -52,23 +76,23 @@ export class ConnectRequestStore {
    */
   listen(): () => void {
     const stopAccounts = subscribeAllHosts('connection.connectNeeded', (serverId, event) => {
-      this.request = {
+      this.add({
         kind: 'account',
         serverId,
         accountConnectionsUrl: event.accountConnectionsUrl,
         sessionId: event.sessionId,
         provider: event.provider,
         reason: event.reason,
-      }
+      })
     })
     const stopIntegrations = subscribeAllHosts('integration.connectNeeded', (serverId, event) => {
-      this.request = {
+      this.add({
         kind: 'integration',
         serverId,
         sessionId: event.sessionId,
         integrationId: event.integrationId,
         integrationName: event.integrationName,
-      }
+      })
     })
     return () => {
       stopAccounts()

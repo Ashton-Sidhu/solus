@@ -1,5 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestListFilters.tsx (MIT, see UPSTREAM.md).
-import { ScrollView } from 'react-native'
+import { ActivityIndicator, ScrollView, View } from 'react-native'
 import type { ControlPillMenuProps } from '../../components/ControlPillMenu.types'
 import { ListFilterMenu } from '../workspace/ListFilterMenu'
 import {
@@ -69,6 +69,7 @@ export interface PullRequestFilterProject extends PullRequestListProject {
  *  involvement, labels, and author. */
 export function PullRequestListFilters(props: {
   readonly hosts: readonly { id: string; label: string }[]
+  readonly refreshing?: boolean
   readonly hostId: string | null
   readonly project: PullRequestListProject | null
   readonly value: PullRequestListPreferences
@@ -101,6 +102,11 @@ export function PullRequestListFilters(props: {
   const authors = [...new Set([...(author && author !== 'me' ? [author] : []), ...props.authors])].slice(0, 60)
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 10, gap: 8 }}>
+      {props.refreshing ? (
+        <View className="justify-center" accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" colorClassName="accent-icon-muted" accessibilityLabel="Updating pull requests" />
+        </View>
+      ) : null}
       <ListFilterMenu
         label={count ? String(count) : 'Filters'}
         icon

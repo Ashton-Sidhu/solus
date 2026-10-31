@@ -84,6 +84,9 @@ It never reuses the chat's folder. A chat is never saved as the last project.
 - Removed: the `lastChatServerId` device setting.
 - New: the `chats` filter on `sessionRecordList` and on the Solus API
   `listSessions` query. It lists every chat of a host, for mobile.
+- New: the same `chats` filter on `sessionRecordSearch` and the Solus API
+  `searchSessions` query. A picker in a project scope uses both to include
+  the chats (`unified-search.md`, decision 12).
 
 ## Clients
 

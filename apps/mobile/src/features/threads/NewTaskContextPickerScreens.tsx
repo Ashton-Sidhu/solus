@@ -37,7 +37,7 @@ export function hostMachineKind(os: HostOperatingSystem | undefined): Environmen
   }
 }
 
-function SelectionRow(props: {
+export function SelectionRow(props: {
   readonly icon?: ReactNode;
   readonly onPress: () => void;
   readonly disabled?: boolean;
@@ -45,12 +45,14 @@ function SelectionRow(props: {
   readonly isLast?: boolean;
   readonly subtitle?: string;
   readonly title: string;
+  readonly fullLabels?: boolean;
 }) {
   if (Platform.OS === "android") {
     return (
       <MaterialListRow
         className="bg-grouped-card"
         title={props.title}
+        fullLabels={props.fullLabels}
         subtitle={props.subtitle}
         leading={props.icon}
         trailing={
@@ -80,11 +82,11 @@ function SelectionRow(props: {
     >
       {props.icon ?? null}
       <View className="min-w-0 flex-1 gap-0.5">
-        <Text className="text-base font-t3-medium text-foreground" numberOfLines={1}>
+        <Text className="text-base font-t3-medium text-foreground" numberOfLines={props.fullLabels ? undefined : 1}>
           {props.title}
         </Text>
         {props.subtitle ? (
-          <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+          <Text className="text-xs text-foreground-muted" numberOfLines={props.fullLabels ? undefined : 1}>
             {props.subtitle}
           </Text>
         ) : null}

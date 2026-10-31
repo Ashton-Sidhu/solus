@@ -11,7 +11,7 @@ function thread(sessionId: string, customTitle: string, organizationId = 'local'
     sessionId, customTitle, organizationId, publication: 'local', ownerKey: 'local:test', provider: 'codex', projectPath: '/repo',
     projectRemote: null, runnerHostId: null, title: null, status: 'idle', model: null, reasoningEffort: null,
     parentSessionId: null, rootSessionId: null, createdAt: 1, lastActivityAt: 1, size: 0, cwd: '/repo', slug: null,
-    isWorktree: false, branch: null, projectRoot: '/repo', delegation: null,
+    isWorktree: false, branch: null, projectRoot: '/repo', delegation: null, place: 'project', startedBy: null,
   }
   return { key: `a\0${sessionId}`, hostId: 'a', hostLabel: 'A', record }
 }
@@ -21,7 +21,25 @@ test('native project search includes each clone and sends each worktree root onc
   const projectKeys = new Set(projects.map(project => project.key))
   expect(nativeSearchHomes(['a', 'b'], projects, { hostId: 'a', projectKeys })).toEqual([
     { serverId: 'a', scope: { projectRoot: '/repo' } }, { serverId: 'a', scope: { projectRoot: '/clone' } },
+    { serverId: 'a', scope: { chats: true } },
   ])
+})
+
+test('a project scope keeps the chats: a chat belongs to no project', () => {
+  // WHY: a chat another person shared has no project. Hidden by a project
+  // scope, it was found only with every project selected.
+  const projects = [project('a', '/repo')]
+  const projectKeys = new Set(projects.map(project => project.key))
+  expect(nativeSearchHomes(['a', 'b'], projects, { hostId: null, projectKeys })).toEqual([
+    { serverId: 'a', scope: { projectRoot: '/repo' } }, { serverId: 'a', scope: { chats: true } },
+    { serverId: 'b', scope: { chats: true } },
+  ])
+  const chat = thread('chat', 'Understand MCP visually')
+  chat.record = { ...chat.record, projectPath: '-data-solus-chats-chat', cwd: '/data/solus-chats/chat', projectRoot: null, place: 'chat' }
+  const other = thread('other', 'Visual diff')
+  other.record = { ...other.record, projectPath: '/elsewhere', cwd: '/elsewhere', projectRoot: '/elsewhere' }
+  const hits = nativeSearchHits({ query: 'visual', hostId: null, projectKeys, organizationId: null, threads: [chat, other], remote: [] })
+  expect(hits.map(hit => hit.result.record.sessionId)).toEqual(['chat'])
 })
 
 test('native names use shared ranking and scope while host messages keep their place', () => {

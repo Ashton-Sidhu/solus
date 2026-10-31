@@ -266,7 +266,13 @@ The facts that this plan depends on:
   content.
   - Docs: a rendered markdown diff.
   - Diagrams: added, removed, and changed nodes and edges, marked on the canvas.
-  - Artifacts: the two renders side by side.
+  - Artifacts: the two renders side by side. The words that changed are
+    marked in each render (removed words before, added words after). Each
+    frame reports the words it shows after its scripts run, and the dialog
+    paints the marks with the CSS Custom Highlight API, so the page DOM does
+    not change.
+  - One **Highlight changes** switch (`⌥H`) turns the marks on and off in
+    every view: rendered docs, diagrams, artifacts, and the source diff.
 - **Restore** any revision. A restore adds a new revision; it deletes nothing.
 - "What the agent changed" becomes "changes since the revision before this
   agent save". It works the same as today.

@@ -93,6 +93,14 @@ describe('activity in the reducer', () => {
     expect(session.messages.map((message) => message.activity?.kind ?? message.role)).toEqual(['forked', 'user'])
   })
 
+  test('a provider switch made at send goes before the prompt that asked for it, where a reload puts it', () => {
+    const { session, reducer } = roomFixture()
+    reducer.apply('session', { type: 'activity', activity: activity({ kind: 'agent_switched', provider: 'claude', fromProvider: 'codex' }) })
+    // WHY: the divider marks where the new agent takes over; the prompt sent
+    // at the switch is the first one the new agent answers.
+    expect(session.messages.map((message) => message.activity?.kind ?? message.role)).toEqual(['agent_switched', 'user'])
+  })
+
   test('a divider reads as the thread\'s news for the reader, and names another person', () => {
     const fork = activity({ kind: 'forked', sourceSessionId: 'thread-0', midRun: true })
     expect(activityLine(fork, BOB.id)).toMatchObject({ person: null, who: '', predicate: 'Forked mid-run from' })

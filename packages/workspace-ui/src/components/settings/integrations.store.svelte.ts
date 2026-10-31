@@ -1,7 +1,8 @@
-import { isFirstIntegrationAccount } from '@solus/contracts/integration-types'
+import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/contracts/integration-types'
 import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { onServerRemoving } from '@solus/client-core/server-registry'
 import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
@@ -144,6 +145,8 @@ class IntegrationsStore {
   /** Per host and integration: stops the read-back of a cloud sign-in. */
   private cloudPolls = new Map<string, () => void>()
   private cloud: CloudSignInPort | null = null
+  /** Set by `listen`: told when a working sign-in stops working while the app runs. */
+  private onSignInExpired: ((serverId: string, integrationName: string) => void) | null = null
 
   /** Installs where a synced person's own sign-ins run. Until then every sign-in runs on the host. */
   useCloudSignIn(port: CloudSignInPort | null): void {
@@ -159,6 +162,44 @@ class IntegrationsStore {
     const cloud = this.cloud
     if (!cloud || !integration || cloud.accountUserId() === null) return null
     return integration.auth.kind === 'oauth' && (integration.auth.registration === 'client-required' || !!integration.auth.clientId) ? null : cloud
+  }
+
+  /**
+   * Called once at boot. A sign-in can expire while no surface that shows it
+   * is open, so every connected host is watched for the life of the app. That
+   * also keeps `attentionCount` true for the Settings nav.
+   */
+  listen(onSignInExpired: (serverId: string, integrationName: string) => void): () => void {
+    this.onSignInExpired = onSignInExpired
+    const releases = new Map<string, () => void>()
+    const follow = (serverId: string) => { if (!releases.has(serverId)) releases.set(serverId, this.watch(serverId)) }
+    for (const serverId of serverConnections.connectedServerIds()) follow(serverId)
+    const stopCreated = serverConnections.onConnectionCreated((connection) => follow(connection.serverId))
+    const stopRemoving = onServerRemoving((server) => {
+      releases.get(server.id)?.()
+      releases.delete(server.id)
+      // A removed host's connections must not stay in the count.
+      if (!this.watches.has(server.id)) {
+        this.states.delete(server.id)
+        this.accounts.forget(server.id)
+      }
+    })
+    return () => {
+      stopCreated()
+      stopRemoving()
+      for (const release of releases.values()) release()
+      releases.clear()
+      this.onSignInExpired = null
+    }
+  }
+
+  /** The caller's connections, on every host, that need them to act: the number beside MCP in Settings. */
+  get attentionCount(): number {
+    let count = this.accounts.count(connectionNeedsAttention)
+    for (const state of this.states.values()) {
+      for (const connection of state.connections.values()) if (connectionNeedsAttention(connection)) count++
+    }
+    return count
   }
 
   watch(serverId: string): () => void {
@@ -594,8 +635,16 @@ class IntegrationsStore {
   private applyConnectionChange(serverId: string, event: IntegrationConnectionChangedEvent): void {
     const state = this.states.get(serverId)
     if (!state) return
-    if (this.accounts.apply(serverId, event)) return
     const { integrationId, connection } = event
+    const accountId = connection?.accountId ?? event.accountId
+    const previous = accountId && !isFirstIntegrationAccount({ accountId })
+      ? this.accounts.accounts(serverId, integrationId).find((account) => account.accountId === accountId)
+      : state.connections.get(integrationId)
+    if (previous?.status === 'connected' && connection?.status === 'needs-sign-in') {
+      const name = state.integrations?.find((integration) => integration.id === integrationId)?.name ?? 'An MCP server'
+      this.onSignInExpired?.(serverId, name)
+    }
+    if (this.accounts.apply(serverId, event)) return
     this.connectionEventsDuringLoad.get(serverId)?.add(integrationId)
     if (connection) state.connections.set(integrationId, connection)
     else state.connections.delete(integrationId)

@@ -7,7 +7,6 @@
     CircleMinus as MinusCircleIcon,
     CircleX as XCircleIcon,
     Clock as ClockIcon,
-    File as FileIcon,
     GitMerge as GitMergeIcon,
     Hammer as HammerIcon,
     LoaderCircle as CircleNotchIcon,
@@ -16,7 +15,7 @@
     UserRoundPlus as UserPlusIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import Icon from "@iconify/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { untrack, type Snippet } from "svelte";
   import type { ChangedFileStat } from "@solus/contracts/types";
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
@@ -25,9 +24,7 @@
     PrReviewer,
     PrReviewerCandidate,
   } from "@solus/contracts/providers";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { ensureIconCollections } from "../diagram/iconify";
   import { Button } from "../ui/button";
   import VirtualList from "../ui/list-page/VirtualList.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
@@ -51,11 +48,6 @@
   import ReviewerVerdictIcon from "./ReviewerVerdictIcon.svelte";
   import PrWorkflowApproval from "./PrWorkflowApproval.svelte";
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
-
-  // The changed-file rows carry brand glyphs, the same ones Files, Diff and the
-  // pickers use. Registering the curated offline subset is idempotent and
-  // lazy — unknown names still resolve through Iconify's API fallback.
-  ensureIconCollections();
 
   // The activity tab's reference rail. The status leads it: what state
   // the pull request is in and the move that changes it; the review guide is
@@ -700,7 +692,6 @@
               keyOf={(file) => file.path}
             >
               {#snippet children(file, _index, style)}
-                {@const icon = fileTypeIcon(file.path)}
                 <!-- Two lines behind a file-type glyph: the filename carries the
                      churn on its own baseline, the directory sits under it.
                      Rail paths are long and a single line would truncate the
@@ -709,11 +700,6 @@
                      around it. The directory takes the muted colour alone — an
                      `opacity` on text drops it to grayscale antialiasing and
                      blurs it.
-
-                     The glyph is the same `fileTypeIcon` brand mark Files,
-                     Diff, the file picker and project search all use. It
-                     falls back to a neutral document mark for a type with no
-                     logo, which is what keeps the text column in one edge.
 
                      The row height comes from the list's own `style`; a file at
                      the repository root has no directory line and gets the
@@ -725,14 +711,7 @@
                     class="flex h-full w-full cursor-pointer items-center justify-start gap-2.5 rounded-lg px-2 py-0 text-left text-review-file font-normal transition-colors hover:bg-[var(--wash-2)]"
                     onclick={() => onFileJump?.(file.path)}
                   >
-                    {#if icon}
-                      <Icon {icon} width="14" height="14" class="shrink-0" />
-                    {:else}
-                      <FileIcon
-                        size={14}
-                        class="shrink-0 text-muted-foreground opacity-70"
-                      />
-                    {/if}
+                    <FileIcon path={file.path} size={14} />
                     <span class="flex min-w-0 flex-1 flex-col">
                       <span class="min-w-0 truncate font-medium text-foreground"
                         >{fileName(file.path)}</span

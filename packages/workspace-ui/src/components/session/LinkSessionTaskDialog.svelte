@@ -131,7 +131,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="pointer-events-auto fixed inset-0 z-[10008] flex items-start justify-center bg-transparent pt-[18vh]"
+  class="pointer-events-auto fixed inset-0 z-[10008] flex items-start justify-center modal-backdrop pt-[18vh]"
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget) close();

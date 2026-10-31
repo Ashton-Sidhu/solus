@@ -244,6 +244,11 @@
   export function isCaretAtStart(): boolean {
     return autocompleteEditor.isCaretAtStart();
   }
+  export function insertSessionReferences(
+    sessions: readonly SessionReference[],
+  ): boolean {
+    return plainTextEditorEl?.insertSessionReferences(sessions) ?? false;
+  }
 </script>
 
 {#if ac.open}

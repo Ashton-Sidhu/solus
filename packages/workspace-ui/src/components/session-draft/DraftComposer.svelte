@@ -102,8 +102,9 @@
 {/if}
 
 <div
+  data-session-drop-area
   class={cn(
-    "@container/composer overflow-hidden rounded-3xl bg-(--solus-input-pill-bg) px-3 pb-3",
+    "@container/composer overflow-hidden rounded-3xl bg-(--solus-input-pill-bg) px-3 pb-3 has-[[data-session-drop-target]]:outline-1 has-[[data-session-drop-target]]:outline-dashed has-[[data-session-drop-target]]:outline-primary/50",
     // Over a page the card lifts off it; on a pane it rests with a soft drop
     // in light mode and on its ring alone in dark.
     floating
@@ -153,7 +154,7 @@
 
 <!-- The same destination strip a pre-flight tab draws — project, where it
      runs, branch — under the card, addressed by the draft's id, with the
-     Mission mode button at its end. -->
+     Coordinator mode button at its end. -->
 {#if !destinationFixed}
   <InputBarFooter
     {active}

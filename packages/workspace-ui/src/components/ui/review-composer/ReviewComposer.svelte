@@ -1,13 +1,14 @@
 <script lang="ts" generics="Value extends string">
   import type { Snippet } from "svelte";
-  import { MessageSquareText, CircleCheck, CircleAlert } from "@lucide/svelte";
+  import { MessageSquareText, CircleCheck, CircleAlert, ChevronDown } from "@lucide/svelte";
   import { cn } from "../../../lib/utils";
   import { isMac } from "../../../lib/keybindings/match";
   import { CommentEditor } from "../comment-editor";
   import { Button } from "../button";
   import * as TooltipUI from "../tooltip";
+  import * as DropdownMenu from "../dropdown-menu";
   import EditorVoiceControl from "../../input/EditorVoiceControl.svelte";
-  import type { ReviewChoice } from "./lib/review-choice";
+  import { verdictHelp, type ReviewChoice } from "./lib/review-choice";
 
   let {
     value = $bindable(), body = $bindable(""), choices, busy = false,
@@ -47,7 +48,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class={cn("flex flex-col gap-3.5 p-4", className)} onkeydown={onKeydown}>
+<div class={cn("flex flex-col gap-3 p-4", className)} onkeydown={onKeydown}>
   <CommentEditor
     bind:this={editor}
     value={body}
@@ -60,48 +61,14 @@
     maxHeight={360}
     ariaLabel="Review summary"
     placeholder={needsContent ? "Write a summary…" : "Add a summary (optional)…"}
-    class="rounded-xl border border-border bg-transparent px-3 transition-colors focus-within:border-foreground/25 [&_.cm-content]:![min-height:8rem] [&_.cm-content]:![padding:0.5rem_0] [&_.cm-content]:![font-weight:400]"
+    class="border-0 bg-transparent px-0 [&_.cm-content]:![min-height:5.5rem] [&_.cm-content]:![padding:0] [&_.cm-content]:![font-weight:400]"
   />
   {#if comments}{@render comments()}{/if}
-  <!-- The verdict buttons fill one row; under them, the voice control and
-       the submit button. The verdict carries the color; submit is always the
-       primary call to action, and its label names the verdict. -->
-  {#if choices.length > 1}
-    <div role="radiogroup" aria-label="Verdict" class="flex gap-1.5">
-      {#each choices as choice (choice.value)}
-        {@const isSelected = value === choice.value}
-        {@const Icon = choice.kind === "approve" ? CircleCheck : choice.kind === "request-changes" ? CircleAlert : MessageSquareText}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props })}
-              <Button
-                {...props}
-                variant="outline"
-                size="sm"
-                role="radio"
-                aria-checked={isSelected}
-                disabled={busy}
-                aria-disabled={choice.disabled}
-                style="--ev:var(--solus-review-{choice.kind});"
-                class="h-8 min-w-0 flex-1 gap-1.5 overflow-hidden bg-transparent text-workspace-chrome pointer-coarse:h-11 dark:bg-transparent {isSelected
-                  ? 'border-transparent bg-(--ev) text-white hover:bg-(--ev) hover:text-white hover:opacity-90 dark:bg-(--ev) dark:hover:bg-(--ev)'
-                  : choice.disabled
-                    ? 'cursor-not-allowed text-muted-foreground opacity-40 hover:bg-transparent'
-                    : 'text-muted-foreground hover:bg-[var(--wash-1)] dark:hover:bg-[var(--wash-1)]'}"
-                onclick={() => { if (!choice.disabled) value = choice.value; }}
-              >
-                <Icon class="size-4 shrink-0" aria-hidden="true" />
-                <span class="truncate">{choice.label}</span>
-              </Button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={choice.disabledReason} />
-        </TooltipUI.Root>
-      {/each}
-    </div>
-  {/if}
+  <!-- One neutral submit button names the verdict. With more than one
+       verdict it is a split button: its menu picks the verdict and says why
+       a locked one is locked. Only the verdict icons carry color. -->
   <footer class="flex items-center gap-2">
-    <span class="min-w-0 flex-1 truncate text-workspace-chrome text-muted-foreground" aria-live="polite">
+    <span class="min-w-0 flex-1 truncate text-chrome-dense text-muted-foreground" aria-live="polite">
       {#if tooLong}
         Use {maxLength} characters or fewer
       {:else if hint}
@@ -112,15 +79,58 @@
     <span class="flex shrink-0 items-center">
       <EditorVoiceControl onTranscript={(transcript) => editor?.insertTranscript(transcript)} {focused} disabled={busy || uploading} />
     </span>
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props })}
-          <Button {...props} size="sm" class="pointer-coarse:min-h-11" disabled={!enabled || uploading} data-testid={submitTestId} onclick={onSubmit}>
-            {busy ? "Submitting…" : submitLabel ?? selected?.label}
-          </Button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={{ label: "Submit", shortcut: isMac ? "⌘↵" : "Ctrl↵" }} />
-    </TooltipUI.Root>
+    <div class="flex shrink-0 items-stretch">
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              size="sm"
+              class="bg-foreground text-background hover:bg-foreground/85 pointer-coarse:min-h-11 {choices.length > 1 ? 'rounded-r-none' : ''}"
+              disabled={!enabled || uploading}
+              data-testid={submitTestId}
+              onclick={onSubmit}
+            >
+              {busy ? "Submitting…" : submitLabel ?? selected?.label}
+            </Button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={{ label: "Submit", shortcut: isMac ? "⌘↵" : "Ctrl↵" }} />
+      </TooltipUI.Root>
+      {#if choices.length > 1}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger disabled={busy}>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                size="icon-sm"
+                aria-label="Verdict: {selected?.label}"
+                class="w-6.5 rounded-l-none border-l border-l-background/25 bg-foreground text-background hover:bg-foreground/85 aria-expanded:bg-foreground/85 pointer-coarse:min-h-11 pointer-coarse:w-9"
+              >
+                <ChevronDown class="size-3.5" aria-hidden="true" />
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content
+            align="end"
+            class="w-64"
+            onCloseAutoFocus={(event) => { event.preventDefault(); editor?.focus(); }}
+          >
+            <DropdownMenu.RadioGroup bind:value aria-label="Verdict">
+              {#each choices as choice (choice.value)}
+                {@const Icon = choice.kind === "approve" ? CircleCheck : choice.kind === "request-changes" ? CircleAlert : MessageSquareText}
+                <DropdownMenu.RadioItem value={choice.value} disabled={choice.disabled} class="items-start">
+                  <Icon class="mt-0.5 size-4" style="color: var(--solus-review-{choice.kind});" aria-hidden="true" />
+                  <span class="flex min-w-0 flex-col">
+                    <span class="text-foreground">{choice.label}</span>
+                    <span class="text-chrome-dense text-muted-foreground">{choice.disabled ? choice.disabledReason : verdictHelp[choice.kind]}</span>
+                  </span>
+                </DropdownMenu.RadioItem>
+              {/each}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
+    </div>
   </footer>
 </div>

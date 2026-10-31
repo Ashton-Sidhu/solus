@@ -11,6 +11,7 @@
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import SessionSidebarSkeleton from "../session/SessionSidebarSkeleton.svelte";
   import SidePanel from "./SidePanel.svelte";
+  import SettingsDialog from "../settings/SettingsDialog.svelte";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
@@ -556,16 +557,14 @@
       ),
   );
 
-  // Collapse the session sidebar when a primary review or Settings opens, and
+  // Collapse the session sidebar when a primary review opens, and
   // restore it on close. Secondary panes keep the user's sidebar state.
   // Track only the surface transition: the user
   // can reopen the sidebar while that surface remains open without this effect
   // immediately closing it again. The Workspace is not one of them: it dropped
   // its own left rail, so it no longer competes for the sidebar's width.
   $effect(() => {
-    const sidebarOverlayOpen =
-      primaryReviewOpen ||
-      router.at("settings");
+    const sidebarOverlayOpen = primaryReviewOpen;
 
     untrack(() => {
       if (sidebarOverlayOpen) {
@@ -924,6 +923,10 @@
     tabId={homeSessionMenu.tabId}
     onClose={() => (homeSessionMenu = null)}
   />
+{/if}
+
+{#if active && router.at("settings")}
+  <SettingsDialog />
 {/if}
 
 <style>

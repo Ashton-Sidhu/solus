@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_RECHECK_MS, type HostRoute, type RouteCheck } from '@solus/contracts/host-routes'
-import { healthProofSchema, newHealthNonce, routeNeedsProof, verifyHostProof, type HealthProof } from '@solus/contracts/host-identity'
+import { healthProofSchema, newHealthNonce, routeNeedsProof, type HealthProof } from '@solus/contracts/host-identity'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
@@ -308,6 +308,10 @@ export async function answersAsSavedHost(
   }
   if (!saved.identityKey) return false
   const sent = nonce()
+  // The verifier loads beside the health read: only an `http:` route needs it.
+  const proofCode = import('@solus/contracts/host-proof')
   const health = await readHostHealth(fetchImpl, route.url, signal, sent)
-  return !!health?.proof && isSavedHost(saved, health) && verifyHostProof(saved.identityKey, sent, health.installationId, health.proof)
+  if (!health?.proof || !isSavedHost(saved, health)) return false
+  const { verifyHostProof } = await proofCode
+  return verifyHostProof(saved.identityKey, sent, health.installationId, health.proof)
 }

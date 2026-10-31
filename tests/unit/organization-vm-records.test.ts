@@ -40,6 +40,7 @@ let dbModule: typeof import('@solus/server/db')
 type Principal = import('@solus/server/admission/principal').Principal
 type WorkspaceOperations = import('@solus/server/data/workspace/operations').WorkspaceOperations
 type AgentToolContext = import('@solus/server/execution/agents/tools/agent-tool').AgentToolContext
+type NormalizedEvent = import('@solus/contracts/types').NormalizedEvent
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -475,6 +476,24 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     }
   })
 
+  test('a work event names the organization whose Solus API holds the work, and none for a work on this machine', async () => {
+    // WHY: a client opens an agent's work where the event says it is. An
+    // organization session's work is on its Solus API, not on the machine that
+    // ran the agent; a client that asked the machine found nothing and showed
+    // the work as deleted.
+    const api = fakeOrganizationApi('A')
+    const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
+    const emitted: NormalizedEvent[] = []
+    const emitting = (sessionId: string): AgentToolContext => ({ ...agentIn(sessionId), emit: (event) => { emitted.push(event) } })
+    try {
+      await workTools.createWorkAgentTool.execute({ title: 'VM notes', doc_type: 'doc', content: '# Notes' }, emitting('s-new'))
+      await workTools.createWorkAgentTool.execute({ title: 'Personal notes', doc_type: 'doc', content: '# Mine' }, emitting('s-before'))
+      expect(emitted.map((event) => event.type === 'work_created' ? [event.title, event.organizationId] : null)).toEqual([['VM notes', 'A'], ['Personal notes', null]])
+    } finally {
+      uninstall()
+    }
+  })
+
   test('when the host acts for nobody in an organization session, its tool writes nothing anywhere and says why', async () => {
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => null)
     try {
@@ -533,7 +552,8 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
     const operations = new sessionApi.SessionApiOperations(shares)
     const record = { provider: 'codex' as const, projectPath: '-repo', cwd: '/repo', privateToOwner: false }
     await operations.admit(delegatedContext(), { sessionId: 'solus-admitted', record })
-    expect(await records.getSessionRecord('A', 'solus-admitted')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM', publication: 'published', provider: 'codex', status: 'running' })
+    // The project is the real folder, not the provider's encoded key, so a list names it before later facts arrive.
+    expect(await records.getSessionRecord('A', 'solus-admitted')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM', publication: 'published', provider: 'codex', status: 'running', projectRoot: '/repo' })
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'solus-admitted' })).toBe('editor')
     await records.setSessionRecordStatus('A', 'solus-admitted', 'idle')
     await operations.admit(delegatedContext(), { sessionId: 'solus-admitted', record })

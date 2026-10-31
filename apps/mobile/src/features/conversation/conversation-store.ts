@@ -1,4 +1,4 @@
-import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionOrigin, SessionStatus } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStarterFromHost, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { setupActivityLabel } from '@solus/contracts/setup-card'
 import { Listeners } from '../../lib/listeners'
@@ -28,7 +28,7 @@ export interface ConversationMeta {
   hasOlder: boolean
   loadingOlder: boolean
   /** The agent session on another host that started this one. */
-  startedBy: SessionOrigin | null
+  startedBy: SessionStarterFromHost | null
   pendingPlan: Extract<TranscriptItem, { kind: 'plan' }> | null
   /** The setup step that runs now, as the status pill says it. */
   setupStep: string | null

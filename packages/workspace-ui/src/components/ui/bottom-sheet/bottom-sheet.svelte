@@ -63,7 +63,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   use:portal={mountIn}
-  class="no-drag pointer-events-auto fixed inset-0 z-[210] bg-black/45"
+  class="no-drag pointer-events-auto fixed inset-0 z-[210] modal-backdrop"
   onclick={onClose}
 ></div>
 

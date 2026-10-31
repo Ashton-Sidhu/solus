@@ -466,6 +466,7 @@ export function AdaptiveWorkspaceLayout(props: {
                     visible={panes.primarySidebarVisible}
                     onRequestVisibility={revealPrimarySidebar}
                     selectedThreadKey={selectedThreadKey}
+                    onOpenProject={(hostId) => navigation.navigate("OpenProject", { hostId })}
                     onOpenSettings={handleOpenSettings}
                     onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                     onSelectThread={handleSelectThread}

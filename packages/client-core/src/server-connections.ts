@@ -27,6 +27,7 @@ import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
 import { HostIntroducer, type IntroducerHost } from './host-introducer'
 import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
+import { routesForMachine } from '@solus/contracts/host-routes'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -327,7 +328,7 @@ export class ServerConnections {
       transport,
       api: asHostApi(api),
       presence,
-      routes: () => target.routes ?? [],
+      routes: () => routesForMachine(target.routes ?? [], target.uplink?.kind),
       fallbackRoutes: () => target.fallbackRoutes ?? [],
       clientOrigin: globalThis.location?.origin ?? '',
       localHostId: this.targets.get(LOCAL_SERVER_ID)?.installationId ?? null,

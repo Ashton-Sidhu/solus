@@ -16,6 +16,7 @@ import { PullRequestCardGroup, PullRequestCardRow } from './detail/pull-request-
 import { prUnavailableTitle } from './lib/pr-presentation'
 import { filterPullRequestRows, hostNoticesSummary, pullRequestHostQuery, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
 import { PullRequestListFilters, type PullRequestFilterProject } from './PullRequestListFilters'
+import { PullRequestListLoading } from './PullRequestListLoading'
 import { PullRequestListRow } from './PullRequestListRow'
 import { shownValue } from './pull-request-reads'
 import { usePullRequestList } from './use-pull-request-list'
@@ -198,7 +199,7 @@ export function PullRequestsScreen(props: {
     if (project.kind === 'error') return [{ key: `${host.hostId}:${project.projectPath}`, text: `${project.folderName}: ${project.message}` }]
     return []
   }))
-  const waiting = list.rows.length === 0 && reads.some((host) => host.state.kind === 'idle' || host.state.kind === 'loading')
+  const waiting = rows.length === 0 && list.reading
 
   return (
     <FlatList
@@ -229,6 +230,7 @@ export function PullRequestsScreen(props: {
       ListHeaderComponent={pairedHostIds.length > 0 ? (
         <>
           <PullRequestListFilters
+            refreshing={list.reading && rows.length > 0 && !list.loadingMore}
             hosts={hostOptions}
             hostId={scope.hostId}
             project={scope.project}
@@ -257,9 +259,7 @@ export function PullRequestsScreen(props: {
             onAction={() => navigation.navigate('PairHost')}
           />
         ) : waiting ? (
-          <View className="items-center py-12">
-            <ActivityIndicator colorClassName="accent-icon" accessibilityLabel="Loading pull requests" />
-          </View>
+          <PullRequestListLoading />
         ) : allNeedGithub ? (
           <EmptyState
             variant="plain"

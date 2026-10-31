@@ -40,7 +40,7 @@ export function unattendedModelInputFor(
   return {
     contextWindow: model ? profiles[model]?.defaultContextWindow ?? null : null,
     model: model ?? '',
-    preferredModel: model,
+    preferredModel: modelId || null,
     ...instructionsFor(preferences, model),
   }
 }

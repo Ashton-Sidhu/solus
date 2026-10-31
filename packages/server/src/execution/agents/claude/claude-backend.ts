@@ -1,4 +1,7 @@
-import { loadClaudeHistoryPage } from './claude-history-page'
+import { privateProviderInstances } from '../../seats/provider-instances'
+import { providerHistoryInstanceId } from '../../seats/provider-runtime'
+import { captureActingScope } from '../../../vault/acting-scope'
+import { loadClaudeFirstTurn, loadClaudeHistoryPage } from './claude-history-page'
 import { createInterface } from 'node:readline'
 import { open, readdir, stat as fsStat } from 'node:fs/promises'
 import { createReadStream, existsSync } from 'node:fs'
@@ -31,6 +34,7 @@ import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER, providerModelsFor } from '@solus/contracts/types'
 import type {
   AgentId,
+  ModelProfile,
   AgentMetadata,
   AgentSlashCommand,
   AgentUsageLimits,
@@ -86,8 +90,8 @@ const log = createLogger('ClaudeBackend', 'claude-backend.ts')
  * Claude answers `400 The long context beta is not yet available`, killing the
  * turn before it starts.
  */
-function claudeModelId(baseModel: string, contextWindow: number | null | undefined): string {
-  const offersLongContext = claudeProfiles[baseModel]?.contextWindows.includes(1_000_000) ?? false
+function claudeModelId(baseModel: string, contextWindow: number | null | undefined, customProfile?: ModelProfile): string {
+  const offersLongContext = (customProfile ?? claudeProfiles[baseModel])?.contextWindows.includes(1_000_000) ?? false
   return contextWindow === 1_000_000 && offersLongContext ? `${baseModel}[1m]` : baseModel
 }
 
@@ -177,8 +181,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
   /** Resolve the current path without touching the index on the normal path. */
   private sessionFilePath(sessionId: string, projectPath?: string): string | null {
+    const personKey = captureActingScope()?.personKey
+    const privateHome = personKey ? privateProviderInstances().threadHome(personKey, 'claude-code', sessionId) : undefined
     return resolveClaudeSessionFilePath(
-      join(homedir(), '.claude', 'projects'),
+      join(privateHome ?? join(homedir(), '.claude'), 'projects'),
       sessionId,
       projectPath || process.cwd(),
       () => {
@@ -249,7 +255,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     // `||`, not `??`: an unset model reaches a backend as the empty string as
     // readily as null, and an empty id is never a model — it leaves the SDK to
     // pick the CLI's own default instead of ours.
-    const model = claudeModelId(request.model || this.metadata.defaultModel, request.contextWindow)
+    const model = claudeModelId(request.model || this.metadata.defaultModel, request.contextWindow, request.model ? request.providerRuntime?.modelProfiles?.[request.model] : undefined)
     const adaptedTools = adaptClaudeTools(request.tools, {
       provider: 'claude-code',
       cwd: resolveHomePath(request.cwd),
@@ -293,7 +299,15 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         maxBudgetUsd: request.maxBudgetUsd,
         bare: request.bare,
         canUseTool,
-        seat: request.seat ? claudeSeatOf(request.seat) : undefined,
+        seat: request.providerRuntime ? {
+          ...(request.seat ? claudeSeatOf(request.seat) : { home: request.providerRuntime.homePath ?? '' }),
+          envToken: request.providerRuntime.homePath ? undefined : request.seat?.envToken,
+          binaryPath: request.providerRuntime.binaryPath,
+          autoCompactWindow: request.providerRuntime.autoCompactWindow,
+          idleCompaction: request.providerRuntime.idleCompaction,
+          launchArgs: request.providerRuntime.launchArgs,
+          environmentOverrides: request.providerRuntime.launch.env,
+        } : request.seat ? claudeSeatOf(request.seat) : undefined,
         persistSession: request.persistence === 'session',
         abortController,
         onTurnComplete: checkpointTarget
@@ -302,7 +316,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       })
       handle.stopTask = stopTask
 
-      await this._runLoop(handle, events, result, sessionRef, workTree)
+      await this._runLoop(handle, events, result, sessionRef, workTree, request)
     })().catch((err: any) => {
       const sessionId = handle.agentSessionId
       log.error('run_start_failed', { sessionId: sessionId ?? 'pending', error: err?.message })
@@ -322,11 +336,23 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     result: Promise<ClaudeRunResult>,
     sessionRef: { current: string | null },
     cwd: string,
+    request: AgentRunRequest,
   ): Promise<void> {
     try {
       for await (const evt of events) {
         if (evt.type === 'session_init') {
           this.promoteToActive(handle, evt.sessionId)
+          const scope = captureActingScope()
+          if (request.providerRuntime && scope?.personKey && request.persistence !== 'ephemeral') {
+            const runtime = request.providerRuntime
+            const instanceId = providerHistoryInstanceId(runtime.historyReference, scope.personKey)
+            const home = runtime.homePath ?? claudeConfigDir(request.seat ? claudeSeatOf(request.seat) : undefined)
+            try {
+              privateProviderInstances().recordThreadHome(scope.personKey, 'claude-code', evt.sessionId, instanceId, home)
+            } catch (error) {
+              log.warn('provider_thread_home_record_failed', { sessionId: evt.sessionId, error: error instanceof Error ? error.message : String(error) })
+            }
+          }
           sessionRef.current = evt.sessionId
         }
 
@@ -477,6 +503,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const filePath = this.sessionFilePath(sessionId, projectPath)
     if (!filePath) return { messages: [], before: null }
     return loadClaudeHistoryPage(filePath, turnLimit, before)
+  }
+
+  async loadSessionFirstTurn(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]> {
+    const filePath = this.sessionFilePath(sessionId, projectPath)
+    return filePath ? loadClaudeFirstTurn(filePath) : []
   }
 
   async loadSessionPreview(sessionId: string, projectPath?: string): Promise<SessionPreviewResult> {

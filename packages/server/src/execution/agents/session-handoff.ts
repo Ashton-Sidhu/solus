@@ -2,11 +2,14 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { ProviderHistoryPage, SessionLoadMessage } from '@solus/contracts/session-history'
 import { MODEL_PROFILES, type AgentId, type SessionStatus } from '@solus/contracts/types'
 
 export interface BuildHandoffDeps {
-  loadSession(sessionId: string, projectPath: string): Promise<SessionLoadMessage[]>
+  /** One page of the source history: the `turnLimit` user turns before `before`, or the newest ones. */
+  loadPage(sessionId: string, projectPath: string, turnLimit: number, before?: string): Promise<ProviderHistoryPage>
+  /** The rows from the start of the source history through its first turn. Read only when the pages stop before the start. */
+  loadFirstTurn?(sessionId: string, projectPath: string): Promise<SessionLoadMessage[]>
   handoffRoot?: string
   now?: () => number
   fromProvider?: AgentId
@@ -42,6 +45,30 @@ export function estimatedHandoffTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / 3)
 }
 
+/** User turns asked for per history page. */
+const HANDOFF_PAGE_TURNS = 10
+
+function isHistoryItem(message: SessionLoadMessage): boolean {
+  return !message.parentToolUseId && !!message.content.trim() && (message.role === 'user' || message.role === 'assistant')
+}
+
+/** Read pages from the end until the visible items read exceed the budget, so
+ * the cost follows the budget and not the session length. `complete` is true
+ * when the walk reached the start of the history. */
+async function readRecentHistory(oldSessionId: string, projectPath: string, deps: BuildHandoffDeps, budget: number): Promise<{ messages: SessionLoadMessage[]; complete: boolean }> {
+  let messages: SessionLoadMessage[] = []
+  let tokens = 0
+  let before: string | undefined
+  for (;;) {
+    const page = await deps.loadPage(oldSessionId, projectPath, HANDOFF_PAGE_TURNS, before)
+    messages = page.messages.concat(messages)
+    for (const message of page.messages) if (isHistoryItem(message)) tokens += estimatedHandoffTokens(message.content)
+    if (page.before === null) return { messages, complete: true }
+    if (tokens > Math.max(0, budget)) return { messages, complete: false }
+    before = page.before
+  }
+}
+
 function historyItems(messages: SessionLoadMessage[], provider?: AgentId): HistoryItem[] {
   const items: HistoryItem[] = []
   let turn = 0
@@ -49,9 +76,8 @@ function historyItems(messages: SessionLoadMessage[], provider?: AgentId): Histo
   for (let position = 0; position < messages.length; position++) {
     const message = messages[position]
     if (message.activity?.kind === 'agent_switched') currentProvider = message.activity.provider
-    if (message.parentToolUseId || !message.content.trim()) continue
+    if (!isHistoryItem(message)) continue
     if (message.role === 'user') turn++
-    if (message.role !== 'user' && message.role !== 'assistant') continue
     items.push({ position, turn, provider: message.sourceProvider ?? currentProvider, message })
   }
   return items
@@ -66,12 +92,26 @@ function renderItem(item: HistoryItem, sourceStatus?: SessionStatus): string {
   return `### Turn ${item.turn} — ${author}${source}${sourceSession}; time ${message.timestamp}${state}\n\n${message.content}`
 }
 
+/** The rows of the first turn through its first request, when the request is
+ * not already among the recent rows. */
+async function firstRequestRows(oldSessionId: string, projectPath: string, deps: BuildHandoffDeps, recent: SessionLoadMessage[]): Promise<SessionLoadMessage[]> {
+  const rows = await deps.loadFirstTurn?.(oldSessionId, projectPath) ?? []
+  const at = rows.findIndex((message) => message.role === 'user' && isHistoryItem(message))
+  if (at < 0) return []
+  const request = rows[at]
+  const isRequest = (message: SessionLoadMessage) => message.messageId && request.messageId
+    ? message.messageId === request.messageId
+    : message.role === 'user' && message.timestamp === request.timestamp && message.content === request.content
+  return recent.some(isRequest) ? [] : rows.slice(0, at + 1)
+}
+
 /** Keep required requests and the latest response intact. Add recent history
- * only while complete items fit, then restore their original order. */
-function selectHistory(items: HistoryItem[], budget: number, status?: SessionStatus, nextPrompt = ''): HistoryItem[] {
+ * only while complete items fit, then restore their original order. The first
+ * request is required when `items` start at the start of the history. */
+function selectHistory(items: HistoryItem[], budget: number, startsAtStart: boolean, status?: SessionStatus, nextPrompt = ''): HistoryItem[] {
   if (!items.length) return []
   const latestTurn = items.at(-1)!.turn
-  const firstRequest = items.find((item) => item.message.role === 'user')
+  const firstRequest = startsAtStart ? items.find((item) => item.message.role === 'user') : undefined
   const selected = new Set(items.filter((item) => item.turn === latestTurn))
   if (firstRequest) selected.add(firstRequest)
   let used = [...selected].reduce((sum, item) => sum + estimatedHandoffTokens(renderItem(item, status)), 0)
@@ -93,19 +133,24 @@ function selectHistory(items: HistoryItem[], budget: number, status?: SessionSta
 }
 
 export async function buildHandoff(oldSessionId: string, projectPath: string, deps: BuildHandoffDeps): Promise<BuiltHandoff> {
-  const messages = [...await deps.loadSession(oldSessionId, projectPath)]
+  const profile = deps.targetProvider ? MODEL_PROFILES[deps.targetProvider]?.[deps.targetModel ?? ''] : undefined
+  const context = deps.contextWindow ?? profile?.defaultContextWindow ?? 128_000
+  const budget = Math.min(deps.historyTokens ?? 16_000, context - estimatedHandoffTokens(deps.nextPrompt ?? '') - 8_192) - 512
+  const { messages, complete } = await readRecentHistory(oldSessionId, projectPath, deps, budget)
+  const opening = complete ? [] : await firstRequestRows(oldSessionId, projectPath, deps, messages)
+  messages.unshift(...opening)
   if (deps.partialReply && !messages.some((message) => message.role === 'assistant' && message.content === deps.partialReply)) {
     messages.push({ role: 'assistant', content: deps.partialReply, timestamp: (deps.now ?? Date.now)() })
   }
   const items = historyItems(messages, deps.fromProvider)
   if (!items.length) return { transcriptFilePath: null, reasoningFilePath: null }
-  const profile = deps.targetProvider ? MODEL_PROFILES[deps.targetProvider]?.[deps.targetModel ?? ''] : undefined
-  const context = deps.contextWindow ?? profile?.defaultContextWindow ?? 128_000
-  const budget = Math.min(deps.historyTokens ?? 16_000, context - estimatedHandoffTokens(deps.nextPrompt ?? '') - 8_192) - 512
-  const selected = selectHistory(items, budget, deps.sourceStatus, deps.nextPrompt)
+  const selected = selectHistory(items, budget, complete || opening.length > 0, deps.sourceStatus, deps.nextPrompt)
   const omitted = items.length - selected.length
   const header = `# Conversation handoff\n\nSource session: ${oldSessionId}\nSource project: ${projectPath}\n`
-  const retrieval = omitted ? `\n${omitted} visible history items omitted. Use read_session with session_id "${oldSessionId}" to page through earlier history, or search_sessions to find a passage in it.\n` : '\nAll visible conversation items are included.\n'
+  const included = opening.length ? 'The original request (Turn 1) and recent history are included' : 'Only recent history is included'
+  const counting = opening.length ? 'The recent turns are numbered on from Turn 1, and the omitted turns between are not counted' : 'Turn numbers count from the earliest turn included'
+  const retrieval = !complete ? `\n${included}${omitted ? `; ${omitted} of the visible items read are omitted too` : ''}. ${counting}. Use read_session with session_id "${oldSessionId}" to page through earlier history, or search_sessions to find a passage in it.\n`
+    : omitted ? `\n${omitted} visible history items omitted. Use read_session with session_id "${oldSessionId}" to page through earlier history, or search_sessions to find a passage in it.\n` : '\nAll visible conversation items are included.\n'
   const body = selected.map((item) => renderItem(item, deps.sourceStatus)).join('\n\n')
   const root = deps.handoffRoot ?? join(tmpdir(), 'solus-handoffs')
   await mkdir(root, { recursive: true })

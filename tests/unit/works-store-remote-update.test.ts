@@ -91,6 +91,43 @@ test('a session update names no content version, so its body never becomes the s
   expect(store.savedWork('chart')!.contentVersion).toBe(2)
 })
 
+test('an agent update from another host keeps the work on its owner host', async () => {
+  // WHY: an agent on this machine can update an organization's work. Its session
+  // names the machine, not the cloud. If that report moved the work, its pane
+  // ignored the cloud's newer answers and then read the machine, which has no
+  // such work, and showed it as deleted.
+  const cloudWork: Work = { ...artifact, organizationId: 'org-a' }
+  let cloudReads = 0
+  connections.registerPrimary('machine', { loadWork: async () => null })
+  connections.registerHost('cloud', {
+    loadWork: async () => { cloudReads++; return { ...cloudWork, content: '<p>Agent</p>', contentVersion: 2, updatedAt: '2026-09-22T00:00:05.000Z' } },
+  })
+  const store = await newStore()
+  store.acceptCreated({ ...cloudWork }, 'cloud')
+
+  store.applyRemoteUpdate('chart', 'Revenue chart', '<p>Agent</p>', '2026-09-22T00:00:05.000Z', 'machine')
+  expect(store.hostFor('chart')).toBe('cloud')
+  await store.ensureContent('chart')
+  await Promise.resolve()
+  expect(cloudReads).toBe(1)
+  expect(store.savedWork('chart')!.contentVersion).toBe(2)
+})
+
+test('an agent work is opened where its event says it is: the organization’s Solus API, or the session’s host', async () => {
+  // WHY: an organization session on an attached machine saves through the
+  // Solus API, and the machine keeps no copy. A work placed on the machine
+  // could not be read there and showed as deleted.
+  const { agentWorkHost } = await import('@solus/workspace-ui/contexts/works/agent-work-host')
+  const { solusApiId } = await import('@solus/contracts/uplink')
+  const store = await newStore()
+  store.finalizeProvisional(null, 'org-work', 'Notes', 'doc', '# Notes', agentWorkHost('org-a', 'machine'))
+  store.finalizeProvisional(null, 'own-work', 'Mine', 'doc', '# Mine', agentWorkHost(null, 'machine'))
+  store.finalizeProvisional(null, 'old-host-work', 'Old', 'doc', '# Old', agentWorkHost(undefined, 'machine'))
+  expect(store.hostFor('org-work')).toBe(solusApiId('org-a'))
+  expect(store.hostFor('own-work')).toBe('machine')
+  expect(store.hostFor('old-host-work')).toBe('machine')
+})
+
 test('a gallery listing is not a saved record: reading content goes to the host', async () => {
   let reads = 0
   connections.registerPrimary('local', {

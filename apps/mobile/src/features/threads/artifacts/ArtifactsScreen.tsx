@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PierreEntryIcon } from "../../../components/PierreEntryIcon";
 import { AppText as Text } from "../../../components/AppText";
 import { EmptyState } from "../../../components/EmptyState";
 import { ListRow } from "../../../components/ListRow";
@@ -128,6 +129,7 @@ export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifa
                   <ListRow
                     key={artifactKey(item)}
                     icon={artifactIcon(item)}
+                    leading={item.kind === "file" || item.kind === "image" ? <PierreEntryIcon path={item.path} size={18} /> : undefined}
                     label={text.title}
                     description={text.detail ?? undefined}
                     accessibilityHint={text.iconLabel}
@@ -141,6 +143,7 @@ export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifa
                   >
                     <ListRowLayout
                       icon={artifactIcon(item)}
+                    leading={item.kind === "file" || item.kind === "image" ? <PierreEntryIcon path={item.path} size={18} /> : undefined}
                       label={text.title}
                       description={text.detail ?? "Open it on desktop or web"}
                     />

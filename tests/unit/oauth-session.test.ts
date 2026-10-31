@@ -58,6 +58,26 @@ function world(options: { answer?: 'approve' | 'deny' | 'close'; gateRefresh?: (
 const HOST = { kind: 'host', hostId: 'host-1' } as const
 
 describe('OAuthSession sign-in', () => {
+  test('uses the servers token from sign-in before refreshing, then renews and revokes normally', async () => {
+    const plane = fakeAccountPlane()
+    const memory = memoryStore()
+    const authorizer = approvingAuthorizer(plane)
+    const session = new OAuthSession({ cloudOrigin: ISSUER, clientId: plane.clientId, store: memory.store, authorizer, fetch: plane.fetch, now: plane.now })
+    const pending = await session.beginSignIn('http://127.0.0.1:50000/callback')
+    expect(pending.authorizeUrl.searchParams.getAll('resource')).toEqual([ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE])
+    expect(await session.completeSignIn(plane.approve(pending.authorizeUrl), pending.pending)).toBe('approved')
+    const token = await session.accessToken({ kind: 'account' })
+    expect(token).toBeTruthy()
+    expect(await session.accessToken({ kind: 'api' })).toBe(token)
+    expect(plane.calls.filter(call => call.form.get('grant_type') === 'refresh_token')).toHaveLength(0)
+    expect(await session.accessToken(HOST)).toContain('host-1')
+    expect(plane.calls.filter(call => call.form.get('grant_type') === 'refresh_token')).toHaveLength(0)
+    plane.advance(300_000)
+    expect(await session.accessToken({ kind: 'account' })).not.toBe(token)
+    expect(plane.calls.filter(call => call.form.get('grant_type') === 'refresh_token')).toHaveLength(1)
+    await session.signOut()
+    expect(plane.liveTokens()).toHaveLength(0)
+  })
   test('signs in with PKCE, state, and nonce, and reads the identity from the ID token', async () => {
     const w = world()
     const states: string[] = []
@@ -115,6 +135,7 @@ describe('OAuthSession access tokens', () => {
     // WHY (simplify-auth-and-sync §3 rule 1): every refresh rotates the grant, so one per resource queued every dial behind the others.
     const w = world()
     await w.session.signIn()
+    w.plane.advance(300_000)
     const [account, api] = await Promise.all([w.session.accessToken({ kind: 'account' }), w.session.accessToken({ kind: 'api' })])
     expect(account).toBeTruthy()
     expect(api).toBe(account)
@@ -137,7 +158,7 @@ describe('OAuthSession access tokens', () => {
     release()
     const tokens = await asks
     expect(new Set(tokens).size).toBe(3)
-    expect(refreshes(w)).toHaveLength(1)
+    expect(refreshes(w)).toHaveLength(0)
     const exchange = exchanges(w)[0]!.form
     expect(exchange.get('subject_token_type')).toBe(ACCESS_TOKEN_TYPE)
     expect(exchange.get('subject_token')).toBe(await w.session.accessToken({ kind: 'api' }))
@@ -223,9 +244,9 @@ describe('OAuthSession identity and sign-out', () => {
     expect(w.session.state()).toMatchObject({ identity: { name: 'Ada Lovelace' } })
     expect(w.memory.current()?.identity.name).toBe('Ada Lovelace')
     const userinfo = w.plane.calls.findIndex((call) => call.path === '/api/auth/oauth2/userinfo')
-    const refresh = w.plane.calls.findIndex((call) => call.form.getAll('resource').includes(ACCOUNT_AUDIENCE))
-    expect(refresh).toBeGreaterThan(-1)
-    expect(userinfo).toBeGreaterThan(refresh)
+    const signIn = w.plane.calls.findIndex((call) => call.form.get('grant_type') === 'authorization_code')
+    expect(signIn).toBeGreaterThan(-1)
+    expect(userinfo).toBeGreaterThan(signIn)
   })
 
   test('sign-out revokes the newest refresh token, then clears the store', async () => {
@@ -250,6 +271,7 @@ describe('OAuthSession identity and sign-out', () => {
     const gate = new Promise<void>((resolve) => { release = resolve })
     const w = world({ gateRefresh: () => { entered(); return gate } })
     await w.session.signIn()
+    w.plane.advance(300_000)
     const running = w.session.accessToken(HOST)
     await inside
     const ended = w.session.signOut()

@@ -4,6 +4,7 @@ import { Platform, Modal, Pressable, TextInput, View } from "react-native";
 import { cn } from "../lib/cn";
 import { AppText } from "./AppText";
 import { MaterialConfirmDialog } from "./MaterialConfirmDialog";
+import { GlassBackdrop } from "./GlassBackdrop";
 import type { ConfirmDialogRequest, TextInputDialogRequest } from "./ConfirmDialog.types";
 
 export type { ConfirmDialogRequest, TextInputDialogRequest } from "./ConfirmDialog.types";
@@ -90,7 +91,8 @@ export function ConfirmDialogHost() {
       onRequestClose={handleCancel}
     >
       {presented === null ? null : (
-        <View className="flex-1 items-center justify-center bg-backdrop px-8">
+        <View className="flex-1 items-center justify-center px-8">
+          <GlassBackdrop />
           <View className="w-full rounded-[24px] bg-card px-6 pb-4 pt-5">
             <AppText className="text-lg font-t3-medium">{presented.request.title}</AppText>
             {presented.kind === "confirm" && presented.request.message !== undefined ? (

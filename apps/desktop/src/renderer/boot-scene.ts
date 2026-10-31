@@ -35,7 +35,7 @@ function ensureBootStyles(): void {
       inset: 0;
       display: grid;
       place-items: center;
-      background: #1c1b18;
+      background: #21201d;
       color: #f0ece3;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
       -webkit-font-smoothing: antialiased;

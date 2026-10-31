@@ -10,7 +10,6 @@
     Users as UsersIcon,
   } from "@lucide/svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
-  import WorkHistoryDialog from "./WorkHistoryDialog.svelte";
   import WorkReviewControl from "./WorkReviewControl.svelte";
   import WorkPresence from "./WorkPresence.svelte";
   import { getWorkPaneContext } from "./lib/work-pane-context";
@@ -288,7 +287,11 @@
 </div>
 
 {#if workId && historyOpen}
-  <WorkHistoryDialog bind:open={historyOpen} {workId} {title} type={workType} currentContent={resolvedContent} />
+  <!-- History brings the diff and Markdown renderers; load them on first open. -->
+  {#await import("./WorkHistoryDialog.svelte") then module}
+    {@const WorkHistoryDialog = module.default}
+    <WorkHistoryDialog bind:open={historyOpen} {workId} {title} type={workType} currentContent={resolvedContent} />
+  {/await}
 {/if}
 
 <style>

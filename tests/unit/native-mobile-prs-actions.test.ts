@@ -184,6 +184,16 @@ describe('pull request permissions (ported from T3 usePullRequestPermissions)', 
     viewerPermissions: { ...pullRequest(7).viewerPermissions, actions: ['merge', 'close', 'ready', 'draft', 'enable-auto-merge', 'disable-auto-merge'], resolveThreads: true, requestReviewers: true, manageLabels: true },
   })
 
+  test('offers Edit only when the host lets this viewer edit the pull request', () => {
+    // WHY: a reader of someone else's pull request was offered Edit, and the
+    // save then failed on the host. A host too old to say keeps the old offer.
+    const refused = pullRequest(7, { viewerPermissions: { ...capable.viewerPermissions, editPullRequest: false } })
+    expect(pullRequestPermissions(refused, 'reader', true).canEditPullRequest).toBe(false)
+    const allowed = pullRequest(7, { viewerPermissions: { ...capable.viewerPermissions, editPullRequest: true } })
+    expect(pullRequestPermissions(allowed, 'author', true).canEditPullRequest).toBe(true)
+    expect(pullRequestPermissions(capable, 'reader', true).canEditPullRequest).toBe(true)
+  })
+
   test('without a connection nothing can be written, but the reason to connect is given', () => {
     const offline = pullRequestPermissions(capable, 'reviewer', false)
     expect([offline.canMerge, offline.canComment, offline.verdicts, offline.lifecycle]).toEqual([false, false, [], []])

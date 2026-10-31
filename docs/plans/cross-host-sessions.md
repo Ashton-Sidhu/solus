@@ -1,4 +1,4 @@
-# Cross-host sessions — `start_session` on another host
+# Cross-host sessions
 
 Status: first version implemented (2026-10-06): §4 decisions 1–7, §5.2–§5.5. §6 lists what it does not do yet.
 **How a host reaches another host is now docs/plans/host-reach.md (2026-10-13).** It
@@ -7,7 +7,7 @@ hosts). Those sections stay below as history only.
 
 ## 1. Goal
 
-An agent on host A can call `start_session` with `host: B`. The session starts
+An agent on host A can call `delegate_task` or `start_session` with `host: B`. Use `delegate_task` for child work and `start_session` for an independent conversation. The session starts
 on host B **as if the user started it on host B**. Host B applies its usual
 admission, access policy, and attribution. Host B has no new trust rule.
 

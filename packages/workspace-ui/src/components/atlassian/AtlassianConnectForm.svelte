@@ -14,7 +14,7 @@
     ExternalLink as ArrowSquareOutIcon,
     LoaderCircle as SpinnerGapIcon,
   } from "@lucide/svelte";
-  import { atlassianStore, ATLASSIAN_SIGNUP_URL } from "../../contexts";
+  import { atlassianStore, ATLASSIAN_SIGNUP_URL } from "../../contexts/atlassian/atlassian.store.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
 
@@ -27,6 +27,7 @@
   let { serverId, onconnected }: Props = $props();
 
   const failure = $derived(atlassianStore.failure(serverId));
+  const fieldPrefix = $derived(`atlassian-token-${serverId}`);
   const oauthAvailable = $derived(atlassianStore.oauthAvailable(serverId));
   const apiTokenAvailable = $derived(atlassianStore.apiTokenAvailable(serverId));
 
@@ -72,12 +73,40 @@
 <div class="flex flex-col gap-2.5">
   {#if showsTokenForm}
     <form class="flex flex-col gap-2" onsubmit={connectApiToken} onkeydown={onTokenFormKeydown}>
-      <Input bind:ref={siteInput} bind:value={siteDraft} aria-label="Atlassian site" placeholder="acme.atlassian.net"
-        autocomplete="url" spellcheck={false} disabled={atlassianStore.connecting(serverId)} class="text-workspace-chrome" />
-      <Input bind:value={emailDraft} type="email" aria-label="Atlassian account email" placeholder="Email of your Atlassian account"
-        autocomplete="email" disabled={atlassianStore.connecting(serverId)} class="text-workspace-chrome" />
-      <Input bind:value={tokenDraft} type="password" aria-label="Atlassian API token" placeholder="API token"
-        autocomplete="new-password" maxlength={4096} disabled={atlassianStore.connecting(serverId)} class="text-workspace-chrome" />
+      <div class="flex flex-col gap-1">
+        <label for="{fieldPrefix}-site" class="text-xs font-medium text-foreground">Atlassian site</label>
+        <Input bind:ref={siteInput} bind:value={siteDraft} id="{fieldPrefix}-site" placeholder="acme.atlassian.net"
+          aria-describedby="{fieldPrefix}-site-help" autocomplete="url" spellcheck={false}
+          disabled={atlassianStore.connecting(serverId)} class="text-workspace-chrome" />
+        <p id="{fieldPrefix}-site-help" class="text-pretty text-xs text-muted-foreground">
+          The address in your browser when you open Jira or Confluence. You can paste any link from your site.
+        </p>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="{fieldPrefix}-email" class="text-xs font-medium text-foreground">Email</label>
+        <Input bind:value={emailDraft} id="{fieldPrefix}-email" type="email" placeholder="you@example.com"
+          aria-describedby="{fieldPrefix}-email-help" autocomplete="email"
+          disabled={atlassianStore.connecting(serverId)} class="text-workspace-chrome" />
+        <p id="{fieldPrefix}-email-help" class="text-pretty text-xs text-muted-foreground">
+          The email you sign in to Atlassian with. It must be the account that made the token.
+        </p>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="{fieldPrefix}-token" class="text-xs font-medium text-foreground">API token</label>
+        <Input bind:value={tokenDraft} id="{fieldPrefix}-token" type="password"
+          aria-describedby="{fieldPrefix}-token-help" autocomplete="new-password" maxlength={4096}
+          disabled={atlassianStore.connecting(serverId)} class="text-workspace-chrome" />
+        <p id="{fieldPrefix}-token-help" class="text-pretty text-xs text-muted-foreground">
+          Create one at
+          <button
+            type="button"
+            class="-my-2 inline-flex min-h-10 items-center gap-0.5 text-(--solus-accent) underline-offset-2 hover:underline"
+            onclick={() => void localApi.openExternal(ATLASSIAN_API_TOKEN_URL)}
+          >
+            id.atlassian.com → Security → API tokens<ArrowSquareOutIcon size={10} />
+          </button>.
+        </p>
+      </div>
       <div class="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={atlassianStore.connecting(serverId) || !siteDraft.trim() || !emailDraft.trim() || !tokenDraft.trim()}>
           {#if atlassianStore.connecting(serverId)}
@@ -156,15 +185,6 @@
         The token acts as you, with all your Confluence and Jira access. Solus
         keeps it on this host only. You can revoke it from your Atlassian
         account at any time.
-      </p>
-      <p class="mt-2.5 border-t border-border/60 pt-2">
-        <button
-          type="button"
-          class="-my-2 inline-flex min-h-10 items-center gap-0.5 text-(--solus-accent) underline-offset-2 hover:underline"
-          onclick={() => void localApi.openExternal(ATLASSIAN_API_TOKEN_URL)}
-        >
-          Create an API token<ArrowSquareOutIcon size={10} />
-        </button>
       </p>
     </div>
   {:else if oauthAvailable}

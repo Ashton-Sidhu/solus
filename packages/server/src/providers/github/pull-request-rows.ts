@@ -40,7 +40,7 @@ export const NEEDS_REVIEW_FIELDS = `
     mergeable
     reviewDecision
     reviews(first: 1) { totalCount }
-    baseRepository { nameWithOwner }
+    baseRepository { nameWithOwner defaultBranchRef { name } }
     headRepository { nameWithOwner name owner { login } }
     autoMergeRequest { mergeMethod }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -73,7 +73,7 @@ export interface GqlNeedsReviewPullRequest extends GqlStackMembership {
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   reviews: { totalCount: number }
-  baseRepository: { nameWithOwner: string } | null
+  baseRepository: { nameWithOwner: string; defaultBranchRef?: { name: string } | null } | null
   headRepository: { nameWithOwner: string; name: string; owner: { login: string } } | null
   /** Null while auto-merge is off. Absent from a row that did not select it. */
   autoMergeRequest?: { mergeMethod: string | null } | null
@@ -135,6 +135,7 @@ export function toNeedsReviewPullRequest(
     assignees: pr.assignees.nodes.map(({ login }) => login),
     body: pr.body,
     baseRef: pr.baseRefName,
+    defaultBranch: githubDefaultBranchOf(pr.baseRepository),
     headRef: pr.headRefName,
     changedFiles: pr.changedFiles,
     // GraphQL reports UNKNOWN while GitHub computes the merge in the background.
@@ -218,3 +219,11 @@ export function requestedReviewers(
   })
 }
 
+
+/** Read the base repository's default branch from either GitHub API shape. */
+export function githubDefaultBranchOf(repository: {
+  defaultBranchRef?: { name: string } | null
+  default_branch?: string
+} | null | undefined): string | null {
+  return repository?.defaultBranchRef?.name ?? repository?.default_branch ?? null
+}

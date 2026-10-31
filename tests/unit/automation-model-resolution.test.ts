@@ -73,7 +73,7 @@ describe('automation model resolution', () => {
 
     const session = await plane.dispatch.startUnattendedSession({
       prompt: 'sync the docs',
-      automation: { id: 'automation-1', name: 'Docs sync' },
+      startedBy: { kind: 'automation', automationId: 'automation-1', runId: 'run-1' }, automationName: 'Docs sync',
       provider: 'claude-code',
       modelId: null,
       reasoningEffort: 'medium',
@@ -95,7 +95,7 @@ describe('automation model resolution', () => {
 
     const session = await plane.dispatch.startUnattendedSession({
       prompt: 'sync the docs',
-      automation: { id: 'automation-1', name: 'Docs sync' },
+      startedBy: { kind: 'automation', automationId: 'automation-1', runId: 'run-1' }, automationName: 'Docs sync',
       provider: 'claude-code',
       modelId: 'claude-sonnet-5',
       reasoningEffort: 'medium',

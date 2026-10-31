@@ -7,6 +7,7 @@ import { uuid } from '@solus/contracts/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
+import { agentWorkHost } from '../works/agent-work-host'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
@@ -136,10 +137,12 @@ export class SessionEventReducer {
     // holds it at its place, so appending it here would draw it twice.
     if (session.historyTruncated && activity.at < (session.messages[0]?.timestamp ?? -Infinity)) return
     const message: Message = { id: `activity:${activity.id}`, role: 'system', content: '', timestamp: activity.at, activity }
-    // A fork is recorded as its first prompt dispatches, after that prompt's
-    // bubble is on screen: it goes before the prompt, where a reload puts it.
+    // A fork, and a provider switch made at send, are recorded as the prompt
+    // dispatches, after that prompt's bubble is on screen: each goes before the
+    // prompt, where a reload puts it.
     const last = session.messages.length - 1
-    if (activity.kind === 'forked' && session.messages[last]?.role === 'user') session.messages.splice(last, 0, message)
+    const precedesPrompt = activity.kind === 'forked' || activity.kind === 'agent_switched'
+    if (precedesPrompt && session.messages[last]?.role === 'user') session.messages.splice(last, 0, message)
     else session.messages.push(message)
   }
 
@@ -1052,7 +1055,7 @@ export class SessionEventReducer {
       }
 
       case 'work_updated': {
-        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.content, event.updatedAt, runHost(session.run))
+        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.content, event.updatedAt, agentWorkHost(event.organizationId, runHost(session.run)))
         this.deps.workStreamTracker.updateWork(session, event)
         break
       }

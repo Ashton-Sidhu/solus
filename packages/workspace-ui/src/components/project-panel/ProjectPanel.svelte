@@ -20,6 +20,7 @@
     RefreshCw as ArrowsClockwiseIcon,
     Check as CheckIcon,
     PanelLeft as SidebarSimpleIcon,
+    SlidersHorizontal as CustomizeIcon,
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import SidePanel from "../layout/SidePanel.svelte";
@@ -30,6 +31,14 @@
   import GitSetupSection from "./GitSetupSection.svelte";
   import AgentsSection from "./AgentsSection.svelte";
   import WebhooksSection from "./WebhooksSection.svelte";
+  import ProjectPanelItemsMenu from "./ProjectPanelItemsMenu.svelte";
+  import {
+    allPanelItemsHidden,
+    isPanelItemShown,
+    isSectionShown,
+    pointAnchor,
+    type PanelMenuAnchor,
+  } from "./lib/panel-items";
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
   import { projectHome, projectRoot } from "../../contexts/workspace/run-location";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
@@ -37,6 +46,7 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { Button } from "../ui/button";
 
   interface Props {
     /** The tab or draft this rail describes — it lives inside that view. The
@@ -166,8 +176,19 @@
   const panelRun = $derived(session.runFor(sourceId));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
+  // What the person chose to show. A hidden item unmounts, and the reads that
+  // only it needs stop with it.
+  const hiddenItems = $derived(settings.projectPanelHiddenItems);
+  const gitShown = $derived(isSectionShown(hiddenItems, "git"));
+  const gitSetupShown = $derived(isPanelItemShown(hiddenItems, "git.setup"));
+  const goalShown = $derived(isSectionShown(hiddenItems, "goal"));
+  const agentsShown = $derived(isSectionShown(hiddenItems, "agents"));
+  const webhooksShown = $derived(isSectionShown(hiddenItems, "webhooks"));
+
   // The project's webhooks: the section exists only while it has some.
-  $effect(() => untrack(() => webhooksStore.watch()));
+  $effect(() => {
+    if (webhooksShown) return untrack(() => webhooksStore.watch());
+  });
   const projectPath = $derived(projectRoot(panelRun));
   const projectServerId = $derived(projectHome(panelRun)?.serverId);
   const projectWebhooks = $derived(
@@ -182,7 +203,7 @@
   // rather than in the card it would hide. A draft has no transcript and
   // therefore no card.
   const panelAgents = $derived(
-    panelSession ? sessionAgentMessages(panelSession.messages) : [],
+    agentsShown && panelSession ? sessionAgentMessages(panelSession.messages) : [],
   );
 
   // A split chat mounts a second rail, so both instances register these ids and
@@ -257,6 +278,42 @@
     }, 1400);
   }
 
+  // The menu of what the panel shows: from the header button, a right-click,
+  // or the context-menu key (Shift+F10) anywhere in the panel.
+  let itemsMenuOpen = $state(false);
+  let itemsMenuAnchor = $state<PanelMenuAnchor | null>(null);
+  let customizeButton = $state<HTMLButtonElement | null>(null);
+
+  function openItemsMenuAt(event: MouseEvent) {
+    // A text field keeps its own menu (spelling, paste).
+    if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) return;
+    event.preventDefault();
+    itemsMenuAnchor = pointAnchor(event.clientX, event.clientY);
+    itemsMenuOpen = true;
+  }
+
+  function openItemsMenuFromKeyboard(event: KeyboardEvent) {
+    if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+    if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) return;
+    event.preventDefault();
+    itemsMenuAnchor = event.target instanceof HTMLElement ? event.target : customizeButton;
+    itemsMenuOpen = true;
+  }
+
+  function toggleItemsMenu() {
+    if (itemsMenuOpen) {
+      itemsMenuOpen = false;
+      return;
+    }
+    itemsMenuAnchor = customizeButton;
+    itemsMenuOpen = true;
+  }
+
+  function showAllItems() {
+    settings.setPersonal("projectPanelHiddenItems", []);
+    requestInputFocus();
+  }
+
   function openFiles() {
     if (!gitCwd) return;
     session.openFiles(sourceId);
@@ -293,6 +350,18 @@
         </span>
       {/if}
     </button>
+    <button
+      bind:this={customizeButton}
+      class="tiny-icon"
+      type="button"
+      aria-label="Choose what the panel shows"
+      title="Choose what the panel shows"
+      aria-haspopup="menu"
+      aria-expanded={itemsMenuOpen}
+      onclick={toggleItemsMenu}
+    >
+      <CustomizeIcon size={12} />
+    </button>
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
@@ -324,36 +393,64 @@
   isResizing={dragWidth !== null}
   background="var(--solus-container-bg)"
 >
+  <!-- The menu listeners catch a right-click or the context-menu key from any
+       control inside; the region itself takes no focus. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     bind:this={sectionsElement}
     class="project-sections"
     class:outer-scroll-source={!!outerScrollbar}
+    role="region"
+    aria-label="Project panel"
+    oncontextmenu={openItemsMenuAt}
+    onkeydown={openItemsMenuFromKeyboard}
   >
-    <PanelSection
-      title="Environment"
-      titlebar
-      collapsed={collapsedSections.environment}
-      onToggle={() => toggleSection("environment")}
-      headerExtra={environmentHeaderExtra}
-      onResizePointerDown={startResize}
-    >
-      <EnvironmentSection
-        {sourceId}
-        active={active && open}
-        onOpenFiles={openFiles}
-      />
-    </PanelSection>
-    {#if gitCtx}
+    {#if isSectionShown(hiddenItems, "environment")}
+      <PanelSection
+        title="Environment"
+        titlebar
+        collapsed={collapsedSections.environment}
+        onToggle={() => toggleSection("environment")}
+        headerExtra={environmentHeaderExtra}
+        onResizePointerDown={startResize}
+      >
+        <EnvironmentSection
+          {sourceId}
+          active={active && open}
+          onOpenFiles={openFiles}
+          {hiddenItems}
+        />
+      </PanelSection>
+    {:else}
+      <!-- Environment is hidden. The panel's controls and the window's drag
+           band stay, in a bar with no card. -->
+      <div class="workspace-titlebar flex min-h-6 shrink-0 items-center justify-end px-1.5">
+        {@render environmentHeaderExtra()}
+      </div>
+    {/if}
+    {#if allPanelItemsHidden(hiddenItems)}
+      <!-- Every section is hidden: say so, and give the way back. -->
+      <div class="flex flex-col items-start gap-2 px-1.5 text-(--solus-text-tertiary)">
+        <p class="m-0">The panel shows no sections.</p>
+        <span class="flex gap-1.5">
+          <Button size="sm" variant="secondary" onclick={showAllItems}>Show all</Button>
+          <Button size="sm" variant="ghost" onclick={toggleItemsMenu}>Choose…</Button>
+        </span>
+      </div>
+    {/if}
+    {#if gitShown && gitCtx}
       <PanelSection
         title="Git"
         collapsed={collapsedSections.git}
         onToggle={() => toggleSection("git")}
         onResizePointerDown={startResize}
       >
-        <GitSection {sourceId} active={active && open} />
-        <GitSetupSection {sourceId} active={active && open} />
+        <GitSection {sourceId} active={active && open} {hiddenItems} />
+        {#if gitSetupShown}
+          <GitSetupSection {sourceId} active={active && open} />
+        {/if}
       </PanelSection>
-    {:else if !isUnconfiguredCwd(gitCwd)}
+    {:else if gitShown && gitSetupShown && !isUnconfiguredCwd(gitCwd)}
       <!-- No repository yet — the Environment section above already names the
            folder; this card is only the way in. -->
       <PanelSection
@@ -367,7 +464,7 @@
     {/if}
     <!-- The section exists only while a goal is set. It owns its own card
          because the header controls share edit/confirm state with the body. -->
-    {#if panelSession?.goal}
+    {#if goalShown && panelSession?.goal}
       <!-- Only ever reached with a session behind it — a goal is something a
            conversation has, so the section names that conversation. -->
       <GoalSection
@@ -375,6 +472,7 @@
         collapsed={collapsedSections.goal}
         onToggle={() => toggleSection("goal")}
         onResizePointerDown={startResize}
+        {hiddenItems}
       />
     {/if}
     {#if panelSession && panelAgents.length > 0}
@@ -387,9 +485,10 @@
         collapsed={collapsedSections.agents}
         onToggle={() => toggleSection("agents")}
         onResizePointerDown={startResize}
+        {hiddenItems}
       />
     {/if}
-    {#if projectWebhooks.length > 0}
+    {#if webhooksShown && projectWebhooks.length > 0}
       <WebhooksSection
         rows={projectWebhooks}
         collapsed={collapsedSections.webhooks}
@@ -398,6 +497,7 @@
       />
     {/if}
   </div>
+  <ProjectPanelItemsMenu bind:open={itemsMenuOpen} anchor={itemsMenuAnchor} />
 </SidePanel>
 
 <style>

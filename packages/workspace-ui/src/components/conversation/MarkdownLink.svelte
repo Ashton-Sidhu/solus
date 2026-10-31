@@ -1,14 +1,21 @@
+<script module lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
+
+  const failedFaviconUrls = new SvelteSet<string>();
+</script>
+
 <script lang="ts">
+  import Icon from "@iconify/svelte";
+  import { webLinkIcon } from "@solus/client-core/web-link-icon";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { filePreviewMediaKind, parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
   import { hoverIntent } from "../../lib/hover-intent";
-  import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { tokenClassName } from "../editor/tokenStyle";
-  import { faviconUrlForHref } from "./lib/external-link";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
@@ -18,7 +25,6 @@
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
   import { checkoutPlace } from "../../contexts/workspace/run-location";
-  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   interface Props {
     href?: string;
@@ -108,12 +114,8 @@
     }
   });
 
-  const faviconUrl = $derived(faviconUrlForHref(href));
-  let failedFaviconUrl = $state<string | null>(null);
-
-  function isMarkdownPath(path: string): boolean {
-    return /\.(md|mdx|markdown)$/i.test(path.split(/[?#]/, 1)[0] ?? path);
-  }
+  const webIcon = $derived(webLinkIcon(href));
+  const faviconUrl = $derived(webIcon?.kind === "favicon" ? webIcon.url : null);
 
   function handleClick(e: MouseEvent) {
     const mediaKind = filePreviewMediaKind(fileRef?.path ?? href) ?? (fileChip ? "image" : null);
@@ -207,27 +209,32 @@
     title={fileRef ? fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory) : title ?? href}
     onclick={handleClick}
   ><span class="solus-token__icon">
-      {#if isMarkdownPath(fileRef?.path ?? href)}
-        <FileTextIcon size={12} />
-      {:else}
-        <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(hostPathBaseName(fileRef?.path ?? text ?? href))} /></svg>
-      {/if}
+      <!-- Only trusted package SVG and static local symbols enter this markup. -->
+      <FileIcon path={fileRef?.path ?? text ?? href} size={12} />
 </span><span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>
 {:else}
   {#snippet linkContents()}
-    {#if faviconUrl && failedFaviconUrl !== faviconUrl}<img
-      class="solus-link__favicon"
-      src={faviconUrl}
-      alt=""
-      width="12"
-      height="12"
-      loading="lazy"
-      referrerpolicy="no-referrer"
-      onerror={() => (failedFaviconUrl = faviconUrl)}
-    />{/if}{@render children?.()}
+    {#if webIcon}<span class="mr-[0.3em] inline-flex size-[0.85em] items-center justify-center align-[-0.125em] text-(--solus-text-primary) [&>svg]:block [&>svg]:size-full" aria-hidden="true">
+      {#if webIcon.kind === "github"}
+        <Icon icon="simple-icons:github" width="100%" height="100%" />
+      {:else if faviconUrl && !failedFaviconUrls.has(faviconUrl)}
+        <img
+          class="block size-full rounded-sm object-contain"
+          src={faviconUrl}
+          alt=""
+          width="12"
+          height="12"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          onerror={(event) => failedFaviconUrls.add(event.currentTarget.src)}
+        />
+      {:else}
+        <GlobeIcon size="100%" />
+      {/if}
+    </span>{/if}{@render children?.()}
   {/snippet}
-  <a href={assetId ? assetHref || undefined : href} {title} class="solus-link" onclick={handleClick} {@attach warmPrLink}>
+  <a href={assetId ? assetHref || undefined : href} {title} class="solus-link mx-[0.15em]" onclick={handleClick} {@attach warmPrLink}>
     {@render linkContents()}
   </a>
 {/if}

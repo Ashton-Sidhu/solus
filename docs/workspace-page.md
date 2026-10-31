@@ -33,6 +33,8 @@ organization is selected.
 
 Shortcuts: `⌥1`, `⌥2`, `⌥3` open the three tabs. `↑` and `↓` walk the cards,
 `⏎` opens the one under the cursor, `Space` peeks a work, `⌥P` pins it.
+Clicking a card moves the selection to that card before it opens or shows its
+preview. Keyboard actions then use the selected card.
 
 ## Cards
 

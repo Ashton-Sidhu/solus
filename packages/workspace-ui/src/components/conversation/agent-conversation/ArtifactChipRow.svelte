@@ -28,6 +28,7 @@
       note={chip.note}
       pullRequestState={chip.pullRequestState}
       workType={chip.artifact.kind === "work" ? chip.artifact.workType : undefined}
+      filePath={chip.artifact.kind === "file" || chip.artifact.kind === "image" ? chip.artifact.path : undefined}
       title={artifactTooltip(chip.artifact)}
       onclick={() => onOpen(chip.artifact)}
     />

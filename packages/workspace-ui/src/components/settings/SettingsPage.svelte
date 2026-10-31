@@ -14,7 +14,6 @@
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
     Bot as ProvidersIcon,
-    Folder as FolderIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
@@ -44,6 +43,8 @@
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { SearchField } from "../ui/search-field";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
+  import SettingsTabChat, { settingItems as chatSearch } from "./SettingsTabChat.svelte";
+  import SettingsTabSessions, { settingItems as sessionsSearch } from "./SettingsTabSessions.svelte";
   import SettingsTabGeneral, { settingItems as generalSearch } from "./SettingsTabGeneral.svelte";
   import SettingsTabAppearance, { settingItems as appearanceSearch } from "./SettingsTabAppearance.svelte";
   import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
@@ -62,8 +63,10 @@
   import AnalyticsSettings, { searchWords as analyticsSearch } from "./AnalyticsSettings.svelte";
   import { APP_NOTICE_ROWS, NOTIFICATION_CHANNEL_ROWS, SESSION_EVENT_ROWS } from "./lib/notification-settings";
   import { dataMatches, wordsMatch } from "./lib/settings-search";
-  import SettingsTabProjects from "./SettingsTabProjects.svelte";
-  import SettingsCloudProjects from "./SettingsCloudProjects.svelte";
+  import RunOnPicker from "../servers/RunOnPicker.svelte";
+  import { openFolder } from "../../contexts/workspace/run-location";
+  import SettingsProjectScope from "./SettingsProjectScope.svelte";
+  import { supportsProjectScope } from "./lib/settings-scope";
   import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
   import SettingsTabAccount, { searchWords as accountSearch } from "./SettingsTabAccount.svelte";
@@ -111,177 +114,170 @@
     icon: Component<{ size?: number; class?: string }>;
     group: string;
     desktopOnly?: boolean;
-    /** Reachable only by deep link (the project panel gear), never in the nav. */
-    hiddenFromNav?: boolean;
   }
 
-  // Group order is first-appearance order: Account, Workspace, Capabilities,
-  // Input, Advanced. Within a group the list order is the nav order. The
-  // Account pages work with no host connected (plans/018 §7).
+  // Follow the app, Agents, Code, and Connections groups used by T3 Code.
   const ALL_TABS: TabMeta[] = [
-    {
-      id: "account",
-      label: "Account & sync",
-      description: "Who you are signed in as, and what syncs between your devices and hosts.",
-      icon: PersonIcon,
-      group: "Account",
-    },
-    {
-      id: "agent-profile",
-      label: "Agent profile",
-      description: "Your instructions, skills, and MCP servers, on every host you work on.",
-      icon: AgentProfileIcon,
-      group: "Account",
-    },
-    {
-      id: "organization",
-      label: "Organization",
-      description: "Whether your organization syncs all Insights of its work.",
-      icon: OrganizationIcon,
-      group: "Account",
-    },
     {
       id: "general",
       label: "General",
-      description: "Agent defaults, sessions, and how projects use your disk.",
+      description: "Workspace behavior, project folders, background writing, and updates.",
       icon: SlidersHorizontalIcon,
-      group: "Workspace",
+      group: "App",
     },
     {
       id: "appearance",
       label: "Appearance",
       description: "Theme, typefaces, and text sizes on this device.",
       icon: PaletteIcon,
-      group: "Workspace",
+      group: "App",
+    },
+    {
+      id: "chat",
+      label: "Chat",
+      description: "Responses, tool activity, and the input bar.",
+      icon: SlidersHorizontalIcon,
+      group: "App",
     },
     {
       id: "notifications",
       label: "Notifications",
       description: "Which events notify you, and how.",
       icon: BellIcon,
-      group: "Workspace",
-    },
-    {
-      id: "tasks",
-      label: "Tasks",
-      description: "How agents work on tasks, and how a task's lead runs.",
-      icon: TaskIcon,
-      group: "Workspace",
-    },
-    {
-      id: "projects",
-      label: "Projects",
-      description: "Your folders and their settings.",
-      icon: FolderIcon,
-      group: "Workspace",
-      hiddenFromNav: true,
-    },
-    {
-      id: "source-control",
-      label: "Source Control",
-      description: "Repository integrations and generated Git writing.",
-      icon: GitPullRequestIcon,
-      group: "Workspace",
-    },
-    {
-      id: "review",
-      label: "Review companion",
-      description: "How review guides are made, and by which agent.",
-      icon: BinocularsIcon,
-      group: "Capabilities",
-    },
-    {
-      id: "tools",
-      label: "Tools",
-      description: "Agent tools, apps, and code intelligence.",
-      icon: WrenchIcon,
-      group: "Capabilities",
-    },
-    // Host-scoped, so they stay visible on web: the accounts and the MCP
-    // servers are the host's.
-    {
-      id: "integrations",
-      label: "Integrations",
-      description: "Accounts Solus acts on your behalf with.",
-      icon: PlugIcon,
-      group: "Capabilities",
-    },
-    {
-      id: "mcp",
-      label: "MCP",
-      description: "MCP servers whose tools your agents can use.",
-      icon: McpIcon,
-      group: "Capabilities",
-    },
-    {
-      id: "skills",
-      label: "Skills",
-      description: "Find and manage global skills on each host.",
-      icon: SparkleIcon,
-      group: "Capabilities",
-      desktopOnly: true,
-    },
-    // One table for the webhooks of every connected host (docs/plans/webhooks.md §4).
-    {
-      id: "webhooks",
-      label: "Webhooks",
-      description: "Let other services start agent work on your hosts.",
-      icon: WebhookIcon,
-      group: "Capabilities",
-    },
-    // Host-scoped, so it stays visible on web and mobile: the devices are on
-    // the host, and every client can show them.
-    {
-      id: "devices",
-      label: "Devices",
-      description: "iOS Simulators and Android Emulators, and agent access to them.",
-      icon: SmartphoneIcon,
-      group: "Capabilities",
-    },
-    {
-      id: "providers",
-      label: "Providers",
-      description: "The agent harnesses your sessions run through, such as Claude Code and Codex.",
-      icon: ProvidersIcon,
-      group: "Capabilities",
-    },
-    // Web-visible: a phone or browser manages its hosts through the same
-    // Hosts page, driven entirely by RPC against each host.
-    {
-      id: "api-access",
-      label: "Hosts",
-      description: "The computers your agents run on, and how each one is reached.",
-      icon: HostsIcon,
-      group: "Capabilities",
+      group: "App",
     },
     {
       id: "keybindings",
       label: "Keybindings",
       description: "Rebind any shortcut. Saved on this device only.",
       icon: KeyboardIcon,
-      group: "Input",
+      group: "App",
     },
     {
       id: "voice",
       label: "Voice",
       description: "The on-device speech model used for dictation.",
       icon: MicrophoneIcon,
-      group: "Input",
+      group: "App",
     },
-    // Host-scoped, so it stays visible on web and mobile: the exporter runs
-    // beside the server, and a phone here configures the host it is on.
     {
-      id: "telemetry",
-      label: "Telemetry",
-      description: "Usage analytics, and traces, logs, and metrics over OpenTelemetry.",
-      icon: BroadcastIcon,
-      group: "Advanced",
+      id: "providers",
+      label: "Providers",
+      description: "Provider setup and your default models, reasoning, and model options.",
+      icon: ProvidersIcon,
+      group: "Agents",
+    },
+    {
+      id: "sessions",
+      label: "Sessions",
+      description: "New-session defaults, model routing, and agent behavior.",
+      icon: ProvidersIcon,
+      group: "Agents",
+    },
+    {
+      id: "tasks",
+      label: "Tasks",
+      description: "How agents work on tasks, and how a task's lead runs.",
+      icon: TaskIcon,
+      group: "Agents",
+    },
+    {
+      id: "agent-profile",
+      label: "Agent profile",
+      description: "Your instructions, skills, and MCP servers, on every host you work on.",
+      icon: AgentProfileIcon,
+      group: "Agents",
+    },
+    {
+      id: "tools",
+      label: "Tools",
+      description: "Agent tools, apps, and code intelligence.",
+      icon: WrenchIcon,
+      group: "Agents",
+    },
+    {
+      id: "mcp",
+      label: "MCP",
+      description: "MCP servers whose tools your agents can use.",
+      icon: McpIcon,
+      group: "Agents",
+    },
+    {
+      id: "skills",
+      label: "Skills",
+      description: "Find and manage global skills on each host.",
+      icon: SparkleIcon,
+      group: "Agents",
+      desktopOnly: true,
+    },
+    {
+      id: "devices",
+      label: "Devices",
+      description: "iOS Simulators and Android Emulators, and agent access to them.",
+      icon: SmartphoneIcon,
+      group: "Agents",
+    },
+    {
+      id: "webhooks",
+      label: "Webhooks",
+      description: "Let other services start agent work on your hosts.",
+      icon: WebhookIcon,
+      group: "Agents",
+    },
+    {
+      id: "source-control",
+      label: "Source Control",
+      description: "Repository integrations and generated Git writing.",
+      icon: GitPullRequestIcon,
+      group: "Code",
+    },
+    {
+      id: "review",
+      label: "Review companion",
+      description: "How review guides are made, and by which agent.",
+      icon: BinocularsIcon,
+      group: "Code",
+    },
+    {
+      id: "account",
+      label: "Account & sync",
+      description: "Who you are signed in as, and what syncs between your devices and hosts.",
+      icon: PersonIcon,
+      group: "Connections",
+    },
+    {
+      id: "organization",
+      label: "Organization",
+      description: "Whether your organization syncs all Insights of its work.",
+      icon: OrganizationIcon,
+      group: "Connections",
+    },
+    {
+      id: "integrations",
+      label: "Integrations",
+      description: "Accounts Solus acts on your behalf with.",
+      icon: PlugIcon,
+      group: "Connections",
+    },
+    {
+      id: "api-access",
+      label: "Hosts",
+      description: "The computers your agents run on, and how each one is reached.",
+      icon: HostsIcon,
+      group: "Connections",
     },
     {
       id: "host",
       label: "Host",
       description: "The selected host's own settings. They apply to all work on it.",
       icon: HostIcon,
+      group: "Advanced",
+    },
+    {
+      id: "telemetry",
+      label: "Telemetry",
+      description: "Usage analytics, and traces, logs, and metrics over OpenTelemetry.",
+      icon: BroadcastIcon,
       group: "Advanced",
     },
     {
@@ -294,21 +290,24 @@
   ];
 
   // What each page can be found by, beside its label. Pages without a list
-  // (Projects, Skills, …) are found by their label alone.
+  // (Skills, …) are found by their label alone.
   const keywordsOf = (items: { keywords: readonly string[] }[]) => items.flatMap((item) => item.keywords);
   const SEARCH_WORDS: Partial<Record<SettingsTab, readonly string[]>> = {
     account: accountSearch,
     "agent-profile": agentProfileSearch,
     organization: organizationSearch,
     general: keywordsOf(generalSearch),
+    chat: keywordsOf(chatSearch),
+    sessions: keywordsOf(sessionsSearch),
     appearance: keywordsOf(appearanceSearch),
     notifications: [...NOTIFICATION_CHANNEL_ROWS, ...SESSION_EVENT_ROWS, ...APP_NOTICE_ROWS].flatMap((row) => [row.label, ...row.keywords]),
     tasks: keywordsOf(tasksSearch),
+    "source-control": ["branch", "branch naming", "worktree", "copied files", "project", "projects", "override"],
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
     integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "account", "accounts"],
     mcp: mcpSearch,
-    providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli"],
+    providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli", "default", "default model", "model options", "model", "reasoning", "context", "fast", "instructions", "project", "projects", "override"],
     telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],
     host: hostSearch,
     webhooks: webhooksSearch,
@@ -317,7 +316,7 @@
 
   const tabs = $derived(
     ALL_TABS.filter(
-      (t) => !t.hiddenFromNav && (!t.desktopOnly || shell.supportsNativeSettings),
+      (t) => !t.desktopOnly || shell.supportsNativeSettings,
     ),
   );
 
@@ -339,8 +338,7 @@
     return order.map((group) => ({ group, items: map.get(group)! }));
   });
 
-  // Resolved against ALL_TABS, not the nav list, so a deep-linked hidden tab
-  // (Projects) still titles the page after itself.
+  // Deep links resolve against all destinations, including native-only pages.
   const activeTabMeta = $derived(
     ALL_TABS.find((t) => t.id === session.settingsTab) ?? tabs[0],
   );
@@ -350,8 +348,8 @@
   );
   const hostFramedTab = $derived(
     session.settingsTab === "general" ||
+      session.settingsTab === "sessions" ||
       session.settingsTab === "host" ||
-      session.settingsTab === "projects" ||
       session.settingsTab === "source-control" ||
       session.settingsTab === "providers" ||
       session.settingsTab === "tools" ||
@@ -406,7 +404,6 @@
 
   function close() {
     session.router.close("settings");
-    requestInputFocus();
   }
 
   function goBack() {
@@ -418,7 +415,9 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (e.defaultPrevented) return;
     if (e.key === "Escape") {
+      e.stopPropagation();
       if (searchQuery) {
         e.preventDefault();
         searchQuery = "";
@@ -443,13 +442,20 @@
       : null,
   );
 
+  function selectProjectScope(projectCwd: string | null) {
+    session.router.navigate({ name: "settings", params: { tab: session.settingsTab, projectCwd: projectCwd ?? undefined } }, { replace: true });
+  }
+
+  function selectHost(serverId: string) {
+    if (selectedSettingsHost?.serverId !== serverId) selectProjectScope(null);
+    settingsHost.serverId = serverId;
+  }
+
   function selectTab(tab: SettingsTab) {
     session.selectSettingsTab(tab);
     connectionsNav.back();
   }
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#snippet backButton()}
   <button
@@ -485,30 +491,35 @@
  ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
  : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground active:bg-[var(--wash-1)]'}"
       >
-        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
+        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}{#if tab.id === "mcp" && integrationsStore.attentionCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{integrationsStore.attentionCount} MCP servers need attention">{integrationsStore.attentionCount}</span>{/if}
       </button>
     {/each}
   </div>
 {/snippet}
 
-{#snippet tabContent()}
-  {#if session.settingsTab === "projects"}
-    <!-- The organization's projects are the account's, whichever host is
-         selected; the host's own folders follow them. -->
-    <div class="flex flex-col gap-8">
-      <SettingsCloudProjects />
-      {#if selectedSettingsHost && selectedSettingsApi}
-        <SettingsTabProjects
-          serverId={selectedSettingsHost.serverId}
-          api={selectedSettingsApi}
-        />
-      {/if}
+{#snippet scopeControl()}
+  {#if supportsProjectScope(session.settingsTab) && selectedSettingsHost && selectedSettingsApi}
+    <div class="flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-2 text-base font-medium text-foreground">
+      <SettingsProjectScope serverId={selectedSettingsHost.serverId} api={selectedSettingsApi} projectCwd={session.settingsProjectCwd} onSelect={selectProjectScope} onHostSelect={selectHost} />
+      <span>on</span>
+      <RunOnPicker
+        run={{ ...session.defaultRunConfig, location: openFolder(session.defaultRunConfig.location, { serverId: selectedSettingsHost.serverId, path: session.settingsProjectCwd ?? "~" }) }}
+        requesterId="settings-scope" variant="scope" settingsHostIds={settingsHosts.map((host) => host.serverId)}
+        onSelectSettingsHost={selectHost} onRun={() => {}} onDismiss={() => {}} />
     </div>
-  {:else if session.settingsTab === "source-control" && selectedSettingsHost && selectedSettingsApi}
+  {/if}
+{/snippet}
+
+{#snippet tabContent()}
+  {#if session.settingsTab === "source-control" && selectedSettingsHost && selectedSettingsApi}
+    <div class="flex flex-col gap-5">
+      {@render scopeControl()}
     <SettingsTabSourceControl
       serverId={selectedSettingsHost.serverId}
       api={selectedSettingsApi}
+      projectCwd={session.settingsProjectCwd}
     />
+    </div>
   {:else if session.settingsTab === "general" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabGeneral
       searchQuery={pageQuery}
@@ -516,6 +527,10 @@
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
     />
+  {:else if session.settingsTab === "chat"}
+    <SettingsTabChat searchQuery={pageQuery} />
+  {:else if session.settingsTab === "sessions"}
+    <SettingsTabSessions searchQuery={pageQuery} serverId={selectedSettingsHost?.serverId} />
   {:else if session.settingsTab === "tasks"}
     <SettingsTabTasks searchQuery={pageQuery} />
   {:else if session.settingsTab === "account"}
@@ -548,8 +563,8 @@
     {/if}
   {:else if session.settingsTab === "experimental"}
     <SettingsTabExperimental searchQuery={pageQuery} />
-  {:else if session.settingsTab === "providers" && selectedSettingsHost}
-    <SettingsTabProviders serverId={selectedSettingsHost.serverId} />
+  {:else if session.settingsTab === "providers"}
+    <SettingsTabProviders serverId={selectedSettingsHost?.serverId} projectCwd={session.settingsProjectCwd} {scopeControl} />
   {:else if session.settingsTab === "api-access"}
     <ConnectionsPanel />
   {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
@@ -619,7 +634,7 @@
           {#each settingsHosts as host (host.serverId)}
             <DropdownMenu.RadioItem
               value={host.serverId}
-              onSelect={() => (settingsHost.serverId = host.serverId)}
+              onSelect={() => selectHost(host.serverId)}
             >
               <span class="flex min-w-0 flex-col">
                 <span class="truncate">{host.label}</span>
@@ -635,29 +650,21 @@
   {/if}
 {/snippet}
 
-<!-- The nav column's lead: the window-control band, plus the 7px the session
-     sidebar gets for free from its floating card (4px shell gutter + 1px
-     border + its own 2px top pad) and this flush column does not. That lands
-     the first control on the exact y the sidebar's first row occupies. -->
+<!-- The dialog owns its keyboard events; menus and child dialogs handle theirs. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="flex h-full overflow-hidden text-workspace-chrome [--input:color-mix(in_oklch,var(--solus-input-border)_60%,transparent)] [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit] [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
+  role="region"
+  aria-label="Settings content"
+  tabindex="-1"
+  {@attach (element) => element.focus({ preventScroll: true })}
+  onkeydown={handleKeydown}
+  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome [--input:color-mix(in_oklch,var(--solus-input-border)_60%,transparent)] [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
 >
-  <!-- Width and surface are the session sidebar's, not a second measure: the
-       settings column replaces it in place, so the shell must not shift.
-
-       `cqi`, not `vw`: settings is in `FLUSH_PAGES`, so it opens as a
-       companion pane as well as a full page. Measured against the window, a
-       24vw rail on a 1440px display is 346px wide — inside a 400px companion
-       that leaves about 40px for the content it is meant to navigate. The
-       nearest container is `pane`; there is none between here and there.
-
-       Below 48rem of pane the rail goes entirely rather than getting thinner.
-       A navigation column narrower than its own labels is not a degraded
-       rail, it is a second problem: the tab picker in the header is the way
-       through at that width. -->
+  <!-- The dialog is the pane container. Below 48rem, section buttons replace
+       the fixed navigation column. -->
   <Sidebar.Provider
     open={true}
-    class="w-[clamp(18.75rem,24cqi,22.5rem)] shrink-0 @max-[48rem]/pane:hidden"
+    class="w-60 shrink-0 @max-[48rem]/pane:hidden"
   >
     <Sidebar.Root
       role="navigation"
@@ -665,18 +672,7 @@
       collapsible="none"
       class="relative border-r border-r-sidebar-border/50 bg-[color:color-mix(in_oklch,var(--card)_99%,var(--foreground))]"
     >
-      <div
-        class="workspace-titlebar absolute inset-x-0 top-0 h-(--solus-titlebar-height)"
-        aria-hidden="true"
-      ></div>
-      <!-- Two measurements are borrowed, not invented: the lead band above the
-           first control, and the 1.1875rem row inset. Together they land the
-           search field on the exact x/y the session sidebar's first row
-           occupies, so switching between the two doesn't move the column.
-           (The page owns its titlebar chrome, so the window-control clearance
-           lives in that lead rather than as an outlet pad above the whole
-           surface — that is what lets this column reach the window's top.) -->
-      <Sidebar.Header class="gap-3 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
+      <Sidebar.Header class="gap-3 px-4 pt-5 pb-3">
         <h2 class="px-[0.625rem] text-lg font-semibold tracking-[-0.01em] text-foreground">Settings</h2>
         <SearchField
           bind:ref={searchInputEl}
@@ -721,6 +717,7 @@
                         >{tab.label}</span
                       >
                       {#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
+                      {#if tab.id === "mcp" && integrationsStore.attentionCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{integrationsStore.attentionCount} MCP servers need attention">{integrationsStore.attentionCount}</span>{/if}
                     </Sidebar.MenuButton>
                   </Sidebar.MenuItem>
                 {/each}
@@ -733,13 +730,13 @@
   </Sidebar.Provider>
 
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <!-- The window's chrome row holds the crumb trail and the page's actions.
-         The page title heads the reading column below, over its sections. -->
+    <!-- Section navigation and actions stay above the scrolling content. -->
     <header
-      class="workspace-titlebar h-(--solus-chrome-row-h) flex items-center justify-between gap-3 px-[clamp(2rem,3cqi,3rem)] shrink-0"
+      class="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-5"
     >
       <div class="flex min-w-0 items-center gap-2.5">
-        {@render backButton()}
+        {#if openHostLabel}{@render backButton()}{/if}
+        <p class="truncate text-workspace-chrome text-muted-foreground">Settings{#if !openHostLabel} / {activeTabMeta.label}{/if}</p>
       {#if openHostLabel}
         <Breadcrumb.Root class="min-w-0">
           <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-workspace-chrome">
@@ -768,7 +765,7 @@
       </div>
       <div class="flex shrink-0 items-center gap-1.5">
         <SettingsUpdateButton />
-        {#if hostFramedTab}
+        {#if hostFramedTab && !supportsProjectScope(session.settingsTab)}
           {@render hostFrame()}
         {/if}
         <button
@@ -801,7 +798,7 @@
            pane shows margin instead. `w-full` keeps it from overflowing
            panes narrower than that. The MCP page is a catalog with a
            category rail, not a column of rows, so it takes a wider measure. -->
-      <div class="mx-auto w-full pt-8 pb-12 {session.settingsTab === 'mcp' || session.settingsTab === 'webhooks' ? 'max-w-6xl' : 'max-w-3xl'}">
+      <div class="mx-auto w-full pt-8 pb-12 {session.settingsTab === 'providers' || session.settingsTab === 'mcp' || session.settingsTab === 'webhooks' ? 'max-w-6xl' : 'max-w-3xl'}">
         <!-- A host page heads itself with the host's name and address. -->
         {#if !openHostLabel}
           <header class="mb-10 flex flex-col gap-1.5">
@@ -809,6 +806,7 @@
               {activeTabMeta.label}
             </h1>
             <p class="text-sm text-(--solus-text-secondary)">{activeTabMeta.description}</p>
+
           </header>
         {/if}
         <div class="flex flex-col gap-10">

@@ -1,4 +1,4 @@
-import { SessionSearch, SESSION_SEARCH_PAGE_SIZE } from '@solus/client-core/session-search'
+import { SessionSearch, SESSION_SEARCH_PAGE_SIZE, type SessionSearchHome } from '@solus/client-core/session-search'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers, type SavedServer } from '@solus/client-core/server-registry'
@@ -7,7 +7,8 @@ import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
-import type { AgentId, SessionMeta, SessionSearchResult } from '@solus/contracts/types'
+import type { AgentId, SessionMeta, SessionRecordListFilter, SessionSearchResult } from '@solus/contracts/types'
+import { isChat } from '@solus/contracts/chat'
 import { localProjectParts } from '@solus/client-core/project-identity'
 import { projectsStore } from '../../../../contexts/projects/projects.store.svelte'
 import { hosts } from '../../../../contexts/hosts/hosts.svelte'
@@ -103,6 +104,9 @@ function openOnRunner(session: SessionMeta, serviceId: string, hosts: Pick<Conve
 }
 
 const DEBOUNCE_MS = 180
+/** A chat belongs to no project, so a project scope lists the chats as well:
+ *  a chat another person shared is otherwise found only in every project. */
+const CHATS = { chats: true } as const
 /** A one-character query hits nearly every message a host holds: the hosts
  *  pay for the whole index and the passages are noise. Names still match it. */
 export const MIN_CONTENT_QUERY_LENGTH = 2
@@ -143,10 +147,13 @@ export class ConversationSearch {
   }
 
   search(query: string, projectRoot: string | null, options: ConversationSearchOptions = { namesOnly: false }): void {
-    const homes = this.hosts.searchServerIds().flatMap(serverId => {
+    const homes = this.hosts.searchServerIds().flatMap((serverId): SessionSearchHome[] => {
       if (options.serverId && serverId !== options.serverId && !isSolusApiId(serverId)) return []
-      const scope = projectRoot ? this.scopeOnHost(serverId, projectRoot) : undefined
-      return scope === null ? [] : [{ serverId, scope }]
+      if (!projectRoot) return [{ serverId }]
+      const scope = this.scopeOnHost(serverId, projectRoot)
+      const requests: SessionSearchHome[] = scope ? [{ serverId, scope }] : []
+      if (!isChat(projectRoot)) requests.push({ serverId, scope: CHATS })
+      return requests
     })
     this.pages.search(query, homes, { namesOnly: options.namesOnly, activeSince: options.activeSince, provider: options.provider })
   }
@@ -222,15 +229,18 @@ export class RecentSessions {
     const perHost = await Promise.all(
       serverIds.map(async (serverId): Promise<{ sessions: SessionMeta[]; indexing: boolean; error?: string; passedOver?: boolean }> => {
         const scope = projectRoot ? this.scopeOnHost(serverId, projectRoot) : undefined
-        if (scope === null) return { sessions: [], indexing: false, passedOver: true }
+        const filters: SessionRecordListFilter[] = []
+        if (scope !== null) {
+          filters.push(!scope ? { scope: 'all' } : 'repositoryKey' in scope ? { repositoryKey: scope.repositoryKey, scope: 'all' } : { projectPath: scope.projectRoot, includeWorktrees: true, scope: 'all' })
+        }
+        if (projectRoot && !isChat(projectRoot)) filters.push({ ...CHATS, scope: 'all' })
+        if (!filters.length) return { sessions: [], indexing: false, passedOver: true }
         try {
-          const found = await this.hosts.apiFor(serverId).sessionRecordList(
-            !scope ? { scope: 'all' } : 'repositoryKey' in scope ? { repositoryKey: scope.repositoryKey, scope: 'all' } : { projectPath: scope.projectRoot, includeWorktrees: true, scope: 'all' },
-          )
-          const sessions = found.records.map(sessionMetaFromRecord)
+          const found = await Promise.all(filters.map(filter => this.hosts.apiFor(serverId).sessionRecordList(filter)))
+          const sessions = found.flatMap(list => list.records).map(sessionMetaFromRecord)
           if (isSolusApiId(serverId)) for (const session of sessions) openOnRunner(session, serverId, this.hosts)
           else stampSessionMetas(sessions, serverId)
-          return { sessions, indexing: found.indexing }
+          return { sessions, indexing: found.some(list => list.indexing), passedOver: scope === null }
         } catch (error) {
           // A host that cannot answer contributes nothing; the others still do.
           return { sessions: [], indexing: false, error: error instanceof Error ? error.message : String(error) }

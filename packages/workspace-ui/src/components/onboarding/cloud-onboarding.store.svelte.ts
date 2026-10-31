@@ -37,6 +37,7 @@ const LINK_POLL_MS = 3_000
 class CloudOnboardingStore {
   account = $state<AccountResponse | null>(null)
   accountLoaded = $state(false)
+  private hasRefreshedGetStarted = false
 
   /** The machine agents run on; null when the person chose "Not now". */
   chosenServerId = $state<string | null>(null)
@@ -142,7 +143,10 @@ class CloudOnboardingStore {
   refreshGetStarted(): void {
     const workspaceServerId = this.workspaceServerId
     if (workspaceServerId) void workspaceProjectsStore.load(workspaceServerId)
-    void this.refreshGithub()
+    // The first checklist opens from the account answer boot already read.
+    // A later open checks changes made on the Connections page in another tab.
+    if (this.hasRefreshedGetStarted) void this.refreshGithub()
+    this.hasRefreshedGetStarted = true
     void cloudAgentSeatsStore.refresh()
   }
 

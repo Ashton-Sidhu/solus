@@ -78,6 +78,8 @@ export interface DeviceVideoPacket {
 export interface DeviceHubStreamOptions {
   platform: DevicePlatform
   format: DeviceVideoFormat
+  serveSimOnly?: boolean
+  video?: boolean
   /** A fresh absolute URL from `deviceStreamUrl`. Rejects with `DeviceStreamEnded` when the host refused; any other failure is retried. */
   openUrl: () => Promise<string>
   onPacket: (packet: DeviceVideoPacket, data: Uint8Array) => void
@@ -129,9 +131,11 @@ export class DeviceHubStream {
     })
   }
 
+  private get iosWire(): boolean { return this.options.platform === 'ios' || this.options.serveSimOnly === true }
+
   start(): void {
     void this.connectSocket()
-    if (this.options.platform === 'ios') void this.readVideo(this.options.format === 'jpeg' ? 'video.mjpeg' : 'video.avcc')
+    if (this.iosWire && this.options.video !== false) void this.readVideo(this.options.format === 'jpeg' ? 'video.mjpeg' : 'video.avcc')
   }
 
   close(): void {
@@ -237,8 +241,8 @@ export class DeviceHubStream {
     while (!this.closed) {
       let url: string
       try {
-        if (this.options.platform === 'ios') await this.primeIosCapture()
-        url = `${(await this.base()).replace(/^http/, 'ws')}/socket`
+        if (this.iosWire && !this.options.serveSimOnly && this.options.video !== false) await this.primeIosCapture()
+        url = `${(await this.base()).replace(/^http/, 'ws')}/socket${!this.iosWire && this.options.video === false ? '?video=0' : ''}`
       } catch (error) {
         if (error instanceof DeviceStreamEnded) return this.end(error)
         await this.delay(RETRY_DELAY_MS)
@@ -257,7 +261,7 @@ export class DeviceHubStream {
       onOpen: () => {
         if (this.socket !== socket) return
         this.socketOpen = true
-        if (this.options.platform === 'ios') {
+        if (this.iosWire) {
           socket.send(iosInput.hardwareKeyboard(false))
           // A client that reloaded or crashed mid-shortcut never sent its key up. A held
           // Control turns every tap into a secondary click, so start with no modifier down.
@@ -267,7 +271,7 @@ export class DeviceHubStream {
       },
       onMessage: (data) => {
         if (this.socket !== socket) return
-        if (this.options.platform === 'ios') this.iosMessage(data)
+        if (this.iosWire) this.iosMessage(data)
         else this.androidMessage(data)
       },
       onClose: () => {
@@ -277,7 +281,7 @@ export class DeviceHubStream {
         this.heldPointer = null
         this.wheel?.cancelEnd()
         this.wheel = null
-        if (this.options.platform === 'android') {
+        if (!this.iosWire) {
           this.hasConfig = false
           this.codec = null
           this.streamGeneration++
@@ -338,7 +342,7 @@ export class DeviceHubStream {
     const now = this.now()
     if (now - this.lastKeyframeRequest < KEYFRAME_REQUEST_INTERVAL_MS) return
     this.lastKeyframeRequest = now
-    if (this.options.platform !== 'ios') {
+    if (!this.iosWire) {
       this.socket?.send(androidInput.resetVideo())
       return
     }
@@ -382,7 +386,7 @@ export class DeviceHubStream {
   }
 
   private touch(phase: 'down' | 'move' | 'up', x: number, y: number): UpstreamMessage {
-    if (this.options.platform !== 'ios') return androidInput.touch(phase, x, y)
+    if (!this.iosWire) return androidInput.touch(phase, x, y)
     const point = iosRawPoint(this.screen, x, y)
     return iosInput.touch(phase === 'down' ? 'begin' : phase === 'move' ? 'move' : 'end', point.x, point.y)
   }
@@ -395,7 +399,7 @@ export class DeviceHubStream {
       case 'key': return this.keyMessages(input)
       case 'button': return [this.buttonMessage(input.button)]
       case 'rotate':
-        if (this.options.platform !== 'ios') throw new Error('Rotate Android emulators with the orientation control in Tools.')
+        if (!this.iosWire) throw new Error('Rotate Android emulators with the orientation control in Tools.')
         return [iosInput.orientation(nextOrientation(this.screen?.orientation ?? 'portrait'))]
     }
   }
@@ -427,7 +431,7 @@ export class DeviceHubStream {
    */
   private scrollMessages(input: Extract<DeviceInput, { kind: 'scroll' }>): UpstreamMessage[] {
     if (this.heldPointer && !this.wheel?.isDown) return []
-    if (this.options.platform === 'ios') {
+    if (this.iosWire) {
       const point = iosRawPoint(this.screen, input.x, input.y)
       const end = iosRawPoint(this.screen, input.x + input.deltaX, input.y + input.deltaY)
       return [iosInput.scroll(point.x, point.y, end.x - point.x, end.y - point.y)]
@@ -466,7 +470,7 @@ export class DeviceHubStream {
   }
 
   private textMessages(text: string): UpstreamMessage[] {
-    if (this.options.platform !== 'ios') return [androidInput.text(text)]
+    if (!this.iosWire) return [androidInput.text(text)]
     return iosTextKeys(text).flatMap((key) => [
       ...(key.shift ? [iosInput.key('down', 0xe1)] : []),
       iosInput.key('down', key.usage),
@@ -482,7 +486,7 @@ export class DeviceHubStream {
   }
 
   private keyMessages(input: Extract<DeviceInput, { kind: 'key' }>): UpstreamMessage[] {
-    if (this.options.platform === 'ios') {
+    if (this.iosWire) {
       const usage = hidUsageForCode(input.code)
       if (usage === null) return []
       if (input.phase === 'down') this.heldKeys.add(usage)
@@ -495,8 +499,9 @@ export class DeviceHubStream {
   }
 
   private buttonMessage(button: DeviceButton): UpstreamMessage {
-    if (this.options.platform !== 'ios') return androidInput.button(androidButtonName(button))
-    const name = iosButtonName(button)
+    if (!this.iosWire) return androidInput.button(androidButtonName(button))
+    const hardwareButton = this.options.serveSimOnly && button === 'recents' ? 'appSwitcher' : button
+    const name = this.options.serveSimOnly && this.options.platform === 'android' && button === 'back' ? 'back' : iosButtonName(hardwareButton)
     if (!name) throw new Error(`iOS Simulators have no ${button} button.`)
     return iosInput.button(name)
   }

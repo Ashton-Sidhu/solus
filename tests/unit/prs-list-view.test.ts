@@ -30,6 +30,7 @@ const AUTHOR_AVATAR = 'https://avatars.githubusercontent.com/u/1?v=4'
 
 const pullRequest = pullRequestFixture(42, {
   title: 'Show GitHub avatars',
+  defaultBranch: 'main',
   headSha: 'abc123',
   authorAvatarUrl: AUTHOR_AVATAR,
   createdAt: '2026-08-04T11:00:00Z',
@@ -210,22 +211,16 @@ describe('PR row slots', () => {
     expect(row.updated).toBe('1h ago')
   })
 
-  test('a merge conflict is a chip, but only once the host has finished computing it', () => {
-    // WHY: a conflict blocks the merge and no group carries it, so the row must.
-    // `mergeable: null` means GitHub is still working, and claiming a conflict
-    // it has not found would send someone to rebase a clean branch.
-    const conflicted = prRow({ ...pullRequest, mergeable: false }, context, NOW)
-    expect(conflicted.chips).toContainEqual(expect.objectContaining({ label: 'Conflicts', tint: 'warning' }))
-    expect(prRow({ ...pullRequest, mergeStateStatus: 'dirty' }, context, NOW).chips).toContainEqual(
-      expect.objectContaining({ label: 'Conflicts', tint: 'warning' }),
-    )
-    expect(prRow({ ...pullRequest, mergeable: null }, context, NOW).chips.map((chip) => chip.label)).not.toContain(
-      'Conflicts',
-    )
-    // A merged PR's stale mergeability is history, not a fact to act on.
-    expect(
-      prRow({ ...pullRequest, state: 'merged', mergeable: false }, context, NOW).chips.map((chip) => chip.label),
-    ).not.toContain('Conflicts')
+  test('a known conflict marks the status icon and names the default branch', () => {
+    const conflicted = prRow({ ...pullRequest, baseRef: 'release', mergeable: false }, context, NOW)
+    expect(conflicted.status).toBe('open')
+    expect(conflicted.conflictLabel).toBe('Conflicts with main')
+    expect(conflicted.chips).toHaveLength(0)
+    expect(prRow({ ...pullRequest, mergeStateStatus: 'dirty' }, context, NOW).conflictLabel).toBe('Conflicts with main')
+    // Unknown mergeability must not claim a conflict, and stale facts on a merged PR must not hide its state.
+    expect(prRow({ ...pullRequest, mergeable: null }, context, NOW).conflictLabel).toBeNull()
+    expect(prRow({ ...pullRequest, state: 'merged', mergeable: false }, context, NOW).conflictLabel).toBeNull()
+    expect(prRow({ ...pullRequest, defaultBranch: null, mergeable: false }, context, NOW).conflictLabel).toBe('Conflicts')
   })
 
   test('a long branch keeps its tail, because that is what tells two apart', () => {

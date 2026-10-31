@@ -80,6 +80,12 @@ describe('durable session exchanges', () => {
     })
   }
 
+  test('independent ownership survives a host restart', () => {
+    new ExchangeLedger(new RunLedger()).open(exchange({ kind: 'independent', notify: false }))
+    const restored = new ExchangeLedger(new RunLedger()).read('A', 'request')
+    expect(restored).toMatchObject({ kind: 'independent', notify: false, parentExchangeIds: [] })
+  })
+
   test('a full reply survives restart; only the model report is bounded', () => {
     const reply = `${'Finding. '.repeat(555)}The last line matters.`
     expect(reply.length).toBeGreaterThan(5_000)

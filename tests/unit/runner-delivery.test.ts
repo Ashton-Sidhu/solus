@@ -570,6 +570,30 @@ describe('runner delivery', () => {
     }
   })
 
+  test("a person who cannot be delivered for yet holds back nobody else's writes", async () => {
+    // WHY: one waiting destination set a 5-minute poll, and that timer swallowed every
+    // later write's kick. A share made on a cloud machine reached its Solus API minutes
+    // later, so the person it was shared with saw no notice, no row, and no toast.
+    const api = new FakeApi()
+    await api.start()
+    const delegations = new FakeDelegations()
+    delegations.away.add('carol')
+    // The waiting poll runs as written (it outlasts the test); the collect window does not.
+    const runner = startDelivery(api, delegations, { maxDelayMs: 60_000 })
+    try {
+      queueLine('For Carol', 'carol')
+      await until(() => runner['waiting'].size === 1)
+      queueLine('For Bob')
+      await until(() => api.items().length === 1)
+      expect(api.items()[0]?.payload).toMatchObject({ message: { content: 'For Bob' } })
+    } finally {
+      await runner.stop()
+      await api.stop()
+      queue.dropQueuedFor(bobIn('org1'))
+      queue.dropQueuedFor({ organizationId: 'org1', actorUserId: 'carol' })
+    }
+  })
+
   test('a failed pass keeps its backoff while writes keep arriving', async () => {
     const api = new FakeApi()
     await api.start()

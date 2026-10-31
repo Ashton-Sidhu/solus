@@ -364,6 +364,13 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
     return limit === undefined ? rows : rows.slice(-limit)
   }
 
+  async loadSessionFirstTurn(nativeSessionId: string): Promise<SessionLoadMessage[]> {
+    const rows = this.readHistory(nativeSessionId)
+    const first = rows.findIndex(startsHistoryTurn)
+    const second = first < 0 ? -1 : rows.findIndex((row, index) => index > first && startsHistoryTurn(row))
+    return second < 0 ? rows : rows.slice(0, second)
+  }
+
   /** `before` is the index of the first row of the page after this one. */
   async loadSessionPage(nativeSessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {
     const rows = this.readHistory(nativeSessionId)

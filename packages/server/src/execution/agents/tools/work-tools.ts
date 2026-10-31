@@ -6,12 +6,13 @@ import { z } from 'zod'
 import { GOOGLE_WORK_READ_ONLY, WorkContentInvalidError, validateWorkContent } from '../../../data/works/work'
 import { loadWorkAnnotations } from '../../../data/works/work-annotations'
 import { formatOpenThreads } from '../../../annotations/comment-tools'
-import { parseDiagram, serializeDiagram } from '@solus/contracts/diagram-types'
-import { reapplyLayout } from '@solus/contracts/diagram-layout'
-import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+// import { parseDiagram, serializeDiagram } from '@solus/contracts/diagram-types'
+// import { reapplyLayout } from '@solus/contracts/diagram-layout'
+// import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { mentionsAsText, restoreMentions } from '@solus/contracts/mentions'
 import type { AgentId, WorkType } from '@solus/contracts/types'
+import type { WorkspaceRecordHome } from '@solus/contracts/solus-api'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { readArtifactHtml } from './artifact-file'
@@ -32,7 +33,14 @@ const log = createLogger('folio', 'work-tools.ts')
 /** Provider-neutral work tools. Invalid input returns error text so the agent
  * can recover from a bad call without terminating its run. */
 
-export interface WorkUpdatedPayload {
+/** The organization whose Solus API holds the work; null when it is on this host. */
+type WorkOwner = { organizationId: string | null }
+
+function organizationOf(home: WorkspaceRecordHome): string | null {
+  return home.kind === 'organization' ? home.organizationId : null
+}
+
+export interface WorkUpdatedPayload extends WorkOwner {
   contentVersion: number
   workId: string
   title: string
@@ -43,7 +51,7 @@ export interface WorkUpdatedPayload {
 
 export type OnWorkUpdated = (work: WorkUpdatedPayload) => void
 
-export interface WorkCreatedPayload {
+export interface WorkCreatedPayload extends WorkOwner {
   workId: string
   title: string
   docType: WorkType
@@ -89,33 +97,41 @@ const updateWorkFields = {
 
 const createWorkFields = {
   title: z.string().describe('A short, human-readable title for the work.'),
-  doc_type: z.enum(['doc', 'slides', 'diagram']).describe(
-    "The kind of work: 'doc' (markdown document), 'slides' (slide deck), or 'diagram' (architecture diagram).",
+  // Diagram creation is disabled: architecture diagrams go through render_artifact.
+  // doc_type: z.enum(['doc', 'slides', 'diagram']).describe(
+  //   "The kind of work: 'doc' (markdown document), 'slides' (slide deck), or 'diagram' (architecture diagram).",
+  // ),
+  doc_type: z.enum(['doc', 'slides']).describe(
+    "The kind of work: 'doc' (markdown document) or 'slides' (slide deck).",
   ),
-  content: z.string().describe(
-    'The full content. For doc/slides this is markdown. For diagram this is serialized JSON shaped like {"nodes":[...],"edges":[...]}.',
-  ),
+  // content: z.string().describe(
+  //   'The full content. For doc/slides this is markdown. For diagram this is serialized JSON shaped like {"nodes":[...],"edges":[...]}.',
+  // ),
+  content: z.string().describe('The full content as markdown.'),
 }
 
-const DIAGRAM_GUIDANCE = [
-  'For doc/slides the `content` arg is markdown. For diagrams, `content` must be serialized JSON shaped like {"nodes":[{"id","label",...}],"edges":[{"id","source","target",...}]}. Omit "position" — Solus auto-layouts.',
-  'Before authoring or editing a diagram, load the `diagrams` skill — it owns the full node/edge contract, icons, data-model entities (typed fields + keys), relationship cardinality, groups, drill-down details, embedding workflow, and worked examples.',
-].join('\n')
+// Diagram creation is disabled: architecture diagrams go through render_artifact.
+// const DIAGRAM_GUIDANCE = [
+//   'For doc/slides the `content` arg is markdown. For diagrams, `content` must be serialized JSON shaped like {"nodes":[{"id","label",...}],"edges":[{"id","source","target",...}]}. Omit "position" — Solus auto-layouts.',
+//   'Before authoring or editing a diagram, load the `diagrams` skill — it owns the full node/edge contract, icons, data-model entities (typed fields + keys), relationship cardinality, groups, drill-down details, embedding workflow, and worked examples.',
+// ].join('\n')
 
 const FIND_DESC =
   "Find the user's works — documents, slide decks, architecture diagrams, HTML artifacts. Pass `query` to search titles AND content: reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — rather than answering from memory. Omit `query` to list every work open in Solus with its id, title, type and last-updated time. Either way each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
 const READ_DESC =
   'Read the full current content of a work by id, including any edits the user made manually, and its content_version. Always call this before update_work so you revise the latest version, and pass that content_version to update_work as expected_content_version.'
 const CREATE_DESC = [
-  'Create a NEW standalone artifact the user will keep, export, or hand off — a document, slide deck, or architecture diagram.',
+  // 'Create a NEW standalone artifact the user will keep, export, or hand off — a document, slide deck, or architecture diagram.',
+  'Create a NEW standalone artifact the user will keep, export, or hand off — a document or slide deck.',
   'The content streams into a card in the conversation as you write it. Use this only for brand-new works; to revise a work the user already has open, call read_work then update_work instead (never create a duplicate).',
   '',
   'Reach for this only for durable artifacts worth keeping — NOT for routine answers, reviews, analyses, comparisons, or plans, which belong inline in the conversation. When in doubt, answer inline. A work is never authored as a fenced code block in your reply; the content arg is the deliverable.',
   '',
-  'When a durable document or plan needs an architecture, system, data-flow, or ER view, create the diagram work FIRST and embed the token this tool returns on its own line in the document. Do that only when relationships are central to understanding the content; prose is enough for routine plans.',
+  // 'When a durable document or plan needs an architecture, system, data-flow, or ER view, create the diagram work FIRST and embed the token this tool returns on its own line in the document. Do that only when relationships are central to understanding the content; prose is enough for routine plans.',
+  'This tool does not make diagrams. For an architecture, system, data-flow, or ER view, use render_artifact, then embed the artifact in the document with the token it returns.',
   'To embed an existing diagram or artifact, put this exact markdown link on a line of its own: [<title>](work://embed?workId=<work_id>&type=<diagram|artifact>). find_works and read_work print the ready-made token for each embeddable work; paste it rather than writing the URL by hand. A standalone work://embed link in existing content is a live embed — preserve it unless the user asks to remove or replace it. A fenced ```html block in a document is a live render too, and is likewise not stale text.',
-  '',
-  DIAGRAM_GUIDANCE,
+  // '',
+  // DIAGRAM_GUIDANCE,
 ].join('\n')
 const UPDATE_DESC = [
   'Google-linked works are read-only in Solus. Edit in Google Docs and pull the latest content; local and shared comments remain available.',
@@ -153,7 +169,7 @@ export interface AgentWorkCreated {
   foreignTaskId: string | null
   /** Set when the work was created on the organization's Solus API, where the
    *  session's records live (organization-vms §3), instead of this host's store. */
-  organizationOwned: boolean
+  organizationId: string | null
 }
 
 /**
@@ -191,10 +207,10 @@ export async function createAgentWork(
     }
     const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'create', payload, sessionId: ctx?.sessionId })
     applyWorkOpToForeignTask(ctx?.sessionId, op)
-    return { workId, title, foreignTaskId, organizationOwned: false }
+    return { workId, title, foreignTaskId, organizationId: null }
   }
 
-  const { operations, context, remote } = await workspaceToolContext(ctx?.sessionId)
+  const { operations, context } = await workspaceToolContext(ctx?.sessionId)
   if (context.actingAgent) context.actingAgent.linkWorkToTask = linkToTask
   // Keep the originating session on every saved work, including artifacts.
   const created = await operations.createWork(context, {
@@ -202,7 +218,7 @@ export async function createAgentWork(
     agentProvider: ctx?.agentProvider, projectKey: ctx?.cwd,
   }, randomUUID())
 
-  return { workId: created.id, title: created.title, foreignTaskId: null, organizationOwned: remote }
+  return { workId: created.id, title: created.title, foreignTaskId: null, organizationId: organizationOf(context.home) }
 }
 
 /** The ready-made embed token for a work that can be embedded, so an agent
@@ -309,36 +325,41 @@ export async function executeWorkTool(
     if (name === 'create_work') {
       const title = args.title?.trim() ? args.title : 'Untitled'
       const rawType = args.doc_type ?? 'doc'
-      const docType: 'doc' | 'slides' | 'diagram' =
-        rawType === 'slides' || rawType === 'diagram' ? rawType : 'doc'
-      let content = args.content ?? ''
+      // Diagram creation is disabled: architecture diagrams go through render_artifact.
+      if (rawType === 'diagram') {
+        return { ok: false, text: 'create_work does not make diagrams. Use render_artifact to make an architecture, system, data-flow, or ER diagram.' }
+      }
+      const docType: 'doc' | 'slides' = rawType === 'slides' ? 'slides' : 'doc'
+      // const docType: 'doc' | 'slides' | 'diagram' =
+      //   rawType === 'slides' || rawType === 'diagram' ? rawType : 'doc'
+      const content = args.content ?? ''
       if (!content.trim()) return { ok: false, text: 'create_work requires non-empty content.' }
 
-      if (docType === 'diagram') {
-        try {
-          // A new agent-authored diagram has no user placement to preserve.
-          // Always replace supplied/default geometry with the same clean LR
-          // layout as the canvas Auto-layout action before persisting it.
-          content = serializeDiagram(reapplyLayout(parseDiagram(content)))
-        } catch (err: any) {
-          return {
-            ok: false,
-            text: `Invalid diagram content: ${String(err?.message ?? err)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`,
-          }
-        }
-      }
+      // if (docType === 'diagram') {
+      //   try {
+      //     // A new agent-authored diagram has no user placement to preserve.
+      //     // Always replace supplied/default geometry with the same clean LR
+      //     // layout as the canvas Auto-layout action before persisting it.
+      //     content = serializeDiagram(reapplyLayout(parseDiagram(content)))
+      //   } catch (err: any) {
+      //     return {
+      //       ok: false,
+      //       text: `Invalid diagram content: ${String(err?.message ?? err)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`,
+      //     }
+      //   }
+      // }
 
       const created = await createAgentWork(title, docType, content, deps.ctx)
-      deps.onWorkCreated?.({ workId: created.workId, title: created.title, docType, content })
-      const embedGuidance = docType === 'diagram'
-        ? `\n\nTo embed this diagram in a Solus document or plan, place this token on its own line:\n\n${serializeDiagramEmbed({ workId: created.workId, title: created.title })}`
-        : ''
+      deps.onWorkCreated?.({ workId: created.workId, title: created.title, docType, content, organizationId: created.organizationId })
+      // const embedGuidance = docType === 'diagram'
+      //   ? `\n\nTo embed this diagram in a Solus document or plan, place this token on its own line:\n\n${serializeDiagramEmbed({ workId: created.workId, title: created.title })}`
+      //   : ''
       const syncNote = created.foreignTaskId
         ? ` It syncs to the task's host and links to task ${created.foreignTaskId}.`
-        : created.organizationOwned
+        : created.organizationId
           ? ' It is saved in the organization\'s Solus API.'
           : ''
-      return { ok: true, text: `Created "${created.title}" (id: ${created.workId}).${syncNote}${embedGuidance}` }
+      return { ok: true, text: `Created "${created.title}" (id: ${created.workId}).${syncNote}` }
     }
 
     if (name === 'update_work') {
@@ -392,6 +413,7 @@ export async function executeWorkTool(
             content,
             updatedAt: new Date().toISOString(),
             contentVersion: foreign.contentVersion,
+            organizationId: null,
           })
           return { ok: true, text: `Updated "${title ?? foreign.title}"${foreign.workType === 'artifact' ? ` (artifact, id: ${workId})` : ''}. New content_version: ${foreign.contentVersion}. The change syncs to the task's host.` }
         }
@@ -419,6 +441,7 @@ export async function executeWorkTool(
         content: saved.content,
         updatedAt: saved.updatedAt,
         contentVersion: saved.contentVersion,
+        organizationId: organizationOf(context.home),
       })
       // The result text starts as it always has: transcripts project the artifact id from it.
       return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.` }
@@ -460,6 +483,7 @@ function workAgentTool(
         title: work.title,
         docType: work.docType,
         content: work.content,
+        organizationId: work.organizationId,
       }),
       onWorkUpdated: (work) => context.emit({
         type: 'work_updated',
@@ -470,6 +494,7 @@ function workAgentTool(
         content: work.content,
         updatedAt: work.updatedAt,
         contentVersion: work.contentVersion,
+        organizationId: work.organizationId,
       }),
     }),
   }

@@ -1,13 +1,10 @@
 <script lang="ts">
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
-  import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
-  import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
-  import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
-  import { Building2 as OrganizationIcon, Download as DownloadSimpleIcon } from "@lucide/svelte";
+  import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
   import {
     savePersistedTabs,
@@ -38,16 +35,10 @@
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
   import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
-  import { deviceCommands, revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+  import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
   import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
-  import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
-  import { settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
-  import {
-    browserRecordingCommands,
-    focusLeadingComposer,
-    deliverRecording,
-  } from "@solus/workspace-ui/components/browser/lib/recording-actions";
+  import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
@@ -71,15 +62,12 @@
   } from "@solus/workspace-ui/lib/analytics";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
-  const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
+  const commandPaletteModules = afterPaint().then(() => Promise.all([
+    import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"),
+    import("./lib/palette-commands"),
+  ]));
   import { activeSessionShareTarget, connectRequestStore, listenForProjectDirectory, logShareDialog, presenceStore, projectsStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
-  import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
-  import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
   import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
-  import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
-  import { saveFileAsWorkCommands } from "@solus/workspace-ui/components/files/lib/save-file-as-work";
-  import { artifactsPaletteCommands } from "@solus/workspace-ui/components/session/artifacts/lib/artifacts-commands";
-  import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
   import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
   import { hostSetupStore } from "@solus/workspace-ui/components/servers/host-setup.store.svelte";
@@ -511,17 +499,17 @@
     if (session.activeSession?.agentSessionId) return;
     window.dispatchEvent(new CustomEvent("solus:toggle-git-dropdown"));
   });
-  useKeybinding("global.show-shortcuts", () => {
+  function showShortcuts() {
     shortcutsActiveScopes = keybindings.activeScopes();
     shortcutsModalOpen = true;
-  });
+  }
+  useKeybinding("global.show-shortcuts", showShortcuts);
   useKeybinding("global.command-palette", () => {
     commandPaletteOpen = true;
   });
 
-  // The web shell owns its application commands just as it owns the keybindings
-  // above. Keep this list to actions that have transport-neutral web behavior;
-  // desktop-only commands remain in the desktop shell's richer palette.
+  // The palette's commands (`lib/palette-commands.ts`) load with it. Keep that
+  // list to actions that have transport-neutral web behavior.
   useKeybinding("global.check-for-updates", () => void hostUpdatesStore.checkAll());
   // Sharing (docs/plans/multiplayer-sharing.md §4.1): the active session, once it has one.
   const shareTarget = $derived(activeSessionShareTarget(session));
@@ -533,145 +521,14 @@
     paletteInitialPage = { id: "switch-organization", title: "Switch organization" };
     commandPaletteOpen = true;
   }, { enabled: () => serversStore.organizations.length > 0 });
-  const paletteCommands = $derived.by((): Command[] => [
-    ...workReviewPaletteCommands(session),
-    ...saveFileAsWorkCommands(session),
-    ...(shareTarget ? [{
-      id: "share-session", label: "Share…", group: "General",
-      hint: comboHint("global.share"), keywords: ["share", "access", "link", "team", "guest"],
-      run: () => sharesStore.open(shareTarget),
-    }] : []),
-    ...(serversStore.organizations.length > 0 ? [{
-      id: "switch-organization", label: "Switch organization…", group: "General", icon: OrganizationIcon,
-      hint: comboHint("global.switch-organization"), keywords: ["organization", "org", "team", "workspace", "cloud"],
-      children: serversStore.organizations.map((organization) => ({
-        id: `switch-organization:${organization.organizationId}`,
-        label: organization.name,
-        group: "Organizations",
-        icon: OrganizationIcon,
-        hint: organization.isActive ? "Active" : organization.policy.allowsPersonalHosts ? undefined : "Personal computers not allowed",
-        keywords: ["organization", "org", organization.organizationId],
-        run: () => serversStore.selectOrganization(organization.organizationId),
-      })),
-    }] : []),
-    {
-      id: 'check-for-updates', label: 'Check for updates', group: 'General',
-      hint: comboHint('global.check-for-updates'), keywords: ['update', 'version', 'provider'],
-      run: () => void hostUpdatesStore.checkAll(),
-    },
-    ...updateAllPaletteCommands(),
-    addOverSshPaletteCommand(),
-    ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
-    {
-      id: "open-project",
-      label: "Open project…",
-      group: "General",
-      hint: comboHint("global.select-project"),
-      keywords: ["folder", "directory", "repository", "host"],
-      run: () => projectPicker.startOpenProject({ sourceId: composerSourceId }),
-    },
-    {
-      id: "new-project",
-      label: "New project…",
-      group: "General",
-      keywords: ["create", "folder", "start", "empty", "git init", "website", "app"],
-      run: () => projectPicker.startOpenProject({ sourceId: composerSourceId, source: "new" }),
-    },
-    {
-      id: "new-session",
-      label: "New session",
-      group: "General",
-      hint: comboHint("global.new-session"),
-      keywords: ["create", "chat", "tab"],
-      run: () => session.drafts.openSessionDraft({ freshTask: true, via: "palette" }),
-    },
-    {
-      id: "new-session-in-task",
-      label: "New session in task",
-      group: "General",
-      hint: comboHint("global.new-session-in-task"),
-      keywords: ["create", "chat", "tab", "task"],
-      run: () => session.drafts.openSessionDraft({ via: "palette" }),
-    },
-    {
-      id: "new-session-without-task",
-      label: "New session without task",
-      group: "General",
-      hint: comboHint("global.new-session-without-task"),
-      keywords: ["create", "chat", "tab", "no task"],
-      run: () =>
-        session.drafts.openSessionDraft({ withoutTask: true, via: "palette" }),
-    },
-    newChatCommand(session),
-    {
-      id: "workspace",
-      label: "Open workspace",
-      group: "View",
-      hint: comboHint("global.toggle-workspace"),
-      keywords: ["works", "documents", "folio"],
-      run: () => session.toggleFolio("palette"),
-    },
-    {
-      id: "tasks",
-      label: "Open tasks",
-      group: "View",
-      keywords: ["board", "todo", "issues"],
-      run: () => session.openTasks(),
-    },
-    {
-      id: "pull-requests",
-      label: "Open pull requests",
-      group: "View",
-      keywords: ["pr", "review", "github"],
-      run: () => session.openPrs(),
-    },
-    {
-      id: "notifications",
-      label: "Open notifications",
-      group: "View",
-      hint: comboHint("global.toggle-notifications"),
-      keywords: ["inbox", "assigned", "review request", "mentions", "alerts"],
-      run: () => session.openNotifications("palette"),
-    },
-    {
-      id: "automations",
-      label: "Open automations",
-      group: "View",
-      keywords: ["schedule", "recurring", "cron"],
-      run: () => session.openAutomations(),
-    },
-    {
-      id: "browser",
-      label: "Open browser",
-      group: "View",
-      keywords: ["web", "viewport", "device"],
-      run: () => session.openBrowser(),
-    },
-    ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
-    ...deviceCommands(session),
-    ...artifactsPaletteCommands(session),
-    ...settingsOwnerCommands(session),
-    sidebarViewCommand(settings),
-    ...webhookCommands(session),
-    {
-      id: "settings",
-      label: "Settings",
-      group: "General",
-      keywords: ["preferences", "configuration"],
-      run: () => session.showSettings("general", "palette"),
-    },
-    {
-      id: "shortcuts",
-      label: "Keyboard shortcuts",
-      group: "General",
-      hint: comboHint("global.show-shortcuts"),
-      keywords: ["keybindings", "keys"],
-      run: () => {
-        shortcutsActiveScopes = keybindings.activeScopes();
-        shortcutsModalOpen = true;
-      },
-    },
-  ]);
+  const paletteDeps = {
+    session,
+    settings,
+    projectPicker,
+    composerSourceId: () => composerSourceId,
+    shareTarget: () => shareTarget,
+    showShortcuts,
+  };
 
   function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
@@ -748,9 +605,9 @@
   <WebLayout onAttachFile={handleAttachFile} />
 </div>
 
-{#await commandPaletteComponent then module}
-  {@const CommandPalette = module.default}
-  <CommandPalette bind:open={commandPaletteOpen} bind:initialPage={paletteInitialPage} commands={paletteCommands} />
+{#await commandPaletteModules then [paletteModule, commandsModule]}
+  {@const CommandPalette = paletteModule.default}
+  <CommandPalette bind:open={commandPaletteOpen} bind:initialPage={paletteInitialPage} commands={commandsModule.webPaletteCommands(paletteDeps)} />
 {:catch}
   <p role="alert">Could not load the command palette.</p>
 {/await}

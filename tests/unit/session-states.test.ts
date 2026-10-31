@@ -78,14 +78,14 @@ async function linked(sessionId: string, number: number, state: 'open' | 'merged
   await sessionPrs.recordSessionPullRequestObservation(REPOSITORY, number, { title: '', state, draft: false, updatedAt: at(updatedAt) } as never)
 }
 
-describe('a session is settled for everyone, and archived or snoozed for one person', () => {
-  test('settle and its reverse, and each change is announced once with the state it leaves', async () => {
+describe('a session is settled, archived, or snoozed for one person, and settled by its pull requests for everyone', () => {
+  test('shared settle and its reverse, and each change is announced once with the state it leaves', async () => {
     const changed: Array<[string, number | null]> = []
     const stop = states.onSessionStateChanged((sessionId, state) => changed.push([sessionId, state.settledAt]))
     try {
-      expect(await shelf('session-1').settle('person', 100)).toEqual({ settledAt: 100, settledBy: 'person' })
-      expect(await shelf('session-1').settle('person', 200)).toBeNull()
-      expect(await stateOf('session-1')).toMatchObject({ settledAt: 100, settledBy: 'person' })
+      expect(await shelf('session-1').settle('pull-request', 100)).toEqual({ settledAt: 100, settledBy: 'pull-request' })
+      expect(await shelf('session-1').settle('pull-request', 200)).toBeNull()
+      expect(await stateOf('session-1')).toMatchObject({ settledAt: 100, settledBy: 'pull-request' })
       expect(await shelf('session-1').unsettle()).toBe(true)
       expect(await stateOf('session-1')).toBeNull()
     } finally {
@@ -103,7 +103,7 @@ describe('a session is settled for everyone, and archived or snoozed for one per
       expect(await viewer('session-1', ALICE).archive(100)).toBe(true)
       expect(await viewer('session-1', ALICE).archive(200)).toBe(false)
       await viewer('session-1', ALICE).snooze(5_000, ' after the deploy ')
-      expect(await viewer('session-1', ALICE).view()).toEqual({ archivedAt: 100, snoozedUntil: 5_000, snoozeNote: 'after the deploy' })
+      expect(await viewer('session-1', ALICE).view()).toEqual({ settledAt: null, archivedAt: 100, snoozedUntil: 5_000, snoozeNote: 'after the deploy' })
       expect(await viewer('session-1', BOB).view()).toEqual(EMPTY_SESSION_VIEW)
 
       // Return keeps the snooze: the session goes back to the shelf it left.
@@ -116,6 +116,33 @@ describe('a session is settled for everyone, and archived or snoozed for one per
     }
     expect(heard.every(([personKey]) => personKey === ALICE)).toBe(true)
     expect(heard[0]).toEqual([ALICE, 100])
+  })
+
+  test("one person's settle changes their view, and a prompt ends only that person's settle", async () => {
+    // WHY: on a team, I settle a session when I am finished with it. My
+    // teammate may still be working in it, so their list must not change, and
+    // their prompt must not bring the session back to my active list.
+    const shared: string[] = []
+    const stop = states.onSessionStateChanged((sessionId) => shared.push(sessionId))
+    try {
+      expect(await viewer('session-1', ALICE).settle(100)).toBe(true)
+      expect(await viewer('session-1', ALICE).settle(200)).toBe(false)
+      expect(await viewer('session-1', ALICE).view()).toMatchObject({ settledAt: 100 })
+      expect(await viewer('session-1', BOB).view()).toEqual(EMPTY_SESSION_VIEW)
+      expect(await stateOf('session-1')).toBeNull()
+
+      await viewer('session-1', BOB).settle(150)
+      await shelf('session-1').recordPrompt(BOB)
+      expect((await viewer('session-1', BOB).view()).settledAt).toBeNull()
+      expect((await viewer('session-1', ALICE).view()).settledAt).toBe(100)
+
+      expect(await viewer('session-1', ALICE).unsettle()).toBe(true)
+      expect(await viewer('session-1', ALICE).view()).toEqual(EMPTY_SESSION_VIEW)
+    } finally {
+      stop()
+    }
+    // A person's settle is nobody else's news.
+    expect(shared).toEqual([])
   })
 
   test('a prompt makes a settled session active, and returns it to the list of the person it is for', async () => {
@@ -292,7 +319,9 @@ describe("a person's session list", () => {
     expect((await viewer('put-away', hostUserKey()).view()).archivedAt).not.toBeNull()
 
     const settled = await operations.update(context, 'kept', { settled: true })
-    expect(settled.state?.settledBy).toBe('person')
+    expect(settled.view?.settledAt).toEqual(expect.any(Number))
+    expect(settled.state).toBeUndefined()
+    expect(await stateOf('kept')).toBeNull()
 
     // A turn the session's machine reports, as the person it acts for, makes
     // the session active and returns it to that person's list.
@@ -301,5 +330,6 @@ describe("a person's session list", () => {
     expect((await viewer('put-away', hostUserKey()).view()).archivedAt).toBeNull()
     await operations.admitTurn({ ...context, scopes: ['sessions:admit'], delegation: { hostId: 'vm-1' } }, 'kept')
     expect(await stateOf('kept')).toBeNull()
+    expect((await viewer('kept', hostUserKey()).view()).settledAt).toBeNull()
   })
 })

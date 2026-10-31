@@ -1,3 +1,5 @@
+import { FILE_TREE_ICON_COLOR_CSS } from "@solus/client-core/file-icons";
+
 /**
  * Shared @pierre/trees unsafeCSS applied to every FileTree instance in the app.
  *
@@ -12,6 +14,7 @@
  * rotate-for-collapsed and alignment-nudge transforms intact.
  */
 export const FILE_TREE_THEME_CSS = `
+  ${FILE_TREE_ICON_COLOR_CSS}
   [data-file-tree-search-input] {
     --trees-focus-ring-width: 1px;
   }

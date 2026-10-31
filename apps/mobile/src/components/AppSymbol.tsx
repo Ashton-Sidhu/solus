@@ -1,4 +1,5 @@
 import type { Icon } from "@tabler/icons-react-native/types";
+import { ICON_DEFAULTS } from "@solus/client-core/icon-defaults";
 /*
  * Keep these as per-icon exports. Importing the package root eagerly registers
  * the entire Tabler icon set in Metro.
@@ -307,9 +308,8 @@ function AppSymbolView(props: AppSymbolViewProps) {
     <AndroidIcon
       accessibilityLabel={props.accessibilityLabel}
       color={props.tintColor}
-      size={props.size}
-      // Desktop's one icon weight: Lucide 1.5 on the same 24-unit box.
-      strokeWidth={1.5}
+      size={props.size ?? ICON_DEFAULTS.size}
+      strokeWidth={ICON_DEFAULTS.strokeWidth}
       style={props.style}
       testID={props.testID}
     />

@@ -33,6 +33,7 @@
   } = $props();
   const settings = getSettingsContext();
   const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
+  const items = $derived([...body, ...turn.tail]);
 </script>
 
 {#if turn}
@@ -77,56 +78,47 @@
       : undefined}
   />
 {/if}
-<!-- Folded history mounts on first expansion. Once shown, the
-   body stays mounted so folding retains its local state. -->
-{#if body.length > 0}
-  <div
-    class="turn-body space-y-2 @max-[30rem]/pane:space-y-3"
-    class:is-folded={!live && !expanded}
-    class:is-open={!live && expanded}
-  >
-    <TurnBody visible={live || expanded}>
-      {#if expanded && settings.showToolCalls}<ToolInputStatus tools={turn.tools} history={history} />{/if}
-      {#each body as item, itemIdx (itemKey(item))}
-        {#if item.kind === "tool-group"}
-          <!-- §16 — the transcript keeps its order, but the row at
-             the tail of a working turn is where the run *is*: it
-             takes the spinner rather than letting a second row
-             saying "Thinking" stack underneath it. -->
-          <ToolGroupItem
-            history={history}
-            tools={item.messages}
-            steps={item.steps}
-            {skipMotion}
-            working={working && itemIdx === body.length - 1}
-            {activityLabel}
-            turnStart={working ? turnStart : null}
-            backgroundWait={working
-              ? describeBackgroundWait(turn.body)
-              : null}
-          />
-        {:else}
-          {@render transcriptItem(item, skipMotion)}
-        {/if}
-      {/each}
-    </TurnBody>
-  </div>
-{/if}
-{#if !live && !expanded && turn.visibleWhenCollapsed.length > 0}
-  <div
-    class="space-y-2 @max-[30rem]/pane:space-y-3"
-  >
-    {#each turn.visibleWhenCollapsed as item (itemKey(item))}
-      {@render transcriptItem(item, skipMotion)}
+<!-- One keyed list for the whole turn: ending or folding it changes a
+   class, never which block an item lives in. Svelte keeps an item mounted
+   only within its own {#each}, so moving the answer to the tail or a render
+   to the folded view would destroy and rebuild it — an artifact's iframe
+   reloads and flashes blank. Folded work mounts on first expansion, then
+   stays mounted so folding retains its local state. -->
+{#if items.length > 0}
+  <div class="space-y-2 @max-[30rem]/pane:space-y-3">
+    {#if body.length > 0 && expanded && settings.showToolCalls}
+      <div class="turn-item" class:is-open={!live}><ToolInputStatus tools={turn.tools} history={history} /></div>
+    {/if}
+    {#each items as item, itemIdx (itemKey(item))}
+      {@const folds = itemIdx < body.length && !turn.visibleWhenCollapsed.includes(item)}
+      <div class="turn-item" hidden={folds && !live && !expanded} class:is-open={itemIdx < body.length && !live && expanded}>
+        {#if hasSummaryRow && itemIdx === body.length}<div class="turn-rule"></div>{/if}
+        <TurnBody visible={!folds || live || expanded}>
+          {#if item.kind === "tool-group"}
+            <!-- §16 — the transcript keeps its order, but the row at
+               the tail of a working turn is where the run *is*: it
+               takes the spinner rather than letting a second row
+               saying "Thinking" stack underneath it. -->
+            <ToolGroupItem
+              history={history}
+              tools={item.messages}
+              steps={item.steps}
+              {skipMotion}
+              working={working && itemIdx === body.length - 1}
+              {activityLabel}
+              turnStart={working ? turnStart : null}
+              backgroundWait={working
+                ? describeBackgroundWait(turn.body)
+                : null}
+            />
+          {:else}
+            {@render transcriptItem(item, skipMotion)}
+          {/if}
+        </TurnBody>
+      </div>
     {/each}
   </div>
 {/if}
-{#if hasSummaryRow && turn.tail.length > 0}
-  <div class="turn-rule"></div>
-{/if}
-{#each turn.tail as item (itemKey(item))}
-  {@render transcriptItem(item, skipMotion)}
-{/each}
 <TurnImageGallery messages={turn.images} {serverId} />
 <!-- §17's transient endings, in the place they happened: after
    everything the turn produced, never in front of it. -->
@@ -162,7 +154,12 @@
 {/if}
 
 <style>
-  .turn-body.is-folded { display: none; }
-  .turn-body.is-open { margin-left: 0.9375rem; padding-left: 0.75rem; border-left: 0.0625rem solid color-mix(in oklch, var(--foreground) 9%, transparent); }
+  /* The open body's rail: each item draws its own edge, and an item followed
+     by another open item bridges the gap between them. */
+  .turn-item.is-open { position: relative; margin-left: 0.9375rem; padding-left: 0.75rem; border-left: 0.0625rem solid color-mix(in oklch, var(--foreground) 9%, transparent); }
+  .turn-item.is-open:has(+ .turn-item.is-open)::after { content: ""; position: absolute; left: -0.0625rem; top: 100%; width: 0.0625rem; height: 0.5rem; background: color-mix(in oklch, var(--foreground) 9%, transparent); }
+  @container pane (width < 30rem) {
+    .turn-item.is-open:has(+ .turn-item.is-open)::after { height: 0.75rem; }
+  }
   .turn-rule { height: 0.0625rem; margin: 0 0 0.75rem; background: color-mix(in oklch, var(--foreground) 8%, transparent); }
 </style>

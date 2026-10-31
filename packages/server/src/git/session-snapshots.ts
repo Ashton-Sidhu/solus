@@ -674,11 +674,12 @@ export async function getEpisodeDiff(
 export async function getEpisodeNumstat(
   workTree: string,
   repoRoot: string,
-  baseSha: string,
+  /** A pending base resolves while the index is prepared; it must not reject. */
+  baseSha: string | Promise<string>,
 ): Promise<ChangedFileStat[]> {
-  const out = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
+  const out = await withWorkingTreeIndex(workTree, repoRoot, async (env) =>
     runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', baseSha, '--numstat', '--summary'],
+      ['-c', 'core.quotepath=false', 'diff', await baseSha, '--numstat', '--summary'],
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
     ),

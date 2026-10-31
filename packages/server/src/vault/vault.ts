@@ -214,6 +214,8 @@ export class Vault {
   /** MCP tokens the account delivered, by person and server, until a minute before they expire. */
   private readonly cache = new Map<string, McpDelivery>()
   private readonly reading = new Map<string, Promise<CloudCredentialRead>>()
+  /** Deliveries a server refused: the next read for each asks the account to refresh now. */
+  private readonly refusedDeliveries = new Set<string>()
 
   constructor(private readonly deps: VaultDeps = {}) {}
 
@@ -342,6 +344,17 @@ export class Vault {
   }
 
   /** The server refused a token the account delivered: the next call reads the account again. */
+  /**
+   * The server refused the delivery this host holds, though it may not be due: the
+   * copy goes, and the next read tells the account, which refreshes now or marks the
+   * connection `needs-sign-in` (cloud `POST /v1/vault` with `refused`).
+   */
+  markRefused(personKey: string, ref: McpCredentialRef): void {
+    const key = cacheKey(personKey, ref.serverUrl)
+    this.cache.delete(key)
+    this.refusedDeliveries.add(key)
+  }
+
   forget(personKey: string, ref: McpCredentialRef): void {
     this.cache.delete(cacheKey(personKey, ref.serverUrl))
   }
@@ -409,11 +422,18 @@ export class Vault {
   }
 
   private async fetchDelivery(personKey: string, serverUrl: string): Promise<CloudCredentialRead> {
-    const call = await this.callAccount(personKey, 'POST', VAULT_PATH, { ref: { kind: 'mcp', serverUrl } })
-    if (call.kind !== 'response') return call
+    const key = cacheKey(personKey, serverUrl)
+    const request: VaultReadRequest = { ref: { kind: 'mcp', serverUrl } }
+    const refused = this.refusedDeliveries.delete(key)
+    if (refused) request.refused = true
+    const call = await this.callAccount(personKey, 'POST', VAULT_PATH, request)
+    if (call.kind !== 'response') {
+      // Not told yet: the next read tells it.
+      if (refused) this.refusedDeliveries.add(key)
+      return call
+    }
     const response = call.response
     const body: unknown = await response.json().catch(() => null)
-    const key = cacheKey(personKey, serverUrl)
     if (response.ok) {
       const parsed = mcpDeliverySchema.safeParse(body)
       if (parsed.success) {

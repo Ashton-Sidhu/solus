@@ -145,6 +145,8 @@ export interface HandlerCtx {
   principal: Principal
   /** The user the call is for, resolved from the principal by `SolusServer.handle()` (plans/012 §4). */
   actor: Actor
+  /** In-process callers can cancel work; transports do not accept this from wire input. */
+  abortSignal?: AbortSignal
   /** Web-client device label, set after pairing. */
   deviceLabel?: string
   /**

@@ -97,6 +97,26 @@ const DEFERRED_COMPONENTS = [
   // The query store loads when a person asks Insights a question, not with the
   // workspace and menus that offer one.
   'packages/workspace-ui/src/components/insights/insights.store.svelte.ts',
+  // A work's History brings the diff and Markdown renderers; it loads when opened.
+  'packages/workspace-ui/src/components/work/WorkHistoryDialog.svelte',
+  // Yjs, and Tiptap for a document, load with the first live work, not the workspace.
+  'packages/workspace-ui/src/contexts/works/work-live-doc.svelte.ts',
+  'packages/document-model/src/schema.ts',
+  // Changed-file paths need only the patch splitter, not the diff metadata cache.
+  'packages/workspace-ui/src/lib/pierre-diff/metadata.ts',
+  // An artifact's frame, rail, and header actions load when an artifact opens; the
+  // save picker when an export asks for a place (docs/benchmarks/web-load-2026-10-30.json).
+  'packages/workspace-ui/src/components/artifact/ArtifactShell.svelte',
+  'packages/workspace-ui/src/components/pickers/SaveFilePicker.svelte',
+  // The Ed25519 verifier loads only to dial an `http:` route.
+  'packages/contracts/src/host-proof.ts',
+  // The palette's command lists load with the palette, after the first paint.
+  'apps/client/src/lib/palette-commands.ts',
+  'apps/desktop/src/renderer/shell/desktop-palette.svelte.ts',
+  'packages/workspace-ui/src/components/servers/lib/add-wsl-distro-commands.ts',
+  // Stores the first screen does not use; the contexts barrel does not re-export them.
+  'packages/workspace-ui/src/contexts/webhooks/webhooks.store.svelte.ts',
+  'packages/workspace-ui/src/contexts/webhooks/webhook-admin.store.svelte.ts',
 ]
 
 describe('startup import graph', () => {
@@ -114,6 +134,15 @@ describe('startup import graph', () => {
 
     test(`${client}: SQL formatting is not part of startup`, () => {
       expect(graph.packages.has('sql-formatter')).toBe(false)
+    })
+
+    test(`${client}: the composer's Markdown does not bring the HTML, CSS, and JavaScript grammars`, () => {
+      // `markdown()` from lang-markdown imports lang-html, and with it the CSS and
+      // JavaScript grammars: about 170 KB the composer never highlights. The
+      // composer uses `markdownLanguage` directly. The walk sees only our imports.
+      const editor = readFileSync(join(ROOT, 'packages/workspace-ui/src/components/ui/plain-text-editor/plain-text-editor.svelte'), 'utf8')
+      expect(editor).not.toMatch(/import\s*\{[^}]*\bmarkdown\b[^}]*\}\s*from\s*"@codemirror\/lang-markdown"/)
+      expect(['@codemirror/lang-html', '@codemirror/lang-javascript', '@codemirror/lang-css'].filter((name) => graph.packages.has(name))).toEqual([])
     })
 
     test(`${client}: closed optional controls load on first use`, () => {

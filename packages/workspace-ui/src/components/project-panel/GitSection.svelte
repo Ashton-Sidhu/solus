@@ -55,6 +55,7 @@
   } from "./lib/git-action-selection";
   import { useGitSectionReads } from "./lib/git-section-reads.svelte";
   import { mergeConflictDraft } from "./lib/merge-conflict-draft";
+  import { isGitActionRowShown, isPanelItemShown } from "./lib/panel-items";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import {
     sessionPrLink,
@@ -69,8 +70,10 @@
     sourceId: string;
     /** Hidden mounted tabs and a closed project panel must not poll the host. */
     active: boolean;
+    /** The person's hidden panel items. A hidden row unmounts. */
+    hiddenItems: readonly string[];
   }
-  let { sourceId, active }: Props = $props();
+  let { sourceId, active, hiddenItems }: Props = $props();
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
@@ -747,8 +750,10 @@
 {/snippet}
 
 <div class="menu-list">
-  <BranchRow {sourceId} />
-  {#each actionDefs as def (def.key)}
+  {#if isPanelItemShown(hiddenItems, "git.branch")}
+    <BranchRow {sourceId} />
+  {/if}
+  {#each actionDefs.filter((def) => isGitActionRowShown(hiddenItems, def.key)) as def (def.key)}
     <div class="row-wrap">
       {#if def.caretAction}
         {@const caret = def.caretAction}
@@ -782,7 +787,7 @@
   {/each}
   <!-- Once the session has a pull request, the column continues past the Git
        rows: a divider, then what to do with the shown pull request. -->
-  {#if shownPr}
+  {#if shownPr && isPanelItemShown(hiddenItems, "git.pullRequest")}
     <LinkedPullRequestRows
       pr={shownPr}
       ctx={session.ctxForEnvironment(env.cwd, env.checkout, sourceId)}
@@ -798,7 +803,7 @@
   {/if}
   <!-- The session's other open pull requests, one row each. A row brings its
        pull request into the group. -->
-  {#if otherPrRows.length}
+  {#if otherPrRows.length && isPanelItemShown(hiddenItems, "git.otherPullRequests")}
     <div
       class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
       aria-hidden="true"

@@ -14,7 +14,7 @@ import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
-import { uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { takeStartupDirectoryRead, uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
@@ -427,7 +427,7 @@ class ServersStore {
     if (!source || this.directoryRefreshInFlight) return
     this.directoryRefreshInFlight = true
     try {
-      const directory = await source.listDirectory()
+      const directory = await (takeStartupDirectoryRead() ?? source.listDirectory())
       if (!directory) {
         this.directorySignedIn = false
         return

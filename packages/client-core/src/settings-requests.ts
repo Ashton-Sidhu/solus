@@ -6,6 +6,7 @@ import {
   organizationSettingsPath,
   organizationSettingsResponseSchema,
   type AccountSettingsPatchRequest,
+  type AccountSettingsResponse,
   type OrganizationSettingsPatchRequest,
 } from '@solus/contracts/settings'
 import type { AccountSettingsResult, NativeSolusAPI, OrganizationSettingsResult, SettingsRequestFailure } from '@solus/contracts/host-api'
@@ -46,7 +47,10 @@ export interface SettingsHttpRequest {
  * Builds the five calls over one authenticated `send`. `send` returns null when the
  * website did not answer and 'signed-out' when there is no session to send with.
  */
-export function settingsCloudRequests(send: (request: SettingsHttpRequest) => Promise<Response | null | 'signed-out'>): SettingsCloudRequests {
+export function settingsCloudRequests(
+  send: (request: SettingsHttpRequest) => Promise<Response | null | 'signed-out'>,
+  takeStartupSettings?: () => Promise<AccountSettingsResponse | null>,
+): SettingsCloudRequests {
   const account = async (request: SettingsHttpRequest): Promise<AccountSettingsResult> => {
     const response = await send(request)
     if (response === 'signed-out') return { kind: 'signed-out' }
@@ -65,9 +69,23 @@ export function settingsCloudRequests(send: (request: SettingsHttpRequest) => Pr
     return organizationSettingsResult(response)
   }
   return {
-    accountSettingsGet: () => account({ method: 'GET', path: ACCOUNT_SETTINGS_PATH }),
-    accountSettingsPatch: (body) => account({ method: 'PATCH', path: ACCOUNT_SETTINGS_PATH, body }),
-    accountSettingsDelete: () => account({ method: 'DELETE', path: ACCOUNT_SETTINGS_PATH }),
+    accountSettingsGet: async () => {
+      try {
+        const startup = await takeStartupSettings?.()
+        if (startup) return { kind: 'ok', settings: startup }
+      } catch {
+        return { kind: 'error', code: 'invalid_response', message: null }
+      }
+      return account({ method: 'GET', path: ACCOUNT_SETTINGS_PATH })
+    },
+    accountSettingsPatch: async (body) => {
+      await takeStartupSettings?.().catch(() => null)
+      return account({ method: 'PATCH', path: ACCOUNT_SETTINGS_PATH, body })
+    },
+    accountSettingsDelete: async () => {
+      await takeStartupSettings?.().catch(() => null)
+      return account({ method: 'DELETE', path: ACCOUNT_SETTINGS_PATH })
+    },
     organizationSettingsGet: (organizationId) => organization({ method: 'GET', path: organizationSettingsPath(organizationId) }),
     organizationSettingsPatch: (organizationId, body) => organization({ method: 'PATCH', path: organizationSettingsPath(organizationId), body }),
   }
@@ -111,7 +129,7 @@ function refusal(status: number, parsed: z.ZodSafeParseResult<z.infer<typeof upl
  * account-plane access token for each call (docs/adr/0001-standard-authentication.md
  * §2.2); the website's cookie is not sent.
  */
-export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 'accessToken'>, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
+export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 'accessToken' | 'takeStartupSettings'>, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
   return settingsCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'
@@ -129,5 +147,5 @@ export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 
     } catch {
       return null
     }
-  })
+  }, () => session.takeStartupSettings())
 }

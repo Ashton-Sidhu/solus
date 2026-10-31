@@ -2,7 +2,7 @@ import { untrack } from "svelte";
 import { isSessionBusyStatus } from "@solus/contracts/types";
 import type { DesktopUpdateRelease } from "@solus/contracts/desktop-update-types";
 import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
-import { updatesStore } from "@solus/workspace-ui/contexts";
+import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";

@@ -41,7 +41,7 @@ class FakeChild extends EventEmitter {
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
-function harness(verified = true) {
+function harness(verified = true, onSpawn?: () => void) {
   const root = mkdtempSync(join(tmpdir(), 'seat-connect-'))
   roots.push(root)
   const db = new Database(':memory:') as unknown as DatabaseSync
@@ -55,6 +55,7 @@ function harness(verified = true) {
     spawnProcess: (command, args, options) => {
       const child = new FakeChild()
       spawned.push({ command, args, env: (options?.env ?? {}) as NodeJS.ProcessEnv, cwd: options?.cwd as string | undefined, child })
+      onSpawn?.()
       return child as unknown as ChildProcess
     },
   })
@@ -65,6 +66,37 @@ function harness(verified = true) {
 actAsHostForTests()
 
 describe('SeatConnector', () => {
+  test('named instances relay codes and cancellation to their own process without changing the base seat', async () => {
+    let spawnedSignal = () => {}
+    const { seats, connector, spawned, events } = harness(true, () => spawnedSignal())
+    const phases: string[] = []
+    const target = (id: string) => ({
+      id, home: seats.homeFor(BOB, 'claude-code'), binaryPath: 'fixture-claude',
+      launch: { env: { HOME: seats.homeFor(BOB, 'claude-code') } },
+      changed: async (phase: string) => { phases.push(`${id}:${phase}`) },
+      verify: async () => true,
+    })
+    let ready = new Promise<void>((resolve) => { spawnedSignal = resolve })
+    const first = connector.start(BOB, 'claude-code', target('work'))
+    await ready
+    spawned[0]!.child.stdout.emit('data', 'Browser didn’t open, visit: https://claude.ai/oauth/authorize?instance=work\n')
+    await first
+    ready = new Promise<void>((resolve) => { spawnedSignal = resolve })
+    const second = connector.start(BOB, 'claude-code', target('personal'))
+    await ready
+    spawned[1]!.child.stdout.emit('data', 'Browser didn’t open, visit: https://claude.ai/oauth/authorize?instance=personal\n')
+    await second
+    connector.submitCode(BOB, 'claude-code', 'work-code', 'work')
+    connector.submitCode(BOB, 'claude-code', 'personal-code', 'personal')
+    expect(spawned[0]!.child.stdinWrites).toEqual(['work-code\n'])
+    expect(spawned[1]!.child.stdinWrites).toEqual(['personal-code\n'])
+    await connector.cancel(BOB, 'claude-code', 'work')
+    expect(spawned[0]!.child.killed).toBe('SIGTERM')
+    expect(spawned[1]!.child.killed).toBeNull()
+    await connector.cancel(BOB, 'claude-code', 'personal')
+    expect(phases).toContain('work:failed')
+    expect(events).toEqual([])
+  })
   test('Claude: the login runs in the seat directory with the shim first on PATH and no host credential; the printed URL comes back needing a code', async () => {
     const { seats, connector, spawned } = harness()
     process.env.ANTHROPIC_API_KEY = 'host-key'

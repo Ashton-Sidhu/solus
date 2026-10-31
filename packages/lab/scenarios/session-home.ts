@@ -9,7 +9,7 @@ import { bootLabSolusApi } from '../src/solus-api'
 
 /**
  * A session's home keeps its place in each person's list (docs/plans/session-archive.md):
- * the shared settle, each person's own archive and snooze, and its pull requests, as
+ * each person's own settle, archive, and snooze, and its pull requests, as
  * `/v1` resources. An organization session's home is its Solus API; a personal
  * session's home is its machine. A runner tells the home about each prompt and each
  * pull request its agent links.
@@ -123,13 +123,13 @@ async function shelvePersonal(ctx: ScenarioContext, alice: LabClient, sessionId:
   const tag = '[machine]'
   ctx.step(`${tag} settle, snooze, and the pull request resource`)
   const settled = await expectOk(ctx, `${tag} PATCH /sessions settles`, alice.records.sessionUpdate(sessionId, { settled: true }))
-  ctx.check(`${tag} the answer is the settled state`, settled?.state.settledAt != null, JSON.stringify(settled))
-  await expectOk(ctx, `${tag} alice hears the state change`, alice.waitForEvent('session.stateChanged', (event) => event.payload.sessionId === sessionId && event.payload.state.settledAt != null))
+  ctx.check(`${tag} the answer is her settled view`, settled?.view?.settledAt != null, JSON.stringify(settled))
+  await expectOk(ctx, `${tag} alice hears her view change`, alice.waitForEvent('session.viewChanged', (event) => event.payload.sessionId === sessionId && event.payload.view.settledAt != null))
   const wake = Date.now() + 3_600_000
   const snoozed = await expectOk(ctx, `${tag} PATCH /sessions snoozes`, alice.records.sessionUpdate(sessionId, { snoozedUntil: wake, snoozeNote: 'later' }))
-  ctx.check(`${tag} the answer is the snoozed view, with the settle kept`, snoozed?.view.snoozedUntil === wake && snoozed.view.snoozeNote === 'later' && snoozed.state.settledAt != null, JSON.stringify(snoozed))
+  ctx.check(`${tag} the answer is the snoozed view, with the settle kept`, snoozed?.view.snoozedUntil === wake && snoozed.view.snoozeNote === 'later' && snoozed.view?.settledAt != null, JSON.stringify(snoozed))
   const shelved = await listed(alice, sessionId)
-  ctx.check(`${tag} a snoozed, settled session stays in the list with its state`, shelved?.state?.settledAt != null && shelved.view?.snoozedUntil === wake, JSON.stringify({ state: shelved?.state, view: shelved?.view }))
+  ctx.check(`${tag} a snoozed, settled session stays in the list with its view`, shelved?.view?.settledAt != null && shelved.view?.snoozedUntil === wake, JSON.stringify({ state: shelved?.state, view: shelved?.view }))
   await pullRequestResource(ctx, tag, alice, alice, sessionId)
 }
 
@@ -162,13 +162,13 @@ async function peopleStep(proof: OrganizationProof, alice: LabClient, bob: LabCl
   const aliceView = (await anyListing(alice, sessionId))?.view
   ctx.check(`${tag} alice's view has no snooze`, aliceView?.snoozedUntil == null && aliceView?.archivedAt != null, JSON.stringify(aliceView))
 
-  ctx.step(`${tag} alice settles it: bob sees one shared settle`)
+  ctx.step(`${tag} alice settles it: bob's list does not change`)
   await expectOk(ctx, `${tag} alice settles it`, alice.records.sessionUpdate(sessionId, { settled: true }))
-  await expectOk(ctx, `${tag} bob hears the state change`, bob.waitForEvent('session.stateChanged', (event) => event.payload.sessionId === sessionId && event.payload.state.settledAt != null))
-  const bobState = (await anyListing(bob, sessionId))?.state
-  ctx.check(`${tag} bob reads the settle`, bobState?.settledAt != null, JSON.stringify(bobState))
-  // The settle came after both view changes on the same sockets: each person heard only their own view.
-  ctx.check(`${tag} bob never heard alice's view change`, bob.received('session.viewChanged').every((event) => event.payload.view.archivedAt == null), JSON.stringify(bob.received('session.viewChanged')))
+  await expectOk(ctx, `${tag} alice hears her settle`, alice.waitForEvent('session.viewChanged', (event) => event.payload.sessionId === sessionId && event.payload.view.settledAt != null))
+  const bobSaw = await anyListing(bob, sessionId)
+  ctx.check(`${tag} bob reads it active`, bobSaw?.state?.settledAt == null && bobSaw?.view?.settledAt == null, JSON.stringify({ state: bobSaw?.state, view: bobSaw?.view }))
+  // Alice's settle came after both view changes on the same sockets: each person heard only their own view.
+  ctx.check(`${tag} bob never heard alice's view change`, bob.received('session.viewChanged').every((event) => event.payload.view.archivedAt == null && event.payload.view.settledAt == null), JSON.stringify(bob.received('session.viewChanged')))
   await new Promise((resolve) => setTimeout(resolve, SHORT_WAIT_MS))
   ctx.check(`${tag} alice never heard bob's snooze`, alice.received('session.viewChanged').every((event) => event.payload.view.snoozedUntil == null), JSON.stringify(alice.received('session.viewChanged')))
   await expectOk(ctx, `${tag} alice unsettles it`, alice.records.sessionUpdate(sessionId, { settled: false }))

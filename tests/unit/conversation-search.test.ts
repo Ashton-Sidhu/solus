@@ -34,7 +34,7 @@ function record(sessionId: string, runnerHostId: string | null = null): SessionR
     sessionId, organizationId: 'local', publication: 'local', ownerKey: 'local:test', provider: 'claude-code', projectPath: '-repo',
     projectRemote: null, runnerHostId, title: sessionId, customTitle: null, status: 'idle', model: null, reasoningEffort: null,
     parentSessionId: null, rootSessionId: null, createdAt: 1, lastActivityAt: 1, size: 0,
-    cwd: '/repo', slug: null, isWorktree: false, branch: null, projectRoot: '/repo', delegation: null,
+    cwd: '/repo', slug: null, isWorktree: false, branch: null, projectRoot: '/repo', delegation: null, place: 'project', startedBy: null,
   }
 }
 
@@ -135,7 +135,7 @@ describe('ConversationSearch', () => {
     // host missed the second clone and matched unrelated folders at that path.
     const requests: Array<{ serverId: string; projectRoot: string | undefined }> = []
     const answer = (serverId: string) => async (query: SessionRecordSearchQuery) => {
-      requests.push({ serverId, projectRoot: query.projectRoot })
+      if (!query.chats) requests.push({ serverId, projectRoot: query.projectRoot })
       return found([])
     }
     const hosts = homes({ laptop: answer('laptop'), linux: answer('linux'), 'scratch-box': answer('scratch-box') })
@@ -150,6 +150,38 @@ describe('ConversationSearch', () => {
     ])
   })
 
+  test('a project scope searches the chats of every home too, a home without a checkout included', async () => {
+    // WHY: a chat belongs to no project. A chat another person shared lives on
+    // the organization's workspace service with no repository, so a search in
+    // a project scope never reached it.
+    const requests: Array<{ serverId: string; query: SessionRecordSearchQuery }> = []
+    const answer = (serverId: string) => async (query: SessionRecordSearchQuery) => {
+      requests.push({ serverId, query })
+      return query.chats ? found([{ sessionId: `${serverId}-chat`, ts: 1 }]) : found([])
+    }
+    const search = new ConversationSearch(
+      homes({ laptop: answer('laptop'), [SERVICE]: answer(SERVICE) }),
+      0,
+      (serverId) => serverId === 'laptop' ? { projectRoot: '/Users/me/web' } : null,
+    )
+    search.search('visual', 'local:laptop:/Users/me/web')
+    await settle()
+
+    expect(requests.map(({ serverId, query }) => [serverId, query.projectRoot, query.chats])).toEqual([
+      ['laptop', '/Users/me/web', undefined],
+      ['laptop', undefined, true],
+      [SERVICE, undefined, true],
+    ])
+    expect(search.results.map((result) => result.session.sessionId)).toEqual(['laptop-chat', `${SERVICE}-chat`])
+
+    // Every project already holds the chats: one request per home, no chat filter.
+    requests.length = 0
+    search.search('visual', null)
+    await settle()
+    expect(requests.map(({ serverId, query }) => [serverId, query.chats])).toEqual([['laptop', undefined], [SERVICE, undefined]])
+    search.reset()
+  })
+
   test('asks every home, stamps each hit, and preserves the host order as replies arrive', async () => {
     const requests: Array<{ serverId: string; query: SessionRecordSearchQuery }> = []
     const hosts = homes({
@@ -161,7 +193,7 @@ describe('ConversationSearch', () => {
     expect(search.loading).toBe(true)
     await settle()
 
-    expect(requests.map((entry) => entry.serverId)).toEqual(['local', 'laptop'])
+    expect(requests.filter((entry) => !entry.query.chats).map((entry) => entry.serverId)).toEqual(['local', 'laptop'])
     // The first page of each home, every word a prefix on the host.
     expect(requests[0]!.query).toMatchObject({ query: 'rate limit', projectRoot: '/repo', offset: 0, limit: PAGE_SIZE, namesOnly: false })
     expect(search.results.map((result) => result.session.sessionId)).toEqual(['old', 'newest', 'mid'])
@@ -345,6 +377,7 @@ describe('RecentSessions', () => {
     // the list.
     const filters: Array<{ serverId: string; filter: SessionRecordListFilter }> = []
     const answer = (serverId: string, ids: string[]) => async (filter: SessionRecordListFilter) => {
+      if (filter.chats) return { records: [], indexing: false }
       filters.push({ serverId, filter })
       return { records: ids.map((id) => record(id)), indexing: false }
     }
@@ -375,12 +408,47 @@ describe('RecentSessions', () => {
     // repository finds it once that machine's checkout is gone.
     const filters: SessionRecordListFilter[] = []
     const recent = new RecentSessions(
-      listing({ [SERVICE]: async (filter) => { filters.push(filter); return { records: [record('vm-session')], indexing: false } } }),
+      listing({ [SERVICE]: async (filter) => {
+        if (filter.chats) return { records: [], indexing: false }
+        filters.push(filter)
+        return { records: [record('vm-session')], indexing: false }
+      } }),
       () => ({ repositoryKey: 'github.com/me/web' }),
     )
     await recent.load('github.com/me/web')
     expect(filters).toEqual([{ repositoryKey: 'github.com/me/web', scope: 'all' }])
     expect(recent.sessions.map((meta) => meta.sessionId)).toEqual(['vm-session'])
+  })
+
+  test('a project scope lists the chats too, from every home, a home without a checkout included', async () => {
+    // WHY: a chat belongs to no project. A chat another person shared lives on
+    // the organization's workspace service with no repository, so a project
+    // scope never asked for it, and the picker could not find it at all.
+    const filters: Array<{ serverId: string; filter: SessionRecordListFilter }> = []
+    const answer = (serverId: string) => async (filter: SessionRecordListFilter) => {
+      filters.push({ serverId, filter })
+      return { records: filter.chats ? [record(`${serverId}-chat`)] : [record(`${serverId}-project`)], indexing: false }
+    }
+    const recent = new RecentSessions(
+      listing({ laptop: answer('laptop'), [SERVICE]: answer(SERVICE) }),
+      (serverId) => serverId === 'laptop' ? { projectRoot: '/Users/me/web' } : null,
+    )
+    await recent.load('local:laptop:/Users/me/web')
+
+    expect(filters.filter(({ filter }) => filter.chats)).toEqual([
+      { serverId: 'laptop', filter: { chats: true, scope: 'all' } },
+      { serverId: SERVICE, filter: { chats: true, scope: 'all' } },
+    ])
+    expect(recent.sessions.map((meta) => meta.sessionId)).toEqual(['laptop-project', 'laptop-chat', `${SERVICE}-chat`])
+    // The service holds no checkout of this project: that is still reported.
+    expect([recent.asked, recent.passedOver]).toEqual([2, 1])
+  })
+
+  test('every project lists the chats with everything else, in one request per home', async () => {
+    const filters: SessionRecordListFilter[] = []
+    const recent = new RecentSessions(listing({ local: async (filter) => { filters.push(filter); return { records: [], indexing: false } } }))
+    await recent.load(null)
+    expect(filters).toEqual([{ scope: 'all' }])
   })
 
   test('an organization session opens on its runner while the runner is connected', async () => {
@@ -398,7 +466,7 @@ describe('RecentSessions', () => {
     const failing = new RecentSessions(listing({ local: async () => { throw new Error('HTTP 401') } }), () => ({ projectRoot: '/repo' }))
     await failing.load('/repo')
     expect([failing.error, failing.asked]).toEqual(['HTTP 401', 1])
-    const passed = new RecentSessions(listing({ local: async () => ({ records: [record('never')], indexing: false }) }), () => null)
+    const passed = new RecentSessions(listing({ local: async (filter) => ({ records: filter.chats ? [] : [record('never')], indexing: false }) }), () => null)
     await passed.load('/repo')
     expect([passed.sessions, passed.asked, passed.passedOver, passed.error]).toEqual([[], 1, 1, null])
   })
@@ -406,9 +474,11 @@ describe('RecentSessions', () => {
   test('a reply to an earlier load is dropped', async () => {
     let release: (list: SessionRecordList) => void = () => {}
     const recent = new RecentSessions(listing({
-      local: (filter) => filter.projectPath === '/old'
-        ? new Promise((resolve) => { release = resolve })
-        : Promise.resolve({ records: [record('current')], indexing: false }),
+      local: (filter) => filter.chats
+        ? Promise.resolve({ records: [], indexing: false })
+        : filter.projectPath === '/old'
+          ? new Promise((resolve) => { release = resolve })
+          : Promise.resolve({ records: [record('current')], indexing: false }),
     }), () => undefined)
     const stale = recent.load('/old')
     await recent.load('/current')

@@ -28,10 +28,11 @@ export class IntegrationProbeRefusedError extends Error {
 
 /**
  * How an address connects: a remote server is probed over the network; a
- * Solus MCP server's code decides its own auth (§13.6).
+ * Solus MCP server's code decides its own auth (§13.6). A server on the host's
+ * own loopback is allowed; other private addresses stay refused.
  */
 export function probeAddress(url: string): Promise<IntegrationProbeResult> {
-  return solusServerIdOf(url) ? Promise.resolve(probeSolusServer(url)) : probeMcpServer(url)
+  return solusServerIdOf(url) ? Promise.resolve(probeSolusServer(url)) : probeMcpServer(url, { allowLoopback: true })
 }
 
 /** Probe an address before it is stored; an undetermined answer refuses the write. */

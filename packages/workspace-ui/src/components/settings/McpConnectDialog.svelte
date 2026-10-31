@@ -236,7 +236,7 @@
 <!-- The page unmounts the dialog only after its exit animation, so the close is seen. -->
 <Dialog.Root bind:open onOpenChange={(isOpen) => { if (!isOpen) settle(); }} onOpenChangeComplete={(isOpen) => { if (!isOpen) onClose(connectedOnClose); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 bg-(--solus-modal-scrim) duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none" />
+    <Dialog.Overlay class="fixed inset-0 z-50 modal-backdrop duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none" />
     <!-- Centred with margins, not a translate, so the zoom of the animation does not fight the position. -->
     <Dialog.Content
       class="text-workspace-chrome fixed inset-0 z-50 m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"

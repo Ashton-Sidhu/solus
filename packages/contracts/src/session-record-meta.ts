@@ -32,6 +32,8 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
     organizationId: record.organizationId,
     publication: record.publication,
   }
+  if (record.place) meta.place = record.place
+  if (record.startedBy) meta.startedBy = record.startedBy
   if (record.isLead) meta.isLead = true
   if (record.view?.archivedAt != null) meta.archived = true
   // The host answers `owner` only to the session's owner (access.ts `standingOf`).

@@ -60,6 +60,9 @@ const pierreDiffsDist = config.resolver.nodeModulesPaths
   .find((dist) => fs.existsSync(dist))
 const resolveRequest = config.resolver.resolveRequest
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // The package root also loads browser custom elements. Native needs only
+  // these two DOM-free utilities for the shared file icon configuration.
+  if (moduleName === '@pierre/trees') return { type: 'sourceFile', filePath: path.join(projectRoot, 'pierre-tree-icons.js') }
   const pierreUtility = /^@pierre\/diffs\/(utils\/[\w-]+)$/.exec(moduleName)
   if (pierreUtility) return { type: 'sourceFile', filePath: path.join(pierreDiffsDist, `${pierreUtility[1]}.js`) }
   return (resolveRequest ?? context.resolveRequest)(context, moduleName, platform)

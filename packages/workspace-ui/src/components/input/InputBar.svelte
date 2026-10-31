@@ -22,7 +22,6 @@
     nextPermissionMode,
   } from "../../contexts/workspace/run-config";
   import {
-    defaultModelIdFor,
   } from "../pickers/lib/picker-selection";
   import { track } from "../../lib/analytics";
   import type {
@@ -564,11 +563,10 @@
     if (sessionId) {
       session.config.switchActiveAgent(next.id, targetTabId, "keybinding");
     } else {
-      const modelId = defaultModelIdFor(next.id, agent.metadata);
       onRun?.({
         ...run,
         provider: next.id,
-        modelConfig: session.config.modelConfigFor(next.id, modelId),
+        modelConfig: session.config.defaultModelConfigFor(next.id, run),
       });
     }
     refocusComposer();

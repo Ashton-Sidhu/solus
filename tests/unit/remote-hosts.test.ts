@@ -75,6 +75,16 @@ describe('the hosts a person reaches', () => {
     expect(hosts.connect(found)).toEqual({ error: 'Cloud is stopped. Start it first, then try again.' })
   })
 
+  test('managed targets exclude internal addresses from the directory and discovery', async () => {
+    const hosts = hostsOf([host('h-cloud', 'Cloud', {
+      kind: 'managed', category: 'managed', managedState: 'ready',
+      routes: [{ kind: 'lan', url: 'http://10.0.0.1:3000' }, { kind: 'tunnel', url: 'https://cloud.example' }],
+    })], { nearby: [nearbyHost('install-h-cloud', '10.0.0.1')] })
+    const found = await hosts.find(OWNER, 'Cloud')
+    if ('error' in found) throw new Error(found.error)
+    expect(found.routes.map((route) => route.url)).toEqual(['https://cloud.example'])
+  })
+
   test('the dial uses the turn person\'s host-reach token, in the scope of the turn', async () => {
     const asked: ReachActor[] = []
     const hosts = hostsOf([host('h-org', 'Org box', { organizationIds: ['org_a'] })], { asked })

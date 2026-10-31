@@ -350,7 +350,7 @@ function createMainWindow(): BrowserWindow {
     ...initialWindowBounds(screen),
     minWidth: 640,
     minHeight: 480,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#21201d' : '#fbfaf6',
     show: false,
     icon: join(app.getAppPath(), 'resources/icon.png'),
     webPreferences: {

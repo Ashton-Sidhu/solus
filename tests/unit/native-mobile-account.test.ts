@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ACCOUNT_AUDIENCE, hostAudience, type DirectoryHost } from '@solus/contracts/uplink'
+import { ACCOUNT_AUDIENCE, hostAudience, type DirectoryHost, type DirectoryResponse } from '@solus/contracts/uplink'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
 import { AccountSession } from '../../apps/mobile/src/features/account/account-session'
 import {
@@ -32,11 +32,14 @@ const ORGANIZATION = { organizationId: 'org-1', name: 'Acme', role: 'member', ma
 interface CloudScript {
   hosts: DirectoryHost[]
   accountStatus?: number
+  directoryStatus?: number
   directoryGate?: Promise<void>
+  /** The directory the code grant returns; absent, as from a server before it. */
+  startupDirectory?: DirectoryResponse
 }
 
 function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretStore & { values: Map<string, string> }; storage: ReturnType<typeof memoryKeyValueStore>; plane: ReturnType<typeof fakeAccountPlane> }) {
-  const plane = shared?.plane ?? fakeAccountPlane({ clientId: SOLUS_CLIENT_IDS.mobile, identity: { sub: 'user-1', email: 'ada@example.test', email_verified: true, name: 'Ada', picture: 'https://example.test/ada.png' } })
+  const plane = shared?.plane ?? fakeAccountPlane({ clientId: SOLUS_CLIENT_IDS.mobile, identity: { sub: 'user-1', email: 'ada@example.test', email_verified: true, name: 'Ada', picture: 'https://example.test/ada.png' }, startupAccount: { userId: 'user-1', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [ORGANIZATION] }, startupDirectory: script.startupDirectory })
   const apiCalls: Array<{ path: string; authorization: string | null }> = []
   const json = (status: number, body: object) => new Response(JSON.stringify(body), { status })
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -49,6 +52,7 @@ function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretSt
         return json(200, { userId: 'user-1', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [ORGANIZATION] })
       case '/v1/hosts':
         await script.directoryGate
+        if (script.directoryStatus) return json(script.directoryStatus, { error: 'unavailable' })
         return json(200, {
           hosts: script.hosts,
           workspaces: [{ organizationId: 'org-1', label: 'Acme', routes: [], isActive: false, policy: ORGANIZATION.policy }],
@@ -133,6 +137,53 @@ describe('mobile keychain token store', () => {
 })
 
 describe('native Solus account', () => {
+  test('uses login account and settings data before making later refresh reads', async () => {
+    const w = await signedIn({ hosts: [host('inst-1', ['org-1'])] })
+    expect(w.apiCalls.map(call => call.path)).toEqual(['/v1/hosts'])
+    expect(await w.session.settingsRequests().accountSettingsGet()).toMatchObject({ kind: 'ok', settings: { generation: 0 } })
+    expect(w.apiCalls.map(call => call.path)).toEqual(['/v1/hosts'])
+    await w.session.refreshDirectory()
+    expect(w.apiCalls.filter(call => call.path === '/v1/account')).toHaveLength(1)
+  })
+  test('the first directory after sign-in comes from the login response; a refresh asks the website', async () => {
+    const w = await signedIn({
+      hosts: [host('inst-1', ['org-1'])],
+      startupDirectory: { hosts: [host('inst-1', ['org-1'])], workspaces: [{ organizationId: 'org-1', label: 'Acme at login', routes: [], isActive: false, policy: ORGANIZATION.policy }] },
+    })
+    expect(w.apiCalls).toEqual([])
+    expect(w.session.directory).toMatchObject({ kind: 'loaded', workspaces: [{ label: 'Acme at login' }] })
+    await w.session.refreshDirectory()
+    expect(w.apiCalls.filter(call => call.path === '/v1/hosts')).toHaveLength(1)
+    expect(w.session.directory).toMatchObject({ kind: 'loaded', workspaces: [{ label: 'Acme' }] })
+  })
+
+  test('a signed-in cold start keeps the saved organization visible while its directory is unavailable', async () => {
+    const first = await signedIn()
+    first.session.selectOrganization('org-1')
+    const restarted = world({ hosts: [], directoryStatus: 500 }, first)
+    await restarted.session.load()
+
+    // A paired host can answer before cloud does: its organization sessions must remain visible.
+    expect(restarted.session.organizationId).toBe('org-1')
+    await restarted.session.refreshDirectory()
+    expect(restarted.session.directory.kind).toBe('error')
+    expect(restarted.session.organizationId).toBe('org-1')
+
+    await restarted.session.signOut()
+    expect(restarted.session.organizationId).toBeNull()
+  })
+
+  test('the directory reconciles a restored organization that is no longer available', async () => {
+    const first = await signedIn()
+    first.session.selectOrganization('org-removed')
+    const restarted = world({ hosts: [] }, first)
+    await restarted.session.load()
+    expect(restarted.session.organizationId).toBe('org-removed')
+
+    await restarted.session.refreshDirectory()
+    expect(restarted.session.organizationId).toBe('org-1')
+  })
+
   test('sign-in uses the code flow with PKCE as solus-mobile and keeps the grant in the keychain', async () => {
     const { session, browser, secrets, registry, apiCalls, plane } = await signedIn({ hosts: [host('inst-1', ['org-1'])] })
     const query = browser.opened[0]!.searchParams
@@ -151,7 +202,10 @@ describe('native Solus account', () => {
     expect(session.organizationId).toBe('org-1')
     // Every account call carries an access token for the account plane, never the refresh token.
     expect(apiCalls.length).toBeGreaterThan(0)
-    expect(apiCalls.every((call) => call.authorization?.startsWith('Bearer at-') && call.authorization.includes(ACCOUNT_AUDIENCE))).toBe(true)
+    const authorization = apiCalls[0]!.authorization!
+    const claims = JSON.parse(Buffer.from(authorization.slice('Bearer '.length).split('.')[1]!, 'base64url').toString())
+    expect(claims.aud).toContain(ACCOUNT_AUDIENCE)
+    expect(apiCalls.every((call) => call.authorization === authorization && call.authorization !== `Bearer ${stored.refreshToken}`)).toBe(true)
   })
 
   test('a denied sign-in says so; a closed page says nothing', async () => {

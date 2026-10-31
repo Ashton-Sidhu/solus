@@ -6,6 +6,7 @@ import { localApi } from "@solus/client-core/local-api";
 import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../../lib/inputFocus";
 import { quotedReplyDraft } from "@solus/client-core/quoted-reply";
 import { checkoutPlace } from "../../../contexts/workspace/run-location";
+import { onReferenceSessionsRequest } from "../../../lib/session-drag";
 
 interface ComposerFocusOptions {
   active: () => boolean;
@@ -110,6 +111,16 @@ export function useComposerFocus(options: ComposerFocusOptions) {
     return localApi.onQuoteSelection((text, sourceTabId) => {
       if (sourceTabId !== options.tabId() || options.isReadOnly()) return;
       insertQuote(text);
+    });
+  });
+
+  // "Reference in Prompt" from a session's menu: the focused pane's composer
+  // takes the chips, as it would take them from a drop.
+  $effect(() => {
+    if (!options.active()) return;
+    return onReferenceSessionsRequest((references) => {
+      if (!options.receivesFocusedInput() || options.isReadOnly()) return false;
+      return options.editor()?.insertSessionReferences(references) ?? false;
     });
   });
 

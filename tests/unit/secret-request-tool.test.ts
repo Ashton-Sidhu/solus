@@ -66,31 +66,63 @@ describe('request_secret as a session tool', () => {
 
   test('the result names the outcome: saved with its ref, or declined, or cancelled', async () => {
     const events: NormalizedEvent[] = []
-    const declined = toolbox.sessions.requestSecret.execute({ name: 'x', reason: 'y' }, context('session-a', events))
+    const declined = toolbox.sessions.requestSecret.execute({ secrets: [{ name: 'x', reason: 'y' }] }, context('session-a', events))
     await Promise.resolve()
     const card = events[0]
-    secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', null)
-    expect(JSON.parse((await declined).text)).toEqual({ status: 'declined' })
+    secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', [null])
+    expect(JSON.parse((await declined).text)).toEqual({ secrets: [{ name: 'x', status: 'declined' }] })
     const abort = new AbortController()
-    const cancelled = toolbox.sessions.requestSecret.execute({ name: 'x', reason: 'y' }, { ...context('session-a', []), abortSignal: abort.signal })
+    const cancelled = toolbox.sessions.requestSecret.execute({ secrets: [{ name: 'x', reason: 'y' }] }, { ...context('session-a', []), abortSignal: abort.signal })
     abort.abort()
     expect(JSON.parse((await cancelled).text)).toEqual({ status: 'cancelled' })
   })
 
   test('a secretRef works once, and only in the session that asked', async () => {
     const events: NormalizedEvent[] = []
-    const asking = toolbox.sessions.requestSecret.execute({ name: 'Stripe key', reason: 'To call the API.' }, context('session-a', events))
+    const asking = toolbox.sessions.requestSecret.execute({ secrets: [{ name: 'Stripe key', reason: 'To call the API.' }] }, context('session-a', events))
     await Promise.resolve()
     const card = events.find((event) => event.type === 'question_request')
     const questionId = card?.type === 'question_request' ? card.questionId : ''
-    expect(secretRequests.answerSecretRequest('session-a', questionId, 'sk_live_x')).toBe(true)
+    expect(secretRequests.answerSecretRequest('session-a', questionId, ['sk_live_x'])).toBe(true)
     const answer = await asking
     expect(answer.text).not.toContain('sk_live_x')
-    const outcome = JSON.parse(answer.text) as { status: string; secretRef: string }
+    const [outcome] = (JSON.parse(answer.text) as { secrets: { status: string; secretRef: string }[] }).secrets
     expect(outcome.status).toBe('saved')
     const ref = outcome.secretRef
     expect(secretRequests.takeSecretRef(ref, 'session-b')).toBeNull()
     expect(secretRequests.takeSecretRef(ref, 'session-a')).toBe('sk_live_x')
     expect(secretRequests.takeSecretRef(ref, 'session-a')).toBeNull()
+  })
+
+  test('one card asks for many secrets; a declined one gives no ref and the others still save', async () => {
+    // WHY: a task often needs several credentials. The person may hold some and not
+    // others, so declining one secret must not throw away the ones they typed.
+    const events: NormalizedEvent[] = []
+    const asking = toolbox.sessions.requestSecret.execute({ secrets: [
+      { name: 'Stripe key', reason: 'To call the API.' },
+      { name: 'Slack token', reason: 'To post updates.' },
+      { name: 'Sentry DSN', reason: 'To report errors.' },
+    ] }, context('session-a', events))
+    await Promise.resolve()
+    const cards = events.filter((event) => event.type === 'question_request')
+    expect(cards).toHaveLength(1)
+    const card = cards[0]
+    if (card.type !== 'question_request') throw new Error('no card')
+    expect(card.questions.map((question) => question.header)).toEqual(['Stripe key', 'Slack token', 'Sentry DSN'])
+    // An answer that does not fit the card is refused, and the card stays open.
+    expect(secretRequests.answerSecretRequest('session-a', card.questionId, ['sk_live_x', null])).toBe(false)
+    expect(secretRequests.answerSecretRequest('session-a', card.questionId, ['sk_live_x', '', null])).toBe(false)
+    expect(secretRequests.answerSecretRequest('session-a', card.questionId, ['sk_live_x', null, 'https://dsn'])).toBe(true)
+    const answer = await asking
+    expect(answer.text).not.toContain('sk_live_x')
+    const { secrets } = JSON.parse(answer.text) as { secrets: { name: string; status: string; secretRef?: string }[] }
+    expect(secrets.map(({ name, status }) => ({ name, status }))).toEqual([
+      { name: 'Stripe key', status: 'saved' },
+      { name: 'Slack token', status: 'declined' },
+      { name: 'Sentry DSN', status: 'saved' },
+    ])
+    expect(secrets[1].secretRef).toBeUndefined()
+    expect(secretRequests.takeSecretRef(secrets[0].secretRef!, 'session-a')).toBe('sk_live_x')
+    expect(secretRequests.takeSecretRef(secrets[2].secretRef!, 'session-a')).toBe('https://dsn')
   })
 })

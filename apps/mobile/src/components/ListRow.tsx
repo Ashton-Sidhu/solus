@@ -28,6 +28,7 @@ export function ListRow(
     >
       <ListRowLayout
         icon={props.icon}
+        leading={props.leading}
         label={props.label}
         description={props.description}
         detail={props.detail}

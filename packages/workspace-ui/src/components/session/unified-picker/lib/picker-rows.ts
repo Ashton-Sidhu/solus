@@ -151,6 +151,8 @@ export function conversationTitle(meta: SessionMeta): string {
 
 /** The folder a conversation ran in: its repo root, else its directory. */
 export function conversationProjectLabel(meta: SessionMeta): string {
+  // A chat's folder is named for its session id, which is no place to show.
+  if (meta.place === 'chat') return CHAT_LABEL
   return hostPathBaseName(meta.projectRoot || meta.cwd || '') || '~'
 }
 

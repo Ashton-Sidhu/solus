@@ -1,6 +1,8 @@
+import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionOrigin, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
@@ -97,7 +99,7 @@ export class ConversationController {
   run: ConversationRun
   loadingOlder = false
   /** The agent session on another host that started this one, from the host's description. */
-  startedBy: SessionOrigin | null = null
+  startedBy: SessionStarterFromHost | null = null
   /** Uploaded to the host, waiting for the next prompt. */
   attachments: readonly UploadedAttachment[] = []
   uploading = 0
@@ -108,14 +110,15 @@ export class ConversationController {
   threadProvider: AgentId | null
   /** `/login`, `/design-login`, and `/mcp login|logout`, run here instead of by the agent. */
   readonly auth: AgentAuthFlow
-  /** An integration tool of this session's turn needs the person's connection (`integration.connectNeeded`). */
-  connectNeeded: IntegrationConnectNeeded | null = null
+  /** The integrations this session's turn needs the person's connection to (`integration.connectNeeded`), in the order asked. */
+  connectNeeded: readonly IntegrationConnectNeeded[] = []
   readonly connectNeededChanges = new Listeners()
   /** What guests suggested to this session, for whoever may prompt it to send or dismiss. */
   readonly suggestions: SessionSuggestionsFeed
   /** The host's agents, whether each is installed, and what each can do.
    *  Null until the host answers: unknown, not unavailable. */
   agents: readonly AgentMetadata[] | null = null
+  private modelPicked = false
   /** The host reported no TypeSafe key for this person, so Auto cannot route a first prompt. */
   autoNeedsKey = false
   /** Settles when the host has answered what its agents offer; history does not wait on it. */
@@ -200,10 +203,14 @@ export class ConversationController {
     this.cleanups.push(connection.events.subscribe('session.eventReceived', (payload) => {
       if (payload.sessionId === this.run.sessionId) this.receive(payload.event)
     }))
-    // One at a time: a newer request replaces the one on screen, as on desktop and web.
+    // One sheet lists every integration the turn asked for, as the group card
+    // does on desktop and web; a repeated ask keeps its one row.
     this.cleanups.push(connection.events.subscribe('integration.connectNeeded', (payload) => {
       if (payload.sessionId !== this.run.sessionId) return
-      this.connectNeeded = payload
+      const asked = this.connectNeeded.some((open) => open.integrationId === payload.integrationId)
+      this.connectNeeded = asked
+        ? this.connectNeeded.map((open) => (open.integrationId === payload.integrationId ? payload : open))
+        : [...this.connectNeeded, payload]
       this.connectNeededChanges.notify()
     }))
     this.cleanups.push(connection.events.subscribe('session.errorReceived', (payload) => {
@@ -225,6 +232,15 @@ export class ConversationController {
       this.flush(true)
     }))
     // The event carries no person's key, so the person's own status is read again.
+    this.cleanups.push(connection.facts.subscribe((key) => {
+      if (key !== 'machine' || this.run.agentSessionId) return
+      const info = connection.facts.value('machine')
+      if (!info) return
+      this.agents = info.agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
+      if (!this.modelPicked) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents.find((agent) => agent.id === this.run.provider)))
+      this.settleRun()
+      this.flush(true)
+    }))
     this.cleanups.push(connection.events.subscribe('config.changed', () => {
       void this.loadKeyStatus()
     }))
@@ -233,7 +249,7 @@ export class ConversationController {
   }
 
   dismissConnectNeeded(): void {
-    this.connectNeeded = null
+    this.connectNeeded = []
     this.connectNeededChanges.notify()
   }
 
@@ -317,8 +333,8 @@ export class ConversationController {
     if (this.settings) return
     this.settings = await this.deps.runSettings()
     this.run.permissionMode = this.settings.defaultPermissionMode
-    if (!this.target.record) Object.assign(this.run, newSessionModel(this.run.provider, this.settings))
-    else if (!this.run.preferredModel) Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider)))
+    if (!this.target.record) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents?.find((agent) => agent.id === this.run.provider)))
+    else if (!this.run.preferredModel) Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider), this.agents?.find((agent) => agent.id === this.run.provider), false))
     else this.run.fastMode = rememberedFastMode(this.run.provider, this.run.preferredModel, this.settings)
     this.settleRun()
   }
@@ -331,7 +347,10 @@ export class ConversationController {
       this.canRoute ? this.deps.connection.api.typeSafeKeyStatus().catch(() => null) : null,
     ])
     if (generation !== this.loadGeneration || this.closed) return
-    if (agents) this.agents = agents
+    if (agents) {
+      this.agents = agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
+      if (!this.target.record && !this.modelPicked && !this.run.agentSessionId) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents.find((agent) => agent.id === this.run.provider)))
+    }
     // An older host does not report the key; unknown is not missing, as on desktop.
     if (typeSafe) this.autoNeedsKey = typeSafe.source === null
     this.settleRun()
@@ -355,9 +374,9 @@ export class ConversationController {
     const defaultMode = this.settings?.defaultPermissionMode ?? 'supervised'
     this.run.permissionMode = supportedPermissionMode(this.run.permissionMode, this.capabilitiesOf(this.run.provider), defaultMode)
     if (this.run.preferredModel === AUTO_MODEL_ID && this.canRoute && this.autoNeedsKey) {
-      Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider)))
+      Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider), this.agents?.find((agent) => agent.id === this.run.provider), false))
     }
-    if (!supportsFastMode(this.run.provider, this.run.preferredModel)) this.run.fastMode = false
+    if (!supportsFastMode(this.run.provider, this.run.preferredModel, this.agents?.find((agent) => agent.id === this.run.provider))) this.run.fastMode = false
   }
 
   /** The person's defaults with Auto left out for one agent. */
@@ -374,7 +393,7 @@ export class ConversationController {
     const api = this.deps.connection.api
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
-    this.startedBy = description?.meta?.startedBy ?? null
+    this.startedBy = hostStarterOf(description?.meta?.startedBy)
     const lineage = description?.lineage
     if (lineage) {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
@@ -550,7 +569,8 @@ export class ConversationController {
    * The run settings for the next prompt. The current turn keeps its options.
    */
   updateRun(change: { model?: string; reasoningEffort?: ReasoningEffort; permissionMode?: PermissionMode; fastMode?: boolean }): boolean {
-    if (change.model !== undefined) Object.assign(this.run, selectModel(this.run.provider, change.model, this.settings))
+    if (change.model !== undefined) this.modelPicked = true
+    if (change.model !== undefined) Object.assign(this.run, selectModel(this.run.provider, change.model, this.settings, this.agents?.find((agent) => agent.id === this.run.provider)))
     if (change.reasoningEffort !== undefined) this.run.reasoningEffort = change.reasoningEffort
     if (change.permissionMode !== undefined) this.run.permissionMode = change.permissionMode
     if (change.fastMode !== undefined) this.run.fastMode = change.fastMode
@@ -591,7 +611,7 @@ export class ConversationController {
   pickProvider(provider: Exclude<AgentId, 'opencode'>): void {
     if (provider === this.run.provider) return
     this.run.provider = provider
-    Object.assign(this.run, newSessionModel(provider, this.defaultsWithoutAuto(provider)))
+    Object.assign(this.run, newSessionModel(provider, this.defaultsWithoutAuto(provider), this.agents?.find((agent) => agent.id === provider), false))
     this.settleRun()
     this.flush(true)
   }
@@ -604,7 +624,7 @@ export class ConversationController {
     this.threadProvider = provider
     if (!follows || this.run.provider === provider) return
     this.run.provider = provider
-    Object.assign(this.run, model ? selectModel(provider, model, this.settings) : newSessionModel(provider, this.defaultsWithoutAuto(provider)))
+    Object.assign(this.run, model ? selectModel(provider, model, this.settings, this.agents?.find((agent) => agent.id === provider)) : newSessionModel(provider, this.defaultsWithoutAuto(provider), this.agents?.find((agent) => agent.id === provider), false))
     this.settleRun()
   }
 
@@ -655,6 +675,13 @@ export class ConversationController {
   async answerQuestion(questionId: string, answers: Record<string, string>): Promise<boolean> {
     const accepted = await this.callWithContext((ctx) =>
       this.answerOrExpire(questionId, this.deps.connection.api.respondQuestion(ctx, this.run.sessionId, questionId, answers)))
+    return this.afterAnswer(accepted)
+  }
+
+  /** Answers a `request_secret` card: one value per secret, null for each declined one. The values go only to the host. */
+  async answerSecretRequest(questionId: string, values: (string | null)[]): Promise<boolean> {
+    const accepted = await this.callWithContext(() =>
+      this.answerOrExpire(questionId, this.deps.connection.api.secretRequestAnswer(this.run.sessionId, questionId, values)))
     return this.afterAnswer(accepted)
   }
 
@@ -821,7 +848,7 @@ export class ConversationController {
 
   private applyWatch(watched: WatchSessionResult): void {
     for (const question of watched.pendingQuestions ?? []) {
-      this.model.apply({ type: 'question_request', questionId: question.questionId, questions: question.questions, responseMode: question.responseMode })
+      this.model.apply({ type: 'question_request', questionId: question.questionId, questions: question.questions, responseMode: question.responseMode, kind: question.kind })
     }
     const runtime = watched.runtime
     if (runtime) {

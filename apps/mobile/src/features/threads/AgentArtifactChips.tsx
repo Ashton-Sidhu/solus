@@ -1,3 +1,4 @@
+import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import type { SessionArtifact, SessionArtifacts } from "@solus/contracts/session-artifacts";
 import {
   cardChips,
@@ -79,6 +80,7 @@ function Chip(props: {
   readonly tone: ArtifactChipTone;
   readonly label: string;
   readonly note: string | null;
+  readonly filePath?: string;
   readonly pullRequestState: PullRequestChipState | null;
   readonly onPress: () => void;
 }) {
@@ -92,11 +94,15 @@ function Chip(props: {
       }}
       className={cn("h-7 max-w-full flex-row items-center gap-1 rounded-full pl-2 pr-2.5 active:opacity-70", CHIP_CLASS[props.tone])}
     >
+      {props.tone === "file" || props.filePath !== undefined ? (
+        <PierreEntryIcon path={props.filePath ?? ""} size={11} />
+      ) : (
       <SymbolView
         name={iconFor(props.tone, props.pullRequestState)}
         size={11}
         tintColorClassName={props.pullRequestState ? PR_STATE_TINT[props.pullRequestState] : ICON_TINT[props.tone]}
       />
+      )}
       <Text numberOfLines={1} className={cn("min-w-0 shrink text-xs font-t3-medium", TEXT_CLASS[props.tone])}>
         {props.label}
       </Text>
@@ -124,6 +130,7 @@ function AgentArtifactChips(props: { readonly hostId: string; readonly sessionId
           tone={chip.tone}
           label={chip.label}
           note={chip.note}
+          filePath={chip.artifact.kind === "file" || chip.artifact.kind === "image" ? chip.artifact.path : undefined}
           pullRequestState={chip.pullRequestState}
           onPress={() => (opens(chip.artifact) ? open(chip.artifact) : openAll())}
         />

@@ -1,13 +1,13 @@
+import { readOwnSessionArtifacts } from './session-artifacts'
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
 import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { SearchQuery } from '@solus/contracts/search-query'
 import { runnerPrincipalFor, type RecordScope } from '../../admission/principal'
 import { sql, type SQL } from 'drizzle-orm'
-import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, type SessionRecord } from '@solus/contracts/types'
-import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
+import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, worktreeProjectRoot, type SessionRecord } from '@solus/contracts/types'
 import { workspaceSessionAdmissionRequestSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
-import type { WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
+import type { WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceSessionLinkList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
 import { getDatabase } from '../../db/database'
 import { searchIndexFor } from '../../db/search-index'
 import { sessionMessagesRebuilding } from '../../db/session-indexer'
@@ -19,7 +19,7 @@ import { scopeClause } from '../scope'
 import { apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
 import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
-import { getSessionRecord, readSessionMetadataPage, sessionListedClause, sessionRecordsIndexing, upsertSessionRecord, type SessionPageReader } from './session-records'
+import { getSessionRecord, readSessionListPage, readSessionMetadataPage, sessionRecordsIndexing, upsertSessionRecord, type SessionPageReader } from './session-records'
 import { readApiTranscript } from './api-transcript'
 import { admitSessionRecord, SessionAdmissionConflict, type SessionAdmission } from './session-admissions'
 import { resolveSessionLineageById } from './session-lineage'
@@ -27,6 +27,7 @@ import { readSessionPullRequests } from './session-pull-requests'
 import { SessionShelf, SessionViewer } from './session-states'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
+import { authorize } from '../../admission/access-policy'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 
 /**
@@ -85,6 +86,7 @@ export class SessionApiOperations {
         parentSessionId: session.parentSessionId, rootSessionId: session.rootSessionId,
         publication: session.publication, size: session.size,
         cwd: session.cwd, slug: withinNameLimit(session.slug), isWorktree: session.isWorktree, branch: session.branch, projectRoot: session.projectRoot, delegation: session.delegation,
+        place: session.place, startedBy: session.startedBy,
         state: session.state ?? null,
         view: session.view ?? null,
         listed: session.listed ?? true,
@@ -131,30 +133,48 @@ export class SessionApiOperations {
   }
 
   /**
-   * Settle a session for every person (editor), or archive and snooze it in
-   * the caller's own list (viewer). The access check runs before any write, so
+   * Settle, archive, and snooze a session in the caller's own list (viewer).
+   * An editor's unsettle also ends a settle by the session's pull requests or
+   * task, which every person sees. The access check runs before any write, so
    * a refused change writes nothing. The answer is what the change left: the
-   * state when it settled or unsettled, the caller's view when it changed that.
+   * caller's view, and the shared state when the change ended its settle.
    */
   async update(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSessionChanged> {
     input = workspaceUpdateSessionSchema.parse(input)
     requireScope(context, 'sessions:write')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, input.settled === undefined ? 'read' : 'edit')
+    const resource = { kind: 'session', id: sessionId } as const
+    await requireResource(this.shares, context, resource, 'read')
     const changed: WorkspaceSessionChanged = {}
-    const shelf = new SessionShelf(sessionId)
-    if (input.settled === true) changed.state = await shelf.settle('person') ?? await shelf.state()
-    if (input.settled === false) {
-      await shelf.unsettle()
+    if (input.settled === false && !await authorize(context.principal, 'edit', resource, { name: 'session.edit', resources: this.shares })) {
+      await new SessionShelf(sessionId).unsettle()
       changed.state = UNSETTLED_SESSION_STATE
     }
-    if (input.archived !== undefined || input.snoozedUntil !== undefined) {
+    if (input.settled !== undefined || input.archived !== undefined || input.snoozedUntil !== undefined) {
       const viewer = new SessionViewer(sessionId, this.personKey(context))
+      if (input.settled === true) await viewer.settle()
+      if (input.settled === false) await viewer.unsettle()
       if (input.archived === true) await viewer.archive()
       if (input.archived === false) await viewer.unarchive()
       if (input.snoozedUntil !== undefined) await viewer.snooze(input.snoozedUntil, input.snoozeNote)
       changed.view = await viewer.view()
     }
     return changed
+  }
+
+  async links(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionLinkList> {
+    requireScope(context, 'sessions:read')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'read')
+    const items = await readOwnSessionArtifacts(apiScope(context), sessionId)
+    return { items: items.map((item): WorkspaceSessionLinkList['items'][number] => {
+      if (item.kind === 'pull-request') {
+        const { link } = item
+        const state = link.missing ? 'missing' : link.snapshot ? (link.snapshot.draft && link.snapshot.state === 'open' ? 'draft' : link.snapshot.state) : 'not yet synced'
+        return { target: { kind: 'pr', url: link.url }, title: link.snapshot?.title || link.title || '', state, source: link.source }
+      }
+      if (item.kind === 'work') return { target: { kind: 'work', id: item.workId }, title: item.title }
+      if (item.kind === 'automation') return { target: { kind: 'automation', id: item.automationId, hostId: item.hostId }, title: item.title }
+      return { target: { kind: 'file', path: item.path, hostId: item.hostId }, title: item.title }
+    }) }
   }
 
   async pullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList> {
@@ -201,7 +221,7 @@ export class SessionApiOperations {
     const { organizationId, admissionId: sessionId, hostId, ownerKey } = admission
     if (await getSessionRecord(organizationId, sessionId)) return
     await upsertSessionRecord(organizationId, {
-      sessionId, provider: record.provider, projectPath: record.projectPath, cwd: record.cwd, lastActivityAt: admission.createdAt, runnerHostId: hostId, status: 'running',
+      sessionId, provider: record.provider, projectPath: record.projectPath, cwd: record.cwd, projectRoot: record.cwd ? worktreeProjectRoot(record.cwd) : null, lastActivityAt: admission.createdAt, runnerHostId: hostId, status: 'running',
     }, { organizationId, published: true, ownerKey })
     // A new session is the organization's to open; a chat is its owner's alone until they share it (plan 004 D14).
     if (!record.privateToOwner) await this.shares.shareRunnerWrite({ kind: 'session', id: sessionId }, runnerPrincipalFor({ hostId, organizationId, ownerUserId: ownerKey, expiresAt: Date.now() }), ownerKey)
@@ -229,15 +249,17 @@ export class SessionApiOperations {
         ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`
         : sql`project_path = ${encoded}`)
     }
-    // A chat's folder is `solus-chats/<id>`, which the provider spells `-solus-chats-<id>`.
-    if (query.chats === 'true') filters.push(sql`project_path LIKE ${`%${encodePathAsFolder(`/${CHAT_ROOT_NAME}/`)}%`}`)
+    if (query.chats === 'true') filters.push(sql`session_records.place = 'chat'`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
     // Top-level sessions, or the ones one session started; the caller's session list
     // unless they ask for every session they may read (docs/plans/session-archive.md).
     const reader = this.reader(context)
     filters.push(query.parentSessionId ? sql`session_records.parent_session_id = ${query.parentSessionId}` : sql`session_records.parent_session_id IS NULL`)
-    if (query.scope === 'list' && !query.parentSessionId) filters.push(sessionListedClause(reader))
-    const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1, time, reader)), query.limit,
+    const where = sql.join(filters, sql` AND `)
+    const records = query.scope === 'list' && !query.parentSessionId
+      ? await readSessionListPage(where, query.limit + 1, time, reader)
+      : await readSessionMetadataPage(where, query.limit + 1, time, reader)
+    const page = pageOf(await this.records(context, records), query.limit,
       item => ({ time: Date.parse(byActivity ? item.updatedAt : item.createdAt), id: item.id }))
     return { ...page, indexing: sessionRecordsIndexing() }
   }
@@ -284,6 +306,7 @@ export class SessionApiOperations {
       sessionIds: new Set(readable.map(row => row.session_id)),
       viewedAt: new Map(readable.flatMap(row => row.viewed_at === null ? [] : [[row.session_id, Number(row.viewed_at)] as const])),
       projectRoot: query.projectRoot,
+      chats: query.chats === 'true',
       providers: query.provider ? [query.provider] : undefined,
       namesOnly: query.namesOnly === 'true',
       activeSince: query.activeSince,
@@ -307,6 +330,7 @@ export class SessionApiOperations {
     const records = [...this.visible(context)]
     if (query.projectRoot) records.push(sql`session_records.project_root = ${query.projectRoot}`)
     if (query.repositoryKey) records.push(sql`session_records.project_remote = ${query.repositoryKey}`)
+    if (query.chats === 'true') records.push(sql`session_records.place = 'chat'`)
     if (query.provider) records.push(sql`session_records.provider = ${query.provider}`)
     if (query.activeSince !== undefined) records.push(sql`session_records.last_activity_at >= ${query.activeSince}`)
     const db = getDatabase()

@@ -1,13 +1,15 @@
 import { serverConnections } from '@solus/client-core/server-connections'
-import { DOCUMENT_SCHEMA_VERSION } from '@solus/document-model/schema'
 import { DIAGRAM_LIVE_SCHEMA_VERSION } from '@solus/contracts/work-live'
 import type { WorkType } from '@solus/contracts/types'
-import { WorkLiveDoc, type LiveHost } from './work-live-doc.svelte'
-import { indexedDbOffline, liveDatabaseName, recordUnsentLiveWork } from './work-live-offline'
+import type { LiveHost, WorkLiveDoc } from './work-live-doc.svelte'
 
-/** The pane's hold on a live doc. Release it when the pane unmounts. */
+/**
+ * The pane's hold on a live doc. Release it when the pane unmounts. The doc
+ * arrives once its code loads: Yjs, and Tiptap for a document, load with the
+ * first open work, not with the workspace.
+ */
 export interface WorkLiveLease {
-  readonly live: WorkLiveDoc
+  readonly live: Promise<WorkLiveDoc>
   release(): void
 }
 
@@ -35,7 +37,7 @@ function liveHost(serverId: string): LiveHost {
  * work edit one doc (docs/plans/work-review-and-live-editing.md, phase 3b).
  */
 export class WorkLiveStore {
-  private readonly held = new Map<string, { live: WorkLiveDoc; refs: number }>()
+  private readonly held = new Map<string, { live: Promise<WorkLiveDoc>; refs: number }>()
 
   constructor(private readonly options: { title: (workId: string) => string }) {}
 
@@ -44,18 +46,11 @@ export class WorkLiveStore {
     const key = `${serverId}\u0000${workId}`
     let entry = this.held.get(key)
     if (!entry) {
-      const database = liveDatabaseName(serverId, workId)
-      const live = new WorkLiveDoc({
-        workId,
-        schemaVersion: type === 'doc' ? DOCUMENT_SCHEMA_VERSION : DIAGRAM_LIVE_SCHEMA_VERSION,
-        host: liveHost(serverId),
-        offline: indexedDbOffline(database) ?? undefined,
-        onLocalEdit,
-        onUnsentChange: (unsent) => recordUnsentLiveWork({ database, serverId, workId, title: this.options.title(workId), unsent }),
-      })
+      const live = this.open(serverId, workId, type, onLocalEdit)
       entry = { live, refs: 0 }
       this.held.set(key, entry)
-      void live.start()
+      // A failed load is not kept: the next open tries again.
+      live.catch(() => { if (this.held.get(key) === entry) this.held.delete(key) })
     }
     entry.refs += 1
     const held = entry
@@ -68,8 +63,27 @@ export class WorkLiveStore {
         held.refs -= 1
         if (held.refs > 0) return
         this.held.delete(key)
-        void held.live.destroy()
+        void held.live.then((live) => live.destroy(), () => {})
       },
     }
+  }
+
+  private async open(serverId: string, workId: string, type: 'doc' | 'diagram', onLocalEdit?: () => void): Promise<WorkLiveDoc> {
+    const [{ WorkLiveDoc }, { indexedDbOffline, liveDatabaseName, recordUnsentLiveWork }, schemaVersion] = await Promise.all([
+      import('./work-live-doc.svelte'),
+      import('./work-live-offline'),
+      type === 'doc' ? import('@solus/document-model/schema').then((schema) => schema.DOCUMENT_SCHEMA_VERSION) : DIAGRAM_LIVE_SCHEMA_VERSION,
+    ])
+    const database = liveDatabaseName(serverId, workId)
+    const live = new WorkLiveDoc({
+      workId,
+      schemaVersion,
+      host: liveHost(serverId),
+      offline: (await indexedDbOffline(database)) ?? undefined,
+      onLocalEdit,
+      onUnsentChange: (unsent) => recordUnsentLiveWork({ database, serverId, workId, title: this.options.title(workId), unsent }),
+    })
+    void live.start()
+    return live
   }
 }

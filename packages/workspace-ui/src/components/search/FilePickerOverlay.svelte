@@ -1,14 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { Search as MagnifyingGlassIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
-  import Icon from "@iconify/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import type { FileMatch } from "@solus/contracts/types";
   import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
   import { useScope, useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
-  import { ensureIconCollections } from "../diagram/iconify";
   import PickerSkeletonRows from "../pickers/PickerSkeletonRows.svelte";
   import { fuzzyIndices, highlightSegments, splitFilePath } from "./lib/file-picker";
   import { hostPathBaseName } from "@solus/contracts/host-path";
@@ -24,8 +22,6 @@
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
-
-  ensureIconCollections();
 
   const DEBOUNCE_MS = 90;
 
@@ -140,7 +136,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto picker-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto modal-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   class:hidden={!open}
   aria-hidden={!open}
   inert={!open}
@@ -196,7 +192,6 @@
       >
         {#each files as file, index (file.path)}
           {@const parts = splitFilePath(file.display)}
-          {@const icon = fileTypeIcon(file.path)}
           {@const selected = index === selectedIndex}
           <button
             type="button"
@@ -212,9 +207,7 @@
             onpointermove={() => (selectedIndex = index)}
             onclick={() => openFile(file)}
           >
-            {#if icon}
-              <Icon {icon} width="14" height="14" class="shrink-0" />
-            {/if}
+            <FileIcon path={file.path} size={14} />
             <span class="shrink-0 text-[length:calc(.8125rem*var(--solus-font-scale,1))]">
               {@render highlighted(
                 parts.name,

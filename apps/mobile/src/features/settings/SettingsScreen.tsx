@@ -64,7 +64,52 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
         contentContainerClassName="gap-4 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
+        <SettingsSection title="App">
+          <SettingsRow
+            icon="paintbrush"
+            label="Appearance"
+            value={APPEARANCE_LABELS[appearance]}
+            onPress={() => navigation.navigate("AppearanceSettings")}
+          />
+          <SettingsRow icon="text.bubble" label="Chat" accessibilityHint="Responses, tool calls, and the input bar" onPress={() => navigation.navigate("ChatSettings")} />
+          <SettingsRow
+            icon="bell.badge"
+            label="Notifications"
+            accessibilityHint="What you are told about, and how"
+            onPress={() => navigation.navigate("NotificationSettings")}
+          />
+          <SettingsRow
+            icon={{ ios: "tray", android: "chat_bubble" }}
+            label="Inbox"
+            accessibilityHint="Opens your notifications"
+            onPress={() => navigation.navigate("Notifications")}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Agents">
+          <SettingsRow icon="sparkles" label="Providers" accessibilityHint="Default model and options for each provider" onPress={() => navigation.navigate("Providers")} />
+          <SettingsRow
+            icon={{ ios: "sparkles", android: "auto_awesome" }}
+            label="Sessions"
+            accessibilityHint="Default provider, permissions, and limits"
+            onPress={() => navigation.navigate("AgentDefaults")}
+          />
+          <SettingsRow
+            icon="doc.text"
+            label="Agent profile"
+            accessibilityHint="Your instructions, skills, and MCP servers on every host"
+            onPress={() => navigation.navigate("AgentProfile")}
+          />
+        </SettingsSection>
+
         <SettingsSection title="Connections">
+          <SettingsRow
+            icon="arrow.clockwise"
+            label="Account & sync"
+            value={SYNC_STATE_LABELS[sync.state]}
+            accessibilityHint="Your account, your synced settings and agent profile, and your hosts"
+            onPress={() => navigation.navigate("AccountSync")}
+          />
           <SettingsRow
             icon="person.crop.circle"
             label="Solus Cloud"
@@ -80,46 +125,6 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
             value={`${hosts.length}`}
             valuePosition="trailing"
             onPress={() => navigation.navigate("Hosts")}
-          />
-          <SettingsRow
-            icon={{ ios: "tray", android: "chat_bubble" }}
-            label="Inbox"
-            accessibilityHint="Opens your notifications"
-            onPress={() => navigation.navigate("Notifications")}
-          />
-        </SettingsSection>
-
-        <SettingsSection title="Personal">
-          <SettingsRow
-            icon="arrow.clockwise"
-            label="Account & sync"
-            value={SYNC_STATE_LABELS[sync.state]}
-            accessibilityHint="Your account, your synced settings and agent profile, and your hosts"
-            onPress={() => navigation.navigate("AccountSync")}
-          />
-          <SettingsRow
-            icon="paintbrush"
-            label="Appearance"
-            value={APPEARANCE_LABELS[appearance]}
-            onPress={() => navigation.navigate("AppearanceSettings")}
-          />
-          <SettingsRow
-            icon={{ ios: "sparkles", android: "auto_awesome" }}
-            label="Agent defaults"
-            accessibilityHint="Default agent, model, permissions, and limits"
-            onPress={() => navigation.navigate("AgentDefaults")}
-          />
-          <SettingsRow
-            icon="doc.text"
-            label="Agent profile"
-            accessibilityHint="Your instructions, skills, and MCP servers on every host"
-            onPress={() => navigation.navigate("AgentProfile")}
-          />
-          <SettingsRow
-            icon="bell.badge"
-            label="Notifications"
-            accessibilityHint="What you are told about, and how"
-            onPress={() => navigation.navigate("NotificationSettings")}
           />
         </SettingsSection>
 
@@ -154,7 +159,7 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
           </SettingsSection>
         ) : null}
 
-        <SettingsSection title="App">
+        <SettingsSection title="Advanced">
           <SettingsRow
             icon="info.circle"
             label="About Solus"

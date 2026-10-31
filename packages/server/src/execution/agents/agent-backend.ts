@@ -105,6 +105,8 @@ export interface AgentBackend extends EventEmitter {
   /** When `limit` is set, returns only the most recent `limit` messages (windowed load for fast hydration). */
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
   loadSessionPage?(sessionId: string, projectPath: string | undefined, turnLimit: number, before?: string): Promise<ProviderHistoryPage>
+  /** The rows from the start of a transcript through its first turn, read from the start. */
+  loadSessionFirstTurn?(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>
   listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCache?(sessionId: string): void

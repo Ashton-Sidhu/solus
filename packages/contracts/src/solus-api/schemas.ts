@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { activitySchema } from '../activity'
 import { hubNotificationSchema } from '../notification-hub'
 import { resourceRoleSchema, shareSummarySchema } from '../sharing'
+import { sessionPlaceSchema, sessionStarterSchema } from '../session-starter'
 
 const datetime = z.iso.datetime({ offset: true })
 const nullableText = (max: number) => z.string().max(max).nullable()
@@ -298,14 +299,15 @@ export type WorkspaceWorkPage = z.infer<typeof workspaceWorkPageSchema>
 
 // Stored sessions
 
-/** Whether a session's work is finished: shared by every person (docs/plans/session-archive.md). */
+/** Whether its pull requests or its task finished a session's work: shared by every person (docs/plans/session-archive.md). */
 export const workspaceSessionStateSchema = z.strictObject({
   settledAt: z.number().int().min(0).nullable(),
   settledBy: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
-}).meta({ description: "Whether the session's work is finished. Every person sees the same state." })
+}).meta({ description: "Whether the session's pull requests or task finished its work. Every person sees the same state. A person's own settle is in their view." })
 
-/** One person's view of a session: their archive and snooze. */
+/** One person's view of a session: their settle, archive, and snooze. */
 export const workspaceSessionViewSchema = z.strictObject({
+  settledAt: z.number().int().min(0).nullable().default(null),
   archivedAt: z.number().int().min(0).nullable(),
   snoozedUntil: z.number().int().min(0).nullable(),
   snoozeNote: z.string().max(1000).nullable(),
@@ -368,6 +370,17 @@ export type WorkspaceLink = z.infer<typeof workspaceLinkSchema>
 export const workspaceLinkDeleteSchema = workspaceLinkSchema.pick({ from: true, to: true })
 export type WorkspaceLinkDelete = z.infer<typeof workspaceLinkDeleteSchema>
 
+/** The calling session's links, with the last known state for pull requests. */
+export const workspaceSessionLinkListSchema = z.strictObject({
+  items: z.array(z.strictObject({
+    target: workspaceLinkTargetSchema,
+    title: z.string(),
+    state: z.string().optional(),
+    source: z.string().optional(),
+  })),
+})
+export type WorkspaceSessionLinkList = z.infer<typeof workspaceSessionLinkListSchema>
+
 /** A comment on a task. The author is the caller. */
 export const workspaceCreateTaskCommentSchema = z.strictObject({
   body: z.string().min(1).max(100000),
@@ -384,9 +397,9 @@ export const workspaceTaskCommentSchema = z.strictObject({
 })
 export type WorkspaceTaskComment = z.infer<typeof workspaceTaskCommentSchema>
 
-/** A change to a session: `settled` for every person (editor), the rest in the caller's own view (viewer). */
+/** A change to a session in the caller's own view (viewer). */
 export const workspaceUpdateSessionSchema = z.strictObject({
-  settled: z.boolean().optional().meta({ description: 'Settle the session for every person, or make a settled one active again. Needs editor.' }),
+  settled: z.boolean().optional().meta({ description: "Settle the session in the caller's list, or make a settled one active again. An editor's unsettle also clears a settle by the session's pull requests or task." }),
   archived: z.boolean().optional().meta({ description: "Take the session out of the caller's list, or return it." }),
   snoozedUntil: z.number().int().min(0).nullable().optional().meta({ description: 'Snooze until this time (ms); null wakes it now.' }),
   snoozeNote: z.string().max(1000).optional(),
@@ -394,8 +407,8 @@ export const workspaceUpdateSessionSchema = z.strictObject({
 export type WorkspaceUpdateSession = z.infer<typeof workspaceUpdateSessionSchema>
 /** What a change to a session left: no more than the change touched. */
 export const workspaceSessionChangedSchema = z.strictObject({
-  state: workspaceSessionStateSchema.optional().meta({ description: 'The state it leaves, when the change settled the session or made it active again.' }),
-  view: workspaceSessionViewSchema.optional().meta({ description: "The caller's view it leaves, when the change archived, returned, or snoozed the session." }),
+  state: workspaceSessionStateSchema.optional().meta({ description: 'The shared state it leaves, when the change made the session active again.' }),
+  view: workspaceSessionViewSchema.optional().meta({ description: "The caller's view it leaves, when the change settled, unsettled, archived, returned, or snoozed the session." }),
 })
 export type WorkspaceSessionChanged = z.infer<typeof workspaceSessionChangedSchema>
 
@@ -432,9 +445,13 @@ export const workspaceSessionSchema = z.strictObject({
     intent: z.enum(['delegate', 'fire_and_forget']),
     createdAt: z.number().int().min(0),
   }).nullable(),
-  /** Whether the session's work is finished. Null when nothing settled it. */
+  /** Where the session runs: a chat or a project. Null for a session made before the host recorded it. */
+  place: sessionPlaceSchema.nullable(),
+  /** What started the session: a person, an automation, a webhook, or another session. Null for a session made before the host recorded it. */
+  startedBy: sessionStarterSchema.nullable(),
+  /** Whether its pull requests or task finished the session's work. Null when nothing settled it. */
   state: workspaceSessionStateSchema.nullable(),
-  /** The caller's own view: their archive and snooze. Null when they did nothing to it. */
+  /** The caller's own view: their settle, archive, and snooze. Null when they did nothing to it. */
   view: workspaceSessionViewSchema.nullable(),
   /** Whether the session is in the caller's list (docs/plans/session-archive.md). */
   listed: z.boolean(),
@@ -444,7 +461,7 @@ export const workspaceSessionSchema = z.strictObject({
   grantedAt: z.number().int().min(0).optional(),
   /** The pull requests the session works on. */
   pullRequests: z.array(workspaceSessionPullRequestSchema).max(500),
-}).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerKey: 'user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, state: null, view: null, listed: true, pullRequests: [] }] })
+}).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerKey: 'user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, place: 'project', startedBy: { kind: 'person', personKey: 'user_example' }, state: null, view: null, listed: true, pullRequests: [] }] })
 export type WorkspaceSession = z.infer<typeof workspaceSessionSchema>
 
 export const workspaceSessionAdmissionRequestSchema = z.strictObject({

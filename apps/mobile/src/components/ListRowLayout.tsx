@@ -9,6 +9,7 @@ import { RowLeadingSymbol } from "./RowLeadingSymbol";
 
 export interface ListRowContentProps {
   readonly icon?: AppSymbolName;
+  readonly leading?: ReactNode;
   readonly label: string;
   readonly description?: string;
   readonly detail?: string;
@@ -18,6 +19,7 @@ export interface ListRowContentProps {
 /** Shared row geometry; controls own their behavior and accessibility. */
 export function ListRowLayout({
   icon,
+  leading,
   label,
   description,
   detail,
@@ -35,9 +37,9 @@ export function ListRowLayout({
         disabled && "opacity-45",
       )}
     >
-      {icon ? (
+      {leading || icon ? (
         <View className="size-6 items-center justify-center">
-          <RowLeadingSymbol name={icon} />
+          {leading ?? (icon ? <RowLeadingSymbol name={icon} /> : null)}
         </View>
       ) : null}
       <View className="min-w-0 flex-1 gap-1">

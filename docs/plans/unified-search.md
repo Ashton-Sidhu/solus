@@ -101,7 +101,13 @@ pause in typing.
     names at once, search full message history on hosts, expose errors and more
     pages, and open the matching message. Project filters include all selected
     clones on a host, with each worktree root searched once.
-12. **Rebuild derived data only.** The local FTS index is rebuilt from stored
+12. **A project scope includes the chats.** A chat belongs to no project, so
+    a project scope also asks each home for its chats with the `chats` filter
+    on `searchSessions` and `listSessions`. A home with no checkout of the
+    project is asked for chats too. Without this, a chat that another person
+    shared from a cloud machine was found only with every project selected.
+    Desktop, web, and native Home do the same.
+13. **Rebuild derived data only.** The local FTS index is rebuilt from stored
     messages. Mirrored messages get normalized search text and an engine index.
     Original messages stay intact. There is one session matching model, with
     no alternate legacy search path.

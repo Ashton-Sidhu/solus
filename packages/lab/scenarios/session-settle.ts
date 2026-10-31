@@ -49,17 +49,27 @@ async function startSession(ctx: ScenarioContext, tag: string, actor: LabClient,
   return sessionId
 }
 
-/** The actor settles and unsettles; the reader hears each change and reads it back. */
-async function proveSettle(ctx: ScenarioContext, tag: string, actor: LabClient, reader: LabClient, sessionId: string): Promise<void> {
+/** The actor settles and unsettles. A second client of the same person hears
+ *  each change and reads it back; another person's client reads the session
+ *  active throughout, because a settle is one person's. */
+async function proveSettle(ctx: ScenarioContext, tag: string, actor: LabClient, reader: LabClient, sessionId: string, reads: 'same person' | 'other person'): Promise<void> {
   const settled = await expectOk(ctx, `${tag} settle`, actor.records.sessionUpdate(sessionId, { settled: true }))
-  ctx.check(`${tag} the answer is settled by a person`, settled?.state.settledBy === 'person' && settled.state.settledAt != null, JSON.stringify(settled?.state))
-  await expectOk(ctx, `${tag} the second client hears the settle`, reader.waitForEvent('session.stateChanged', (event) => event.payload.sessionId === sessionId && event.payload.state.settledAt != null))
-  const read = await recordOn(reader, sessionId)
-  ctx.check(`${tag} the second client reads it settled`, read?.state?.settledAt != null, JSON.stringify(read?.state))
+  ctx.check(`${tag} the answer is the actor's own settle`, settled?.view?.settledAt != null && settled.state === undefined, JSON.stringify(settled))
+  if (reads === 'same person') {
+    await expectOk(ctx, `${tag} the second client hears the settle`, reader.waitForEvent('session.viewChanged', (event) => event.payload.sessionId === sessionId && event.payload.view.settledAt != null))
+    const read = await recordOn(reader, sessionId)
+    ctx.check(`${tag} the second client reads it settled`, read?.view?.settledAt != null, JSON.stringify(read?.view))
+  } else {
+    const read = await recordOn(reader, sessionId)
+    ctx.check(`${tag} the other person reads it active`, read?.view?.settledAt == null && read?.state?.settledAt == null, JSON.stringify({ state: read?.state, view: read?.view }))
+  }
   await expectOk(ctx, `${tag} unsettle`, actor.records.sessionUpdate(sessionId, { settled: false }))
-  await expectOk(ctx, `${tag} the second client hears it active again`, reader.waitForEvent('session.stateChanged', (event) => event.payload.sessionId === sessionId && event.payload.state.settledAt == null))
+  if (reads === 'same person') {
+    await expectOk(ctx, `${tag} the second client hears it active again`, reader.waitForEvent('session.viewChanged', (event) => event.payload.sessionId === sessionId && event.payload.view.settledAt == null))
+  }
   const after = await recordOn(reader, sessionId)
-  ctx.check(`${tag} the second client reads it active`, after?.state?.settledAt == null, JSON.stringify(after?.state))
+  ctx.check(`${tag} the second client reads it active`, after?.view?.settledAt == null && after?.state?.settledAt == null, JSON.stringify({ state: after?.state, view: after?.view }))
+  ctx.check(`${tag} no settle by a person reached the shared state`, reader.received('session.stateChanged').every((event) => event.payload.sessionId !== sessionId || event.payload.state.settledAt == null), JSON.stringify(reader.received('session.stateChanged')))
 }
 
 /** Signed out, on this machine: a loopback caller is the owner, with no credential at all. */
@@ -77,7 +87,7 @@ async function localMachine(ctx: ScenarioContext, clients: LabClient[]): Promise
   ctx.check(`${tag} a window reaches the machine with no credential`, (await window.connect()).ok)
   ctx.check(`${tag} a second window reaches it`, (await otherWindow.connect()).ok)
   const sessionId = await startSession(ctx, tag, window, window, null)
-  await proveSettle(ctx, tag, window, otherWindow, sessionId)
+  await proveSettle(ctx, tag, window, otherWindow, sessionId, 'same person')
   return machine
 }
 
@@ -98,7 +108,7 @@ async function linkedVm(ctx: ScenarioContext, clients: LabClient[]): Promise<Lab
   ctx.check(`${tag} the laptop dials with its paired token`, (await laptop.connect()).ok)
   ctx.check(`${tag} the phone dials with its paired token`, (await phone.connect()).ok)
   const sessionId = await startSession(ctx, tag, laptop, laptop, null)
-  await proveSettle(ctx, tag, laptop, phone, sessionId)
+  await proveSettle(ctx, tag, laptop, phone, sessionId, 'same person')
   return vm
 }
 
@@ -118,7 +128,7 @@ async function connectedVm(ctx: ScenarioContext, clients: LabClient[]): Promise<
   ctx.check(`${tag} the desktop dials with an account grant`, (await desktop.connect()).ok)
   ctx.check(`${tag} the phone dials with an account grant`, (await phone.connect()).ok)
   const sessionId = await startSession(ctx, tag, desktop, desktop, null)
-  await proveSettle(ctx, tag, desktop, phone, sessionId)
+  await proveSettle(ctx, tag, desktop, phone, sessionId, 'same person')
   return vm
 }
 
@@ -129,7 +139,7 @@ async function connectedVm(ctx: ScenarioContext, clients: LabClient[]): Promise<
  */
 async function cloudMachine(ctx: ScenarioContext, clients: LabClient[], stops: Array<() => Promise<void>>): Promise<void> {
   const tag = '[signed in · cloud machine]'
-  ctx.step(`${tag} a member settles an organization session on a managed host; another member sees it`)
+  ctx.step(`${tag} a member settles an organization session on a managed host; another member's list does not change`)
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine: 'sqlite' })
   const previousRoute = ctx.issuer.workspaceRoute
   ctx.issuer.setWorkspaceRoute(service.url)
@@ -148,7 +158,7 @@ async function cloudMachine(ctx: ScenarioContext, clients: LabClient[], stops: A
   // A managed host has no owner login: a member runs turns on their own seat (docs/plans/provider-seats.md).
   await expectOk(ctx, `${tag} alice connects her Claude seat`, alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-alice' }))
   const sessionId = await startSession(ctx, tag, alice, bob, ORGANIZATION_ID)
-  await proveSettle(ctx, `${tag} on the machine:`, alice, bob, sessionId)
+  await proveSettle(ctx, `${tag} on the machine:`, alice, bob, sessionId, 'other person')
 
   ctx.step(`${tag} the same session settles at the organization's Solus API`)
   const aliceApi = member('alice', service.url, SOLUS_API_AUDIENCE, 'cloud')
@@ -157,7 +167,7 @@ async function cloudMachine(ctx: ScenarioContext, clients: LabClient[], stops: A
   ctx.check(`${tag} bob reaches the Solus API`, (await bobApi.connect()).ok)
   const reported = await until(() => recordOn(bobApi, sessionId), (found) => !!found, 15_000)
   ctx.check(`${tag} the cloud machine reported the session to the Solus API`, !!reported)
-  if (reported) await proveSettle(ctx, `${tag} at the Solus API:`, aliceApi, bobApi, sessionId)
+  if (reported) await proveSettle(ctx, `${tag} at the Solus API:`, aliceApi, bobApi, sessionId, 'other person')
 }
 
 export default scenario('session settle: signed out on the local machine and a linked VM; signed in on a connected VM and a cloud machine', async (ctx) => {

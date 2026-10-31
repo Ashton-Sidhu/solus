@@ -68,7 +68,7 @@
   <div
     use:portal={document.body}
     data-solus-ui
-    class="fixed inset-0 z-[200] flex items-center justify-center bg-black/12"
+    class="fixed inset-0 z-[200] flex items-center justify-center modal-backdrop"
     role="presentation"
     onmousedown={(event) => {
       if (event.target === event.currentTarget) onClose();

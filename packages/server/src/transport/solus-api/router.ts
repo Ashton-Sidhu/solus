@@ -189,6 +189,10 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
     await body(c, routes.admitSessionTurn.body)
     await operations.admitSessionTurn(authority(c), id(c, 'sessionId')); return c.body(null, 204)
   })
+  app.get(routes.listSessionLinks.path, async c => {
+    query(c, routes.listSessionLinks.query)
+    return c.json(await operations.listSessionLinks(authority(c), id(c, 'sessionId')))
+  })
   app.get(routes.listSessionPullRequests.path, async c => {
     query(c, routes.listSessionPullRequests.query)
     return c.json(await operations.listSessionPullRequests(authority(c), id(c, 'sessionId')))

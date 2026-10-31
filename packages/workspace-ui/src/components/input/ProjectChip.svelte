@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    Check as CheckIcon,
+    Layers as LayersIcon,
     FolderOpen as FolderOpenIcon,
     MessageCircle as ChatIcon,
     Plus as PlusIcon,
@@ -36,9 +38,9 @@
      *  the run then moves there. */
     onSelect: (checkout: ProjectRef) => void;
     /** Open the full project browser: remote hosts and folders not in the catalog. */
-    onBrowse: () => void;
+    onBrowse?: () => void;
     /** Open the project creation form. */
-    onNewProject: () => void;
+    onNewProject?: () => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;
     /** Bound where another control opens the same list — the draft headline names
@@ -49,6 +51,8 @@
     /** Which side of `anchor` the list opens on: below the draft headline,
      *  above the composer's + button. */
     anchorSide?: "top" | "bottom";
+    /** Settings scope offers All projects and does not edit the project catalog. */
+    onAllProjects?: () => void;
   }
   let {
     run,
@@ -61,6 +65,7 @@
     open = $bindable(false),
     anchor = null,
     anchorSide = "bottom",
+    onAllProjects,
   }: Props = $props();
 
   // The host the project lives on, and the host the run is headed for. They
@@ -106,7 +111,10 @@
     // bits-ui also fires this when the open list's focus scope mounts again.
     // Sending the caret to the composer then makes the list close itself, as
     // Safari reads the move as focus leaving it.
-    if (!open) onDismiss();
+    if (!open) {
+      if (onAllProjects) triggerEl?.focus();
+      else onDismiss();
+    }
   }
 
   function getTooltipOpen() {
@@ -131,12 +139,12 @@
   /** Open the shared project dialog on its home screen. */
   function openNewProjectFlow() {
     open = false;
-    onNewProject();
+    onNewProject?.();
   }
 
   function browse() {
     open = false;
-    onBrowse();
+    onBrowse?.();
   }
 
   /** Drop the project: the draft becomes a new chat on the host it is headed for. */
@@ -155,6 +163,18 @@
       >
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
+            {#if onAllProjects}
+              <button
+                {...mergeProps(tooltipProps, props)}
+                bind:this={triggerEl}
+                type="button"
+                aria-label="Settings project: {label}"
+                class="inline-flex min-w-0 items-center gap-1.5 text-foreground underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.16em] hover:decoration-[color:var(--solus-text-secondary)] focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                {#if projectDir}<ProjectFavicon projectKey={currentKey} class="size-4 shrink-0" />{/if}
+                <span class="text-left whitespace-normal break-words">{label}</span>
+              </button>
+            {:else}
             <Button
               {...mergeProps(tooltipProps, props)}
               bind:ref={triggerEl}
@@ -171,11 +191,12 @@
               />
               <span class="truncate">{label}</span>
             </Button>
+            {/if}
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content
           value={{
-            label: "Change the project for this chat",
+            label: onAllProjects ? "Choose the settings project" : "Change the project for this chat",
             shortcut: comboHint("global.select-project"),
           }}
         />
@@ -190,12 +211,12 @@
   <Popover.Content
     data-solus-ui
     customAnchor={anchor ?? triggerEl}
-    side={anchor ? anchorSide : "top"}
+    side={anchor ? anchorSide : onAllProjects ? "bottom" : "top"}
     align="start"
     sideOffset={6}
     collisionPadding={8}
     onCloseAutoFocus={handleCloseAutoFocus}
-    class="menu-surface z-[10002] w-[288px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
+    class="menu-surface z-[10002] {onAllProjects ? 'w-[min(32rem,calc(100vw-2rem))]' : 'w-[288px]'} gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
     <Command.Root bind:ref={commandEl}>
       <MenuSearch bind:value={query} placeholder="Search projects" />
@@ -205,6 +226,14 @@
         >
           No projects match
         </Command.Empty>
+        {#if onAllProjects}
+          <Command.Item value="All projects" data-menu-current={!projectDir ? "" : undefined} onSelect={() => { open = false; onAllProjects?.(); }}>
+            <LayersIcon size={14} class="shrink-0" />
+            <span class="flex-1">All projects</span>
+            {#if !projectDir}<CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />{/if}
+          </Command.Item>
+          <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
+        {/if}
         <Command.Group heading="Projects">
           {#each projects as project (project.key)}
             {@const isCurrent = project.key === currentKey}
@@ -215,21 +244,26 @@
               class="group/project-row relative menu-item-stagger pr-9 pointer-coarse:pr-11"
             >
               <ProjectFavicon projectKey={project.key} class="size-[13px]" />
-              <span class="min-w-0 flex-1 truncate">
+              <span class="min-w-0 flex-1 {onAllProjects ? 'whitespace-normal break-words' : 'truncate'}">
                 {project.label}
               </span>
               {#if project.hostLabel}
-                <span class="max-w-24 shrink-0 truncate text-xs text-(--solus-text-tertiary)">{project.hostLabel}</span>
+                <span class="{onAllProjects ? 'max-w-40 whitespace-normal break-words' : 'max-w-24 truncate'} shrink-0 text-xs text-(--solus-text-tertiary)">{project.hostLabel}</span>
               {/if}
+              {#if onAllProjects}
+                {#if isCurrent}<CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />{/if}
+              {:else}
               <ProjectRowAction
                 selected={isCurrent}
                 label={project.label}
                 onRemove={() => removeProject(project)}
               />
+              {/if}
             </Command.Item>
           {/each}
         </Command.Group>
 
+        {#if !onAllProjects}
         <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
 
         <Command.Item value="new project create" onSelect={openNewProjectFlow}>
@@ -246,6 +280,7 @@
             <ChatIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
             <span class="min-w-0 flex-1 truncate">Switch to chat</span>
           </Command.Item>
+        {/if}
         {/if}
       </Command.List>
     </Command.Root>

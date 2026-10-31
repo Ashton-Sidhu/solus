@@ -133,6 +133,7 @@ const snapshotRowSchema = z.object({
   additions: z.number(),
   deletions: z.number(),
   headRef: z.string(),
+  defaultBranch: z.string().nullable().optional(),
 })
 const snapshotRow = z.custom<PullRequest>((value) => snapshotRowSchema.safeParse(value).success)
 
@@ -196,6 +197,7 @@ function snapshotRowOf(pr: PullRequest): PullRequest {
     // The body is the one unbounded field and no row draws it.
     body: '',
     baseRef: pr.baseRef,
+    defaultBranch: pr.defaultBranch,
     headRef: pr.headRef,
     changedFiles: pr.changedFiles,
     mergeable: pr.mergeable,

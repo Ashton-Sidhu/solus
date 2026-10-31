@@ -27,11 +27,9 @@
     setDiffWorkerPoolTheme,
     setDiffWorkerPoolLineDiffType,
   } from "../../lib/diff-worker-pool";
-  import { getIcon, buildIcon, replaceIDs } from "@iconify/svelte";
   import { isCompactPane, isStackedPane } from "../../lib/pane-width";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
+  import { resolveFileIcon } from "@solus/client-core/file-icons";
   import { isMarkdownFile } from "../files/lib/markdown-file";
-  import { ensureIconCollections } from "../diagram/iconify";
   import { CommentComposer } from "../ui/comment-composer";
   import { DiffAnnotations, type AnnotationMeta } from "./lib/diff-annotations.svelte";
   import { structuralItemVersion } from "./lib/diff-stream-items";
@@ -176,11 +174,6 @@
   let draftFormWrapper: HTMLDivElement | null = $state(null);
   let codeView: CodeView<AnnotationMeta> | null = $state(null);
 
-  // Flips true once the lazy (~12MB) brand-icon collection has registered, so
-  // file-type badges can upgrade from the monochrome extension fallback to the
-  // vibrant logo. See the rebuild effect below.
-  let iconsReady = $state(false);
-
   const collapseState = new DiffCollapseState();
   const moveAnalysis = $derived(detectMovedBlocks(fileDiffs));
   let threadLayoutNonce = $state(0);
@@ -308,32 +301,11 @@
     const i = path.lastIndexOf("/");
     return i >= 0 ? path.slice(0, i + 1) : "";
   }
-  function ext(path: string): string {
-    const name = baseName(path);
-    const dot = name.lastIndexOf(".");
-    return dot > 0 ? name.slice(dot + 1).toUpperCase() : "·";
-  }
-
-  // File-type badge for the header: a vibrant brand logo for known languages,
-  // falling back to a monochrome extension chip. Built as raw SVG (not a mounted
-  // Icon component) because virtualization rebuilds headers on scroll-in and gives
-  // us no destroy hook to unmount with — plain DOM is GC'd with the discarded
-  // header. replaceIDs keeps each logo's gradient ids unique across the document.
+  // Headers are plain DOM because the diff virtualizer owns their lifetime.
   function buildTypeBadge(filePath: string): HTMLElement {
     const span = document.createElement("span");
-    const iconName = fileTypeIcon(filePath);
-    const data = iconName ? getIcon(iconName) : null;
-    if (data) {
-      const built = buildIcon(data, { width: 14, height: 14 });
-      span.className = "diff-type-badge";
-      span.innerHTML =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" ` +
-        `viewBox="${built.attributes.viewBox}" aria-hidden="true">` +
-        `${replaceIDs(built.body)}</svg>`;
-      return span;
-    }
-    span.className = "diff-type-badge diff-type-badge-ext";
-    span.textContent = ext(filePath);
+    span.className = "diff-type-badge";
+    span.innerHTML = resolveFileIcon(filePath).svg;
     return span;
   }
 
@@ -600,12 +572,6 @@
     if (!rootEl) return;
     let disposed = false;
 
-    // Register the brand-icon collection so header type badges can resolve their
-    // logos offline; flips `iconsReady` once loaded (see the rebuild effect).
-    void ensureIconCollections().then(() => {
-      if (!disposed) iconsReady = true;
-    });
-
     // The hit names a line cell inside one item's shadow root; that root's
     // host is the rendered item, whose id is the file path.
     const filePathForHit = (hit: CodeSymbolHit): string | null => {
@@ -740,24 +706,6 @@
         viewedShown.set(path, state);
         if (shown === undefined || shown === state) continue;
         const item = cv.getItem(path);
-        if (!item || item.type !== "diff") continue;
-        item.version = nextVersion(item);
-        cv.updateItem(item);
-      }
-    });
-  });
-
-  // When the lazy brand-icon collection finishes registering, rebuild the
-  // already-rendered headers once so their type badges upgrade from the
-  // extension fallback to the vibrant logo. (Headers mounted after this — via
-  // setItems in Effect A — pick up the icons directly.)
-  $effect(() => {
-    if (!iconsReady) return;
-    const cv = codeView;
-    if (!cv) return;
-    untrack(() => {
-      for (const fileDiff of fileDiffs) {
-        const item = cv.getItem(fileDiff.name);
         if (!item || item.type !== "diff") continue;
         item.version = nextVersion(item);
         cv.updateItem(item);
@@ -957,17 +905,6 @@
     display: block;
     width: 14px;
     height: 14px;
-  }
-
-  :global(.diff-type-badge-ext) {
-    padding: 0.0625rem 0.375rem;
-    border-radius: 0.25rem;
-    background: var(--solus-accent-light);
-    color: var(--solus-text-tertiary);
-    font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    line-height: 1.4;
   }
 
   :global(.diff-file-path) {

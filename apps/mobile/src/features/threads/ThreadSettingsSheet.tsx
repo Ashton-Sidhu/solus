@@ -167,7 +167,7 @@ function ThreadSettingsSessionProvider(
   const displayedProvider = pendingModel?.provider ?? props.selectedProvider;
   const displayedModel = pendingModel?.model ?? props.selectedModel;
   const displayedEffort = pendingModel
-    ? (pendingEffort ?? effortChoices(pendingModel.provider, pendingModel.model)[0] ?? props.reasoningEffort)
+    ? (pendingEffort ?? effortChoices(pendingModel.provider, pendingModel.model, props.providerGroups.find((group) => group.providerKey === pendingModel.provider))[0] ?? props.reasoningEffort)
     : props.reasoningEffort;
   const displayedFastMode = pendingModel ? (pendingFastMode ?? false) : props.fastMode;
   const autoOption = useMemo(
@@ -392,8 +392,8 @@ function ThreadSettingsOptionsItem(props: {
   const session = useThreadSettingsSession();
   const isAuto = session.displayedModel === AUTO_MODEL_ID;
   // Auto routes with fixed options, so the levels belong to the model it picks.
-  const efforts = isAuto ? [] : effortChoices(session.displayedProvider, session.displayedModel);
-  const offersFastMode = supportsFastMode(session.displayedProvider, session.displayedModel);
+  const efforts = isAuto ? [] : effortChoices(session.displayedProvider, session.displayedModel, session.providerGroups.find((group) => group.providerKey === session.displayedProvider));
+  const offersFastMode = supportsFastMode(session.displayedProvider, session.displayedModel, session.providerGroups.find((group) => group.providerKey === session.displayedProvider));
   const displayedLabel = session.providerGroups
     .flatMap((group) => group.models)
     .find((model) => model.provider === session.displayedProvider && model.model === session.displayedModel)?.label;
@@ -608,7 +608,7 @@ function ThreadSettingsChoiceContent(props: {
             props.onSelected();
           },
         }))
-      : effortChoices(session.displayedProvider, session.displayedModel).map((effort) => ({
+      : effortChoices(session.displayedProvider, session.displayedModel, session.providerGroups.find((group) => group.providerKey === session.displayedProvider)).map((effort) => ({
           id: effort,
           label: effortLabel(effort),
           description: undefined,

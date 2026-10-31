@@ -38,13 +38,14 @@ export function webhookActionDeps(runtime: SessionRuntime, facts: Pick<WebhookHo
   return {
     actorFor: webhookActor,
     isPausedByAdmin: facts.isPausedByAdmin,
-    startSession: ({ prompt, action, actor }) => withActorScope(actor, async () => {
+    startSession: ({ prompt, action, actor, webhookId, deliveryId }) => withActorScope(actor, async () => {
       const cwd = action.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(crypto.randomUUID(), actor.principal) : expandHome(action.cwd)
       const gitContext = action.useWorktree
         ? await runtime.checkouts.createNamed(cwd, prompt, runtime, new AbortController().signal, DEFAULT_EXECUTION_PREFERENCES)
         : null
       const session = await runtime.dispatch.startUnattendedSession({
         prompt,
+        startedBy: { kind: 'webhook', webhookId, deliveryId },
         provider: action.agentProvider,
         modelId: action.modelId,
         reasoningEffort: action.reasoningEffort,

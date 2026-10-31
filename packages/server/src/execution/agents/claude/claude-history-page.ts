@@ -1,4 +1,6 @@
+import { createReadStream } from 'node:fs'
 import { open } from 'node:fs/promises'
+import { createInterface } from 'node:readline'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { historyPageIsFull, historyPageMustCut, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
@@ -83,4 +85,29 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
   } finally {
     await file.close()
   }
+}
+
+/** The rows from the start of the file through its first turn. Lines are read
+ *  forward and the read stops where the second turn starts, so the rest of the
+ *  file is never parsed. */
+export async function loadClaudeFirstTurn(filePath: string): Promise<SessionLoadMessage[]> {
+  const input = createReadStream(filePath, { highWaterMark: FIRST_BLOCK_BYTES })
+  const lines = createInterface({ input, crlfDelay: Infinity })
+  const messages: SessionLoadMessage[] = []
+  let turnStarted = false
+  try {
+    for await (const line of lines) {
+      const message = parseJsonlLine(line)
+      if (!message) continue
+      if (startsHistoryTurn(message)) {
+        if (turnStarted) break
+        turnStarted = true
+      }
+      messages.push(message)
+    }
+  } finally {
+    lines.close()
+    input.destroy()
+  }
+  return messages
 }

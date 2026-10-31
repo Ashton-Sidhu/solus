@@ -1,4 +1,3 @@
-import { IndexeddbPersistence, clearDocument } from 'y-indexeddb'
 import type * as Y from 'yjs'
 import { z } from 'zod'
 import type { LiveOfflineStore } from './work-live-doc.svelte'
@@ -18,9 +17,13 @@ export function liveDatabaseName(hostKey: string, workId: string): string {
   return `solus-work-live:${hostKey}:${workId}`
 }
 
+// y-indexeddb brings Yjs. Sign-out and host removal read this module, so it
+// loads y-indexeddb only when a device copy is opened or deleted.
+
 /** The device copy, where IndexedDB exists; null elsewhere (a test, a locked-down browser). */
-export function indexedDbOffline(name: string): ((doc: Y.Doc) => LiveOfflineStore) | null {
+export async function indexedDbOffline(name: string): Promise<((doc: Y.Doc) => LiveOfflineStore) | null> {
   if (!('indexedDB' in globalThis)) return null
+  const { IndexeddbPersistence } = await import('y-indexeddb')
   return (doc) => {
     const persistence = new IndexeddbPersistence(name, doc)
     return {
@@ -70,6 +73,8 @@ export function recordUnsentLiveWork(work: UnsentLiveWork): void {
 /** Delete the device copies of one host's works (or every host's), unsent edits included. */
 export async function clearLiveWorks(serverId?: string): Promise<void> {
   const cleared = unsentLiveWorks(serverId)
+  if (cleared.length === 0) return
+  const { clearDocument } = await import('y-indexeddb')
   await Promise.all(cleared.map((work) => clearDocument(work.database).catch(() => undefined)))
   if (!('localStorage' in globalThis)) return
   const kept = unsentLiveWorks().filter((work) => !cleared.some((gone) => gone.database === work.database))

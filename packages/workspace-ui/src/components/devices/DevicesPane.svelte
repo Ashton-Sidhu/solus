@@ -62,6 +62,8 @@
     return previews.find((candidate) => candidate.devicePreviewId === chosen) ?? null;
   });
   const device = $derived(preview ? devicesStore.device(serverId, preview) : undefined);
+  const sourceKind = $derived(deviceState?.hosts.find((host) => host.deviceHostId === preview?.deviceHostId)?.kind ?? "local");
+  const cloud = $derived(sourceKind === "eas" || sourceKind === "simlock");
   const control = $derived(preview ? devicesStore.control(serverId, preview) : null);
   const holdsControl = $derived(preview ? devicesStore.holdsControl(serverId, preview) : false);
   const hostStatus = $derived(preview ? deviceState?.hostStatuses.find((entry) => entry.deviceHostId === preview.deviceHostId) : undefined);
@@ -88,7 +90,7 @@
 
   // Read settings while Tools is open and visible; nothing polls otherwise.
   $effect(() => {
-    if (!toolsOpen || !surfaceVisible || !preview || liveState !== "live") return;
+    if (cloud || !toolsOpen || !surfaceVisible || !preview || liveState !== "live") return;
     const target = { deviceHostId: preview.deviceHostId, deviceId: preview.deviceId };
     const read = () => void devicesStore.loadDetail(serverId, target).catch(() => {});
     read();
@@ -149,7 +151,7 @@
   async function shutdown() {
     if (!preview || !device) return;
     const others = othersUsing > 0 ? ` ${othersUsing} other session${othersUsing === 1 ? " is" : "s are"} using it.` : "";
-    if (!confirm(`Power off ${device.name}?${others}`)) return;
+    if (!confirm(`${sourceKind === "simlock" ? "Return" : sourceKind === "eas" ? "Stop" : "Power off"} ${device.name}?${others}`)) return;
     await run(() => devicesStore.shutdown(serverId, { ...preview, platform: device.platform }), "Couldn't power off the device");
   }
 
@@ -341,7 +343,7 @@
       {:else}
         {#key `${preview.deviceHostId}:${preview.deviceId}`}
           <div class="relative flex min-h-0 flex-1 p-[1.625rem]">
-            <DeviceStream bind:this={stream} {serverId} deviceHostId={preview.deviceHostId} deviceId={preview.deviceId} platform={preview.platform}
+            <DeviceStream {sourceKind} bind:this={stream} {serverId} deviceHostId={preview.deviceHostId} deviceId={preview.deviceId} platform={preview.platform}
               deviceName={device?.name ?? ""} showPhone={deviceViewState.presentation === "phone" && !phoneUnavailable}
               onPhoneUnavailable={() => (phoneUnavailable = true)}
               active={surfaceVisible && liveState === "live"} {canInteract} onInputError={(message) => toasts.error("The device did not take that input", { description: message })} />
@@ -349,7 +351,7 @@
         {/key}
       {/if}
       <div class="relative flex shrink-0 items-center py-3 pr-3">
-        <DeviceToolbar
+        <DeviceToolbar {sourceKind}
           platform={preview.platform}
           name={tabLabel(preview)}
           version={device?.version ?? ""}
@@ -381,7 +383,7 @@
         </DeviceToolbar>
       </div>
     </div>
-    {#if toolsOpen && device && liveState === "live"}
+    {#if !cloud && toolsOpen && device && liveState === "live"}
       <DeviceTools platform={device.platform} detail={devicesStore.detail(serverId, preview)} pending={pendingAction} run={(action) => void runAction(action)} />
     {/if}
   {/if}

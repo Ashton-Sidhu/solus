@@ -1,4 +1,5 @@
-import type { AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, RunLocation, Session, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
+import { withProviderDefault } from '@solus/contracts/provider-model-settings'
+import type { AgentMetadata, ModelProfile, AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, RunLocation, Session, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -42,14 +43,15 @@ function nextModelConfig(
   patch: Partial<ModelConfig>,
   provider: AgentId,
   remembered?: ModelOptions,
+  profile?: ModelProfile,
 ): ModelConfig {
   if ('modelId' in patch && patch.modelId !== current.modelId) {
-    const defaults = restoredModelConfig(provider, patch.modelId ?? null, remembered)
+    const defaults = restoredModelConfig(provider, patch.modelId ?? null, remembered, profile)
     return {
       ...defaults,
       reasoningEffort: patch.reasoningEffort ?? defaults.reasoningEffort,
       contextWindow: patch.contextWindow !== undefined ? patch.contextWindow : defaults.contextWindow,
-      fastMode: !!MODEL_PROFILES[provider]?.[defaults.modelId ?? '']?.supportsFastMode
+      fastMode: !!(profile ?? MODEL_PROFILES[provider]?.[defaults.modelId ?? ''])?.supportsFastMode
         && (patch.fastMode ?? defaults.fastMode),
     }
   }
@@ -63,6 +65,8 @@ function nextModelConfig(
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
+  providerMetadataFor?(provider: AgentId, run?: RunConfig): AgentMetadata | undefined
+  modelProfileFor?(provider: AgentId, modelId: string | null, run?: RunConfig): ModelProfile | undefined
   registry: TabRegistry
   statusBar: StatusBarContext
   setPluginCommands(commands: Session['pluginCommands']): void
@@ -98,9 +102,6 @@ export class SessionConfigController {
     modelConfig: ModelConfig
   }
   tabGroupMode = $state<TabGroupMode>('flat')
-  /** The model each session ran on its thread's provider when the composer
-   *  picked another one; a pick back restores it. Composer state only. */
-  private threadModelConfigs = new WeakMap<Session, { provider: AgentId; modelConfig: ModelConfig }>()
   private switchingBranch = false
   private sessionStartTargetResolutions = new Map<string, Promise<void>>()
 
@@ -178,7 +179,7 @@ export class SessionConfigController {
     const draft = session || !tabId ? undefined : this.deps.draftFor(tabId)
     const current = session?.run.modelConfig ?? draft?.run.modelConfig ?? this.globalDefaults.modelConfig
     const provider = session?.run.provider ?? draft?.run.provider ?? this.deps.settings.activeAgent
-    const next = this.configureModel(current, patch, provider)
+    const next = this.configureModel(current, patch, provider, session?.run ?? draft?.run)
 
     // A draft takes the new config in one write, as the model chip's detached
     // selection does.
@@ -187,10 +188,10 @@ export class SessionConfigController {
   }
 
   /** Resolve a picker or keyboard choice and persist its concrete model options. */
-  configureModel(current: ModelConfig, patch: Partial<ModelConfig>, provider: AgentId): ModelConfig {
+  configureModel(current: ModelConfig, patch: Partial<ModelConfig>, provider: AgentId, run?: RunConfig): ModelConfig {
     const modelId = 'modelId' in patch ? patch.modelId : current.modelId
     const remembered = provider && modelId ? this.deps.settings.modelOptionsByProvider[provider]?.[modelId] : undefined
-    const next = nextModelConfig(current, patch, provider, remembered)
+    const next = nextModelConfig(current, patch, provider, remembered, this.deps.modelProfileFor?.(provider, modelId ?? null, run))
 
     if (provider && next.modelId && next.modelId !== AUTO_MODEL_ID) {
       const { reasoningEffort, contextWindow, fastMode } = next
@@ -205,9 +206,9 @@ export class SessionConfigController {
   }
 
   /** Restore supported options for a model without changing the saved preference. */
-  modelConfigFor(provider: AgentId, modelId: string | null): ModelConfig {
+  modelConfigFor(provider: AgentId, modelId: string | null, run?: RunConfig): ModelConfig {
     return restoredModelConfig(provider, modelId, modelId
-      ? this.deps.settings.modelOptionsByProvider[provider]?.[modelId] : undefined)
+      ? this.deps.settings.modelOptionsByProvider[provider]?.[modelId] : undefined, this.deps.modelProfileFor?.(provider, modelId, run))
   }
 
   /** The agent new sessions start on. It is a preference, so it never rewrites
@@ -247,7 +248,7 @@ export class SessionConfigController {
     if (draft.run.provider === agentId) return true
     track('agent_switched', { from: draft.run.provider ?? this.deps.settings.activeAgent, to: agentId, via })
     draft.run.provider = agentId
-    draft.run.modelConfig = this.defaultModelConfigFor(agentId)
+    draft.run.modelConfig = this.defaultModelConfigFor(agentId, draft.run)
     draft.run.sessionSkills = []
     this.deps.setPluginCommands({ global: [], project: [] })
     this.deps.refreshPluginCommands(checkoutPlace(draft.run).path)
@@ -279,19 +280,11 @@ export class SessionConfigController {
 
     const hasThread = !!session.agentSessionId || !!session.handoffPending
     if (hasThread) {
-      // Leaving the thread's provider keeps its model, so a pick back restores
-      // exactly what the thread ran with.
-      if (session.threadProvider && session.run.provider === session.threadProvider) {
-        this.threadModelConfigs.set(session, { provider: session.threadProvider, modelConfig: $state.snapshot(session.run.modelConfig) })
-      }
-      const kept = this.threadModelConfigs.get(session)
-      // A provider thread is handed over, never started, so Auto (which only
-      // routes a first prompt) is not offered to it.
-      session.run.modelConfig = agentId === session.threadProvider && kept?.provider === agentId
-        ? { ...kept.modelConfig }
-        : this.pinnedModelConfigFor(agentId)
+      // A provider selection always takes that provider's configured default.
+      // Auto only routes a first prompt, so a started thread needs a concrete model.
+      session.run.modelConfig = this.pinnedModelConfigFor(agentId, session.run)
     } else {
-      session.run.modelConfig = { ...this.globalDefaults.modelConfig }
+      session.run.modelConfig = this.defaultModelConfigFor(agentId, session.run)
       session.sessionModel = null
     }
     session.run.provider = agentId
@@ -311,7 +304,7 @@ export class SessionConfigController {
    * switch as activity, which draws its divider (plans/012 §5).
    */
   adoptHandoff(session: Session, agentId: AgentId, result: SessionProviderSwitchResult, targetTabId: string, via: Via = 'click'): void {
-    const newModelConfig = this.pinnedModelConfigFor(agentId)
+    const newModelConfig = this.pinnedModelConfigFor(agentId, session.run)
     track('agent_switched', { from: result.fromProvider, to: agentId, via })
     this.deps.settings.setPersonal('activeAgent', agentId)
     this.globalDefaults.modelConfig = newModelConfig
@@ -574,7 +567,12 @@ export class SessionConfigController {
   /** Pin the model new sessions start on for one agent. Stored per agent, so the
    *  choice survives switching the default agent away and back. */
   setDefaultModel(agentId: AgentId, modelId: string): void {
-    this.deps.settings.setPersonal('defaultModels', { ...$state.snapshot(this.deps.settings.defaultModels), [agentId]: modelId })
+    this.deps.settings.setPersonal('defaultModels', withProviderDefault($state.snapshot(this.deps.settings.defaultModels), agentId, modelId))
+    this.refreshDefaultModel(agentId)
+  }
+
+  /** Refresh only the defaults; open sessions and drafts keep their own options. */
+  refreshDefaultModel(agentId: AgentId): void {
     if (agentId === this.deps.settings.activeAgent) {
       this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
     }
@@ -583,24 +581,26 @@ export class SessionConfigController {
   /** The model a new session starts on. Auto is a choice to let the first prompt
    *  pick, so it is returned as the sentinel and resolved on the host; anything
    *  else is a concrete model. */
-  defaultModelConfigFor(agentId: AgentId): ModelConfig {
-    if (this.deps.settings.defaultModels[agentId] === AUTO_MODEL_ID) {
+  defaultModelConfigFor(agentId: AgentId, run?: RunConfig): ModelConfig {
+    const chosen = this.deps.settings.defaultModels[agentId]
+    if (chosen === AUTO_MODEL_ID) {
       return { modelId: AUTO_MODEL_ID, reasoningEffort: 'medium', contextWindow: null, fastMode: false }
     }
-    return this.pinnedModelConfigFor(agentId)
+    return this.pinnedModelConfigFor(agentId, run)
   }
 
   /** The user's per-agent choice from Settings when it still names a model this
    *  agent runs, otherwise the agent's built-in default. Never Auto: a
    *  conversation that already carries a provider thread cannot route a model. */
-  private pinnedModelConfigFor(agentId: AgentId): ModelConfig {
-    const profiles = MODEL_PROFILES[agentId]
+  private pinnedModelConfigFor(agentId: AgentId, run?: RunConfig): ModelConfig {
+    const metadata = this.deps.providerMetadataFor?.(agentId, run)
+    const profiles = metadata?.modelProfiles ?? MODEL_PROFILES[agentId]
     if (!profiles) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
     const chosenId = this.deps.settings.defaultModels[agentId]
-    const modelId = chosenId && profiles[chosenId]
+    const modelId = chosenId && (profiles[chosenId] || this.deps.modelProfileFor?.(agentId, chosenId))
       ? chosenId : Object.keys(profiles).find((id) => profiles[id].isDefault)
     if (!modelId) return { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false }
-    return this.modelConfigFor(agentId, modelId)
+    return this.modelConfigFor(agentId, modelId, run)
   }
 
   defaultReasoningEffortFor(agentId: AgentId, modelId: string | null): ReasoningEffort {

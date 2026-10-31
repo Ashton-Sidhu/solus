@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import UnreadDot from "./UnreadDot.svelte";
   import {
     Archive as ArchiveIcon,
+    AtSign as AtSignIcon,
     ArchiveRestore as ArchiveRestoreIcon,
     ChartBar as ChartBarIcon,
     Check as CheckIcon,
@@ -26,12 +28,16 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import { selectSessionRename } from "./lib/session-context-menu";
+  import { TASK_SNOOZE_CHOICES, taskSnoozeUntil } from "./lib/task-snooze";
   import { askInsights } from "../insights/lib/ask-insights";
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
+  import { referenceSessionsInPrompt } from "../../lib/session-drag";
+  import { referenceForListed, referenceForTab, type SessionReferenceSources } from "./lib/session-reference";
 
   interface Props {
     x: number;
@@ -61,8 +67,8 @@
       onStop?: () => void;
       done?: boolean;
       onToggleDone?: () => void;
-      /** Opens the snooze prompt for the row. Absent on a snoozed row. */
-      onSnooze?: () => void;
+      /** Applies a preset, or opens the picker when no time is given. */
+      onSnooze?: (until?: number) => void;
       /** Archives the row's session (docs/plans/session-archive.md). */
       onArchive?: () => void;
       /** Returns an archived session to the list. */
@@ -125,6 +131,35 @@
   const isContinuingWorktree = $derived(
     !!tabId && session.ui.isContinuingInWorktree(tabId),
   );
+
+  const referenceSources: SessionReferenceSources = {
+    sessionFor: (id) => session.sessionFor(id),
+    serverIdFor: (id) => session.serverIdFor(id),
+    listed: (id) => sessionListStore.listed(id),
+  };
+  /** The chip this session adds to a prompt — the keyboard path of dragging
+   *  its row onto the input bar. A conversation does not reference itself. */
+  const promptReference = $derived(
+    tabId
+      ? tabId === session.onScreenTabId
+        ? null
+        : referenceForTab(referenceSources, tabId)
+      : sessionId
+        ? referenceForListed(referenceSources, sessionId)
+        : null,
+  );
+
+  function referenceInPrompt() {
+    const reference = promptReference;
+    onClose();
+    if (!reference) return;
+    // After the menu has closed and given focus back, so the caret stays
+    // after the chip.
+    requestAnimationFrame(() => {
+      if (!referenceSessionsInPrompt([reference]))
+        toasts.info("Open a conversation to add this session to its prompt");
+    });
+  }
 
   async function markUnread() {
     const targetSessionId = unreadSessionId;
@@ -302,11 +337,19 @@
     class="min-w-44"
     portalProps={portalTarget ? { to: portalTarget } : undefined}
   >
+    {#if promptReference}
+      <ContextMenu.Item onSelect={referenceInPrompt}>
+        <AtSignIcon />
+        Reference in Prompt
+      </ContextMenu.Item>
+    {/if}
     {#if copyableSessionId}
       <ContextMenu.Item onSelect={copySessionId}>
         <CopyIcon />
         Copy Session ID
       </ContextMenu.Item>
+    {/if}
+    {#if promptReference || copyableSessionId}
       <ContextMenu.Separator />
     {/if}
     <!-- Each item reads its action before onClose: closing clears the parent's
@@ -346,16 +389,36 @@
       </ContextMenu.Item>
     {/if}
     {#if canDrive && rowActions?.onSnooze}
-      <ContextMenu.Item
-        onSelect={() => {
-          const action = rowActions?.onSnooze;
-          onClose();
-          action?.();
-        }}
-      >
-        <MoonIcon />
-        Snooze…
-      </ContextMenu.Item>
+      <ContextMenu.Sub>
+        <ContextMenu.SubTrigger>
+          <MoonIcon />
+          Snooze
+        </ContextMenu.SubTrigger>
+        <ContextMenu.SubContent>
+          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+            <ContextMenu.Item
+              onSelect={() => {
+                const action = rowActions?.onSnooze;
+                onClose();
+                action?.(taskSnoozeUntil(choice.preset));
+              }}
+            >
+              {choice.label}
+            </ContextMenu.Item>
+          {/each}
+          <ContextMenu.Separator />
+          <ContextMenu.Item
+            onSelect={async () => {
+              const action = rowActions?.onSnooze;
+              onClose();
+              await tick();
+              action?.();
+            }}
+          >
+            Pick date and time…
+          </ContextMenu.Item>
+        </ContextMenu.SubContent>
+      </ContextMenu.Sub>
     {/if}
     <!-- Archive writes the reader's own view, so a member who may only read a
          shared session archives it too (docs/plans/shared-with-you.md §2). -->

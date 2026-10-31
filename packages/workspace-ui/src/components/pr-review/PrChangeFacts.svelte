@@ -87,7 +87,7 @@
   <dd class="flex min-h-6 min-w-0 items-center">
     <button
       type="button"
-      class="group/branch -mx-1.5 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-1.5 py-0.5 text-left font-mono text-foreground transition-colors hover:bg-[var(--wash-2)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:hover:bg-transparent"
+      class="group/branch -mx-1.5 flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-foreground transition-colors hover:bg-[var(--wash-2)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:hover:bg-transparent"
       disabled={!headBranch}
       title={headBranch ? `Copy ${headBranch}` : undefined}
       onclick={copyBranch}

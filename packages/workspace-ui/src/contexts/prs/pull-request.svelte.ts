@@ -102,6 +102,7 @@ export class PullRequest implements Contracts.PullRequest {
   headSha = $state('')
   baseSha = $state('')
   baseRef = $state('')
+  defaultBranch = $state<Contracts.PullRequest['defaultBranch']>(null)
   headRef = $state('')
   baseRepo = $state<Contracts.PullRequest['baseRepo']>(UNDESCRIBED_REPO)
   headRepo = $state<Contracts.PullRequest['headRepo']>(UNDESCRIBED_HEAD_REPO)
@@ -220,6 +221,7 @@ export class PullRequest implements Contracts.PullRequest {
     this.draft = source.draft
     this.headSha = source.headSha
     this.baseSha = source.baseSha
+    this.defaultBranch = source.defaultBranch
     this.baseRef = source.baseRef
     this.headRef = source.headRef
     this.baseRepo = source.baseRepo

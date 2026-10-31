@@ -127,7 +127,7 @@ import Icon from "@iconify/svelte";
   <div
     use:portal={layer.el}
     data-solus-ui
-    class="fixed inset-0 z-[10008] flex items-center justify-center overflow-hidden overscroll-contain pointer-events-auto bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] [animation:publish-repository-backdrop-in_160ms_ease_both]"
+    class="fixed inset-0 z-[10008] flex items-center justify-center overflow-hidden overscroll-contain pointer-events-auto modal-backdrop [animation:publish-repository-backdrop-in_160ms_ease_both]"
     role="presentation"
     onclick={(e) => {
       if (e.target === e.currentTarget && !publishing) onClose();

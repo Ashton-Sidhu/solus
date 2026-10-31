@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { z } from 'zod'
+import { flushLogs, logFilePath } from '@solus/server/logger'
 import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
@@ -99,7 +102,7 @@ function fakeGithub(world: World) {
   const oldName = (name: string) => [...renamed].find(([, next]) => next === name)?.[0] ?? name
   const sorted = [...world.rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 
-  const search = (query: string) => {
+  const search = (query: string, limit: number) => {
     const terms = query.split(' ')
     const repos = terms.filter((term) => term.startsWith('repo:')).map((term) => term.slice('repo:acme/'.length))
     // GitHub refuses a search that names a repository by an old name.
@@ -117,8 +120,8 @@ function fakeGithub(world: World) {
       && (!requested || row.requested?.includes(requested))
       && (!assigned || row.assigned?.includes(assigned)))
     return {
-      pageInfo: { hasNextPage: matches.length > 100, endCursor: null },
-      nodes: matches.slice(0, 100).map((row) => gqlRow(row, currentName)),
+      pageInfo: { hasNextPage: matches.length > limit, endCursor: null },
+      nodes: matches.slice(0, limit).map((row) => gqlRow(row, currentName)),
     }
   }
 
@@ -133,7 +136,8 @@ function fakeGithub(world: World) {
     for (let index = 0; `p${index}q` in variables || `p${index}o` in variables; index++) {
       const alias = `p${index}`
       if (`${alias}q` in variables) {
-        const answer = search(variables[`${alias}q`])
+        const limit = Number(new RegExp(`${alias}: search\\([^)]*first: (\\d+)`).exec(query)?.[1] ?? 100)
+        const answer = search(variables[`${alias}q`], limit)
         if ('error' in answer) {
           data[alias] = null
           errors.push({ type: 'INVALID', path: [alias] })
@@ -533,4 +537,130 @@ describe('the pull request detail read', () => {
       { path: 'c.ts', additions: 1, deletions: 1, status: 'M' },
     ])
   })
+})
+
+
+describe('large repository request recovery', () => {
+  test.each([
+    { status: 502 }, { status: 503 }, { status: 504 },
+    { errors: [{ type: 'MAX_NODE_LIMIT_EXCEEDED' }] },
+    { errors: [{ type: 'RESOURCE_LIMITS_EXCEEDED' }] },
+    { errors: [{ type: 'TIMEOUT' }] },
+  ])('an overloaded read (%j) retries with fewer rows and keeps the next-page cursor', async (failure) => {
+    const { client } = fakeGithub({ rows: rowsOf(['large'], 80) })
+    const original = client.graphql
+    const read = spyOn(client, 'graphql').mockRejectedValueOnce(Object.assign(new Error('GitHub could not complete the query'), failure))
+    read.mockImplementation(original)
+    try {
+      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', true)
+      expect(page?.page.items).toHaveLength(50)
+      expect(page?.page.hasMore).toBe(true)
+      expect(page?.page.cursor).toBe(`search:${page?.page.items.at(-1)?.updatedAt}`)
+      expect(read.mock.calls[0][0]).toContain('first: 100')
+      expect(read.mock.calls[1][0]).toContain('first: 50')
+    } finally {
+      read.mockRestore()
+    }
+  })
+
+  test('two gateway failures reduce the page from 100 to 50 to 25 before splitting', async () => {
+    const { client } = fakeGithub({ rows: rowsOf(['large'], 80) })
+    const original = client.graphql
+    const failure = Object.assign(new Error('Bad Gateway'), { status: 502 })
+    const read = spyOn(client, 'graphql')
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure)
+    read.mockImplementation(original)
+    try {
+      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', true)
+      expect(read.mock.calls.map(([query]) => Number(/first: (\d+)/.exec(query)?.[1]))).toEqual([100, 50, 25])
+      expect(page?.page.items).toHaveLength(25)
+      expect(page?.page.hasMore).toBe(true)
+      expect(page?.page.cursor).toBe(`search:${page?.page.items.at(-1)?.updatedAt}`)
+    } finally {
+      read.mockRestore()
+    }
+  })
+
+  test('an overloaded document splits into independent reads with correct alias ownership', async () => {
+    const { client } = fakeGithub({ rows: rowsOf(['large'], 3) })
+    const original = client.graphql
+    const documents: string[] = []
+    const read = spyOn(client, 'graphql').mockImplementation(async (query, variables) => {
+      documents.push(query)
+      if ((query.match(/p\d+: /g) ?? []).length > 1) {
+        throw Object.assign(new Error('Bad Gateway'), { status: 502 })
+      }
+      // A facts-only document must not contain an unused row fragment.
+      if (!query.includes('search(')) expect(query).not.toContain('fragment NeedsReviewFields')
+      return original(query, variables)
+    })
+    try {
+      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', true)
+      expect(page?.page.items.map((row) => row.number)).toEqual([1, 2, 3])
+      expect(page?.authored?.items.map((row) => row.number)).toEqual([1])
+      expect(page?.needsReview).toEqual([])
+      expect(documents.length).toBeLessThanOrEqual(12)
+    } finally {
+      read.mockRestore()
+    }
+  })
+
+  test('a persistent gateway failure stops after a single-field retry', async () => {
+    const { client } = fakeGithub({ rows: [] })
+    const failure = Object.assign(new Error('Bad Gateway'), { status: 502 })
+    const read = spyOn(client, 'graphql').mockRejectedValue(failure)
+    try {
+      await expect(new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', false)).rejects.toThrow('Bad Gateway')
+      expect(read).toHaveBeenCalledTimes(4)
+    } finally {
+      read.mockRestore()
+    }
+  })
+})
+
+
+test('PR list logs connect a failed large read to its successful smaller retry', async () => {
+  const { client } = fakeGithub({ rows: rowsOf(['diagnostic-repo'], 40) })
+  const original = client.graphql
+  const githubRequestId = 'pr-list-gateway-diagnostic'
+  const read = spyOn(client, 'graphql').mockRejectedValueOnce(Object.assign(new Error('Bad Gateway'), {
+    status: 502,
+    response: { headers: { 'x-github-request-id': githubRequestId, 'content-type': 'text/html' } },
+  }))
+  read.mockImplementation(original)
+  try {
+    await new OneClientProvider(client).listPullRequestPages(firstPages(['diagnostic-repo']), { state: 'open', query: 'private-search-text' }, 'sidhu', false)
+    flushLogs()
+    const entrySchema = z.object({
+      msg: z.string().optional(),
+      readId: z.string().optional(),
+      requestId: z.string().optional(),
+      parentRequestId: z.string().nullable().optional(),
+      githubRequestId: z.string().nullable().optional(),
+      status: z.number().nullable().optional(),
+      rowsPerPage: z.number().optional(),
+      durationMs: z.number().optional(),
+      queryBytes: z.number().optional(),
+      repositories: z.array(z.string()).optional(),
+    })
+    const lines = readFileSync(logFilePath(), 'utf8').trim().split('\n')
+    const entries = lines.map((line) => entrySchema.parse(JSON.parse(line)))
+    const failed = entries.find((entry) => entry.githubRequestId === githubRequestId)
+    expect(failed).toMatchObject({
+      msg: 'github_pr_list_request_failed', status: 502, rowsPerPage: 100,
+      repositories: ['acme/diagnostic-repo'], durationMs: expect.any(Number), queryBytes: expect.any(Number),
+    })
+    const attempts = entries.filter((entry) => entry.readId === failed?.readId)
+    expect(attempts.map((entry) => entry.msg)).toEqual([
+      'github_pr_list_request_started', 'github_pr_list_request_failed',
+      'github_pr_list_request_reduced', 'github_pr_list_request_started', 'github_pr_list_request_completed',
+    ])
+    expect(attempts.at(-1)).toMatchObject({ rowsPerPage: 50, parentRequestId: failed?.requestId })
+    const diagnostics = lines.filter((line) => line.includes(failed!.readId!)).join('\n')
+    expect(diagnostics).not.toContain('private-search-text')
+    expect(diagnostics).not.toContain(client.credential.token)
+  } finally {
+    read.mockRestore()
+  }
 })

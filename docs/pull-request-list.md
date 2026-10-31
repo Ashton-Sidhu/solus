@@ -51,6 +51,24 @@ After a reload, the page shows the last list that it read without a search for t
 
 While the page is open, the host pushes changes to the rows (docs/plans/pr-sync.md). A change on the code host to a pull request that Solus tracks (one that a session or a task links, or that a screen shows) reaches its row in about a minute, with no read by the page. A pull request that Solus opens joins the unsearched list at the top at once. When an agent turn ends in a listed repository, the page reads its first page again, so a pull request that the agent opened shows. The page does not poll, and the host does not read the repository for the page. A pull request that someone opens on GitHub shows at the next open of the page, after a turn ends in that repository, or when you push the refresh button, which asks the host to read the projects at once. On mobile, the Pull Requests tab reads the hosts again when it gets focus more than 30 seconds after its last read.
 
+While a list is loading, the page shows a small **Loading pull requests** label and static row placeholders that fade toward the bottom. A refresh keeps the current rows in place and uses the existing refresh indicator in the desktop and web header. On mobile, a small activity indicator appears beside the list filters. Refresh does not add a message above the rows. A search with no rows shows the loading state until the host answers; it does not report an empty list during the read. These states apply to desktop, web, and mobile.
+
+GitHub gateway and query resource failures reduce the page size from 100 to 50, then to 25 rows. If the 25-row request still fails, the host splits it into separate reads. Retries are bounded, and a smaller page retains its next-page cursor. Authorization and rate-limit failures use the normal error handling.
+
+PR list diagnostics use the `github-pr-list` file field in `dev.log`. Each read has a `readId`; each request has a `requestId` and, for retries, a `parentRequestId`. Events record repository names, rows per page, connection count, query size, elapsed milliseconds, and the outcome. Failures include the HTTP status, GraphQL error types, GitHub request ID, response content type, and rate-limit headers when available. Reduced and split requests have explicit events. The diagnostic fields do not include tokens, request headers, or search text.
+
+To read the latest PR list requests:
+
+```sh
+jq -c 'select(.file == "github-pr-list")' dev.log | tail -40
+```
+
+Use a failure's `readId` to follow its retry chain:
+
+```sh
+jq -c 'select(.readId == "<readId>")' dev.log
+```
+
 When you change a filter, the rows on screen stay and are narrowed to the new filter until the host answers. The page shows the loading skeleton only when no row matches yet, or when you change the project.
 
 ## Folding header

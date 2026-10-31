@@ -6,6 +6,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
 import { solusIconSubset } from './scripts/vite-icon-collections'
 import { devServeRoots } from './scripts/vite-fs-allow'
+import { workspaceStartupPreloads } from './scripts/vite-workspace-preloads'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -144,7 +145,14 @@ export default defineConfig(({ mode }) => {
     worker: {
       format: 'es'
     },
-    plugins: [solusIconSubset(), svelte(), tailwindcss()],
+    plugins: [
+      solusIconSubset(),
+      svelte(),
+      tailwindcss(),
+      // Vite's runtime preloads start the workspace graph only once main.ts has
+      // set up the transport; the list in the HTML starts it as the page parses.
+      workspaceStartupPreloads(['/apps/desktop/src/renderer/App.svelte', '/packages/workspace-ui/src/components/layout/WorkspaceLayout.svelte'])
+    ],
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
       // Let feature imports own chunk boundaries, as in the web client. Manual

@@ -179,14 +179,23 @@ export const integrationProbeResultSchema = z.discriminatedUnion('outcome', [
 export type IntegrationProbeResult = z.infer<typeof integrationProbeResultSchema>
 export type IntegrationProbeUndeterminedReason = Extract<IntegrationProbeResult, { outcome: 'undetermined' }>['reason']
 
-/** A custom URL (§3.1): HTTPS, with no credentials, query, fragment, or placeholder. */
+/** A loopback host name: `localhost`, a `.localhost` name, `127.x.x.x`, or `[::1]`. */
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '[::1]' || /^127\.\d+\.\d+\.\d+$/.test(hostname)
+}
+
+/**
+ * A custom URL (§3.1): HTTPS, or HTTP to a server on the host's own loopback,
+ * with no credentials, fragment, or placeholder.
+ */
 export const integrationUrlSchema = z.string().trim().max(4096).refine((value) => {
   if (/[{}]|%7b|%7d/i.test(value)) return false
   if (!URL.canParse(value)) return false
   const url = new URL(value)
+  const secure = url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHostname(url.hostname))
   // A query is allowed: catalog entries carry server options such as PostHog's `mode=tools`.
-  return url.protocol === 'https:' && !url.username && !url.password && !url.hash && !value.includes('#')
-}, 'Use an HTTPS address with no credentials or fragment')
+  return secure && !url.username && !url.password && !url.hash && !value.includes('#')
+}, 'Use an HTTPS address, or HTTP on localhost, with no credentials or fragment')
 
 const integrationNameSchema = z.string().trim().min(1).max(200)
 
@@ -343,6 +352,15 @@ export const integrationConnectionSchema = z.object({
   updatedAt: z.string(),
 })
 export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>
+
+/**
+ * True when the person must act before the connection works again: sign in to
+ * the server again, retry after an error, or sign in to Solus. A cloud that
+ * does not answer is not theirs to fix, so it does not count.
+ */
+export function connectionNeedsAttention(connection: Pick<IntegrationConnection, 'status'>): boolean {
+  return connection.status === 'needs-sign-in' || connection.status === 'error' || connection.status === 'needs-solus-sign-in'
+}
 
 /**
  * `waiting`: the host waits for the browser (§4.3). `callback` finishes on the

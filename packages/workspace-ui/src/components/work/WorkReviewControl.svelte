@@ -17,7 +17,6 @@
   import { getWorkPaneContext } from "./lib/work-pane-context";
   import ReviewComposer from "../ui/review-composer/ReviewComposer.svelte";
   import type { ReviewChoice } from "../ui/review-composer/lib/review-choice";
-  import WorkHistoryDialog from "./WorkHistoryDialog.svelte";
   import ReviewerAvatars from "./ReviewerAvatars.svelte";
   import ReviewDecisionIcon from "./ReviewDecisionIcon.svelte";
   import { copyWorkReviewLink } from "./lib/work-review-commands";
@@ -326,7 +325,11 @@
 </Popover.Root>
 
 {#if historyOpen && mine?.decidedRevisionId}
-  <WorkHistoryDialog bind:open={historyOpen} {workId} {title} {type} {currentContent} initialPick="current" initialBase={mine.decidedRevisionId} />
+  <!-- History brings the diff and Markdown renderers; load them on first open. -->
+  {#await import("./WorkHistoryDialog.svelte") then module}
+    {@const WorkHistoryDialog = module.default}
+    <WorkHistoryDialog bind:open={historyOpen} {workId} {title} {type} {currentContent} initialPick="current" initialBase={mine.decidedRevisionId} />
+  {/await}
 {/if}
 
 {#snippet headerAction(label: string, Icon: typeof LinkIcon, onclick: () => void, testId?: string)}

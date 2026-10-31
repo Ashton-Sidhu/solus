@@ -1,5 +1,7 @@
 import { base64Url } from '@solus/client-core/oauth-session'
 import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE_GRANT_TYPE } from '@solus/contracts/uplink'
+import type { AccountResponse, DirectoryResponse } from '@solus/contracts/uplink'
+import { PERSONAL_SETTINGS_SCHEMA_VERSION, type AccountSettingsResponse } from '@solus/contracts/settings'
 
 /**
  * A small authorization server for client tests: discovery, the token endpoint
@@ -17,6 +19,10 @@ export interface PlaneCall {
 }
 
 export interface FakeAccountPlaneOptions {
+  startupAccount?: AccountResponse
+  startupSettings?: AccountSettingsResponse
+  /** Sent only when set: without it the plane answers as a server from before the startup directory. */
+  startupDirectory?: DirectoryResponse
   clientId?: string
   identity?: { sub: string; email: string; email_verified: boolean; name?: string; picture?: string }
   /** Lets a test hold a refresh until it says so. */
@@ -54,6 +60,11 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
     refreshTokens.set(token, true)
     return token
   }
+  const newServersToken = (refreshToken: string) => {
+    const token = jwt({ iss: ISSUER, sub: identity.sub, client_id: clientId, aud: [ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE], grant_id: 'grant-signin', exp: Math.floor(now / 1000) + 300 })
+    serversTokens.set(token, refreshToken)
+    return token
+  }
   const json = (status: number, body: object) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
   async function sha256(text: string): Promise<string> {
@@ -82,7 +93,13 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
           if (!code || code.redirectUri !== form.get('redirect_uri') || code.challenge !== await sha256(form.get('code_verifier') ?? '')) {
             return json(400, { error: 'invalid_grant' })
           }
-          return json(200, { access_token: `at-signin`, expires_in: 300, refresh_token: newRefreshToken(), id_token: issueIdToken(code.nonce) })
+          const refreshToken = newRefreshToken()
+          const accessToken = newServersToken(refreshToken)
+          return json(200, { access_token: accessToken, expires_in: 300, refresh_token: refreshToken, id_token: issueIdToken(code.nonce), startup: {
+            account: options.startupAccount ?? { userId: identity.sub, onboardingCompletedAt: null, activeOrganizationId: null, organizations: [], github: null },
+            settings: options.startupSettings ?? { schemaVersion: PERSONAL_SETTINGS_SCHEMA_VERSION, generation: 0, revision: null, settings: {}, updatedAt: null },
+            ...(options.startupDirectory ? { directory: options.startupDirectory } : {}),
+          } })
         }
         if (form.get('grant_type') === 'refresh_token') {
           await options.gateRefresh?.()
@@ -151,7 +168,8 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
     idToken: issueIdToken,
     /** Tokens as a device grant gives them. */
     deviceTokens() {
-      return { access_token: 'at-device', expires_in: 300, refresh_token: newRefreshToken(), id_token: issueIdToken() }
+      const refreshToken = newRefreshToken()
+      return { access_token: newServersToken(refreshToken), expires_in: 300, refresh_token: refreshToken, id_token: issueIdToken() }
     },
   }
 }

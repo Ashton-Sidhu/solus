@@ -1,3 +1,5 @@
+import { agentForProject, modelProfileForAgent } from '@solus/contracts/provider-instance-models'
+import { hosts } from '../hosts/hosts.svelte'
 import { SessionQueueController } from './session-queue.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
@@ -302,6 +304,17 @@ export class WorkspaceContext implements SurfaceContext {
     })
     this.config = new SessionConfigController({
       settings: this.settings,
+      providerMetadataFor: (provider, run) => {
+        const place = checkoutPlace(run)
+        const serverId = place?.serverId ?? this.settings.lastProject?.serverId ?? this.fallbackServerId
+        const metadata = serverId ? hosts.get(serverId).machineInfo?.agents.find((agent) => agent.id === provider) : undefined
+        return metadata ? agentForProject(metadata, checkoutGit(run)?.repoRoot ?? place?.path ?? this.settings.lastProject?.directory) : undefined
+      },
+      modelProfileFor: (provider, modelId, run) => {
+        const serverId = run ? checkoutPlace(run)?.serverId : this.settings.lastProject?.serverId ?? this.fallbackServerId
+        const metadata = serverId ? hosts.get(serverId).machineInfo?.agents.find((agent) => agent.id === provider) : undefined
+        return modelProfileForAgent(provider, modelId, metadata ? agentForProject(metadata, checkoutGit(run)?.repoRoot ?? checkoutPlace(run)?.path ?? this.settings.lastProject?.directory) : undefined)
+      },
       registry: this.registry,
       statusBar: this.statusBar,
       setPluginCommands: (commands) => { this.pluginCommands = commands },
@@ -2055,7 +2068,8 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** Which settings tab is showing — a route param, so a link can name it. */
   get settingsTab(): SettingsTab {
-    return this.router.params('settings')?.tab ?? 'general'
+    const tab = this.router.params('settings')?.tab ?? 'general'
+    return tab === 'projects' ? 'providers' : tab
   }
 
   get settingsProjectCwd(): string | null {
@@ -2081,7 +2095,7 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** Move between settings tabs without stacking a history entry per tab. */
   selectSettingsTab(tab: SettingsTab) {
-    this.router.navigate({ name: 'settings', params: { tab } }, { replace: true })
+    this.router.navigate({ name: 'settings', params: { tab: tab === 'projects' ? 'providers' : tab, projectCwd: this.settingsProjectCwd ?? undefined } }, { replace: true })
   }
 
   // ─── Arriving from outside ───

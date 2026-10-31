@@ -3,7 +3,6 @@ import { onMount, untrack } from "svelte";
 import {
   projectsStore,
   serversStore,
-  atlassianStore,
   connectRequestStore,
   seatsStore,
   presenceStore,
@@ -13,6 +12,7 @@ import {
   listenForProjectDirectory,
   hosts,
 } from "@solus/workspace-ui/contexts";
+import { atlassianStore } from "@solus/workspace-ui/contexts/atlassian/atlassian.store.svelte";
 import { snapshotPersistedTabs } from "@solus/workspace-ui/contexts/workspace/tab-snapshot";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";

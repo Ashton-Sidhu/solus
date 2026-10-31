@@ -9,6 +9,9 @@ and its decisions are in [`plans/mcp-integrations.md`](plans/mcp-integrations.md
 - **One search.** The search at the top of the page filters the installed
   servers and searches the catalog. Paste an `https://` address to connect a
   server that is not in the catalog; Enter opens the connect dialog for it.
+  A server that runs on the host itself can use plain HTTP on loopback, for
+  example `http://localhost:8000/mcp`. `localhost` is the host's, not the
+  client's.
 - **Views.** A rail beside the list shows All, Installed, and the catalog's
   categories (Productivity, Code and CI, Data and analytics, and others). In a
   narrow page the rail becomes a row of chips. Mobile filters the catalog with

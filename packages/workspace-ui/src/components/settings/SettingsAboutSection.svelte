@@ -14,7 +14,8 @@
    *  its commands. Web and mobile show the version row only; a browser cannot
    *  replace the binary that serves it (`docs/plans/desktop-updates.md`). */
   import { CLIENT_VERSION } from "@solus/client-core/version-skew";
-  import { serversStore, updatesStore } from "../../contexts";
+  import { serversStore } from "../../contexts";
+  import { updatesStore } from "../../contexts/updates/updates.store.svelte";
   import ModelProfilesRow from "./ModelProfilesRow.svelte";
   import GithubMarkdown from "../github-markdown/GithubMarkdown.svelte";
   import { Button } from "../ui/button";
@@ -43,8 +44,15 @@
 </script>
 
 <SettingsSection label="About Solus" {visible}>
-  <SettingsRow label="Version" description={`Solus ${version}`} bodyVisible={updatesStore.isAvailable}>
+  <SettingsRow
+    label="Version"
+    description={updatesStore.isAvailable ? `Solus ${version} · ${updateStatusLine(state)}` : `Solus ${version}`}
+    bodyVisible={updatesStore.isAvailable && (state.kind === "downloading" || !!releaseNotes)}
+  >
     {#snippet control()}
+      {#if updatesStore.isAvailable}
+        <span class="sr-only" aria-live="polite">{updateStatusLine(state)}</span>
+      {/if}
       {#if updatesStore.isAvailable && command}
         <Button
           variant={command.command === "restart" ? "default" : "outline"}
@@ -57,12 +65,6 @@
     {/snippet}
     {#snippet body()}
       <div class="flex flex-col gap-3">
-        <div
-          class="text-[0.875em] text-muted-foreground"
-          aria-live="polite"
-        >
-          {updateStatusLine(state)}
-        </div>
         {#if state.kind === "downloading"}
           <div
             class="h-1 w-full overflow-hidden rounded-full bg-muted"

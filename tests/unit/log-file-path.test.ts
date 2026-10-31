@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -89,7 +89,55 @@ function probeDevRuntimePaths(dataDir: string): { writes: string; opens: string 
   return JSON.parse(tagged.slice('PROBE:'.length))
 }
 
+// A Node server that another production process embeds (the Solus Cloud
+// container): no `appInfo`, no `SOLUS_INSTALL_DIR`, `NODE_ENV=production`. Runs
+// from `dataDir`, so a wrong answer writes its `dev.log` there, not in the repo.
+function probeEmbeddedServer(dataDir: string, extraEnv: Record<string, string> = {}): { stdout: string; files: string[] } {
+  const loggerModule = join(root, 'packages/server/src/logger.ts')
+  const probe = `
+    const { createLogger, flushLogs } = await import(${JSON.stringify(loggerModule)})
+    createLogger('test', 'log-file-path.test.ts').info('log_path_probe', { probe: 'value' })
+    flushLogs()
+  `
+  const env = { ...process.env, SOLUS_DATA_DIR: dataDir, NODE_ENV: 'production', ...extraEnv }
+  delete env.SOLUS_INSTALL_DIR
+  delete env.SOLUS_DEV_LOG
+  const result = Bun.spawnSync(['bun', '-e', probe], { cwd: dataDir, env })
+  if (!result.success) throw new Error(result.stderr.toString())
+  const files = [join(dataDir, 'dev.log'), join(dataDir, 'logs', 'solus.log')].filter((path) => existsSync(path))
+  return { stdout: result.stdout.toString(), files }
+}
+
 describe('host log file path', () => {
+  test('a production server with no launcher is not a development runtime', () => {
+    // WHY: the Solus Cloud container runs the server with NODE_ENV=production but
+    // no launcher. It was read as development: it logged at debug level and wrote
+    // `/app/dev.log`, which the unprivileged user cannot open, on every flush.
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-log-embedded-'))
+    try {
+      const { files } = probeEmbeddedServer(dataDir)
+      expect(files).toEqual([join(dataDir, 'logs', 'solus.log')])
+      expect(readFileSync(files[0], 'utf8')).toContain('log_path_probe')
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('SOLUS_LOG_STDOUT sends each entry to stdout as one JSON line and writes no file', () => {
+    // WHY: Cloudflare collects a container's stdout, not its files. Each line must
+    // be one JSON entry so the observability dashboard can filter on `msg` and
+    // `sessionId`; a file would only grow the container's saved `/data`.
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-log-stdout-'))
+    try {
+      const { stdout, files } = probeEmbeddedServer(dataDir, { SOLUS_LOG_STDOUT: '1' })
+      expect(files).toEqual([])
+      const entries = stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line))
+      expect(entries).toContainEqual(expect.objectContaining({ level: 'info', msg: 'log_path_probe', probe: 'value' }))
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('a test run never writes the running dev server\'s dev.log', () => {
     // WHY: a test is a development runtime started from the repo root. Its logger
     // truncated the live `dev.log` and wrote fixture entries into it, so the

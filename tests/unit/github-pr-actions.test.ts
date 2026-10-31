@@ -13,6 +13,19 @@ import { GitHubReauthRequiredError } from '@solus/server/providers/github/octoki
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 
 describe('GitHub pull request capabilities', () => {
+  test('lets only the author or a writer edit the title and description', () => {
+    // WHY: GitHub refuses a title or description change from anyone else, so
+    // the clients must not offer Edit on someone else's pull request to a
+    // reader. The author may edit without write access, as on GitHub.
+    const access = (viewer: string, canWrite: boolean) => githubPullRequestAccess({
+      viewer, author: 'author', canWrite, canTriage: true,
+      allowMergeCommit: true, allowSquashMerge: true, allowRebaseMerge: true, allowAutoMerge: false,
+    }).viewerPermissions.editPullRequest
+    expect(access('reader', false)).toBe(false)
+    expect(access('Author', false)).toBe(true)
+    expect(access('maintainer', true)).toBe(true)
+  })
+
   test('separates repository support from the viewer permission set', () => {
     // WHY: unsupported and unauthorized are different UI states. A read-only
     // viewer must not make provider features disappear for every user.

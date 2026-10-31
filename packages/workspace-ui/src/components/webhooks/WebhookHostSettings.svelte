@@ -8,7 +8,7 @@
    *  URL, and for a linked host whether Solus Cloud holds requests while it is
    *  offline. */
   import { untrack } from "svelte";
-  import { webhooksStore } from "../../contexts";
+  import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";

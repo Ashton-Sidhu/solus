@@ -20,7 +20,7 @@ import { isAgentNotice, nextMsgId } from './session.utils'
  *  (bare names). read/list/search observe; they open no exchange. */
 export function isAgentConversationTool(name: string | undefined): boolean {
   if (!name) return false
-  return name.endsWith('start_session') || name.endsWith('send_session') || name.endsWith('stop_session')
+  return name.endsWith('delegate_task') || name.endsWith('start_session') || name.endsWith('send_session') || name.endsWith('stop_session')
 }
 
 const SETTLED_STATUS = {
@@ -360,17 +360,14 @@ export class TranscriptAgentConversations {
     result: AgentConversationResultProjection | undefined,
     timestamp: number,
   ): void {
-    let input: z.infer<typeof sessionToolInputSchema> = {}
-    try {
-      input = sessionToolInputSchema.parse(JSON.parse(toolInput || '{}'))
-    } catch {}
+    const input = parseSessionToolInput(toolInput)
 
     if (toolName.endsWith('stop_session')) {
       const ref = input.session_id ? this.index.latestCard(input.session_id)?.agentConversationRef : undefined
       if (ref) ref.closedByAgent = true
       return
     }
-    if (toolName.endsWith('start_session')) {
+    if (/(?:start_session|delegate_task)$/.test(toolName)) {
       if (!result?.sessionId) return
       const { exchange } = this.index.open(result.sessionId, {
         messageId: result.messageId,
@@ -378,7 +375,7 @@ export class TranscriptAgentConversations {
         title: input.title,
         origin: 'created',
         provider: result.provider ?? input.agent_provider,
-        fireAndForget: input.report === false,
+        fireAndForget: !(input.report ?? !toolName.endsWith('start_session')),
         model: input.model_id,
         reasoningEffort: input.reasoning_effort,
         cwd: input.cwd ?? '',
@@ -441,5 +438,13 @@ export class TranscriptAgentConversations {
       settle(answered, report)
       answered.settledAt = timestamp
     }
+  }
+}
+
+function parseSessionToolInput(toolInput: string | undefined): z.infer<typeof sessionToolInputSchema> {
+  try {
+    return sessionToolInputSchema.parse(JSON.parse(toolInput || '{}'))
+  } catch {
+    return {}
   }
 }

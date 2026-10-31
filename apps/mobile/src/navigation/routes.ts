@@ -45,11 +45,18 @@ export type RootStackParamList = {
   /** The person's instructions, skills, and MCP servers, their sync, and their copy on each host (plans/020). */
   AgentProfile: undefined
   AppearanceSettings: undefined
+  ProviderInstances: { hostId: string; instanceId?: string; projectPath?: string }
+  SettingsScope: { hostId: string; projectPath?: string; axis?: "project" | "host" }
+  Providers: undefined
+  ProviderSettings: { provider: import("@solus/contracts/types").AgentId; hostId?: string; instanceId?: string }
+  ChatSettings: undefined
   AgentDefaults: undefined
   NotificationSettings: undefined
   /** One organization's settings; `organizationId` preselects it. */
   OrganizationSettings: { organizationId?: string } | undefined
   HostSettings: { hostId: string }
+  DeviceSettings: { hostId: string }
+  Devices: { hostId: string; sessionId?: string }
   /** How one host is reached: Solus Cloud link, organizations, network, pairing, and devices. */
   HostAccess: { hostId: string }
   GitHubConnection: { hostId: string }

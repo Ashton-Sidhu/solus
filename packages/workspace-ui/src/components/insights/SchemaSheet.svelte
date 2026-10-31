@@ -213,7 +213,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="fixed inset-0 z-[10020] flex items-start justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] px-4 pt-[7vh] sm:pt-[6vh] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+  class="fixed inset-0 z-[10020] flex items-start justify-center modal-backdrop px-4 pt-[7vh] sm:pt-[6vh] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   onclick={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}

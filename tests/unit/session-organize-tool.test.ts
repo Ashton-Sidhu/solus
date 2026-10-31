@@ -78,12 +78,22 @@ function viewOf(sessionId: string) {
 }
 
 describe('organize_session', () => {
-  test('settles the calling session by default for everyone, and unsettle reverses it', async () => {
+  test("settles the calling session by default in the person's own list, and unsettle reverses it", async () => {
+    // WHY: a settle is one person's: it must not change the shared state that
+    // every teammate reads.
     expect(await organize({ action: 'settle' })).toMatchObject({ ok: true, text: 'This session is settled.' })
-    expect(await stateOf('caller')).toMatchObject({ settledBy: 'person' })
+    expect((await viewOf('caller')).settledAt).not.toBeNull()
+    expect(await stateOf('caller')).toEqual(UNSETTLED_SESSION_STATE)
     expect(await organize({ action: 'settle' })).toMatchObject({ text: 'This session was settled already.' })
 
     expect(await organize({ action: 'unsettle' })).toMatchObject({ ok: true })
+    expect(await viewOf('caller')).toEqual(EMPTY_SESSION_VIEW)
+  })
+
+  test('unsettle ends a settle by the pull requests too', async () => {
+    await new states.SessionShelf('caller').settle('pull-request')
+    expect(await organize({ action: 'settle' })).toMatchObject({ text: 'This session was settled already.' })
+    expect(await organize({ action: 'unsettle' })).toMatchObject({ ok: true, text: 'This session is active again.' })
     expect(await stateOf('caller')).toEqual(UNSETTLED_SESSION_STATE)
   })
 
@@ -106,8 +116,7 @@ describe('organize_session', () => {
     expect(await organize({ action: 'archive' })).toMatchObject({ text: 'This session was archived already.' })
 
     expect(await organize({ action: 'unarchive' })).toMatchObject({ ok: true, text: 'This session is back in the list.' })
-    expect((await viewOf('caller')).archivedAt).toBeNull()
-    expect(await stateOf('caller')).toMatchObject({ settledBy: 'person' })
+    expect(await viewOf('caller')).toMatchObject({ archivedAt: null, settledAt: expect.any(Number) })
   })
 
   test('refuses a snooze the list could not show', async () => {
@@ -118,7 +127,19 @@ describe('organize_session', () => {
 
     await organize({ action: 'settle' })
     expect(await organize({ action: 'snooze', snoozed_until: '2026-10-12T00:00:00Z' })).toMatchObject({ ok: false })
-    expect(await viewOf('caller')).toEqual(EMPTY_SESSION_VIEW)
+    expect(await viewOf('caller')).toMatchObject({ snoozedUntil: null })
+  })
+
+  test('refuses an unknown argument instead of archiving the calling session', async () => {
+    // WHY: an agent that sends `session_ids` would lose it to parsing, leave
+    // session_id empty, and archive itself instead of the sessions it named.
+    const { executeAgentTool } = await import('@solus/server/execution/agents/tools/agent-tool')
+    const context = { cwd: process.cwd(), sessionId: () => 'caller', emit: () => {} } as never
+    const result = await withWorkspaceToolAuthority(OWNER, () =>
+      executeAgentTool(tool.organizeSessionAgentTool, { action: 'archive', session_ids: ['child'] }, context))
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('session_ids')
+    expect((await viewOf('caller')).archivedAt).toBeNull()
   })
 
   test('refuses a session that does not exist instead of writing a stray row', async () => {

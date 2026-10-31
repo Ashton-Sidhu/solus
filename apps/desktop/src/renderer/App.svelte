@@ -4,7 +4,7 @@
   import { installDesktopRuntime } from "./shell/desktop-runtime.svelte";
   import { installDesktopUpdates } from "./shell/desktop-updates.svelte";
   import { installDesktopKeybindings } from "./shell/desktop-keybindings.svelte";
-  import { createDesktopPalette } from "./shell/desktop-palette.svelte";
+  import type { createDesktopPalette } from "./shell/desktop-palette.svelte";
   import {
     attachmentTarget,
     createDesktopAttachments,
@@ -72,7 +72,13 @@
   } = createDesktopAttachments(core);
   const projectPicker = createProjectPicker(session);
   const { startOpenProject } = projectPicker;
-  const palette = createDesktopPalette(core, ui, startOpenProject);
+  // The palette's commands load with the palette, after the first paint: their
+  // modules reach SSH, WSL, device, Git, and settings code the first screen does
+  // not use. A shortcut before then opens the palette with its search only.
+  let palette = $state.raw<ReturnType<typeof createDesktopPalette> | null>(null);
+  void afterPaint()
+    .then(() => import("./shell/desktop-palette.svelte"))
+    .then((module) => { palette = module.createDesktopPalette(core, ui, startOpenProject); });
 
   let overlayEl: HTMLElement | null = $state(null);
   setPopoverLayer({
@@ -415,7 +421,7 @@
         <CommandPalette
           bind:open={ui.commandPaletteOpen}
           bind:initialPage={ui.paletteInitialPage}
-          commands={palette.commands}
+          commands={palette?.commands ?? []}
         />
       {/snippet}
     </LazyDialog>

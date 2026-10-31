@@ -211,6 +211,32 @@ describe('an MCP credential', () => {
     expect(await vault.read('alice', LINEAR)).toEqual({ location: 'account', read: { kind: 'reconnect-required' } })
   })
 
+  // WHY: a server can refuse a token before its stated expiry. Asking again without saying
+  // so got the same token back, so the person was told to sign in while the cloud could renew it.
+  test('a delivery the server refused is read again with `refused`, once, and told again after an outage', async () => {
+    let down = false
+    let issued = 0
+    const subject = vaultWith({
+      answer: async () => {
+        if (down) throw new Error('ECONNREFUSED')
+        issued += 1
+        return Response.json({ authorization: `Bearer t${issued}`, expiresAt: subject.now.at + 3_600_000, label: null })
+      },
+    })
+    const { vault, requests } = subject
+    await vault.read('alice', LINEAR)
+    vault.markRefused('alice', LINEAR)
+    down = true
+    expect(await vault.read('alice', LINEAR)).toEqual({ location: 'account', read: { kind: 'unreachable' } })
+    down = false
+    expect(await vault.read('alice', LINEAR)).toMatchObject({ read: { kind: 'ok', delivery: { authorization: 'Bearer t2' } } })
+    expect(await requests[2].json()).toEqual({ ref: { kind: 'mcp', serverUrl: LINEAR.serverUrl }, refused: true })
+    // The new token is cached; a later read after it expires asks plainly.
+    subject.now.at += 3_600_000
+    await vault.read('alice', LINEAR)
+    expect(await requests[3].json()).toEqual({ ref: { kind: 'mcp', serverUrl: LINEAR.serverUrl } })
+  })
+
   // WHY: after sign-out the host must not go on with a credential the ended delegation brought (ADR 0001 rule 5).
   test('a cleared cache answers nothing, not even while the cloud is down', async () => {
     let down = false

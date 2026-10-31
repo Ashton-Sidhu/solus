@@ -11,7 +11,8 @@ import {
   deviceShutdownRequestSchema,
   deviceTargetSchema,
   deviceToolUpdateRequestSchema,
-  sshDeviceHostConfigSchema,
+  deviceHostConfigSchema,
+  DEVICE_SECRET_SAVED,
   type DeviceControlHolder,
   type DeviceHostTestResult,
   type SshDeviceHostConfig,
@@ -19,6 +20,9 @@ import {
 import { userKey } from '@solus/contracts/user'
 import type { HandlerCtx, SolusServer } from '../server'
 import { configureDevices, type DeviceDomain } from '../../devices/device-domain'
+import { ExpoDeviceApi } from '../../devices/expo-device-api'
+import { SimlockDeviceHost } from '../../devices/simlock-device-host'
+import { join } from 'node:path'
 import { DeviceDomainError } from '../../devices/device-errors'
 import { DeviceProjectDetector } from '../../devices/device-project'
 import { runDeviceCommand } from '../../devices/device-process'
@@ -80,15 +84,37 @@ export function registerDeviceHandlers(
     return configureDevices(deps.domain, parse(deviceConfigureRequestSchema, args[0]))
   })
   server.register('deviceHostSave', async (args) => {
-    const config = parse(sshDeviceHostConfigSchema, args[0])
+    const config = parse(deviceHostConfigSchema, args[0])
+    if ('kind' in config) return manager.saveCloudHost(config)
     const hosts = manager.settings().sshHosts.filter((host) => host.id !== config.id)
     return manager.saveSshHosts([...hosts, config])
   })
   server.register('deviceHostRemove', async (args) => {
     const deviceHostId = parse(z.string().min(1).max(128), args[0])
+    if (manager.settings().cloudHosts?.some((host) => host.id === deviceHostId)) return manager.removeCloudHost(deviceHostId)
     return manager.saveSshHosts(manager.settings().sshHosts.filter((host) => host.id !== deviceHostId))
   })
-  server.register('deviceHostTest', (args) => deps.testSshHost(parse(sshDeviceHostConfigSchema, args[0])))
+  server.register('deviceHostTest', async (args): Promise<DeviceHostTestResult> => {
+    const config = parse(deviceHostConfigSchema, args[0])
+    if (!('kind' in config)) return deps.testSshHost(config)
+    const saved = manager.settings().cloudHosts?.find((host) => host.id === config.id)
+    if (config.kind === 'eas' && config.accessToken === DEVICE_SECRET_SAVED) config.accessToken = saved?.kind === 'eas' ? saved.accessToken : ''
+    if (config.kind === 'simlock' && config.agentToken === DEVICE_SECRET_SAVED) {
+      if (saved?.kind !== 'simlock' || saved.gatewayUrl !== config.gatewayUrl) throw new Error('Enter a token for this gateway.')
+      config.agentToken = saved.agentToken
+    }
+    try {
+      if (config.kind === 'eas') {
+        const apps = await new ExpoDeviceApi(config.accessToken).check(config.appId)
+        return { ok: true, isLocal: false, apps, checks: [{ name: 'expo', ok: true, detail: 'Expo account and EAS Simulator access checked.' }] }
+      }
+      const host = new SimlockDeviceHost(config, join(deps.domain.agentConfigDir, 'check'), deps.domain.toolchain, runDeviceCommand)
+      const name = await host.check()
+      return { ok: true, isLocal: false, checks: [{ name: 'simlock', ok: true, detail: `Connected as ${name}.` }] }
+    } catch (error) {
+      return { ok: false, isLocal: false, checks: [{ name: config.kind === 'eas' ? 'expo' : 'simlock', ok: false, detail: error instanceof Error ? error.message : 'Connection check failed.' }] }
+    }
+  })
   server.register('deviceToolUpdate', (args) => {
     const request = parse(deviceToolUpdateRequestSchema, args[0])
     return manager.updateTool(request.deviceHostId, request.tool)
@@ -103,9 +129,9 @@ export function registerDeviceHandlers(
     requirePerson(ctx)
     return manager.open(parse(deviceOpenRequestSchema, args[0]), 'user')
   })
-  server.register('deviceClose', (args, ctx) => {
+  server.register('deviceClose', async (args, ctx) => {
     requirePerson(ctx)
-    manager.close(parse(deviceCloseRequestSchema, args[0]))
+    await manager.close(parse(deviceCloseRequestSchema, args[0]))
   })
   server.register('deviceShutdown', async (args, ctx) => {
     const request = parse(deviceShutdownRequestSchema, args[0])
@@ -163,8 +189,8 @@ export function registerDeviceHandlers(
   server.register('deviceStreamUrl', async (args, ctx) => {
     requirePerson(ctx)
     const target = parse(deviceTargetSchema, args[0])
-    const { device } = await manager.resolveDevice(target.deviceHostId, target.deviceId)
-    return { path: deps.domain.hubProxy.mint(ctx.clientId, target, device.platform), platform: device.platform }
+    const { device, ready } = await manager.resolveDevice(target.deviceHostId, target.deviceId)
+    return { serveSimOnly: ready.serveSimOnly, cloud: !!ready.devices, path: deps.domain.hubProxy.mint(ctx.clientId, target, device.platform), platform: device.platform }
   })
   server.register('deviceScreenshot', async (args, ctx) => {
     requirePerson(ctx)

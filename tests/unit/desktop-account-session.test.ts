@@ -3,10 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AccountState } from '@solus/contracts/account-types'
-import { ACCOUNT_AUDIENCE, hostAudience } from '@solus/contracts/uplink'
+import { ACCOUNT_AUDIENCE, hostAudience, type DirectoryResponse } from '@solus/contracts/uplink'
 import type { BrowserAuthorizer } from '@solus/client-core/oauth-session'
 import { AccountSession } from '@solus/desktop-main/account/account-session'
 import { AccountStore } from '@solus/desktop-main/account/account-store'
+import { listDirectory } from '@solus/desktop-main/account/uplink-client'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
 // The desktop's account sign-in (ADR 0001 §3.3): one OAuthSession in main serves every
@@ -16,7 +17,7 @@ import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
 
-function world(options: { keychainAtStart?: boolean } = {}) {
+function world(options: { keychainAtStart?: boolean; startupDirectory?: DirectoryResponse } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'solus-account-session-'))
   directories.push(directory)
   let keychain = options.keychainAtStart ?? true
@@ -25,7 +26,7 @@ function world(options: { keychainAtStart?: boolean } = {}) {
     encryptString: (value) => Buffer.from(value),
     decryptString: (value) => value.toString(),
   })
-  const plane = fakeAccountPlane()
+  const plane = fakeAccountPlane({ startupDirectory: options.startupDirectory })
   const authorizer: BrowserAuthorizer = {
     async start() {
       return { redirectUri: 'http://127.0.0.1:50001/callback', complete: async (url) => plane.approve(url), cancel() {} }
@@ -37,7 +38,32 @@ function world(options: { keychainAtStart?: boolean } = {}) {
 }
 
 describe('desktop account session', () => {
-  test('every window and the local host share one refresh for a host', async () => {
+  test('serves the first account and settings read from the login response', async () => {
+    const w = world()
+    const session = w.make()
+    await session.signIn()
+    expect((await session.cloudRequest('/v1/account'))?.status).toBe(200)
+    expect((await session.cloudRequest('/v1/account/settings'))?.status).toBe(200)
+    expect(w.plane.calls.filter(call => call.path.startsWith('/v1/'))).toHaveLength(0)
+    await session.cloudRequest('/v1/account')
+    await session.cloudRequest('/v1/account/settings')
+    expect(w.plane.calls.filter(call => call.path.startsWith('/v1/'))).toHaveLength(2)
+  })
+  test('serves the first directory read from the login response, and the next from the website', async () => {
+    const startupDirectory: DirectoryResponse = {
+      hosts: [{ hostId: 'host-1', installationId: 'install-1', label: 'Laptop', routes: [], kind: 'personal', category: 'personal', organizationIds: [] }],
+      workspaces: [],
+    }
+    const w = world({ startupDirectory })
+    const session = w.make()
+    await session.signIn()
+    expect(await listDirectory(session)).toEqual({ directoryUrl: ISSUER, ...startupDirectory })
+    expect(w.plane.calls.filter(call => call.path === '/v1/hosts')).toHaveLength(0)
+    await session.cloudRequest('/v1/hosts')
+    expect(w.plane.calls.filter(call => call.path === '/v1/hosts')).toHaveLength(1)
+  })
+
+  test('every window and the local host share one host exchange without a startup refresh', async () => {
     const w = world()
     const session = w.make()
     expect(await session.signIn()).toBe('approved')
@@ -47,7 +73,7 @@ describe('desktop account session', () => {
     ])
     expect(owner).toBe(window)
     expect(owner).toContain(hostAudience('host-1'))
-    expect(w.plane.calls.filter((call) => call.form.get('grant_type') === 'refresh_token')).toHaveLength(1)
+    expect(w.plane.calls.filter((call) => call.form.get('grant_type') === 'refresh_token')).toHaveLength(0)
   })
 
   test('a website call carries an access token for the account plane, never the refresh token', async () => {

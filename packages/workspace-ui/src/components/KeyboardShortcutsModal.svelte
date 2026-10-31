@@ -135,7 +135,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     data-solus-ui
-    class="shortcuts-backdrop fixed inset-0 z-[10020] flex items-center justify-center bg-black/5 dark:bg-black/30"
+    class="shortcuts-backdrop fixed inset-0 z-[10020] flex items-center justify-center modal-backdrop"
     role="presentation"
     onclick={(e) => { if (e.target === e.currentTarget) close() }}
   >

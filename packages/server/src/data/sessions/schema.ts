@@ -38,11 +38,19 @@ export const sessionRecords = defineTable('session_records', {
   delegation_depth: integer(),
   delegation_intent: text(),
   delegation_created_at: bigint(),
+  /** `chat` or `project` (docs/plans/session-starter.md), written once when the host makes the session; null before. */
+  place: text(),
+  /** What started the session, as JSON (`SessionStarter`), written once as `place` is. */
+  started_by: text(),
 }, {
   indexes: [
     { name: 'sessions_api_page', columns: ['organization_id', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
     { name: 'sessions_api_provider_page', columns: ['organization_id', 'provider', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
     { name: 'sessions_api_activity_page', columns: ['organization_id', 'last_activity_at', 'session_id'], descending: ['last_activity_at', 'session_id'] },
+    // The recent sessions of a person's list on a host that reads every organization (`readSessionListPage`).
+    { name: 'session_records_by_activity', columns: ['last_activity_at'] },
+    // The chats of a home: the picker asks for them beside a project (unified-search.md decision 12).
+    { name: 'session_records_by_place', columns: ['place', 'last_activity_at'] },
   ],
 })
 
@@ -89,7 +97,11 @@ export const sessionPullRequests = defineTable('session_pull_requests', {
   organization_id: text({ notNull: true, default: 'local' }),
 }, {
   primaryKey: ['session_id', 'repository', 'number'],
-  indexes: [{ name: 'session_pull_requests_by_pull_request', columns: ['repository', 'number'] }],
+  indexes: [
+    { name: 'session_pull_requests_by_pull_request', columns: ['repository', 'number'] },
+    // The open links, which keep their sessions in every list (`readSessionListPage`).
+    { name: 'session_pull_requests_open', columns: ['session_id'], where: "source <> 'dismissed' AND (pr_state IS NULL OR pr_state NOT IN ('merged', 'closed', 'missing'))" },
+  ],
 })
 
 /**
@@ -124,9 +136,10 @@ export const sessionPullRequestWatches = defineTable('session_pull_request_watch
  */
 export const sessionStates = defineTable('session_states', {
   session_id: text({ primaryKey: true }),
-  /** When the session became settled. Null while it is active. */
+  /** When its pull requests or task settled the session. Null while it is
+   *  active. A person's settle is in `session_views`. */
   settled_at: bigint(),
-  /** What settled it: `person`, `pull-request`, `task`, or `idle`. */
+  /** What settled it: `pull-request`, `task`, or `idle`. */
   settled_by: text(),
   /** When a person made a settled session active again. Its pull requests
    *  settle it again only if they end after this time. */
@@ -154,6 +167,8 @@ export const sessionStates = defineTable('session_states', {
 export const sessionViews = defineTable('session_views', {
   session_id: text({ notNull: true }),
   person_key: text({ notNull: true }),
+  /** When this person settled the session. */
+  settled_at: bigint(),
   /** When this person took the session out of their list. */
   archived_at: bigint(),
   snoozed_until: bigint(),
@@ -161,7 +176,11 @@ export const sessionViews = defineTable('session_views', {
   organization_id: text({ notNull: true, default: 'local' }),
 }, {
   primaryKey: ['session_id', 'person_key'],
-  indexes: [{ name: 'session_views_by_person', columns: ['person_key', 'session_id'] }],
+  indexes: [
+    { name: 'session_views_by_person', columns: ['person_key', 'session_id'] },
+    // A person's snoozes, which keep old sessions in their list (`readSessionListPage`).
+    { name: 'session_views_snoozed', columns: ['person_key', 'session_id'], where: 'snoozed_until IS NOT NULL' },
+  ],
 })
 
 /**

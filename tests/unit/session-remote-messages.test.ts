@@ -125,7 +125,7 @@ describe('files sent with a message', () => {
 describe('messages to a session on another host', () => {
   test('start_session uploads its files to that host and names them by their paths there', async () => {
     const b = hostB()
-    const target: RemoteTarget = { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'parent' } }
+    const target: RemoteTarget = { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } }
     const source = join(root, 'source')
     rmSync(source, { recursive: true, force: true })
     mkdirSync(source)
@@ -151,15 +151,15 @@ describe('messages to a session on another host', () => {
     // organization is refused, and a Local parent's child must not become organization work.
     const b = hostB()
     const orchestration = orchestrator()
-    await orchestration.spawn('org-parent', { ...ORDER, prompt: 'Org work.' }, true, 0, undefined, { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'org-parent' } })
-    await orchestration.spawn('parent', { ...ORDER, prompt: 'Local work.' }, true, 0, undefined, { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'parent' } })
+    await orchestration.spawn('org-parent', { ...ORDER, prompt: 'Org work.' }, true, 0, undefined, { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'org-parent' } })
+    await orchestration.spawn('parent', { ...ORDER, prompt: 'Local work.' }, true, 0, undefined, { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } })
     await orchestration.settled()
     expect(b.started.map((request) => [request.prompt, request.organizationId])).toEqual([['Org work.', 'org-a'], ['Local work.', undefined]])
   })
 
   test('send_session hears the turn that answers its message, not the turn in progress', async () => {
     const b = hostB()
-    const target: RemoteTarget = { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'parent' } }
+    const target: RemoteTarget = { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } }
     const orchestration = orchestrator()
     const child = await orchestration.spawn('parent', { ...ORDER, prompt: 'Start.' }, true, 0, undefined, target)
     await orchestration.settled()
@@ -188,7 +188,7 @@ describe('messages to a session on another host', () => {
 
   test('send_session reaches only a session this sender started on that host', async () => {
     const b = hostB()
-    const target: RemoteTarget = { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'parent' } }
+    const target: RemoteTarget = { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } }
     await expect(orchestrator().send('parent', 'someone-elses', { prompt: 'Hi.', delivery: 'queue', notify: true }, target))
       .rejects.toThrow('was not started on Host B by this session')
     expect(b.prompted).toEqual([])

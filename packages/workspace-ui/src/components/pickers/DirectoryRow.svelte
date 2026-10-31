@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { CornerLeftUp as ArrowElbowLeftUpIcon, File as FileIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
+  import { CornerLeftUp as ArrowElbowLeftUpIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { TouchLongPress } from "../../lib/touch-long-press";
@@ -76,7 +77,7 @@
     {#if isRepo}
       <GitBranchIcon size={13} class="shrink-0 text-primary" />
     {:else if isFile}
-      <FileIcon size={13} class="shrink-0 text-muted-foreground" />
+      <FileIcon path={name} size={13} class="text-muted-foreground" />
     {:else}
       <FolderIcon size={13} class="shrink-0 text-muted-foreground" />
     {/if}

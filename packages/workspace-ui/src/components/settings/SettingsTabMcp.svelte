@@ -165,7 +165,7 @@
   {@const integration = installedByUrl.get(url)}
   {#if integration && isReady(integration)}
     <!-- The same box as the small Connect button beside it, so the column's edge stays even. -->
-    <span class="flex h-7 shrink-0 items-center gap-1 rounded-[min(var(--radius-md),12px)] bg-muted px-2.5 text-workspace-chrome text-foreground pointer-coarse:min-h-11"><Check size={14} class="text-(--solus-status-complete)" />Connected</span>
+    <span class="flex h-7 shrink-0 items-center px-2.5 pointer-coarse:min-h-11" title="Connected"><Check size={16} strokeWidth={2.5} class="text-(--solus-status-complete)" aria-hidden="true" /><span class="sr-only">Connected</span></span>
   {:else}
     <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline}
       onclick={() => { connectRequest = { name: integration?.name ?? name, url, icon, integrationId: integration?.id, authHelp }; }} aria-label="Connect {name}">Connect</Button>

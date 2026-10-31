@@ -29,7 +29,7 @@
 <AlertDialog.Root bind:open>
   <AlertDialog.Portal>
     <AlertDialog.Overlay
-      class="fixed inset-0 z-50 bg-[color-mix(in_oklch,var(--solus-container-bg)_72%,transparent)]"
+      class="fixed inset-0 z-50 modal-backdrop"
     />
     <AlertDialog.Content
       class="text-workspace-chrome fixed top-1/2 left-1/2 z-50 flex w-[min(22rem,calc(100vw-2rem))] -translate-1/2 flex-col gap-2.5 rounded-[14px] bg-[var(--popover)] p-3.5 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0.5rem_1rem_-0.5rem_rgba(0,0,0,0.18),0_2rem_3rem_-1.5rem_rgba(0,0,0,0.34)]"

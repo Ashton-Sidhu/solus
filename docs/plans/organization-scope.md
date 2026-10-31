@@ -414,6 +414,11 @@ The client core owns one in-memory selection per window. Storage seeds that
 selection once; it is not read again as a live selection source. Directory
 refresh retains the selection while membership permits it. Denied browser
 storage must not cause API routing and the visible selection to disagree.
+
+On mobile, a restored sign-in restores the device's saved organization before
+the first directory read. A paired host can then list its organization sessions
+while Solus Cloud is unavailable. The next successful directory read reconciles
+the choice with current membership; sign-out clears it.
 Cross-organization links select the appropriate context or open another window.
 
 Sign-out closes organization connections, clears rendered organization data

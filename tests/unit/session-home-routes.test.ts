@@ -58,7 +58,7 @@ test("a session's pull requests are linked on the link route: put links, the sam
   expect((await (await call('GET', '/sessions/s1/pull-requests')).json()).items).toEqual([])
 })
 
-test("one PATCH archives in the caller's list and settles for everyone", async () => {
+test("one PATCH archives and settles in the caller's list", async () => {
   const archived = await call('PATCH', '/sessions/s1', { archived: true })
   expect(archived.status).toBe(200)
   expect((await archived.json()).view.archivedAt).toEqual(expect.any(Number))
@@ -71,7 +71,9 @@ test("one PATCH archives in the caller's list and settles for everyone", async (
   expect(await inList()).toEqual(['s1'])
 
   const settled = await call('PATCH', '/sessions/s1', { settled: true })
-  expect((await settled.json()).state).toMatchObject({ settledBy: 'person' })
+  const settledBody = await settled.json()
+  expect(settledBody.view.settledAt).toEqual(expect.any(Number))
+  expect(settledBody.state).toBeUndefined()
   // The view route is gone: a person's view is a field of the session.
   expect((await call('PATCH', '/me/sessions/s1', { archived: true })).status).toBe(404)
 })

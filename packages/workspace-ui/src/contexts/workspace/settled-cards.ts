@@ -15,7 +15,7 @@ import { runHost } from './run-location'
 export function clearSettledCards(session: Session): void {
   if (session.statusCard && session.statusCard.status !== 'active') session.statusCard = null
   const serverId = runHost(session.run)
-  if (connectRequestStore.visibleFor(serverId, session.id)) connectRequestStore.dismiss()
+  connectRequestStore.dismiss(serverId, session.id)
   if (turnRefusalStore.visibleFor(serverId, session.id)) turnRefusalStore.dismiss()
   if (seatsStore.visibleFor(serverId, session.id)) seatsStore.dismiss()
   const authPhase = agentAuthStore.flow?.phase

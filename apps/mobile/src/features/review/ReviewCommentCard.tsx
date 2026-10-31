@@ -2,7 +2,7 @@
 import { memo, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text as NativeText, View, type ColorValue } from "react-native";
 import { AppText as Text } from "../../components/AppText";
-import { SymbolView } from "../../components/AppSymbol";
+import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAppearanceCodeSurface } from "../settings/appearance/useAppearanceCodeSurface";
@@ -138,12 +138,7 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
           className="size-6 items-center justify-center rounded-[7px] border-continuous"
           style={{ backgroundColor: colors.mutedBackground }}
         >
-          <SymbolView
-            name="doc.text"
-            size={13}
-            tintColor={colors.mutedText}
-            type="monochrome"
-          />
+          <PierreEntryIcon path={props.comment.filePath} size={13} />
         </View>
         <View className="min-w-0 flex-1">
           <Text

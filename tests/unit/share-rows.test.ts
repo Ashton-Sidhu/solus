@@ -20,6 +20,7 @@ import {
   linkExpiryLabel,
   linkExpiryValue,
   linkSettingsSummary,
+  presetLinkSummary,
 } from '../../packages/workspace-ui/src/components/sharing/lib/share-rows'
 import { DEFAULT_LINK_ACTIONS } from '@solus/contracts/shareable-actions'
 import { appLinkUrl } from '../../packages/workspace-ui/src/contexts/sharing/app-link'
@@ -287,6 +288,13 @@ describe('a custom link (docs/plans/custom-roles.md §4)', () => {
     expect(linkSettingsSummary({ role: 'custom', actions: ['read.transcript', 'read.diffs', 'drive.propose', 'drive.attach'], expiresAt: 5 * hour }, 0)).toBe('4 permissions · expires in 5 hours')
     expect(linkSettingsSummary({ role: 'custom', actions: ['read.transcript'], expiresAt: null }, 0)).toBe('1 permission · never expires')
     expect(linkSettingsSummary({ role: 'viewer', expiresAt: null }, 0)).toBe('Never expires')
+  })
+
+  test('a View or Edit link says in one fixed line what anyone with it can do, and an Edit session link says it can approve', () => {
+    // WHY: Edit gives approvals, which run commands on the owner's computer; the sharer must read that where the switches would be.
+    expect(presetLinkSummary('editor', 'session')).toContain('approvals included')
+    expect(presetLinkSummary('viewer', 'session')).not.toContain('approv')
+    expect(presetLinkSummary('editor', 'work')).toBe('Anyone with the link can edit it.')
   })
 
   test('the Expires menu shows when the link stops working, in the words of its choices', () => {

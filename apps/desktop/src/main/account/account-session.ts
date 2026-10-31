@@ -1,6 +1,7 @@
 import type { AccountState, SignInEnd } from '@solus/contracts/account-types'
 import { SOLUS_CLIENT_IDS, type TokenResource } from '@solus/contracts/auth/clients'
 import { OAuthSession, type BrowserAuthorizer } from '@solus/client-core/oauth-session'
+import { ACCOUNT_SETTINGS_PATH } from '@solus/contracts/settings'
 import { createLogger } from '@solus/server/logger'
 import type { AccountStore } from './account-store'
 
@@ -102,6 +103,29 @@ export class AccountSession {
    * the website did not answer. The token is added here and nowhere else.
    */
   async cloudRequest(path: string, init: RequestInit = {}): Promise<Response | null> {
+    const method = init.method?.toUpperCase() ?? 'GET'
+    if (method === 'GET') {
+      if (path === '/v1/account') {
+        const startup = this.oauth.takeStartupAccount()
+        if (startup) return Response.json(startup)
+      }
+      if (path === '/v1/hosts') {
+        const startup = this.oauth.takeStartupDirectory()
+        if (startup) return Response.json(startup)
+      }
+      if (path === ACCOUNT_SETTINGS_PATH) {
+        try {
+          const startup = await this.oauth.takeStartupSettings()
+          if (startup) return Response.json(startup)
+        } catch {
+          return Response.json({ error: 'invalid_response' }, { status: 500 })
+        }
+      }
+    } else {
+      this.oauth.takeStartupAccount()
+      this.oauth.takeStartupDirectory()
+      await this.oauth.takeStartupSettings().catch(() => null)
+    }
     const token = await this.oauth.accessToken({ kind: 'account' })
     if (!token) {
       log.info('cloud_request_skipped_no_token', { path, state: this.current().kind })

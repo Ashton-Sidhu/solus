@@ -16,6 +16,7 @@ function demoSessionRecord(meta: SessionMeta, store: DemoStore): SessionRecord {
     createdAt: lastActivityAt, lastActivityAt, size: meta.size,
     cwd: meta.cwd || null, slug: meta.slug, isWorktree: meta.isWorktree ?? false,
     branch: meta.branch ?? null, projectRoot: meta.projectRoot ?? null, delegation: null,
+    place: meta.place ?? null, startedBy: meta.startedBy ?? null,
     pullRequests: store.sessionPullRequests(meta.sessionId),
   }
 }
@@ -46,6 +47,10 @@ function markSessionLoaded(sessionId: string): void {
 export function registerSessionsHandlers(backend: DemoServer, store: DemoStore): void {
   // The demo host has read every session: it is never still indexing.
   backend.register('sessionRecordList', () => ({ records: store.listSessions().map((meta) => demoSessionRecord(meta, store)), indexing: false }))
+  backend.register('sessionRecordGet', (args) => {
+    const meta = store.listSessions().find((session) => session.sessionId === arg<string>(args, 0))
+    return meta ? demoSessionRecord(meta, store) : null
+  })
   backend.register('sessionRecordSearch', (args) => {
     const query = arg<SessionRecordSearchQuery>(args, 0)
     const results = store.searchSessions({ query: query.query })

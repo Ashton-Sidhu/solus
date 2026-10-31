@@ -29,6 +29,7 @@ class NotificationHubStore {
   /** Organization ids two directories list, which no single service answers for. */
   conflicts = $state<string[]>([])
   private client: NotificationHubClient | null = null
+  private readonly unreadRoseListeners = new Set<(serverId: string) => void>()
   private stopTracking: (() => void) | null = null
   private historyReaders = 0
 
@@ -69,6 +70,7 @@ class NotificationHubStore {
               rows: this.rows,
               sources: this.sources,
               pending: this.pending,
+              onUnreadRose: (source) => { for (const listener of this.unreadRoseListeners) listener(source.serverId) },
             })
             this.client.setFilter(this.filter)
             this.client.setHistoryVisible(this.historyReaders > 0)
@@ -89,6 +91,13 @@ class NotificationHubStore {
 
   private get filter() {
     return this.kinds.length ? { view: this.view, kinds: [...this.kinds] } : { view: this.view }
+  }
+
+  /** Hear when a source's unread count goes up: something new is addressed
+   *  to the reader on that server. */
+  onUnreadRose(listener: (serverId: string) => void): () => void {
+    this.unreadRoseListeners.add(listener)
+    return () => { this.unreadRoseListeners.delete(listener) }
   }
 
   /** A visible page owns history; the shell owns counts and subscriptions. */

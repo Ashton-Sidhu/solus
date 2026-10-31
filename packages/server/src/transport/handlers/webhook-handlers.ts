@@ -91,7 +91,7 @@ export function registerWebhookHandlers(server: SolusServer, deps: WebhookHandle
   })
 
   // The answer of a `secret` card (plan §3.6). It never passes through respondQuestion.
-  server.register('secretRequestAnswer', async ([sessionId, questionId, value]) => answerSecretRequest(sessionId, questionId, value))
+  server.register('secretRequestAnswer', async ([sessionId, questionId, values]) => answerSecretRequest(sessionId, questionId, values))
 
   server.register('hostWebhookSettingsRead', async () => hostSettings())
 

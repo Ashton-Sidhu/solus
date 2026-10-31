@@ -16,12 +16,10 @@ const MAX_DIFF_PATCH_CHARS = 40_000
 const MAX_DIFF_PATCH_BYTES = 2_000_000
 const MAX_TEMPLATE_CHARS = 8_000
 
-const TEMPLATE_PATHS = [
-  '.github/pull_request_template.md',
-  '.github/PULL_REQUEST_TEMPLATE.md',
-  'docs/pull_request_template.md',
-  'PULL_REQUEST_TEMPLATE.md',
-] as const
+/** The folders GitHub reads a template from, in priority order; '' is the root. */
+const TEMPLATE_FOLDERS = ['.github/', 'docs/', ''] as const
+/** GitHub matches the name in any letter case, as Markdown or as text. */
+const TEMPLATE_NAME = /^pull_request_template\.(?:md|txt)$/i
 
 export interface PullRequestDraft {
   title: string
@@ -60,11 +58,19 @@ async function resolveBaseRef(cwd: string, baseBranch: string): Promise<string> 
 }
 
 async function readTemplate(cwd: string, baseRef: string): Promise<string | null> {
-  for (const templatePath of TEMPLATE_PATHS) {
-    // A template is optional: a path the base does not hold is not an error.
-    const template = await runAsync('git', ['show', `${baseRef}:${templatePath}`], cwd, { raw: true })
-      .catch(() => '')
-    if (template.trim()) return limit(template.trim(), MAX_TEMPLATE_CHARS)
+  // A template is optional: a base that holds none is not an error.
+  const listing = await runAsync('git', ['ls-tree', '-z', '--name-only', '--full-tree', baseRef, '--', ...TEMPLATE_FOLDERS.map((folder) => folder || '.')], cwd, { raw: true })
+    .catch(() => '')
+  const paths = listing.split('\0')
+  for (const folder of TEMPLATE_FOLDERS) {
+    const candidates = paths
+      .filter((path) => path.startsWith(folder) && TEMPLATE_NAME.test(path.slice(folder.length)))
+      .sort((a, b) => Number(!/\.md$/i.test(a)) - Number(!/\.md$/i.test(b)))
+    for (const templatePath of candidates) {
+      const template = await runAsync('git', ['show', `${baseRef}:${templatePath}`], cwd, { raw: true })
+        .catch(() => '')
+      if (template.trim()) return limit(template.trim(), MAX_TEMPLATE_CHARS)
+    }
   }
   return null
 }

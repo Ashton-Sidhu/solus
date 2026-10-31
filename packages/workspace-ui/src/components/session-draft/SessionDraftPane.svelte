@@ -194,9 +194,9 @@
         class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
         ><ProjectFavicon
           projectKey={groupKeyFor(checkoutPlace(draft?.run)?.serverId ?? "", projectRoot)}
-          class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
+          class="mr-[0.28em] ml-[0.05em] size-[1cap] translate-y-[0.08em] self-center"
         /><span
-          class="min-w-0 overflow-x-clip text-ellipsis underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"
+          class="min-w-0 overflow-x-clip text-ellipsis underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.16em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"
           >{projectName}</span
         ></button
       >?

@@ -2,12 +2,16 @@ import type { Message } from '@solus/contracts/types'
 import { untrack } from 'svelte'
 import {
   buildTurns,
-  groupMessages,
+  emptyGrouping,
+  finishGrouping,
+  groupInto,
   opensSegment,
+  resumeGrouping,
   reuseGroupedItems,
   runContinuesBefore,
   withoutProviderRoundTrips,
   type GroupedItem,
+  type Grouping,
   type Turn,
 } from './turns'
 import { messageTurnIds } from './transcript-navigation'
@@ -19,8 +23,18 @@ import { artifactRevisions, reuseArtifactRevisions, type ArtifactRevision } from
  * streamed token, a tool result — recomputes that segment and nothing else.
  */
 class TranscriptSegment {
+  /** The grouping of every message but the last. It reads only those
+   *  messages, so a token streamed into the last one does not regroup them. */
+  private readonly head: Grouping = $derived.by(() => {
+    const grouping = emptyGrouping()
+    groupInto(grouping, this.messages, 0, this.messages.length - 1)
+    return grouping
+  })
+
   readonly grouped: GroupedItem[] = $derived.by(() => {
-    const next = reuseGroupedItems(groupMessages(this.messages), this.previousGrouped)
+    const grouping = resumeGrouping(this.head)
+    groupInto(grouping, this.messages, this.messages.length - 1, this.messages.length)
+    const next = reuseGroupedItems(finishGrouping(grouping), this.previousGrouped)
     this.previousGrouped = next
     return next
   })
@@ -73,6 +87,24 @@ function startsSegment(message: Message): boolean {
   return starts
 }
 
+function isProviderSwitch(message: Message): boolean {
+  return message.activity?.kind === 'agent_switched'
+}
+
+/**
+ * How many leading segments an append leaves as they are: all but the last,
+ * unless the transcript ends in provider switches, which a new switch can
+ * still cancel (`withoutProviderRoundTrips`). Then the cut goes back to the
+ * segment that holds the last other message, so those switches and the
+ * messages a cancel brings together are cut again.
+ */
+function keptOnAppend(segments: TranscriptSegment[]): number {
+  let from = segments.length - 1
+  if (!isProviderSwitch(segments[from].messages[segments[from].messages.length - 1])) return from
+  while (from > 0 && segments[from].messages.every(isProviderSwitch)) from--
+  return from
+}
+
 /**
  * The turns of one transcript, built segment by segment (`opensSegment`).
  *
@@ -85,6 +117,9 @@ function startsSegment(message: Message): boolean {
 export class TranscriptTurns {
   private previousSegments: TranscriptSegment[] = []
   private previousRows: Message[] = []
+  /** Where the rows the last `rows` call added begin, when it only appended
+   *  to the end; -1 for any other change. */
+  private appendedFrom = -1
 
   /**
    * A plain copy of the transcript's rows. Tracked: the length and the two
@@ -102,8 +137,10 @@ export class TranscriptTurns {
     const rows = untrack(() => {
       const previous = this.previousRows
       const added = length - previous.length
+      this.appendedFrom = -1
       if (added >= 0 && previous.length > 0) {
         if (first === previous[0] && source[previous.length - 1] === previous[previous.length - 1]) {
+          this.appendedFrom = previous.length
           const next = previous.slice()
           for (let i = previous.length; i < length; i++) next.push(source[i])
           return next
@@ -121,12 +158,21 @@ export class TranscriptTurns {
   }
 
   readonly segments: TranscriptSegment[] = $derived.by(() => {
-    // Untracked like `startsSegment`: a switch's activity is set when the row is made.
     const rows = this.rows(this.messages())
-    const messages = untrack(() => withoutProviderRoundTrips(rows))
+    const previous = this.previousSegments
+    // An append changes only the end: the last segment, and the provider
+    // switches still open before it, which a new switch can cancel. Every
+    // segment before those is kept and not walked. Any other change cuts the
+    // whole transcript again.
+    const kept = this.appendedFrom >= 0 && previous.length > 0 ? untrack(() => keptOnAppend(previous)) : 0
+    const recut = kept > 0
+      ? previous.slice(kept).flatMap((segment) => segment.messages).concat(rows.slice(this.appendedFrom))
+      : rows
+    // Untracked like `startsSegment`: a switch's activity is set when the row is made.
+    const messages = untrack(() => withoutProviderRoundTrips(recut))
     const previousByFirst = new Map<Message, TranscriptSegment>()
-    for (const segment of this.previousSegments) previousByFirst.set(segment.messages[0], segment)
-    const segments: TranscriptSegment[] = []
+    for (let i = kept; i < previous.length; i++) previousByFirst.set(previous[i].messages[0], previous[i])
+    const segments: TranscriptSegment[] = previous.slice(0, kept)
     let start = 0
     const close = (end: number) => {
       if (end <= start) return
@@ -138,7 +184,6 @@ export class TranscriptTurns {
     }
     for (let i = 1; i < messages.length; i++) if (startsSegment(messages[i])) close(i)
     close(messages.length)
-    const previous = this.previousSegments
     if (segments.length === previous.length && segments.every((segment, index) => segment === previous[index])) return previous
     this.previousSegments = segments
     return segments

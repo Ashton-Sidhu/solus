@@ -86,6 +86,14 @@ export function parseStatus(raw: string): ParsedGitStatus {
 }
 
 const statusInflight = new Map<string, Promise<GitState | null>>()
+const checkoutInflight = new Map<string, Promise<CheckoutRead | null>>()
+
+/** A summary status with the top level of the checkout it was read in. The
+ *  identity read answers both, so a checkout refresh needs no extra spawn. */
+export interface CheckoutRead {
+  status: GitState
+  checkoutRoot: string | null
+}
 
 /**
  * Compute live branch, file, and conflict state for a working tree. The default
@@ -99,67 +107,81 @@ export function computeGitState(
 ): Promise<GitState | null> {
   if (!cwd || cwd === '~') return Promise.resolve(null)
   options ??= {}
+  if (!options.includeDetails) return readCheckout(cwd).then((read) => read?.status ?? null)
 
-  const key = `${cwd}\0${options.includeDetails ? 'details' : 'summary'}`
-  const existing = statusInflight.get(key)
+  const existing = statusInflight.get(cwd)
   if (existing) return existing
 
-  const pending = computeGitStateUncached(cwd, options)
+  const pending = computeGitStateDetails(cwd, options)
     .finally(() => {
-      if (statusInflight.get(key) === pending) statusInflight.delete(key)
+      if (statusInflight.get(cwd) === pending) statusInflight.delete(cwd)
     })
-  statusInflight.set(key, pending)
+  statusInflight.set(cwd, pending)
   return pending
 }
 
-async function computeGitStateUncached(
+/** The summary status of `computeGitState`, with its checkout's top level. */
+export function readCheckout(cwd: string): Promise<CheckoutRead | null> {
+  if (!cwd || cwd === '~') return Promise.resolve(null)
+  const existing = checkoutInflight.get(cwd)
+  if (existing) return existing
+
+  const pending = readCheckoutUncached(cwd)
+    .finally(() => {
+      if (checkoutInflight.get(cwd) === pending) checkoutInflight.delete(cwd)
+    })
+  checkoutInflight.set(cwd, pending)
+  return pending
+}
+
+async function computeGitStateDetails(
   cwd: string,
   options: GitStateOptions,
 ): Promise<GitState | null> {
-  if (options.includeDetails) {
-    // Reuse an in-flight summary from the watcher/renderer instead of starting
-    // a second status pipeline when the visible panel asks for details.
-    const status = await computeGitState(cwd)
-    if (!status) return null
-    const [branchChanges, prUrl, targetAheadCount] = await Promise.all([
-      getBranchChanges(cwd, status).catch(() => undefined),
-      status.branch && status.branch !== status.targetBranch
-        ? getExistingPR(status.branch, cwd, options.bypassCache === true)
-        : Promise.resolve(null),
-      status.branch && status.branch !== status.targetBranch
-        ? runAsync('git', ['rev-list', '--count', `${status.targetBranch}..HEAD`], cwd)
-          .then((value) => Number(value) || 0)
-          .catch(() => 0)
-        : Promise.resolve(0),
-    ])
-    return {
-      ...status,
-      branchChanges,
-      targetAheadCount,
-      prUrl: prUrl ?? undefined,
-    }
+  // Reuse an in-flight summary from the watcher/renderer instead of starting
+  // a second status pipeline when the visible panel asks for details.
+  const status = await computeGitState(cwd)
+  if (!status) return null
+  const [branchChanges, prUrl, targetAheadCount] = await Promise.all([
+    getBranchChanges(cwd, status).catch(() => undefined),
+    status.branch && status.branch !== status.targetBranch
+      ? getExistingPR(status.branch, cwd, options.bypassCache === true)
+      : Promise.resolve(null),
+    status.branch && status.branch !== status.targetBranch
+      ? runAsync('git', ['rev-list', '--count', `${status.targetBranch}..HEAD`], cwd)
+        .then((value) => Number(value) || 0)
+        .catch(() => 0)
+      : Promise.resolve(0),
+  ])
+  return {
+    ...status,
+    branchChanges,
+    targetAheadCount,
+    prUrl: prUrl ?? undefined,
   }
+}
 
+async function readCheckoutUncached(cwd: string): Promise<CheckoutRead | null> {
   // Identity is the same work `computeGitIdentity` does, so run it alongside the
   // working-tree scan rather than duplicating it — the sidebar's earlier
   // identity call is usually still in flight and gets shared.
-  const [identity, statusRaw, mergeInProgress] = await Promise.all([
-    computeGitIdentity(cwd),
+  const [identityRead, statusRaw, mergeInProgress] = await Promise.all([
+    readGitIdentity(cwd),
     // Raw: trimming the output would drop a trailing space from the last path.
     runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd, { raw: true }).catch(() => null),
     isGitOperationInProgress(cwd),
   ])
   // A null identity is the ordinary "not a repository" answer, so stay quiet;
   // a repo whose status scan failed is worth a warning.
-  if (!identity) return null
+  if (!identityRead) return null
   if (statusRaw === null) {
     log.warn('git_status_failed', { cwd })
     return null
   }
 
   const status = parseStatus(statusRaw)
-  return {
-    ...identity,
+  return { checkoutRoot: identityRead.checkoutRoot, status: {
+    ...identityRead.identity,
     // `--branch` reports the branch as of this scan; prefer it over identity's
     // separate read so branch and files always describe the same instant.
     branch: status.branch,
@@ -172,15 +194,17 @@ async function computeGitStateUncached(
       fileCount: status.fileCount,
       mergeInProgress,
     },
-  }
+  } }
 }
 
 /** Count the branch review's change without building its patch: the same base
  *  `resolveReviewContext` gives the review pane, minus the session base it
  *  falls back to on the target branch, because this status is per checkout. */
 async function getBranchChanges(cwd: string, status: GitState): Promise<BranchChanges> {
+  // Not awaited here: merge-base reads only refs and objects, so it runs while
+  // the numstat prepares its throwaway index.
   const base = status.branch && status.branch !== status.targetBranch
-    ? await runAsync('git', ['merge-base', status.targetBranch, 'HEAD'], cwd)
+    ? runAsync('git', ['merge-base', status.targetBranch, 'HEAD'], cwd)
       .then((sha) => sha.trim() || 'HEAD')
       .catch(() => 'HEAD')
     : 'HEAD'
@@ -194,7 +218,13 @@ async function getBranchChanges(cwd: string, status: GitState): Promise<BranchCh
   return { fileCount: files.length, insertions, deletions }
 }
 
-const identityInflight = new Map<string, Promise<GitIdentity | null>>()
+interface IdentityRead {
+  identity: GitIdentity
+  /** The top level of the checkout `cwd` is in; null when git has none (a bare repository). */
+  checkoutRoot: string | null
+}
+
+const identityInflight = new Map<string, Promise<IdentityRead | null>>()
 
 /**
  * Repo/branch identity only — no working-tree scan. Surfaces that just need to
@@ -202,12 +232,16 @@ const identityInflight = new Map<string, Promise<GitIdentity | null>>()
  * they don't sit behind a cold `git status` over a large worktree.
  */
 export function computeGitIdentity(cwd: string): Promise<GitIdentity | null> {
+  return readGitIdentity(cwd).then((read) => read?.identity ?? null)
+}
+
+function readGitIdentity(cwd: string): Promise<IdentityRead | null> {
   if (!cwd || cwd === '~') return Promise.resolve(null)
 
   const existing = identityInflight.get(cwd)
   if (existing) return existing
 
-  const pending = computeGitIdentityUncached(cwd)
+  const pending = readGitIdentityUncached(cwd)
     .finally(() => {
       if (identityInflight.get(cwd) === pending) identityInflight.delete(cwd)
     })
@@ -215,27 +249,49 @@ export function computeGitIdentity(cwd: string): Promise<GitIdentity | null> {
   return pending
 }
 
-async function computeGitIdentityUncached(cwd: string): Promise<GitIdentity | null> {
-  const [repoRoot, headRaw, targetBranch] = await Promise.all([
-    resolveRepoRoot(cwd),
-    runAsync('git', ['rev-parse', 'HEAD', '--abbrev-ref', 'HEAD'], cwd).catch(() => null),
+async function readGitIdentityUncached(cwd: string): Promise<IdentityRead | null> {
+  // One spawn answers the repository, the checkout's top level, and HEAD. It
+  // fails outside a repository, in a bare one, and before the first commit;
+  // those take the separate reads below.
+  const [revParse, targetBranch] = await Promise.all([
+    runAsync('git', ['rev-parse', '--git-common-dir', '--show-toplevel', 'HEAD', '--abbrev-ref', 'HEAD'], cwd).catch(() => null),
     getDefaultBranchLocal(cwd),
   ])
+  // Git before 2.25 prints no top level for a bare repository rather than failing.
+  const lines = revParse?.split('\n').map((line) => line.trim())
+  if (lines?.length === 4) {
+    const [commonDir, topLevel, headSha, headRef] = lines
+    return {
+      identity: { repoRoot: path.dirname(gitOutputPath(cwd, commonDir)), headSha, branch: branchOfHeadRef(headRef), targetBranch },
+      checkoutRoot: gitOutputPath(cwd, topLevel),
+    }
+  }
+
   // No repo here is the ordinary null answer; `resolveRepoRoot` already logs it.
+  const repoRoot = await resolveRepoRoot(cwd)
   if (!repoRoot) return null
+  const [headRaw, topLevel] = await Promise.all([
+    runAsync('git', ['rev-parse', 'HEAD', '--abbrev-ref', 'HEAD'], cwd).catch(() => null),
+    runAsync('git', ['rev-parse', '--show-toplevel'], cwd).catch(() => null),
+  ])
+  const checkoutRoot = topLevel ? gitOutputPath(cwd, topLevel) : null
   if (headRaw === null) {
     // A repository before its first commit: HEAD names a branch that has no
     // commit yet. Git works on that branch, so it is a checkout like any other,
     // and it is its own target — the default-branch probe needs a commit.
     const unbornBranch = await runAsync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], cwd).catch(() => null)
-    return unbornBranch ? { repoRoot, headSha: null, branch: unbornBranch, targetBranch: unbornBranch } : null
+    return unbornBranch ? { identity: { repoRoot, headSha: null, branch: unbornBranch, targetBranch: unbornBranch }, checkoutRoot } : null
   }
 
   const [headSha, headRef] = headRaw.split('\n').map((line) => line.trim())
   if (!headSha) return null
-  // `--abbrev-ref HEAD` prints the literal "HEAD" when detached, matching
-  // `parseStatus`'s `branch: null` convention for the same state.
-  return { repoRoot, headSha, branch: headRef === 'HEAD' ? null : headRef, targetBranch }
+  return { identity: { repoRoot, headSha, branch: branchOfHeadRef(headRef), targetBranch }, checkoutRoot }
+}
+
+/** `--abbrev-ref HEAD` prints the literal "HEAD" when detached, matching
+ *  `parseStatus`'s `branch: null` convention for the same state. */
+function branchOfHeadRef(headRef: string): string | null {
+  return headRef === 'HEAD' ? null : headRef
 }
 
 /** Resolve the parent repo root from a worktree path (handles linked + main worktrees). */

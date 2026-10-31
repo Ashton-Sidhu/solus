@@ -63,7 +63,7 @@ test('a timeline the size of a very large pull request mounts a bounded page and
       const TooltipUI = { Root: Stub, Trigger, Content: Stub };
       const Skeleton = Stub, ArtifactActivityCard = Stub, PrReviewStateBadge = Stub;
       ${icons(['CaretDownIcon', 'CircleAlertIcon', 'CheckCircleIcon', 'CircleDashedIcon', 'EllipsisIcon',
-        'GitCommitIcon', 'GitPullRequestIcon', 'ArtifactIcon', 'LoaderIcon', 'ReplyIcon', 'TagIcon', 'TrashIcon'])}
+        'GitCommitIcon', 'GitPullRequestIcon', 'ArtifactIcon', 'LoaderIcon', 'MessageCircleIcon', 'ReplyIcon', 'TagIcon', 'TrashIcon'])}
     `), 'timeline')
 
     const runner = join(directory, 'test.mjs')

@@ -12,12 +12,14 @@ export function MaterialListRow({
   title,
   titleClassName,
   subtitle,
+  fullLabels = false,
   leading,
   trailing,
   className,
   ...props
 }: Omit<ComponentProps<typeof Pressable>, "children"> & {
   readonly title: string;
+  readonly fullLabels?: boolean;
   readonly titleClassName?: string;
   readonly subtitle?: string | null;
   readonly leading?: ReactNode;
@@ -42,11 +44,11 @@ export function MaterialListRow({
     >
       {leading ? <View className="size-6 items-center justify-center">{leading}</View> : null}
       <View className="min-w-0 flex-1 gap-1">
-        <AppText className={cn("text-base text-foreground", titleClassName)} numberOfLines={2}>
+        <AppText className={cn("text-base text-foreground", titleClassName)} numberOfLines={fullLabels ? undefined : 2}>
           {title}
         </AppText>
         {subtitle ? (
-          <AppText className="text-sm text-foreground-muted" numberOfLines={2}>
+          <AppText className="text-sm text-foreground-muted" numberOfLines={fullLabels ? undefined : 2}>
             {subtitle}
           </AppText>
         ) : null}

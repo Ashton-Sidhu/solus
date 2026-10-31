@@ -15,8 +15,6 @@
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   // Eager: the sandbox it wraps is already in the conversation bundle.
-  import ArtifactShell from "../artifact/ArtifactShell.svelte";
-  import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
   import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import { storedExportExtension, type WorkExportRequest } from "./lib/work-export";
@@ -27,7 +25,8 @@
   import { recentCommentAuthors, type MentionScope } from "../mentions/lib/mentions";
   import { provideMentionScope } from "../mentions/lib/mention-scope.svelte";
   import { setWorkPaneContext } from "./lib/work-pane-context";
-  import { isLiveEditable, type WorkLiveLease } from "../../contexts/works/work-live.store.svelte";
+  import { isLiveEditable } from "../../contexts/works/work-live.store.svelte";
+  import type { WorkLiveDoc } from "../../contexts/works/work-live-doc.svelte";
   import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
   import { diagramReadOnlyReason } from "../diagram/lib/reader-mode";
   import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
@@ -77,7 +76,9 @@
     if (type !== "doc" && type !== "diagram") return null;
     return isLiveEditable(type, work?.mirroredDoc?.provider === "gdrive") ? type : null;
   });
-  let liveLease = $state.raw<WorkLiveLease | null>(null);
+  let live = $state.raw<WorkLiveDoc | null>(null);
+  // The live code could not load: the pane edits the saved body, as on a host without live editing.
+  let hasLiveFailed = $state(false);
   $effect(() => {
     const serverId = workServerId;
     const workId = params.workId;
@@ -85,17 +86,25 @@
     if (!serverId || !type) return;
     return untrack(() => {
       const lease = session.worksStore.live.acquire(serverId, workId, type, () => presenceStore.noteEditing(serverId, workId));
-      liveLease = lease;
+      let isHeld = true;
+      lease.live.then(
+        (doc) => { if (isHeld) live = doc; },
+        (error) => {
+          console.warn("[works] live editing unavailable", error);
+          if (isHeld) hasLiveFailed = true;
+        },
+      );
       return () => {
+        isHeld = false;
         lease.release();
-        if (liveLease === lease) liveLease = null;
+        live = null;
+        hasLiveFailed = false;
       };
     });
   });
-  const live = $derived(liveLease?.live ?? null);
   const liveActive = $derived(!!live && live.connection !== "unsupported");
   // The editor mounts once the shared doc has content, from the device or the host.
-  const liveReady = $derived(!liveType || (!!live && (!liveActive || live.ready)));
+  const liveReady = $derived(!liveType || hasLiveFailed || (!!live && (!liveActive || live.ready)));
   const liveBinding = $derived<LiveEditorBinding | null>(
     live && liveActive ? { live, user: liveCaretUser(workServerId ? sharesStore.identities.get(workServerId)?.user ?? null : null) } : null,
   );
@@ -353,18 +362,31 @@
             />
           {/await}
         {:else if work.type === "artifact"}
-          <ArtifactShell
-            content={draft.content}
-            title={work.title}
-            workId={work.id}
-            onClose={handleClose}
-            onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-            onRename={viewerReadOnly ? undefined : handleRename}
-            onDelete={canDelete ? handleDelete : undefined}
-            onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
-            onExport={exportStartPath ? handleExport : undefined}
-            {hostIsRemote}
-          />
+          <!-- Lazy like the document and diagram shells: the artifact frame, its
+               rail, and the header actions load when an artifact opens. -->
+          {#await import("../artifact/ArtifactShell.svelte")}
+            <DocumentModalSkeleton inline title={work.title} />
+          {:then artifactModule}
+            {@const ArtifactShell = artifactModule.default}
+            <ArtifactShell
+              content={draft.content}
+              title={work.title}
+              workId={work.id}
+              onClose={handleClose}
+              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
+              onRename={viewerReadOnly ? undefined : handleRename}
+              onDelete={canDelete ? handleDelete : undefined}
+              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
+              onExport={exportStartPath ? handleExport : undefined}
+              {hostIsRemote}
+            />
+          {:catch error}
+            <RouteLoadError
+              {error}
+              compact
+              onRetry={() => (renderKey += 1)}
+            />
+          {/await}
         {:else if !liveReady}
           <DocumentModalSkeleton inline title={work.title} />
         {:else}
@@ -465,22 +487,24 @@
 {/if}
 
 {#if exportDraft && exportStartPath && sess}
-  <SaveFilePicker
-    open
-    onClose={() => {
-      exportDraft = null;
-      requestInputFocus();
-    }}
-    api={serverConnections.apiFor(runHost(sess.run))}
-    serverId={runHost(sess.run)}
-    ctx={session.ctxForDirectory(exportStartPath)}
-    initialPath={exportStartPath}
-    fileName={exportDraft.fileName}
-    content={exportDraft.payload?.contents}
-    encoding={exportDraft.payload?.encoding}
-    onPick={exportDraft.payload ? undefined : exportStoredTo}
-    title={exportDraft.payload ? undefined : "Export"}
-  />
+  {#await import("../pickers/SaveFilePicker.svelte") then { default: SaveFilePicker }}
+    <SaveFilePicker
+      open
+      onClose={() => {
+        exportDraft = null;
+        requestInputFocus();
+      }}
+      api={serverConnections.apiFor(runHost(sess.run))}
+      serverId={runHost(sess.run)}
+      ctx={session.ctxForDirectory(exportStartPath)}
+      initialPath={exportStartPath}
+      fileName={exportDraft.fileName}
+      content={exportDraft.payload?.contents}
+      encoding={exportDraft.payload?.encoding}
+      onPick={exportDraft.payload ? undefined : exportStoredTo}
+      title={exportDraft.payload ? undefined : "Export"}
+    />
+  {/await}
 {/if}
 
 <style>

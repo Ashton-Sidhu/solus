@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { sshDeviceHostConfigsSchema, type DeviceSettingsState } from '@solus/contracts/device-types'
+import { sshDeviceHostConfigsSchema, cloudDeviceHostConfigSchema, type DeviceSettingsState } from '@solus/contracts/device-types'
 import { createLogger } from '../logger'
 
 const log = createLogger('devices', 'device-settings-store.ts')
@@ -15,6 +15,7 @@ const storedSettingsSchema = z.object({
   onboardingCompleted: z.boolean().catch(false),
   autoShowAgentDevices: z.boolean().catch(true),
   sshHosts: sshDeviceHostConfigsSchema.catch([]),
+  cloudHosts: z.array(cloudDeviceHostConfigSchema).max(16).catch([]),
 })
 
 export const DEFAULT_DEVICE_SETTINGS: DeviceSettingsState = {
@@ -37,7 +38,7 @@ export class DeviceSettingsStore {
   }
 
   get(): DeviceSettingsState {
-    return { ...this.value, sshHosts: this.value.sshHosts.map((host) => ({ ...host })) }
+    return { ...this.value, cloudHosts: this.value.cloudHosts?.map((host) => ({ ...host })), sshHosts: this.value.sshHosts.map((host) => ({ ...host })) }
   }
 
   private load(): DeviceSettingsState {

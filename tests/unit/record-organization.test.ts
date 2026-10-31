@@ -81,11 +81,12 @@ describe('a record\'s organization', () => {
     await own('s-local')
     await own('s-a2')
     await records.assignSessionOrganization('s-a2', 'A')
-    const all = (await records.listSessionRecords(principal.ANY_ORGANIZATION)).map((record) => [record.sessionId, record.organizationId]).sort()
-    expect(all).toEqual([['s-a2', 'A'], ['s-local', 'local'], ['s1', 'A']])
-    expect((await records.listSessionRecords('A')).map((record) => record.sessionId).sort()).toEqual(['s-a2', 's1'])
-    expect((await records.listSessionRecords('local')).map((record) => record.sessionId)).toEqual(['s-local'])
-    expect(await records.listSessionRecords('B')).toEqual([])
+    const ids = ['s-a2', 's-local', 's1']
+    const read = async (scope: Parameters<typeof records.getSessionRecords>[0]) => [...(await records.getSessionRecords(scope, ids)).values()].map((record) => [record.sessionId, record.organizationId]).sort()
+    expect(await read(principal.ANY_ORGANIZATION)).toEqual([['s-a2', 'A'], ['s-local', 'local'], ['s1', 'A']])
+    expect(await read('A')).toEqual([['s-a2', 'A'], ['s1', 'A']])
+    expect(await read('local')).toEqual([['s-local', 'local']])
+    expect(await read('B')).toEqual([])
     expect(await records.getSessionRecord('local', 's1')).toBeNull()
     expect(await records.getSessionRecord('A', 's-local')).toBeNull()
     // A session's children inherit its organization; a session with no record inherits this machine's.

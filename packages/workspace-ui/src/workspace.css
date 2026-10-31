@@ -250,11 +250,11 @@
   --solus-status-complete-bg: rgba(90, 158, 111, 0.1);
   --solus-status-error: #c47060;
   --solus-status-error-bg: rgba(196, 112, 96, 0.06);
-  /* Pull request review verdicts, in GitHub's Primer colors so a verdict
-     reads the same here as on github.com. */
-  --solus-review-comment: #0969da;
-  --solus-review-approve: #1f883d;
-  --solus-review-request-changes: #cf222e;
+  /* Review verdicts, in the Solus status colors. Only the verdict icons
+     carry them; the submit button stays neutral. */
+  --solus-review-comment: var(--solus-text-tertiary);
+  --solus-review-approve: var(--solus-status-complete);
+  --solus-review-request-changes: var(--solus-status-error);
   --solus-status-dead: #c47060;
   --solus-status-permission: #d97757;
   /* Finished with output nobody has read yet. Blue because every other status
@@ -453,8 +453,6 @@
   /* File token */
   /* Work token */
   --solus-work-token: #8b5e83;
-  /* Plan modal scrim */
-  --solus-modal-scrim: rgba(24, 20, 16, 0.4);
   /* Shared motion language */
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-modal: cubic-bezier(0.22, 1, 0.36, 1);
@@ -588,9 +586,6 @@
   --solus-status-complete-bg: rgba(111, 200, 132, 0.10);
   --solus-status-error: #e3645e;
   --solus-status-error-bg: rgba(227, 100, 94, 0.08);
-  --solus-review-comment: #1f6feb;
-  --solus-review-approve: #238636;
-  --solus-review-request-changes: #da3633;
   --solus-status-dead: var(--solus-status-error);
   --solus-status-permission: var(--solus-accent);
   /* Lifted off the dark sidebar rather than the chart ramp, same as light. */
@@ -721,8 +716,6 @@
   /* File token */
   /* Work token */
   --solus-work-token: #c58cb9;
-  /* Plan modal scrim */
-  --solus-modal-scrim: rgba(0, 0, 0, 0.60);
   /* ─── HTML artifact palette (dark twin) ───
      Same bright family as the light ramp, lifted for dark surfaces. Neutrals
      are the ivory ramp carried into warm charcoal; hairlines carry a faint ivory
@@ -1589,6 +1582,14 @@ button.solus-token {
   width: 100%;
   height: 100%;
 }
+/* Give file references room in prose without changing composer tokens. */
+.prose .solus-token--file {
+  margin-inline: 0.15em;
+}
+.prose .solus-token--file .solus-token__icon {
+  margin-right: 0.3em;
+}
+
 /* Face is the one thing a kind may change: a slash command is mono, everything
    else is the prose face. A file name reads as a word, as it does on mobile.
    Metrics stay on the base rule. */
@@ -2427,22 +2428,6 @@ button.solus-token {
   overflow-wrap: normal;
 }
 
-/* Every surface that renders MarkdownLink gets its favicon in the line, not
-   only the transcript: preflight would otherwise make it a block. */
-.solus-link__favicon {
-  display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-right: 0.25rem;
-  border-radius: 0.125rem;
-  object-fit: contain;
-  vertical-align: -0.09375rem;
-  outline: 0.0625rem solid rgba(0, 0, 0, 0.1);
-}
-.dark .solus-link__favicon {
-  outline-color: rgba(255, 255, 255, 0.1);
-}
-
 /* ─── Prose surfaces: layout only ───
    The text is the prose style (prose.css). These place a prose column. */
 /* When a code span is also bold, show the bold treatment. Keep the markup so
@@ -2668,8 +2653,8 @@ html.is-mac-workspace
   }
 }
 
-/* Match T3 Code's dialog backdrop across commands, pickers, and loading frames. */
-@utility picker-backdrop {
+/* One frosted background for dialogs, sheets, pickers, and loading frames. */
+@utility modal-backdrop {
   background: color-mix(in srgb, var(--background) 60%, transparent);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);

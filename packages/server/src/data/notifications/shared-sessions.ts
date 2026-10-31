@@ -4,7 +4,8 @@ import { shareRoleSchema } from '@solus/contracts/sharing'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { getDatabase } from '../../db/database'
 import { ownerKeyOf } from '../../admission/actor'
-import { recordScopeOf } from '../../admission/principal'
+import { LOCAL_ORGANIZATION_ID, recordScopeOf } from '../../admission/principal'
+import { isApiMode } from '../../host/api-mode'
 import { aclEntry } from '../../sharing/schema'
 import { scopeClause } from '../scope'
 import { sessionRecords } from '../sessions/schema'
@@ -31,9 +32,15 @@ const grantRowSchema = z.object({
  * it learns a person's teams from their own credential. So a share writes no
  * row per member; each reader's rows are found here, with the same match as
  * their session list, when they read. One row per grant: the event id names
- * the share row and its grant time, so a repeated read writes nothing and a
- * higher role writes a new row. Only grants inside the list's idle window
+ * the session, the subject, and the grant time, so a repeated read writes
+ * nothing and a higher role writes a new row. It names no row id: a Solus API
+ * writes a runner's rows again, with new ids, each time they arrive. Only grants inside the list's idle window
  * count, so a person who joins a team does not get its whole history.
+ *
+ * Only the session's home writes them, the same home a client reads the
+ * session's list from (`sessionHomeId`): the organization's Solus API for a
+ * published organization session, the machine for any other. A client reads
+ * the hub of both, so a row written at each would show the same share twice.
  */
 export async function recordSharedSessions(reader: NotificationReader, now = Date.now()): Promise<void> {
   const personKey = ownerKeyOf(reader.actor)
@@ -51,6 +58,7 @@ export async function recordSharedSessions(reader: NotificationReader, now = Dat
     WHERE acl.resource_kind = 'session' AND (${sql.join(subjects, sql` OR `)})
       AND ${scopeClause(recordScopeOf(principal), sql`acl.organization_id`)}
       AND s.owner_key <> ${personKey}
+      ${isApiMode() ? sql`` : sql`AND NOT (s.organization_id <> ${LOCAL_ORGANIZATION_ID} AND s.publication = 'published')`}
       AND COALESCE(acl.granted_at, acl.created_at) >= ${now - SESSION_LIST_IDLE_MS}
       AND (acl.expires_at IS NULL OR acl.expires_at > ${now})
   `))
@@ -59,7 +67,7 @@ export async function recordSharedSessions(reader: NotificationReader, now = Dat
     for (const grant of grants) {
       await recordNotification(tx, {
         organizationId: grant.organization_id,
-        eventId: `session.shared:${grant.id}:${grant.granted_at}`,
+        eventId: `session.shared:${grant.session_id}:${grant.subject_kind}:${grant.subject_id}:${grant.granted_at}`,
         recipients: [personKey],
         facts: grant.subject_kind === 'team' ? { kind: 'session.shared', role: grant.role, teamId: grant.subject_id } : { kind: 'session.shared', role: grant.role },
         resource: { kind: 'session', sessionId: grant.session_id },

@@ -3,6 +3,14 @@
 A client reads session lists and session search through the workspace HTTP API.
 The client does not scan provider files over RPC.
 
+The session sidebar context menu on desktop and web has a **Snooze** submenu.
+Choose a preset to snooze the session immediately, or **Pick date and time…**
+to open a centered dialog with the session title, calendar, time, and an optional
+reminder note. **Cancel** or Escape closes it without changing the snooze;
+**Snooze** applies the chosen time.
+Mobile also uses a submenu for
+snooze presets. Snoozing does not stop a running agent.
+
 ## Where a read goes
 
 Each home keeps its own session records:

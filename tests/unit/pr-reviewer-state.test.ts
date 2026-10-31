@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  reviewerRingColor,
   reviewerRowAction,
   reviewerStateColor,
   reviewerStateLabel,
@@ -32,5 +33,21 @@ describe('the reviewer row', () => {
     expect(reviewerStateColor('COMMENTED')).toBe('var(--muted-foreground)')
     expect(reviewerStateColor(null)).toBe('var(--muted-foreground)')
     expect(reviewerStateLabel(null)).toBe('pending')
+  })
+})
+
+describe('the reviewer ring', () => {
+  test('gives a pending request a neutral ring, not the verdict colour of a comment', () => {
+    // WHY: every avatar in the overlapped stack wears a ring so they are all
+    // the same size. A pending request must still look unanswered, so its
+    // ring cannot be the colour a reviewer who commented gets.
+    expect(reviewerRingColor(null)).not.toBe(reviewerStateColor('COMMENTED'))
+    expect(reviewerRingColor(null)).toContain('color-mix')
+  })
+
+  test('uses the verdict colour once someone has answered', () => {
+    for (const state of ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'] as const) {
+      expect(reviewerRingColor(state)).toBe(reviewerStateColor(state))
+    }
   })
 })

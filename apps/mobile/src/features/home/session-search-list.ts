@@ -4,7 +4,7 @@ import { worktreeProjectRoot } from '@solus/contracts/types'
 import { SearchQuery } from '@solus/contracts/search-query'
 import { sessionNameScore } from '@solus/contracts/session-search'
 import type { SolusThreadShell, SolusProjectShell } from '../threads/thread-directory'
-import { threadProjectKey } from '../threads/threadListV2'
+import { isChatSession, threadProjectKey } from '../threads/threadListV2'
 
 export interface NativeSearchScope {
   hostId: string | null
@@ -16,7 +16,10 @@ export function nativeSearchHomes(hostIds: readonly string[], projects: readonly
   return hostIds.filter(hostId => !scope.hostId || hostId === scope.hostId).flatMap(serverId => {
     if (!scope.projectKeys) return [{ serverId }]
     const roots = new Set(projects.filter(project => project.hostId === serverId && scope.projectKeys?.has(project.key)).map(project => worktreeProjectRoot(project.project.path)))
-    return [...roots].map(projectRoot => ({ serverId, scope: { projectRoot } }))
+    const homes: SessionSearchHome[] = [...roots].map(projectRoot => ({ serverId, scope: { projectRoot } }))
+    // A chat belongs to no project, so a project scope searches the chats as well.
+    homes.push({ serverId, scope: { chats: true } })
+    return homes
   })
 }
 
@@ -30,7 +33,7 @@ export function nativeSearchHits(input: NativeSearchScope & {
   const search = new SearchQuery(input.query)
   const named: HostSessionSearchHit[] = input.threads.flatMap(thread => {
     if (input.hostId && thread.hostId !== input.hostId) return []
-    if (input.projectKeys && !input.projectKeys.has(threadProjectKey(thread, input.projectKeys))) return []
+    if (input.projectKeys && !isChatSession(thread.record) && !input.projectKeys.has(threadProjectKey(thread, input.projectKeys))) return []
     if (!visibleInWindow(thread.record.organizationId, input.organizationId)) return []
     const match = sessionNameScore({ id: thread.record.sessionId, title: thread.record.customTitle, branch: thread.record.branch, pullRequest: thread.record.pullRequests?.map(pr => `#${pr.number} ${pr.title}`).join(' ') }, search)
     return match ? [{ serverId: thread.hostId, result: { record: thread.record, snippet: '', ts: thread.record.lastActivityAt, messageId: -1, rank: -match.score, reason: match.reason, additionalMatches: [] } }] : []

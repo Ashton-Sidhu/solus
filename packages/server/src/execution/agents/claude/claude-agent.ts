@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
+import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
 import { resolveClaudeToolSearchOverride } from './claude-tool-search'
 import { createLogger } from '../../../logger'
@@ -142,6 +143,11 @@ export async function resolveClaudeExecutable(): Promise<string> {
 /** The Claude login a turn runs on: a config directory and, for a pasted setup-token, the token. */
 export interface ClaudeSeat {
   home: string
+  binaryPath?: string
+  idleCompaction?: 'onReturn' | 'off'
+  autoCompactWindow?: number
+  launchArgs?: string[]
+  environmentOverrides?: NodeJS.ProcessEnv
   /** The host's own login: the CLI stays on its defaults and the host process env passes through. */
   isHostLogin?: boolean
   envToken?: string
@@ -168,7 +174,7 @@ export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
     if (!seat.user) env.CLAUDE_CONFIG_DIR = seat.home
   }
   if (seat.envToken) env.CLAUDE_CODE_OAUTH_TOKEN = seat.envToken
-  return env
+  return { ...env, ...seat.environmentOverrides }
 }
 
 /** The folder the CLI reads as `~/.claude` for a seat: where its user skills and plugins are. */
@@ -189,9 +195,9 @@ export function claudeLaunch(seat?: ClaudeSeat, stopSignal?: AbortSignal): Pick<
   const launch: Pick<Options, 'env' | 'spawnClaudeCodeProcess'> = { env: claudeEnv(seat) }
   const user = seat?.user
   const ownsGroup = !!stopSignal && process.platform !== 'win32'
-  if (user || ownsGroup) {
+  if (user || ownsGroup || seat?.launchArgs?.length) {
     launch.spawnClaudeCodeProcess = (options) => {
-      const run = launchedProcess({ env: options.env, user }, options.command, options.args)
+      const run = launchedProcess({ env: options.env, user }, options.command, [...options.args, ...(seat?.launchArgs ?? [])])
       const child = spawn(run.file, run.args, { cwd: resolveHomePath(options.cwd ?? homedir()), env: run.env, signal: options.signal, stdio: ['pipe', 'pipe', 'pipe'], detached: ownsGroup })
       child.stderr.setEncoding('utf8')
       child.stderr.on('data', (chunk: string) => {
@@ -334,6 +340,10 @@ export class ClaudeAgent {
       extraArgs: { 'replay-user-messages': null },
       ...claudeLaunch(opts.seat, abortController.signal),
     }
+    if (opts.seat?.idleCompaction) {
+      claudeOptions.supportedDialogKinds = ['resume_return']
+      claudeOptions.onUserDialog = resumeCompactionDialog(opts.seat.idleCompaction, opts.canUseTool)
+    }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
     if (opts.bare) claudeOptions.tools = bareTools
     // Flag settings: they beat the user's and the project's settings.json.
@@ -343,6 +353,8 @@ export class ClaudeAgent {
       // Request readable summaries without changing the model's thinking budget.
       flagSettings = { showThinkingSummaries: true }
     }
+
+    if (opts.seat?.autoCompactWindow) flagSettings = { ...flagSettings, autoCompactWindow: opts.seat.autoCompactWindow }
 
     if (opts.sessionId) {
       claudeOptions.resume = opts.sessionId
@@ -386,7 +398,7 @@ export class ClaudeAgent {
       // turn on the same query, and closing under it would fail its tool calls.
       let agentIdle = false
       try {
-        const executable = await resolveClaudeExecutable()
+        const executable = opts.seat?.binaryPath || await resolveClaudeExecutable()
         const toolSearch = opts.bare ? undefined : await resolveClaudeToolSearchOverride(cwd, claudeConfigDir(opts.seat), claudeOptions.env)
         abortController.signal.throwIfAborted()
         if (toolSearch) flagSettings = { ...flagSettings, env: { ENABLE_TOOL_SEARCH: toolSearch } }

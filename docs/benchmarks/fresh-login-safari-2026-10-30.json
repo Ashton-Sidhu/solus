@@ -1,0 +1,242 @@
+{
+  "date": "2026-10-30",
+  "scope": "Fresh client login in Safari through Google. Browser times start at workspace document navigation after Google, not at the sign-in button. Two observations, not percentiles. No explicit workspace-ready marker exists in this capture.",
+  "runs": [
+    {
+      "run": 1,
+      "htmlResponseStartMs": 750,
+      "htmlResponseEndMs": 750,
+      "loadEventMs": 849,
+      "firstContentfulPaintMs": 2296,
+      "startupResponseAvailableMs": 1130,
+      "codeExchangeMs": 183.3,
+      "codeExchangeSqlQueries": 4,
+      "hostExchangeMs": [
+        156.6,
+        150.9,
+        327.3
+      ],
+      "hostExchangeSqlQueries": [
+        7,
+        7,
+        7
+      ],
+      "accountSettingsFollowUpRequests": 0,
+      "assetRequests": 279,
+      "assetDecodedBytes": 7004633,
+      "assetResponseBodyBytes": 2272055
+    },
+    {
+      "run": 2,
+      "htmlResponseStartMs": 838,
+      "htmlResponseEndMs": 1135,
+      "loadEventMs": 1150,
+      "firstContentfulPaintMs": 2938,
+      "startupResponseAvailableMs": 1598,
+      "codeExchangeMs": 182,
+      "codeExchangeSqlQueries": 4,
+      "hostExchangeMs": [
+        513,
+        505,
+        500
+      ],
+      "hostExchangeSqlQueries": [
+        7,
+        7,
+        7
+      ],
+      "accountSettingsFollowUpRequests": 0
+    }
+  ],
+  "fixtureRecheck": {
+    "scope": "Same warm-server PGlite fixture and injected per-query delay as the prior backend benchmark; excludes Google, HTTP transport, assets, hosts and rendering.",
+    "samples": [
+      {
+        "roundTripMs": 0,
+        "sample": 0,
+        "elapsedMs": 9.145958000000064,
+        "tokenMs": 7.257166999999754,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 3.942540999999892,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 0,
+        "sample": 1,
+        "elapsedMs": 5.312249999999949,
+        "tokenMs": 5.168166999999812,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 3.316624999999931,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 0,
+        "sample": 2,
+        "elapsedMs": 4.4947910000000775,
+        "tokenMs": 4.361208000000261,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 3.3617920000001504,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 0,
+        "sample": 3,
+        "elapsedMs": 4.194082999999864,
+        "tokenMs": 4.036457999999584,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 2.688499999999749,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 0,
+        "sample": 4,
+        "elapsedMs": 4.2452500000003965,
+        "tokenMs": 4.0965000000001055,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 2.533791999999721,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 27,
+        "sample": 0,
+        "elapsedMs": 59.352499999999964,
+        "tokenMs": 59.2430830000003,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 58.939750000000004,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 27,
+        "sample": 1,
+        "elapsedMs": 60.959084000000075,
+        "tokenMs": 60.8137499999998,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 60.80012500000021,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 27,
+        "sample": 2,
+        "elapsedMs": 59.222749999999905,
+        "tokenMs": 59.10916700000007,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 62.183583,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 27,
+        "sample": 3,
+        "elapsedMs": 68.76333399999976,
+        "tokenMs": 68.15937499999973,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 65.19699999999966,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 27,
+        "sample": 4,
+        "elapsedMs": 66.93520899999976,
+        "tokenMs": 66.24862499999972,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 65.04116599999998,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 80,
+        "sample": 0,
+        "elapsedMs": 172.93845800000008,
+        "tokenMs": 172.83204100000012,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 167.9697500000002,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 80,
+        "sample": 1,
+        "elapsedMs": 172.58070799999996,
+        "tokenMs": 172.15104199999996,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 173.2036250000001,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 80,
+        "sample": 2,
+        "elapsedMs": 173.35054200000013,
+        "tokenMs": 173.0093340000003,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 172.9315000000006,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 80,
+        "sample": 3,
+        "elapsedMs": 173.57729199999994,
+        "tokenMs": 173.2102079999995,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 172.15712500000063,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      },
+      {
+        "roundTripMs": 80,
+        "sample": 4,
+        "elapsedMs": 172.18224999999984,
+        "tokenMs": 172.0782079999999,
+        "tokenQueries": 2,
+        "queries": 2,
+        "waits": 2,
+        "refreshMs": 165.05225000000064,
+        "refreshQueries": 2,
+        "refreshWaits": 2
+      }
+    ]
+  },
+  "limits": [
+    "Safari Web Inspector open; browser-cache state was not controlled across the two runs.",
+    "Timeline auto-capture ended near the load event and does not cover later workspace readiness; first paint came from Navigation/Paint Timing.",
+    "The restored session reported a missing provider rollout and a host with an unknown webhookList method. First paint does not prove all restored features loaded.",
+    "The additional live code-exchange SQL calls have not been attributed to query fingerprints in this check."
+  ]
+}

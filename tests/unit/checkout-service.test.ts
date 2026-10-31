@@ -78,7 +78,7 @@ test('creation, naming, shared attachments, external changes and restart use one
 })
 
 test('a status scan already in flight cannot undo a confirmed rename', async () => {
-  const { computeGitState } = await import('@solus/server/git/git-helpers')
+  const { readCheckout } = await import('@solus/server/git/git-helpers')
   let release!: () => void
   const service = new CheckoutService(() => false)
   try {
@@ -88,14 +88,14 @@ test('a status scan already in flight cannot undo a confirmed rename', async () 
     let scanned!: () => void
     // The controlled reader captures a pre-rename scan before naming starts.
     const captured = new Promise<void>((resolve) => { scanned = resolve })
-    const staleStatus = await computeGitState(cwd)
+    const staleRead = await readCheckout(cwd)
     let first = true
     const racing = new CheckoutService(() => false, async (path) => {
-      if (!first) return computeGitState(path)
+      if (!first) return readCheckout(path)
       first = false
       scanned()
       await new Promise<void>((resolve) => { release = resolve })
-      return staleStatus
+      return staleRead
     })
     try {
       racing.attach(cwd, { ...checkout })

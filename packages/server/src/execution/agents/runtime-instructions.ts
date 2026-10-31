@@ -33,7 +33,7 @@ Use the Solus link tool to register every pull request that you create or work o
  *  runs gh itself does not load it unless something points it there. */
 const PULL_REQUEST_WRITING_INSTRUCTION = 'Before you write a pull request title or body, use the writing-pr skill. It holds the same rules as the Solus pull request button.'
 
-const PULL_REQUEST_CHECK_INSTRUCTION = 'Before you finish pull request work, call list_session_pull_requests and link each pull request from your work that is missing.'
+const PULL_REQUEST_CHECK_INSTRUCTION = 'Before you finish pull request work, call list_links with kind=pr and link each pull request from your work that is missing.'
 
 /** Tool descriptions load behind tool search, so the rule that saves a turn
  *  of polling must be here (docs/plans/pr-watch.md §2). */
@@ -50,27 +50,21 @@ Before you end your turn to wait for a background command or Monitor you started
 
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
-Use the provider's built-in subagent tool for work on the current provider when that tool supports the requested model. A different model alone does not require start_session. The native tool's schema defines its model support, context inheritance, and completion behavior. Native subagents need no Solus task fields.
+Use delegate_task for child work on the same provider or another provider. It creates a durable child session with no parent history. Give it the complete brief, constraints, and expected result. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities.
 
-For temporary work on the other provider, use an available Solus wrapper subagent. These tools return one final answer and need no task fields. If the native tool or a wrapper cannot support the requested work, use start_session.
+Use start_session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
 
-Use start_session when the work needs a separate durable conversation, its own worktree, another host, or independent continuation with Solus reports. Task leads use start_session for their task's workers. Do not use start_session only because the user said "subagent" or asked for parallel work: native and wrapper subagents do that. Use task='none' outside task mode. In task mode, follow the Working On Task packet for task membership. Do not create or attach a task outside task mode unless the user requests it. Start an unrelated conversation only when the user asks for it.
+Choose the workspace before launching. delegate_task uses isolation='shared' by default; isolation='worktree' creates a new checkout from the selected local checkout's commit. Set worktree_base_branch to choose another base. cwd selects an existing checkout. On another host, paths belong to that host; an isolated remote child needs cwd and worktree_base_branch. A shell command in prompt does not change the session's workspace binding. Use host only when the user asks to run work on another machine.
 
-Give each worker the brief, constraints, and expected result. Solus wrapper subagents and separate sessions do not see this conversation; give them a self-contained prompt. For start_session, choose the workspace before starting. A shell command in the prompt, such as \`git worktree add\` or \`cd\`, does not change the session's workspace binding.
-- New worktree: \`{"worktree_base_branch":"feature/base","prompt":"Implement the cleanup and open a pull request against feature/base."}\`. Solus fetches the base branch and starts from origin; it uses the local branch only when the fetch fails. Push the base branch first when the new session needs its local commits. Uncommitted edits are not copied.
-- Existing checkout or worktree: \`{"cwd":"/absolute/path/to/worktree"}\`. worktree_status lists every checkout of the repository with its branch.
-- Without worktree_base_branch or cwd, the new session uses your directory.
-For stacked work, set worktree_base_branch to the parent branch of the stack. move_to_worktree moves only your own session, and a session that is already in a worktree can move only into another existing worktree.
+Delegated agents inherit provider, model, reasoning effort, and permissions where supported. Use list_agent_targets before selecting another provider or model, and for another host's choices. Set requested reasoning_effort explicitly. Never substitute an unsupported level. Permission mode may stay the same or become narrower. Started sessions do not run in fast mode.
 
-Solus tool definitions can load through the harness's tool search. If a named tool is absent from the initial catalog, use tool search to load it before concluding that it is unavailable. Do not start duplicate work to work around a tool discovery failure.
+A local child inherits the parent's existing Solus task; task_id selects another existing task or null leaves it unlinked. Remote children cannot join Solus tasks yet. Do not create a task merely to delegate work.
 
-For start_session and send_session, prefer report=true and wait_seconds=0. End your turn while the separate session runs; its report wakes you. A wait timeout does not cancel work. Keep the returned session and exchange IDs. An ended provider turn with open child work is not a final result. Read the results and complete any required follow-up before reporting completion.
+For delegate_task and follow-up send_session calls, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end your turn, and let the report wake you. Do not poll. A wait timeout does not cancel work. A provider turn with open child work is not a final result: read the result and complete the follow-up before reporting completion.
 
-Use a new request_id for each request or review round, and reuse it only when retrying that same work. If a start_session or send_session call fails or its response is lost, retry with the same request_id: it returns the original exchange and never starts a second session. Startup can continue after the call returns; read_session_exchange reads its state. Include the original brief, prior findings, responses, and unresolved issues in each review round. Only the user answers another session's questions, plans, and permissions; tell the user when a notice needs their answer.
+Use send_session to continue a child; delivery='steer' changes active work, while 'queue' waits for a new turn. Each request or review round has its own exchange. Reuse request_id only to retry the same request after failure or a lost response; the saved receipt prevents duplicate work. read_session_exchange reads startup state and results after a timeout or restart. Stop a child with stop_session. Only the user answers its questions, plans, and permissions; tell the user what a notice asks.
 
-Take provider, model, and reasoning ids from list_agent_targets. When the user asks for a reasoning level, pass it in reasoning_effort, not only in the prompt, and use start_session or a wrapper subagent when the native tool cannot set it. Do not change a requested level to another one, such as max to high: if the model does not support it, report the mismatch. Check the provider, model, and reasoning level that start_session reports against the request. Started sessions do not run in fast mode; say so when the user asks for it.
-
-To mention another session to the user, copy the session link that the session tools return, such as \`[title](session://open?provider=codex&sessionId=<id>)\`. Solus opens the session when the user clicks it. Do not write a link by hand for a session id you did not get from a tool.`
+Tool definitions can load through tool search. Search before concluding a tool is absent; do not start duplicate work to work around discovery. To show another session, copy the link returned by its tool. Do not invent a session link.`
 
 const DEVICE_INSTRUCTIONS = `## Solus devices
 
@@ -78,7 +72,7 @@ The device tools control iOS Simulators, Android Emulators, and connected phones
 
 const AUTOMATION_INSTRUCTIONS = `## Automations
 
-create_automation sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Omit trigger for an automation that runs only with run_automation. Each run starts its own session, and its result does not come back to this conversation: read it with read_automation_run. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
+create_automation sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Omit trigger for an automation that runs only with run_automation. Each run starts its own session, and its result does not come back to this conversation: use list_automation_runs for run status, errors, and session_id, then read_session for agent output. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
 
 /** Solus binds a session to one checkout. A shell `cd` into a new worktree
  *  leaves the diff, status, and branch on the old one. */
@@ -131,11 +125,9 @@ You can embed images and videos in your response with Markdown and absolute file
   return [
     runtimeInfo,
     isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
-    has('start_session') && [
+    (has('start_session') || has('delegate_task')) && [
       ORCHESTRATION_INSTRUCTIONS,
-      has('claude_subagent') && 'claude_subagent is available for temporary work on Claude. It returns its answer in the tool result; no Solus report or task fields are needed.',
-      has('codex_subagent') && 'codex_subagent is available for temporary work on Codex. It returns its answer in the tool result; no Solus report or task fields are needed.',
-      has('list_agent_targets') && 'Before a Solus session or wrapper subagent launch, call list_agent_targets for the host model catalog. This catalog does not establish native subagent support; use the native tool schema for that.',
+      has('list_agent_targets') && 'Before selecting another provider or model, call list_agent_targets for the host model catalog. This catalog does not establish native subagent support; use the native tool schema for that.',
       has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
       has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
     ].filter(Boolean).join('\n\n'),
@@ -144,13 +136,13 @@ You can embed images and videos in your response with Markdown and absolute file
     ...ENTRY_TOOL_BLOCKS.filter(([tool]) => has(tool)).map(([, block]) => block),
     has('render_artifact') && VISUALS_INSTRUCTIONS,
     has('link') && [
-      has('list_session_pull_requests')
+      has('list_links')
         ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`
         : PULL_REQUEST_LINKING_INSTRUCTIONS,
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
     has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. Markdown plan files use kind=file and path. Relative paths use the calling session’s working directory.',
-    has('unlink_pull_request') && 'If a pull request linked to this session is not your work, call unlink_pull_request to remove it. Solus does not link it again.',
+    has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
     runtime.harness === 'Claude Code' && has('background_wait') && BACKGROUND_WAIT_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')

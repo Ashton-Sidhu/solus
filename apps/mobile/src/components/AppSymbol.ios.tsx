@@ -1,4 +1,5 @@
 import IconGitPullRequest from "@tabler/icons-react-native/IconGitPullRequest";
+import { ICON_DEFAULTS } from "@solus/client-core/icon-defaults";
 import { SymbolView as ExpoSymbolView } from "expo-symbols";
 import { withUniwind } from "uniwind";
 import type { AppSymbolViewProps } from "./AppSymbol";
@@ -17,15 +18,15 @@ function AppSymbolView(props: AppSymbolViewProps) {
       <IconGitPullRequest
         accessibilityLabel={props.accessibilityLabel}
         color={props.tintColor}
-        size={props.size}
-        strokeWidth={2}
+        size={props.size ?? ICON_DEFAULTS.size}
+        strokeWidth={ICON_DEFAULTS.strokeWidth}
         style={props.style}
         testID={props.testID}
       />
     );
   }
 
-  return <ExpoSymbolView {...props} />;
+  return <ExpoSymbolView size={ICON_DEFAULTS.size} weight="regular" {...props} />;
 }
 
 export const SymbolView = withUniwind(AppSymbolView);

@@ -9,9 +9,10 @@ import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus
 import { sessionSettings } from './session-settings'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
-import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionOrigin, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionRunInput, SessionStarter, SessionStarterFromHost, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
-import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
+import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { hostUserKey } from '../../host/host-user'
 import { userKey } from '@solus/contracts/user'
 import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganizationDeps } from './turn-organization'
 import { TurnRefusedError } from './turn-refusal'
@@ -31,9 +32,14 @@ export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'
   /** The requester's preferences; a child session takes its parent's when absent. */
   executionPreferences?: ExecutionPreferences
   /** The agent session on another host that starts this one. */
-  startedBy?: SessionOrigin
+  startedBy?: SessionStarterFromHost
   /** The organization the requester works in (`HeadlessSessionRequest.organizationId`); a child takes its parent's. */
   organizationId?: string
+}
+
+/** A session a person starts (session-starter.md). A local prompt has no actor: it is the host's user. */
+function personStarter(actor: Actor | undefined): SessionStarter {
+  return { kind: 'person', personKey: (actor && ownerKeyOf(actor)) ?? hostUserKey() }
 }
 
 /** The repository a client's prompt asks this host to copy first, with the device that asked. */
@@ -148,6 +154,7 @@ export class PromptDispatch {
         sessionId,
         sourceClientId: origin?.clientId,
         actor: origin?.actor,
+        startedBy: target.kind === 'new-session' ? personStarter(origin?.actor) : undefined,
         ...repositoryRunOf(ctx, origin?.deviceId),
         options: {
           ...options,
@@ -163,6 +170,7 @@ export class PromptDispatch {
           solusToolbox.browser,
           solusToolbox.devices,
           solusToolbox.sessions,
+          solusToolbox.projects,
           solusToolbox.tasks,
           solusToolbox.config,
         ),
@@ -267,6 +275,7 @@ export class PromptDispatch {
         solusToolbox.browser,
         solusToolbox.devices,
         solusToolbox.sessions,
+        solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
       ),
@@ -281,7 +290,7 @@ export class PromptDispatch {
    * child run (organization-vms §4). A session no person starts is the host's.
    */
   private async admitNewSession(req: CreateSessionRequest, sessionId: string, actor: Actor | undefined): Promise<void> {
-    const parentId = req.delegation?.parentSessionId
+    const parentId = req.sourceSessionId ?? req.delegation?.parentSessionId
     const organizationId = req.organizationId ?? (parentId ? await this.rt.turnOrganization(parentId) : undefined)
     const ctx: TurnAdmissionContext = { session: { sessionId, agentSessionId: null, workingDirectory: req.cwd, organizationId, provider: req.provider } }
     if (parentId) ctx.parentSessionId = parentId
@@ -296,7 +305,7 @@ export class PromptDispatch {
    * which watches the session when a user opens it.
    */
   async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string; taskId?: string }> {
-    const parentId = req.delegation?.parentSessionId
+    const parentId = req.sourceSessionId ?? req.delegation?.parentSessionId
     // A child works for the person its parent works for, on their seat (plans/019 decision 5).
     const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : undefined)
     const sessionId = req.sessionId ?? crypto.randomUUID()
@@ -304,7 +313,7 @@ export class PromptDispatch {
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
     await this.rt.seatForTurn(runActor, req.provider)
     const parentMode = parentId ? this.rt.activeSessions.get(parentId)?.runInput?.permissionMode ?? this.rt.sessionPermissionModes.get(parentId) : undefined
-    if (req.delegation && !parentMode) throw new Error('The parent permission policy is unavailable. Start the child from an active parent turn.')
+    if (parentId && !parentMode) throw new Error('The parent permission policy is unavailable. Start the child from an active parent turn.')
     // A child works for the person its parent works for, with that person's preferences.
     const preferences = req.executionPreferences ?? sessionSettings(parentId)?.preferences ?? (parentId ? await sessionExecutionPreferences(parentId) : undefined)
     const permissionMode = parentMode
@@ -345,7 +354,8 @@ export class PromptDispatch {
       actor: runActor,
       exchangeIds: req.exchangeIds,
       delegation,
-      startedBy: req.startedBy,
+      // Another host's session, the session that asked here, or the person who asked.
+      startedBy: req.startedBy ?? (parentId ? { kind: 'session', sessionId: parentId } : personStarter(runActor)),
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.artifact,
@@ -356,6 +366,7 @@ export class PromptDispatch {
         solusToolbox.browser,
         solusToolbox.devices,
         solusToolbox.sessions,
+        solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
       ),
@@ -379,8 +390,10 @@ export class PromptDispatch {
    *  through completion. */
   async startUnattendedSession(req: {
     prompt: string
-    /** The automation that starts it; absent for a webhook action, whose prompt names the webhook. */
-    automation?: { id: string; name: string }
+    /** The automation run or webhook delivery that starts it. */
+    startedBy: Extract<SessionStarter, { kind: 'automation' | 'webhook' }>
+    /** The automation's name, for the badge on the first prompt. */
+    automationName?: string
     provider: AgentId
     modelId: string | null
     reasoningEffort: ReasoningEffort
@@ -417,6 +430,7 @@ export class PromptDispatch {
       target: { kind: 'new-session' },
       sessionId,
       actor: req.actor,
+      startedBy: req.startedBy,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.artifact,
@@ -425,12 +439,13 @@ export class PromptDispatch {
         solusToolbox.browser,
         solusToolbox.devices,
         solusToolbox.sessions,
+        solusToolbox.projects,
         solusToolbox.tasks,
         solusToolbox.config,
       ),
       // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
-      options: req.automation
-        ? { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt, via: 'automation', automationId: req.automation.id, automationName: req.automation.name }
+      options: req.startedBy.kind === 'automation'
+        ? { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt, via: 'automation', automationId: req.startedBy.automationId, automationName: req.automationName }
         : { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt },
     })
     const cancel = () => lifecycle.cancel()
@@ -444,11 +459,13 @@ export class PromptDispatch {
       const { agentSessionId } = await lifecycle.agentSessionId
       const done = trackedDone.then(async (result) => {
         if (result.output) return result
-        const messages = await this.rt.history.loadSession(
-          req.provider,
-          agentSessionId,
-          req.gitContext?.worktreePath ?? req.cwd,
-        ).catch(() => [])
+        // The run's answer is its last turn; earlier turns are never read.
+        const { messages } = await this.rt.history.loadSessionPage({
+          provider: req.provider,
+          sessionId: agentSessionId,
+          projectPath: req.gitContext?.worktreePath ?? req.cwd,
+          turnLimit: 1,
+        }).catch(() => ({ messages: [] }))
         const output = messages
           .filter((message) => message.role === 'assistant' && !message.parentToolUseId && message.content)
           .map((message) => message.content)
@@ -487,6 +504,7 @@ export class PromptDispatch {
       solusToolbox.browser,
       solusToolbox.devices,
       solusToolbox.sessions,
+      solusToolbox.projects,
       solusToolbox.tasks,
       solusToolbox.config,
     )
@@ -501,6 +519,7 @@ export class PromptDispatch {
         options,
         tools,
         actor,
+        startedBy: personStarter(actor),
         // A clone that a dead launch never made is made now.
         ...repositoryRunOf(ctx, deviceId),
       }
@@ -508,7 +527,7 @@ export class PromptDispatch {
       const agentSessionId = session?.agentSessionId ?? ctx.session.agentSessionId
       request = !input.forked && agentSessionId
         ? { input, target: { kind: 'session', sessionId }, sessionId, sourceClientId, options, tools, actor }
-        : { input, target: { kind: 'new-session' }, sessionId, sourceClientId, options, tools, actor, ...repositoryRunOf(ctx, deviceId) }
+        : { input, target: { kind: 'new-session' }, sessionId, sourceClientId, options, tools, actor, startedBy: personStarter(actor), ...repositoryRunOf(ctx, deviceId) }
     }
 
     const lifecycle = await this.rt.runTurn(request)

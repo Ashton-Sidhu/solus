@@ -46,6 +46,7 @@ import {
 } from './stacks'
 import { approveGithubWorkflowRuns, listGithubPendingWorkflowRuns } from './workflow-approvals'
 import {
+  githubDefaultBranchOf,
   headRepoOf,
   NEEDS_REVIEW_FIELDS,
   needsReviewSearchTerms,
@@ -457,7 +458,7 @@ interface RestPull {
   mergeable_state?: string | null
   /** Null while auto-merge is off; GitHub names the method it will use. */
   auto_merge?: { merge_method?: string | null } | null
-  base: { ref: string; sha: string; repo?: { full_name?: string } | null }
+  base: { ref: string; sha: string; repo?: { full_name?: string; default_branch?: string } | null }
   head: { ref: string; sha: string; repo?: { full_name?: string; name?: string; owner?: { login?: string } } | null }
 }
 
@@ -504,6 +505,7 @@ function toPullRequest(
     assignees: logins(pr.assignees),
     body: pr.body ?? '',
     baseRef: pr.base.ref,
+    defaultBranch: githubDefaultBranchOf(pr.base.repo),
     headRef: pr.head.ref,
     changedFiles: pr.changed_files ?? null,
     mergeable: pr.mergeable ?? null,

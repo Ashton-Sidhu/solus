@@ -1,7 +1,7 @@
+import { resolveFileIcon } from "@solus/client-core/file-icons";
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { resolveMarkdownFileIcon } from '../../apps/mobile/src/lib/markdownLinks'
 import { splitSentAttachments as desktopSplit } from '@solus/workspace-ui/contexts/workspace/session.utils'
 import {
   attachmentTypeLabel,
@@ -108,12 +108,12 @@ describe('native attachment presentation', () => {
   })
 
   test('a file shows its type icon from T3\'s bundled Pierre set, by name', () => {
-    expect(resolveMarkdownFileIcon('notes.md')).toBe('markdown')
-    expect(resolveMarkdownFileIcon('shot.PNG')).toBe('image')
-    expect(resolveMarkdownFileIcon('clip.mov')).toBe('video')
-    expect(resolveMarkdownFileIcon('archive.zip')).toBe('zip')
+    expect(resolveFileIcon('notes.md').token).toBe('markdown')
+    expect(resolveFileIcon('shot.PNG').token).toBe('image')
+    expect(resolveFileIcon('clip.mov').token).toBe('video')
+    expect(resolveFileIcon('archive.zip').token).toBe('zip')
     // T3 has no PDF glyph; a PDF takes the default icon there too.
-    expect(resolveMarkdownFileIcon('report.pdf')).toBe('default')
+    expect(resolveFileIcon('report.pdf').token).toBe('default')
     const sources = mobile('src/lib/markdownFileIcons.generated.ts')
     for (const icon of ['markdown', 'image', 'video', 'zip', 'default']) expect(sources).toContain(`pierre_${icon}.png`)
   })

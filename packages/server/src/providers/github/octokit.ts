@@ -38,23 +38,37 @@ const graphqlCredentialAccessFailureSchema = z.object({
     type: z.string().optional(),
   })).refine((errors) => errors.some(({ type }) => type === 'FORBIDDEN' || type === 'NOT_FOUND')),
 })
+const githubResponseHeadersSchema = z.object({
+  'x-github-request-id': z.string().optional(),
+  'content-type': z.string().optional(),
+  'retry-after': z.string().optional(),
+  'x-ratelimit-remaining': z.string().optional(),
+  'x-ratelimit-reset': z.string().optional(),
+})
 const githubFailureSchema = z.object({
   status: z.number().optional(),
-  errors: z.array(z.object({ type: z.string() })).optional(),
+  errors: z.array(z.object({ type: z.string().optional() })).optional(),
+  headers: githubResponseHeadersSchema.optional(),
+  response: z.object({ headers: githubResponseHeadersSchema.optional() }).optional(),
 })
 
-function errorMessage(error: unknown): string {
+function errorMessage<Failure>(error: Failure): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function failureFacts(error: unknown): { status: number | null; errorTypes: string[] } {
+/** Only response diagnostics, never request headers, variables, or tokens. */
+export function githubFailureFacts<Failure>(error: Failure) {
   const parsed = githubFailureSchema.safeParse(error)
-  return parsed.success
-    ? {
-        status: parsed.data.status ?? null,
-        errorTypes: parsed.data.errors?.map(({ type }) => type) ?? [],
-      }
-    : { status: null, errorTypes: [] }
+  const headers = parsed.success ? parsed.data.response?.headers ?? parsed.data.headers : undefined
+  return {
+    status: parsed.success ? parsed.data.status ?? null : null,
+    errorTypes: parsed.success ? parsed.data.errors?.flatMap(({ type }) => type ? [type] : []) ?? [] : [],
+    githubRequestId: headers?.['x-github-request-id'] ?? null,
+    responseContentType: headers?.['content-type'] ?? null,
+    retryAfter: headers?.['retry-after'] ?? null,
+    rateLimitRemaining: headers?.['x-ratelimit-remaining'] ?? null,
+    rateLimitReset: headers?.['x-ratelimit-reset'] ?? null,
+  }
 }
 
 function requestPath(url: string): string {
@@ -150,10 +164,10 @@ function createClient(credential: GithubCredential): GitHubClient {
         }),
       )
     } catch (error) {
-      const facts = failureFacts(error)
+      const facts = githubFailureFacts(error)
       log.warn('github_rest_request_failed', {
         source: credential.source,
-        status: facts.status,
+        ...facts,
         error: errorMessage(error),
       })
       if (unauthorizedSchema.safeParse(error).success) rejected()
@@ -170,17 +184,18 @@ function createClient(credential: GithubCredential): GitHubClient {
     parameters?: GraphQLParameters,
   ): Promise<ResponseData> => {
     const operation = graphqlOperation(document)
+    const startedAt = performance.now()
     log.info('github_graphql_request_started', { source: credential.source, operation })
     try {
       budget.admit('graphql')
       return await withRequestSlot(() => query<ResponseData>(document, parameters))
     } catch (error) {
-      const facts = failureFacts(error)
+      const facts = githubFailureFacts(error)
       log.warn('github_graphql_request_failed', {
         source: credential.source,
         operation,
-        status: facts.status,
-        errorTypes: facts.errorTypes,
+        durationMs: Math.round(performance.now() - startedAt),
+        ...facts,
         error: errorMessage(error),
       })
       if (unauthorizedSchema.safeParse(error).success) rejected()

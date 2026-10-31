@@ -69,6 +69,25 @@ describe('saved server identity', () => {
 })
 
 describe('lazily created connections', () => {
+  test('a managed connection ignores internal routes even when its target contains them', async () => {
+    const connections = new ServerConnections()
+    const serverId = 'managed-internal-route'
+    const tunnelUrl = 'https://managed.solus.test'
+    connections.registerTarget({
+      id: serverId, label: 'Managed', local: false, sessionToken: '',
+      url: 'http://10.0.0.1:3000',
+      routes: [{ kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }, { kind: 'tunnel', url: tunnelUrl }],
+      uplink: { hostId: 'managed', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState: 'ready' },
+    })
+    try {
+      connections.apiFor(serverId)
+      await Promise.resolve()
+      expect(connections.connectionFor(serverId)?.transport.serverUrl).toBe(tunnelUrl)
+    } finally {
+      connections.release(serverId)
+    }
+  })
+
   test('does not connect to a saved alias for the local installation', async () => {
     startedTransports.length = 0
     const previousLocalStorage = globalThis.localStorage

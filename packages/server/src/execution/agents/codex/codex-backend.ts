@@ -1,3 +1,6 @@
+import { instanceRuntime, providerHistoryInstanceId, type ProviderRuntime } from '../../seats/provider-runtime'
+import { privateProviderInstances } from '../../seats/provider-instances'
+import { requireActingScope } from '../../../vault/acting-scope'
 import { restoreAsyncQuestionAnswers } from '../../../data/sessions/async-questions'
 import { sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
 import { loadCodexHistoryPage } from './codex-history-page'
@@ -197,6 +200,7 @@ const THREAD_IDLE_UNLOAD_MS = 10 * 60_000
 
 interface SeatClient {
   client: CodexAppServerClient
+  historyReference?: string
   activeRuns: number
   idleTimer: ReturnType<typeof setTimeout> | null
 }
@@ -287,7 +291,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private seatClients = new Map<string, SeatClient>()
   /** WORKAROUND(openai/codex#54472): which seat last ran each thread, and how to reach that seat's app-server. */
   private readonly threadWriters = new CodexThreadWriters()
-  private readerSeats: Pick<SeatManager, 'readerSeat'> | null = null
+  private readerSeats: Pick<SeatManager, 'readerSeat' | 'homeFor'> | null = null
   /** The unload clock of each idle thread, per app-server: one thread can be
    *  loaded on a seat's server for a run and on the host's for a preview. */
   private readonly idleThreads = new Map<CodexAppServerClient, Map<string, ReturnType<typeof setTimeout>>>()
@@ -370,10 +374,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    * seat's server is stopped to make room, and with none idle the run is refused
    * rather than starting a ninth process on the host.
    */
-  private clientFor(seat: TurnSeat | undefined): CodexAppServerClient {
+  private clientFor(seat: TurnSeat | undefined, runtime?: ProviderRuntime): CodexAppServerClient {
     // The host login's app-server is the pool's permanent member: it also serves every catalog read.
-    if (!seat || seat.seat.kind === 'host-login') return this.client
-    const existing = this.seatClients.get(seatKey(seat.seat))
+    if (!runtime && (!seat || seat.seat.kind === 'host-login')) return this.client
+    const key = runtime?.key ?? seatKey(seat?.seat ?? HOST_LOGIN_SEAT)
+    const existing = this.seatClients.get(key)
     if (existing) return existing.client
     if (this.seatClients.size >= SEAT_CLIENT_CAP) {
       const idle = [...this.seatClients.entries()].find(([, entry]) => entry.activeRuns === 0)
@@ -382,17 +387,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     // The app-server outlives one turn. It runs in the member's own home, where
     // their GitHub connection is kept current on disk (plans/019-acting-identity.md).
-    const client = new CodexAppServerClient({ codexHome: seat.home, launch: seat.launch })
+    const client = new CodexAppServerClient({ codexHome: runtime?.homePath ?? seat?.home, launch: runtime?.launch ?? seat?.launch, binaryPath: runtime?.binaryPath, launchArgs: runtime?.launchArgs })
     this.attachClient(client)
-    const entry: SeatClient = { client, activeRuns: 0, idleTimer: null }
-    this.seatClients.set(seatKey(seat.seat), entry)
-    this.armSeatIdle(seatKey(seat.seat), entry)
-    log.info('seat_app_server_started', { seat: seatKey(seat.seat), pool: this.seatClients.size })
+    const entry: SeatClient = { client, historyReference: runtime?.historyReference, activeRuns: 0, idleTimer: null }
+    this.seatClients.set(key, entry)
+    this.armSeatIdle(key, entry)
+    log.info('seat_app_server_started', { seat: key, pool: this.seatClients.size })
     return client
   }
 
   /** WORKAROUND(openai/codex#54472): how a history read finds the seat that last ran a thread. */
-  useReaderSeats(seats: Pick<SeatManager, 'readerSeat'>): void {
+  useReaderSeats(seats: Pick<SeatManager, 'readerSeat' | 'homeFor'>): void {
     this.readerSeats = seats
   }
 
@@ -409,6 +414,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    */
   private async readerFor(threadId: string, options: { startSeatClient: boolean }): Promise<CodexAppServerClient> {
     const key = this.threadWriters.get(threadId)
+    if (key?.startsWith('private-instance:')) return this.privateInstanceReader(key, options.startSeatClient)
     if (!key || key === seatKey(HOST_LOGIN_SEAT)) return this.client
     const running = this.seatClients.get(key)
     if (running) return running.client
@@ -423,16 +429,33 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return this.client
   }
 
+  private async privateInstanceReader(reference: string, startSeatClient: boolean): Promise<CodexAppServerClient> {
+    const scope = requireActingScope('private provider history')
+    if (!scope.personKey) throw new Error('Sign in to read private provider history.')
+    const instanceId = providerHistoryInstanceId(reference, scope.personKey)
+    const running = [...this.seatClients.values()].find((entry) => entry.historyReference === reference)
+    if (running) return running.client
+    if (!startSeatClient) throw new Error('Open this private provider session to load its preview.')
+    if (!this.readerSeats) throw new Error('Private provider history is unavailable on this host.')
+    const instance = privateProviderInstances().lookup(scope.personKey, instanceId)
+    if (instance.provider !== 'codex') throw new Error('This history requires a Codex provider instance.')
+    const home = this.readerSeats.homeFor(scope.identity.seat, 'codex')
+    const runtime = instanceRuntime(instance, await scope.identity.launchOptions(), 0, home)
+    runtime.homePath ??= home
+    return this.clientFor(undefined, runtime)
+  }
+
   /** Holds a seat's app-server for the life of a run; the last release starts the idle clock. */
-  private holdSeatClient(seat: TurnSeat | undefined, runPromise: Promise<void>): void {
-    if (!seat) return
-    const entry = this.seatClients.get(seatKey(seat.seat))
+  private holdSeatClient(seat: TurnSeat | undefined, runPromise: Promise<void>, runtime?: ProviderRuntime): void {
+    if (!seat && !runtime) return
+    const key = runtime?.key ?? seatKey(seat?.seat ?? HOST_LOGIN_SEAT)
+    const entry = this.seatClients.get(key)
     if (!entry) return
     entry.activeRuns += 1
     if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null }
     void runPromise.finally(() => {
       entry.activeRuns = Math.max(0, entry.activeRuns - 1)
-      if (entry.activeRuns === 0) this.armSeatIdle(seatKey(seat.seat), entry)
+      if (entry.activeRuns === 0) this.armSeatIdle(key, entry)
     }).catch(() => {})
   }
 
@@ -515,7 +538,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     }
     const abortController = new AbortController()
-    const client = this.clientFor(request.seat)
+    const client = this.clientFor(request.seat, request.providerRuntime)
     let handle!: CodexRunHandle
     const toolDispatcher = new CodexToolDispatcher(request.tools, {
       provider: 'codex',
@@ -562,7 +585,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (handle.threadId) this.clearThreadIdle(client, handle.threadId)
     this.pendingRuns.push(handle)
-    this.holdSeatClient(request.seat, runPromise)
+    this.holdSeatClient(request.seat, runPromise, request.providerRuntime)
     void this.run(handle, request)
     return handle
   }
@@ -648,7 +671,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // WORKAROUND(openai/codex#54472): this seat's home now holds the thread's whole history.
       if (request.persistence !== 'ephemeral') {
         try {
-          this.threadWriters.record(threadId, seatKey(request.seat?.seat ?? HOST_LOGIN_SEAT))
+          this.threadWriters.record(threadId, request.providerRuntime?.historyReference ?? seatKey(request.seat?.seat ?? HOST_LOGIN_SEAT))
         } catch (error) {
           log.warn('codex_thread_writer_record_failed', { sessionId: threadId, error: error instanceof Error ? error.message : String(error) })
         }
@@ -1015,9 +1038,18 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async loadSessionPage(sessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string) {
+    return this.readHistoryPage(sessionId, (turns) => turns, turnLimit, before)
+  }
+
+  /** Only the first turn's items are read; the turn list itself is a summary. */
+  async loadSessionFirstTurn(sessionId: string): Promise<SessionLoadMessage[]> {
+    return (await this.readHistoryPage(sessionId, (turns) => turns.slice(0, 1), 1)).messages
+  }
+
+  private async readHistoryPage(sessionId: string, pickTurns: (turns: CodexTurnHistory[]) => CodexTurnHistory[], turnLimit: number, before?: string) {
     const client = await this.readerFor(sessionId, { startSeatClient: true })
     const response = await this.readThread(client, sessionId)
-    const page = await loadCodexHistoryPage(sessionId, response.thread?.turns ?? [],
+    const page = await loadCodexHistoryPage(sessionId, pickTurns(response.thread?.turns ?? []),
       (params) => client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
       turnLimit, before)
     await reconcileCodexSubagentHistory(page.messages, async (threadId) => {

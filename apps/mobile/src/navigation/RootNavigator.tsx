@@ -1,3 +1,5 @@
+import { SettingsScopeScreen } from '../features/settings/SettingsScopeScreen'
+import { ProviderInstancesScreen } from '../features/settings/ProviderInstancesScreen'
 import {
   NavigationContainer,
   createNavigationContainerRef,
@@ -47,12 +49,16 @@ import { AppearanceScreen } from '../features/settings/AppearanceScreen'
 import { AccountSyncScreen } from '../features/settings/AccountSyncScreen'
 import { AgentProfileScreen } from '../features/settings/AgentProfileScreen'
 import { OrganizationSettingsScreen } from '../features/settings/OrganizationSettingsScreen'
+import { DeviceSettingsScreen } from '../features/devices/DeviceSettingsScreen'
+import { DevicesScreen } from '../features/devices/DevicesScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
 import { HostAccessScreen } from '../features/settings/HostAccessScreen'
 import { IntegrationsScreen } from '../features/settings/IntegrationsScreen'
 import { WebhooksScreen } from '../features/webhooks/WebhooksScreen'
 import { WebhookScreen } from '../features/webhooks/WebhookScreen'
 import { WebhookDeliveryScreen } from '../features/webhooks/WebhookDeliveryScreen'
+import { ProvidersScreen, ProviderSettingsScreen } from '../features/settings/ProvidersScreen'
+import { ChatSettingsScreen } from '../features/settings/ChatSettingsScreen'
 import { AgentDefaultsScreen } from '../features/settings/AgentDefaultsScreen'
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen'
 import { GitHubConnectionScreen } from '../features/settings/GitHubConnectionScreen'
@@ -157,10 +163,17 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'AccountSync',
   'AgentProfile',
   'AppearanceSettings',
+  'SettingsScope',
+  'ProviderInstances',
+  'Providers',
+  'ProviderSettings',
+  'ChatSettings',
   'AgentDefaults',
   'NotificationSettings',
   'OrganizationSettings',
   'HostSettings',
+  'DeviceSettings',
+  'Devices',
   'HostAccess',
   'Integrations',
   'Webhooks',
@@ -345,13 +358,20 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
             <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
             <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
+            <Stack.Screen name="DeviceSettings" component={DeviceSettingsScreen} options={{ title: 'Devices' }} />
+            <Stack.Screen name="Devices" component={DevicesScreen} options={{ title: 'Devices' }} />
             <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
             <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
             <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
             <Stack.Screen name="Webhooks" component={WebhooksScreen} options={{ title: 'Webhooks' }} />
             <Stack.Screen name="Webhook" component={WebhookScreen} options={{ title: 'Webhook' }} />
             <Stack.Screen name="WebhookDelivery" component={WebhookDeliveryScreen} options={{ title: 'Delivery' }} />
-            <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
+            <Stack.Screen name="SettingsScope" component={SettingsScopeScreen} options={{ title: 'Apply settings for' }} />
+            <Stack.Screen name="ProviderInstances" component={ProviderInstancesScreen} options={{ title: 'Provider instances' }} />
+            <Stack.Screen name="Providers" component={ProvidersScreen} options={{ title: 'Providers' }} />
+            <Stack.Screen name="ProviderSettings" component={ProviderSettingsScreen} options={{ title: 'Provider settings' }} />
+            <Stack.Screen name="ChatSettings" component={ChatSettingsScreen} options={{ title: 'Chat' }} />
+            <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Sessions' }} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
             <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
             <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />

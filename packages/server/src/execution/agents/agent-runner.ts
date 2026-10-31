@@ -1,3 +1,4 @@
+import type { ProviderRuntime } from '../seats/provider-runtime'
 import { ROOT_CONTEXT, type Span } from '@opentelemetry/api'
 import type { AgentBackend, RunHandle } from './agent-backend'
 import type { AgentTool } from './tools/agent-tool'
@@ -36,6 +37,9 @@ export type ProviderConversation =
 
 export interface AgentRunRequest {
   provider: AgentId
+  providerRuntime?: ProviderRuntime
+  /** Canonical project root; the working directory can be a separate worktree. */
+  projectRoot?: string
   prompt: string
   cwd: string
   tools: AgentTool[]

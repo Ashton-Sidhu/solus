@@ -1,13 +1,12 @@
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsThreadsRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
-import type { PersonalSettings, PersonalSettingsDocument } from "@solus/contracts/settings";
+import type { PersonalSettingsDocument } from "@solus/contracts/settings";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
 import type { ScreenProps } from "../../navigation/routes";
 import {
-  modelChoices,
   PERMISSION_MODE_ICON,
   PERMISSION_MODE_TEXT,
   PERMISSION_MODES,
@@ -18,7 +17,7 @@ import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
-import { RATE_LIMIT_CHOICES, STREAMING_CHOICES } from "./lib/settings-labels";
+import { RATE_LIMIT_CHOICES } from "./lib/settings-labels";
 
 /**
  * What a new session starts with and how its runs behave. These are the
@@ -32,26 +31,15 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
   // another device) does not re-render the page.
   const { changes, current } = app.personal;
   const agent = useListened(changes, () => current().activeAgent);
-  const defaultModel = useListened(changes, () => current().defaultModels[agent] ?? null);
   const defaultPermissionMode = useListened(changes, () => current().defaultPermissionMode);
-  const responseStreamingMode = useListened(changes, () => current().responseStreamingMode);
   const rateLimitBehavior = useListened(changes, () => current().rateLimitBehavior);
   const autoRenameSessions = useListened(changes, () => current().autoRenameSessions);
   const update = (patch: PersonalSettingsDocument) => {
     app.personal.set(patch);
   };
 
-  const agentLabel = PROVIDERS.find((provider) => provider.id === agent)?.label ?? agent;
-  // `defaultModels` is replaced as a whole, so the other agents' choices ride along.
-  const setDefaultModel = (modelId: string | null) => {
-    const next: PersonalSettings["defaultModels"] = { ...current().defaultModels };
-    if (modelId) next[agent] = modelId;
-    else delete next[agent];
-    update({ defaultModels: next });
-  };
-
   return (
-    <SettingsScreen title="Agent defaults">
+    <SettingsScreen title="Sessions">
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -59,7 +47,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
         contentContainerClassName="gap-6 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SettingsSection title="Default agent">
+        <SettingsSection title="Default provider">
           {PROVIDERS.map((provider, index) => (
             <SettingsChoiceRow
               key={provider.id}
@@ -70,30 +58,6 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
             />
           ))}
         </SettingsSection>
-
-        <View className="gap-3">
-          <SettingsSection title={`Default model for ${agentLabel}`}>
-            <SettingsChoiceRow
-              separated={false}
-              label="Built-in default"
-              description={`The model ${agentLabel} uses when none is chosen.`}
-              selected={defaultModel === null}
-              onPress={() => setDefaultModel(null)}
-            />
-            {modelChoices(agent, defaultModel).map((model) => (
-              <SettingsChoiceRow
-                key={model.id}
-                separated
-                label={model.label}
-                selected={defaultModel === model.id}
-                onPress={() => setDefaultModel(model.id)}
-              />
-            ))}
-          </SettingsSection>
-          <SettingsNote>
-            A session can still pick another model before its first prompt.
-          </SettingsNote>
-        </View>
 
         <View className="gap-3">
           <SettingsSection title="Permissions">
@@ -111,19 +75,6 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
           </SettingsSection>
           <SettingsNote>How much a new session may do without asking you.</SettingsNote>
         </View>
-
-        <SettingsSection title="Responses">
-          {STREAMING_CHOICES.map((choice, index) => (
-            <SettingsChoiceRow
-              key={choice.mode}
-              separated={index > 0}
-              label={choice.label}
-              description={choice.description}
-              selected={responseStreamingMode === choice.mode}
-              onPress={() => update({ responseStreamingMode: choice.mode })}
-            />
-          ))}
-        </SettingsSection>
 
         <View className="gap-3">
           <SettingsSection title="Rate limits">

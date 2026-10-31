@@ -102,6 +102,16 @@ export function roleOf(actor: Actor, resource: ResourceRow, now = Date.now()): R
   return standingOf(actor, resource, now).role
 }
 
+/**
+ * The role a session passes down to a work made in it or linked to it
+ * (`data/works/session-access.ts`, decision 2026-10-30): the same preset role.
+ * A custom role's leaves are session actions, so it passes down only the read
+ * every custom role holds.
+ */
+export function roleThroughSession(sessionRole: ResourceRole): ResourceRole {
+  return sessionRole === 'custom' ? 'viewer' : sessionRole
+}
+
 /** The columns of the resource table a predicate reads. */
 export interface ResourceColumns {
   id: SQL

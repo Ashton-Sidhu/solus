@@ -1,6 +1,6 @@
 <script lang="ts">
   /** Model routing: the models Auto routes a new session's first prompt to, one
-   *  per category. Lives under General beside the default model, where Auto is chosen. */
+   *  per category. Lives under Sessions; each provider chooses Auto in Providers. */
   import { untrack } from "svelte";
   import { ROUTING_CATEGORIES, ROUTING_LABELS, ROUTING_PROVIDERS, type RoutingCategory } from "@solus/contracts/model-routing";
   import { modelRoutingStore, routingModelsFor } from "./model-routing.store.svelte";

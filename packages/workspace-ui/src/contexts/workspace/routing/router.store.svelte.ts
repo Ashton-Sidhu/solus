@@ -130,9 +130,6 @@ export class RouterStore {
    */
   onLocationChanged: () => void = () => {}
 
-  /** The route a `returnsOnClose` page replaced. Held only while the leading
-   *  pane still shows such a page. */
-  private returnTo: RouteRef | null = null
   private strips = new SvelteMap<string, StoredStrip>()
   /** Surfaces opened in the background and not yet looked at, by surface key. */
   private unreadSurfaceKeys = new SvelteSet<string>()
@@ -193,11 +190,16 @@ export class RouterStore {
 
   /** Whether this route is on screen: the destination or the active surface. */
   at(name: RouteName): boolean {
+    if (name === 'settings') return !!this.location.settings
     return this.destination.name === name || this.companionSurface?.name === name
   }
 
   /** The live ref for a route on screen, so a surface can read its params. */
   ref<K extends RouteName>(name: K): RouteRef<K> | null {
+    if (name === 'settings') {
+      // SAFETY: the requested name and the stored route both name settings.
+      return (this.location.settings ?? null) as RouteRef<K> | null
+    }
     const surface = this.companionSurface
     if (surface?.name === name) {
       // SAFETY: the surface's name was just matched against this exact route name.
@@ -235,15 +237,16 @@ export class RouterStore {
   // ─── Navigating ───
 
   navigate(ref: RouteRef, opts: NavigateOptions = {}): PaneEntry {
+    if (ref.name === 'settings') {
+      this.location.settings = ref
+      this.navigationEpoch += 1
+      this.commit(ref, opts)
+      return this.focused
+    }
+    if (!opts.background && !opts.automatic) this.location.settings = undefined
     let pane: PaneEntry
     if (targetFor(ref, opts.target) === 'leading') {
-      const replaced = this.destination
       pane = openDestination(this.location, ref)
-      // Remember only the step in from the main workspace. Moving between the
-      // page's own tabs replaces it with itself and keeps the first answer.
-      if (ROUTES[ref.name].returnsOnClose && !ROUTES[replaced.name].returnsOnClose) {
-        this.returnTo = replaced
-      }
       this.swapStrip()
     } else {
       this.revealHiddenStrip()
@@ -356,10 +359,14 @@ export class RouterStore {
     this.commit(null, {})
   }
 
-  /** Close every route of this name: its surfaces, and the destination when it
-   *  is the one showing. A `returnsOnClose` page goes back to the route it
-   *  replaced when that route can still be shown. */
+  /** Close Settings, or the named route's surfaces and destination. */
   close(name: RouteName): void {
+    if (name === 'settings') {
+      this.location.settings = undefined
+      if (!this.canReturnTo(this.destination)) this.closeDestination()
+      this.commit(null, {})
+      return
+    }
     closeSurfacesWhere(this.location, (ref) => ref.name === name)
     if (this.destination.name === name) this.closeDestination()
     this.commit(null, {})
@@ -581,8 +588,7 @@ export class RouterStore {
   // ─── Internals ───
 
   private closeDestination(): void {
-    const remembered = this.returnTo && this.canReturnTo(this.returnTo) ? this.returnTo : null
-    openDestination(this.location, remembered ?? this.leadingHome())
+    openDestination(this.location, this.leadingHome())
     this.swapStrip()
   }
 
@@ -651,14 +657,7 @@ export class RouterStore {
     }
   }
 
-  /** Drop the remembered route once the leading pane no longer shows the page
-   *  that remembered it, so a later visit never returns to an older one. */
-  private forgetStaleReturn(): void {
-    if (this.returnTo && !ROUTES[this.destination.name].returnsOnClose) this.returnTo = null
-  }
-
   private commit(ref: RouteRef | null, opts: Pick<NavigateOptions, 'replace' | 'via'>): void {
-    this.forgetStaleReturn()
     const serialized = serializeLocation(this.location)
     if (opts.replace) this.history.replace(serialized)
     else this.history.push(serialized)
@@ -675,7 +674,6 @@ export class RouterStore {
   private applyHistoryLocation(serialized: string): void {
     if (serializeLocation(this.location) === serializeLocation(parseLocation(serialized))) return
     this.applySerialized(serialized)
-    this.forgetStaleReturn()
     const ref = activeSurface(this.focused) ?? CHAT_ROUTE
     track('route_viewed', { route: ref.name })
     this.onLocationChanged()

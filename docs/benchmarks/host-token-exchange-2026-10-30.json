@@ -1,0 +1,391 @@
+{
+  "date": "2026-10-30",
+  "scope": "One client-to-host OAuth token exchange, real endpoints and migrated PGlite fixture, warm signing-key/resource caches. Each sample checks current memberships and host policy. Database delay is injected per query. Five samples per delay and stage. This excludes browser assets, HTTP transport, Google and rendering.",
+  "stages": {
+    "before": {
+      "samples": [
+        {
+          "roundTripMs": 0,
+          "sample": 0,
+          "elapsedMs": 3.313000000000102,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 1,
+          "elapsedMs": 3.3623750000001564,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 2,
+          "elapsedMs": 3.0683749999998327,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 3,
+          "elapsedMs": 3.3959169999998267,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 4,
+          "elapsedMs": 3.5752090000000862,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 0,
+          "elapsedMs": 58.786834,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 1,
+          "elapsedMs": 58.831666999999925,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 2,
+          "elapsedMs": 57.44058300000006,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 3,
+          "elapsedMs": 58.28108299999985,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 4,
+          "elapsedMs": 62.400792000000365,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 0,
+          "elapsedMs": 169.61354200000005,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 1,
+          "elapsedMs": 170.58712500000001,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 2,
+          "elapsedMs": 172.25383399999964,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 3,
+          "elapsedMs": 171.738875,
+          "queries": 5,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 4,
+          "elapsedMs": 170.36749999999984,
+          "queries": 5,
+          "waits": 2
+        }
+      ],
+      "medians": {
+        "0": {
+          "elapsedMs": 3.36,
+          "queries": 5,
+          "waits": 2
+        },
+        "27": {
+          "elapsedMs": 58.79,
+          "queries": 5,
+          "waits": 2
+        },
+        "80": {
+          "elapsedMs": 170.59,
+          "queries": 5,
+          "waits": 2
+        }
+      }
+    },
+    "joined-reach": {
+      "samples": [
+        {
+          "roundTripMs": 0,
+          "sample": 0,
+          "elapsedMs": 5.804583000000093,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 1,
+          "elapsedMs": 4.282249999999976,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 2,
+          "elapsedMs": 3.383790999999974,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 3,
+          "elapsedMs": 3.04104099999995,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 4,
+          "elapsedMs": 2.906333000000359,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 0,
+          "elapsedMs": 63.01033400000006,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 1,
+          "elapsedMs": 64.94954199999984,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 2,
+          "elapsedMs": 60.93462499999987,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 3,
+          "elapsedMs": 58.915500000000065,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 4,
+          "elapsedMs": 59.38841700000012,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 0,
+          "elapsedMs": 165.30695799999967,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 1,
+          "elapsedMs": 165.15045800000007,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 2,
+          "elapsedMs": 168.8196250000001,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 3,
+          "elapsedMs": 171.10570800000005,
+          "queries": 3,
+          "waits": 2
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 4,
+          "elapsedMs": 172.1393750000002,
+          "queries": 3,
+          "waits": 2
+        }
+      ],
+      "medians": {
+        "0": {
+          "elapsedMs": 3.38,
+          "queries": 3,
+          "waits": 2
+        },
+        "27": {
+          "elapsedMs": 60.93,
+          "queries": 3,
+          "waits": 2
+        },
+        "80": {
+          "elapsedMs": 168.82,
+          "queries": 3,
+          "waits": 2
+        }
+      }
+    },
+    "single-snapshot": {
+      "samples": [
+        {
+          "roundTripMs": 0,
+          "sample": 0,
+          "elapsedMs": 3.5567909999999756,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 1,
+          "elapsedMs": 2.9232079999999314,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 2,
+          "elapsedMs": 2.6678329999999733,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 3,
+          "elapsedMs": 3.267707999999857,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 0,
+          "sample": 4,
+          "elapsedMs": 2.5578749999999673,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 0,
+          "elapsedMs": 31.025041999999985,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 1,
+          "elapsedMs": 30.857250000000022,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 2,
+          "elapsedMs": 29.940374999999904,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 3,
+          "elapsedMs": 30.473500000000058,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 27,
+          "sample": 4,
+          "elapsedMs": 30.217375000000175,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 0,
+          "elapsedMs": 82.88229199999978,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 1,
+          "elapsedMs": 88.10362500000019,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 2,
+          "elapsedMs": 88.98158299999977,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 3,
+          "elapsedMs": 88.94383299999981,
+          "queries": 1,
+          "waits": 1
+        },
+        {
+          "roundTripMs": 80,
+          "sample": 4,
+          "elapsedMs": 88.49483400000008,
+          "queries": 1,
+          "waits": 1
+        }
+      ],
+      "medians": {
+        "0": {
+          "elapsedMs": 2.92,
+          "queries": 1,
+          "waits": 1
+        },
+        "27": {
+          "elapsedMs": 30.47,
+          "queries": 1,
+          "waits": 1
+        },
+        "80": {
+          "elapsedMs": 88.49,
+          "queries": 1,
+          "waits": 1
+        }
+      }
+    }
+  },
+  "productionCacheFix": "The production request database proxy bound the callable postgres.js $client on each access. This changed its identity and missed the signing-key cache. Preserve the pool as a value, while binding Drizzle methods. A callable-pool regression test proves one key read across repeated requests/signatures. Live query counts must be rechecked after deployment.",
+  "frontend": "A covered conversation pool now retains only already-mounted transcripts. It does not mount a saved transcript behind the initial draft or another page. The existing client build has 43 transcript-only static JS dependencies (926740 decoded bytes) outside the App static graph; this is an inventory, not a measured new build or a guaranteed transfer reduction.",
+  "limits": [
+    "The 3-query intermediate stage kept two sequential waits, so its elapsed time did not improve. The one-query stage removes one wait.",
+    "The live first-paint timings in fresh-login-safari-2026-10-30.json predate these local fixes.",
+    "No new production browser timing or asset-request count is claimed."
+  ]
+}

@@ -34,6 +34,10 @@
       keywords: ["sidebar", "view", "group", "project", "projects", "folder", "status", "working", "sessions"],
     },
     {
+      id: "project-panel-items",
+      keywords: ["project", "panel", "rail", "show", "hide", "sections", "rows", "environment", "git", "goal", "agents", "webhooks", "terminal", "usage", "browser"],
+    },
+    {
       id: "reply-opacity",
       keywords: ["reply", "assistant", "message", "text", "opacity", "contrast", "fade", "transcript"],
     },
@@ -138,6 +142,7 @@
   import PromptFontPreview from "./PromptFontPreview.svelte";
   import DocumentFontPreview from "./DocumentFontPreview.svelte";
   import CodeFontPreview from "./CodeFontPreview.svelte";
+  import ProjectPanelItemsMenu from "../project-panel/ProjectPanelItemsMenu.svelte";
   import FontSizeSelect from "./FontSizeSelect.svelte";
 
   interface Props {
@@ -155,6 +160,9 @@
     { value: "status", label: "By status" },
     { value: "project", label: "By project" },
   ];
+
+  let panelItemsMenuOpen = $state(false);
+  let panelItemsTrigger = $state<HTMLElement | null>(null);
 
   const conversationWidths: ReadonlyArray<{ value: ConversationWidth; label: string }> = [
     { value: "narrow", label: "Narrow" },
@@ -213,7 +221,7 @@
   />
 </SettingsSection>
 
-<SettingsSection label="Layout" visible={["conversation-width", "sidebar-view"].some(isVisible)}>
+<SettingsSection label="Layout" visible={["conversation-width", "sidebar-view", "project-panel-items"].some(isVisible)}>
   <SettingsRow
     label="Conversation width"
     description="How wide messages run in the conversation pane. Narrow panes always fill their width."
@@ -240,6 +248,37 @@
         value={theme.sidebarView}
         onSelect={(value) => theme.setPersonal("sidebarView", value)}
         ariaLabel="Sidebar view"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Project panel"
+    description="The sections the project panel shows, and the rows in each. Right-click the panel to change them there."
+    visible={isVisible("project-panel-items")}
+  >
+    {#snippet control()}
+      {#if theme.projectPanelHiddenItems.length > 0}
+        <Button variant="ghost" size="sm" onclick={() => theme.setPersonal("projectPanelHiddenItems", [])}>
+          Reset
+        </Button>
+      {/if}
+      <Button
+        bind:ref={panelItemsTrigger}
+        variant="outline"
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={panelItemsMenuOpen}
+        onclick={() => (panelItemsMenuOpen = !panelItemsMenuOpen)}
+      >
+        Choose…
+      </Button>
+      <ProjectPanelItemsMenu
+        bind:open={panelItemsMenuOpen}
+        anchor={panelItemsTrigger}
+        side="bottom"
+        align="end"
+        focusOnClose="anchor"
       />
     {/snippet}
   </SettingsRow>

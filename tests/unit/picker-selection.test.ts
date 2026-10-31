@@ -1,6 +1,8 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from "bun:test";
+import type { AgentMetadata } from "@solus/contracts/types";
 import {
+  defaultModelIdFor,
   modelPickerNavigationTarget,
   isSessionSettingsShortcutTarget,
   splitLegacyModels,
@@ -151,4 +153,26 @@ describe("model picker fast mode", () => {
     expect(supportsFastModeFor("claude-code", "claude-opus-5")).toBe(false);
   });
 
+});
+
+
+describe("model picker provider defaults", () => {
+  test("saved provider choices override the catalog and the host default in both directions", () => {
+    const metadata: { codex: AgentMetadata; "claude-code": AgentMetadata } = {
+      codex: { id: "codex", label: "Codex", defaultModel: "gpt-6-astra", models: [] },
+      "claude-code": { id: "claude-code", label: "Claude", defaultModel: "claude-opus-5-5", models: [] },
+    };
+    expect(defaultModelIdFor("codex", metadata, "gpt-5.4")).toBe("gpt-5.4");
+    expect(defaultModelIdFor("claude-code", metadata, "claude-sonnet-5")).toBe("claude-sonnet-5");
+    expect(defaultModelIdFor("codex", metadata, "gpt-5.4")).toBe("gpt-5.4");
+  });
+  test("fresh installs use the profile default rather than another host default", () => {
+    const metadata: { codex: AgentMetadata } = { codex: { id: "codex", label: "Codex", defaultModel: "gpt-6-luna", models: [] } };
+    expect(defaultModelIdFor("codex", metadata)).toBe("gpt-6-astra");
+    expect(defaultModelIdFor("codex", metadata, "gpt-5.4")).toBe("gpt-5.4");
+  });
+  test("Auto is only selected where a first prompt can route it", () => {
+    expect(defaultModelIdFor("codex", {}, "auto")).toBe("auto");
+    expect(defaultModelIdFor("codex", {}, "auto", false)).toBe("gpt-6-astra");
+  });
 });

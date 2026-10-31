@@ -44,14 +44,22 @@
   } from "@solus/client-core/environment-view";
   import { environmentViewChoices } from "./lib/environment-view";
   import { sessionArtifactsStore } from "../../contexts/sessions/session-artifacts.store.svelte";
+  import { isPanelItemShown } from "./lib/panel-items";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
     sourceId: string;
     active?: boolean;
     onOpenFiles?: () => void;
+    /** The person's hidden panel items. A hidden row unmounts, and its reads stop. */
+    hiddenItems: readonly string[];
   }
-  let { sourceId, active = true, onOpenFiles }: Props = $props();
+  let { sourceId, active = true, onOpenFiles, hiddenItems }: Props = $props();
+
+  const projectShown = $derived(isPanelItemShown(hiddenItems, "environment.project"));
+  const terminalShown = $derived(isPanelItemShown(hiddenItems, "environment.terminal"));
+  const viewShown = $derived(isPanelItemShown(hiddenItems, "environment.view"));
+  const usageShown = $derived(isPanelItemShown(hiddenItems, "environment.usage"));
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
@@ -100,12 +108,12 @@
 
   // Builds are for projects that build a mobile app (at the root or in a
   // subfolder), or a conversation already showing a device.
-  const deviceProject = $derived(active && projectRoot ? devicesStore.project(detailServerId, projectRoot) : undefined);
+  const deviceProject = $derived(active && viewShown && projectRoot ? devicesStore.project(detailServerId, projectRoot) : undefined);
   const sessionId = $derived(session.sessionFor(sourceId)?.id);
   const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, sessionId).length > 0);
   const showsDevices = $derived(!!deviceProject?.isMobileApp || sessionShowsDevice);
   $effect(() => {
-    if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
+    if (active && viewShown && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
   });
 
   // The view row: the browser, the builds, or this session's Artifacts
@@ -113,7 +121,7 @@
   // once; changes arrive as events.
   const artifactCount = $derived(sessionArtifactsStore.countFor(sessionId));
   $effect(() => {
-    if (active && sessionId) sessionArtifactsStore.ensure(detailServerId, sessionId);
+    if (active && viewShown && sessionId) sessionArtifactsStore.ensure(detailServerId, sessionId);
   });
   // A draft has no session yet; its choice is kept under the draft.
   const choiceKey = $derived(sessionId ?? sourceId);
@@ -148,7 +156,7 @@
   }
 
   const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
-    () => [
+    () => !terminalShown ? [] : [
       {
         key: "terminal",
         label: "Terminal",
@@ -175,7 +183,7 @@
   <!-- The project anchors the card and opens its files; the branch and its
        changes live in the Git card below. A chat has no project, but the row
        stays: it is the one place the panel names the host the chat runs on. -->
-  {#if projectRoot}
+  {#if projectShown && projectRoot}
     <!-- Split row in the Git rows' language: the row opens the folder in
          Solus, the caret offers the other places that can show it. -->
     {@const hasNoFolder = projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles}
@@ -234,6 +242,7 @@
     {/each}
     <!-- One row for what the environment shows. The row opens this session's
          view; the caret lets the user choose another, kept for the session. -->
+    {#if viewShown}
     <div class="split-row">
       <MenuRow
         split
@@ -270,6 +279,7 @@
         <CaretRightIcon size={11} />
       </button>
     </div>
+    {/if}
   </div>
   <DropdownMenu.Root bind:open={viewMenuOpen}>
     <DropdownMenu.Content
@@ -337,7 +347,9 @@
   </DropdownMenu.Root>
   <!-- Subscription quota closes the section: what's left to spend in this
        environment, per provider. -->
-  <UsageMeters serverId={detailServerId} {active} />
+  {#if usageShown}
+    <UsageMeters serverId={detailServerId} {active} />
+  {/if}
 </div>
 
 <style>

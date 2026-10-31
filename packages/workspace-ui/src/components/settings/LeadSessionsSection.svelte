@@ -1,7 +1,7 @@
 <script lang="ts">
   /** Lead sessions: the model a new lead session starts on, the default model
    *  its workers start on, and the instructions added to its contract. Lives
-   *  under General; the General tab owns the search entries. */
+   *  under Sessions; the Sessions tab owns the search entries. */
   import type { LeadModelSelection } from "@solus/contracts/settings";
   import { Switch } from "../ui/switch";
   import SessionChip from "../pickers/SessionChip.svelte";
@@ -85,12 +85,12 @@
 </script>
 
 <SettingsSection
-  label="Mission mode"
+  label="Coordinator mode"
   visible={["lead-model", "worker-model", "lead-instructions"].some(isVisible)}
 >
   <SettingsRow
-    label="Mission mode model"
-    description="What a session in Mission mode starts on. Off uses the default for new sessions."
+    label="Coordinator mode model"
+    description="What a session in Coordinator mode starts on. Off uses the default for new sessions."
     visible={isVisible("lead-model")}
   >
     {#snippet control()}
@@ -110,7 +110,7 @@
         <Switch
           checked={theme.leadModel !== null}
           onCheckedChange={setLeadModelEnabled}
-          aria-label="Use a separate model for Mission mode sessions"
+          aria-label="Use a separate model for Coordinator mode sessions"
         />
       </div>
     {/snippet}
@@ -118,7 +118,7 @@
 
   <SettingsRow
     label="Default worker model"
-    description="What a Mission mode session starts its workers on when its instructions name none. Off lets it choose."
+    description="What a Coordinator mode session starts its workers on when its instructions name none. Off lets it choose."
     visible={isVisible("worker-model")}
   >
     {#snippet control()}
@@ -145,13 +145,13 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Mission mode instructions"
-    description="Added after the built-in rules a Mission mode session follows."
+    label="Coordinator mode instructions"
+    description="Added after the built-in rules a Coordinator mode session follows."
     visible={isVisible("lead-instructions")}
   >
     {#snippet body()}
       <SettingsTextField
-        label="Mission mode instructions"
+        label="Coordinator mode instructions"
         value={leadInstructionsDraft}
         onValueChange={(text) => (leadInstructionsDraft = text)}
         onBlur={commitLeadInstructions}

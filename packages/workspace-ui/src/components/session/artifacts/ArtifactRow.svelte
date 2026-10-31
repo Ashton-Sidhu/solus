@@ -1,14 +1,13 @@
 <script lang="ts">
+  import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   import {
     AppWindow as HtmlArtifactIcon,
     CircleAlert as MissingIcon,
-    File as FileIcon,
     FileText as DocumentIcon,
     GitMerge as MergedIcon,
     GitPullRequest as PullRequestIcon,
     GitPullRequestClosed as ClosedIcon,
     GitPullRequestDraft as DraftIcon,
-    Image as ImageIcon,
     Network as DiagramIcon,
     Presentation as SlidesIcon,
     Workflow as AutomationIcon,
@@ -39,7 +38,6 @@
   const prState = $derived(artifact.kind === "pull-request" ? (pullRequestState(artifact.link) ?? "unknown") : null);
 
   const WORK_ICONS = { doc: DocumentIcon, slides: SlidesIcon, diagram: DiagramIcon, artifact: HtmlArtifactIcon };
-  const KIND_ICONS = { file: FileIcon, image: ImageIcon, automation: AutomationIcon };
   const PR_ICONS = {
     open: PullRequestIcon,
     draft: DraftIcon,
@@ -91,9 +89,10 @@
     {:else if artifact.kind === "work"}
       {@const Icon = WORK_ICONS[artifact.workType]}
       <Icon size={16} strokeWidth={1.75} />
-    {:else if artifact.kind !== "pull-request"}
-      {@const Icon = KIND_ICONS[artifact.kind]}
-      <Icon size={16} strokeWidth={1.75} />
+    {:else if artifact.kind === "file" || artifact.kind === "image"}
+      <FileIcon path={artifact.path} size={16} />
+    {:else if artifact.kind === "automation"}
+      <AutomationIcon size={16} strokeWidth={1.75} />
     {/if}
   </span>
   <span class="flex min-w-0 flex-1 items-baseline gap-2">

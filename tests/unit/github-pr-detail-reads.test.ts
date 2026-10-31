@@ -105,6 +105,7 @@ describe('GitHub pull request detail', () => {
       number: 65,
       headSha: 'head-sha',
       baseRef: 'main',
+      defaultBranch: 'develop',
       author: 'octocat',
       state: 'open',
       mergeable: true,

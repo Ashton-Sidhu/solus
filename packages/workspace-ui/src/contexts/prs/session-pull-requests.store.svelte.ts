@@ -36,11 +36,24 @@ export class SessionPullRequestsStore {
       this.homeBySession.delete(sessionId)
       this.linksBySession.delete(sessionId)
     }
-    for (const record of records) {
-      this.unlistedShown.delete(record.sessionId)
-      this.homeBySession.set(record.sessionId, homeServerId)
-      this.write(record.sessionId, record.pullRequests ?? [])
+    for (const record of records) this.take(homeServerId, record)
+  }
+
+  /** Take one session a home read again on its own; null when it left that home's list. */
+  adoptSession(homeServerId: string, sessionId: string, record: Pick<SessionRecord, 'sessionId' | 'pullRequests'> | null): void {
+    this.watchHost(homeServerId)
+    if (record) {
+      this.take(homeServerId, record)
+    } else if (this.homeBySession.get(sessionId) === homeServerId) {
+      this.homeBySession.delete(sessionId)
+      this.linksBySession.delete(sessionId)
     }
+  }
+
+  private take(homeServerId: string, record: Pick<SessionRecord, 'sessionId' | 'pullRequests'>): void {
+    this.unlistedShown.delete(record.sessionId)
+    this.homeBySession.set(record.sessionId, homeServerId)
+    this.write(record.sessionId, record.pullRequests ?? [])
   }
 
   /** Each home announces its own changes, so each is subscribed once. A host

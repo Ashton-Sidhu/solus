@@ -16,6 +16,7 @@ import type {
   DeviceState,
   DeviceSummary,
   SshDeviceHostConfig,
+  DeviceHostConfig,
 } from '@solus/contracts/device-types'
 import { parseDeviceError } from '@solus/contracts/device-types'
 import { DeviceStreamEnded } from '@solus/client-core/device-hub-stream'
@@ -174,7 +175,7 @@ export class DevicesStore {
     this.adopt(serverId, await serverConnections.apiFor(serverId).deviceConfigure(request), true)
   }
 
-  async saveHost(serverId: string, config: SshDeviceHostConfig): Promise<void> {
+  async saveHost(serverId: string, config: DeviceHostConfig): Promise<void> {
     this.adopt(serverId, await serverConnections.apiFor(serverId).deviceHostSave(config), true)
   }
 
@@ -182,7 +183,7 @@ export class DevicesStore {
     this.adopt(serverId, await serverConnections.apiFor(serverId).deviceHostRemove(deviceHostId), true)
   }
 
-  testHost(serverId: string, config: SshDeviceHostConfig): Promise<DeviceHostTestResult> {
+  testHost(serverId: string, config: DeviceHostConfig): Promise<DeviceHostTestResult> {
     return serverConnections.apiFor(serverId).deviceHostTest(config)
   }
 

@@ -426,7 +426,7 @@ function CustomAddressSection(props: {
   readonly onAdd: (candidate: IntegrationCandidate) => void;
 }) {
   if (!isIntegrationUrl(props.address)) {
-    return <SettingsNote tone="danger">Use an HTTPS address with no credentials or fragment.</SettingsNote>;
+    return <SettingsNote tone="danger">Use an HTTPS address, or HTTP on localhost, with no credentials or fragment.</SettingsNote>;
   }
   const candidate = customCandidate(props.address);
   return (

@@ -1,0 +1,191 @@
+{
+  "date": "2026-10-30",
+  "status": "two_timing_runs_collected_trace_and_full_asset_totals_incomplete",
+  "scope": "Two fresh Google client logins in Safari after deployment of early App import and the smaller startup graph. Timings start at the workspace document navigation after Google; they exclude account-choice time and do not establish full workspace readiness.",
+  "comparisonFile": "docs/benchmarks/fresh-login-safari-post-deploy-2026-10-30.json",
+  "clientEntry": "/assets/index-pxMGE4fd.js",
+  "appChunk": "/assets/App-Ck14k-eh.js",
+  "method": [
+    "Sign out in the existing Safari benchmark tab; Continue with Google; choose the same existing Google account.",
+    "Read Navigation, Paint, and Resource Timing from Web Inspector after startup. Each command followed a console-focus check.",
+    "Times are milliseconds from the post-Google workspace document navigation. Startup data ready is the code-exchange resource response availability, not a separately instrumented application-ready mark.",
+    "Use the same Resource Timing asset-byte fields as the previous benchmark. No cache clearing or source changes."
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "htmlResponseStartMs": 910,
+      "htmlResponseEndMs": 910,
+      "loadEventMs": 1131,
+      "firstContentfulPaintMs": 2291,
+      "authorize": {
+        "startMs": 1089,
+        "durationMs": 95,
+        "queries": 1
+      },
+      "codeExchange": {
+        "startMs": 1222,
+        "durationMs": 191,
+        "queries": 2,
+        "appMs": 134.7,
+        "dbMs": 104
+      },
+      "startupResponseAvailableMs": 1413,
+      "startupToFirstPaintMs": 878,
+      "htmlResponseEndToFirstPaintMs": 1381,
+      "hostDirectory": {
+        "startMs": 1726,
+        "durationMs": 103,
+        "queries": 3
+      },
+      "hostExchanges": [
+        {
+          "startMs": 1776,
+          "durationMs": 144,
+          "queries": 1
+        },
+        {
+          "startMs": 1779,
+          "durationMs": 141,
+          "queries": 1
+        },
+        {
+          "startMs": 1783,
+          "durationMs": 141,
+          "queries": 1
+        }
+      ],
+      "agentProfile": {
+        "startMs": 2251,
+        "durationMs": 84,
+        "queries": 2
+      },
+      "accountSettingsFollowUpRequests": 0,
+      "assets": {
+        "count": 238,
+        "decodedBytes": 5585729,
+        "encodedBodyBytes": 1764178,
+        "firstStartMs": 927,
+        "lastResponseEndMs": 2696,
+        "startedBeforeCodeExchange": 17,
+        "coverage": "Resource Timing buffer sample; counts and byte totals are lower bounds, not a complete network census."
+      },
+      "apiCoverage": "Recorded fetch entries only; buffer saturation can omit requests. Zero account/settings means none in this sample.",
+      "timeline": {
+        "exportPath": "/Users/sidhu/Downloads/solus-early-import-run1-retry-2026-10-30.json",
+        "captureEndMs": 983.0285459756851,
+        "coversStartup": false,
+        "longestStartupJavaScriptTask": null,
+        "longestRecordedJavaScriptEvent": {
+          "eventType": "script-evaluated",
+          "startMs": 924.3800833355635,
+          "durationMs": 1.0398749727755785,
+          "startRelativeToCodeExchangeResponseMs": -488.61991666443646
+        },
+        "limit": "Capture ends before code exchange starts. This event is not the longest task of the startup flow; its relative time is approximate because trace and Navigation Timing origins were not independently aligned."
+      },
+      "comparison": {
+        "firstContentfulPaintDeltaMs": -793,
+        "authorizeStartDeltaMs": -207,
+        "authorizeDurationDeltaMs": -130,
+        "codeExchangeStartDeltaMs": -305,
+        "codeExchangeDurationDeltaMs": -74,
+        "codeExchangeStartAfterHtmlResponseEndMs": 312,
+        "previousCodeExchangeStartAfterHtmlResponseEndMs": 348
+      }
+    },
+    {
+      "run": 2,
+      "htmlResponseStartMs": 1332,
+      "htmlResponseEndMs": 1332,
+      "loadEventMs": 1536,
+      "firstContentfulPaintMs": 2563,
+      "authorize": {
+        "startMs": 1497,
+        "durationMs": 181,
+        "queries": 1
+      },
+      "codeExchange": {
+        "startMs": 1751,
+        "durationMs": 305,
+        "queries": 2,
+        "appMs": 244.7,
+        "dbMs": 130
+      },
+      "startupResponseAvailableMs": 2056,
+      "startupToFirstPaintMs": 507,
+      "htmlResponseEndToFirstPaintMs": 1231,
+      "hostDirectory": {
+        "startMs": 2255,
+        "durationMs": 245,
+        "queries": 3
+      },
+      "hostExchanges": [
+        {
+          "startMs": 2305,
+          "durationMs": 278,
+          "queries": 1
+        }
+      ],
+      "agentProfile": {
+        "startMs": 2527,
+        "durationMs": 264,
+        "queries": 2
+      },
+      "accountSettingsFollowUpRequests": 0,
+      "assets": {
+        "count": 241,
+        "decodedBytes": 5585266,
+        "encodedBodyBytes": 1759634,
+        "firstStartMs": 1345,
+        "lastResponseEndMs": 2813,
+        "startedBeforeCodeExchange": 48,
+        "resourceTimingEntryCount": 250,
+        "coverage": "Resource Timing buffer sample; counts and byte totals are lower bounds, not a complete network census."
+      },
+      "apiCoverage": "Recorded fetch entries only; buffer saturation can omit requests. Zero account/settings means none in this sample.",
+      "timeline": {
+        "exportPath": "/Users/sidhu/Downloads/solus-early-import-run2-retry-2026-10-30.json",
+        "captureEndMs": 1404.4105736538768,
+        "coversStartup": false,
+        "longestStartupJavaScriptTask": null,
+        "longestRecordedJavaScriptEvent": {
+          "eventType": "script-evaluated",
+          "startMs": 1343.1154999416322,
+          "durationMs": 0.5145834293216467,
+          "startRelativeToCodeExchangeResponseMs": -712.8845000583678
+        },
+        "limit": "Capture ends before code exchange starts. This event is not the longest task of the startup flow; its relative time is approximate because trace and Navigation Timing origins were not independently aligned."
+      },
+      "comparison": {
+        "firstContentfulPaintDeltaMs": -1070,
+        "authorizeStartDeltaMs": -44,
+        "authorizeDurationDeltaMs": -32,
+        "codeExchangeStartDeltaMs": -8,
+        "codeExchangeDurationDeltaMs": 101,
+        "codeExchangeStartAfterHtmlResponseEndMs": 419,
+        "previousCodeExchangeStartAfterHtmlResponseEndMs": 425
+      }
+    }
+  ],
+  "findings": [
+    "FCP was 793 ms and 1070 ms earlier than the corresponding previous runs. These are two observations, not controlled percentiles.",
+    "Code exchange began 312 ms and 419 ms after HTML receipt, versus 348 ms and 425 ms before. These runs do not show a code-exchange start regression from early App loading.",
+    "Code-exchange durations were 191 ms and 305 ms, versus 265 ms and 204 ms before. Server app timings were 134.7 ms and 244.7 ms, so the second run cannot establish client-side request contention.",
+    "The recorded assets contained 17 and 48 requests starting before code exchange. Resource buffer saturation prevents treating these as a complete census.",
+    "Startup-response-to-FCP intervals fell from 1292/1670 ms to 878/507 ms."
+  ],
+  "limits": [
+    "Safari Web Inspector was open. Cache state and machine load were not controlled.",
+    "The Resource Timing buffer reached 250 entries in run 2; run 1 is also likely saturated. Asset totals are lower bounds and missing host exchanges must not be interpreted as eliminated work.",
+    "Network HAR export did not produce a save dialog after repeated attempts. Complete asset totals remain open.",
+    "Both manual Timelines captures were replaced/stopped across Google redirects despite Stop recording once page loads being unchecked. Exported traces end at 983 ms and 1404 ms, before the code exchange. The requested longest startup JavaScript task remains open.",
+    "Native control was restored for console timing collection. No new console command was submitted as a chat message."
+  ],
+  "openMeasurements": [
+    "Complete asset request and byte totals beyond the Resource Timing buffer",
+    "Longest startup JavaScript task and its verified timing relative to code-exchange response"
+  ],
+  "codeChanged": false,
+  "deployed": false
+}

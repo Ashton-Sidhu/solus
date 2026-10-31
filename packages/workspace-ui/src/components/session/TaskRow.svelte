@@ -101,6 +101,10 @@
     onSelectSession: (session: SidebarSessionChild) => void;
     onMoreSession: (event: MouseEvent, session: SidebarSessionChild) => void;
     onCloseSession: (session: SidebarSessionChild) => void;
+    /** Start a drag of the row's session onto an input bar. Absent where there
+     *  is no drag, as on touch. */
+    onDragRow?: (event: DragEvent) => void;
+    onDragSession?: (event: DragEvent, session: SidebarSessionChild) => void;
   }
   let {
     task,
@@ -136,6 +140,8 @@
     onSelectSession,
     onMoreSession,
     onCloseSession,
+    onDragRow,
+    onDragSession,
   }: Props = $props();
 
   const completeLabel = $derived(
@@ -542,7 +548,7 @@
      with it rather than being tuned against it. -->
 {#snippet rowTitle()}
   {#if task.isLead && !renamingRow}
-    <!-- The same glyph as the composer's Mission mode button and the count
+    <!-- The same glyph as the composer's Coordinator mode button and the count
          of sessions a row started: one family for "this session starts
          sessions". It breathes while the row's session works, as the count
          does, in the pane's one cool tone for work in flight. -->
@@ -550,8 +556,8 @@
       class="flex shrink-0 items-center text-(--solus-text-tertiary) {task.attention === 'running'
         ? 'text-(--solus-accent) animate-pulse [animation-duration:1.4s] motion-reduce:animate-none'
         : ''}"
-      title="Mission mode: this session plans the work and starts other sessions to do it"
-      aria-label="Mission mode session"
+      title="Coordinator mode: this session plans the work and starts other sessions to do it"
+      aria-label="Coordinator mode session"
       role="img"
     >
       <StartedSessionsIcon size={13} onanimationstart={alignStatusAnimationPhase} />
@@ -604,7 +610,7 @@
   <div
     {...tooltipProps}
     class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 {inFolder ? 'pl-[2.1875rem]' : 'pl-[0.625rem]'} transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {isCardRaised ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {isCurrentSession && !isCardRaised
- ? 'bg-card shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
+ ? 'supports-[overflow-clip-margin:0.5rem]:bg-card supports-[overflow-clip-margin:0.5rem]:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:supports-[overflow-clip-margin:0.5rem]:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
  : ''} {bulkSelected
  ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)]'
  : ''} {isSlim ? 'h-[2.25rem]' : 'h-[3.875rem]'} {recedes
@@ -634,6 +640,8 @@
     }}
     ondblclick={() => onStartRename(null)}
     oncontextmenu={onMore}
+    draggable={!!onDragRow && !renamingRow}
+    ondragstart={onDragRow}
     onpointerdown={startLongPress}
     onpointerup={cancelLongPress}
     onpointercancel={cancelLongPress}
@@ -706,8 +714,8 @@
               >{task.projectLabel}</span
             >
             {#if task.share}
-              <!-- Whose session it is, and what the reader may do in it. The
-                   owner's face stands in for their name; the role is words. -->
+              <!-- Whose session it is. The owner's face stands in for their
+                   name; the role shows only on hover. -->
               <span class="shrink-0">·</span>
               <span
                 class="flex min-w-0 shrink items-center gap-1"
@@ -723,7 +731,6 @@
                     <UserIcon size={10} />
                   </span>
                 {/if}
-                <span class="min-w-0 truncate">{shareRoleText(task.share.role)}</span>
               </span>
             {/if}
             {#if showsHost && !task.share}
@@ -840,6 +847,7 @@
           onSelect={() => onSelectSession(listed)}
           onMore={(event) => onMoreSession(event, listed)}
           onClose={() => onCloseSession(listed)}
+          onDragStart={onDragSession ? (event) => onDragSession(event, listed) : undefined}
         />
       {/each}
     </div>

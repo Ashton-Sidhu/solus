@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tokenClassName } from "../editor/tokenStyle";
-  import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
+  import FileIcon from "./file-icon/FileIcon.svelte";
   import { getSurfaceContext, hasSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
@@ -49,7 +49,7 @@
     class={tokenClassName("file")}
     title={copyText}
     onclick={handleFileClick}
-  ><span class="solus-token__icon"><svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(hostPathBaseName(filePath))} /></svg></span><span
+  ><span class="solus-token__icon"><FileIcon path={filePath} size={12} /></span><span
       class="solus-token__copy-only">{leadingDirs(filePath)}</span>{#if parentDir(filePath)}<span
       class="solus-token__dir">{parentDir(filePath)}</span>{/if}{hostPathBaseName(filePath)}{fileLine ? `:${fileLine}` : ''}</button>
 {:else if boldText !== null}

@@ -179,6 +179,58 @@ describe('a cloud connection’s status says why it cannot be used', () => {
     expect(outage.rows.get(outage.linear.id)?.status).toBe('cloud-unreachable')
   })
 
+  test('a signed-in person\'s connection this host saw refused asks the account, and a new sign-in there makes it connected', async () => {
+    // WHY: a signed-in person's credential is in their account; the host's old refusal must not hide a new sign-in there.
+    const w = cloudHost(() => ({ kind: 'ok', delivery: { authorization: 'Bearer new', expiresAt: null, label: null } }))
+    w.rows.set(w.linear.id, row(w.linear.id, { source: 'cloud', status: 'needs-sign-in' }))
+    expect(await w.connections.authorizationFor(w.linear.id, 'alice')).toBe('Bearer new')
+    expect(w.rows.get(w.linear.id)?.status).toBe('connected')
+  })
+
+  test('a sign-in made again at the cloud replaces the token this host copied on the next pull', async () => {
+    // WHY: a new sign-in at the cloud revokes the old token, but the host kept its copy
+    // until that copy expired: every call sent a dead token while the row said Connected.
+    // The client makes every host pull after the sign-in; the pull must end the copy.
+    const linear = integration('linear', OAUTH)
+    const rows = new Map([[linear.id, row(linear.id, { source: 'cloud' })]])
+    let account = 'Bearer old'
+    let copy: string | null = null
+    const changed: string[] = []
+    const vault = {
+      read: async () => {
+        copy ??= account
+        return { location: 'account', read: { kind: 'ok', delivery: { authorization: copy, expiresAt: null, label: null } } }
+      },
+      forget: () => { copy = null },
+    } as unknown as Vault
+    const connections = new IntegrationConnections({
+      store: {
+        get: (id: string) => rows.get(id) ?? null,
+        upsert: (id: string, _user: string | null, write: Partial<IntegrationConnection>) => { const next = row(id, { ...rows.get(id), ...write }); rows.set(id, next); return next },
+        list: () => [...rows.values()],
+      } as unknown as IntegrationConnectionStore,
+      integrations: { get: (id) => (id === linear.id ? linear : null), list: () => [linear] },
+      vault,
+      clients: { removeClient: () => undefined },
+      oauth: {} as IntegrationOAuth,
+      events: { connectionChanged: (_person, event) => { changed.push(event.integrationId) }, authFinished: () => undefined },
+    })
+    const held = (updatedAt: number) => [{ ref: { kind: 'mcp' as const, serverUrl: linear.url }, material: 'oauth' as const, status: 'connected' as const, label: 'Alice', updatedAt }]
+
+    await connections.reconcile(OWNER, held(1))
+    expect(await connections.authorizationFor(linear.id, 'alice')).toBe('Bearer old')
+    // A pull that finds the same connection keeps the copy.
+    await connections.reconcile(OWNER, held(1))
+    expect(changed).toEqual([])
+
+    account = 'Bearer new'
+    expect(await connections.authorizationFor(linear.id, 'alice')).toBe('Bearer old')
+    await connections.reconcile(OWNER, held(2))
+    expect(await connections.authorizationFor(linear.id, 'alice')).toBe('Bearer new')
+    // The change is published, so the gateway closes the sessions that send the old header.
+    expect(changed).toEqual([linear.id])
+  })
+
   test('once the delegation is made, a row that waited is read again and says connected', async () => {
     const w = cloudHost(() => ({ kind: 'no-executor' }))
     await w.connections.authorizationFor(w.linear.id, 'alice')

@@ -1,5 +1,8 @@
+import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { hosts } from '../hosts/hosts.svelte'
 import { afterPaint } from '../../lib/after-paint'
 import { sessionListStore } from '../workspace/session-list.store.svelte'
+import { notificationHubStore } from '../notifications/notification-hub.store.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostReadiness } from '@solus/client-core/host-readiness'
 import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
@@ -86,6 +89,9 @@ export function initializeRuntime(
   })
   // Pins federate across hosts, so a host that connects after boot has to
   // contribute its own rows too — not only the hosts present at bootstrap.
+  const stopProviderInstances = subscribeAllHosts('provider-instances.changed', (serverId) => {
+    if (hosts.runOn?.id === serverId) void session.lifecycle.refreshAgentAvailability().catch((error) => logConnectionReadError('provider settings refresh', error))
+  })
   const stopConnections = serverConnections.onConnectionCreated((connection) => {
     // A forgotten host is released to a gone connection: its tabs and rows leave with it.
     if (connection.presence === 'gone') {
@@ -94,7 +100,7 @@ export function initializeRuntime(
       return
     }
     void sidebarStore.loadPinnedSessions()
-    void sessionListStore.load()
+    void sessionListStore.loadConnected(connection.serverId)
   })
 
   // The durable send outbox drains when a host's supervisor reports live:
@@ -115,6 +121,10 @@ export function initializeRuntime(
     session.loadShownConversations()
   })
 
+  // A new notice can be a session shared with the reader: the list reads again,
+  // and its new share brings the row and the toast (docs/plans/shared-with-you.md §5).
+  const stopUnreadRose = notificationHubStore.onUnreadRose(() => { void sessionListStore.load() })
+
   // A host that dropped because it froze says so when it comes back.
   const stopStallToasts = startHostStallToasts()
 
@@ -122,8 +132,10 @@ export function initializeRuntime(
   startActivityLeaseHeartbeat()
   return () => {
     stopDirectory()
+    stopProviderInstances()
     stopConnections()
     stopReadiness()
+    stopUnreadRose()
     stopStallToasts()
   }
 }

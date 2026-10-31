@@ -9669,6 +9669,124 @@
                               }
                             ]
                           },
+                          "place": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chat",
+                                  "project"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "startedBy": {
+                            "anyOf": [
+                              {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "person"
+                                      },
+                                      "personKey": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "personKey"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "automation"
+                                      },
+                                      "automationId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      },
+                                      "runId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "automationId",
+                                      "runId"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "webhook"
+                                      },
+                                      "webhookId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      },
+                                      "deliveryId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "webhookId",
+                                      "deliveryId"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "session"
+                                      },
+                                      "sessionId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      },
+                                      "hostLabel": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "sessionId"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "state": {
                             "anyOf": [
                               {
@@ -9708,7 +9826,7 @@
                                   "settledBy"
                                 ],
                                 "additionalProperties": false,
-                                "description": "Whether the session's work is finished. Every person sees the same state."
+                                "description": "Whether the session's pull requests or task finished its work. Every person sees the same state. A person's own settle is in their view."
                               },
                               {
                                 "type": "null"
@@ -9720,6 +9838,19 @@
                               {
                                 "type": "object",
                                 "properties": {
+                                  "settledAt": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
                                   "archivedAt": {
                                     "anyOf": [
                                       {
@@ -9757,6 +9888,7 @@
                                   }
                                 },
                                 "required": [
+                                  "settledAt",
                                   "archivedAt",
                                   "snoozedUntil",
                                   "snoozeNote"
@@ -10303,6 +10435,8 @@
                           "branch",
                           "projectRoot",
                           "delegation",
+                          "place",
+                          "startedBy",
                           "state",
                           "view",
                           "listed",
@@ -10344,6 +10478,11 @@
                             "branch": "main",
                             "projectRoot": "/home/example/project",
                             "delegation": null,
+                            "place": "project",
+                            "startedBy": {
+                              "kind": "person",
+                              "personKey": "user_example"
+                            },
                             "state": null,
                             "view": null,
                             "listed": true,
@@ -10526,6 +10665,18 @@
                 "codex",
                 "opencode",
                 "replay"
+              ]
+            }
+          },
+          {
+            "name": "chats",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
               ]
             }
           },
@@ -11008,6 +11159,124 @@
                                   }
                                 ]
                               },
+                              "place": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "chat",
+                                      "project"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "startedBy": {
+                                "anyOf": [
+                                  {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "const": "person"
+                                          },
+                                          "personKey": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "personKey"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "const": "automation"
+                                          },
+                                          "automationId": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          },
+                                          "runId": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "automationId",
+                                          "runId"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "const": "webhook"
+                                          },
+                                          "webhookId": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          },
+                                          "deliveryId": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "webhookId",
+                                          "deliveryId"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "const": "session"
+                                          },
+                                          "sessionId": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          },
+                                          "hostLabel": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 256
+                                          }
+                                        },
+                                        "required": [
+                                          "kind",
+                                          "sessionId"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "state": {
                                 "anyOf": [
                                   {
@@ -11047,7 +11316,7 @@
                                       "settledBy"
                                     ],
                                     "additionalProperties": false,
-                                    "description": "Whether the session's work is finished. Every person sees the same state."
+                                    "description": "Whether the session's pull requests or task finished its work. Every person sees the same state. A person's own settle is in their view."
                                   },
                                   {
                                     "type": "null"
@@ -11059,6 +11328,19 @@
                                   {
                                     "type": "object",
                                     "properties": {
+                                      "settledAt": {
+                                        "default": null,
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
                                       "archivedAt": {
                                         "anyOf": [
                                           {
@@ -11096,6 +11378,7 @@
                                       }
                                     },
                                     "required": [
+                                      "settledAt",
                                       "archivedAt",
                                       "snoozedUntil",
                                       "snoozeNote"
@@ -11642,6 +11925,8 @@
                               "branch",
                               "projectRoot",
                               "delegation",
+                              "place",
+                              "startedBy",
                               "state",
                               "view",
                               "listed",
@@ -11683,6 +11968,11 @@
                                 "branch": "main",
                                 "projectRoot": "/home/example/project",
                                 "delegation": null,
+                                "place": "project",
+                                "startedBy": {
+                                  "kind": "person",
+                                  "personKey": "user_example"
+                                },
                                 "state": null,
                                 "view": null,
                                 "listed": true,
@@ -12282,6 +12572,124 @@
                         }
                       ]
                     },
+                    "place": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "chat",
+                            "project"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "startedBy": {
+                      "anyOf": [
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "person"
+                                },
+                                "personKey": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "personKey"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "automation"
+                                },
+                                "automationId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                },
+                                "runId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "automationId",
+                                "runId"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "webhook"
+                                },
+                                "webhookId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                },
+                                "deliveryId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "webhookId",
+                                "deliveryId"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "session"
+                                },
+                                "sessionId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                },
+                                "hostLabel": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 256
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sessionId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "state": {
                       "anyOf": [
                         {
@@ -12321,7 +12729,7 @@
                             "settledBy"
                           ],
                           "additionalProperties": false,
-                          "description": "Whether the session's work is finished. Every person sees the same state."
+                          "description": "Whether the session's pull requests or task finished its work. Every person sees the same state. A person's own settle is in their view."
                         },
                         {
                           "type": "null"
@@ -12333,6 +12741,19 @@
                         {
                           "type": "object",
                           "properties": {
+                            "settledAt": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "archivedAt": {
                               "anyOf": [
                                 {
@@ -12370,6 +12791,7 @@
                             }
                           },
                           "required": [
+                            "settledAt",
                             "archivedAt",
                             "snoozedUntil",
                             "snoozeNote"
@@ -12916,6 +13338,8 @@
                     "branch",
                     "projectRoot",
                     "delegation",
+                    "place",
+                    "startedBy",
                     "state",
                     "view",
                     "listed",
@@ -12957,6 +13381,11 @@
                       "branch": "main",
                       "projectRoot": "/home/example/project",
                       "delegation": null,
+                      "place": "project",
+                      "startedBy": {
+                        "kind": "person",
+                        "personKey": "user_example"
+                      },
                       "state": null,
                       "view": null,
                       "listed": true,
@@ -13099,7 +13528,7 @@
                   "type": "object",
                   "properties": {
                     "state": {
-                      "description": "The state it leaves, when the change settled the session or made it active again.",
+                      "description": "The shared state it leaves, when the change made the session active again.",
                       "type": "object",
                       "properties": {
                         "settledAt": {
@@ -13138,9 +13567,22 @@
                       "additionalProperties": false
                     },
                     "view": {
-                      "description": "The caller's view it leaves, when the change archived, returned, or snoozed the session.",
+                      "description": "The caller's view it leaves, when the change settled, unsettled, archived, returned, or snoozed the session.",
                       "type": "object",
                       "properties": {
+                        "settledAt": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "archivedAt": {
                           "anyOf": [
                             {
@@ -13178,6 +13620,7 @@
                         }
                       },
                       "required": [
+                        "settledAt",
                         "archivedAt",
                         "snoozedUntil",
                         "snoozeNote"
@@ -13300,7 +13743,7 @@
                 "type": "object",
                 "properties": {
                   "settled": {
-                    "description": "Settle the session for every person, or make a settled one active again. Needs editor.",
+                    "description": "Settle the session in the caller's list, or make a settled one active again. An editor's unsettle also clears a settle by the session's pull requests or task.",
                     "type": "boolean"
                   },
                   "archived": {
@@ -13712,6 +14155,315 @@
             }
           }
         }
+      }
+    },
+    "/v1/sessions/{sessionId}/links": {
+      "get": {
+        "operationId": "listSessionLinks",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "target": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "work"
+                                  },
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "id"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "plan"
+                                  },
+                                  "sessionId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                                  },
+                                  "planId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "description": "The tool-use id of the plan in its session."
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "sessionId",
+                                  "planId"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "pr"
+                                  },
+                                  "url": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2048,
+                                    "description": "The pull request's URL."
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "url"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "automation"
+                                  },
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                                  },
+                                  "hostId": {
+                                    "description": "The host that holds the automation, when this home does not.",
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "id"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "session"
+                                  },
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "id"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "file"
+                                  },
+                                  "path": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 4096
+                                  },
+                                  "hostId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                                    "description": "The host that holds the file: the session's execution host."
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "path",
+                                  "hostId"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "target",
+                          "title"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "sessions:read"
       }
     },
     "/v1/sessions/{sessionId}/pull-requests": {

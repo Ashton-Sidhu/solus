@@ -59,7 +59,7 @@ export class CodexAppServerClient extends EventEmitter {
    * acting identity. With neither, it is the host's own: it may start inside any
    * caller's scope, so it takes the host environment by name.
    */
-  constructor(private readonly options: { codexHome?: string; launch?: LaunchOptions } = {}) {
+  constructor(private readonly options: { codexHome?: string; launch?: LaunchOptions; binaryPath?: string; launchArgs?: string[] } = {}) {
     super()
   }
 
@@ -140,7 +140,7 @@ export class CodexAppServerClient extends EventEmitter {
     // The login-shell PATH, resolved off the main thread: a version-managed
     // codex lives on it, and asking synchronously here blocks every request.
     // Check it on every start so an install after boot works without a restart.
-    if (!findOnPath('codex', await warmCliPath())) {
+    if (!this.options.binaryPath && !findOnPath('codex', await warmCliPath())) {
       throw new Error('Codex was not found on this host. Install it through Solus setup, then try again.')
     }
     // A member's app-server runs from their launch options: where they are their own Linux user, as
@@ -149,12 +149,13 @@ export class CodexAppServerClient extends EventEmitter {
     const launch: LaunchOptions = memberLaunch
       ? memberLaunch.user ? memberLaunch : { ...memberLaunch, env: { ...memberLaunch.env, CODEX_HOME: codexHome } }
       : { env: hostCliEnv() }
-    const run = launchedProcess(launch, 'codex', [
+    const run = launchedProcess(this.options.launch ?? launch, this.options.binaryPath ?? 'codex', [
       'app-server',
       '--listen',
       'stdio://',
       '--enable',
       'default_mode_request_user_input',
+      ...(this.options.launchArgs ?? []),
     ])
     const proc = spawn(run.file, run.args, {
       env: run.env,

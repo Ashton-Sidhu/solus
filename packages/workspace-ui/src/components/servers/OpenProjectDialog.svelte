@@ -324,7 +324,7 @@
 {#if store.isOpen && store.step !== "browse" && layer.el}
   <div
     use:portal={layer.el}
-    class="text-xs fixed inset-0 z-[200] flex items-start justify-center overflow-hidden overscroll-contain bg-[rgba(28,22,15,0.12)] pt-[12vh]
+    class="text-xs fixed inset-0 z-[200] flex items-start justify-center overflow-hidden overscroll-contain modal-backdrop pt-[12vh]
       max-md:bottom-auto max-md:h-[100dvh] max-md:items-end max-md:pt-0"
     role="presentation"
     onmousedown={(e) => e.target === e.currentTarget && close()}

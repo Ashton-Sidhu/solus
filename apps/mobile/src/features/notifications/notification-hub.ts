@@ -65,6 +65,8 @@ export interface NativeNotificationHubDeps {
   connections: HostConnections
   /** The signed-in account, or this device alone: a new identity reads a new feed. */
   identity(): string
+  /** A host's unread count went up: something new is addressed to the reader there. */
+  onUnreadRose?(hostId: string): void
 }
 
 /**
@@ -170,6 +172,7 @@ export class NativeNotificationHub {
       rows: this.rows,
       sources: this.sources,
       pending: this.pending,
+      onUnreadRose: (source) => this.deps.onUnreadRose?.(source.serverId),
     })
     this.client.setFilter({ view: this.view })
     this.client.setHistoryVisible(this.historyReaders > 0)

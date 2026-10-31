@@ -1,8 +1,11 @@
+import { agentForProject } from '@solus/contracts/provider-instance-models'
+import { privateProviderInstances } from '../../execution/seats/provider-instances'
+import { captureActingScope } from '../../vault/acting-scope'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { isDispatchClone } from '../../project-config/dispatch-checkouts'
-import { basename, join } from 'path'
+import { basename, join, isAbsolute } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { z } from 'zod'
@@ -25,6 +28,7 @@ import { RequestNotAnswerableError } from '../../execution/sessions/pending-inpu
 import { chatFolderFor, projectsRootFor } from '../../workspace'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { sessionStarterFromHostSchema } from '@solus/contracts/session-starter'
 import { recordingRetention } from '../../browser/recording-retention'
 import { getIndexedSession } from '../../db/session-indexer'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
@@ -33,12 +37,6 @@ import { promptImageRefSchema } from '../../data/assets/attachment-store'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
-
-/** The agent session on another host that starts a session here; only shown, never trusted. */
-const sessionOriginSchema = z.object({
-  hostLabel: z.string().trim().min(1).max(200),
-  sessionId: z.string().trim().min(1).max(200),
-})
 
 /** Images another host uploaded here. The run reads only files inside this
  *  host's attachment store (`resolvePromptImages`), so a path is checked there. */
@@ -168,6 +166,20 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
   // A backend that runs in the server process (replay) has no binary to find.
   if (!AGENT_BIN[metadata.id]) return metadata
   const binaryPath = await resolveAgentBinary(metadata.id)
+  const scope = captureActingScope()
+  const personKey = scope?.personKey
+  if (personKey && (metadata.id === 'codex' || metadata.id === 'claude-code')) {
+    const snapshot = privateProviderInstances().snapshot(personKey)
+    const cliPath = await warmCliPath()
+    const home = scope?.identity.launchOptionsSync().env.HOME
+    const instances = snapshot.instances.filter((instance) => instance.provider === metadata.id).map((instance) => {
+      const path = instance.binaryPath.startsWith('~/') && home ? join(home, instance.binaryPath.slice(2)) : instance.binaryPath
+      const customBinary = path ? isAbsolute(path) ? existsSync(path) ? path : null : findOnPath(path, cliPath) : binaryPath
+      const { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder } = instance
+      return { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, binaryAvailable: !!customBinary }
+    })
+    return agentForProject({ ...metadata, binaryPath: binaryPath ?? undefined, instancePreferences: { selected: snapshot.selected[metadata.id], instances, projects: snapshot.projects } })
+  }
   return {
     ...metadata,
     available: !!binaryPath,
@@ -339,7 +351,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
         throw new Error(`Session ${request.sessionId} already exists on this host.`)
       }
     }
-    request.startedBy = request.startedBy === undefined ? undefined : sessionOriginSchema.parse(request.startedBy)
+    request.permissionMode = z.enum(['supervised', 'accept-edits', 'auto', 'full-access', 'plan']).optional().parse(request.permissionMode)
+    if (handlerCtx.principal.kind === 'guest') request.permissionMode = 'supervised'
+    // Another host's session that starts this one; only shown, never trusted. A caller cannot claim another kind of starter.
+    request.startedBy = request.startedBy === undefined ? undefined : sessionStarterFromHostSchema.parse(request.startedBy)
     request.cwd = request.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(randomUUID(), handlerCtx.principal) : resolveHomePath(request.cwd)
     request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
     request.imageAttachmentRefs = imageRefsSchema.parse(request.imageAttachmentRefs)
@@ -349,7 +364,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     request.title = z.string().trim().min(1).max(ORCHESTRATION_LIMITS.title).optional().catch(undefined).parse(request.title)
     // Its owner is claimed before the record is written, so the record is born theirs.
     await claimSession(request.sessionId, handlerCtx, request.cwd)
-    return sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
+    return sessionRuntime.dispatch.createSession({ ...request, sourceSessionId: undefined, delegation: undefined }, handlerCtx.actor)
   })
 
   server.register('promptHeadlessSession', async (args, handlerCtx) => {

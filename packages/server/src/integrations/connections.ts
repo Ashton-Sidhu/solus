@@ -4,7 +4,7 @@ import type { UploadMaterial, VaultConnection } from '@solus/contracts/vault'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import type { ProfileIntegrationOwner } from '../execution/seats/agent-profile'
-import { mcpCredentialRef, type AccountCredentialRead, type Vault } from '../vault/vault'
+import { credentialLocationOf, mcpCredentialRef, type AccountCredentialRead, type Vault } from '../vault/vault'
 import type { IntegrationClients, IntegrationConnectionStore } from './connection-store'
 import type { IntegrationStore } from './integration-store'
 import type { IntegrationConnectionEvents, IntegrationOAuth } from './oauth'
@@ -22,6 +22,8 @@ export interface IntegrationCredentials {
   authorizationFor(integrationId: string, personKey: string, accountId?: string): Promise<string | null>
   /** The server refused the credential (401/403): record `needs-sign-in` and publish the change. */
   markNeedsSignIn(integrationId: string, personKey: string, message: string, accountId?: string): void
+  /** The header stopped working, though the person may still be connected: the next read asks its source again, not a copy. */
+  forgetCached?(integrationId: string, personKey: string, accountId?: string): void
   /** The person's own connection row, for `connection_status`; never another person's. */
   statusFor?(integrationId: string, personKey: string): IntegrationConnection | null
   /** Every account the person connected to the integration, the first first (§13.3). */
@@ -44,7 +46,7 @@ export interface IntegrationConnectionsDeps {
   firstPartyCredential?: (id: 'github', personKey: string) => Promise<FirstPartyCredential | null>
   integrations: Pick<IntegrationStore, 'get' | 'list'>
   /** Where each person's credential is, on this host or in their account (docs/plans/access-model.md §2.6). */
-  vault: Pick<Vault, 'read' | 'save' | 'remove' | 'upload' | 'forget'>
+  vault: Pick<Vault, 'read' | 'save' | 'remove' | 'upload' | 'forget' | 'markRefused'>
   clients: Pick<IntegrationClients, 'removeClient'>
   oauth: IntegrationOAuth
   events: IntegrationConnectionEvents
@@ -70,6 +72,9 @@ function keyAuthorization(integration: Integration, key: string): string {
  * person's account (plans/020 §5), is the vault's choice.
  */
 export class IntegrationConnections implements IntegrationCredentials {
+  /** The account's `updatedAt` for each person and integration, as the last pull saw it. */
+  private readonly accountUpdates = new Map<string, number>()
+
   constructor(private readonly deps: IntegrationConnectionsDeps) {}
 
   async authorizationFor(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<string | null> {
@@ -83,8 +88,8 @@ export class IntegrationConnections implements IntegrationCredentials {
       const credential = await this.deps.firstPartyCredential?.('github', personKey)
       return credential ? `Bearer ${credential.token}` : null
     }
-    // A refused credential waits for the person to sign in again.
-    if (connection?.status === 'needs-sign-in') return null
+    // Signed in to Solus: the account holds the credential and says whether it works. Not signed in: a refused credential waits for the person to sign in again.
+    if (credentialLocationOf(personKey).kind !== 'account' && connection?.status === 'needs-sign-in') return null
     const credential = await this.deps.vault.read(personKey, mcpCredentialRef(integration, accountId))
     if (!credential) return null
     if (credential.location === 'account') return this.accountAuthorization(integration.id, personKey, credential.read)
@@ -137,6 +142,12 @@ export class IntegrationConnections implements IntegrationCredentials {
       if (connection.source !== 'cloud' || (connection.status !== 'cloud-unreachable' && connection.status !== 'needs-solus-sign-in')) continue
       await this.authorizationFor(connection.integrationId, personKey)
     }
+  }
+
+  forgetCached(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {
+    const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
+    // The account is told, so it refreshes now instead of answering the refused token again.
+    if (integration) this.deps.vault.markRefused(personKey, mcpCredentialRef(integration, accountId))
   }
 
   markNeedsSignIn(integrationId: string, personKey: string, message: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {
@@ -229,8 +240,11 @@ export class IntegrationConnections implements IntegrationCredentials {
     for (const integration of this.deps.integrations.list(owner.organizationId, owner.ownerKey)) {
       if (integration.auth.kind === 'none') continue
       const connection = this.deps.store.get(integration.id, user)
-      if (connection?.source === 'cloud') continue
       const cloudHeld = held.get(integration.url)
+      if (connection?.source === 'cloud') {
+        if (cloudHeld) this.followAccountChange(integration, user, cloudHeld)
+        continue
+      }
       if (cloudHeld?.status === 'connected' && connection?.status !== 'connected') {
         await this.adoptCloud(integration, user, { revokeLocal: true, label: cloudHeld.label })
         outcome.adopted.push(integration.slug)
@@ -297,6 +311,23 @@ export class IntegrationConnections implements IntegrationCredentials {
     const connection = this.deps.store.upsert(integration.id, personKey, { status: 'connected', source: 'cloud', label: options.label, error: null })
     this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection })
     log.info('integration_connection_adopted_cloud', { integrationId: integration.id, personKey, revoked: Boolean(token && options.revokeLocal) })
+  }
+
+  /**
+   * The account's connection changed since this host last saw it: a sign-in made
+   * again, or a new token. A client that signs in at the cloud makes every host
+   * pull, so the token this host copied, and the sessions opened with it, go now
+   * rather than when the copy expires. The first sight only records the time.
+   */
+  private followAccountChange(integration: Integration, personKey: string, held: VaultConnection): void {
+    const key = `${personKey}\u0000${integration.id}`
+    const seen = this.accountUpdates.get(key)
+    this.accountUpdates.set(key, held.updatedAt)
+    if (seen === undefined || seen === held.updatedAt) return
+    this.deps.vault.forget(personKey, mcpCredentialRef(integration))
+    // The same row, published: the gateway closes the sessions that send the old header.
+    this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection: this.deps.store.get(integration.id, personKey) })
+    log.info('integration_account_connection_changed', { integrationId: integration.id, personKey })
   }
 
   /** A `cloud` row whose read worked again: back to `connected`. */

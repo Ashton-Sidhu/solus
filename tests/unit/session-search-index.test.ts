@@ -71,6 +71,14 @@ describe('searchSessionIndex', () => {
     expect(search.searchSessionIndex('pelican').results.map((result) => result.session.sessionId).toSorted()).toEqual(['here', 'there'])
   })
 
+  test('the chats filter keeps only the chats, which belong to no project', () => {
+    // WHY: a project scope asks for the chats on their own; a project's
+    // session must not come back as a chat.
+    seed('chat', '/Users/me/.solus/solus-chats/chat', ['the pelican lands'])
+    seed('project', '/repo', ['the pelican flies'])
+    expect(search.searchSessionIndex('pelican', { chats: true }).results.map((result) => result.session.sessionId)).toEqual(['chat'])
+  })
+
   test('record visibility is applied before the page and its total', () => {
     for (let index = 0; index < 35; index++) seed(`hidden-${index}`, '/repo', ['pelican'])
     seed('readable', '/repo', ['pelican'])

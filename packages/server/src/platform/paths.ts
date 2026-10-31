@@ -64,6 +64,9 @@ export function isPackagedRuntime(): boolean {
   // The standalone distribution has no Electron `app`, but its generated
   // launchers always set SOLUS_INSTALL_DIR to the package root. Treat that as
   // packaged too so production Node servers do not inherit development-only
-  // logging and diagnostics.
-  return platformServices().appInfo?.isPackaged === true || !!process.env.SOLUS_INSTALL_DIR
+  // logging and diagnostics. A Node server embedded in another production
+  // process (the Solus Cloud container) has neither; its NODE_ENV says so.
+  // Electron reports its own answer, so a source build is never packaged here.
+  const appInfo = platformServices().appInfo
+  return appInfo?.isPackaged === true || !!process.env.SOLUS_INSTALL_DIR || (!appInfo && process.env.NODE_ENV === 'production')
 }

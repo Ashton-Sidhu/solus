@@ -69,6 +69,14 @@ has none and ends on a self-contained page.
   (a sign-in's verifier: `['vault-sign-in', userId, refKey]`).
 - A refresh by the cloud does **not** change `version` (as the MCP store does
   today), so an upload's `expectedVersion` check stays meaningful.
+- **A token's lifecycle keeps `status` true.** An OAuth row records its access
+  token's end in `token_expires_at` on every save and refresh. The cloud refreshes a
+  token in three cases: a read finds it due; a host reports the delivery it holds
+  refused (`refused` on the read), though it is not due; and the five-minute
+  maintenance tick finds it ends within ten minutes (`Vault.refreshExpiring`). A
+  refused refresh, or a refused key, which cannot be refreshed, sets
+  `needs-sign-in`. So a client that reads `status` sees `connected` only for a
+  credential that works, and a sign-in again is what moves it back.
 - `integration_credential`, `integration_oauth_state`, `agent_profile_credential`,
   `mcp_oauth_state`, and `agent_seat_credential` are dropped.
 - `mcp_oauth_client` stays: it holds the cloud's own registered client for each
@@ -102,7 +110,7 @@ Executor routes (delegated bearer, `executorCaller`, no cookie):
 
 | Route | Body | Answer |
 |---|---|---|
-| `POST /v1/vault/read` | `{ ref }` | 200 `VaultDelivery`; 404 `not_connected`; 409 `reconnect_required` |
+| `POST /v1/vault/read` | `{ ref, refused? }` | 200 `VaultDelivery`; 404 `not_connected`; 409 `reconnect_required`. `refused: true`: the server refused the delivery the executor holds; the cloud refreshes now or sets `needs-sign-in` |
 | `PUT /v1/vault/credential` | `{ ref, material, expectedVersion, label? }` | 201 `{ version }`; 409 `{ error: 'credential_held', currentVersion }`; 422 `credential_refused`; 403 `not_uploadable` |
 
 `VaultDelivery` is a union on the ref kind:

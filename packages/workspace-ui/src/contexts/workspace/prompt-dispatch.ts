@@ -11,6 +11,7 @@ import { toasts } from '../../lib/toasts'
 import { ownedTaskId } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
+import { isChat } from '@solus/contracts/chat'
 import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { track } from '../../lib/analytics'
@@ -579,8 +580,9 @@ export class PromptDispatch {
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
-      // A lead is chosen before the first message and fixed from then on.
-      isLead: isFirstMessage && session.isLead ? true : undefined,
+      // A lead is chosen before the first message and fixed from then on. A
+      // chat offers no Coordinator mode, so a choice made before a move to one drops.
+      isLead: isFirstMessage && session.isLead && !isChat(checkoutPlace(session.run).path) ? true : undefined,
     })
     requestConversationScrollToBottom(targetTabId)
     return true

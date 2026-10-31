@@ -35,14 +35,14 @@ function searchRow(number: number) {
     reviewRequests: { nodes: [] },
     assignees: { nodes: [] },
     body: '',
-    baseRefName: 'main',
+    baseRefName: 'release',
     baseRefOid: 'base',
     headRefName: `feature/${number}`,
     changedFiles: 1,
     mergeable: 'MERGEABLE' as const,
     reviewDecision: 'APPROVED' as const,
     reviews: { totalCount: 1 },
-    baseRepository: { nameWithOwner: 'acme/app' },
+    baseRepository: { nameWithOwner: 'acme/app', defaultBranchRef: { name: 'main' } },
     headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
   }
 }
@@ -86,6 +86,8 @@ describe('GitHub pull request search', () => {
       [9, 'feature/9', 'app', 'approved'],
       [4, 'feature/4', 'app', 'approved'],
     ])
+    expect(found?.page.items[0]?.defaultBranch).toBe('main')
+    expect(found?.page.items[0]?.baseRef).toBe('release')
     expect(found?.page.hasMore).toBe(false)
   })
 

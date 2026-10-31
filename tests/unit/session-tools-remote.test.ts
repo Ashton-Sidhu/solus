@@ -68,6 +68,7 @@ beforeAll(async () => {
   ;({ hostDisplayName } = await import('@solus/server/platform/host-display-name'))
   ;({ closeDb } = await import('@solus/server/db'))
   sessionTools.setSessionController({
+    permissionModeFor: () => 'supervised',
     getSessionInfo: async () => null,
     reachRequestFor: () => turnReach,
     organizationApisFor: () => turnApis,
@@ -129,7 +130,7 @@ describe('start_session on another host', () => {
     expect(sender).toBe('solus-parent')
     expect(order).toMatchObject({ cwd: NEW_CHAT_DIRECTORY, modelId: 'model-on-b', taskId: null })
     expect((target as RemoteTarget).host.hostId).toBe('host-b')
-    expect((target as RemoteTarget).origin).toEqual({ hostLabel: hostDisplayName(), sessionId: 'solus-parent' })
+    expect((target as RemoteTarget).origin).toEqual({ kind: 'session', hostLabel: hostDisplayName(), sessionId: 'solus-parent' })
   })
 
   test('sends a path on the other host as written, unresolved', async () => {
@@ -262,4 +263,16 @@ describe('read_session of a session this host does not hold', () => {
     const result = await sessionTools.executeSessionTool('read_session', { session_id: 'nowhere' }, { ctx })
     expect(result).toEqual({ ok: false, text: "Session nowhere not found on this host, your other hosts, or your organizations' Solus APIs." })
   })
+})
+
+test('delegation across hosts retains child ownership, isolation, and permission limits', async () => {
+  sessionTools.setRemoteHosts(remoteHosts as never)
+  const { delegateTaskAgentTool } = await import('@solus/server/execution/agents/tools/delegate-task-tool')
+  const result = await delegateTaskAgentTool.execute({ prompt: 'Review on B', host: 'Host B', agent_provider: 'codex', isolation: 'worktree', cwd: '~/code/app', worktree_base_branch: 'main' }, {
+    provider: 'claude-code', cwd: '/repo/on/a', sessionId: () => 'solus-parent', emit: () => {},
+    abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
+  })
+  expect(result.ok).toBe(true)
+  expect(spawned.at(-1)?.[1]).toMatchObject({ independent: false, provider: 'codex', modelId: 'model-on-b', cwd: '~/code/app', worktreeBaseBranch: 'main', permissionMode: 'supervised', taskId: null })
+  expect(spawned.at(-1)?.[2]).toBe(true)
 })

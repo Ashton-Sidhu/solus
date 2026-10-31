@@ -52,7 +52,7 @@
 
 <button
   type="button"
-  class="mobile-tree-backdrop"
+  class="mobile-tree-backdrop modal-backdrop"
   aria-label="Close changed files"
   onclick={onClose}
 ></button>
@@ -140,9 +140,6 @@
     z-index: 40;
     padding: 0;
     border: 0;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(0.125rem);
-    -webkit-backdrop-filter: blur(0.125rem);
   }
   .mobile-tree-sheet {
     position: absolute;

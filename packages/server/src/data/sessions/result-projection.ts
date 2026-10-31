@@ -146,11 +146,11 @@ function agentConversationProjection(
   toolName: string | undefined,
   content: string,
 ): AgentConversationProjection {
-  if (!toolName?.endsWith('start_session') && !toolName?.endsWith('send_session')) return {}
+  if (!toolName?.endsWith('delegate_task') && !toolName?.endsWith('start_session') && !toolName?.endsWith('send_session')) return {}
   const tag = parseExchangeTag(content)
   if (!tag) return {}
   // A created session's card needs the session the tool started; a prompt names it in its input.
-  if (toolName.endsWith('start_session') && !tag.sessionId) return {}
+  if ((toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) && !tag.sessionId) return {}
   const agentConversationResult: AgentConversationResultProjection = {}
   if (tag.sessionId) agentConversationResult.sessionId = tag.sessionId
   if (tag.messageId) agentConversationResult.messageId = tag.messageId

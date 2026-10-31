@@ -26,6 +26,7 @@
     type RailAgentRow,
   } from "./lib/rail-agents";
   import { runHost } from "../../contexts/workspace/run-location";
+  import { isPanelItemShown } from "./lib/panel-items";
 
   /**
    * Every agent the session dispatched, as one card (T3 Code's Lineage
@@ -41,8 +42,13 @@
     collapsed: boolean;
     onToggle: () => void;
     onResizePointerDown?: (event: PointerEvent) => void;
+    /** The person's hidden panel items: running and previous agents each can hide. */
+    hiddenItems: readonly string[];
   }
-  let { tabId, messages, collapsed, onToggle, onResizePointerDown }: Props = $props();
+  let { tabId, messages, collapsed, onToggle, onResizePointerDown, hiddenItems }: Props = $props();
+
+  const runningShown = $derived(isPanelItemShown(hiddenItems, "agents.running"));
+  const previousShown = $derived(isPanelItemShown(hiddenItems, "agents.previous"));
 
   const session = getWorkspaceContext();
   const router = session.router;
@@ -93,7 +99,7 @@
     }),
   );
   // A boolean, so the clock subscription is not remade on every tick.
-  const hasLive = $derived(list.active.length > 0);
+  const hasLive = $derived(runningShown && list.active.length > 0);
   $effect(() => {
     if (!hasLive || collapsed) return;
     return liveActivityClock.subscribe((value) => {
@@ -149,10 +155,18 @@
   {onToggle}
   {onResizePointerDown}
 >
-  {#if list.active.length > 0}
+  {#if hasLive}
     {@render rowList(list.active, activeCount, () => (activeCount += RAIL_AGENTS_PAGE_COUNT))}
   {/if}
-  {#if list.active.length === 0}
+  <!-- The person can hide either kind of row; the card then says what the
+       other kind has, rather than showing an empty card. -->
+  {#if !hasLive && (!previousShown || list.previous.length === 0)}
+    <p class="m-0 px-2.5 py-1 text-chrome-dense text-(--solus-text-tertiary)">
+      {previousShown ? "No previous agents." : "No running agents."}
+    </p>
+  {:else if !previousShown}
+    <!-- Previous agents are hidden. -->
+  {:else if !hasLive}
     <!-- Nothing runs: the settled agents are the whole lineage, so they show
          without a fold. -->
     {@render rowList(list.previous, previousCount, () => (previousCount += RAIL_AGENTS_PAGE_COUNT))}

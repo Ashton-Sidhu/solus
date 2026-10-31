@@ -20,4 +20,5 @@ export interface HomeHeaderProps {
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;
+  readonly onAddProject?: () => void;
 }

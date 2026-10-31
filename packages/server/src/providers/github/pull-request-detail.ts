@@ -10,7 +10,7 @@ import {
   rememberGithubRepositoryFacts,
   type GithubRepositoryFacts,
 } from './pull-request-actions'
-import { headRepoOf, requestedReviewers, reviewStatusOf } from './pull-request-rows'
+import { githubDefaultBranchOf, headRepoOf, requestedReviewers, reviewStatusOf } from './pull-request-rows'
 
 // ─── One pull request, read in one GraphQL request ────────────────────────────
 // The detail, the viewer, the repository's merge settings, the base branch's
@@ -52,7 +52,7 @@ const PULL_REQUEST_DETAIL_QUERY = `
         reviewDecision
         reviews(first: 1) { totalCount }
         autoMergeRequest { mergeMethod }
-        baseRepository { nameWithOwner }
+        baseRepository { nameWithOwner defaultBranchRef { name } }
         headRepository { nameWithOwner name owner { login } }
         labels(first: 100) { nodes { name color } }
         assignees(first: 100) { nodes { login } }
@@ -124,7 +124,7 @@ interface GqlDetailPullRequest {
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   reviews: { totalCount: number }
   autoMergeRequest: { mergeMethod: string | null } | null
-  baseRepository: { nameWithOwner: string } | null
+  baseRepository: { nameWithOwner: string; defaultBranchRef?: { name: string } | null } | null
   headRepository: { nameWithOwner: string; name: string; owner: { login: string } } | null
   labels: { nodes: Array<{ name: string; color: string } | null> }
   assignees: { nodes: Array<{ login: string } | null> }
@@ -246,6 +246,7 @@ function toDetailPullRequest(
     assignees: pr.assignees.nodes.flatMap((user) => user?.login ? [user.login] : []),
     body: pr.body,
     baseRef: pr.baseRefName,
+    defaultBranch: githubDefaultBranchOf(pr.baseRepository),
     headRef: pr.headRefName,
     changedFiles: pr.changedFiles,
     // GraphQL reports UNKNOWN while GitHub computes the merge in the background.

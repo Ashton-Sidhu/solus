@@ -93,7 +93,7 @@ export interface HttpServerOptions {
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
   runner?: RunnerDeliveryIntake
   /** The device hub proxy's video routes (docs/plans/native-devices.md, D2). The token is the credential. */
-  deviceHub?: { serve(token: string, route: string, signal: AbortSignal): Promise<Response> }
+  deviceHub?: { serve(token: string, route: string, signal: AbortSignal, request?: Request): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
   /** An integration sign-in's browser callback (docs/plans/mcp-integrations.md §4.3). The flow named by `state` decides whose token it is. */
@@ -453,7 +453,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // The token is the credential: it names one device, one client, and an expiry.
   if (opts.deviceHub) {
     const deviceHub = opts.deviceHub
-    app.get('/api/device-hub/:token/:route', (c) => deviceHub.serve(c.req.param('token'), c.req.param('route'), c.req.raw.signal))
+    app.on(['GET', 'POST'], '/api/device-hub/:token/:route', (c) => deviceHub.serve(c.req.param('token'), c.req.param('route'), c.req.raw.signal, c.req.raw))
   }
 
   // The token is the credential: it names one file, its size, and an expiry.

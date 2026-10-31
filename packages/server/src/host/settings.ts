@@ -122,7 +122,7 @@ export function getServerSettings(): ServerSettings {
 }
 
 const RETIRED_TOOL_NAMES = new Set([
-  'ask_jev', 'read_task_sessions', 'search_external_doc', 'read_external_doc',
+  'read_automation_run', 'ask_jev', 'read_task_sessions', 'search_external_doc', 'read_external_doc',
   'read_external_doc_comments', 'write_external_doc_comment', 'create_external_doc',
   'update_external_doc', 'import_external_doc',
 ])

@@ -331,11 +331,13 @@ describe('one decision per check', () => {
     await seed('work', 'w1', 'alice', 'org1')
     await shares.shareWithOrganization(work, member('alice'))
     const asMember = { queries: 0, queryMs: 0 }
+    // A work also reads the sessions it belongs to, beside its row and entries;
+    // this one belongs to none, so nothing more is read.
     expect(await database.tallyQueries(asMember, () => shares.roleFor(member('bob'), work))).toBe('editor')
-    expect(asMember.queries).toBe(2)
+    expect(asMember.queries).toBe(3)
     const asOwner = { queries: 0, queryMs: 0 }
     expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('editor')
-    expect(asOwner.queries).toBe(2)
+    expect(asOwner.queries).toBe(3)
   })
 
   test('the owner is never an ACL entry', async () => {
@@ -394,6 +396,47 @@ describe('tasks', () => {
     }
     expect(await shares.roleFor(maya, { kind: 'task', id: 't1' })).toBe('none')
     expect(await shares.filterVisible(maya, 'session', [{ id: 's1' }], (session) => session.id)).toEqual([])
+  })
+})
+
+describe('works of a session', () => {
+  const link = (workId: string, sessionId: string | null, linked: string[] = []) => database.getDatabase().run(sql`
+    UPDATE works SET session_id = ${sessionId}, meta = ${JSON.stringify({ sessionIds: linked })} WHERE id = ${workId}
+  `)
+
+  test('who may open a session holds the same role on the works it made or links', async () => {
+    // WHY (decision 2026-10-30): an artifact the agent made in a shared session is
+    // part of that session. A reader who opens the session must open its artifacts
+    // too, at the role the session gives, or the transcript shows cards that never load.
+    const { shares } = manager()
+    await seed('session', 's1', 'alice', 'org1')
+    await seed('session', 's2', 'alice', 'org1')
+    await seed('work', 'made', 'alice', 'org1')
+    await seed('work', 'linked', 'alice', 'org1')
+    await seed('work', 'other', 'alice', 'org1')
+    await link('made', 's1')
+    await link('linked', null, ['s2'])
+    await shares.setEntries({ resource: { kind: 'session', id: 's1' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, member('alice'))
+    await shares.setEntries({ resource: { kind: 'session', id: 's2' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
+
+    expect(await shares.roleFor(member('bob'), { kind: 'work', id: 'made' })).toBe('editor')
+    expect(await shares.roleFor(member('bob'), { kind: 'work', id: 'linked' })).toBe('viewer')
+    expect(await shares.roleFor(member('bob'), { kind: 'work', id: 'other' })).toBe('none')
+    expect(await shares.roleFor(member('cara'), { kind: 'work', id: 'made' })).toBe('none')
+    const idOf = (work: { id: string }) => work.id
+    expect((await shares.filterVisible(member('bob'), 'work', [{ id: 'made' }, { id: 'linked' }, { id: 'other' }], idOf)).map(idOf)).toEqual(['made', 'linked'])
+    const listed = await shares.accessOf(member('bob'), 'work', ['made', 'linked', 'other'])
+    expect(Object.fromEntries([...listed].map(([id, entry]) => [id, entry.role]))).toEqual({ made: 'editor', linked: 'viewer', other: 'none' })
+  })
+
+  test('a session of another organization passes nothing down', async () => {
+    const { shares } = manager()
+    await seed('session', 's1', 'alice', 'org2')
+    await seed('work', 'w1', 'alice', 'org1')
+    await link('w1', 's1')
+    await shares.setEntries({ resource: { kind: 'session', id: 's1' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, member('alice', [], 'member', 'managed', 'org2'))
+    expect(await shares.roleFor(member('bob', [], 'member', 'managed', 'org2'), { kind: 'work', id: 'w1' })).toBe('none')
+    expect(await shares.filterVisible(member('bob', [], 'member', 'managed', 'org2'), 'work', [{ id: 'w1' }], (work) => work.id)).toEqual([])
   })
 })
 

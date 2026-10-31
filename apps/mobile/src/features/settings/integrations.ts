@@ -157,20 +157,26 @@ export function firstLine(text: string): string {
 }
 
 /**
- * The same rule as `integrationUrlSchema`: an HTTPS address with no
- * credentials, fragment, or placeholder. A query is allowed. Written without `URL`,
- * which React Native implements only in part.
+ * The same rule as `integrationUrlSchema`: an HTTPS address, or HTTP on the
+ * host's own loopback, with no credentials, fragment, or placeholder. A query is
+ * allowed. Written without `URL`, which React Native implements only in part.
  */
 export function isIntegrationUrl(input: string): boolean {
   const value = input.trim()
   if (value.length === 0 || value.length > 4096) return false
   if (/[{}]|%7b|%7d/i.test(value)) return false
   if (/[\s#]/.test(value)) return false
-  const match = /^https:\/\/([^/?]*)([/?].*)?$/i.exec(value)
+  const match = /^(https?):\/\/([^/?]*)([/?].*)?$/i.exec(value)
   if (!match) return false
-  const authority = match[1]!
+  const authority = match[2]!
   if (authority.includes('@')) return false
-  return /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:\d{1,5})?$/i.test(authority)
+  const host = /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:\d{1,5})?$/i.exec(authority)?.[1]
+  if (!host) return false
+  return match[1]!.toLowerCase() === 'https' || isLoopbackHost(host.toLowerCase())
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || /^127\.\d+\.\d+\.\d+$/.test(host)
 }
 
 /** True when the person seems to type an address rather than a search. */

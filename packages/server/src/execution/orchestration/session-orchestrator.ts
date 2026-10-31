@@ -1,4 +1,3 @@
-import type { Activity, ActivityKind, ActivitySubject } from '@solus/contracts/activity'
 import { randomUUID } from 'node:crypto'
 import { recoverExchanges } from './recover-exchanges'
 import { ExchangeLedger, type ExchangeIdentity } from './exchange-ledger'
@@ -19,16 +18,9 @@ import type {
   AgentConversationUpdate,
   AgentId,
   ExchangeProgress,
-  GitCheckout,
   HeadlessPromptRequest,
   HeadlessSessionRequest,
   NormalizedEvent,
-  PermissionMode,
-  PromptDelivery,
-  PromptImageRef,
-  ReasoningEffort,
-  SessionMeta,
-  SessionOrigin,
 } from '@solus/contracts/types'
 import { planKey } from '@solus/contracts/types'
 import { attributionOf, type Actor } from '../../admission/actor'
@@ -47,22 +39,6 @@ const log = createLogger('orchestration', 'session-orchestrator.ts')
 
 type PendingPlan = Extract<PendingInputDescription, { kind: 'plan' }>
 
-/**
- * The session orchestration layer: one session starting another, sending it
- * messages, hearing its results, and a person answering what it asks along the
- * way. It owns every exchange from accept to settle and is the only thing that
- * emits `agent_conversation_update`.
- *
- * The control plane runs turns and knows nothing about exchanges beyond the
- * opaque ids a run carries. It reports what happens to those runs through the
- * hooks at the bottom of this class; the orchestrator calls back into it only
- * through `OrchestratedRuntime`.
- *
- * Host-local receipts preserve exchanges, results, and report delivery. A
- * restart restores queued work as held and marks uncertain running work
- * interrupted; it never repeats provider execution automatically.
- */
-
 const IMPLEMENT_PREFIX = 'Implement this plan:\n\n'
 // The same copy a person's Revise sends in the session's own tab, so a decision
 // taken in either place reads identically in the target's transcript.
@@ -71,140 +47,8 @@ export { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
 import { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
 const NO_REPLY = '(no final assistant reply available)'
 
-/** A run of the control plane and the exchanges it answers. */
-export interface RunExchanges {
-  runId: string
-  /** The session the run belongs to. */
-  sessionId: string
-  exchangeIds: readonly string[]
-}
-
-export interface SettledRun extends RunExchanges {
-  outcome: ExchangeOutcome
-  resultText?: string
-  /** Why a failed run ended, when the provider said. */
-  error?: string
-  durationMs?: number
-  toolCallCount?: number
-  provider: AgentId
-  projectScope?: string
-  gitContext?: GitCheckout | null
-  /** Work the agent left running outlives the turn (Codex); its wake turn answers. */
-  hasBackgroundWork?: boolean
-}
-
-export interface CreateSessionOrder {
-  sessionId?: string
-  permissionMode?: PermissionMode
-  prompt: string
-  /** The sender's name for the session; absent, the host names it from the prompt. */
-  title?: string
-  provider: AgentId
-  modelId: string
-  reasoningEffort: ReasoningEffort
-  contextWindow: number | null
-  cwd: string
-  worktreeBaseBranch?: string | null
-  taskId?: string | null
-  exchangeIds?: string[]
-  delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
-  imageAttachmentRefs?: PromptImageRef[]
-}
-
-/** What a sender orders started. `attachments` are absolute paths on this host;
- *  the files go to the host that runs the session. */
-export type SpawnOrder = Omit<CreateSessionOrder, 'exchangeIds' | 'delegation' | 'imageAttachmentRefs'> & { attachments?: string[] }
-
-/** One message to an existing session. */
-export interface SendOrder {
-  prompt: string
-  delivery: PromptDelivery
-  notify: boolean
-  permissionMode?: PermissionMode
-  /** Absolute paths on this host. */
-  attachments?: string[]
-  waitMs?: number
-  requestId?: string
-}
-
-export interface PromptOrder {
-  /** The session whose agent sent the prompt: the turn acts for the person it works for (plans/019 decision 5). */
-  senderSessionId?: string
-  reportExchangeIds?: string[]
-  exchangeIds?: string[]
-  permissionMode?: PermissionMode
-  via?: 'session-report'
-  /** Images the sender attached, already in this host's attachment store. */
-  imageAttachmentRefs?: PromptImageRef[]
-}
-
-/** What the orchestrator needs from the control plane that runs the turns.
- *  Every session is named by its session id (docs/plans/session-identity.md). */
-export interface OrchestratedRuntime {
-  activeExchangeIdsFor(sessionId: string): string[]
-  queuedExchanges(): Array<{ sessionId: string; queueId: string; exchangeIds: string[]; reportExchangeIds: string[]; started: boolean }>
-  sessionMeta(sessionId: string): SessionMeta | null
-  createSession(order: CreateSessionOrder): Promise<{ sessionId: string; taskId?: string }>
-  promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
-  /** `senderSessionId` is the agent session that asked for the stop. */
-  stopSession(id: string, senderSessionId?: string): boolean
-  /** Answers a permission the asking session is waiting on; false when it is not. */
-  respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): boolean
-  pendingInputEvents(sessionId: string): NormalizedEvent[]
-  replaceQueuedPrompt(sessionId: string, queueId: string, text: string, reportExchangeIds?: string[], exchangeIds?: string[]): boolean
-  hasQueuedPrompt(sessionId: string, queueId: string): boolean
-  cancelQueuedPrompt(sessionId: string, queueId: string): boolean
-  /** How the session's last turn ended, read from its transcript. */
-  turnEnding(provider: AgentId, sessionId: string, projectScope: string | undefined): Promise<TurnEnding>
-  /** The organization a session works in; undefined for Local work. */
-  turnOrganization(sessionId: string): Promise<string | undefined>
-  /** The task a session works on. */
-  taskIdFor(sessionId: string): Promise<string | undefined>
-  /** Whether the session is a task's lead. */
-  isLead(sessionId: string): Promise<boolean>
-  emit(sessionId: string, event: NormalizedEvent): void
-  invalidatePlanCaches(sessionId: string): void
-  /** Record what a person did to a session as its activity (plans/012 §5). */
-  recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind): Promise<Activity>
-  /** Holds a host update until the work settles. */
-  trackWork<T>(work: Promise<T>): Promise<T>
-}
-
-export interface OrchestratorDeps {
-  /** The pull request opened from a checkout's branch, if any. */
-  findPullRequest(checkout: GitCheckout, projectScope: string): Promise<{ number: number; url: string } | null>
-}
-
-export interface SpawnedSession {
-  exchangeId: string
-  sessionId: string
-  /** The provider has not started the session's thread yet. */
-  starting?: boolean
-  taskId?: string
-  /** With a wait: the report or notice that arrived in time, or null when none did. */
-  waited?: OrchestrationItem | null
-}
-
-/** Where a created session runs when it is not this host
- *  (docs/plans/cross-host-sessions.md). */
-export interface RemoteTarget {
-  host: RemoteHost
-  /** This host's session that starts it, as the target host shows it. */
-  origin: SessionOrigin
-}
-
-/** The longest a tool call may wait on a session, in milliseconds. */
-export const MAX_WAIT_MS = 600_000
-
-/** The system instruction for a turn that answers another session's message:
- *  its last message is the reply that session reads. */
-export const ANSWERING_ANOTHER_SESSION = 'Another Solus session sent you this work, and your last message is the reply it reads. '
-  + 'End your turn with a reply of at most five short lines: the outcome, what you produced by id or link (branch, pull request, plans, works, sessions you started), and what is still open. '
-  + 'Put longer detail in a task comment or a work, not in the reply. '
-  + 'For nested work, use report=true and wait_seconds=0, then end the turn while it runs. Its report wakes you. Read the result, do any required follow-up, and only then give your final reply. '
-  + 'An ended turn with open child work is not a final result for the session that sent this request. '
-  + 'Do not use send_session to message the session that sent you this work; your reply reaches it. '
-  + 'Do not watch or poll a pull request for that session: put its URL, its head commit SHA, and its pending checks and reviews in your reply, and the session that sent you the work watches it.'
+import { MAX_WAIT_MS, type RunExchanges, type SettledRun, type SpawnOrder, type SendOrder, type PromptOrder, type OrchestratedRuntime, type OrchestratorDeps, type SpawnedSession, type RemoteTarget } from './session-orders'
+export * from './session-orders'
 
 /** The last plan a session's turn wrote. */
 interface OpenPlan {
@@ -305,7 +149,7 @@ export class SessionOrchestrator {
 
     const starting = target ? this.startRemote(target, order, exchangeId, targetSessionId, exchange, senderSessionId) : (async (): Promise<SpawnedSession> => {
       try {
-        const { attachments, ...rest } = order
+        const { attachments, independent, ...rest } = order
         // Without files the start is not deferred: the session starts in this tick.
         const attached = attachments?.length ? await attachToPrompt(order.prompt, attachments, storeAttachment, exchangeId) : {}
         const started = await this.runtime.createSession({
@@ -313,7 +157,8 @@ export class SessionOrchestrator {
           ...attached,
           sessionId: targetSessionId,
           exchangeIds: exchange ? [exchangeId] : undefined,
-          delegation: senderSessionId
+          sourceSessionId: senderSessionId,
+          delegation: senderSessionId && !independent
             ? { parentSessionId: senderSessionId, messageId: exchangeId, intent, createdAt: dispatchedAt }
             : undefined,
         })
@@ -362,6 +207,7 @@ export class SessionOrchestrator {
       contextWindow: order.contextWindow,
       cwd: order.cwd,
       startedBy: target.origin,
+      permissionMode: order.permissionMode,
     }
     if (order.worktreeBaseBranch) request.worktreeBaseBranch = order.worktreeBaseBranch
     if (order.title) request.title = order.title
@@ -390,14 +236,14 @@ export class SessionOrchestrator {
     const exchange = senderSessionId
       ? this.open({
           exchangeId,
-          kind: 'create',
+          kind: order.independent ? 'independent' : 'create',
           senderSessionId,
           targetSessionId,
           targetHostId: targetHost?.hostId,
           provider: order.provider,
           notify: report,
           dispatchedAt, fingerprint,
-          parentExchangeIds: report && senderSessionId ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : [],
+          parentExchangeIds: report && !order.independent && senderSessionId ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : [],
         })
       : null
     if (exchange) {
@@ -890,7 +736,7 @@ export class SessionOrchestrator {
   /** A sender still waiting on a reply its model will be woken for stays running. */
   isAwaitingReplies(senderSessionId: string): boolean {
     for (const exchange of this.exchanges.values()) {
-      if (exchange.senderSessionId === senderSessionId && exchange.notify && isOpenExchange(exchange)) return true
+      if (exchange.kind !== 'independent' && exchange.senderSessionId === senderSessionId && exchange.notify && isOpenExchange(exchange)) return true
     }
     return false
   }
@@ -900,7 +746,7 @@ export class SessionOrchestrator {
   cancelSentBy(senderSessionId: string): boolean {
     let cancelled = false
     for (const exchange of this.exchanges.values()) {
-      if (exchange.senderSessionId !== senderSessionId || !isOpenExchange(exchange)) continue
+      if (exchange.kind === 'independent' || exchange.senderSessionId !== senderSessionId || !isOpenExchange(exchange)) continue
       // Reports held for a stopped lead would wake it again: drop them.
       if (!cancelled) this.delivery.dropHeld(exchange.senderSessionId)
       this.settle(exchange, 'interrupted', '', { silenced: true })
@@ -920,7 +766,7 @@ export class SessionOrchestrator {
 
   /** Tells a created session's card where it runs, once its checkout is known. */
   private attach(exchange: Exchange, cwd: string | undefined): void {
-    if (exchange.kind !== 'create' || !cwd) return
+    if (exchange.kind === 'prompt' || !cwd) return
     this.publish(exchange, { phase: 'attached', messageId: exchange.exchangeId, sessionId: exchange.targetSessionId, cwd })
   }
 

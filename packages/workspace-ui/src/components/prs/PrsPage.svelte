@@ -25,7 +25,6 @@
     ListEmpty,
     ListPage,
     ListProjectFilter,
-    ListSkeleton,
     syncStamp,
     virtualGroupItems,
     type ListGroupSpec,
@@ -60,6 +59,7 @@
     type PrRowActionKind,
   } from "./lib/pr-row-actions";
   import { ShiftHeld } from "./lib/shift-held.svelte";
+  import PrListLoading from "./PrListLoading.svelte";
   import PrsPageSkeleton from "./PrsPageSkeleton.svelte";
   import PrListToolbar from "./PrListToolbar.svelte";
   import PrListStates from "./PrListStates.svelte";
@@ -917,6 +917,9 @@
 />
 
 {#snippet pageActions()}
+  {#if activeScopeReading && activeItems.length > 0 && !loadingMorePullRequests}
+    <div role="status" aria-live="polite" class="sr-only">Updating pull requests</div>
+  {/if}
   {#if selected.length > 0 && workspace}
     <PrReviewActions
       selectedCount={selected.length}
@@ -1023,13 +1026,14 @@
           serverId={pageScope.serverId}
           {projectsFailure}
           hasItems={activeItems.length > 0}
+          loading={activeLoading}
           onRetry={() => readList({ force: true })}
           onShowAll={() => session.setProjectPageScope({ kind: "all" })}
         >
         {#if groups.length === 0 && activeLoading}
           <!-- A search read with nothing to show yet. The page keeps its
                toolbar, so the search field keeps focus. -->
-          <ListSkeleton identWidth={44} />
+          <PrListLoading />
         {:else if groups.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.

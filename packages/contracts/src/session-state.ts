@@ -4,10 +4,12 @@
 
 /** What settled a session: a person, its pull requests ending, or its task
  *  finishing. `idle` is on sessions settled before idle sessions left the
- *  list by rule. */
+ *  list by rule. A person's settle is in their own view, never in the shared
+ *  state. */
 export type SessionSettledBy = 'person' | 'pull-request' | 'task' | 'idle'
 
-/** What every person sees of a session: whether its work is finished. */
+/** What every person sees of a session: whether something other than a
+ *  person found its work finished — its pull requests or its task. */
 export interface SessionState {
   /** When the session became settled. Null while it is not settled. */
   settledAt: number | null
@@ -17,6 +19,8 @@ export interface SessionState {
 /** One person's own view of a session. It changes that person's list, and
  *  nobody else's. */
 export interface SessionView {
+  /** When this person settled the session. */
+  settledAt: number | null
   /** When this person took the session out of their list. */
   archivedAt: number | null
   /** The wake time of this person's snooze. A time in the past is a snooze that ended. */
@@ -28,7 +32,7 @@ export interface SessionView {
 export const UNSETTLED_SESSION_STATE: SessionState = { settledAt: null, settledBy: null }
 
 /** The view of a person who did nothing to a session. */
-export const EMPTY_SESSION_VIEW: SessionView = { archivedAt: null, snoozedUntil: null, snoozeNote: null }
+export const EMPTY_SESSION_VIEW: SessionView = { settledAt: null, archivedAt: null, snoozedUntil: null, snoozeNote: null }
 
 /** A session leaves a person's list after this long with no activity, unless
  *  that person snoozed it or it waits on an open pull request. */
@@ -41,10 +45,10 @@ export interface SessionChanged {
   view?: SessionView
 }
 
-/** A change to one session. `settled` changes it for every person; the other
- *  fields change only the caller's own view. */
+/** A change to one session. Each field changes only the caller's own view;
+ *  making a session active again also clears a shared settle. */
 export interface SessionChange {
-  /** Settle it, or make a settled one active again. */
+  /** Settle it in the caller's list, or make a settled one active again. */
   settled?: boolean
   /** Take it out of the caller's list, or return it. */
   archived?: boolean
@@ -52,4 +56,11 @@ export interface SessionChange {
   snoozedUntil?: number | null
   /** Why it is snoozed. Only with `snoozedUntil`. */
   snoozeNote?: string
+}
+
+/** Whether a session is settled for one person: their own settle, else the
+ *  shared one. */
+export function settleFor(state: SessionState | null | undefined, view: SessionView | null | undefined): SessionState {
+  if (view?.settledAt != null) return { settledAt: view.settledAt, settledBy: 'person' }
+  return state?.settledAt != null ? state : UNSETTLED_SESSION_STATE
 }

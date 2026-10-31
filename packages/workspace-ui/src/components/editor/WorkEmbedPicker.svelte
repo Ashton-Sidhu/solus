@@ -58,7 +58,7 @@
 
 <div
   use:portal={document.body}
-  class="fixed inset-0 z-[11000] flex items-center justify-center bg-black/30 p-4 max-sm:items-end max-sm:p-0"
+  class="fixed inset-0 z-[11000] flex items-center justify-center modal-backdrop p-4 max-sm:items-end max-sm:p-0"
   role="presentation"
   onclick={(event) => event.target === event.currentTarget && onClose()}
   onkeydown={handleKeydown}

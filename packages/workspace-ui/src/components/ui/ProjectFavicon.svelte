@@ -92,8 +92,9 @@
           style="--badge-light-bg:{badgeLight.background};--badge-light-fg:{badgeLight.foreground};--badge-dark-bg:{badgeDark.background};--badge-dark-fg:{badgeDark.foreground}"
           aria-hidden="true"
         >
-          <!-- Sized against the badge, so one badge reads at 13px and at 16px. -->
-          <span class="text-[length:48cqh] leading-none font-semibold tracking-tight">{initials}</span>
+          <!-- Sized against the badge, so one badge reads at 13px and at 16px;
+               trimmed to its capitals so flex centres the ink, not the line box. -->
+          <span class="text-[length:48cqh] leading-none font-semibold tracking-tight [text-box:trim-both_cap_alphabetic]">{initials}</span>
         </span>
       {:else}
         <FolderIcon size="100%" class="text-(--solus-text-tertiary)" />

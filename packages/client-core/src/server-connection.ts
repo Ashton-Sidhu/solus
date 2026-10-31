@@ -11,7 +11,7 @@ import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
 import { organizationIdOfSolusApiId } from '@solus/contracts/uplink'
-import { dialableRoutes, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
+import { dialableRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import { answersAsSavedHost, type SavedHostIdentity } from './host-link'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
@@ -48,10 +48,10 @@ export interface SolusServerTarget {
 
 /** The route a saved host is dialed on first, from this page's origin; empty when it has none this page can dial. */
 export function preferredRouteUrl(
-  server: Pick<SavedServer, 'routes'>,
+  server: Pick<SavedServer, 'routes' | 'uplink'>,
   clientOrigin = globalThis.location?.origin ?? '',
 ): string {
-  return dialableRoutes(server.routes, clientOrigin)[0]?.url ?? ''
+  return dialableRoutes(routesForMachine(server.routes, server.uplink?.kind), clientOrigin)[0]?.url ?? ''
 }
 
 export interface InstalledSolusConnection {
@@ -85,7 +85,7 @@ export function savedServerTarget(server: SavedServer): SolusServerTarget {
     sessionToken: server.sessionToken,
     installationId: server.installationId,
     local: false,
-    routes: server.routes,
+    routes: routesForMachine(server.routes, server.uplink?.kind),
   }
   if (server.uplink) target.uplink = server.uplink
   if (server.identityKey) target.identityKey = server.identityKey

@@ -322,7 +322,7 @@ export class SessionOpening {
     // A session ref crossing the client names its host — there is no probe.
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
     // Every way into a session without a tab comes here: a shared one is no longer new.
-    sessionListStore.markOpened(meta.sessionId)
+    sessionListStore.markOpened({ serverId: meta.serverId, sessionId: meta.sessionId, organizationId: meta.organizationId, publication: meta.publication })
     // The workspace service keeps the record and no transcript: while the runner
     // is offline the session opens read-only (docs/plans/cloud-service-model.md R8).
     if (!hosts.hasExecution(meta.serverId)) {

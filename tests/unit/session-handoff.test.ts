@@ -6,6 +6,10 @@ import {
   buildHandoff,
   composeHandoffSeed,
 } from '@solus/server/execution/agents/session-handoff'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
+
+/** The whole history as one page, the way a short session reads. */
+const onePage = (messages: SessionLoadMessage[]) => async () => ({ messages, before: null })
 
 describe('session handoff', () => {
   let handoffRoot: string
@@ -20,12 +24,12 @@ describe('session handoff', () => {
 
   test('labels visible history and excludes private reasoning and tool state', async () => {
     const handoff = await buildHandoff('session-r', '/project', {
-      loadSession: async () => [
+      loadPage: onePage([
         { role: 'user', content: 'Fix the bug', timestamp: 1 },
         { role: 'reasoning', content: 'The bug is a null deref in the parser', timestamp: 2 },
         { role: 'tool', content: 'ran the tests', toolName: 'Bash', timestamp: 3 },
         { role: 'assistant', content: 'Fixed it', timestamp: 4 },
-      ],
+      ]),
       handoffRoot,
       fromProvider: 'claude-code',
       now: () => 1,
@@ -44,13 +48,13 @@ describe('session handoff', () => {
 
   test('drops tool noise and blank turns from the carried transcript', async () => {
     const handoff = await buildHandoff('session-1', '/project', {
-      loadSession: async () => [
+      loadPage: onePage([
         { role: 'user', content: '  ', timestamp: 1 },
         { role: 'tool', content: 'hidden tool call', timestamp: 2 },
         { role: 'tool_result', content: 'hidden result', timestamp: 3 },
         { role: 'user', content: 'Visible request', timestamp: 4 },
         { role: 'assistant', content: 'Visible answer', timestamp: 5 },
-      ],
+      ]),
       handoffRoot,
       now: () => 2,
     })
@@ -63,9 +67,9 @@ describe('session handoff', () => {
 
   test('writes nothing and returns null paths when the session has no carry-over turns', async () => {
     const handoff = await buildHandoff('session-empty', '/project', {
-      loadSession: async () => [
+      loadPage: onePage([
         { role: 'tool', content: 'hidden tool call', timestamp: 1 },
-      ],
+      ]),
       handoffRoot,
       now: () => 3,
     })
@@ -111,12 +115,12 @@ describe('session handoff', () => {
     const handoff = await buildHandoff('source', '/project', {
       handoffRoot, historyTokens: 700,
       fromProvider: 'claude-code',
-      loadSession: async () => [
+      loadPage: onePage([
         { role: 'user', content: 'Original objective', timestamp: 1, messageId: 'u1' },
         { role: 'assistant', content: 'Old response'.repeat(200), timestamp: 2 },
         { role: 'user', content: 'Next step', timestamp: 3 },
         { role: 'assistant', content: 'Recent response', timestamp: 4, sourceProvider: 'codex', sourceSessionId: 'native-2' },
-      ],
+      ]),
     })
     const text = readFileSync(handoff.transcriptFilePath!, 'utf8')
     expect(text).toContain('1 visible history items omitted')
@@ -131,14 +135,14 @@ describe('session handoff', () => {
   test('rejects required context without shortening the new prompt', async () => {
     await expect(buildHandoff('source', '/project', {
       handoffRoot, contextWindow: 9_000, nextPrompt: 'new prompt'.repeat(300),
-      loadSession: async () => [{ role: 'user', content: 'Required objective', timestamp: 1 }],
+      loadPage: onePage([{ role: 'user', content: 'Required objective', timestamp: 1 }]),
     })).rejects.toThrow('cannot fit')
   })
 
   test('carries partial visible work once and labels its source state', async () => {
     const messages = [{ role: 'user' as const, content: 'Make a change', timestamp: 1 }]
     const handoff = await buildHandoff('source', '/project', {
-      handoffRoot, loadSession: async () => messages, partialReply: 'The first file is changed.', sourceStatus: 'interrupted',
+      handoffRoot, loadPage: onePage(messages), partialReply: 'The first file is changed.', sourceStatus: 'interrupted',
     })
     expect(readFileSync(handoff.transcriptFilePath!, 'utf8')).toContain('source session interrupted')
     expect(readFileSync(handoff.transcriptFilePath!, 'utf8')).toContain('The first file is changed.')

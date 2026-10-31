@@ -570,8 +570,10 @@
     showProject={ledger.showProject}
     homeLabel={homeLabel(item)}
     query={ledger.filter.text}
-    onOpen={() =>
-      stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)}
+    onOpen={() => {
+      ledger.selectedIndex = index;
+      return stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item);
+    }}
     onTogglePin={() => togglePin(item)}
     onDelete={ledger.tab === "yours" ? () => deleteItem(item) : undefined}
     sessionLabel={originLabel(item)}
@@ -593,7 +595,10 @@
     hostLabel={hostLabelFor(item.serverId)}
     owner={ownerOf(item.ownerKey)}
     present={sessionPresence(item)}
-    onOpen={() => openSharedSession(item)}
+    onOpen={() => {
+      ledger.selectedIndex = index;
+      return openSharedSession(item);
+    }}
   />
 {/snippet}
 

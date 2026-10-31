@@ -60,6 +60,8 @@ export const workspaceSessionSearchQuerySchema = z.strictObject({
    *  (project-model §1). Answered by the workspace service; a machine searches by `projectRoot`. */
   repositoryKey: z.string().min(1).max(512).optional(),
   provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
+  /** Only chats, the sessions with no project, in every chat folder. */
+  chats: z.enum(['true', 'false']).optional(),
   /** Match names and metadata only; read no message. */
   namesOnly: z.enum(['true', 'false']).optional(),
   /** Only sessions last active at or after this instant (ms). */

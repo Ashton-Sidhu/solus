@@ -1,0 +1,437 @@
+{
+  "date": "2026-10-30",
+  "status": "complete",
+  "url": "https://app.solus.sh/chat",
+  "clientEntry": "/assets/index-BU8uSxzG.js",
+  "browser": "Safari",
+  "profile": "Solus Benchmark",
+  "unit": "milliseconds from the post-Google workspace navigation start",
+  "method": [
+    "Six fresh Google client logins in alternating ON/OFF order, three per mode, using the same existing Google account in the Solus Benchmark Safari profile.",
+    "Before each run, sign out to app.solus.sh/sign-in, confirm Web Inspector Console prompt focus, clear localStorage and sessionStorage, and set solus.bench.dialAfterSignIn to 1 only for ON.",
+    "Each reset printed location.pathname, localStorage keys, and sessionStorage keys. ON had exactly the switch key; OFF had no keys; sessionStorage was empty in all six runs. Thus no saved hosts were present.",
+    "Keep Web Inspector open during Google login. After workspace rendering, confirm Console prompt focus and print the requested JSON with console.log, using function syntax equivalent to the supplied arrow-function snippet.",
+    "The first recorded /oauth2/token fetch is used for code-exchange end: rounded start plus rounded duration. All recorded token fetches are retained.",
+    "Verify deployed entry from Inspector source links. No source changes, builds, or deployments."
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "mode": "ON",
+      "ordering": "dial-after-sign-in",
+      "storageReset": {
+        "page": "/sign-in",
+        "localStorageKeysAfterReset": [
+          "solus.bench.dialAfterSignIn"
+        ],
+        "sessionStorageKeysAfterReset": [],
+        "consoleFocusConfirmed": true
+      },
+      "dir": true,
+      "sw": "1",
+      "nav": {
+        "responseEnd": 920,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 125.9
+          },
+          {
+            "name": "db",
+            "dur": 108.8
+          },
+          {
+            "name": "db_work",
+            "dur": 132.1
+          },
+          {
+            "name": "cfEdge",
+            "dur": 4
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 157
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [
+        {
+          "start": 1856,
+          "dur": 187
+        },
+        {
+          "start": 2176,
+          "dur": 116
+        }
+      ],
+      "hostsRead": false,
+      "code": 2052,
+      "hostReady": 2643,
+      "fcp": 2246,
+      "codeExchangeEndMs": 2043,
+      "hostReadyAfterHtmlMs": 1723
+    },
+    {
+      "run": 2,
+      "mode": "OFF",
+      "ordering": "early-dial",
+      "storageReset": {
+        "page": "/sign-in",
+        "localStorageKeysAfterReset": [],
+        "sessionStorageKeysAfterReset": [],
+        "consoleFocusConfirmed": true
+      },
+      "dir": true,
+      "sw": null,
+      "nav": {
+        "responseEnd": 921,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 140.4
+          },
+          {
+            "name": "db",
+            "dur": 119.1
+          },
+          {
+            "name": "db_work",
+            "dur": 145.2
+          },
+          {
+            "name": "cfEdge",
+            "dur": 6
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 166
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [
+        {
+          "start": 1912,
+          "dur": 196
+        },
+        {
+          "start": 2235,
+          "dur": 135
+        }
+      ],
+      "hostsRead": false,
+      "code": 2097,
+      "hostReady": 2293,
+      "fcp": 2270,
+      "codeExchangeEndMs": 2108,
+      "hostReadyAfterHtmlMs": 1372
+    },
+    {
+      "run": 3,
+      "mode": "ON",
+      "ordering": "dial-after-sign-in",
+      "storageReset": {
+        "page": "/sign-in",
+        "localStorageKeysAfterReset": [
+          "solus.bench.dialAfterSignIn"
+        ],
+        "sessionStorageKeysAfterReset": [],
+        "consoleFocusConfirmed": true
+      },
+      "dir": true,
+      "sw": "1",
+      "nav": {
+        "responseEnd": 696,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 82.5
+          },
+          {
+            "name": "db",
+            "dur": 69.1
+          },
+          {
+            "name": "db_work",
+            "dur": 93.2
+          },
+          {
+            "name": "cfEdge",
+            "dur": 8
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 116
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [
+        {
+          "start": 1692,
+          "dur": 162
+        },
+        {
+          "start": 2027,
+          "dur": 110
+        }
+      ],
+      "hostsRead": false,
+      "code": 1870,
+      "hostReady": 2504,
+      "fcp": 2070,
+      "codeExchangeEndMs": 1854,
+      "hostReadyAfterHtmlMs": 1808
+    },
+    {
+      "run": 4,
+      "mode": "OFF",
+      "ordering": "early-dial",
+      "storageReset": {
+        "page": "/sign-in",
+        "localStorageKeysAfterReset": [],
+        "sessionStorageKeysAfterReset": [],
+        "consoleFocusConfirmed": true
+      },
+      "dir": true,
+      "sw": null,
+      "nav": {
+        "responseEnd": 740,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 112.4
+          },
+          {
+            "name": "db",
+            "dur": 99.2
+          },
+          {
+            "name": "db_work",
+            "dur": 123.4
+          },
+          {
+            "name": "cfEdge",
+            "dur": 5
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 142
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [
+        {
+          "start": 1771,
+          "dur": 176
+        },
+        {
+          "start": 2083,
+          "dur": 91
+        }
+      ],
+      "hostsRead": false,
+      "code": 1948,
+      "hostReady": 2144,
+      "fcp": 2128,
+      "codeExchangeEndMs": 1947,
+      "hostReadyAfterHtmlMs": 1404
+    },
+    {
+      "run": 5,
+      "mode": "ON",
+      "ordering": "dial-after-sign-in",
+      "storageReset": {
+        "page": "/sign-in",
+        "localStorageKeysAfterReset": [
+          "solus.bench.dialAfterSignIn"
+        ],
+        "sessionStorageKeysAfterReset": [],
+        "consoleFocusConfirmed": true
+      },
+      "dir": true,
+      "sw": "1",
+      "nav": {
+        "responseEnd": 805,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 119.8
+          },
+          {
+            "name": "db",
+            "dur": 94.6
+          },
+          {
+            "name": "db_work",
+            "dur": 119.9
+          },
+          {
+            "name": "cfEdge",
+            "dur": 9
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 158
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [
+        {
+          "start": 1939,
+          "dur": 175
+        },
+        {
+          "start": 2297,
+          "dur": 113
+        }
+      ],
+      "hostsRead": false,
+      "code": 2003,
+      "hostReady": 2631,
+      "fcp": 2338,
+      "codeExchangeEndMs": 2114,
+      "hostReadyAfterHtmlMs": 1826
+    },
+    {
+      "run": 6,
+      "mode": "OFF",
+      "ordering": "early-dial",
+      "storageReset": {
+        "page": "/sign-in",
+        "localStorageKeysAfterReset": [],
+        "sessionStorageKeysAfterReset": [],
+        "consoleFocusConfirmed": true
+      },
+      "dir": true,
+      "sw": null,
+      "nav": {
+        "responseEnd": 878,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 120.2
+          },
+          {
+            "name": "db",
+            "dur": 96.5
+          },
+          {
+            "name": "db_work",
+            "dur": 122.8
+          },
+          {
+            "name": "cfEdge",
+            "dur": 4
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 149
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [
+        {
+          "start": 1983,
+          "dur": 187
+        },
+        {
+          "start": 2299,
+          "dur": 143
+        }
+      ],
+      "hostsRead": false,
+      "code": 2050,
+      "hostReady": 2372,
+      "fcp": 2330,
+      "codeExchangeEndMs": 2170,
+      "hostReadyAfterHtmlMs": 1494
+    }
+  ],
+  "medians": {
+    "ON": {
+      "runs": 3,
+      "hostReadyMs": 2631,
+      "codeExchangeEndMs": 2043,
+      "workspaceCodeMs": 2003,
+      "firstContentfulPaintMs": 2246,
+      "htmlResponseEndMs": 805,
+      "hostReadyAfterHtmlMs": 1808,
+      "directoryPresentInAllRuns": true,
+      "hostsReadInAnyRun": false,
+      "missingHostReadyRuns": []
+    },
+    "OFF": {
+      "runs": 3,
+      "hostReadyMs": 2293,
+      "codeExchangeEndMs": 2108,
+      "workspaceCodeMs": 2050,
+      "firstContentfulPaintMs": 2270,
+      "htmlResponseEndMs": 878,
+      "hostReadyAfterHtmlMs": 1404,
+      "directoryPresentInAllRuns": true,
+      "hostsReadInAnyRun": false,
+      "missingHostReadyRuns": []
+    }
+  },
+  "findings": [
+    "The early-dial median host-ready time is 2293 ms versus 2631 ms with old ordering: 338 ms earlier (12.8%).",
+    "Relative to HTML receipt, median host-ready is 1404 ms with early dialing versus 1808 ms with old ordering: 404 ms earlier.",
+    "The early-dial median FCP is 2270 ms versus 2246 ms with old ordering. These observations show improved host readiness, but no FCP improvement.",
+    "All six runs contain the embedded directory block, report no /v1/hosts resource entry, and include the host-ready mark."
+  ],
+  "limits": [
+    "Three runs per mode are a small alternating sample, not production percentiles. Browser cache, network conditions, and machine load were not reset or controlled.",
+    "The timer excludes time spent choosing the Google account and measures the post-Google workspace navigation.",
+    "hostsRead is the requested Resource Timing predicate; it describes recorded browser timing entries.",
+    "Code-exchange end is calculated from rounded resource start and duration and may differ by approximately 1 ms from the unrounded response-end value."
+  ],
+  "codeChanged": false,
+  "deployed": false
+}

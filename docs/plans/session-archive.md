@@ -25,8 +25,9 @@ snoozed session came back to the active list on each reload.
   leaves the machine, so the Solus API does not know it.
 - **machine** — where the session runs: prompt, stop, the live transcript,
   permission answers, and PR watches that wake the agent. It does not change.
-- **settled** — the session's work is finished. Shared: every person sees one
-  settle.
+- **settled** — the session's work is finished. A person's settle is their
+  own: it changes their list, and nobody else's. A settle by the session's
+  pull requests or task is shared: every person sees it.
 - **archived**, **snoozed** — one person's own view of a session. They change
   that person's list, and nobody else's.
 - **session list** — the sessions in a person's list: every root session of
@@ -50,10 +51,15 @@ tab is a different action: it changes nothing on the home.
    names the home: for a published organization session, the organization's
    Solus API when the client is connected to it; else the machine. The server
    uses the same rule (`workspaceToolContext`, `RunnerDelivery.reportSession`).
-2. **Shared and personal state are apart.** `session_states` keeps the shared
-   settle (`SessionShelf`). `session_views` keeps each person's archive and
-   snooze (`SessionViewer`, keyed by `ownerKeyOf`). An archive keeps the settle
-   and the snooze, so a return puts the session back on its shelf.
+2. **Shared and personal state are apart.** `session_states` keeps the settle
+   by the session's pull requests or task (`SessionShelf`). `session_views`
+   keeps each person's settle, archive, and snooze (`SessionViewer`, keyed by
+   `ownerKeyOf`). A person sees a session settled when they settled it or when
+   the shared settle is set (`settleFor`). Only the shared settle stops the
+   session's pull request watches, PR sync, and restart recovery. A prompt
+   ends the shared settle and the settle of the person the turn is for;
+   another person's settle stays. An archive keeps the settle and the snooze,
+   so a return puts the session back on its shelf.
 3. **A person's list holds their own sessions.** In an organization every
    member can read every session, but a list of everyone's work is no list.
    The list keeps a session the person owns (`owner_key`), and one they
@@ -63,12 +69,16 @@ tab is a different action: it changes nothing on the home.
 4. **Idle is a rule, not a write.** The list query leaves out a session with no
    activity for 30 days, unless the person snoozed it or it waits on an open
    pull request (`sessionListedClause`). Nothing sweeps, and a new prompt
-   brings the session back by its activity.
+   brings the session back by its activity. The list read does not test
+   every record: it reads the ids each rule can list, each by its own index
+   (recent activity, the reader's snoozes, open pull requests, the reader's
+   direct shares), then builds rows for one page of them
+   (`readSessionListPage`).
 5. **One set of `/v1` resources on both homes.**
 
    | Route | Methods | Holds |
    |---|---|---|
-   | `/v1/sessions/:sessionId` | GET, PATCH | `settled` for every person (editor); `archived`, `snoozedUntil`, `snoozeNote` in the caller's own view (viewer) |
+   | `/v1/sessions/:sessionId` | GET, PATCH | `settled`, `archived`, `snoozedUntil`, `snoozeNote` in the caller's own view (viewer); an editor's unsettle also ends the shared settle |
    | `/v1/sessions/:sessionId/pull-requests` | GET | the session's links |
    | `/v1/links` with `from: { kind: 'session' }`, `to: { kind: 'pr', url }` | PUT, DELETE | link (idempotent), remove (tombstone) |
    | `/v1/sessions/:sessionId/turns` | POST | a prompt reached the session (a host acting for the person only) |
@@ -107,7 +117,11 @@ tab is a different action: it changes nothing on the home.
      this person's views; `SessionPullRequestsStore` takes the links the list
      carries and reads one session again on `session.pullRequestsChanged`.
      The X on a session's row archives it in the person's list, with Undo.
-     "Close Tab" only closes the tab.
+     "Close Tab" only closes the tab. The X and the check ("Mark Done") apply
+     to every session that the row's session delegated, at any depth: their
+     rows close, they archive or settle with it, and Undo returns them too.
+     Without this, a delegated session loses the row it nests under and shows
+     as a row of its own.
    - The picker lists every session; an archived one has a mark and "Return to
      List", and the Archive filter shows only archived ones.
    - Mobile reads the list and the sessions out of it, and archives, snoozes,
@@ -129,8 +143,8 @@ tab is a different action: it changes nothing on the home.
 
 ## Verification
 
-- `session-states`: shared settle; one person's archive and snooze leave
-  another's view; a prompt returns the session to its person's list; a
+- `session-states`: shared settle; one person's settle, archive, and snooze
+  leave another's view; a prompt returns the session to its person's list; a
   session someone else owns joins a list at that person's prompt; the list
   rule past 500 sessions; the API list, one PATCH, and turn admission.
 - `session-home-routes`: the pull request resource over HTTP, `listed`, and the

@@ -58,7 +58,7 @@ class FakeHub implements DeviceUpstream {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpeg'; openUrl?: () => Promise<string> } = {}) {
+function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpeg'; serveSimOnly?: boolean; video?: boolean; openUrl?: () => Promise<string> } = {}) {
   const hub = new FakeHub()
   // Timers run when the test says so, never by a clock.
   const timers: { callback: () => void; cancelled: boolean }[] = []
@@ -69,6 +69,8 @@ function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpe
   let retries = 0
   const stream = new DeviceHubStream({
     platform: options.platform ?? 'ios',
+    serveSimOnly: options.serveSimOnly,
+    video: options.video,
     format: options.format ?? 'h264',
     openUrl: options.openUrl ?? (async () => BASE),
     onPacket: (packet) => packets.push(packet),
@@ -374,4 +376,24 @@ describe('MJPEG splitter', () => {
       expect(images.map((image) => image.length)).toEqual([7, 5])
     }
   })
+})
+
+
+test('a Simlock Android lease uses AVCC video and serve-sim input, including Back and Recents', async () => {
+  const { hub, stream } = harness({ platform: 'android', serveSimOnly: true })
+  await flush()
+  await flush()
+  expect(hub.bodies.map((body) => body.url)).toEqual([`${BASE}/video.avcc`])
+  await stream.send([{ kind: 'button', button: 'back' }, { kind: 'button', button: 'recents' }])
+  const messages = hub.sockets[0]!.sent.filter((message) => message instanceof Uint8Array && message[0] === 0x04)
+  expect(messages.map((message) => JSON.parse(new TextDecoder().decode((message as Uint8Array).subarray(1))))).toEqual([{ button: 'back' }, { button: 'app_switcher' }])
+  stream.close()
+})
+
+test('an EAS Android WebRTC view opens an input-only socket', async () => {
+  const { hub, stream } = harness({ platform: 'android', video: false })
+  await flush()
+  expect(hub.sockets[0]?.url).toBe(`${BASE.replace(/^http/, 'ws')}/socket?video=0`)
+  expect(hub.bodies).toHaveLength(0)
+  stream.close()
 })

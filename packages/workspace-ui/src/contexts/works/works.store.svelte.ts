@@ -13,7 +13,7 @@ import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { hosts } from '../hosts/hosts.svelte'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { LOCAL_ORGANIZATION_ID, visibleInWindow } from '../../lib/organization-filter'
-import { SvelteMap } from 'svelte/reactivity'
+import { createSubscriber, SvelteMap } from 'svelte/reactivity'
 import type {
   DocDestination,
   DocProviderId,
@@ -141,7 +141,7 @@ export class WorksStore {
     listing.preview = workPreview(docType, content)
     listing.updatedAt = now
     this.works[realId] = listing
-    if (ownerServerId) this.hostByWorkId.set(realId, ownerServerId)
+    if (ownerServerId && !this.hostByWorkId.has(realId)) this.hostByWorkId.set(realId, ownerServerId)
   }
 
   /** Drop a provisional whose create_work never persisted (tool errored). */
@@ -240,6 +240,27 @@ export class WorksStore {
 
   savedWork(workId: string): Work | undefined {
     return this.saved[workId]
+  }
+
+  /**
+   * The saved record for a row that shows it. The first row that shows a
+   * work asks its host for the record (`createSubscriber` starts in an
+   * effect, where the read may write state); later rows read what it holds.
+   * A streaming work has no record yet, so its row asks once it finishes.
+   */
+  savedWorkToShow(workId: string): Work | undefined {
+    if (!this.streaming[workId]) this.savedWorkSubscriber(workId)()
+    return this.saved[workId]
+  }
+
+  private readonly savedWorkSubscribers = new Map<string, () => void>()
+  private savedWorkSubscriber(workId: string): () => void {
+    let subscribe = this.savedWorkSubscribers.get(workId)
+    if (!subscribe) {
+      subscribe = createSubscriber(() => { void this.ensureContent(workId, 'conversation-view') })
+      this.savedWorkSubscribers.set(workId, subscribe)
+    }
+    return subscribe
   }
 
   /**
@@ -460,10 +481,11 @@ export class WorksStore {
    * version, so its body never becomes the saved record: the listing takes the
    * title and preview. An open work already hears the same write as
    * `works.changed` from its owner host and reads it once; any other held
-   * saved record is read again by id.
+   * saved record is read again by id. `serverId` is where the event says the
+   * work is (`agentWorkHost`); a known owner is kept, since only Share moves one.
    */
   applyRemoteUpdate(workId: string, title: string, content: string, updatedAt: string, serverId?: string): void {
-    if (serverId) this.hostByWorkId.set(workId, serverId)
+    if (serverId && !this.hostByWorkId.has(workId)) this.hostByWorkId.set(workId, serverId)
     const listing = this.works[workId]
     if (!listing) {
       void this.readSaved(workId, 'agent-update')

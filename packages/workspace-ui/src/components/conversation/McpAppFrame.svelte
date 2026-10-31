@@ -156,7 +156,7 @@
 <dialog
   bind:this={confirmDialog}
   oncancel={() => decide(false)}
-  class="m-auto max-h-[80dvh] w-full max-w-120 rounded-2xl border border-border bg-popover p-5 text-popover-foreground shadow-xl backdrop:bg-black/40"
+  class="m-auto max-h-[80dvh] w-full max-w-120 rounded-2xl border border-border bg-popover p-5 text-popover-foreground shadow-xl backdrop:modal-backdrop"
 >
   {#if confirmation}
     <h2 class="text-base font-semibold">{confirmation.title}</h2>

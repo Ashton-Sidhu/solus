@@ -1,6 +1,7 @@
 import { execFile, spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
 import type { Seat, SeatConnectStartResult, SeatProvider } from '@solus/contracts/seats'
-import { launchProcess } from '../../cli-env'
+import { launchProcess, launchedProcess, type LaunchOptions } from '../../cli-env'
+import { resolveHomePath } from '../../platform/paths'
 import { createLogger } from '../../logger'
 import { providerLoginConnected, seatEnv } from './seat-login'
 import { seatKey, seatProviderLabel, type SeatStore } from './seat-manager'
@@ -26,6 +27,15 @@ export type SpawnProcess = (command: string, args: string[], options: Parameters
  * One login per (seat, provider) at a time; a fresh start supersedes an
  * abandoned one, which also recovers a client that left before it could cancel.
  */
+export interface InstanceConnectTarget {
+  id: string
+  home: string
+  binaryPath: string
+  launch: LaunchOptions
+  changed: (state: 'connecting' | 'connected' | 'failed', error?: string) => Promise<void>
+  verify: () => Promise<boolean>
+}
+
 export class SeatConnector {
   private readonly active = new Map<string, ActiveConnect>()
   private readonly spawnProcess: SpawnProcess
@@ -43,14 +53,14 @@ export class SeatConnector {
   }
 
   /** Starts the login and answers once the CLI has printed where to sign in. */
-  async start(seat: Seat, provider: SeatProvider): Promise<SeatConnectStartResult> {
-    const key = connectKey(seat, provider)
-    await this.cancel(seat, provider)
-    const home = this.deps.seats.homeFor(seat, provider)
+  async start(seat: Seat, provider: SeatProvider, target?: InstanceConnectTarget): Promise<SeatConnectStartResult> {
+    const key = connectKey(seat, provider, target?.id)
+    await this.cancel(seat, provider, target?.id)
+    const home = target?.home ?? this.deps.seats.homeFor(seat, provider)
     // The host login signs in where the CLI looks by default; a user's seat is named explicitly.
-    const seatHome = seat.kind === 'host-login' ? null : home
+    const seatHome = target ? home : seat.kind === 'host-login' ? null : home
     const spec = loginCommand(provider)
-    const run = launchProcess(spec.command, spec.args, { FORCE_COLOR: '0', ...seatEnv(provider, seatHome) })
+    const run = target ? launchedProcess(target.launch, target.binaryPath, spec.args) : launchProcess(spec.command, spec.args, { FORCE_COLOR: '0', ...seatEnv(provider, seatHome) })
     const { env } = run
     env.PATH = `${this.deps.seats.shimBinDir()}:${env.PATH ?? ''}`
     // A login must be the person's own: nothing the host process carries may answer for it.
@@ -59,7 +69,7 @@ export class SeatConnector {
     delete env.OPENAI_API_KEY
 
     const child = this.spawnProcess(run.file, run.args, {
-      cwd: home,
+      cwd: resolveHomePath(home),
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
       env,
@@ -67,7 +77,7 @@ export class SeatConnector {
     const entry: ActiveConnect = { child, output: '', verification: null, settle: () => {}, done: Promise.resolve() }
     entry.done = new Promise<void>((resolve) => { entry.settle = resolve })
     this.active.set(key, entry)
-    void this.deps.seats.markConnecting(seat, provider)
+    void (target ? target.changed('connecting') : this.deps.seats.markConnecting(seat, provider))
     log.info('seat_connect_started', { seat: seatKey(seat), provider, command: spec.display })
 
     let resolveVerification: (result: SeatConnectStartResult) => void = () => {}
@@ -104,21 +114,21 @@ export class SeatConnector {
       const tail = entry.output.replace(ANSI_RE, '').trim().split(/\r?\n/).filter(Boolean).slice(-3).join('\n')
       try {
         if ('error' in outcome) {
-          await this.deps.seats.markFailed(seat, provider, outcome.error.message)
+          await (target ? target.changed('failed', outcome.error.message) : this.deps.seats.markFailed(seat, provider, outcome.error.message))
           rejectVerification(outcome.error)
         } else if (outcome.signal) {
-          await this.deps.seats.markFailed(seat, provider, 'Sign-in was cancelled.')
+          await (target ? target.changed('failed', 'Sign-in was cancelled.') : this.deps.seats.markFailed(seat, provider, 'Sign-in was cancelled.'))
           rejectVerification(new Error('Sign-in was cancelled.'))
         } else if (outcome.code !== 0) {
           const message = `${seatProviderLabel(provider)} sign-in exited with code ${outcome.code ?? 'unknown'}${tail ? `:\n${tail}` : ''}`
-          await this.deps.seats.markFailed(seat, provider, message)
+          await (target ? target.changed('failed', message) : this.deps.seats.markFailed(seat, provider, message))
           rejectVerification(new Error(message))
-        } else if (!await this.verifyLogin(provider, seatHome)) {
+        } else if (!(target ? await target.verify() : await this.verifyLogin(provider, seatHome))) {
           const message = `${seatProviderLabel(provider)} sign-in finished, but no credential was saved for your seat.`
-          await this.deps.seats.markFailed(seat, provider, message)
+          await (target ? target.changed('failed', message) : this.deps.seats.markFailed(seat, provider, message))
           rejectVerification(new Error(message))
         } else {
-          await this.deps.seats.markConnected(seat, provider, 'login')
+          await (target ? target.changed('connected') : this.deps.seats.markConnected(seat, provider, 'login'))
         }
       } finally {
         entry.settle()
@@ -141,15 +151,15 @@ export class SeatConnector {
   }
 
   /** The code the member's browser handed back, for the login waiting on stdin. */
-  submitCode(seat: Seat, provider: SeatProvider, code: string): void {
-    const entry = this.active.get(connectKey(seat, provider))
+  submitCode(seat: Seat, provider: SeatProvider, code: string, instanceId?: string): void {
+    const entry = this.active.get(connectKey(seat, provider, instanceId))
     const stdin = entry?.child.stdin
     if (!stdin?.writable) throw new Error(`${seatProviderLabel(provider)} sign-in is not waiting for a code.`)
     stdin.write(`${coerceAgentSignInCode(code)}\n`)
   }
 
-  async cancel(seat: Seat, provider: SeatProvider): Promise<boolean> {
-    const entry = this.active.get(connectKey(seat, provider))
+  async cancel(seat: Seat, provider: SeatProvider, instanceId?: string): Promise<boolean> {
+    const entry = this.active.get(connectKey(seat, provider, instanceId))
     if (!entry) return false
     terminateProcessTree(entry.child, 'SIGTERM')
     await entry.done
@@ -172,8 +182,8 @@ interface ActiveConnect {
   done: Promise<void>
 }
 
-function connectKey(seat: Seat, provider: SeatProvider): string {
-  return `${seatKey(seat)}\n${provider}`
+function connectKey(seat: Seat, provider: SeatProvider, instanceId?: string): string {
+  return `${seatKey(seat)}\n${provider}${instanceId ? `\n${instanceId}` : ''}`
 }
 
 function loginCommand(provider: SeatProvider): { command: string; args: string[]; display: string } {

@@ -88,6 +88,8 @@ export class RunnerDelivery {
   private wanted = false
   private attempts = 0
   private timer: ReturnType<typeof setTimeout> | null = null
+  /** The timer is the slow poll for waiting destinations, not a failure's backoff. */
+  private isWaitingPoll = false
   private unsubscribes: Array<() => void> = []
   private unfollowRecords: (() => void) | null = null
   private stopped = false
@@ -148,12 +150,14 @@ export class RunnerDelivery {
   /**
    * Runs a cycle once the collect window closes, however many writes arrive in it.
    * A retry after a failure keeps its backoff: every queued write kicks, and a busy
-   * turn must not turn a refusal into a request loop.
+   * turn must not turn a refusal into a request loop. The slow poll for a waiting
+   * destination does not hold a new write back: the pass skips the waiting one and
+   * sends the rest.
    */
   kick(): void {
     if (this.stopped) return
     this.wanted = true
-    if (this.running || this.timer) return
+    if (this.running || (this.timer && !this.isWaitingPoll)) return
     this.schedule(this.deps.collectWindowMs ?? COLLECT_WINDOW_MS)
   }
 
@@ -188,9 +192,10 @@ export class RunnerDelivery {
     queueSessionFacts({ organizationId: record.organizationId, actorUserId: deliveryActorOf(record.ownerKey) }, facts)
   }
 
-  private schedule(delayMs: number): void {
+  private schedule(delayMs: number, options: { isWaitingPoll?: boolean } = {}): void {
     this.clearTimer()
     const setTimeoutFn = this.deps.setTimeoutFn ?? setTimeout
+    this.isWaitingPoll = options.isWaitingPoll ?? false
     this.timer = setTimeoutFn(() => {
       this.timer = null
       void this.cycle()
@@ -216,7 +221,7 @@ export class RunnerDelivery {
         this.attempts = 0
         this.status.error = null
         if (this.wanted) this.schedule(this.deps.collectWindowMs ?? COLLECT_WINDOW_MS)
-        else if (this.waiting.size > 0) this.schedule(WAITING_POLL_MS)
+        else if (this.waiting.size > 0) this.schedule(WAITING_POLL_MS, { isWaitingPoll: true })
       } else if (outcome === 'unregistered') {
         this.attempts = 0
       } else {

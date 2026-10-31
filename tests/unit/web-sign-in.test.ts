@@ -49,6 +49,7 @@ describe('one sign-in for every tab', () => {
 
   test('two tabs that refresh at the same time keep the grant alive and share one token', async () => {
     const { plane, open, first } = await tabs()
+    plane.advance(300_000)
     const second = open()
     const [a, b] = await Promise.all([first.accessToken({ kind: 'api' }), second.accessToken({ kind: 'api' })])
     expect(a).not.toBeNull()
@@ -76,7 +77,7 @@ describe('one sign-in for every tab', () => {
     expect(await second.accessToken({ kind: 'account' })).toBe(token)
     expect(plane.calls.length).toBe(before)
     expect(await second.accessToken({ kind: 'host', hostId: 'h1' })).toBeTruthy()
-    expect(refreshes(plane)).toBe(1)
+    expect(refreshes(plane)).toBe(0)
   })
 
   test('a sign-out in one tab signs the others out', async () => {

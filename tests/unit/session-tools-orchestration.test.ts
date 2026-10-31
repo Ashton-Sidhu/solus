@@ -199,7 +199,7 @@ describe('the acting session tools', () => {
     expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('solus-on-root'))).ok).toBe(true)
     expect(calls[0]!.args[1]).toMatchObject({ taskId: root.id })
     expect(calls[0]!.args[1]).not.toHaveProperty('parentTaskId')
-    expect(calls[0]!.args[2]).toBe(true)
+    expect(calls[0]!.args[2]).toBe(false)
   })
 
   test('start_session with task=attempt from a session with no task and no task_id is refused, not filed at the top', async () => {
@@ -222,14 +222,12 @@ describe('the acting session tools', () => {
     expect(calls).toEqual([])
   })
 
-  test('start_session without a task choice is refused', async () => {
+  test('start_session defaults to an independent session without task membership', async () => {
     calls.length = 0
     const result = await sessionTools.executeSessionTool('start_session', start, deps())
-    expect(result.ok).toBe(false)
-    expect(result.text).toContain('task')
-    expect(result.text).toContain('attempt')
-    expect(result.text).toContain('none')
-    expect(calls).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(calls[0]?.args[1]).toMatchObject({ independent: true, taskId: null })
+    expect(calls[0]?.args[2]).toBe(false)
   })
 
   test('a contradictory task choice is refused before a session starts', async () => {
@@ -336,11 +334,11 @@ test('saved exchange reads expose a result without consuming its queued report',
   expect((await sessionTools.executeSessionTool('read_session_exchange', {}, deps())).ok).toBe(false)
 })
 
-test('coordination guidance is loaded with the start tool', () => {
+test('the start tool directs child work to delegation', () => {
   expect(sessionTools.startSessionAgentTool.alwaysLoad).toBe(true)
-  expect(sessionTools.startSessionAgentTool.description).toContain('wait_seconds=0')
-  expect(sessionTools.startSessionAgentTool.description).toContain('built-in subagent')
-  expect(sessionTools.startSessionAgentTool.description).toContain("Use task='none' outside task mode")
+  expect(sessionTools.startSessionAgentTool.description).toContain('independent')
+  expect(sessionTools.startSessionAgentTool.description).toContain('delegate_task')
+  expect(sessionTools.startSessionAgentTool.description).toContain('Reports default off')
 })
 
 // WHY: a session's id is chosen before its provider starts, so a receipt

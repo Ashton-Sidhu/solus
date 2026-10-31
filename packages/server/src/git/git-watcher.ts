@@ -174,11 +174,9 @@ export class GitWatcher {
 
   private async _resolveGitPaths(checkoutCwd: string): Promise<GitWatchPaths | null> {
     try {
-      const [commonDirRaw, headPathRaw, indexPathRaw] = await Promise.all([
-        runAsync('git', ['rev-parse', '--git-common-dir'], checkoutCwd),
-        runAsync('git', ['rev-parse', '--git-path', 'HEAD'], checkoutCwd),
-        runAsync('git', ['rev-parse', '--git-path', 'index'], checkoutCwd),
-      ])
+      const output = await runAsync('git', ['rev-parse', '--git-common-dir', '--git-path', 'HEAD', '--git-path', 'index'], checkoutCwd)
+      const [commonDirRaw, headPathRaw, indexPathRaw] = output.split('\n')
+      if (!commonDirRaw || !headPathRaw || !indexPathRaw) return null
       const absolute = (value: string) => gitOutputPath(checkoutCwd, value)
       return {
         commonDir: absolute(commonDirRaw),

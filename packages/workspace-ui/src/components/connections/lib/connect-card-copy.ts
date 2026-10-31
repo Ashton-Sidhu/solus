@@ -1,49 +1,43 @@
 import { CONNECTION_LABELS } from '@solus/contracts/connections'
 import type { ConnectionProvider, ConnectionReason } from '@solus/contracts/connections'
+import type { ConnectRequest } from '../../../contexts/connections/connect-request.store.svelte'
 
 /**
- * What the card says. Kept out of the component because it is a table, not
+ * What a row of the connect card says. Kept out of the component because it is a table, not
  * markup, and because the reason — not the provider — is what the user
  * recognizes: someone who asked to "set up Jira" should not be answered with
  * the word "Atlassian" alone.
  */
 
 export interface ConnectCardCopy {
-  /** The product the user named, which may not be the account's name. */
-  title: string
-  /** The account's own name, for the resolved line and the continue prompt. */
+  /** The product the user named, which may not be the account's name: the row's title. */
+  name: string
+  /** The account's own name, for the continue prompt. */
   providerLabel: string
-  /** The card's lowercase type word: what the account is for. */
-  reason: string
-  /** One line on why this is being asked for now, when the type word does not already say it. */
-  purpose?: string
+  /** One line on why this is being asked for now: the row's detail line. */
+  purpose: string
   /** Present when one account serves more than the product the user named. */
   note?: string
 }
 
-const PURPOSE: Record<ConnectionReason, string> = {
+const PURPOSE = {
   'pull-requests': 'Needed to read and write pull requests on your behalf.',
   issues: 'Needed to read and write issues on your behalf.',
   confluence: 'Needed to read and publish Confluence pages.',
   jira: 'Needed to read and update Jira issues.',
   drive: 'Needed to read and write your Google Docs.',
   unspecified: 'Needed to continue.',
-}
-
-const REASON = {
-  'pull-requests': 'for pull requests',
-  issues: 'for issues',
-  confluence: 'for Confluence pages',
-  jira: 'for Jira issues',
-  drive: 'for Google Docs',
-  unspecified: 'to continue',
 } satisfies Record<ConnectionReason, string>
 
-/** Reasons whose product name differs from the account being connected. */
-const PRODUCT_TITLE: Partial<Record<ConnectionReason, string>> = {
-  confluence: 'Connect Confluence',
-  jira: 'Connect Jira',
-}
+/** The product the reason names, where it differs from the account being connected. */
+const PRODUCT_NAME = {
+  'pull-requests': null,
+  issues: null,
+  confluence: 'Confluence',
+  jira: 'Jira',
+  drive: null,
+  unspecified: null,
+} satisfies Record<ConnectionReason, string | null>
 
 export function connectCardCopy(
   provider: ConnectionProvider,
@@ -51,9 +45,8 @@ export function connectCardCopy(
 ): ConnectCardCopy {
   const label = CONNECTION_LABELS[provider]
   const copy: ConnectCardCopy = {
-    title: PRODUCT_TITLE[reason] ?? `Connect ${label}`,
+    name: PRODUCT_NAME[reason] ?? label,
     providerLabel: label,
-    reason: REASON[reason],
     purpose: PURPOSE[reason],
   }
   // One Atlassian grant reaches both products, so a user connecting for Jira
@@ -67,8 +60,23 @@ export function connectCardCopy(
 /** An integration is named by the host's admin, so its copy has no table: it is the name. */
 export function integrationConnectCardCopy(integrationName: string): ConnectCardCopy {
   return {
-    title: `Connect ${integrationName}`,
+    name: integrationName,
     providerLabel: integrationName,
-    reason: 'to use its tools',
+    purpose: 'Needed to use its tools.',
   }
+}
+
+export function connectRequestCopy(request: ConnectRequest): ConnectCardCopy {
+  return request.kind === 'integration' ? integrationConnectCardCopy(request.integrationName) : connectCardCopy(request.provider, request.reason)
+}
+
+/** The card's eyebrow: how many sign-ins it asks for, or that it asks for none now. */
+export function connectCardHeading(total: number, settled: number): string {
+  if (settled === total) return total === 1 ? 'Connected' : 'All connected'
+  return total === 1 ? 'Sign-in needed' : `${total} sign-ins needed`
+}
+
+/** The prompt that restarts the turn, naming every account that is now connected. */
+export function connectContinuePrompt(labels: string[]): string {
+  return `${new Intl.ListFormat('en', { type: 'conjunction' }).format(labels)} connected — continue`
 }

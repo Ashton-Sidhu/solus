@@ -273,6 +273,7 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
       resolveThreads: true,
       requestReviewers: access.canWrite,
       manageLabels: access.canWrite || access.canTriage,
+      editPullRequest: access.canWrite || isAuthor,
     },
   }
 }

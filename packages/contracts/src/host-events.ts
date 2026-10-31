@@ -160,6 +160,7 @@ export interface HostEventMap {
   'atlassian.oauthCompleted': AtlassianOAuthCompleted
   /** This host's config changed. Every mounted client adopts it, so two
    *  windows or two devices cannot end a turn showing different settings. */
+  'provider-instances.changed': Record<string, never>
   'config.changed': HostConfigSnapshot
   /** A project's code-intelligence indexes changed state on this host. */
   'codeIntel.statusChanged': CodeIntelStatus
@@ -274,6 +275,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'device.stateChanged': { owner: 'devices', category: 'snapshot', recovery: 'reload', description: 'Device inventory, helper status, previews or control changed; the payload is the bounded snapshot.' },
   'device.surfaceRequested': { owner: 'devices', category: 'targeted', recovery: 'reset', description: 'A device was opened in a session and its surface may be revealed.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },
+  'provider-instances.changed': { owner: 'seats', category: 'invalidation', recovery: 'reload', description: 'Read the caller’s private provider instances again.' },
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
   'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },
   'host.updateStatusChanged': { owner: 'updates', category: 'snapshot', recovery: 'reload', description: 'The host Solus release check or a provider release check changed state.' },

@@ -28,18 +28,19 @@ import type { Db } from '../db/database'
 import { createLogger } from '../logger'
 import { isHostAdmin, isHostOwner, isOrganizationSpace, organizationForNew, recordScopeOf, scopeAdmits, type Principal } from '../admission/principal'
 import { actorFor, ownerKeyOf, type Actor } from '../admission/actor'
-import { roleOf, standingOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
+import { roleOf, roleThroughSession, standingOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
 import { aclEntry } from './schema'
 import { hostUserKey } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { sessionRecords } from '../data/sessions/schema'
 import { claimSessionOwner, machineSessionHome, pendingSessionHome, type SessionHome } from '../data/sessions/session-records'
 import { works } from '../data/works/schema'
+import { sessionIdsOfWorks, visibleThroughSession } from '../data/works/session-access'
 import { tasks } from '../data/tasks/schema'
 import { automationHomeOf } from '../data/automations/automations-store'
 import { workspaceProjects } from '../projects/schema'
 import { notifications } from '../data/notifications/schema'
-import { recordNotification } from '../data/notifications/store'
+import { announceNotifications, recordNotification } from '../data/notifications/store'
 import { hostAttribution } from '../data/stored-attribution'
 import { webhooks } from '../data/webhooks/schema'
 import type { SharesMirrorPayload } from '../sync/runner-protocol'
@@ -98,6 +99,18 @@ function leavesOf(values: readonly string[], context: { resourceId: string }): S
     else log.warn('acl_actions_unknown', { resourceId: context.resourceId, action: value })
   }
   return leaves
+}
+
+/**
+ * The people a share change just gave a session, or a higher role on it: their
+ * hub reads again and finds the `session.shared` notice, which is written as they
+ * read (docs/plans/shared-with-you.md §4.4). A team is not listed here: a host
+ * does not know who is in it, so its members find the notice on their next read.
+ */
+function newlyGrantedPeople(before: ReadonlyMap<string, Pick<EntryRow, 'granted_at'>>, after: readonly Pick<EntryRow, 'subject_kind' | 'subject_id' | 'granted_at'>[]): string[] {
+  return after
+    .filter((row) => row.subject_kind === 'user' && row.granted_at !== null && row.granted_at !== before.get(`user:${row.subject_id}`)?.granted_at)
+    .map((row) => row.subject_id)
 }
 
 /**
@@ -340,7 +353,7 @@ export class ShareManager {
       `)),
     ])
     const actor = actorFor(principal)
-    return new Map(rows.map((row) => {
+    const standings = new Map(rows.map((row) => {
       const own = entries.filter((entry) => entry.resource_id === row.id)
       return [row.id, {
         ownerKey: row.owner_key,
@@ -351,6 +364,10 @@ export class ShareManager {
         share: this.summaryOf(own),
       }]
     }))
+    if (kind !== 'work') return standings
+    const raised = await this.withSessionRoles(principal, standings)
+    for (const [id, entry] of standings) entry.role = raised.get(id)?.role ?? entry.role
+    return standings
   }
 
   /** A listing's glance at a resource's sharing (docs/workspace-page.md): how
@@ -488,7 +505,38 @@ export class ShareManager {
   async standingFor(principal: Principal, resource: AccessResource): Promise<ResourceStanding> {
     const kind = shareResourceKindSchema.safeParse(resource.kind)
     if (!kind.success) return { role: await this.ownedRoleFor(principal, resource) }
-    return this.standingIn(principal, await this.access({ kind: kind.data, id: resource.id }))
+    if (kind.data !== 'work') return this.standingIn(principal, await this.access({ kind: kind.data, id: resource.id }))
+    const [access, sessionsOf] = await Promise.all([this.access({ kind: 'work', id: resource.id }), sessionIdsOfWorks(this.deps.db, [resource.id])])
+    const standing = this.standingIn(principal, access)
+    return (await this.withSessionRoles(principal, new Map([[resource.id, standing]]), sessionsOf)).get(resource.id) ?? standing
+  }
+
+  /**
+   * Each work's standing raised to the role its sessions pass down
+   * (`data/works/session-access.ts`): who may open a session may open what it
+   * made, at the same role.
+   */
+  private async withSessionRoles(
+    principal: Principal,
+    standings: Map<string, ResourceStanding>,
+    sessionsOf?: Map<string, string[]>,
+  ): Promise<Map<string, ResourceStanding>> {
+    sessionsOf ??= await sessionIdsOfWorks(this.deps.db, [...standings.keys()])
+    const sessionIds = [...new Set([...sessionsOf.values()].flat())]
+    const sessionStandings = new Map<string, ResourceStanding>()
+    for (let start = 0; start < sessionIds.length; start += 200) {
+      for (const [id, entry] of await this.accessOf(principal, 'session', sessionIds.slice(start, start + 200))) sessionStandings.set(id, entry)
+    }
+    const raised = new Map<string, ResourceStanding>()
+    for (const [workId, standing] of standings) {
+      let role = standing.role
+      for (const sessionId of sessionsOf.get(workId) ?? []) {
+        const session = sessionStandings.get(sessionId)
+        if (session) role = higherResourceRole(role, roleThroughSession(session.role))
+      }
+      raised.set(workId, { ...standing, role })
+    }
+    return raised
   }
 
   /**
@@ -566,7 +614,9 @@ export class ShareManager {
     if (principal.kind === 'system') return items
     const ids = [...new Set(items.map(idOf))]
     const { table, id } = RESOURCE_TABLES[kind]
-    const predicate = visibleTo(actorFor(principal), kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.owner_key` }, this.now())
+    const actor = actorFor(principal)
+    const own = visibleTo(actor, kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.owner_key` }, this.now())
+    const predicate = kind === 'work' ? sql`(${own} OR ${visibleThroughSession(this.deps.db, actor, sql`${table}.${id}`)})` : own
     const visible = new Set<string>()
     for (let start = 0; start < ids.length; start += ID_CHUNK) {
       const chunk = ids.slice(start, start + ID_CHUNK)
@@ -668,6 +718,7 @@ export class ShareManager {
       access.entries = [...kept, ...added, ...(linkRow ? [linkRow] : [])].sort(byCreation)
       const removedUserIds = removed.filter((row) => row.subject_kind === 'user').map((row) => row.subject_id)
       if (resource.kind === 'session' && removedUserIds.length) await this.recordSessionUnshared(db, organizationId, resource.id, removedUserIds, principal)
+      if (resource.kind === 'session') announceNotifications(organizationId, newlyGrantedPeople(before, [...kept, ...added]))
       log.info('share_grants_set', { kind: resource.kind, resourceId: resource.id, grants: next.size, removed: removedUserIds.length })
       const link = request.link ? await this.writeLink(access, request.link, false, organizationId, grantedBy) : null
       const held = await this.holdOrganizationAtLink(db, access, grantedBy)
@@ -932,7 +983,8 @@ export class ShareManager {
   async applyMirroredRows(organizationId: string, payload: SharesMirrorPayload): Promise<void> {
     const { resource, rows } = payload
     await this.deps.db.transaction(async (db) => {
-      const before = (await this.entries(resource)).find((row) => row.subject_kind === 'everyone')
+      const previous = await this.entries(resource)
+      const before = previous.find((row) => row.subject_kind === 'everyone')
       await db.run(sql`
         DELETE FROM ${aclEntry}
         WHERE resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND organization_id = ${organizationId}
@@ -944,6 +996,10 @@ export class ShareManager {
           VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, ${row.subjectKind}, ${row.subjectId}, ${row.role}, ${actions}, ${row.expiresAt ?? null}, ${row.linkSecretHash}, NULL, ${row.grantedByUserId}, ${row.createdAt}, ${row.grantedAt ?? null}, ${row.grantedByName ?? null}, ${organizationId})
           ON CONFLICT DO NOTHING
         `)
+      }
+      if (resource.kind === 'session') {
+        const keyed = new Map(previous.map((row) => [`${row.subject_kind}:${row.subject_id}`, row]))
+        announceNotifications(organizationId, newlyGrantedPeople(keyed, rows.map((row) => ({ subject_kind: row.subjectKind, subject_id: row.subjectId, granted_at: row.grantedAt ?? null }))))
       }
       const after = rows.find((row) => row.subjectKind === 'everyone')
       const guestsRevoked = !!before && (!after || after.linkSecretHash !== before.link_secret_hash)

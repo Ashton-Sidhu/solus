@@ -5,6 +5,8 @@
     Moon as MoonIcon,
     NotebookPen as NotePencilIcon,
   } from "@lucide/svelte";
+  import { Dialog } from "bits-ui";
+  import { Input } from "../ui/input";
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import DateTimePicker from "../ui/DateTimePicker.svelte";
@@ -25,13 +27,15 @@
     taskTitle: string;
     /** The control the menu drops from, or the point a context menu opened at. */
     anchor: TaskSnoozeAnchor;
+    /** The context submenu already offered presets; open its custom form directly. */
+    customTime?: boolean;
     /** While the session is rate limited: when its provider window reopens,
      *  in epoch ms. Adds "Until limit resets" when it is known and ahead. */
     limitResetsAt?: number;
     onConfirm: (until: number, note: string) => void;
     onClose: () => void;
   }
-  let { taskTitle, anchor, limitResetsAt, onConfirm, onClose }: Props = $props();
+  let { taskTitle, anchor, customTime = false, limitResetsAt, onConfirm, onClose }: Props = $props();
 
   // The clock is read once: the menu is short-lived, and a choice must not
   // vanish under the pointer.
@@ -46,6 +50,8 @@
   let customValue = $state(snoozePickerValue(taskSnoozeUntil("tomorrow", new Date(openedAt))));
   const customUntil = $derived(customSnoozeUntil(customValue, openedAt));
   let rowsEl: HTMLDivElement | undefined = $state();
+  let customEl = $state<HTMLElement | null>(null);
+  const noteId = $props.id();
   const anchorTarget = $derived(taskSnoozeAnchorTarget(anchor));
 
   /** Presets take focus on open, so the menu answers ↓/↑/⏎ the way every other
@@ -65,6 +71,53 @@
   }
 </script>
 
+{#if customTime || isCustomOpen}
+  <Dialog.Root bind:open onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Portal>
+      <Dialog.Overlay class="fixed inset-0 z-[10008] modal-backdrop" />
+      <Dialog.Content
+        bind:ref={customEl}
+        data-solus-ui
+        class="fixed top-1/2 left-1/2 z-[10009] flex max-h-[calc(100dvh-2rem)] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-5 text-workspace-chrome text-foreground shadow-[var(--solus-popover-shadow)] outline-none"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          customEl?.querySelector<HTMLElement>('[data-selected][role="button"]')?.focus();
+        }}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        <div class="flex min-w-0 flex-col gap-1">
+          <Dialog.Title class="font-medium">Snooze until</Dialog.Title>
+          <Dialog.Description class="truncate text-muted-foreground" title={taskTitle}>
+            {taskTitle}
+          </Dialog.Description>
+        </div>
+        <DateTimePicker
+          expanded
+          value={customValue}
+          onChange={(next) => (customValue = next)}
+          class="w-full"
+        />
+        <div class="flex flex-col gap-1.5">
+          <label for={noteId}>Reminder note (optional)</label>
+          <Input id={noteId} name="snoozeNote" bind:value={note} placeholder="What should you return to?" />
+        </div>
+        {#if customUntil === null}
+          <p class="text-destructive" role="status">Choose a time in the future.</p>
+        {/if}
+        <div class="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onclick={onClose}>Cancel</Button>
+          <Button
+            type="button"
+            disabled={customUntil === null}
+            onclick={() => {
+              if (customUntil !== null) onConfirm(customUntil, note.trim());
+            }}
+          >Snooze</Button>
+        </div>
+      </Dialog.Content>
+    </Dialog.Portal>
+  </Dialog.Root>
+{:else}
 <Popover.Root bind:open onOpenChange={(next) => { if (!next) onClose(); }}>
   <Popover.Content
     data-solus-ui
@@ -74,7 +127,8 @@
     sideOffset={6}
     collisionPadding={8}
     aria-label={`Snooze ${taskTitle}`}
-    class="menu-surface z-[10002] w-[260px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-menu"
+    class="menu-surface z-[10002] w-[260px] pointer-coarse:w-[300px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-menu"
+    onCloseAutoFocus={(event) => { if (isCustomOpen) event.preventDefault(); }}
     onOpenAutoFocus={(event) => {
       event.preventDefault();
       rowsEl?.querySelector("button")?.focus();
@@ -117,31 +171,14 @@
       <button
         type="button"
         class={cn(menuRowVariants(), "w-full")}
-        aria-expanded={isCustomOpen}
-        onclick={() => (isCustomOpen = !isCustomOpen)}
+        aria-haspopup="dialog"
+        onclick={() => (isCustomOpen = true)}
       >
         <CalendarClockIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
         <span class="min-w-0 flex-1 truncate text-left">Pick date and time…</span>
       </button>
     </div>
-    {#if isCustomOpen}
-      <div class="flex flex-col gap-1.5 border-t border-(--solus-menu-hairline) p-2">
-        <DateTimePicker
-          value={customValue}
-          onChange={(next) => (customValue = next)}
-          class="w-full"
-        />
-        <Button
-          class="w-full pointer-coarse:h-10"
-          disabled={customUntil === null}
-          title={customUntil === null ? "Pick a time in the future" : undefined}
-          onclick={() => {
-            if (customUntil !== null) onConfirm(customUntil, note.trim());
-          }}
-        >
-          Snooze
-        </Button>
-      </div>
-    {/if}
   </Popover.Content>
 </Popover.Root>
+
+{/if}

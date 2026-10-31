@@ -1,7 +1,7 @@
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
-import { UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from "@solus/contracts/session-state";
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from "@solus/contracts/session-state";
 import type { SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
@@ -13,8 +13,9 @@ import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV
  * What T3 Code's thread list shows beyond a session's record, from each host:
  * its live status, and what changed after the record was read. The record
  * carries its shared state, this person's own view, and its pull requests
- * (docs/plans/session-archive.md). A settle arrives with the new shared state,
- * an archive or snooze with this person's new view, and both are written here
+ * (docs/plans/session-archive.md). A settle by a session's pull requests or
+ * task arrives with the new shared state, this person's settle, archive, or
+ * snooze with their new view, and both are written here
  * with nothing read back. A pull request change is read again for that one
  * session.
  *
@@ -102,20 +103,33 @@ export class ThreadListState {
     if (connection) this.watch(hostId, connection);
   }
 
-  /** Settle a session for everyone, or make a settled one active again. The list
-   *  changes at once; a refusal from the host puts the previous state back. */
+  /** Settle a session in this person's list, or make a settled one active
+   *  again. The list changes at once; a refusal from the host puts the
+   *  previous state back. */
   async setSettled(hostId: string, sessionId: string, settled: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
     const key = threadKey(hostId, sessionId);
-    const previous = this.states.get(key);
-    this.states.set(key, settled ? { settledAt: Date.now(), settledBy: "person" } : UNSETTLED_SESSION_STATE);
+    const previousState = this.states.get(key);
+    const previousView = this.views.get(key);
+    this.views.set(key, { ...(previousView ?? EMPTY_SESSION_VIEW), settledAt: settled ? Date.now() : null });
+    if (!settled) this.states.set(key, UNSETTLED_SESSION_STATE);
     this.publish();
-    try {
-      this.write(this.states, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { settled })).state ?? null);
-    } catch (error) {
-      if (previous) this.states.set(key, previous);
+    const restoreState = () => {
+      if (previousState) this.states.set(key, previousState);
       else this.states.delete(key);
+    };
+    try {
+      const { state, view } = await connection.api.sessionUpdate(sessionId, { settled });
+      // Only an editor's unsettle ends the shared settle; the answer says when it did.
+      if (state) this.write(this.states, hostId, connection, sessionId, state);
+      else if (!settled) restoreState();
+      if (view) this.write(this.views, hostId, connection, sessionId, view);
+      this.publish();
+    } catch (error) {
+      restoreState();
+      if (previousView) this.views.set(key, previousView);
+      else this.views.delete(key);
       this.publish();
       throw error;
     }

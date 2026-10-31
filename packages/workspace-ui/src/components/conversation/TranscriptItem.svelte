@@ -250,7 +250,9 @@
         id: workMessage.workRef?.workId,
         title: work?.title ?? workMessage.workRef?.title,
         contentVersion: workMessage.workRef?.contentVersion,
-        content: session.worksStore.savedWork(workMessage.workRef?.workId ?? "")?.content,
+        content: workMessage.workRef?.workId
+          ? session.worksStore.savedWorkToShow(workMessage.workRef.workId)?.content
+          : undefined,
         updatedAt: work?.updatedAt,
         workType: work?.type ?? workMessage.workRef?.workType,
         streaming: workMessage.workRef?.workId

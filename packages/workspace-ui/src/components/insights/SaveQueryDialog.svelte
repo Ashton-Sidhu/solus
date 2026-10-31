@@ -32,7 +32,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="fixed inset-0 z-[10020] flex items-start justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] px-4 pt-[18vh] pointer-events-auto motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+  class="fixed inset-0 z-[10020] flex items-start justify-center modal-backdrop px-4 pt-[18vh] pointer-events-auto motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   role="presentation"
   onclick={(event) => {
     if (event.target === event.currentTarget) onClose();

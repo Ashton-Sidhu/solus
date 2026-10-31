@@ -9,7 +9,7 @@
     RefreshCw as RotateIcon,
     ShieldAlert as ShieldAlertIcon,
   } from "@lucide/svelte";
-  import { webhooksStore } from "../../contexts";
+  import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import SettingsSelect from "../settings/SettingsSelect.svelte";

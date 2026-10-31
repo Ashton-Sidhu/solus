@@ -13,6 +13,7 @@ import { webAccountSession } from './web-sign-in'
  */
 
 let configuredSource: UplinkAccountSource | null | undefined
+let startupDirectory: Promise<UplinkDirectory | null> | null = null
 
 function detectSource(): UplinkAccountSource | null {
   // The preload global, not `window.solus`: before a host connects the web client
@@ -37,11 +38,33 @@ function detectSource(): UplinkAccountSource | null {
 
 export function configureUplinkAccountSource(source: UplinkAccountSource | null): void {
   configuredSource = source
+  startupDirectory = null
+}
+
+/** Hand web boot's first directory read to the mounted connections store once.
+ * Later refreshes still ask the account for current hosts. */
+export function takeStartupDirectoryRead(): Promise<UplinkDirectory | null> | null {
+  const read = startupDirectory
+  startupDirectory = null
+  return read
 }
 
 export function uplinkAccountSource(): UplinkAccountSource | null {
   if (configuredSource === undefined) configuredSource = detectSource()
   return configuredSource
+}
+
+/**
+ * The account source while the page's sign-in is still completing (docs/plans/
+ * instant-share-open.md §4.14): a host dialed from the shell's directory opens its
+ * socket now, and its token waits for the sign-in. A page that does not sign in
+ * gets no token, so its dials are refused as for any signed-out page.
+ */
+export function awaitingSignIn(source: UplinkAccountSource, signedIn: Promise<boolean>): UplinkAccountSource {
+  return {
+    ...source,
+    accessToken: async (resource, options) => ((await signedIn) ? source.accessToken(resource, options) : null),
+  }
 }
 
 export interface AccountOriginAdoption {
@@ -62,5 +85,6 @@ export async function adoptAccountOrigin(origin: string, accountSession?: CloudA
   configureUplinkAccountSource(source)
   if (session.state().kind !== 'signed-in') return { kind: 'signed-out', directory: null }
   configureCloudAccount(oauthCloudAccount(origin, session))
-  return { kind: 'signed-in', directory: await source.listDirectory() }
+  startupDirectory = source.listDirectory()
+  return { kind: 'signed-in', directory: await startupDirectory }
 }

@@ -31,6 +31,7 @@ import { AppearancePreference, type AppearanceMode } from '../features/settings/
 import { HostSettings } from '../features/settings/host-settings'
 import { HostCloudLink } from '../features/settings/host-cloud-link'
 import { ForwardedHosts } from '../features/hosts/forwarded-hosts'
+import { NativeDevices } from '../features/devices/native-devices'
 import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
@@ -140,6 +141,7 @@ export class SolusApp {
   readonly forwardedHosts: ForwardedHosts
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
+  readonly devices: NativeDevices
   /** The device copy of pull request data, for offline reading, and the review drafts. */
   readonly pullRequestCache: PullRequestCache
   readonly pullRequests: PullRequestDirectory
@@ -213,6 +215,7 @@ export class SolusApp {
     this.organizationSettings = new OrganizationSettingsStore(new OrganizationSettingsClient(this.account.settingsRequests()))
     this.account.changes.subscribe(() => this.followAccount())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
+    this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
@@ -239,6 +242,9 @@ export class SolusApp {
         const account = this.account.view
         return account.kind === 'signed-in' ? `account:${account.identity.sub}` : 'device'
       },
+      // A new notice can be a session shared with the reader: the host's list reads
+      // again, and its new share brings the row and the toast (docs/plans/shared-with-you.md §6).
+      onUnreadRose: (hostId) => { void this.threads.load(hostId) },
     })
     this.registry.onHostRemoved((hostId) => this.cleanUpHost(hostId))
   }
@@ -434,6 +440,7 @@ export class SolusApp {
     this.hostCloudLink.forgetHost(hostId)
     this.forwardedHosts.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
+    this.devices.forgetHost(hostId)
     this.accountSync.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)
     this.pullRequestDiffs.forgetHost(hostId)

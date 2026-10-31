@@ -1,3 +1,4 @@
+import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { isSessionBusyStatus, type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
@@ -16,7 +17,7 @@ import type { SessionRecords } from './session-records.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hosts } from '../hosts/hosts.svelte'
-import { checkoutGit, checkoutPlace } from './run-location'
+import { checkoutGit, checkoutPlace, projectHome } from './run-location'
 
 export interface WorkspaceLifecycleStoreDeps {
   registry: TabRegistry
@@ -114,7 +115,8 @@ export class WorkspaceLifecycleStore {
    */
   private applyAgents(result: StartInfo, opts: { fresh: boolean }): void {
     this.deps.agent?.hydrate(result.agents ?? [])
-    if (opts.fresh) this.followAvailableAgent(result.agents ?? [])
+    this.deps.config.refreshDefaultModel(this.deps.settings.activeAgent)
+    if (opts.fresh) this.followAvailableAgent((result.agents ?? []).map((agent) => agentForProject(agent, projectHome(this.deps.defaultRunConfig()).path)))
   }
 
   /**
@@ -131,13 +133,16 @@ export class WorkspaceLifecycleStore {
     const fallback = agents.find((agent) => agent.available)
     if (!fallback) return
     this.deps.config.followActiveSessionAgent(fallback.id)
-    const modelConfig = this.deps.config.defaultModelConfigFor(fallback.id)
     for (const run of this.deps.unstartedRuns()) {
       // A run with no provider reads the default at send, so the settings move
       // above already answers for it.
-      if (!run.provider || isAvailable(run.provider)) continue
-      run.provider = fallback.id
-      run.modelConfig = { ...modelConfig }
+      if (!run.provider) continue
+      const scoped = agents.map((agent) => agentForProject(agent, checkoutGit(run)?.repoRoot ?? checkoutPlace(run).path))
+      if (scoped.some((agent) => agent.id === run.provider && agent.available)) continue
+      const next = scoped.find((agent) => agent.available)
+      if (!next) continue
+      run.provider = next.id
+      run.modelConfig = this.deps.config.defaultModelConfigFor(next.id, run)
     }
   }
 

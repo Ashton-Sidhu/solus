@@ -8,7 +8,8 @@ import { hostDisplayName } from '../../platform/host-display-name'
 import { dataDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
 import { hostIdentity } from '../../host/host-identity'
-import { healthProofSchema, hostIdentityKeySchema, newHealthNonce, routeNeedsProof, verifyHostProof } from '@solus/contracts/host-identity'
+import { healthProofSchema, hostIdentityKeySchema, newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
+import { verifyHostProof } from '@solus/contracts/host-proof'
 
 const log = createLogger('orchestration', 'introduced-hosts.ts')
 

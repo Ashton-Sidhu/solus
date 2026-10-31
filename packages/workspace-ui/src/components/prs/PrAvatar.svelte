@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { initials } from "../pr-review/lib/activity-data";
+  import { initials } from "./lib/initials";
 
   // PR-surface avatar: the author's image when GitHub gave us one, otherwise
   // an initials disc. `size` carries both the box and text size classes

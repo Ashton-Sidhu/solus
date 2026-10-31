@@ -223,6 +223,28 @@ test('an editor can save a shared work but only its owner can delete it', async 
   await expect(operations.getWork(context, work.id)).rejects.toThrow('not found')
 })
 
+test('a work made in a shared session opens for its readers at the session\'s role', async () => {
+  // WHY (decision 2026-10-30): an artifact an agent made in a session is part of
+  // that session. Bob, an editor of Alice's session, must list, read, and save it;
+  // without that his transcript shows artifact cards that never load.
+  const { seedResource } = await import('./helpers/resource-rows')
+  const { sql } = await import('drizzle-orm')
+  await seedResource(database.getDatabase(), 'session', 'artifact-session', 'alice', 'A')
+  const work = await operations.createWork(context, { title: 'Chart', type: 'artifact', content: '<p>One</p>' }, 'session-work-key-001')
+  const other = await operations.createWork(context, { title: 'Private', type: 'doc', content: '' }, 'session-work-key-002')
+  await database.getDatabase().run(sql`UPDATE works SET session_id = 'artifact-session' WHERE id = ${work.id}`)
+  await expect(operations.getWork(bob, work.id)).rejects.toThrow('not found')
+
+  await shares.setEntries({ resource: { kind: 'session', id: 'artifact-session' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, context.principal)
+  const listed = (await operations.listWorks(bob, { limit: 50 })).items
+  expect(listed.map(item => item.id)).toContain(work.id)
+  expect(listed.map(item => item.id)).not.toContain(other.id)
+  expect(listed.find(item => item.id === work.id)?.role).toBe('editor')
+  expect((await operations.getWork(bob, work.id)).role).toBe('editor')
+  const saved = await operations.updateWork(bob, work.id, { content: '<p>Two</p>', expectedContentVersion: work.contentVersion }, work.version)
+  expect(saved.content).toBe('<p>Two</p>')
+})
+
 test('a paired session token works offline, is revocable, and cannot open the cloud service', async () => {
   const auth = await import('@solus/server/admission/auth')
   const { createDoors } = await import('@solus/server/admission/doors')

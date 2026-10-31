@@ -287,7 +287,7 @@
 {#if open}
   <!-- Backdrop click dismisses; the dialog itself stops the bubble. -->
   <div
-    class="picker-backdrop fixed inset-0 z-[10025] flex items-start justify-center px-4 pt-[10vh]"
+    class="modal-backdrop fixed inset-0 z-[10025] flex items-start justify-center px-4 pt-[10vh]"
     role="presentation"
     onclick={(event) => {
       if (event.target === event.currentTarget) close();

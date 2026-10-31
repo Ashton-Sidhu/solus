@@ -13,6 +13,7 @@ const log = createLogger('SessionRuntime', 'secret-requests.ts')
  * session that asked, and ends after 15 minutes. A tool that needs a credential takes
  * a `secretRef` field and calls `takeSecretRef`; the webhook tools are the first.
  *
+ * One card asks for one or more secrets, and the person saves or declines each one.
  * The card is a `question_request` of kind `secret`, so it shows and closes like
  * any request a run waits on. Its answer does not use `respondQuestion`: that
  * path reports answers to the run's orchestrator. It comes through
@@ -21,7 +22,10 @@ const log = createLogger('SessionRuntime', 'secret-requests.ts')
 
 interface WaitingRequest {
   sessionId: string
-  resolve: (value: string | null) => void
+  /** How many secrets the card asks for; an answer has one value for each. */
+  count: number
+  /** One value per secret, null for a declined one; null for the whole card when the run stops. */
+  resolve: (values: (string | null)[] | null) => void
 }
 
 interface StoredSecret {
@@ -37,57 +41,74 @@ function sweep(now: number): void {
   for (const [ref, stored] of refs) if (stored.expiresAt <= now) refs.delete(ref)
 }
 
-/** What a secret request came to: a saved secret and its ref, a person who declined, or a run that stopped first. */
+/** One secret the agent asks for: what it is, for the person, and why. */
+export interface SecretAsk {
+  name: string
+  reason: string
+}
+
+/** What one secret came to: saved with its ref, or declined by the person. */
+export type SecretOutcome =
+  | { name: string; status: 'saved'; secretRef: string }
+  | { name: string; status: 'declined' }
+
+/** What a card came to: an outcome for each secret, in the order asked, or a run that stopped first. */
 export type SecretRequestOutcome =
-  | { status: 'saved'; secretRef: string }
-  | { status: 'declined' }
+  | { secrets: SecretOutcome[] }
   | { status: 'cancelled' }
 
-/** Shows the card and waits for the person, or for the run to stop. */
-export async function requestSecret(context: AgentToolContext, request: { name: string; reason: string }): Promise<SecretRequestOutcome> {
+/** Shows one card for all the secrets and waits for the person, or for the run to stop. */
+export async function requestSecrets(context: AgentToolContext, asks: SecretAsk[]): Promise<SecretRequestOutcome> {
   const sessionId = context.sessionId()
   if (!sessionId) throw new Error('request_secret needs a session.')
+  if (!asks.length) throw new Error('request_secret needs at least one secret.')
   const questionId = `secret-${randomBytes(12).toString('hex')}`
-  let cancelled = false
-  const value = await new Promise<string | null>((resolve) => {
-    const finish = (answer: string | null) => {
+  const values = await new Promise<(string | null)[] | null>((resolve) => {
+    const finish = (answer: (string | null)[] | null) => {
       waiting.delete(questionId)
       resolve(answer)
     }
-    const cancel = () => {
-      cancelled = true
-      finish(null)
-    }
-    waiting.set(questionId, { sessionId, resolve: finish })
-    if (context.abortSignal.aborted) return cancel()
-    context.abortSignal.addEventListener('abort', cancel, { once: true })
+    waiting.set(questionId, { sessionId, count: asks.length, resolve: finish })
+    if (context.abortSignal.aborted) return finish(null)
+    context.abortSignal.addEventListener('abort', () => finish(null), { once: true })
     context.emit({
       type: 'question_request',
       questionId,
       kind: 'secret',
-      // The card names the secret and why the agent asks; the person may decline.
-      questions: [{ header: request.name, question: request.reason, options: [], multiSelect: false }],
+      // One field per secret: the header names it and the question says why the agent asks.
+      questions: asks.map((ask) => ({ header: ask.name, question: ask.reason, options: [], multiSelect: false })),
     })
   })
   context.emit({ type: 'permission_resolved', questionId })
-  if (value === null) {
-    log.info(cancelled ? 'secret_request_cancelled' : 'secret_request_declined', { sessionId, questionId })
-    return { status: cancelled ? 'cancelled' : 'declined' }
+  if (values === null) {
+    log.info('secret_request_cancelled', { sessionId, questionId })
+    return { status: 'cancelled' }
   }
   const now = Date.now()
   sweep(now)
-  const ref = `secretref_${randomBytes(18).toString('base64url')}`
-  refs.set(ref, { value, sessionId, expiresAt: now + SECRET_REF_TTL_MS })
-  log.info('secret_request_answered', { sessionId, questionId })
-  return { status: 'saved', secretRef: ref }
+  const secrets = asks.map((ask, index): SecretOutcome => {
+    const value = values[index]
+    if (value === null) return { name: ask.name, status: 'declined' }
+    const ref = `secretref_${randomBytes(18).toString('base64url')}`
+    refs.set(ref, { value, sessionId, expiresAt: now + SECRET_REF_TTL_MS })
+    return { name: ask.name, status: 'saved', secretRef: ref }
+  })
+  const saved = secrets.filter((secret) => secret.status === 'saved').length
+  log.info('secret_request_answered', { sessionId, questionId, saved, declined: secrets.length - saved })
+  return { secrets }
 }
 
-/** The person's answer from the card: the value, or null to decline. False when the session is not waiting on that card. */
-export function answerSecretRequest(sessionId: string, questionId: string, value: string | null): boolean {
+/**
+ * The person's answer from the card: one value for each secret, in the order asked,
+ * null for each one they decline. False when the session is not waiting on that card
+ * or the answer does not fit it.
+ */
+export function answerSecretRequest(sessionId: string, questionId: string, values: (string | null)[]): boolean {
   const request = waiting.get(questionId)
   if (!request || request.sessionId !== sessionId) return false
-  if (value !== null && !value.length) return false
-  request.resolve(value)
+  if (!Array.isArray(values) || values.length !== request.count) return false
+  if (!values.every((value) => value === null || value.length > 0)) return false
+  request.resolve(values)
   return true
 }
 

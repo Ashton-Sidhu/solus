@@ -1,11 +1,10 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from './agent-tool'
 import type { AgentId } from '@solus/contracts/types'
-import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import { linkSessionPullRequest, readSessionPullRequests, unlinkSessionPullRequest } from '../../../data/sessions/session-pull-requests'
+import { linkSessionPullRequest, unlinkSessionPullRequest } from '../../../data/sessions/session-pull-requests'
 import { resolvePullRequestUrl } from '../../../providers/pull-request-url'
 import { realpath, stat } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
@@ -128,30 +127,33 @@ export async function unlinkCallerPullRequest(
   input: { target_id: string },
 ): Promise<AgentToolResult> {
   const sessionId = ctx.sessionId
-  if (!sessionId) return { ok: false, text: 'unlink_pull_request needs a calling session, and this session has no id yet.' }
+  if (!sessionId) return { ok: false, text: 'unlink with kind=pr needs a calling session, and this session has no id yet.' }
   const named = input.target_id.trim()
   const identity = await namedPullRequest(projectKey, named)
-  if (!identity) return { ok: false, text: `unlink_pull_request could not find pull request "${named}". Pass its number or URL as target_id.` }
-  const removed = await unlinkSessionPullRequest(sessionId, identity.repository, identity.number)
+  if (!identity) return { ok: false, text: `unlink with kind=pr could not find pull request "${named}". Pass its number or URL as target_id.` }
   const { operations, context, remote } = await toolContext()
-  if (remote) await operations.deleteLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url } })
-  return removed || remote
-    ? { ok: true, text: `Removed pull request #${identity.number} (${identity.repository}) from this session.` }
-    : { ok: true, text: `Pull request #${identity.number} (${identity.repository}) was not linked to this session.` }
+  // The home checks edit access before the execution host changes its PR watch.
+  await operations.deleteLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url } })
+  if (remote) await unlinkSessionPullRequest(sessionId, identity.repository, identity.number)
+  return { ok: true, text: `Removed pull request #${identity.number} (${identity.repository}) from this session.` }
 }
 
-/** The pull requests linked to the calling session, as the rail shows them. */
-async function listCallerPullRequests(ctx: SessionLinkCtx): Promise<AgentToolResult> {
-  const callerSessionId = ctx.sessionId
-  if (!callerSessionId) return { ok: false, text: 'list_session_pull_requests needs a calling session, and this session has no id yet.' }
-  const links = (await readSessionPullRequests(ANY_ORGANIZATION, [callerSessionId]))[callerSessionId] ?? []
-  if (!links.length) return { ok: true, text: 'No pull requests are linked to this session.' }
-  const lines = links.map((link) => {
-    const state = link.missing ? 'missing' : link.snapshot ? (link.snapshot.draft && link.snapshot.state === 'open' ? 'draft' : link.snapshot.state) : 'not yet synced'
-    const title = link.snapshot?.title || link.title
-    return `- #${link.number} ${link.repository} [${state}]${title ? ` "${title}"` : ''} — ${link.url} (linked by ${link.source})`
+/** List only the calling session's links, from the home that owns them. */
+async function listCallerLinks(ctx: SessionLinkCtx, kind?: 'work' | 'automation' | 'pr' | 'file'): Promise<AgentToolResult> {
+  if (!ctx.sessionId) return { ok: false, text: 'list_links needs a calling session id.' }
+  const { operations, context } = await workspaceToolContext(ctx.sessionId)
+  const { items } = await operations.listSessionLinks(context, ctx.sessionId)
+  const lines = items.filter(item => !kind || item.target.kind === kind).map(item => {
+    const { target } = item
+    if (target.kind === 'pr') {
+      const identity = pullRequestIdentityOf(target.url)
+      return `- pr: #${identity?.number} ${identity?.repository} [${item.state}]${item.title ? ` "${item.title}"` : ''} — ${target.url} (linked by ${item.source})`
+    }
+    if (target.kind === 'file') return `- file: ${JSON.stringify(target.path)} — ${item.title}`
+    if (target.kind === 'work' || target.kind === 'automation') return `- ${target.kind}: ${target.id} — ${item.title}`
+    return ''
   })
-  return { ok: true, text: `Pull requests linked to this session:\n${lines.join('\n')}` }
+  return { ok: true, text: lines.length ? `Links for this session:\n${lines.join('\n')}` : 'No matching links for this session.' }
 }
 
 export interface SessionLinkCtx {
@@ -161,11 +163,11 @@ export interface SessionLinkCtx {
 }
 
 const LINK_DESC =
-  "Link a work, automation, pull request, or file to the calling session. This tool only links to sessions. Markdown plan files use kind=file and path, relative to the calling session’s working directory or absolute on its host. Other items use target_id. Link each PR you create or work on immediately; Solus keeps its state current and settles the session when its PRs end. Repeated links are safe."
-const UNLINK_PULL_REQUEST_DESC =
-  "Remove a pull request from the calling session's links. Use it when a linked pull request is not this session's work, such as one Solus found by mistake. Solus does not link it again on its own; link it again to undo. Removing a pull request that is not linked is safe."
-const LIST_SESSION_PULL_REQUESTS_DESC =
-  "List the pull requests linked to this session, with the state that Solus last saw for each. Before you finish pull request work, call this and link each pull request from your work that is missing."
+  "Link an item to this session. Files and images use kind=file and path; others use target_id. Link each PR you create or work on immediately. Solus updates PR state and settles the session when its PRs end. Repeated links are safe."
+const UNLINK_DESC =
+  "Remove a link from this session, keeping the target. Uses the same inputs as link. Removed PRs stay excluded from automatic linking until explicitly linked again. Missing files use their saved path from list_links."
+const LIST_LINKS_DESC =
+  "List this session's links, with IDs or paths and last known PR states. Before finishing PR work, use kind=pr and link missing PRs."
 
 function sessionLinkTool<Fields extends NonNullable<AgentTool['inputFields']>>(
   name: string,
@@ -202,9 +204,38 @@ export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
   return linkCallerItem(ctx, { ...input, kind: input.kind })
 })
 
-export const listSessionPullRequestsAgentTool = sessionLinkTool('list_session_pull_requests', LIST_SESSION_PULL_REQUESTS_DESC, {}, false,
-  async (_input, ctx) => listCallerPullRequests(ctx))
+export const listLinksAgentTool = sessionLinkTool('list_links', LIST_LINKS_DESC, {
+  kind: z.enum(['work', 'automation', 'pr', 'file']).optional().describe('Omit to list all kinds.'),
+}, false, async (input, ctx) => listCallerLinks(ctx, input.kind))
 
-export const unlinkPullRequestAgentTool = sessionLinkTool('unlink_pull_request', UNLINK_PULL_REQUEST_DESC, {
-  target_id: z.string().min(1).describe('The pull request to remove from this session: its number in the project repository, or its URL.'),
-}, true, async (input, ctx) => unlinkCallerPullRequest(ctx, () => workspaceToolContext(ctx.sessionId), await resolveRepoRoot(ctx.cwd) ?? ctx.cwd, input))
+export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
+  kind: z.enum(['work', 'automation', 'pr', 'file']).describe('Link kind.'),
+  target_id: z.string().min(1).optional().describe('The work or automation id, or PR number or URL. Required except for files.'),
+  path: z.string().min(1).optional().describe('Linked file path, absolute or relative to this session’s directory.'),
+}, true, async (input, ctx) => {
+  if (!ctx.sessionId) return { ok: false, text: 'unlink needs a calling session id.' }
+  if (input.kind !== 'file' && !input.target_id?.trim()) return { ok: false, text: `unlink requires target_id for kind=${input.kind}.` }
+  const home = await workspaceToolContext(ctx.sessionId)
+  const session = await home.operations.getSession(home.context, ctx.sessionId)
+  if (input.kind === 'pr') {
+    return unlinkCallerPullRequest(ctx, async () => home, await resolveRepoRoot(ctx.cwd) ?? ctx.cwd, { target_id: input.target_id! })
+  }
+  let target: WorkspaceLinkTarget
+  if (input.kind === 'work') {
+    target = { kind: 'work', id: input.target_id!.trim() }
+  } else {
+    const hostId = home.context.home.kind === 'local' ? home.context.home.hostId : readStoredRegistration()?.hostId ?? session.runnerHostId
+    if (!hostId) return { ok: false, text: 'The execution host has no id yet.' }
+    if (input.kind === 'file') {
+      if (!input.path?.trim()) return { ok: false, text: 'unlink with kind=file requires path.' }
+      const resolved = resolve(resolveHomePath(ctx.cwd), resolveHomePath(input.path.trim()))
+      // A removed file can still have a link. Its saved absolute path is sufficient.
+      const path = await realpath(resolved).catch(() => resolved)
+      target = { kind: 'file', path, hostId }
+    } else {
+      target = { kind: 'automation', id: input.target_id!.trim(), hostId }
+    }
+  }
+  await home.operations.deleteLink(home.context, { from: { kind: 'session', id: ctx.sessionId }, to: target })
+  return { ok: true, text: `Removed ${input.kind} link from this session.` }
+})

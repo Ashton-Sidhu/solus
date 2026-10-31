@@ -156,7 +156,7 @@
 
 {#if serversStore.addServerOpen}
   <div
-    class="text-sm fixed inset-0 z-[10025] flex items-start justify-center px-4 pt-[10vh] pointer-events-auto picker-backdrop"
+    class="text-sm fixed inset-0 z-[10025] flex items-start justify-center px-4 pt-[10vh] pointer-events-auto modal-backdrop"
     role="presentation"
     onclick={handleBackdrop}
     onkeydown={handleKeydown}

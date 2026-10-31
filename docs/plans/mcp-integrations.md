@@ -173,7 +173,10 @@ CLI's own servers (§8).
   are not shown.
 - **Custom URL.** An HTTPS URL without credentials, query, fragment, or
   placeholders, for an MCP server or an OpenAPI document. Same rule as
-  Executor's `ImportUrl`.
+  Executor's `ImportUrl`. Decision of 2026-10-30: plain HTTP is also allowed
+  to the host's own loopback (`localhost`, `*.localhost`, `127.x`, `[::1]`),
+  for a local MCP server. The probe reaches loopback; other private addresses
+  stay refused.
 - **An agent.** `create_integration` writes a record from a service's
   documentation (§9.1). The registry's `/api/<domain>/surface` and `/discover`
   endpoints are sources an agent may read.
@@ -274,9 +277,14 @@ This is the property the plan exists for.
    `Authorization` to the integration's URL and to nothing else. This is
    Executor's `CredentialHost` rule.
 5. **Sign-in state is visible.** The connection card and the MCP page
-   show `connected`, `needs-sign-in` (refresh failed or the server returned 401),
-   and `error`, with Reconnect. A refreshed token is saved again under the same
-   scope, as `google/oauth.ts` does.
+   show `connected`, `needs-sign-in` (refresh failed, or the server returned 401
+   again after the gateway read the header again in a new session), and `error`,
+   with Reconnect. For a person signed in to Solus, each use asks the account: the
+   account, not the host's last refusal, says whether it works. On a 401 the gateway
+   reads the header again once, and the account read says the delivery was refused,
+   so the cloud refreshes it or marks the connection `needs-sign-in`
+   (`cloud-vault.md` §2.1). A refreshed token is saved again under the same scope,
+   as `google/oauth.ts` does.
 
 ### 4.2 Why the host, not the account vault
 

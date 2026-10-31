@@ -48,8 +48,8 @@ import {
   serversStore,
   hosts,
   sharesStore,
-  updatesStore,
 } from "@solus/workspace-ui/contexts";
+import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 

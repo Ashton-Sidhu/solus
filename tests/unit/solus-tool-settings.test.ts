@@ -36,15 +36,19 @@ afterAll(() => {
 })
 
 describe('Solus tool settings', () => {
-  test('catalog covers every toolbox tool once and explicit subagents', async () => {
+  test('catalog covers every toolbox tool once, including unified delegation', async () => {
     const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
     const expected = Object.values(solusToolbox).flatMap((group) => Object.values(group).map((tool) => tool.name))
-    expect([...CONFIGURABLE_SOLUS_TOOL_NAMES].sort()).toEqual([...expected, 'claude_subagent', 'codex_subagent'].sort())
+    expect([...CONFIGURABLE_SOLUS_TOOL_NAMES].sort()).toEqual(expected.sort())
+    expect(expected).toContain('delegate_task')
+    expect(expected).not.toContain('claude_subagent')
+    expect(expected).not.toContain('codex_subagent')
+    expect(expected).not.toContain('read_automation_run')
     expect(new Set(CONFIGURABLE_SOLUS_TOOL_NAMES).size).toBe(CONFIGURABLE_SOLUS_TOOL_NAMES.length)
   })
   test('session links are grouped with sessions and task reads compose with session reads', async () => {
     const sessions = SOLUS_TOOL_GROUPS.find(group => group.id === 'sessions')!
-    for (const name of ['link', 'list_session_pull_requests', 'unlink_pull_request', 'watch_pull_request']) {
+    for (const name of ['link', 'list_links', 'unlink', 'watch_pull_request']) {
       expect(sessions.tools).toContain(name)
     }
     expect(CONFIGURABLE_SOLUS_TOOL_NAMES).not.toContain('read_task_sessions')

@@ -69,7 +69,10 @@
      * `menu` draws no button: a chat opens this list from its composer's + menu,
      * anchored to `anchor`.
      */
-    variant?: "chip" | "header" | "menu";
+    variant?: "chip" | "header" | "menu" | "scope";
+    /** Settings scope selects a connected host without moving or cloning a project. */
+    settingsHostIds?: readonly string[];
+    onSelectSettingsHost?: (serverId: string) => void;
     /** Open state, bound by the `menu` variant's owner. */
     open?: boolean;
     /** Where the `menu` variant's list opens from. */
@@ -88,6 +91,8 @@
     onChooseFolder,
     onDismiss,
     variant = "chip",
+    settingsHostIds,
+    onSelectSettingsHost,
     paneId,
     open = $bindable(false),
     anchor = null,
@@ -123,7 +128,7 @@
   // Reachability, not merely a saved entry, decides whether there is a real
   // machine to run on — so an offline saved host never conjures the picker.
   const showPicker = $derived(
-    shouldShowRunOnPicker({
+    variant === "scope" || shouldShowRunOnPicker({
       connectedRemoteCount: serversStore.connectedRemotes.length,
       onRemoteHost,
       selectedHostId,
@@ -157,7 +162,7 @@
   let identitiesLoadingHostId = $state<string | null>(null);
 
   const actionFor = (server: ServerItem): RunOnHostAction =>
-    runOnHostAction({
+    variant === "scope" ? { kind: server.id === selectedHostId ? "current" : "chat" } : runOnHostAction({
       hostId: server.id,
       selectedHostId,
       run,
@@ -168,7 +173,9 @@
     runHasProject(projectDir, hosts.hasExecution(projectHost)),
   );
   const runOnHosts = $derived(
-    listRunOnHosts(serversStore.executionServers, actionFor, hasProject),
+    variant === "scope"
+      ? serversStore.executionServers.filter((server) => settingsHostIds?.includes(server.id))
+      : listRunOnHosts(serversStore.executionServers, actionFor, hasProject),
   );
 
   // A run that clones, or could, also chooses the files the clone gets from
@@ -193,6 +200,7 @@
 
   // A host paired from the "Add a host" row becomes this run's host.
   $effect(() => {
+    if (variant === "scope") return;
     const pairedId = serversStore.consumeJustPaired(requesterId);
     if (!pairedId) return;
     const server = serversStore.servers.find(
@@ -209,7 +217,7 @@
     const handler = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail : undefined;
       if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
-      if (!showPicker || locked) return;
+      if (variant === "scope" || !showPicker || locked) return;
       if (triggerEl && triggerEl.offsetParent === null) return;
       open = !open;
     };
@@ -226,6 +234,7 @@
   function hostLabel(
     server: ServerItem | UnknownRemoteHost | null | undefined,
   ) {
+    if (variant === "scope") return server?.label ?? "This host";
     if (!server || server.local) return stayLabel;
     // A run that has not started on a host that was deleted (or never listed
     // here) still has a choice to make (docs/plans/workspace-and-machines.md §6).
@@ -238,6 +247,7 @@
    *  a clone is made, and a host that is not online connected, on Send. */
   function chooseServer(server: ServerItem) {
     if (locked) return;
+    if (variant === "scope") { open = false; onSelectSettingsHost?.(server.id); return; }
     const action = actionFor(server);
     open = false;
     switch (action.kind) {
@@ -279,7 +289,7 @@
 
   function handleOpenAutoFocus() {
     const path = checkoutGit(run)?.repoRoot ?? checkoutPlace(run).path;
-    if (!locked && path && path !== "~") {
+    if (variant !== "scope" && !locked && path && path !== "~") {
       const serverId = currentHostId;
       if (!serversStore.hasProbedIdentities(serverId)) identitiesLoadingHostId = serverId;
       void serversStore.loadProjectIdentities(serverId).finally(() => {
@@ -295,7 +305,8 @@
     if (open) return;
     // The dialog the list opened takes the focus; it gives it back on close.
     if (copiedFilesOpen) return;
-    if (onDismiss) onDismiss();
+    if (variant === "scope") triggerEl?.focus();
+    else if (onDismiss) onDismiss();
     else requestInputFocus();
   }
 
@@ -336,7 +347,7 @@
         class="shrink-0 text-(--solus-text-tertiary)"
       />
     {/if}
-    <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
+    <span class="min-w-0 flex-1 {variant === 'scope' ? 'whitespace-normal break-words' : 'truncate'}">{hostLabel(server)}</span>
     {#each organizationMarks as organization (organization.organizationId)}
       <span
         title={organization.name}
@@ -393,6 +404,19 @@
         {#snippet child({ props })}
           {#if variant === "menu"}
             <span {...props} class="hidden"></span>
+          {:else if variant === "scope"}
+            <button {...props} type="button" aria-label="Settings host: {hostLabel(selectedServer)}"
+              class="inline-flex min-w-0 items-center gap-1.5 text-foreground underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.16em] hover:decoration-[color:var(--solus-text-secondary)] focus-visible:outline-2 focus-visible:outline-ring">
+              {#if selectedAffinity}
+                {@const HostIcon = selectedAffinity.icon}
+                <HostIcon size={16} class="shrink-0 {selectedAffinity.className}" />
+              {:else if selectedHostOs || selectedHostManaged}
+                <HostOperatingSystemIcon os={selectedHostOs} managed={selectedHostManaged} size={16} class="shrink-0" />
+              {:else}
+                <DesktopTowerIcon size={16} class="shrink-0" />
+              {/if}
+              <span class="text-left whitespace-normal break-words">{hostLabel(selectedServer)}</span>
+            </button>
           {:else if variant === "header"}
             <TooltipUI.Root
               bind:open={getTriggerTooltipOpen, setTriggerTooltipOpen}
@@ -487,22 +511,23 @@
       <!-- Both triggers live on the bottom-anchored composer, so downward is
            where there is no room; the list opens over the transcript instead. -->
       <DropdownMenu.Content
-        side="top"
+        side={variant === "scope" ? "bottom" : "top"}
         align="start"
         sideOffset={6}
         collisionPadding={8}
         onOpenAutoFocus={handleOpenAutoFocus}
         onCloseAutoFocus={handleCloseAutoFocus}
         customAnchor={anchor ?? undefined}
-        class="w-[300px] p-0 text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
+        class="{variant === 'scope' ? 'w-[min(32rem,calc(100vw-2rem))]' : 'w-[300px]'} p-0 text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
       >
         <!-- The footer spans the surface, so the rows scroll inside their own
              padded body rather than dragging it out of view. -->
         <div class="max-h-[288px] overflow-y-auto p-1.5">
-          <DropdownMenu.Label>{identitiesLoadingHostId ? "Loading project…" : "Run on"}</DropdownMenu.Label>
+          <DropdownMenu.Label>{variant === "scope" ? "Settings host" : identitiesLoadingHostId ? "Loading project…" : "Run on"}</DropdownMenu.Label>
           {#each runOnHosts as server (server.id)}
             {@render serverRow(server)}
           {/each}
+          {#if variant !== "scope"}
           <DropdownMenu.Separator />
           {#if copiedFilesHome}
             <DropdownMenu.Item onSelect={configureCopiedFiles}>
@@ -514,6 +539,7 @@
             <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
             <span class="min-w-0 flex-1 truncate">Add a host…</span>
           </DropdownMenu.Item>
+          {/if}
         </div>
       </DropdownMenu.Content>
     </DropdownMenu.Root>

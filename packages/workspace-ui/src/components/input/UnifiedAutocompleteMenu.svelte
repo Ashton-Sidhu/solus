@@ -4,11 +4,9 @@
    * the same row geometry and differ only by their leading glyph and trailing
    * slot: a count on a category, freshness or state on an item — never both.
    */
-  import Icon from "@iconify/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
-  import { ensureIconCollections } from "../diagram/iconify";
   import { GLYPH } from "../editor/unified-autocomplete/kinds";
   import UserAvatar from "../users/UserAvatar.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
@@ -78,7 +76,6 @@
   }
 
   const layer = getPopoverLayer();
-  ensureIconCollections();
 
   /* The spec's 394px was drawn against a 780px composer. Rather than fix the
      width and have it read narrow in a wide pane, the menu takes the composer's
@@ -271,7 +268,6 @@
   {@const isFileEntry =
     entry.type === "item" && entry.item.token.kind === "file"}
   {@const titlePrefix = inlineTitlePrefix(entry)}
-  {@const iconName = isFileEntry ? fileTypeIcon(entry.item.token.path) : null}
   <button
     type="button"
     role="option"
@@ -285,8 +281,8 @@
     {#if !titlePrefix}
       <span
         class="flex w-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
-        >{#if iconName}
-          <Icon icon={iconName} width="14" height="14" />
+        >{#if isFileEntry}
+          <FileIcon path={entry.item.token.path} size={14} />
         {:else if entry.type === "item" && entry.item.user}
           <UserAvatar user={entry.item.user} size={16} />
         {:else if entry.type === "item" && entry.item.account}

@@ -8,6 +8,7 @@ import { PullRequestAvatar, PullRequestDiffStats } from './detail/pull-request-u
 import { PR_STATE_TINT_CLASS } from './components/PrStateBadge'
 import { PR_STATE_LABELS, prStateTone } from './lib/pr-presentation'
 import { pullRequestLabelColor, pullRequestRowReviewStatus, type PullRequestRow } from './lib/pull-request-list'
+import { hasMergeConflicts } from './lib/pull-request-permissions'
 
 const STATE_ICON = {
   open: 'arrow.triangle.pull',
@@ -43,11 +44,13 @@ export const PullRequestListRow = memo(function PullRequestListRow(props: {
   const { pr } = row
   const tone = prStateTone(pr)
   const review = pullRequestRowReviewStatus(pr)
+  const conflictLabel = hasMergeConflicts(pr) ? pr.defaultBranch ? `Conflicts with ${pr.defaultBranch}` : 'Conflicts' : null
   const checks = row.checks && row.checks !== 'none' ? row.checks : null
   const place = hostLabel ? `${row.folderName} · ${hostLabel}` : row.folderName
   const label = [
     `Pull request ${pr.number}, ${pr.title}, ${PR_STATE_LABELS[tone]}, by ${pr.author}, ${place}`,
     review?.accessibleLabel,
+    conflictLabel,
     checks ? `checks ${checks}` : null,
     pr.stack ? `stack ${pr.stack.position} of ${pr.stack.size}` : null,
     pr.labels.length ? pr.labels.map((entry) => entry.name).join(', ') : null,
@@ -62,7 +65,14 @@ export const PullRequestListRow = memo(function PullRequestListRow(props: {
       className="flex-row gap-3 px-4 active:bg-row-hover"
     >
       <View className="pt-2.5">
-        <SymbolView name={STATE_ICON[tone]} size={20} tintColorClassName={PR_STATE_TINT_CLASS[tone]} />
+        <View className="relative size-5">
+          <SymbolView name={STATE_ICON[tone]} size={20} tintColorClassName={PR_STATE_TINT_CLASS[tone]} />
+          {conflictLabel ? (
+            <View className="absolute -bottom-1 -right-1 rounded-sm bg-background">
+              <SymbolView name="exclamationmark.triangle" size={12} tintColorClassName="accent-danger-foreground" accessibilityLabel={conflictLabel} />
+            </View>
+          ) : null}
+        </View>
       </View>
       <View className="min-w-0 flex-1 gap-1 border-b border-border-subtle py-2.5">
         <View className="flex-row items-center gap-1.5">

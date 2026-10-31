@@ -1,4 +1,5 @@
-import { linkAgentTool, listSessionPullRequestsAgentTool, unlinkPullRequestAgentTool } from './session-link-tools'
+import { delegateTaskAgentTool } from './delegate-task-tool'
+import { linkAgentTool, listLinksAgentTool, unlinkAgentTool } from './session-link-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import {
   createWorkAgentTool,
@@ -14,7 +15,6 @@ import {
   listAutomationRunsAgentTool,
   listAutomationsAgentTool,
   readAutomationAgentTool,
-  readAutomationRunAgentTool,
   runAutomationAgentTool,
   updateAutomationAgentTool,
 } from './automation-tools'
@@ -67,6 +67,7 @@ import {
   browserWaitForAgentTool,
 } from '../../../browser/browser-tools'
 import { readConfigAgentTool, updateConfigAgentTool } from './config-tools'
+import { createProjectAgentTool, cloneProjectAgentTool } from './project-tools'
 import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-tools'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
@@ -107,7 +108,6 @@ export const solusToolbox = {
     delete: deleteAutomationAgentTool,
     run: runAutomationAgentTool,
     listRuns: listAutomationRunsAgentTool,
-    readRun: readAutomationRunAgentTool,
   },
   webhooks: {
     create: createWebhookAgentTool,
@@ -161,16 +161,21 @@ export const solusToolbox = {
     read: readSessionAgentTool,
     exchange: readSessionExchangeAgentTool,
     start: startSessionAgentTool,
+    delegate: delegateTaskAgentTool,
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
     organize: organizeSessionAgentTool,
     watchPullRequest: watchPullRequestAgentTool,
-    unlinkPullRequest: unlinkPullRequestAgentTool,
-    listSessionPullRequests: listSessionPullRequestsAgentTool,
+    unlink: unlinkAgentTool,
+    listLinks: listLinksAgentTool,
     link: linkAgentTool,
     backgroundWait: backgroundWaitAgentTool,
     worktreeStatus: worktreeStatusAgentTool,
     moveToWorktree: moveToWorktreeAgentTool,
+  },
+  projects: {
+    create: createProjectAgentTool,
+    clone: cloneProjectAgentTool,
   },
   tasks: {
     list: listTasksAgentTool,

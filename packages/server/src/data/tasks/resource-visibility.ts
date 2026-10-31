@@ -4,11 +4,13 @@ import { visibleTo, type ResourceColumns } from '../../admission/access'
 import { actorFor } from '../../admission/actor'
 import type { Principal } from '../../admission/principal'
 import { taskLinks, taskSessionLinks, tasks } from './schema'
+import { getDatabase } from '../../db/database'
+import { visibleThroughSession } from '../works/session-access'
 
 /**
  * What a Solus API list returns: `visibleTo` on the resource's own row, and for
- * a work or a session also what a task the caller can open links to. Apply this
- * before LIMIT.
+ * a work or a session also what a task the caller can open links to, and for a
+ * work what a session the caller can open made or links. Apply this before LIMIT.
  */
 export function workspaceResourceVisibility(principal: Principal, kind: ShareResourceKind, columns: ResourceColumns): SQL {
   const actor = actorFor(principal)
@@ -20,6 +22,8 @@ export function workspaceResourceVisibility(principal: Principal, kind: ShareRes
         WHERE api_link.kind = 'work' AND api_link.target_key = ${columns.id}`
     : sql`SELECT 1 FROM ${taskSessionLinks} AS api_link JOIN ${tasks} AS api_parent ON api_parent.id = api_link.task_id
         WHERE api_link.session_id = ${columns.id}`
-  return sql`((${direct}) OR EXISTS (${link} AND api_parent.organization_id = ${columns.organization}
-    AND api_link.organization_id = ${columns.organization} AND (${taskVisible})))`
+  const throughTask = sql`EXISTS (${link} AND api_parent.organization_id = ${columns.organization}
+    AND api_link.organization_id = ${columns.organization} AND (${taskVisible}))`
+  if (kind === 'session') return sql`((${direct}) OR ${throughTask})`
+  return sql`((${direct}) OR ${throughTask} OR ${visibleThroughSession(getDatabase(), actor, columns.id)})`
 }

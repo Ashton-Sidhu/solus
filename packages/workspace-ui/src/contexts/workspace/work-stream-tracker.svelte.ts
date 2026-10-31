@@ -2,6 +2,7 @@ import type { AgentId, Message, NormalizedEvent, Session } from '@solus/contract
 import { nextMsgId } from './session.utils'
 import type { RouterStore } from './routing/router.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
+import { agentWorkHost } from '../works/agent-work-host'
 import { runtime } from '../app/runtime.svelte'
 import { artifactHasBody, isPreviewArtifactCall, partialArtifactHtml } from './streaming-artifact'
 import { checkoutPlace, runHost } from './run-location'
@@ -117,14 +118,15 @@ export class WorkStreamTracker {
   finalizeWork(session: Session, event: WorkCreatedEvent): void {
     const entries = this.workStreamsBySession.get(session.id)
     const stream = entries?.find((e) => !e.finalized)
+    const ownerServerId = agentWorkHost(event.organizationId, runHost(session.run))
     if (stream) {
       stream.finalized = true
-      this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content, runHost(session.run))
+      this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content, ownerServerId)
       // If the user opened the provisional card mid-stream, follow the rekey so
       // the open pane points at the persisted id, not the deleted temp one.
       if (this.router.params('work')?.workId === stream.tempId) {
         this.router.navigate(
-          { name: 'work', params: { workId: event.workId, serverId: runHost(session.run) } },
+          { name: 'work', params: { workId: event.workId, serverId: ownerServerId } },
           { replace: true },
         )
       }
@@ -137,7 +139,7 @@ export class WorkStreamTracker {
       }
     } else {
       // No streamed provisional (Codex/mock emit work_created directly).
-      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content, runHost(session.run))
+      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content, ownerServerId)
       session.messages.push({
         id: nextMsgId(),
         role: 'assistant' as const,
@@ -155,7 +157,7 @@ export class WorkStreamTracker {
       ? { workId: event.workId, title: event.title ?? '', workType: 'artifact' as const, contentVersion: 1 }
       : undefined
     if (workRef && event.html !== undefined) {
-      this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, runHost(session.run))
+      this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, agentWorkHost(event.organizationId, runHost(session.run)))
     }
 
     this.completeArtifactPreview(session, event, workRef)

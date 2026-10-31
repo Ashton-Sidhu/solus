@@ -1,3 +1,4 @@
+import { prepareProviderRun } from './seats/provider-runtime'
 import { SessionPermissionStore } from '../data/sessions/session-permission-store'
 import { RunLedger } from '../data/sessions/run-ledger'
 import { EventEmitter } from 'events'
@@ -23,7 +24,7 @@ import { cancelProvisionalSessionHandoff, resolveSessionLineageById, sessionIdOf
 import { type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
 import { ClaudeGoalStore } from '../data/sessions/claude-goal-store'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
-import type { AgentId, AgentMetadata, BackendSession, NormalizedEvent, IpcContext, PromptOptions, SessionOrigin, SessionRunInput, AcceptPlanRequest, AcceptPlanResult } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, BackendSession, NormalizedEvent, IpcContext, PromptOptions, SessionRunInput, SessionStarter, AcceptPlanRequest, AcceptPlanResult } from '@solus/contracts/types'
 import { isSessionBusyStatus, isSteerableStatus, projectScopeOf } from '@solus/contracts/types'
 import { activityLeases } from './activity-leases'
 import { SessionEmitter } from './observability/session-emitter'
@@ -100,9 +101,10 @@ export interface SessionRunRequest {
   /** The session that created this one, recorded with the new thread's first
    *  index row so the child is never indexed without its parent. */
   delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
-  /** The agent session on another host that started this one, recorded with the
-   *  new thread's first index row (docs/plans/cross-host-sessions.md). */
-  startedBy?: SessionOrigin
+  /** What started this session, recorded with the new thread's first index row
+   *  and the session's record (docs/plans/session-starter.md). Set on a run that
+   *  makes a session; a later run leaves it unset, and the record keeps its value. */
+  startedBy?: SessionStarter
   /** Who asked and whose provider seat the turn runs on (Step 2 plan §3.3). Unset
    *  for the host's own work: automations, agent follow-ups, and local prompts. */
   actor?: Actor
@@ -311,7 +313,7 @@ export class SessionRuntime extends EventEmitter {
   runAgent(request: AgentRunRequest, sessionState?: AgentRunSessionState): AgentRun {
     // Helpers called by an accepted turn must be able to finish its workflow.
     if (!sessionState && this.updateWorkCount === 0) this.assertNewWorkAllowed()
-    const run = this.agentRunner.run(request, sessionState)
+    const run = this.agentRunner.run(prepareProviderRun(request, sessionState), sessionState)
     this.activeAgentRuns.add(run)
     if (request.unattended) {
       this.activeUnattendedAgentRuns.add(run)

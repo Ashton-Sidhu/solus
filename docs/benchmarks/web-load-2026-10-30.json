@@ -1,0 +1,287 @@
+{
+  "date": "2026-10-30",
+  "tool": "node scripts/bench-web-load.ts label=<vite build dir> ... --runs 5 --profile slow|fast",
+  "measures": "First visit, empty cache: navigation to the solus:workspace-code mark (workspace code downloaded and run). No sign-in, no host. HTTP/2 over TLS, Brotli 5, every request waits one round trip, all responses share one bandwidth limit. Each step is measured against the step before it in the same session.",
+  "profileDetails": {
+    "slow": {
+      "roundTripMs": 300,
+      "megabitsPerSecond": 1.5,
+      "cpuSlowdown": 4
+    },
+    "fast": {
+      "roundTripMs": 40,
+      "megabitsPerSecond": 20,
+      "cpuSlowdown": 1
+    }
+  },
+  "steps": [
+    {
+      "step": "baseline",
+      "change": "Deployed state after the early import and the first three lazy cuts.",
+      "slow": {
+        "chromium": {
+          "medianMs": 8398,
+          "minMs": 8387,
+          "maxMs": 8422,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        },
+        "webkit": {
+          "medianMs": 7895,
+          "minMs": 7887,
+          "maxMs": 7902,
+          "requests": 186,
+          "transferredKbBrotli": 1224
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 808,
+          "minMs": 805,
+          "maxMs": 877,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        },
+        "webkit": {
+          "medianMs": 808,
+          "minMs": 802,
+          "maxMs": 828,
+          "requests": 186,
+          "transferredKbBrotli": 1224
+        }
+      }
+    },
+    {
+      "step": "fix1",
+      "change": "Static modulepreload of App's static graph and CSS in index.html; the cloud drops the block on share links.",
+      "slow": {
+        "chromium": {
+          "medianMs": 7254,
+          "minMs": 7248,
+          "maxMs": 7258,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        },
+        "webkit": {
+          "medianMs": 7239,
+          "minMs": 7232,
+          "maxMs": 7278,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 608,
+          "minMs": 607,
+          "maxMs": 609,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        },
+        "webkit": {
+          "medianMs": 670,
+          "minMs": 667,
+          "maxMs": 679,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        }
+      }
+    },
+    {
+      "step": "fix2",
+      "change": "WorkPane loads ArtifactShell and SaveFilePicker on demand.",
+      "slow": {
+        "chromium": {
+          "medianMs": 6596,
+          "minMs": 6581,
+          "maxMs": 6603,
+          "requests": 154,
+          "transferredKbBrotli": 1099
+        },
+        "webkit": {
+          "medianMs": 6572,
+          "minMs": 6571,
+          "maxMs": 6574,
+          "requests": 154,
+          "transferredKbBrotli": 1100
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 555,
+          "minMs": 554,
+          "maxMs": 562,
+          "requests": 154,
+          "transferredKbBrotli": 1099
+        },
+        "webkit": {
+          "medianMs": 617,
+          "minMs": 614,
+          "maxMs": 627,
+          "requests": 154,
+          "transferredKbBrotli": 1100
+        }
+      }
+    },
+    {
+      "step": "fix3",
+      "change": "Composer uses markdownLanguage directly, without lang-html and its CSS and JavaScript grammars.",
+      "slow": {
+        "chromium": {
+          "medianMs": 6175,
+          "minMs": 6172,
+          "maxMs": 6190,
+          "requests": 154,
+          "transferredKbBrotli": 1026
+        },
+        "webkit": {
+          "medianMs": 6172,
+          "minMs": 6171,
+          "maxMs": 6176,
+          "requests": 154,
+          "transferredKbBrotli": 1026
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 521,
+          "minMs": 520,
+          "maxMs": 522,
+          "requests": 154,
+          "transferredKbBrotli": 1026
+        },
+        "webkit": {
+          "medianMs": 571,
+          "minMs": 568,
+          "maxMs": 581,
+          "requests": 154,
+          "transferredKbBrotli": 1026
+        }
+      }
+    },
+    {
+      "step": "fix4",
+      "change": "The Ed25519 host-proof verifier loads only to dial an http: route.",
+      "slow": {
+        "chromium": {
+          "medianMs": 6104,
+          "minMs": 6102,
+          "maxMs": 6110,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        },
+        "webkit": {
+          "medianMs": 6105,
+          "minMs": 6103,
+          "maxMs": 6109,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 515,
+          "minMs": 513,
+          "maxMs": 517,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        },
+        "webkit": {
+          "medianMs": 566,
+          "minMs": 564,
+          "maxMs": 574,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        }
+      }
+    }
+  ],
+  "finalComparison": {
+    "runs": 7,
+    "slow": {
+      "baseline": {
+        "chromium": {
+          "medianMs": 8375,
+          "minMs": 8369,
+          "maxMs": 8486,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        },
+        "webkit": {
+          "medianMs": 7903,
+          "minMs": 7899,
+          "maxMs": 7911,
+          "requests": 186,
+          "transferredKbBrotli": 1224
+        }
+      },
+      "final": {
+        "chromium": {
+          "medianMs": 6105,
+          "minMs": 6103,
+          "maxMs": 6107,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        },
+        "webkit": {
+          "medianMs": 6103,
+          "minMs": 6101,
+          "maxMs": 6108,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        }
+      }
+    },
+    "fast": {
+      "baseline": {
+        "chromium": {
+          "medianMs": 804,
+          "minMs": 798,
+          "maxMs": 817,
+          "requests": 186,
+          "transferredKbBrotli": 1223
+        },
+        "webkit": {
+          "medianMs": 803,
+          "minMs": 796,
+          "maxMs": 815,
+          "requests": 186,
+          "transferredKbBrotli": 1224
+        }
+      },
+      "final": {
+        "chromium": {
+          "medianMs": 516,
+          "minMs": 513,
+          "maxMs": 517,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        },
+        "webkit": {
+          "medianMs": 565,
+          "minMs": 563,
+          "maxMs": 575,
+          "requests": 154,
+          "transferredKbBrotli": 1013
+        }
+      }
+    }
+  },
+  "startupJavaScript": {
+    "baseline": {
+      "chunks": 167,
+      "rawMb": 3.75,
+      "gzipMb": 1.23
+    },
+    "final": {
+      "chunks": 142,
+      "rawMb": 3.14,
+      "gzipMb": 1.01
+    }
+  },
+  "limits": [
+    "Code loading only: sign-in, the host directory, host tokens, and the WebSocket are not in this measurement.",
+    "CPU slowdown applies to Chromium only; WebKit runs at full CPU speed.",
+    "The shaped network is a model, not a real mobile link."
+  ]
+}

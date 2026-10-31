@@ -31,6 +31,9 @@ export interface WebhookActionDeps {
     prompt: string
     action: Extract<WebhookAction, { type: 'start_session' }>
     actor: Actor
+    /** The webhook and the delivery that start the session, which its record names. */
+    webhookId: string
+    deliveryId: string
   }): Promise<{ sessionId: string }>
   /** `send_to_session`: `PromptDispatch.promptSession(…, 'queue', { actor })`. */
   sendToSession(sessionId: string, prompt: string, actor: Actor): Promise<{ disposition: 'started' | 'steered' | 'queued' | 'duplicate' }>
@@ -77,7 +80,7 @@ export function createWebhookActionRunner(deps: WebhookActionDeps) {
     const prompt = promptFor(webhook, deliveryId, tag, planned.prompt ?? '')
     switch (action.type) {
       case 'start_session': {
-        const { sessionId } = await deps.startSession({ prompt, action, actor })
+        const { sessionId } = await deps.startSession({ prompt, action, actor, webhookId: webhook.id, deliveryId })
         return { ...planned, status: 'started', sessionId }
       }
       case 'send_to_session': {

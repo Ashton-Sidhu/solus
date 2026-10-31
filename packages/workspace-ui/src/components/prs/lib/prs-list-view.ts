@@ -13,7 +13,6 @@ import {
   GitPullRequest as GitPullRequestIcon,
   GitPullRequestClosed as GitPullRequestClosedIcon,
   GitPullRequestDraft as GitPullRequestDraftIcon,
-  TriangleAlert as TriangleAlertIcon,
 } from '@lucide/svelte'
 import type { PrStackMembership, PullRequest } from '@solus/contracts/providers'
 import type { PrGuideStatus, ReviewLensJob } from '@solus/contracts/review'
@@ -53,6 +52,7 @@ export type PrVerdict = 'approved' | 'changes-requested'
  */
 export interface PrRowSpec extends ListRowSpec {
   status: PrStatusKey
+  conflictLabel: string | null
   verdict: PrVerdict | null
   /** `owner/repo`, so a cross-project list says where each row lives. */
   repo: string
@@ -147,12 +147,6 @@ function lensChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
     cancelled: { label: 'Review lens cancelled', statusIcon: CircleMinus, tint: 'neutral' },
   } satisfies Record<Exclude<ReviewLensJob['status'], 'outdated'>, { label: string; statusIcon: ListIcon | undefined; tint: ListTint }>
   return [{ ...states[status], icon: Aperture, iconOnly: true, pulsing: status === 'generating' }]
-}
-
-/** A conflict is a fact of an open PR that neither the group nor the state
- *  glyph carries, so it is the one state that is always a chip. */
-function conflictChips(pr: PullRequest): ListRowSpec['chips'] {
-  return hasMergeConflicts(pr) ? [{ label: 'Conflicts', tint: 'warning', icon: TriangleAlertIcon }] : []
 }
 
 function rowLabels(pr: PullRequest): Pick<PrRowSpec, 'labels' | 'moreLabels'> {
@@ -267,16 +261,19 @@ export function prRow(
     ident: `#${pr.number}`,
     title: pr.title,
     status: prStatusOf(pr),
+    conflictLabel: hasMergeConflicts(pr)
+      ? pr.defaultBranch ? `Conflicts with ${pr.defaultBranch}` : 'Conflicts'
+      : null,
     verdict: pr.reviewStatus === 'approved' || pr.reviewStatus === 'changes-requested' ? pr.reviewStatus : null,
     repo: `${pr.baseRepo.owner}/${pr.baseRepo.repo}`,
     project,
     ...rowLabels(pr),
     updated: relativeTime(pr.updatedAt, now),
     stack: pr.stack ?? null,
-    // The state leads the row as a glyph, so the chips are only what needs
+    // The state leads the row with a conflict overlay, so the chips are only what needs
     // saying beyond it; the branch stays a hover reveal so the title is still
     // the only elastic thing in the middle of the row.
-    chips: [...conflictChips(pr), ...guideChips(pr, ctx), ...lensChips(pr, ctx)],
+    chips: [...guideChips(pr, ctx), ...lensChips(pr, ctx)],
     reveal: revealFor(pr, stackParent),
     checks: checksFor(pr),
     meta: '',

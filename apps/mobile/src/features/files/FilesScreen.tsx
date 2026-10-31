@@ -1,3 +1,4 @@
+import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 // Adapted from T3 Code apps/mobile/src/features/files/FileTreeBrowser.tsx (MIT, see UPSTREAM.md).
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
@@ -40,12 +41,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       ) : (
         <View className="w-3" />
       )}
-      <SymbolView
-        name={item.kind === 'folder' ? 'folder' : 'doc.text'}
-        size={17}
-        tintColorClassName="accent-icon-subtle"
-        type="monochrome"
-      />
+      <PierreEntryIcon path={item.kind === 'folder' ? `${item.path}/` : item.path} size={17} />
       <Text className="min-w-0 flex-1 text-sm leading-normal font-t3-medium text-foreground-secondary" numberOfLines={1}>
         {item.name}
       </Text>

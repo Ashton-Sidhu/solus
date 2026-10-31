@@ -175,6 +175,15 @@ export function logFilePath(): string {
   return logPath
 }
 
+/**
+ * `SOLUS_LOG_STDOUT=1`: the entries go to stdout, one NDJSON line each, and no
+ * log file is written. For a container whose platform collects stdout (Solus
+ * Cloud on Cloudflare, where Workers Logs reads each line as structured fields).
+ */
+function logsToStdout(): boolean {
+  return process.env.SOLUS_LOG_STDOUT === '1'
+}
+
 function boundedLogJson<Entry extends LogEntry>(entry: Entry): string {
   const seen = new WeakSet<object>()
   const depths = new WeakMap<object, number>()
@@ -301,15 +310,21 @@ function flush(): void {
   buffer = []
   bufferedBytes = 0
   activeWrite = chunk
-  let path: string
-  try {
-    path = logFilePath()
-  } catch (error) {
-    activeWrite = null
-    console.error('[solus:logger] log path unavailable', error)
-    return
+  let write: (done: (error?: Error | null) => void) => void
+  if (logsToStdout()) {
+    write = (done) => { process.stdout.write(chunk, done) }
+  } else {
+    let path: string
+    try {
+      path = logFilePath()
+    } catch (error) {
+      activeWrite = null
+      console.error('[solus:logger] log path unavailable', error)
+      return
+    }
+    write = (done) => appendFile(path, chunk, done)
   }
-  appendFile(path, chunk, (error) => {
+  write((error) => {
     activeWrite = null
     if (error) {
       console.error('[solus:logger] log write failed', error)
@@ -426,7 +441,10 @@ export function flushLogs(): void {
   buffer = []
   bufferedBytes = 0
   if (pending) {
-    try { appendFileSync(logFilePath(), pending) } catch (error) {
+    try {
+      if (logsToStdout()) process.stdout.write(pending)
+      else appendFileSync(logFilePath(), pending)
+    } catch (error) {
       console.error('[solus:logger] final log write failed', error)
     }
   }

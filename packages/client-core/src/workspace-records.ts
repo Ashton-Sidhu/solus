@@ -7,7 +7,7 @@ import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from 
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 
-type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
+type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordGet' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank' | 'reason' | 'target'>
 
 /** A record this host does not have. `MOVED` is not absence: the record is on
@@ -101,6 +101,14 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       const sorted = [...records.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
       return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing }
     },
+    async sessionRecordGet(sessionId) {
+      try { return sessionRecord(await client.request('getSession', { id: sessionId })) }
+      catch (error) {
+        // A session the caller may not read, or no longer may: refused or not found.
+        if (error instanceof WorkspaceRequestError && (error.status === 403 || (error.status === 404 && error.code !== 'MOVED'))) return null
+        throw error
+      }
+    },
     // A session's home keeps its list state and its pull requests (docs/plans/session-archive.md).
     sessionUpdate: (sessionId, change) => client.request('updateSession', { id: sessionId, body: change }),
     async sessionPullRequests(sessionId) {
@@ -119,6 +127,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       const result = await client.request('searchSessions', { query: {
         q: query.query, projectRoot: query.projectRoot, repositoryKey: query.repositoryKey, provider: query.provider, limit: query.limit, offset: query.offset,
         namesOnly: query.namesOnly === undefined ? undefined : query.namesOnly ? 'true' : 'false',
+        chats: query.chats ? 'true' : undefined,
         activeSince: query.activeSince,
       } })
       // A session found by its name alone has no passage: an empty snippet and no message.

@@ -7,7 +7,8 @@ import {
   type AccountIdentity,
   type TokenResource,
 } from '@solus/contracts/auth/clients'
-import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE_GRANT_TYPE } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE_GRANT_TYPE, accountResponseSchema, directoryResponseSchema, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
+import type { AccountSettingsResponse } from '@solus/contracts/settings'
 
 /**
  * One sign-in of one Solus client to the account plane
@@ -17,8 +18,8 @@ import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE
  * (`BrowserAuthorizer`, `TokenStore`) and its `fetch` and clock.
  *
  * A client holds one grant (docs/plans/simplify-auth-and-sync.md §3 rules 1 and 2):
- * - the servers token, for the account plane and the Solus API together, comes from a
- *   refresh. The refresh token rotates at each refresh, and the account plane ends the
+ * - sign-in gives the servers token for the account plane and the Solus API together.
+ *   Refresh renews it. The refresh token rotates at each refresh, and the account plane ends the
  *   whole grant when a used token comes again (§5, replay). So refreshes run one at a
  *   time, and each one saves the new refresh token before it gives out the new token.
  * - a host's token comes from a token exchange of the servers token. It rotates
@@ -116,6 +117,8 @@ export const ACCESS_TOKEN_RENEW_LEAD_MS = 60_000
 const SERVERS_TOKEN_KEY = `${ACCOUNT_AUDIENCE} ${SOLUS_API_AUDIENCE}`
 /** How long a call to the account plane may take. */
 const REQUEST_TIMEOUT_MS = 15_000
+/** A delayed first reader must fetch current data instead of applying login's snapshot. */
+const STARTUP_SNAPSHOT_MAX_AGE_MS = 30_000
 
 /** The provider's metadata (OIDC Discovery) a client signs in with. */
 export const discoverySchema = z.object({
@@ -133,6 +136,11 @@ export const oauthTokenResponseSchema = z.object({
   expires_in: z.number().positive().optional(),
   refresh_token: z.string().min(1).optional(),
   id_token: z.string().min(1).optional(),
+  // Settings are decoded by their domain when consumed. Keep their full schema
+  // out of the web client's small authentication entry bundle.
+  // An older server sends no directory, and one this client cannot read is left out:
+  // the first directory read then asks `GET /v1/hosts`.
+  startup: z.object({ account: accountResponseSchema, settings: z.json(), directory: directoryResponseSchema.optional().catch(undefined) }).optional(),
 })
 export type OAuthTokenResponse = z.infer<typeof oauthTokenResponseSchema>
 
@@ -140,6 +148,11 @@ const tokenErrorSchema = z.object({
   error: z.string(),
   error_description: z.string().optional(),
   solus_refusal: z.string().optional(),
+})
+
+const serversAccessTokenSchema = z.object({
+  iss: z.string(), sub: z.string(), client_id: z.string(),
+  aud: z.array(z.string()), exp: z.number(), grant_id: z.string().min(1),
 })
 
 /** Why the account plane gave no token for one resource (RFC 6749 §5.2). */
@@ -200,6 +213,10 @@ export class OAuthSession {
   private current: AccountState
   private grant: StoredGrant | null
   private readonly cache: TokenCache
+  private startupAccount: AccountResponse | null = null
+  private startupSettings: NonNullable<OAuthTokenResponse['startup']>['settings'] | undefined
+  private startupDirectory: DirectoryResponse | null = null
+  private startupExpiresAt = 0
   private readonly inFlight = new Map<string, Promise<string | null>>()
   /** The last refusal for each resource, until a token for it is issued or the grant changes. */
   private readonly refusals = new Map<string, ResourceRefusal>()
@@ -230,6 +247,36 @@ export class OAuthSession {
     return this.current
   }
 
+  /** One reader takes each login snapshot. Refresh and later opens use the APIs. */
+  takeStartupAccount(): AccountResponse | null {
+    const account = !this.isEnding && this.deps.now() < this.startupExpiresAt ? this.startupAccount : null
+    this.startupAccount = null
+    return account
+  }
+
+  takeStartupDirectory(): DirectoryResponse | null {
+    const directory = !this.isEnding && this.deps.now() < this.startupExpiresAt ? this.startupDirectory : null
+    this.startupDirectory = null
+    return directory
+  }
+
+  async takeStartupSettings(): Promise<AccountSettingsResponse | null> {
+    const raw = this.startupSettings
+    this.startupSettings = undefined
+    if (raw === undefined || this.isEnding || this.deps.now() >= this.startupExpiresAt) return null
+    const grant = this.grant
+    const { accountSettingsResponseSchema } = await import('@solus/contracts/settings')
+    if (this.isEnding || this.grant !== grant) return null
+    return accountSettingsResponseSchema.parse(raw)
+  }
+
+  private clearStartup(): void {
+    this.startupAccount = null
+    this.startupDirectory = null
+    this.startupSettings = undefined
+    this.startupExpiresAt = 0
+  }
+
   onChange(listener: (state: AccountState) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -252,6 +299,7 @@ export class OAuthSession {
   syncWithStore(): void {
     const stored = this.deps.store.load()
     if (stored?.refreshToken === this.grant?.refreshToken) return
+    this.clearStartup()
     if (!stored) {
       this.grant = null
       this.refusals.clear()
@@ -335,6 +383,8 @@ export class OAuthSession {
     query.set('nonce', pending.nonce)
     query.set('code_challenge', challenge)
     query.set('code_challenge_method', 'S256')
+    query.append('resource', ACCOUNT_AUDIENCE)
+    query.append('resource', SOLUS_API_AUDIENCE)
     if (options.prompt) query.set('prompt', options.prompt)
     this.setState({ kind: 'signing-in', authorizeUrl: authorizeUrl.toString() })
     this.log('info', 'oauth_sign_in_started')
@@ -368,6 +418,7 @@ export class OAuthSession {
     if (!response.ok) return this.failSignIn('error', (await tokenErrorOf(response)).code)
     const tokens = oauthTokenResponseSchema.safeParse(await response.json().catch(() => null))
     if (!tokens.success) return this.failSignIn('error', 'malformed_token_response')
+    if (!tokens.data.startup) return this.failSignIn('error', 'startup_missing')
     return this.adopt(tokens.data, discovery, pending.nonce)
   }
 
@@ -394,6 +445,7 @@ export class OAuthSession {
       await this.refreshChain
       const grant = this.grant
       this.grant = null
+      this.clearStartup()
       this.cache.clear()
       this.hostTokens.clear()
       this.refusals.clear()
@@ -623,6 +675,12 @@ export class OAuthSession {
     if (!tokens.refresh_token || !tokens.id_token) return this.failSignIn('error', 'tokens_incomplete')
     const identity = this.identityOf(tokens.id_token, discovery, nonce)
     if (!identity) return this.failSignIn('error', 'id_token_invalid')
+    const access = decodeJwtClaims(tokens.access_token, serversAccessTokenSchema)
+    if (!access || access.iss !== discovery.issuer || access.sub !== identity.sub || access.client_id !== this.deps.clientId
+      || !access.aud.includes(ACCOUNT_AUDIENCE) || !access.aud.includes(SOLUS_API_AUDIENCE) || access.exp * 1000 <= this.deps.now()) {
+      return this.failSignIn('error', 'access_token_invalid')
+    }
+    if (tokens.startup && tokens.startup.account.userId !== identity.sub) return this.failSignIn('error', 'startup_identity_invalid')
     const grant: StoredGrant = {
       refreshToken: tokens.refresh_token,
       idToken: tokens.id_token,
@@ -636,7 +694,12 @@ export class OAuthSession {
       return this.failSignIn('error', 'store_failed')
     }
     this.grant = grant
+    this.startupAccount = tokens.startup?.account ?? null
+    this.startupSettings = tokens.startup?.settings
+    this.startupDirectory = tokens.startup?.directory ?? null
+    this.startupExpiresAt = this.deps.now() + STARTUP_SNAPSHOT_MAX_AGE_MS
     this.cache.clear()
+    this.cache.set(SERVERS_TOKEN_KEY, { token: tokens.access_token, expiresAt: Math.min(access.exp * 1000, this.expiresAt(tokens)) })
     this.hostTokens.clear()
     this.refusals.clear()
     this.setState(this.signedIn(grant, false))
@@ -663,6 +726,7 @@ export class OAuthSession {
   private endGrant(grant: StoredGrant): void {
     if (this.grant?.refreshToken !== grant.refreshToken) return
     this.grant = null
+    this.clearStartup()
     this.cache.clear()
     this.hostTokens.clear()
     this.refusals.clear()

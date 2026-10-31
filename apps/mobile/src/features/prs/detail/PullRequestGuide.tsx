@@ -164,7 +164,7 @@ function GuideStop(props: {
       {otherFiles.length > 0 ? (
         <PullRequestCardGroup>
           {listedFiles.map((file, index) => (
-            <PullRequestCardRow key={file.path} title={file.path} icon="doc" detail={`+${file.additions} −${file.deletions}`} last={!canExpandFiles && index === listedFiles.length - 1} onPress={() => props.onOpenFile(file.path, null)} />
+            <PullRequestCardRow key={file.path} title={file.path} icon="doc" filePath={file.path} detail={`+${file.additions} −${file.deletions}`} last={!canExpandFiles && index === listedFiles.length - 1} onPress={() => props.onOpenFile(file.path, null)} />
           ))}
           {canExpandFiles ? (
             <PullRequestCardRow

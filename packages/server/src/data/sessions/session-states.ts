@@ -13,11 +13,11 @@ import { stateFromColumns, viewFromColumns } from './session-state-columns'
  * docs/plans/session-archive.md). Its home holds it: the organization's Solus
  * API for an organization session, the machine for a personal one.
  *
- * Two things are kept apart. Whether the session's work is finished is shared:
- * every person sees one settle (`SessionShelf`). A person's archive and snooze
- * are that person's own (`SessionViewer`): they change their list, and nobody
- * else's. A session with no row is unsettled, and a person with no row did
- * nothing to it.
+ * Two things are kept apart. A settle by the session's pull requests or task is
+ * shared: every person sees it (`SessionShelf`). A person's settle, archive,
+ * and snooze are that person's own (`SessionViewer`): they change their list,
+ * and nobody else's. A session with no row is unsettled, and a person with no
+ * row did nothing to it.
  */
 
 const rowSchema = z.object({
@@ -30,6 +30,7 @@ const rowSchema = z.object({
 type Row = z.infer<typeof rowSchema>
 
 const viewRowSchema = z.object({
+  view_settled_at: z.number().nullable(),
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
@@ -87,9 +88,9 @@ async function ensureRow(sessionId: string): Promise<void> {
 const COLUMNS = sql`session_id, settled_at, settled_by, unsettled_at, last_prompt_at`
 
 /**
- * What every person sees of one session: settle and its reverse, the task
- * that reopens it, and the prompt that makes it active again. Each change is
- * announced with the state it leaves.
+ * What every person sees of one session: the settle by its pull requests or
+ * task and its reverse, the task that reopens it, and the prompt that makes it
+ * active again. Each change is announced with the state it leaves.
  */
 export class SessionShelf {
   constructor(readonly sessionId: string) {}
@@ -101,7 +102,7 @@ export class SessionShelf {
   }
 
   /** Settle the session: its work is finished. Returns the state it leaves, or null when it was settled already. */
-  async settle(by: SessionSettledBy, at = Date.now()): Promise<SessionState | null> {
+  async settle(by: Exclude<SessionSettledBy, 'person'>, at = Date.now()): Promise<SessionState | null> {
     // One statement makes the row when it is missing, settles it only when it is not, and returns it.
     const row = rowSchema.nullish().parse(await getDatabase().get(sql`
       INSERT INTO ${sessionStates}(session_id, organization_id, settled_at, settled_by)
@@ -119,8 +120,9 @@ export class SessionShelf {
   }
 
   /**
-   * Make a settled session active again, as a person asks. Its pull requests
-   * settle it again only if one of them ends after this.
+   * Make a session its pull requests or task settled active again, as a
+   * person asks. Its pull requests settle it again only if one of them ends
+   * after this.
    */
   async unsettle(at = Date.now()): Promise<boolean> {
     const changed = await this.update(sql`settled_at = NULL, settled_by = NULL, unsettled_at = ${at}`, sql`settled_at IS NOT NULL`)
@@ -129,7 +131,7 @@ export class SessionShelf {
   }
 
   /** A task was reopened: make the session active again if the task's finish
-   *  settled it. A settle by a person or a pull request stays. */
+   *  settled it. A settle by a pull request stays. */
   async reopenFromTask(at = Date.now()): Promise<boolean> {
     const changed = await this.update(sql`settled_at = NULL, settled_by = NULL, unsettled_at = ${at}`, sql`settled_by = 'task'`)
     if (changed) await this.announce()
@@ -137,10 +139,11 @@ export class SessionShelf {
   }
 
   /**
-   * A prompt reached the session: work goes on, so the session is active, and
-   * back in the list of the person the turn is for (`personKey`; none for a
-   * turn nobody asked for). The time is what its pull requests must end after
-   * to settle it.
+   * A prompt reached the session: work goes on, so its shared settle ends, and
+   * it is active and back in the list of the person the turn is for
+   * (`personKey`; none for a turn nobody asked for). Another person's own
+   * settle stays. The time is what its pull requests must end after to settle
+   * it.
    */
   async recordPrompt(personKey: string | null, at = Date.now()): Promise<void> {
     const before = await this.row()
@@ -170,9 +173,9 @@ export class SessionShelf {
 }
 
 /**
- * One person's own view of one session: their archive and snooze. It changes
- * that person's list, and nobody else's. Each change is announced to that
- * person with the view it leaves.
+ * One person's own view of one session: their settle, archive, and snooze. It
+ * changes that person's list, and nobody else's. Each change is announced to
+ * that person with the view it leaves.
  */
 export class SessionViewer {
   constructor(readonly sessionId: string, readonly personKey: string) {}
@@ -180,10 +183,20 @@ export class SessionViewer {
   /** This person's view now; empty when they did nothing to the session. */
   async view(): Promise<SessionView> {
     const row = viewRowSchema.nullish().parse(await getDatabase().get(sql`
-      SELECT archived_at, snoozed_until, snooze_note FROM ${sessionViews}
+      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note FROM ${sessionViews}
       WHERE session_id = ${this.sessionId} AND person_key = ${this.personKey}
     `))
     return row ? viewFromColumns(row) ?? EMPTY_SESSION_VIEW : EMPTY_SESSION_VIEW
+  }
+
+  /** Settle the session in this person's list. Returns false when they settled it already. */
+  async settle(at = Date.now()): Promise<boolean> {
+    return this.write(sql`settled_at = ${at}`, sql`settled_at IS NULL`, { settled_at: at })
+  }
+
+  /** End this person's settle. Returns false when they had not settled it. */
+  async unsettle(): Promise<boolean> {
+    return this.write(sql`settled_at = NULL`, sql`settled_at IS NOT NULL`)
   }
 
   /** Take the session out of this person's list. Returns false when it was out already. */
@@ -202,23 +215,23 @@ export class SessionViewer {
     await this.write(sql`snoozed_until = ${until}, snooze_note = ${snoozeNote}`, undefined, { snoozed_until: until, snooze_note: snoozeNote })
   }
 
-  /** A prompt for this person: the session is awake and in their list again.
-   *  Their first prompt leaves an empty view, which puts a session they do
-   *  not own in their list. */
+  /** A prompt for this person: the session is active, awake, and in their
+   *  list again. Their first prompt leaves an empty view, which puts a session
+   *  they do not own in their list. */
   async returnToList(): Promise<void> {
-    await this.write(sql`archived_at = NULL, snoozed_until = NULL, snooze_note = NULL`, sql`(archived_at IS NOT NULL OR snoozed_until IS NOT NULL)`, {})
+    await this.write(sql`settled_at = NULL, archived_at = NULL, snoozed_until = NULL, snooze_note = NULL`, sql`(settled_at IS NOT NULL OR archived_at IS NOT NULL OR snoozed_until IS NOT NULL)`, {})
   }
 
   /** One write: an insert for a person with no row yet, else an update when
    *  `when` holds. Announces the view when it changed. */
-  private async write(set: SQL, when: SQL | undefined, insert?: { archived_at?: number | null; snoozed_until?: number | null; snooze_note?: string | null }): Promise<boolean> {
+  private async write(set: SQL, when: SQL | undefined, insert?: { settled_at?: number | null; archived_at?: number | null; snoozed_until?: number | null; snooze_note?: string | null }): Promise<boolean> {
     const organizationId = await organizationOfSession(this.sessionId)
     const database = getDatabase()
     let changed = false
     if (insert) {
       changed = (await database.run(sql`
-        INSERT INTO ${sessionViews}(session_id, person_key, organization_id, archived_at, snoozed_until, snooze_note)
-        VALUES (${this.sessionId}, ${this.personKey}, ${organizationId}, ${insert.archived_at ?? null}, ${insert.snoozed_until ?? null}, ${insert.snooze_note ?? null})
+        INSERT INTO ${sessionViews}(session_id, person_key, organization_id, settled_at, archived_at, snoozed_until, snooze_note)
+        VALUES (${this.sessionId}, ${this.personKey}, ${organizationId}, ${insert.settled_at ?? null}, ${insert.archived_at ?? null}, ${insert.snoozed_until ?? null}, ${insert.snooze_note ?? null})
         ON CONFLICT(session_id, person_key) DO NOTHING
       `)).changes > 0
     }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Bot as BotIcon } from "@lucide/svelte";
-  import type { SessionOrigin } from "@solus/contracts/types";
+  import type { SessionStarterFromHost } from "@solus/contracts/types";
   import TranscriptDivider from "./TranscriptDivider.svelte";
 
   /**
@@ -8,7 +8,7 @@
    * (docs/plans/cross-host-sessions.md). The host is named by its label; the
    * session that started it lives on that host.
    */
-  let { origin }: { origin: SessionOrigin } = $props();
+  let { origin }: { origin: SessionStarterFromHost } = $props();
 </script>
 
 {#snippet originGlyph()}<BotIcon size={10} />{/snippet}

@@ -1,5 +1,6 @@
 import { installTestWorkspaceTools } from './helpers/workspace-tools'
 import { beforeEach, afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { sql } from 'drizzle-orm'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -41,6 +42,10 @@ beforeAll(async () => {
   ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
   TaskModule = await import('@solus/server/data/tasks/task')
   ;({ closeDb } = await import('@solus/server/db'))
+  const { getDatabase } = await import('@solus/server/db/database')
+  for (const sessionId of ['calling-session-id', 'other-session-id', 'unlinked-session-id', 'unlinking-session-id', 'keeping-session-id', 'never-linked-session-id']) {
+    await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, status, created_at, last_activity_at) VALUES (${sessionId}, 'local', 'owner', 'codex', ${process.cwd()}, 'idle', 1, 2)`)
+  }
 })
 
 afterAll(() => {
@@ -144,7 +149,7 @@ describe('link with no task', () => {
 
 })
 
-describe('list_session_pull_requests', () => {
+describe('list_links', () => {
   // WHY: gh opens a pull request without telling Solus. The agent checks this
   // list before it finishes, so it must show exactly this session's links —
   // another session's pull request here would hide the one that is missing.
@@ -158,7 +163,7 @@ describe('list_session_pull_requests', () => {
       toolContext('other-session-id'),
     )
 
-    const listed = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('calling-session-id'))
+    const listed = await linkTools.listLinksAgentTool.execute({}, toolContext('calling-session-id'))
 
     expect(listed.ok).toBe(true)
     expect(listed.text).toContain('#7 github.com/acme/solus [not yet synced]')
@@ -167,13 +172,13 @@ describe('list_session_pull_requests', () => {
   })
 
   test('says so when the session has no links', async () => {
-    const listed = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinked-session-id'))
+    const listed = await linkTools.listLinksAgentTool.execute({}, toolContext('unlinked-session-id'))
 
-    expect(listed).toEqual({ ok: true, text: 'No pull requests are linked to this session.' })
+    expect(listed).toEqual({ ok: true, text: 'No matching links for this session.' })
   })
 })
 
-describe('unlink_pull_request', () => {
+describe('unlink', () => {
   // WHY: a person removes a wrong link in the list; an agent that sees a pull
   // request that is not its work must be able to do the same, and PR sync must
   // not bring it back.
@@ -182,20 +187,20 @@ describe('unlink_pull_request', () => {
     await linkTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('unlinking-session-id'))
     await linkTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('keeping-session-id'))
 
-    const removed = await linkTools.unlinkPullRequestAgentTool.execute({ target_id: url }, toolContext('unlinking-session-id'))
+    const removed = await linkTools.unlinkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('unlinking-session-id'))
 
     expect(removed).toEqual({ ok: true, text: 'Removed pull request #9 (github.com/acme/solus) from this session.' })
-    const listed = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinking-session-id'))
-    expect(listed.text).toBe('No pull requests are linked to this session.')
-    const kept = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('keeping-session-id'))
+    const listed = await linkTools.listLinksAgentTool.execute({}, toolContext('unlinking-session-id'))
+    expect(listed.text).toBe('No matching links for this session.')
+    const kept = await linkTools.listLinksAgentTool.execute({}, toolContext('keeping-session-id'))
     expect(kept.text).toContain('#9')
   })
 
-  test('says so when the pull request was not linked', async () => {
-    const removed = await linkTools.unlinkPullRequestAgentTool.execute(
-      { target_id: 'https://github.com/acme/solus/pull/10' },
+  test('removing an absent pull request is safe', async () => {
+    const removed = await linkTools.unlinkAgentTool.execute(
+      { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/10' },
       toolContext('never-linked-session-id'),
     )
-    expect(removed).toEqual({ ok: true, text: 'Pull request #10 (github.com/acme/solus) was not linked to this session.' })
+    expect(removed).toEqual({ ok: true, text: 'Removed pull request #10 (github.com/acme/solus) from this session.' })
   })
 })

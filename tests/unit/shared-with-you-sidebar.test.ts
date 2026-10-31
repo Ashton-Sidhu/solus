@@ -3,6 +3,7 @@ import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HubNotification } from '@solus/contracts/notification-hub'
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import type { SessionRecord } from '@solus/contracts/types'
 import { notificationDestination } from '@solus/workspace-ui/components/notifications/lib/notification-actions'
@@ -126,6 +127,40 @@ describe('the share a record stands for', () => {
 })
 
 describe('a new share tells the reader once', () => {
+  test('personal completion removes a shared session until Undo, including after a reload', async () => {
+    const events = new HostEventSubscriber()
+    let refuse = false
+    const shared = record('shared', { ownerKey: 'user:ana', role: 'editor', state: { ...UNSETTLED_SESSION_STATE, settledAt: 10, settledBy: 'task' } })
+    const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
+      sessionRecordList: async () => ({ records: [shared], indexing: false }),
+      sessionUpdate: async (_sessionId, change) => {
+        if (refuse) throw new Error('offline')
+        shared.view = { ...EMPTY_SESSION_VIEW, settledAt: change.settled ? 20 : null }
+        return { state: shared.state!, view: shared.view }
+      },
+    }))
+    const subscribe = spyOn(serverConnections, 'eventsFor').mockReturnValue(events)
+    const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] })
+    try {
+      await store.load()
+      // The owner's completion must not clear the reader's list.
+      expect(store.isCompletedShare('shared')).toBe(false)
+      const target = { serverId: 'host', sessionId: 'shared' }
+      const completing = store.setSettled(target, true)
+      expect(store.isCompletedShare('shared')).toBe(true)
+      await completing
+      await store.load()
+      expect(store.isCompletedShare('shared')).toBe(true)
+      await store.setSettled(target, false)
+      expect(store.isCompletedShare('shared')).toBe(false)
+      refuse = true
+      await expect(store.setSettled(target, true)).rejects.toThrow('offline')
+      expect(store.isCompletedShare('shared')).toBe(false)
+      events.receive({ type: 'session.viewChanged', payload: { sessionId: 'shared', view: { ...EMPTY_SESSION_VIEW, settledAt: 30 } }, occurredAt: 30 })
+      expect(store.isCompletedShare('shared')).toBe(true)
+    } finally { api.mockRestore(); subscribe.mockRestore() }
+  })
+
   test('grants older than the mark do not toast; each newer grant does, once', () => {
     // WHY: on boot the first read lists every share the reader got while the
     // app was closed; a toast for each would bury the composer.
@@ -137,34 +172,83 @@ describe('a new share tells the reader once', () => {
     expect(newGrants([{ share: share({ grantedAt: 300 }) }], first.seenUntil).granted).toHaveLength(1)
   })
 
-  test('the list store keeps a mark per host and reads again when a session share changes', async () => {
+  test("a shared session out of the list still knows whose it is, so its open tab is in Shared with you", async () => {
+    // WHY: rule 1, the owner decides the section. Closing a shared session archives it and
+    // takes it out of the list; opening it again from Notifications put its tab in the
+    // reader's own Sessions, because only the list knew whose it was.
+    const theirs = (sessionId: string) => record(sessionId, { ownerKey: 'user:ana', role: 'editor', sharedBy: 'user:ana', grantedAt: 50 })
+    const archived = { ...theirs('archived-on-another-client'), listed: false }
+    const records = [theirs('closed-here')]
+    const gets: string[] = []
+    const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
+      sessionRecordList: async () => ({ records, indexing: false }),
+      sessionRecordGet: async (sessionId) => { gets.push(sessionId); return sessionId === archived.sessionId ? archived : null },
+      sessionUpdate: async () => ({ view: { archivedAt: 1, snoozedUntil: null, snoozeNote: null } }),
+    }))
+    const subscribe = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())
+    const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] }, 100)
+    try {
+      await store.load()
+      await store.setArchived({ serverId: 'host', sessionId: 'closed-here' }, true)
+      expect(store.listed('closed-here')).toBeUndefined()
+      expect(store.shareFacts('closed-here')?.share.ownerKey).toBe('user:ana')
+
+      // Archived before this client started: opening it reads its record from its home.
+      store.markOpened({ serverId: 'host', sessionId: archived.sessionId })
+      for (let tick = 0; tick < 3; tick++) await Promise.resolve()
+      expect(gets).toEqual([archived.sessionId])
+      expect(store.shareFacts(archived.sessionId)?.share.ownerKey).toBe('user:ana')
+    } finally {
+      api.mockRestore()
+      subscribe.mockRestore()
+    }
+  })
+
+  test('the list store keeps a mark per host, and a share change reads that one session, never the whole list', async () => {
+    // WHY: a share of one session used to read every page of the list again, on every client of the host.
     const events = new HostEventSubscriber()
     let records = [record('before-start', { ownerKey: 'user:ana', role: 'editor', sharedBy: 'user:ana', grantedAt: 50 })]
     let reads = 0
+    const gets: string[] = []
     const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
       sessionRecordList: async () => { reads++; return { records, indexing: false } },
+      sessionRecordGet: async (sessionId) => { gets.push(sessionId); return records.find((listed) => listed.sessionId === sessionId) ?? null },
     }))
     const subscribe = spyOn(serverConnections, 'eventsFor').mockReturnValue(events)
     const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] }, 100)
     const toasted: string[] = []
     store.onNewShares((granted) => toasted.push(...granted.map((listed) => listed.sessionId)))
+    const shareChanged = async (sessionId: string) => {
+      events.receive({ type: 'share.changed', payload: { resource: { kind: 'session', id: sessionId }, removedUserIds: [] }, occurredAt: 1 })
+      for (let tick = 0; tick < 3; tick++) await Promise.resolve()
+    }
     try {
       await store.load()
       expect(store.listed('before-start')?.share?.ownerKey).toBe('user:ana')
       expect(toasted).toEqual([])
+      const before = store.listed('before-start')
 
       records = [...records, record('new', { ownerKey: 'user:ana', role: 'viewer', sharedBy: 'user:ana', grantedAt: 200 })]
-      events.receive({ type: 'share.changed', payload: { resource: { kind: 'session', id: 'new' }, removedUserIds: [] }, occurredAt: 1 })
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(reads).toBe(2)
+      await shareChanged('new')
+      expect(reads).toBe(1)
+      expect(gets).toEqual(['new'])
+      expect(store.listed('new')?.share?.grantedAt).toBe(200)
       expect(toasted).toEqual(['new'])
+      // The other rows keep their objects, so their sidebar rows do not draw again.
+      expect(store.listed('before-start')).toBe(before)
 
       // Access removed: the row leaves, and the client still knows whose it was.
       records = records.filter((listed) => listed.sessionId !== 'new')
-      await store.load()
+      await shareChanged('new')
+      expect(reads).toBe(1)
       expect(store.listed('new')).toBeUndefined()
       expect(store.shareFacts('new')?.share.ownerKey).toBe('user:ana')
+      expect(store.listed('before-start')).toBe(before)
+
+      // A session the reader may read that is not in their list does not join it.
+      records = [...records, record('not-listed', { listed: false })]
+      await shareChanged('not-listed')
+      expect(store.listed('not-listed')).toBeUndefined()
       expect(toasted).toEqual(['new'])
     } finally { api.mockRestore(); subscribe.mockRestore() }
   })

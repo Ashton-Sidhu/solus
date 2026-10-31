@@ -95,7 +95,7 @@ export function firstLine(text: string): string {
 /** Why a typed address cannot be an integration, or null when it can. */
 export function customUrlProblem(url: string): string | null {
   if (!url.trim()) return 'Type the address of an MCP server.'
-  return integrationUrlSchema.safeParse(url).success ? null : 'Use an HTTPS address with no credentials or fragment.'
+  return integrationUrlSchema.safeParse(url).success ? null : 'Use an HTTPS address, or HTTP on localhost, with no credentials or fragment.'
 }
 
 /** The host path a service's OAuth app must list as its redirect URL. */

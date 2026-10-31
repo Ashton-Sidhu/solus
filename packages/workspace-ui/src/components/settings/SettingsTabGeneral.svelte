@@ -1,27 +1,5 @@
 <script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  export const settingItems: SettingItem[] = [
-    {
-      id: "agent-model",
-      keywords: [
-        "agent",
-        "model",
-        "default",
-        "claude",
-        "codex",
-        "opus",
-        "sonnet",
-        "haiku",
-        "gpt",
-        "ai",
-        "auto",
-      ],
-    },
+  export const settingItems = [
     {
       id: "text-generation-model",
       keywords: [
@@ -34,18 +12,6 @@
         "metadata",
         "writing",
       ],
-    },
-    {
-      id: "default-permission",
-      keywords: ["default", "permission", "supervised", "ask", "edits", "auto", "full", "access", "plan", "mode"],
-    },
-    {
-      id: "response-streaming",
-      keywords: ["response", "streaming", "paragraph", "buffered", "text"],
-    },
-    {
-      id: "ratelimit",
-      keywords: ["rate", "limit", "behavior", "queue", "throttle"],
     },
     {
       id: "sidebar-motion",
@@ -75,56 +41,6 @@
       ],
     },
     {
-      id: "auto-rename",
-      keywords: [
-        "rename",
-        "name",
-        "title",
-        "session",
-        "tab",
-        "auto",
-        "summarize",
-      ],
-    },
-    {
-      id: "turn-diff-summary",
-      keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
-    },
-    {
-      id: "show-tool-calls",
-      keywords: ["tool", "calls", "steps", "activity", "transcript", "simple", "hide"],
-    },
-    {
-      id: "collapse-composer",
-      keywords: [
-        "collapse",
-        "composer",
-        "input",
-        "bar",
-        "toolbar",
-        "focus",
-        "idle",
-        "compact",
-        "minimize",
-      ],
-    },
-    {
-      id: "model-routing",
-      keywords: ["auto", "model", "routing", "jev", "interface", "exploration", "task", "general"],
-    },
-    {
-      id: "lead-model",
-      keywords: ["delegate", "delegating", "lead", "session", "orchestration", "orchestrator", "workers", "agent", "model", "reasoning", "effort", "claude", "codex"],
-    },
-    {
-      id: "worker-model",
-      keywords: ["delegate", "worker", "workers", "routing", "route", "orchestration", "orchestrator", "session", "agent", "model", "reasoning", "effort", "default"],
-    },
-    {
-      id: "lead-instructions",
-      keywords: ["delegate", "delegating", "lead", "session", "orchestration", "orchestrator", "workers", "instructions", "routing", "route", "prompt", "rules"],
-    },
-    {
       id: "about",
       keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
     },
@@ -134,11 +50,7 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
-  import type { ResponseStreamingMode } from "@solus/contracts/settings";
   import { MAX_SIDEBAR_MOTION_MS } from "@solus/contracts/settings";
-  import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
-  import { PERMISSION_MODES } from "@solus/contracts/types";
-  import { PERMISSION_MODE_DISPLAY } from "../../lib/permission-modes";
   import type { HostApi } from "@solus/client-core/host-api";
   import { Input } from "../ui/input";
   import {
@@ -150,30 +62,18 @@
   import { abbreviateHome } from "../../lib/paths";
   import {
     connectionsStore,
-    getAgentContext,
     getSettingsContext,
     getTextGenerationSettingsStore,
-    getWorkspaceContext,
     hosts,
   } from "../../contexts";
-  import {
-    defaultModelIdFor,
-    modelOptionsFor,
-  } from "../pickers/lib/picker-selection";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
-  import SettingsSelect from "./SettingsSelect.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import type { PickerSelection } from "../pickers/lib/picker-selection";
   import SettingsSection from "./SettingsSection.svelte";
-  import RateLimitSetting from "./RateLimitSetting.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
   import { isModelOffered } from "./lib/text-generation-models";
-  import ModelRoutingSection from "./ModelRoutingSection.svelte";
-  import LeadSessionsSection from "./LeadSessionsSection.svelte";
-  import { solusToolsStore } from "./solus-tools.store.svelte";
   import type { TextGenerationModelSelection } from "@solus/contracts/types";
 
   interface Props {
@@ -185,14 +85,7 @@
 
   let { searchQuery = "", serverId, api, hostLabel }: Props = $props();
 
-  const permissionModes = PERMISSION_MODES.map((value) => ({ value, label: PERMISSION_MODE_DISPLAY[value].label }));
-  const responseStreamingModes = [
-    { value: "buffered", label: "Buffered" },
-    { value: "paragraph", label: "Streaming" },
-  ] satisfies Array<{ value: ResponseStreamingMode; label: string }>;
   const theme = getSettingsContext();
-  const agentContext = getAgentContext();
-  const session = getWorkspaceContext();
   const textGenerationSettingsStore = getTextGenerationSettingsStore();
 
   const textGenerationSnapshot = $derived(
@@ -231,35 +124,6 @@
     textGenerationPickerSelection.modelId = selection.model;
   });
 
-  // Live metadata wins over the static profiles; the stored choice is only
-  // honored while it still belongs to this agent, otherwise the agent default
-  // shows in the shared model picker. Auto names no model of its own, so it is
-  // honored for whichever agent it was stored against.
-  const defaultAgentModels = $derived(
-    modelOptionsFor(theme.activeAgent, agentContext.metadata),
-  );
-  const storedDefaultModelId = $derived(theme.defaultModels[theme.activeAgent]);
-  const defaultModelId = $derived(
-    storedDefaultModelId === AUTO_MODEL_ID ||
-      defaultAgentModels.some((model) => model.id === storedDefaultModelId)
-      ? storedDefaultModelId
-      : (defaultModelIdFor(theme.activeAgent, agentContext.metadata) ?? ""),
-  );
-  const autoNeedsKey = $derived(
-    defaultModelId === AUTO_MODEL_ID && solusToolsStore.isTypeSafeKeyMissing(serverId),
-  );
-  let defaultAgentModelPickerSelection = $state<PickerSelection>({
-    provider: theme.activeAgent,
-    modelId: null,
-    reasoningEffort: "high",
-    fastMode: false,
-  });
-
-  $effect(() => {
-    defaultAgentModelPickerSelection.provider = theme.activeAgent;
-    defaultAgentModelPickerSelection.modelId = defaultModelId;
-  });
-
   let projectsBasePickerOpen = $state(false);
 
   // Per-host, not per-client: the folder this host really uses — the setting,
@@ -275,13 +139,6 @@
     projectsBasePickerOpen = false;
     await connectionsStore.setProjectsBaseDirectory(serverId, next);
     requestInputFocus();
-  }
-
-  function selectDefaultAgentModel(selection: PickerSelection) {
-    session.config.setDefaultAgent(selection.provider);
-    if (selection.modelId) {
-      session.config.setDefaultModel(selection.provider, selection.modelId);
-    }
   }
 
   function textGenerationModelLabel(
@@ -328,62 +185,8 @@
 </script>
 
 <SettingsSection
-  label="New sessions"
-  visible={["agent-model", "default-permission"].some(isVisible)}
->
-  <SettingsRow
-    label="Default agent and model"
-    description={autoNeedsKey
-      ? "Auto needs a TypeSafe key in Tools. Until then, it uses General use."
-      : "Agent and model for new sessions. Auto picks from the first prompt."}
-    visible={isVisible("agent-model")}
-  >
-    {#snippet control()}
-      <SessionChip
-        selection={defaultAgentModelPickerSelection}
-        {serverId}
-        modelOnly
-        allowAuto
-        menuSide="bottom"
-        ariaLabel="Default agent and model"
-        returnFocusOnClose
-        class="w-full @min-[30rem]/pane:w-56"
-        onSelectionChange={selectDefaultAgentModel}
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Default permission mode"
-    description="Mode for new sessions. Existing sessions keep theirs."
-    visible={isVisible("default-permission")}
-  >
-    {#snippet control()}
-      <SettingsSelect
-        options={permissionModes}
-        value={theme.defaultPermissionMode}
-        onSelect={(value) => theme.setPersonal("defaultPermissionMode", value)}
-        ariaLabel="Default permission mode"
-      />
-    {/snippet}
-  </SettingsRow>
-</SettingsSection>
-
-<ModelRoutingSection {serverId} visible={isVisible("model-routing")} />
-
-<LeadSessionsSection {isVisible} />
-
-<SettingsSection
-  label="Behavior"
-  visible={[
-    "response-streaming",
-    "turn-diff-summary",
-    "show-tool-calls",
-    "collapse-composer",
-    "auto-rename",
-    "ratelimit",
-    "sidebar-motion",
-  ].some(isVisible)}
+  label="Workspace"
+  visible={isVisible("sidebar-motion") || isVisible("projects-base") || isVisible("text-generation-model")}
 >
   <SettingsRow
     label="Sidebar animation"
@@ -431,88 +234,6 @@
       </div>
     {/snippet}
   </SettingsRow>
-
-  <SettingsRow
-    label="Response streaming"
-    description="Show paragraphs and code blocks as they finish, or wait for each segment."
-    visible={isVisible("response-streaming")}
-  >
-    {#snippet control()}
-      <SettingsSelect
-        options={responseStreamingModes}
-        value={theme.responseStreamingMode}
-        onSelect={(value) => theme.setPersonal("responseStreamingMode", value)}
-        ariaLabel="Response streaming"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Show changed files after turns"
-    description="Show a diff summary after each turn."
-    visible={isVisible("turn-diff-summary")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.showDiffSummaryAfterTurn}
-        onCheckedChange={(next) =>
-          theme.setPersonal("showDiffSummaryAfterTurn", next)}
-        size="default"
-        aria-label="Toggle changed files summaries after turns"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Show tool calls"
-    description="Off shows only the agent's messages, questions, and cards."
-    visible={isVisible("show-tool-calls")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.showToolCalls}
-        onCheckedChange={(next) => theme.setPersonal("showToolCalls", next)}
-        size="default"
-        aria-label="Toggle tool calls in the transcript"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Collapse the input bar when idle"
-    description="Hide the toolbar until the input bar has focus."
-    visible={isVisible("collapse-composer")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.collapseComposerWhenIdle}
-        onCheckedChange={(next) =>
-          theme.setPersonal("collapseComposerWhenIdle", next)}
-        size="default"
-        aria-label="Toggle collapsing the input bar when idle"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Name sessions automatically"
-    description="Summarize the first prompt into a short session name."
-    visible={isVisible("auto-rename")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.autoRenameSessions}
-        onCheckedChange={(next) => theme.setPersonal("autoRenameSessions", next)}
-        size="default"
-        aria-label="Toggle automatic session naming"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <RateLimitSetting visible={isVisible("ratelimit")} />
-</SettingsSection>
-
-<SettingsSection label="Projects" visible={isVisible("projects-base")}>
   <SettingsRow
     label="Projects folder"
     description="Where new projects are created and clones land."
@@ -557,12 +278,6 @@
       </div>
     {/snippet}
   </SettingsRow>
-</SettingsSection>
-
-<SettingsSection
-  label="Text generation"
-  visible={isVisible("text-generation-model")}
->
   <SettingsRow
     label="Text-generation model"
     description="Session names and short background writing for your work."

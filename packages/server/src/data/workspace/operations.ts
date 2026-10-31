@@ -1,7 +1,7 @@
 import type {
   WorkspaceCreateTask, WorkspaceCreateTaskComment, WorkspaceTaskComment, WorkspaceLink, WorkspaceLinkDelete, WorkspaceUpdateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery,
   WorkspaceCreateWork, WorkspaceImportWork, WorkspacePublishWork, WorkspaceRequestWorkReview, WorkspaceWorkReview, WorkspaceWorkUpstream, WorkspaceUpdateWork, WorkspaceWork, WorkspaceWorkPage, WorkspaceWorkQuery, WorkspaceWorkSearchQuery, WorkspaceWorkSearchResult,
-  WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
+  WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceSessionLinkList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
   WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery, WorkspaceInsightTree,
   WorkspaceActivityList, WorkspaceActivityQuery, WorkspaceMyActivityQuery,
   WorkspaceNotificationArchived, WorkspaceNotificationPage, WorkspaceNotificationQuery, WorkspaceNotificationRead,
@@ -36,6 +36,7 @@ export interface WorkspaceOperations {
   admitSessionTurn(context: WorkspaceRequestContext, sessionId: string): Promise<void>
   /** Settle a session for every person, or archive and snooze it in the caller's own list. */
   updateSession(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSessionChanged>
+  listSessionLinks(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionLinkList>
   listSessionPullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList>
   /** Link a task or a session to another record; the same link again changes nothing. */
   putLink(context: WorkspaceRequestContext, input: WorkspaceLink): Promise<void>

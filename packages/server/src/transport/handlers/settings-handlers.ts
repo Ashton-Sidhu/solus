@@ -1,3 +1,7 @@
+import { resolveProjectRoot } from '../../project-config/project-config'
+import { resolveHomePath } from '../../platform/paths'
+import { privateProviderInstances } from '../../execution/seats/provider-instances'
+import { requirePersonKey } from '../../vault/acting-scope'
 import { z } from 'zod'
 import { setTypeSafeApiKey, typeSafeKeyStatus } from '../../typesafe/credentials'
 import {
@@ -17,8 +21,16 @@ import { enrichAgentMetadata } from './session-handlers'
 
 export function registerSettingsHandlers(
   server: SolusServer,
-  deps: { sessionRuntime: SessionRuntime; onHostConfigChanged: (snapshot: HostConfigSnapshot) => void },
+  deps: { sessionRuntime: SessionRuntime; onHostConfigChanged: (snapshot: HostConfigSnapshot) => void; onProviderInstancesChanged: () => void },
 ): void {
+  server.register('providerInstancesGet', () => privateProviderInstances().snapshot(requirePersonKey()))
+  server.register('providerInstancesWrite', ([request]) => {
+    const normalized = request.change.kind === 'project' ? { ...request, change: { ...request.change, override: { ...request.change.override, projectRoot: resolveProjectRoot(resolveHomePath(request.change.override.projectRoot)) } } } : request
+    const snapshot = privateProviderInstances().write(requirePersonKey(), normalized)
+    deps.onProviderInstancesChanged()
+    return snapshot
+  })
+
   server.register('configGet', () => getHostConfig())
 
   // The caller's own key (docs/plans/access-model.md §2.6), read and changed in their acting scope.

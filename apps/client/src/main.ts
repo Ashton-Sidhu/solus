@@ -14,12 +14,12 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer } from '@solus/client-core/server-registry'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
-import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
+import { adoptAccountOrigin, awaitingSignIn, configureUplinkAccountSource } from '@solus/client-core/uplink-account'
 import { accountOriginShell } from './lib/account-origin'
 import type { HostRoute } from '@solus/contracts/host-routes'
-import { startupAccountRead } from '@solus/client-core/cloud-account'
+import type { DirectoryResponse } from '@solus/contracts/uplink'
 import { existingWebAccountSession, fetchAuthorize, keepWebSignIn, resumeWebSignIn, webAccountSession, type WebSignInDeps } from '@solus/client-core/web-sign-in'
-import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
+import { mergeDirectoryIntoSaved, oauthUplinkAccountSource } from '@solus/client-core/uplink-session'
 import { saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
 import HostlessHome from './routes/HostlessHome.svelte'
 import { pairTokenFromLocation } from './lib/connect'
@@ -73,6 +73,12 @@ function consumeColdNotificationRoute(): string | null {
 const root = document.getElementById('root')!
 /** The account origin's own word that it is one, with the provider's metadata; null on a host. */
 const accountShell = accountOriginShell(document)
+// The first host ready to answer: the load benchmark and field timing read this.
+const stopHostReadyMark = serverConnections.onReadinessChange((_serverId, readiness) => {
+  if (readiness !== 'ready') return
+  performance.mark('solus:host-ready')
+  stopHostReadyMark()
+})
 mount(WebToaster, { target: root })
 
 let solusApp: ReturnType<typeof mount> | null = null
@@ -82,7 +88,11 @@ let workspaceAppImport: Promise<typeof import('./App.svelte')> | null = null
 
 function loadWorkspaceApp(): Promise<typeof import('./App.svelte')> {
   if (!workspaceAppImport) {
-    workspaceAppImport = import('./App.svelte').catch((error) => {
+    workspaceAppImport = import('./App.svelte').then((module) => {
+      // The workspace code is downloaded and run: the load benchmark and field timing read this.
+      performance.mark('solus:workspace-code')
+      return module
+    }, (error) => {
       workspaceAppImport = null
       throw error
     })
@@ -199,7 +209,7 @@ async function pairFromLocation(pairToken: string): Promise<void> {
   }
 }
 
-async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promise<void> {
+async function adoptCloudDirectory(): Promise<void> {
   // The same bundle is served at `/` by a host and by the account origin; only the
   // account origin's shell names itself (`accountOriginShell`).
   if (!accountShell) {
@@ -208,25 +218,38 @@ async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promi
   }
   const { kind, directory } = await adoptAccountOrigin(location.origin)
   cloudOrigin.kind = kind
-  // Whether cloud onboarding is due is known before the workspace mounts, so the
-  // draft composer never paints under it. Bounded: a slow answer falls back to the
-  // App's opaque cover rather than holding the boot. A share link opens its resource,
-  // not the composer, and waits for nothing.
-  const accountRead = options.waitsForAccount ? startupAccountRead() : null
-  if (accountRead) await Promise.race([accountRead, new Promise((resolve) => setTimeout(resolve, 2_000))])
+  // Publish the directory as soon as it answers so hosts can connect. App's
+  // onboarding cover already waits for the separate startup account read.
   if (!directory) return
   saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
   saveDirectoryWorkspaces(directory.workspaces, directory.directoryUrl)
   markDirectoryAnswered()
 }
 
+/**
+ * A browser with no saved hosts, on the account origin, whose shell names the
+ * person's directory (docs/plans/instant-share-open.md §4.14): the hosts are dialed
+ * now, so each socket's set-up (DNS, TCP, TLS, upgrade) overlaps the sign-in round
+ * trips. Each dial's token waits for the sign-in. The catalog boot below then finds
+ * the hosts saved and dialing, and the directory it reads after the sign-in
+ * replaces this one.
+ */
+function dialShellDirectory(directory: DirectoryResponse, signedIn: Promise<boolean>): void {
+  const session = existingWebAccountSession()
+  if (!session) return
+  configureUplinkAccountSource(awaitingSignIn(oauthUplinkAccountSource(location.origin, session), signedIn))
+  saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, location.origin, Date.now()))
+  saveDirectoryWorkspaces(directory.workspaces, location.origin)
+  serverConnections.startCatalogSupervisors()
+}
+
 async function bootFromCatalog(intent?: BootIntent): Promise<void> {
-  // The workspace loads on any success — overlap the import with the probe.
-  void loadWorkspaceApp().catch(() => {})
   if (intent?.opensResource) webState.openedFromLink = true
-  const directory = adoptCloudDirectory({ waitsForAccount: !intent?.opensResource }).catch((error) => {
+  const directory = adoptCloudDirectory().catch((error) => {
     console.warn("[solus:boot] cloud directory unavailable", error)
   })
+  // A share link that resolves to the workspace starts the import here.
+  void loadWorkspaceApp().catch(() => {})
   // The account origin is never a host; only a page a host serves asks whether it is one.
   const serving = accountShell ? null : await probeServingOrigin(location.origin)
   // A catalog this browser already keeps is dialed now, and the directory refreshes it
@@ -407,10 +430,18 @@ async function startPage(): Promise<void> {
     offerAppOrPair(bootPairToken)
     return
   }
-  if (!(await resumeAccountSignIn())) return
   // Only the account origin mints guest links; on a host the same path is a link
   // nobody minted, and the grant request below says so.
   const bootShareLink = parseCloudShareLink(location.pathname, location.hash)
+  // The server sends a signed-out visitor to its sign-in page, so this page almost
+  // always opens the workspace. Load its code while the sign-in completes.
+  const opensWorkspace = !bootShareLink && !/^\/(w|s)\//.test(location.pathname)
+  if (opensWorkspace) void loadWorkspaceApp().catch(() => {})
+  const signedIn = resumeAccountSignIn()
+  if (opensWorkspace && accountShell?.directory && serverConnections.catalogServerIds().length === 0) {
+    dialShellDirectory(accountShell.directory, signedIn)
+  }
+  if (!(await signedIn)) return
   if (bootShareLink) {
     void openShareLink(bootShareLink)
   } else if (/^\/(w|s)\//.test(location.pathname)) {

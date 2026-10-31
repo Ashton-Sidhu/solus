@@ -2,7 +2,7 @@
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import { Check as CheckIcon, ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import type { TaskProviderId } from "@solus/contracts/task-types";
-  import { atlassianStore } from "../../../contexts";
+  import { atlassianStore } from "../../../contexts/atlassian/atlassian.store.svelte";
   import * as Popover from "../../ui/popover";
   import * as Command from "../../ui/command";
   import { MenuSearch } from "../../ui/menu";

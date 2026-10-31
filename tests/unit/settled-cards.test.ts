@@ -37,7 +37,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  connectRequestStore.dismiss()
+  connectRequestStore.requests.length = 0
   turnRefusalStore.dismiss()
   seatsStore.dismiss()
   agentAuthStore.dismiss()
@@ -67,14 +67,14 @@ describe('a follow-up send clears the cards that answered the last one', () => {
 
   test('the connect, refusal, seat, and finished sign-in cards of this conversation leave', () => {
     const session = sessionWith(null)
-    connectRequestStore.request = { serverId: 'studio', sessionId: 'session-1', provider: 'atlassian', reason: 'jira' }
+    connectRequestStore.requests = [{ kind: 'account', serverId: 'studio', sessionId: 'session-1', provider: 'atlassian', reason: 'jira' }]
     turnRefusalStore.note({ serverId: 'studio', sessionId: 'session-1', code: 'ORGANIZATION_REQUIRED', message: 'no' })
     seatsStore.required = { serverId: 'studio', sessionId: 'session-1', provider: 'codex' }
     agentAuthStore.flow = { serverId: 'studio', sessionId: 'session-1', title: 'Claude Design', phase: 'done' }
 
     clearSettledCards(session)
 
-    expect(connectRequestStore.request).toBeNull()
+    expect(connectRequestStore.requests).toEqual([])
     expect(turnRefusalStore.refused).toBeNull()
     expect(seatsStore.required).toBeNull()
     expect(agentAuthStore.flow).toBeNull()
@@ -89,10 +89,10 @@ describe('a follow-up send clears the cards that answered the last one', () => {
 
   test('a card of another conversation stays', () => {
     // WHY: a send in one tab must not dismiss what a different session asks for.
-    connectRequestStore.request = { serverId: 'studio', sessionId: 'session-2', provider: 'atlassian', reason: 'jira' }
+    connectRequestStore.requests = [{ kind: 'account', serverId: 'studio', sessionId: 'session-2', provider: 'atlassian', reason: 'jira' }]
     seatsStore.required = { serverId: 'studio', sessionId: 'session-2', provider: 'codex' }
     clearSettledCards(sessionWith(null))
-    expect(connectRequestStore.request?.sessionId).toBe('session-2')
+    expect(connectRequestStore.requests[0]?.sessionId).toBe('session-2')
     expect(seatsStore.required?.sessionId).toBe('session-2')
   })
 })

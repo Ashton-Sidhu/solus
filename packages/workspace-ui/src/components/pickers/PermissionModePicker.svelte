@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
   import { PERMISSION_MODES, type PermissionMode, type RunConfig } from '@solus/contracts/types'
   import { PERMISSION_MODE_DISPLAY } from '../../lib/permission-modes'
@@ -35,15 +36,11 @@
   )
   const supportsPermissions = $derived(capabilities?.permissions !== false)
   const supportsPlan = $derived(capabilities?.planMode !== false)
-  // The chip is its glyph alone, so the tooltip and the accessible name carry
-  // the words: which mode, and what it asks before.
-  const modeLabel = $derived.by(() => {
+  const tooltipLabel = $derived.by(() => {
     if (activeAgent === 'codex' && permissionMode === 'plan') return 'Codex read-only planning mode'
     if (activeAgent === 'claude-code' && permissionMode === 'plan') return 'Claude plan mode'
-    return display.label
+    return 'Permission mode'
   })
-  const tooltipLabel = $derived(`${modeLabel} · ${display.description}`)
-  const ariaLabel = $derived(`Permissions: ${modeLabel}. ${display.description}`)
   const permissionOptions = $derived(PERMISSION_MODES.filter((mode) => mode !== 'plan' || supportsPlan))
 
   function handleToggle() {
@@ -85,20 +82,22 @@
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <!-- The glyph alone names the mode; the label lives in the tooltip
-                 and the accessible name. Full access is the one mode that never
-                 asks, so its glyph is the one tinted: the risk reads at a glance
-                 without a word on the row. -->
             <button {...tooltipProps}
         {...props}
         type="button"
-        aria-label={ariaLabel}
-        class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg font-secondary text-workspace-chrome transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''} {permissionMode === 'full-access' ? 'text-amber-600 dark:text-amber-400' : 'text-(--solus-text-tertiary)'}"
+        class="flex h-[1.875rem] items-center gap-1.5 rounded-lg px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
         <span class="inline-flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
           <display.icon class="block size-full" />
         </span>
+        <!-- Composer ladder, rung 3: icon-only below 28rem. The mode glyph
+             already names the mode, so the word is the cheapest thing on the row
+             to spend. Declared here rather than passed down as a prop, so the
+             rung is one CSS fact instead of a width measurement each of the
+             three composers would have to repeat. -->
+        <span class="font-medium whitespace-nowrap @max-[28rem]/composer:hidden">{display.label}</span>
+        <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
           {/snippet}
         </TooltipUI.Trigger>

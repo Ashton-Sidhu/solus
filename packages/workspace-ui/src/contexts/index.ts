@@ -1,6 +1,11 @@
 /**
  * Curated renderer context surface.
  * If it isn't exported here, it's an internal organ — import it only from within its folder.
+ *
+ * A store that builds itself when its module loads stays out of this list when
+ * the first screen does not use it: every module that imports the list would
+ * load it (atlassian, webhooks, and the desktop updates store; import those
+ * from their own files).
  */
 
 /** Core workspace access; the gateway to session.tasksStore/prsStore/worksStore/automationsStore/router. */
@@ -87,11 +92,7 @@ export { linkDescription, registrationDescription } from './connections/host-rou
 /** The Solus account this client shell is signed in to (desktop only today). */
 export { accountStore } from './account/account.store.svelte'
 export { notificationHubStore } from './notifications/notification-hub.store.svelte'
-/** The desktop app's own update status (desktop only; web and mobile see no updates). */
-export { updatesStore } from './updates/updates.store.svelte'
 
-/** Atlassian site connection shared by Confluence docs and Jira tasks. */
-export { atlassianStore, ATLASSIAN_SIGNUP_URL } from './atlassian/atlassian.store.svelte'
 export { connectRequestStore } from './connections/connect-request.store.svelte'
 export type { ConnectRequest } from './connections/connect-request.store.svelte'
 /** Provider seats: a member's own Claude and Codex logins on a shared host. */
@@ -104,10 +105,6 @@ export { accountSyncStore } from './account/account-sync.store.svelte'
 /** This client's copy of the agent profile. */
 export { agentProfileLocalStore } from './seats/agent-profile-local.store.svelte'
 export { presenceStore } from './presence/presence.store.svelte'
-/** Every connected host's webhooks, joined into one list (docs/plans/webhooks.md §4). */
-export { webhooksStore } from './webhooks/webhooks.store.svelte'
-/** An organization's webhooks of all members, for its admins (docs/plans/webhooks.md §2.7). */
-export { webhookAdminStore } from './webhooks/webhook-admin.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 
 /** Session sidebar navigation and historical-session loading. */

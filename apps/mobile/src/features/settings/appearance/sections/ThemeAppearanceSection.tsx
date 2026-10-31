@@ -148,6 +148,7 @@ export function ThemeAppearanceSection() {
           />
         ))}
       </View>
+      <View accessible={false} className="mt-4 h-px w-9/10 self-center bg-border" />
     </View>
   );
 }

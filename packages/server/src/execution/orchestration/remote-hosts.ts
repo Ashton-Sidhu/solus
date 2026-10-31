@@ -3,7 +3,7 @@ import type { HostEventSubscriber } from '@solus/client-core/host-event-subscrib
 import { answersAsSavedHost } from '@solus/client-core/host-link'
 import { HostSupervisor, type DialOutcome } from '@solus/client-core/host-supervisor'
 import { WsTransport } from '@solus/client-core/ws-transport'
-import { chooseRoute, dialableRoutes, mergeRoutes, ROUTE_CHECK_TIMEOUT_MS, routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
+import { chooseRoute, dialableRoutes, mergeRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { DirectoryHost } from '@solus/contracts/uplink'
@@ -191,7 +191,7 @@ export class RemoteHosts {
       const found = nearby.find((server) => server.installationId === host.installationId)
       const discovered = found ? [routeForUrl(`http://${found.host}:${found.port}`)] : []
       const learned = this.learned.get(host.installationId)
-      const routes = mergeRoutes(mergeRoutes(learned?.routes ?? [], host.routes, 'directory', now), discovered, 'discovery', now)
+      const routes = routesForMachine(mergeRoutes(mergeRoutes(learned?.routes ?? [], host.routes, 'directory', now), discovered, 'discovery', now), host.kind)
       if (host.hostId === self || routes.length === 0) return []
       const target: HostTarget = {
         hostId: host.hostId,

@@ -7,6 +7,11 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test:logic": "cd ../.. && bun scripts/test-unit.ts native-mobile",
     "start": "expo start",
+    "eas:login": "npx eas-cli@latest login",
+    "eas:link": "npx eas-cli@latest init",
+    "eas:configure": "npx eas-cli@latest build:configure",
+    "eas:setup": "bun run eas:login && bun run eas:link && bun run eas:configure",
+    "eas:info": "npx eas-cli@latest project:info",
     "ios": "expo run:ios",
     "android": "expo run:android"
   },

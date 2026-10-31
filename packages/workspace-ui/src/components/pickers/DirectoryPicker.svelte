@@ -527,7 +527,7 @@
   <!-- Pickers centre in the app window. -->
   <div
     use:portal={layer.el}
-    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain picker-backdrop"
+    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain modal-backdrop"
     role="presentation"
     onmousedown={handleBackdropMousedown}
     transition:fade={{ duration: 120 }}

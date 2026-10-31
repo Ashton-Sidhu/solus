@@ -64,7 +64,7 @@ test('a refused device setting leaves its switch at the stored value and says wh
         import Button from ${JSON.stringify(button)};
         import Switch from ${JSON.stringify(switchControl)};
         import Empty from ${JSON.stringify(empty)};
-        const Input = Empty, DeviceToolVersions = Empty, Check = Empty, Ellipsis = Empty, LoaderCircle = Empty, Minus = Empty, Plus = Empty;
+        const CloudDeviceHosts = Empty, Input = Empty, DeviceToolVersions = Empty, Check = Empty, Ellipsis = Empty, LoaderCircle = Empty, Minus = Empty, Plus = Empty;
         const DropdownMenu = { Root: Empty, Trigger: Empty, Content: Empty, Item: Empty };
         const deviceErrorMessage = (cause) => cause.message;
         const hostProgressLabel = () => null;

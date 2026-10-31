@@ -231,6 +231,7 @@ import { activityFor } from './data/activity/activity'
 import { WorktreeMover } from './execution/sessions/worktree-move'
 import { markAwaitedTasks } from './execution/sessions/background-work'
 import { WorktreeOffers } from './execution/sessions/worktree-offers'
+import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
 
 const log = createLogger('main', 'server-boot')
@@ -669,6 +670,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     onHostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
+    onProviderInstancesChanged: () => events.broadcast('provider-instances.changed', {}),
   })
 
   // One worktree mover for the user's move, the agent's tool, and an offer's Switch.
@@ -796,7 +798,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       reconcile: (owner, cloudConnections) => integrationConnections.reconcile(owner, cloudConnections).then(() => undefined),
     },
   })
-  registerSeatHandlers(server, { seats, connector: seatConnector, profiles, agentAuth })
+  registerSeatHandlers(server, { seats, connector: seatConnector, profiles, agentAuth, providerInstancesChanged: () => events.broadcast('provider-instances.changed', {}) })
   /**
    * The organization a member's personal records belong to on this host, for a pull
    * no principal asked for: the organization this host acts for them in, else the
@@ -841,7 +843,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerAutomationHandlers(server)
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
-  setAutomationBackgroundSessionDispatcher(({ automationId, automationName, ...o }) => opts.sessionRuntime.dispatch.startUnattendedSession({ ...o, automation: { id: automationId, name: automationName } }))
+  setAutomationBackgroundSessionDispatcher(({ automationId, automationName, runId, ...o }) => opts.sessionRuntime.dispatch.startUnattendedSession({ ...o, startedBy: { kind: 'automation', automationId, runId }, automationName }))
   setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences) => (
     opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences)
   ))
@@ -895,6 +897,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts)
   setRemoteHosts(remoteHosts)
   setSessionController({
+    permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
     // their personal delegation and the introduced hosts; a member only through the
     // organization they work in here; anyone else not at all.
@@ -1073,6 +1076,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
     onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
     seats,
+  })
+  setProjectToolHost({
+    create: (request, caller) => server.handle('setupCreateProject', [request], caller),
+    clone: (request, caller) => server.handle('setupCloneProject', [request], caller),
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
   opts.sessionRuntime.launcher.prepareDispatchCheckout = setup.prepareDispatchCheckout
@@ -1292,7 +1299,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         })
       },
       onEstablished: (userId, scope) => {
-        if (scope !== 'personal') return
+        // A person's client presented on this machine (a cloud machine has no local client):
+        // rows that waited for someone to deliver them as go now, not at the next five-minute poll.
+        if (scope !== 'personal') {
+          runnerDelivery?.retryWaiting()
+          return
+        }
         void integrationConnections.recheckCloud(userId)
         // The owner's account can be read now: what the link could not upload yet moves into it (docs/plans/cloud-vault.md §2.5).
         if (currentHostUser()?.account?.accountId === userId) {

@@ -18,6 +18,7 @@ import { useWorkspaceTabs } from "./WorkspaceTabsContext";
  */
 export function WorkspaceToolbar(props: {
   readonly onOpenSettings: () => void;
+  readonly onAddProject?: () => void;
 }) {
   const workspace = useWorkspaceTabs();
   const { isTabActive, dispatch } = workspace;
@@ -77,6 +78,13 @@ export function WorkspaceToolbar(props: {
       />
       {/* UIKit lays trailing items out from the edge inward. */}
       <NativeHeaderToolbar placement="right">
+        {props.onAddProject && selectedTab === "chats" ? (
+          <NativeHeaderToolbar.Button
+            accessibilityLabel="Add project"
+            icon="folder.badge.plus"
+            onPress={props.onAddProject}
+          />
+        ) : null}
         <NativeHeaderToolbar.Button
           accessibilityLabel="Open settings"
           icon="gearshape"

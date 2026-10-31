@@ -35,7 +35,7 @@ import { isChat } from '@solus/contracts/chat'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { pickerProjectKeys } from '../../components/session/unified-picker/lib/picker-rows'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
-import { nestedRowParents } from '../../components/session/lib/session-tree'
+import { delegatedRows, nestedRowParents } from '../../components/session/lib/session-tree'
 import { SidebarReturnOrder } from '../../components/session/lib/sidebar-return-order'
 import {
   attemptServerId,
@@ -218,7 +218,8 @@ export class SessionSidebarStore {
     linkedTask: SidebarLinkedTask | undefined,
   ): SidebarTask {
     // A task of the reader's around it keeps it out of Shared with you: the task is theirs.
-    const share = linkedTask ? undefined : sessionListStore.listed(session.id)?.share
+    // Whose the session is decides its section, listed or not (docs/plans/shared-with-you.md §2, rule 1).
+    const share = linkedTask ? undefined : sessionListStore.shareFacts(session.id)?.share
     const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
     const projectKey = environmentProjectKey(environment, session.run)
     const attention = getAttentionState(session, tab, this.planStore.plans)
@@ -331,7 +332,10 @@ export class SessionSidebarStore {
 
   /** The sidebar aggregates every catalog host's rows into one list
    * (dispatch-client step 2); a row's own host still routes its actions. */
-  catalogTasks: SidebarTask[] = $derived(this.allTasks)
+  catalogTasks: SidebarTask[] = $derived(this.allTasks.filter((row) => {
+    const sessionId = this.sessionIdOfRow(row)
+    return !sessionId || !sessionListStore.isCompletedShare(sessionId)
+  }))
 
   /**
    * The session rows that sit under another row (`nestedRowParents`): each
@@ -533,7 +537,7 @@ export class SessionSidebarStore {
   workingRows: SidebarTask[] = $derived(this.openRows.filter(isInWorkingSection))
 
   /** Shared with you (docs/plans/shared-with-you.md): other people's sessions
-   *  in this person's list, in every state, newest grant first. A row with
+   *  in this person's list, until they complete it, newest grant first. A row with
    *  unsent work and no pane is in Drafts, as a session of their own is. A
    *  shared session nested under one of the reader's sessions stays nested. */
   sharedRows: SidebarTask[] = $derived.by(() => {
@@ -1124,7 +1128,7 @@ export class SessionSidebarStore {
   /**
    * The check on a row: completing says "I am finished with this". It settles
    * the session on its host and unloads its conversation, exactly as the row's
-   * close control does; the row goes to Completed on every client. On a
+   * close control does; the row goes to Completed on this person's clients. On a
    * settled session it makes the session active again, and opens it when no
    * conversation of it is here. A session that has not started has nothing on
    * its host, so its row is only closed.
@@ -1142,7 +1146,9 @@ export class SessionSidebarStore {
       await unsettling
       return
     }
-    const settling = sessionListStore.setSettled(target, true)
+    // The sessions it delegated are finished with it: they settle and close too.
+    const targets = [target, ...this.closeDelegatedRows(row, (child) => this.canShelve(child))]
+    const settling = Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, true)))
     this.closeTask(row)
     const { toasts } = await import('../../lib/toasts')
     try {
@@ -1153,10 +1159,32 @@ export class SessionSidebarStore {
     }
     // Undo makes the session active again, as the mobile list's Undo does.
     toasts.undo('Session marked as completed.', () => {
-      void sessionListStore.setSettled(target, false).catch(() => {
+      void Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, false))).catch(() => {
         toasts.error("Couldn't make it active again")
       })
     })
+  }
+
+  /**
+   * Close the rows of the sessions a row's session delegated, at any depth
+   * (`delegatedRows`), before the row itself closes. Returns the sessions of
+   * the closed rows that `canChange` accepts, so the row's settle or archive
+   * applies to them too.
+   */
+  private closeDelegatedRows(row: SidebarTask, canChange: (child: SidebarTask) => boolean): SessionListTarget[] {
+    const target = this.sessionOfRow(row)
+    if (!target) return []
+    const children = delegatedRows(target.sessionId, this.catalogTasks, (candidate) => {
+      const tabId = candidate.tabIds[0]
+      return tabId ? this.session.sessionFor(tabId) ?? null : null
+    })
+    const targets: SessionListTarget[] = []
+    for (const child of children) {
+      const childTarget = canChange(child) ? this.sessionOfRow(child) : null
+      if (childTarget) targets.push(childTarget)
+      this.closeTask(child)
+    }
+    return targets
   }
 
   /** Every session linked to a task, in the order they were linked. */
@@ -1337,15 +1365,17 @@ export class SessionSidebarStore {
    */
   removeRow(row: SidebarTask): void {
     const target = this.canArchive(row) ? this.sessionOfRow(row) : null
+    // The sessions it delegated leave the list with it.
+    const delegated = this.closeDelegatedRows(row, (child) => this.canArchive(child))
     this.closeTask(row)
     if (!target) return
-    void this.archiveOnHost(target)
+    void this.archiveOnHost([target, ...delegated])
   }
 
-  /** Archive one session on its host. Only a refused archive says it failed,
-   *  with the host's reason; Undo returns the session to the list. */
-  private async archiveOnHost(target: SessionListTarget): Promise<void> {
-    const archiving = sessionListStore.setArchived(target, true)
+  /** Archive sessions on their hosts. Only a refused archive says it failed,
+   *  with the host's reason; Undo returns the sessions to the list. */
+  private async archiveOnHost(targets: SessionListTarget[]): Promise<void> {
+    const archiving = Promise.all(targets.map((target) => sessionListStore.setArchived(target, true)))
     const { toasts } = await import('../../lib/toasts')
     try {
       await archiving
@@ -1354,7 +1384,7 @@ export class SessionSidebarStore {
       return
     }
     toasts.undo('Session archived', () => {
-      void sessionListStore.setArchived(target, false).catch(() => {
+      void Promise.all(targets.map((target) => sessionListStore.setArchived(target, false))).catch(() => {
         toasts.error("Couldn't return it to the list")
       })
     })

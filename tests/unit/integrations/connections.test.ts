@@ -14,6 +14,7 @@ const { IntegrationConnections } = await import('@solus/server/integrations/conn
 const { IntegrationConnectionStore } = await import('@solus/server/integrations/connection-store')
 const { Vault } = await import('@solus/server/vault/vault')
 const { dataDir } = await import('@solus/server/platform/paths')
+const { hostUserKey } = await import('@solus/server/host/host-user')
 const db = await import('@solus/server/db')
 
 /**
@@ -98,15 +99,17 @@ describe('integration connections', () => {
     expect(await connections.authorizationFor(basic.id, ALICE)).toBe('Basic dXNlcjpwYXNz')
   })
 
-  test('a refused credential moves the connection to needs-sign-in and stops sending it', async () => {
+  test('a refused credential on this host moves the connection to needs-sign-in and stops sending it', async () => {
+    // WHY: a person not signed in to Solus keeps their credential on this host; nothing but a new sign-in here replaces it.
     fake.accepted.add('Bearer good-key')
+    const owner = hostUserKey()
     const keyed = record('keyed', { kind: 'bearer', scheme: 'bearer' })
     const { connections, store, changed } = setup([keyed])
-    await connections.submitKey(keyed, ALICE, 'good-key')
-    connections.markNeedsSignIn(keyed.id, ALICE, 'The server answered 401.')
-    expect(store.get(keyed.id, ALICE)).toMatchObject({ status: 'needs-sign-in', error: 'The server answered 401.' })
-    expect(changed.at(-1)).toMatchObject({ user: ALICE, event: { integrationId: keyed.id, connection: { status: 'needs-sign-in' } } })
-    expect(await connections.authorizationFor(keyed.id, ALICE)).toBeNull()
+    await connections.submitKey(keyed, owner, 'good-key')
+    connections.markNeedsSignIn(keyed.id, owner, 'The server answered 401.')
+    expect(store.get(keyed.id, owner)).toMatchObject({ status: 'needs-sign-in', error: 'The server answered 401.' })
+    expect(changed.at(-1)).toMatchObject({ user: owner, event: { integrationId: keyed.id, connection: { status: 'needs-sign-in' } } })
+    expect(await connections.authorizationFor(keyed.id, owner)).toBeNull()
   })
 
   test('a guest has no MCP credentials: nothing is kept for them, and nothing is sent', async () => {

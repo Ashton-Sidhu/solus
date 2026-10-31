@@ -1,0 +1,127 @@
+{
+  "date": "2026-10-30",
+  "scope": "Two fresh Google client logins in Safari after deployment of the pool-identity and one-query host-exchange fixes. Timings start at the workspace document navigation after Google; they exclude account-choice time and do not establish full workspace readiness.",
+  "clientEntry": "/assets/index-NbENCJKb.js",
+  "runs": [
+    {
+      "run": 1,
+      "htmlResponseStartMs": 1176,
+      "htmlResponseEndMs": 1179,
+      "loadEventMs": 1365,
+      "firstContentfulPaintMs": 3084,
+      "authorize": {
+        "startMs": 1296,
+        "durationMs": 225,
+        "queries": 1
+      },
+      "codeExchange": {
+        "startMs": 1527,
+        "durationMs": 265,
+        "queries": 2,
+        "appMs": 209.8,
+        "dbMs": 143.4
+      },
+      "startupResponseAvailableMs": 1792,
+      "startupToFirstPaintMs": 1292,
+      "htmlResponseEndToFirstPaintMs": 1905,
+      "hostDirectory": {
+        "startMs": 1806,
+        "durationMs": 189,
+        "queries": 3
+      },
+      "hostExchanges": [
+        {
+          "startMs": 1857,
+          "durationMs": 235,
+          "queries": 1
+        },
+        {
+          "startMs": 1861,
+          "durationMs": 268,
+          "queries": 1
+        },
+        {
+          "startMs": 1864,
+          "durationMs": 252,
+          "queries": 1
+        }
+      ],
+      "agentProfile": {
+        "startMs": 3047,
+        "durationMs": 126,
+        "queries": 2
+      },
+      "accountSettingsFollowUpRequests": 0,
+      "assets": {
+        "count": 239,
+        "decodedBytes": 6299672,
+        "encodedBodyBytes": 2014921,
+        "firstStartMs": 1189,
+        "lastResponseEndMs": 3269
+      }
+    },
+    {
+      "run": 2,
+      "htmlResponseStartMs": 1331,
+      "htmlResponseEndMs": 1334,
+      "loadEventMs": 1457,
+      "firstContentfulPaintMs": 3633,
+      "authorize": {
+        "startMs": 1541,
+        "durationMs": 213,
+        "queries": 1
+      },
+      "codeExchange": {
+        "startMs": 1759,
+        "durationMs": 204,
+        "queries": 2,
+        "appMs": 141.3,
+        "dbMs": 104.3
+      },
+      "startupResponseAvailableMs": 1963,
+      "startupToFirstPaintMs": 1670,
+      "htmlResponseEndToFirstPaintMs": 2299,
+      "hostDirectory": {
+        "startMs": 1979,
+        "durationMs": 144,
+        "queries": 3
+      },
+      "hostExchanges": [
+        {
+          "startMs": 2029,
+          "durationMs": 132,
+          "queries": 1
+        },
+        {
+          "startMs": 2033,
+          "durationMs": 213,
+          "queries": 1
+        },
+        {
+          "startMs": 2036,
+          "durationMs": 171,
+          "queries": 1
+        }
+      ],
+      "agentProfile": {
+        "startMs": 3465,
+        "durationMs": 94,
+        "queries": 2
+      },
+      "accountSettingsFollowUpRequests": 0
+    }
+  ],
+  "findings": [
+    "Live code exchange now reports two SQL queries, and each client-to-host exchange reports one.",
+    "The first contentful paint remains later than the startup response: 1.292 s and 1.670 s.",
+    "The initial web HTML has an empty root. The web entry awaits account sign-in before starting catalog boot and importing the workspace. This leaves no workspace content until the client module is loaded and mounted.",
+    "There is no measured first-paint improvement in these two observations, despite reduced query counts."
+  ],
+  "limits": [
+    "Two observations are not production percentiles or a controlled before/after experiment. Safari Web Inspector was open; cache state and host machine load were not controlled.",
+    "HTML-response-end to first-contentful-paint is a measured interval, not a frame-by-frame measurement of a white screen.",
+    "Safari switched to an Expo tab during preparation for run 2; the benchmark resumed in the Solus tab before Google login.",
+    "After run 2 startup, a console timing command was accidentally sent as an agent prompt. The resulting reply occurred after the recorded paint; it does not establish anything about full readiness.",
+    "Readiness and long-task attribution need explicit startup marks or a complete rendering trace. No source changes or deployment were performed during this recheck."
+  ]
+}

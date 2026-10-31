@@ -1,7 +1,7 @@
 <script lang="ts">
+  import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   import {
     AppWindow as ArtifactIcon,
-    File as FileIcon,
     FileText as DocIcon,
     GitPullRequest as GitPullRequestIcon,
     Image as ImageIcon,
@@ -27,11 +27,12 @@
     pullRequestState?: PullRequestChipState | null;
     /** A work's own icon; a total of several works shows the tone's. */
     workType?: WorkType;
+    filePath?: string;
     /** The full name, when the label is cut. */
     title?: string;
     onclick: () => void;
   }
-  let { tone, label, note = null, pullRequestState = null, workType, title, onclick }: Props = $props();
+  let { tone, label, note = null, pullRequestState = null, workType, filePath, title, onclick }: Props = $props();
 
   // Works take the WorkspaceCard hues: teal is written, purple drawn. Amber and
   // sage are left out; they mean "needs you" and "done". The ink mixes in oklab,
@@ -66,11 +67,9 @@
       ? (badge?.Icon ?? GitPullRequestIcon)
       : tone === "written" || tone === "drawn"
         ? WORK_ICONS[workType ?? (tone === "written" ? "doc" : "diagram")]
-        : tone === "file"
-          ? FileIcon
-          : tone === "image"
-            ? ImageIcon
-            : AutomationIcon,
+        : tone === "image"
+          ? ImageIcon
+          : AutomationIcon,
   );
 </script>
 
@@ -84,6 +83,9 @@
   title={title ?? label}
   {onclick}
 >
+  {#if tone === "file" || filePath !== undefined}
+    <FileIcon path={filePath ?? ""} size={12} />
+  {:else}
   <Icon
     size={12}
     strokeWidth={1.75}
@@ -91,6 +93,7 @@
     class="shrink-0"
     style={tone === "pull-request" ? `color:${badge?.tone ?? "var(--solus-text-tertiary)"}` : undefined}
   />
+  {/if}
   <span class="min-w-0 truncate">{label}</span>
   {#if note}
     <span class="shrink-0 font-normal text-muted-foreground">{note}</span>

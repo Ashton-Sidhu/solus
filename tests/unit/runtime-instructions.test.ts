@@ -125,9 +125,9 @@ describe('runtime instructions', () => {
     expect(await claudeAppend([linkTool])).toContain(pointer)
   })
 
-  test('the check step is named only when list_session_pull_requests is on', async () => {
-    const check = 'call list_session_pull_requests'
-    expect(await claudeAppend([linkTool, tool('list_session_pull_requests')])).toContain(check)
+  test('the check step is named only when list_links is on', async () => {
+    const check = 'call list_links'
+    expect(await claudeAppend([linkTool, tool('list_links')])).toContain(check)
     expect(await claudeAppend([linkTool])).not.toContain(check)
   })
 
@@ -163,41 +163,28 @@ describe('runtime instructions', () => {
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Solus orchestration')
       expect(prompt).toContain('This catalog does not establish native subagent support')
-      expect(prompt).toContain('An ended provider turn with open child work is not a final result.')
+      expect(prompt).toContain('A provider turn with open child work is not a final result:')
       expect(prompt).toContain('Use send_session to continue an existing session')
-      expect(prompt).toContain('reuse it only when retrying that same work')
-      expect(prompt).toContain('Do not poll in a loop')
+      expect(prompt).toContain('Reuse request_id only to retry the same request')
+      expect(prompt).toContain('Do not poll')
     }
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Solus orchestration')
     expect(await claudeAppend([])).not.toContain('## Solus orchestration')
     const partial = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_session')])
     expect(partial).not.toContain('call list_agent_targets')
-    expect(partial).not.toContain('Use send_session')
+    expect(partial).toContain('Use send_session')
     expect(partial).not.toContain('Use read_session_exchange')
   })
 
-  test('delegation guidance keeps model changes and task mode separate from native subagents', async () => {
-    const tools = [tool('start_session'), tool('list_agent_targets')]
+  test('one delegation tool covers both providers and keeps independent starts separate', async () => {
+    const tools = [tool('delegate_task'), tool('list_agent_targets')]
     for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
-      expect(prompt).toContain('A different model alone does not require start_session')
-      expect(prompt).toContain('Native subagents need no Solus task fields')
-      expect(prompt).toContain("Use task='none' outside task mode")
-      expect(prompt).toContain('In task mode, follow the Working On Task packet')
-      expect(prompt).not.toContain('File related work as task=attempt')
-      expect(prompt).not.toContain('claude_subagent is available')
-      expect(prompt).not.toContain('codex_subagent is available')
-    }
-  })
-
-  test('only the available wrapper is named before tool selection', async () => {
-    for (const wrapper of ['claude_subagent', 'codex_subagent']) {
-      const tools = [tool('start_session'), tool(wrapper)]
-      for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
-        expect(prompt).toContain(`${wrapper} is available for temporary work`)
-        expect(prompt).toContain('no Solus report or task fields are needed')
-        const other = wrapper === 'claude_subagent' ? 'codex_subagent' : 'claude_subagent'
-        expect(prompt).not.toContain(`${other} is available`)
-      }
+      expect(prompt).toContain('Use delegate_task for child work on the same provider or another provider')
+      expect(prompt).toContain('Use start_session only for an independent conversation')
+      expect(prompt).toContain('A local child inherits')
+      expect(prompt).toContain('Permission mode may stay the same or become narrower')
+      expect(prompt).not.toContain('claude_subagent')
+      expect(prompt).not.toContain('codex_subagent')
     }
   })
 
@@ -265,11 +252,11 @@ describe('runtime instructions', () => {
     // requested reasoning level that is silently lowered, and a session named
     // by id where the user cannot open it.
     const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_session')])
-    expect(prompt).toContain('retry with the same request_id')
-    expect(prompt).toContain('Push the base branch first')
-    expect(prompt).toContain('Do not change a requested level to another one')
-    expect(prompt).toContain('session://open?provider=')
-    expect(prompt).toContain('Do not use start_session only because the user said "subagent"')
+    expect(prompt).toContain('Reuse request_id only to retry the same request')
+    expect(prompt).toContain("isolation='worktree'")
+    expect(prompt).toContain('Never substitute an unsupported level')
+    expect(prompt).toContain('copy the link returned by its tool')
+    expect(prompt).toContain('Use start_session only for an independent conversation')
   })
 
   test('collaboration-mode text stays Codex-only', async () => {

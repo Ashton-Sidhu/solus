@@ -1,11 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
-import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { z } from 'zod'
 import {
-  encodePathAsFolder,
-  isSolusWorktreePath,
-  SOLUS_WORKTREE_ENCODED_MARKER,
-  type AgentId,
   type SessionRecord,
   type SessionRecordDelegation,
   type SessionRecordStatus,
@@ -18,6 +13,7 @@ import { provisionedOrganizationId } from '../../host/host-category'
 import { hostUserKey } from '../../host/host-user'
 import { scopeClause } from '../scope'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
+import { parseStoredStarter } from '@solus/contracts/session-starter'
 import { aclEntry } from '../../sharing/schema'
 import { sessionPullRequests, sessionRecords, sessionStates, sessionViews } from './schema'
 import { stateFromColumns, viewFromColumns } from './session-state-columns'
@@ -64,7 +60,9 @@ const recordRowSchema = z.object({
   delegation_depth: z.number().nullable(),
   delegation_intent: z.enum(['delegate', 'fire_and_forget']).nullable().catch(null),
   delegation_created_at: z.number().nullable(),
-  /** 1 when the session was started in Mission mode (`session_leads`). */
+  place: z.enum(['chat', 'project']).nullable().catch(null),
+  started_by: z.string().nullable(),
+  /** 1 when the session was started in Coordinator mode (`session_leads`). */
   is_lead: z.coerce.number().optional(),
 })
 
@@ -74,9 +72,10 @@ const RECORD_COLUMN_NAMES = [
   'session_id', 'organization_id', 'publication', 'owner_key', 'provider', 'project_path', 'project_remote', 'runner_host_id', 'title', 'custom_title',
   'status', 'model', 'reasoning_effort', 'parent_session_id', 'root_session_id', 'created_at', 'last_activity_at', 'size',
   'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
+  'place', 'started_by',
 ]
 /** The lead mark lives in its own table (docs/plans/lead-session.md decision 4):
- *  every record read asks it, so the list can mark a Mission mode session. */
+ *  every record read asks it, so the list can mark a Coordinator mode session. */
 const LEAD_COLUMN = 'EXISTS(SELECT 1 FROM session_leads WHERE session_leads.session_id = session_records.session_id) AS is_lead'
 const RECORD_COLUMNS = sql.raw([...RECORD_COLUMN_NAMES, LEAD_COLUMN].join(', '))
 /** The record's columns, its shared state, and the reader's view, for a read
@@ -85,12 +84,13 @@ const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
   LEAD_COLUMN,
   'session_states.settled_at', 'session_states.settled_by',
-  'session_views.archived_at', 'session_views.snoozed_until', 'session_views.snooze_note',
+  'session_views.settled_at AS view_settled_at', 'session_views.archived_at', 'session_views.snoozed_until', 'session_views.snooze_note',
 ].join(', '))
 
 const recordWithStateRowSchema = recordRowSchema.extend({
   settled_at: z.number().nullable(),
   settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  view_settled_at: z.number().nullable(),
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
@@ -118,6 +118,10 @@ function directShare(reader: SessionPageReader, column: SQL): SQL {
 
 const GRANTED_AT = sql`COALESCE(acl.granted_at, acl.created_at)`
 
+/** A pull request link that keeps its session in the list: not dismissed, and not ended. */
+const OPEN_PULL_REQUEST = sql.raw(`session_pull_requests.source <> 'dismissed'
+  AND (session_pull_requests.pr_state IS NULL OR session_pull_requests.pr_state NOT IN ('merged', 'closed', 'missing'))`)
+
 /**
  * Whether a session is in the reader's list (docs/plans/session-archive.md):
  * it is the reader's — they own it, or they prompted it (a prompt leaves their
@@ -139,9 +143,7 @@ export function sessionListedClause(reader: SessionPageReader): SQL {
     OR session_views.snoozed_until IS NOT NULL
     OR EXISTS (
       SELECT 1 FROM ${sessionPullRequests}
-      WHERE session_pull_requests.session_id = session_records.session_id
-        AND session_pull_requests.source <> 'dismissed'
-        AND (session_pull_requests.pr_state IS NULL OR session_pull_requests.pr_state NOT IN ('merged', 'closed', 'missing'))
+      WHERE session_pull_requests.session_id = session_records.session_id AND ${OPEN_PULL_REQUEST}
     )
   )`
   return sql`((session_views.archived_at IS NULL
@@ -182,6 +184,8 @@ function recordFromRow(row: RecordRow): SessionRecord {
     branch: row.branch,
     projectRoot: row.project_root,
     delegation: delegationFromRow(row),
+    place: row.place,
+    startedBy: parseStoredStarter(row.started_by),
   }
   if (row.is_lead === 1) record.isLead = true
   return record
@@ -239,14 +243,60 @@ export interface SessionPageReader {
 /**
  * Scoped, authorized seek predicate is applied before LIMIT. The seek must use the same time column.
  * Each record carries its shared state and the reader's view (docs/plans/session-archive.md),
- * read in the same query; `where` may use `sessionListedClause`.
+ * read in the same query, and whether it is in the reader's list. For the list itself, use
+ * `readSessionListPage`.
  */
 export async function readSessionMetadataPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at' = 'created_at', reader: SessionPageReader = { personKey: null, now: Date.now() }): Promise<SessionRecord[]> {
+  return readPage(sql`FROM ${sessionRecords}`, where, sql`CASE WHEN ${sessionListedClause(reader)} THEN 1 ELSE 0 END`, limit, time, reader)
+}
+
+/**
+ * The ids that can be in the reader's list, each way in read by its own index:
+ * recent activity, the reader's snoozes, open pull requests, and the reader's
+ * direct shares. Each part of `sessionListedClause` needs one of them, so this
+ * is a superset of the list, and small: it never holds an old, quiet session
+ * nobody shared.
+ */
+function listCandidates(where: SQL, reader: SessionPageReader): SQL {
+  const { personKey, teamIds = [], now } = reader
+  const parts = [
+    sql`SELECT session_id FROM ${sessionRecords} WHERE last_activity_at >= ${now - SESSION_LIST_IDLE_MS} AND ${where}`,
+    sql`SELECT session_id FROM ${sessionViews} WHERE person_key = ${personKey ?? ''} AND snoozed_until IS NOT NULL`,
+    sql`SELECT session_id FROM ${sessionPullRequests} WHERE ${OPEN_PULL_REQUEST}`,
+  ]
+  if (personKey) {
+    const subjects = [sql`(subject_kind = 'user' AND subject_id = ${personKey})`]
+    if (teamIds.length) subjects.push(sql`(subject_kind = 'team' AND subject_id IN (${sql.join(teamIds.map((teamId) => sql`${teamId}`), sql`, `)}))`)
+    parts.push(sql`SELECT resource_id FROM ${aclEntry} WHERE resource_kind = 'session' AND (${sql.join(subjects, sql` OR `)})`)
+  }
+  return sql.join(parts, sql` UNION `)
+}
+
+/**
+ * One page of the reader's list (docs/plans/session-archive.md): the records
+ * `readSessionMetadataPage` answers with `sessionListedClause` in `where`. It
+ * picks the page's ids from `listCandidates` instead of every record, then
+ * builds full rows for those ids alone. `where` names only `session_records`
+ * columns, since it also narrows the recent ids, and not `sessionListedClause`
+ * itself. Every row is listed.
+ */
+export async function readSessionListPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at', reader: SessionPageReader): Promise<SessionRecord[]> {
+  const order = sql`ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC`
+  // CROSS JOIN keeps the left side the outer loop on SQLite, so each record is one primary key read.
+  const ids = sql`SELECT session_records.session_id FROM (${listCandidates(where, reader)}) AS list_candidates
+    CROSS JOIN ${sessionRecords}
+    LEFT JOIN ${sessionViews} ON session_views.session_id = session_records.session_id AND session_views.person_key = ${reader.personKey ?? ''}
+    WHERE session_records.session_id = list_candidates.session_id AND ${where} AND ${sessionListedClause(reader)}
+    ${order} LIMIT ${limit}`
+  return readPage(sql`FROM (${ids}) AS list_page CROSS JOIN ${sessionRecords}`, sql`session_records.session_id = list_page.session_id`, sql`1`, limit, time, reader)
+}
+
+async function readPage(from: SQL, where: SQL, listed: SQL, limit: number, time: 'created_at' | 'last_activity_at', reader: SessionPageReader): Promise<SessionRecord[]> {
   const rows = recordWithStateRowSchema.array().parse(await getDatabase().all(sql`
     SELECT ${RECORD_WITH_STATE_COLUMNS},
       ${directShare(reader, sql`acl.granted_by_user_id`)} AS shared_by, ${directShare(reader, GRANTED_AT)} AS granted_at,
-      CASE WHEN ${sessionListedClause(reader)} THEN 1 ELSE 0 END AS listed
-    FROM ${sessionRecords}
+      ${listed} AS listed
+    ${from}
     LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
     LEFT JOIN ${sessionViews} ON session_views.session_id = session_records.session_id AND session_views.person_key = ${reader.personKey ?? ''}
     WHERE ${where} ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC LIMIT ${limit}
@@ -344,6 +394,8 @@ function firstRecord(organizationId: string, input: SessionRecordUpsert, birth: 
     branch: null,
     projectRoot: null,
     delegation: null,
+    place: null,
+    startedBy: null,
   }
 }
 
@@ -380,6 +432,9 @@ function mergeRecord(existing: SessionRecord | null, organizationId: string, inp
     branch: reported(input.branch, stored.branch),
     projectRoot: reported(input.projectRoot, stored.projectRoot),
     delegation: reported(input.delegation, stored.delegation),
+    // Written once, by the write that knows them (session-starter.md §3); a later report never changes them.
+    place: stored.place ?? input.place ?? null,
+    startedBy: stored.startedBy ?? input.startedBy ?? null,
   }
 }
 
@@ -498,14 +553,16 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         session_id, organization_id, publication, owner_key, provider, project_path, project_remote, runner_host_id,
         title, custom_title, status, model, reasoning_effort, parent_session_id, root_session_id,
         created_at, last_activity_at, size,
-        cwd, slug, is_worktree, branch, project_root, delegation_message_id, delegation_depth, delegation_intent, delegation_created_at
+        cwd, slug, is_worktree, branch, project_root, delegation_message_id, delegation_depth, delegation_intent, delegation_created_at,
+        place, started_by
       ) VALUES (
         ${merged.sessionId}, ${merged.organizationId}, ${merged.publication}, ${merged.ownerKey}, ${merged.provider}, ${merged.projectPath},
         ${merged.projectRemote}, ${merged.runnerHostId}, ${merged.title}, ${merged.customTitle}, ${merged.status},
         ${merged.model}, ${merged.reasoningEffort}, ${merged.parentSessionId}, ${merged.rootSessionId},
         ${merged.createdAt}, ${merged.lastActivityAt}, ${merged.size},
         ${merged.cwd}, ${merged.slug}, ${merged.isWorktree ? 1 : 0}, ${merged.branch}, ${merged.projectRoot},
-        ${merged.delegation?.messageId ?? null}, ${merged.delegation?.depth ?? null}, ${merged.delegation?.intent ?? null}, ${merged.delegation?.createdAt ?? null}
+        ${merged.delegation?.messageId ?? null}, ${merged.delegation?.depth ?? null}, ${merged.delegation?.intent ?? null}, ${merged.delegation?.createdAt ?? null},
+        ${merged.place}, ${merged.startedBy ? JSON.stringify(merged.startedBy) : null}
       )
       ON CONFLICT(session_id) DO UPDATE SET
         provider = excluded.provider,
@@ -530,7 +587,9 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         delegation_message_id = excluded.delegation_message_id,
         delegation_depth = excluded.delegation_depth,
         delegation_intent = excluded.delegation_intent,
-        delegation_created_at = excluded.delegation_created_at
+        delegation_created_at = excluded.delegation_created_at,
+        place = COALESCE(session_records.place, excluded.place),
+        started_by = COALESCE(session_records.started_by, excluded.started_by)
       WHERE session_records.organization_id = excluded.organization_id
     `)
     return merged
@@ -669,17 +728,6 @@ export function sessionRecordStatusOf(status: SessionStatus): SessionRecordStatu
   }
 }
 
-export interface SessionRecordQuery {
-  provider?: AgentId
-  /** Exact provider project folder keys. */
-  projectPaths?: string[]
-  /** One plain project path; encoded here as the provider spells it. */
-  projectPath?: string
-  /** With `projectPath`: the project's worktree folders too, unless the path is itself a worktree. */
-  includeWorktrees?: boolean
-  limit?: number
-}
-
 /**
  * Whether this host's records hold every session on its disk yet. Boot
  * installs the transcript indexer's answer; the workspace service keeps the
@@ -766,30 +814,4 @@ export async function liveSessionBranches(activeSince: number): Promise<LiveSess
   return rows.map((row) => ({
     sessionId: row.session_id, repositoryKey: row.project_remote, branch: row.branch, ownerKey: row.owner_key, isRunning: row.status === 'running',
   }))
-}
-
-/** Newest activity first, with the picker's filters. */
-export async function listSessionRecords(scope: RecordScope, query: SessionRecordQuery = {}): Promise<SessionRecord[]> {
-  const clauses: SQL[] = [scopeClause(scope)]
-  if (query.provider) clauses.push(sql`provider = ${query.provider}`)
-  if (query.projectPaths) {
-    if (query.projectPaths.length === 0) return []
-    clauses.push(sql`project_path IN (${sql.join(query.projectPaths.map((path) => sql`${path}`), sql`, `)})`)
-  }
-  if (query.projectPath !== undefined) {
-    const normalized = trimTrailingSeparators(query.projectPath)
-    const encoded = encodePathAsFolder(normalized)
-    const withWorktrees = query.includeWorktrees === true && !isSolusWorktreePath(normalized)
-    clauses.push(withWorktrees
-      ? sql`(project_path = ${encoded} OR project_path LIKE ${`${encoded}${SOLUS_WORKTREE_ENCODED_MARKER}%`})`
-      : sql`project_path = ${encoded}`)
-  }
-  const limit = query.limit === undefined ? sql`` : sql`LIMIT ${query.limit}`
-  const rows = recordRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${RECORD_COLUMNS} FROM ${sessionRecords}
-    WHERE ${sql.join(clauses, sql` AND `)}
-    ORDER BY last_activity_at DESC, session_id
-    ${limit}
-  `))
-  return rows.map(recordFromRow)
 }

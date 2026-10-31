@@ -6,6 +6,7 @@ import type { PickerSort } from '@solus/workspace-ui/components/session/unified-
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { NO_PICKER_FILTERS } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-filters'
 import {
+  conversationProjectLabel,
   buildPickerRows,
   collapseTarget,
   expandTarget,
@@ -240,6 +241,13 @@ describe('unified picker rows', () => {
   test('a task matching nothing is dropped', () => {
     const { entries } = build(tasks, sessions, 'nothing here')
     expect(entries).toEqual([])
+  })
+
+  test('a chat is labelled Chat, not with the session id its folder is named for', () => {
+    // WHY: a chat runs in `solus-chats/<session id>`. Its folder name is an id
+    // no one can read, and a shared chat from a cloud machine showed only that.
+    expect(conversationProjectLabel({ cwd: '/data/projects/u/solus-chats/73feb40c-9844-4701-b020-ac5562bcdad4', place: 'chat' } as SessionMeta)).toBe('Chat')
+    expect(conversationProjectLabel({ projectRoot: '/Users/me/solus', cwd: '/Users/me/solus' } as SessionMeta)).toBe('solus')
   })
 
   describe('conversation hits', () => {

@@ -315,13 +315,12 @@
               >
                 <CheckIcon size={11} class="trail-check self-center" />
                 <span class="min-w-0 truncate">{entry.question.question}</span>
-                <span class="shrink-0 font-medium text-(--solus-text-secondary)">{entry.answer}</span>
+                <span class="shrink-0 text-(--solus-text-secondary)">{entry.answer}</span>
               </button>
             {/each}
             <div class="interrupt-divider my-2" aria-hidden="true"></div>
           {/if}
 
-          <!-- The question is the card's one bold line. -->
           <div class="prose prose-question interrupt-title min-w-0">
             <SvelteMarkdown
               source={currentQuestion.question}
@@ -343,27 +342,32 @@
         </div>
 
         {#if hasOptions}
-          <!-- Options are soft rows, not boxes: each carries a consequence line,
-               which is the part that makes the choice decidable. -->
-          <div class="-mx-2.5 flex flex-col" role={currentQuestion.multiSelect ? "group" : "radiogroup"}>
+          <!-- Options are soft rows, not boxes: a radio (or a checkbox for
+               multi-select) leads, and each carries a consequence line, which is
+               the part that makes the choice decidable. -->
+          <div class="-mx-2 flex flex-col gap-0.5" role={currentQuestion.multiSelect ? "group" : "radiogroup"}>
             {#each currentQuestion.options as opt, i (opt.label)}
               {@const selected = isSelected(currentQuestion, opt.label)}
-              {@const previousSelected = i > 0 && isSelected(currentQuestion, currentQuestion.options[i - 1].label)}
               {@const label = optionLabelParts(opt.label)}
-              {#if i > 0}
-                <div class="interrupt-divider" class:opacity-0={selected || previousSelected} aria-hidden="true"></div>
-              {/if}
               <button
                 type="button"
-                class="option-row flex items-start gap-3 px-2.5 py-2 text-left"
+                class="option-row flex items-start gap-2.5 px-2 py-1.5 text-left"
                 class:is-selected={selected}
                 role={currentQuestion.multiSelect ? "checkbox" : "radio"}
                 aria-checked={selected}
                 disabled={closed || !canDrive}
                 onclick={() => toggleOption(currentQuestion, opt.label)}
               >
+                <span
+                  class="option-mark"
+                  class:is-check={currentQuestion.multiSelect}
+                  class:is-on={selected}
+                  aria-hidden="true"
+                >
+                  {#if currentQuestion.multiSelect}<CheckIcon size={10} strokeWidth={3} />{/if}
+                </span>
                 <span class="flex min-w-0 flex-1 flex-col gap-px">
-                  <span class="text-transcript-card font-medium">
+                  <span class="option-label text-xs leading-relaxed">
                     {#each inlineCodeParts(label.text) as part, p (p)}
                       {#if part.code}<code class="option-code">{part.text}</code
                         >{:else}{part.text}{/if}
@@ -372,7 +376,7 @@
                       >{/if}
                   </span>
                   {#if opt.description}
-                    <span class="text-transcript-meta leading-[1.5] text-pretty text-(--muted-foreground)">
+                    <span class="text-[0.6875rem] leading-relaxed text-pretty text-(--muted-foreground)">
                       {#each inlineCodeParts(opt.description) as part, p (p)}
                         {#if part.code}<code class="option-code">{part.text}</code
                           >{:else}{part.text}{/if}
@@ -396,9 +400,6 @@
                     </span>
                   {/if}
                   <span class="interrupt-key option-index">{i + 1}</span>
-                  <span class="option-mark" class:is-on={selected} aria-hidden="true">
-                    <CheckIcon size={10} strokeWidth={3} />
-                  </span>
                 </span>
               </button>
             {/each}
@@ -408,7 +409,7 @@
         {#if hasPreview && activeOption && previewOpen}
           <div
             in:fly={{ y: -2, duration: 140 }}
-            class="interrupt-payload px-3.5 py-2.5 text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
+            class="interrupt-payload px-3.5 py-2.5 text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-normal [&_strong]:text-(--solus-text-primary)"
           >
             <SvelteMarkdown
               source={activeOption.preview ?? ""}
@@ -502,31 +503,18 @@
   /* "recommended" is a note about the option, never part of its name. */
   .option-note {
     margin-left: 0.375rem;
-    font-size: var(--text-transcript-meta);
+    font-size: 0.6875rem;
     font-weight: 400;
     color: var(--muted-foreground);
   }
 
-  /* A choice at rest is text on the card. Hover washes the row; the selected
-     row takes the card's one accent: a soft tint, an inset ring, and the check. */
+  /* A choice is text on the card behind a radio; the radio alone shows the
+     selection, and the label comes to full strength on hover and selection. */
   .option-row {
     border: none;
-    border-radius: 0.625rem;
+    border-radius: 0.5rem;
     background: transparent;
     cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      box-shadow var(--duration-quick) var(--ease-premium);
-  }
-  .option-row:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--foreground) 5%, transparent);
-  }
-  .option-row.is-selected {
-    background: color-mix(in oklch, var(--primary) 8%, transparent);
-    box-shadow: inset 0 0 0 0.0625rem color-mix(in oklch, var(--primary) 35%, transparent);
-  }
-  :global(.dark) .option-row.is-selected {
-    background: color-mix(in oklch, var(--primary) 12%, transparent);
   }
   .option-row:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border-medium);
@@ -535,6 +523,67 @@
   .option-row:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .option-label {
+    color: var(--solus-text-secondary);
+    transition: color var(--duration-quick) var(--ease-premium);
+  }
+  .option-row:hover:not(:disabled) .option-label,
+  .option-row.is-selected .option-label {
+    color: var(--solus-text-primary);
+  }
+
+  /* The radio sits on the label's first line: 1rem box, centred on 1.625 × 0.75rem. */
+  .option-mark {
+    position: relative;
+    display: inline-flex;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.1094rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: var(--solus-tx-card-bg);
+    box-shadow: inset 0 0 0 0.09375rem color-mix(in oklch, var(--foreground) 22%, transparent);
+    color: var(--primary-foreground);
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
+  }
+  .option-row:hover:not(:disabled) .option-mark:not(.is-on) {
+    box-shadow: inset 0 0 0 0.09375rem color-mix(in oklch, var(--foreground) 38%, transparent);
+  }
+  .option-mark::after {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: var(--primary-foreground);
+    transform: scale(0);
+    transition: transform var(--duration-quick) var(--ease-premium);
+  }
+  .option-mark.is-on {
+    background: var(--primary);
+    box-shadow: inset 0 0 0 0.09375rem var(--primary);
+  }
+  .option-mark.is-on::after {
+    transform: scale(1);
+  }
+  /* Multi-select: a rounded square holding a check instead of a dot. */
+  .option-mark.is-check {
+    border-radius: 0.3125rem;
+  }
+  .option-mark.is-check::after {
+    content: none;
+  }
+  .option-mark.is-check :global(svg) {
+    opacity: 0;
+    transition: opacity var(--duration-quick) var(--ease-premium);
+  }
+  .option-mark.is-check.is-on :global(svg) {
+    opacity: 1;
   }
 
   /* §11 — inline code in an option is a chip, at the option's own size. */
@@ -550,23 +599,6 @@
   .option-index {
     min-width: 0.75rem;
     text-align: right;
-  }
-
-  .option-mark {
-    display: inline-flex;
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9999px;
-    background: var(--primary);
-    color: var(--primary-foreground);
-    opacity: 0;
-    transition: opacity var(--duration-quick) var(--ease-premium);
-  }
-  .option-mark.is-on {
-    opacity: 1;
   }
 
   :global(.interrupt-caret) {

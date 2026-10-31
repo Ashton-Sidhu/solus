@@ -93,6 +93,9 @@ export interface NotificationHubClientOptions {
   pageSize?: number
   /** How long one source's read may hold its slot before the source is offline. */
   readTimeoutMs?: number
+  /** A source's unread count went up since its last read: something new is
+   *  addressed to the reader there. Not called on a source's first read. */
+  onUnreadRose?(source: NotificationSource): void
 }
 
 const READ_TIMEOUT_MS = 15_000
@@ -372,7 +375,9 @@ export class NotificationHubClient {
       runtime.link.api.notificationsCount(),
     ])
     if (!this.isCurrent(runtime, generation)) return
+    const previous = this.sources.get(sourceId)?.count
     this.patchSource(sourceId, { count })
+    if (previous && count.unread > previous.unread) this.options.onUnreadRose?.(runtime.source)
     if (page && this.historyVisible) {
       this.dropSourceRows(sourceId)
       this.patchSource(sourceId, { oldestLoadedAt: null })

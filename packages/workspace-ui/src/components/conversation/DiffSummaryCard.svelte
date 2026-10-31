@@ -1,13 +1,11 @@
 <script lang="ts">
-  import Icon from "@iconify/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { tick, untrack } from "svelte";
   import {
     ChevronRight as CaretRightIcon,
     FileText as FileTextIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
-  import { FILE_ICON_VIEWBOX, FOLDER_ICON_PATH, getFileIconPath } from "../editor/fileIcons";
   import {
     diffSummaryStore,
     type DiffSummaryScope,
@@ -76,8 +74,8 @@
 
   const rows = $derived(flattenDiffTree(tree, expanded, unfolded));
 
-  /** The card sits at the very end of the transcript, so anything that grows it
-   *  grows into the space the input bar covers. A popover has its own scroller
+  /** The card closes its turn, and the latest one sits at the very end of the
+   *  transcript, so anything that grows it can grow into the space the input bar covers. A popover has its own scroller
    *  and its own bounds, so only the transcript card reaches for the viewport. */
   async function reveal() {
     if (embedded) return;
@@ -178,9 +176,7 @@
                   ? 'rotate-90'
                   : ''}"
               />
-              <svg class="diff-icon text-(--muted-foreground)" viewBox={FILE_ICON_VIEWBOX} fill="currentColor">
-                <path d={FOLDER_ICON_PATH} />
-              </svg>
+              <FileIcon path={`${row.node.path}/`} size={13} />
               <span class="diff-path font-mono truncate">{row.node.label}</span>
               <span class="shrink-0 font-mono text-transcript-meta text-(--muted-foreground) opacity-55">
                 {row.node.fileCount}
@@ -198,7 +194,6 @@
               </span>
             </button>
           {:else if row.kind === "file"}
-            {@const brandIcon = fileTypeIcon(row.node.name)}
             <div
               class="diff-file-row"
               class:is-open={openFilePath === row.node.path}
@@ -216,15 +211,7 @@
                      it instead. Both row kinds then share an icon and a label
                      column, so a file and its sibling folder line up. -->
                 <span class="diff-status status-{row.node.status} font-mono shrink-0">{row.node.status}</span>
-                {#if brandIcon}
-                  <Icon icon={brandIcon} width="13" height="13" class="shrink-0" />
-                {:else}
-                  <!-- No brand logo for this type: the monochrome glyph still says
-                       what kind of file it is, which is the point of the slot. -->
-                  <svg class="diff-icon text-(--muted-foreground)" viewBox={FILE_ICON_VIEWBOX} fill="currentColor">
-                    <path d={getFileIconPath(row.node.name)} />
-                  </svg>
-                {/if}
+                <FileIcon path={row.node.path} size={13} />
                 <span class="diff-path font-mono truncate">{row.node.name}</span>
                 <span class="flex-1"></span>
                 <!-- The counts and the file-pane control share the trailing
@@ -286,7 +273,6 @@
     --diff-row-pad: 0.375rem;
     --diff-row-gap: 0.5rem;
     --diff-row-block-pad: 0.25rem;
-    --diff-icon-size: 0.8125rem;
     --diff-bar-width: 2.125rem;
 
     width: max(75%, min(100%, 22rem));
@@ -399,12 +385,6 @@
     }
   }
 
-  .diff-icon {
-    flex-shrink: 0;
-    width: var(--diff-icon-size);
-    height: var(--diff-icon-size);
-    opacity: 0.75;
-  }
 
   /* Exactly the caret's width, because it stands in the caret's column. */
   .diff-status {

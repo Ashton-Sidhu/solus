@@ -41,11 +41,13 @@
 
 {#if request.kind === "question" && request.question.kind === "secret"}
   <!-- The other session's request_secret card: its answer goes to that session, never through respondQuestion. -->
-  <SecretRequestCard
-    {tabId}
-    request={request.question}
-    answer={(questionId, value) => api.secretRequestAnswer(ref.sessionId, questionId, value).catch(answerRefused)}
-  />
+  {#key request.question.questionId}
+    <SecretRequestCard
+      {tabId}
+      request={request.question}
+      answer={(questionId, values) => api.secretRequestAnswer(ref.sessionId, questionId, values).catch(answerRefused)}
+    />
+  {/key}
 {:else if request.kind === "question"}
   <QuestionCard
     {tabId}

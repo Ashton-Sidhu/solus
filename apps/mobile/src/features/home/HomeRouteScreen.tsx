@@ -156,6 +156,10 @@ export function HomeRouteScreen() {
     reloadThreadLists();
   };
   const startNewTask = () => navigation.navigate("NewTask");
+  const projectHostId = selectedEnvironmentId ?? hosts[0]?.id;
+  const addProject = projectHostId
+    ? () => navigation.navigate("OpenProject", { hostId: projectHostId })
+    : undefined;
 
   // A retained, hidden tab (WorkspaceTabPanes) does not follow the shown tab's search.
   const queryOf = (tab: WorkspaceTab) => (tab === tabs.selectedTab ? searchQuery : "");
@@ -174,7 +178,7 @@ export function HomeRouteScreen() {
   // iOS: one toolbar owns the header of both tabs; Android draws each tab's header.
   const workspaceToolbar =
     Platform.OS === "ios" ? (
-      <WorkspaceToolbar onOpenSettings={openSettings} />
+      <WorkspaceToolbar onOpenSettings={openSettings} onAddProject={addProject} />
     ) : null;
 
   // A split layout drawn in React Native (Android, or an iPad before iOS 26)
@@ -255,8 +259,8 @@ export function HomeRouteScreen() {
         options={{
           ...getConnectionAwareBrandHeaderOptions({
             headerWidth,
-            // iOS: Settings and Search (WorkspaceToolbar); Android draws its own header.
-            trailingItemCount: Platform.OS === "ios" ? 2 : 1,
+            // iOS: project, settings, and search; Android draws its own header.
+            trailingItemCount: Platform.OS === "ios" ? (addProject && tabs.selectedTab === "chats" ? 3 : 2) : 1,
             onOpenEnvironments: openEnvironments,
           }),
           headerShown: true,
@@ -300,6 +304,7 @@ export function HomeRouteScreen() {
                   onOpenSettings={openSettings}
                   onSearchQueryChange={setSearchQuery}
                   onStartNewTask={startNewTask}
+                  onAddProject={addProject}
                 />
 
                 <HomeScreen

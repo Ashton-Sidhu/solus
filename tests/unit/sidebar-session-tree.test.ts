@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
+import { delegatedRows, nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 
 type Row = Pick<SidebarTask, 'id' | 'lifecycle'>
@@ -86,5 +86,23 @@ describe('the marks a row stacks for the sessions it started', () => {
 
   test('quiet sessions add no mark', () => {
     expect(nestedStateMarks([{ attention: 'idle', unread: false }])).toEqual([])
+  })
+
+})
+
+describe('delegated rows', () => {
+  test('the rows a settle or archive carries are every delegated session under it, at any depth', () => {
+    // WHY: a finished session's delegated sessions must leave the list with
+    // it. Left behind, they lose their parent row and show as rows of their own.
+    const sessions = new Map([
+      ['root', { id: 'root-session' }],
+      ['child', { id: 'child-session', parentSessionId: 'root-session' }],
+      ['grandchild', { id: 'grandchild-session', parentSessionId: 'child-session' }],
+      ['other-child', { id: 'other-session', parentSessionId: 'other-root-session' }],
+      ['cycle', { id: 'child-session', parentSessionId: 'grandchild-session' }],
+    ])
+    const rows = ['grandchild', 'root', 'other-child', 'child', 'cycle']
+    expect(delegatedRows('root-session', rows, (row) => sessions.get(row) ?? null)).toEqual(['child', 'grandchild'])
+    expect(delegatedRows('child-session', rows, (row) => sessions.get(row) ?? null)).toEqual(['grandchild'])
   })
 })

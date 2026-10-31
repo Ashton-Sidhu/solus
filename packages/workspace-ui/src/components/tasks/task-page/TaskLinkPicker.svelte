@@ -108,7 +108,7 @@
   onclick={onClose}
 >
   <div
-    class="absolute inset-0 bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)]"
+    class="absolute inset-0 modal-backdrop"
     aria-hidden="true"
   ></div>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

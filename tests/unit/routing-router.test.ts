@@ -521,14 +521,60 @@ describe('closing Settings', () => {
     expect(router.destination).toEqual(PRS)
   })
 
-  test('with nothing remembered it rests on home', () => {
-    // WHY: an app opened straight into Settings has no main page behind it.
+  test('a direct settings link opens over the conversation pool', () => {
+    // WHY: a link with no background still needs a workspace to return to.
     const router = new RouterStore(new MemoryRouteHistory('/settings/tools'))
     router.leadingHome = () => DRAFT
 
     router.close('settings')
 
-    expect(router.destination).toEqual(DRAFT)
+    expect(router.destination).toEqual(CHAT)
+  })
+
+  test('opening and changing settings keeps pane objects, strip selection, and focus', () => {
+    // WHY: a settings detour must not unmount a page or resize its companion.
+    const router = new RouterStore()
+    router.navigate(TASKS)
+    router.navigate(PLAN)
+    router.navigate(TASK)
+    router.activateSurface(0)
+    const leading = router.leadingPane
+    const companion = router.companionPane
+    const focusedPaneId = router.focusedPaneId
+    const before = router.serialized
+
+    router.navigate(settings('general'))
+    router.navigate(settings('tools'), { replace: true })
+    expect(router.destination).toEqual(TASKS)
+    expect(router.leadingPane).toBe(leading)
+    expect(router.companionPane).toBe(companion)
+    expect(router.companionPane?.activeSurfaceIndex).toBe(0)
+    expect(router.focusedPaneId).toBe(focusedPaneId)
+    expect(router.params('settings')?.tab).toBe('tools')
+
+    router.close('settings')
+    expect(router.serialized).toBe(before)
+    expect(router.companionPane).toBe(companion)
+  })
+
+  test('settings survives refresh and Back closes it without changing the workspace', () => {
+    const router = new RouterStore()
+    router.navigate(PRS)
+    router.navigate(PLAN)
+    router.navigate(settings('voice'))
+    const restored = new RouterStore(new MemoryRouteHistory(router.serialized))
+    expect(restored.params('settings')?.tab).toBe('voice')
+    expect(restored.destination).toEqual(PRS)
+    expect(restored.companionSurface).toEqual(PLAN)
+    restored.close('settings')
+    expect(restored.destination).toEqual(PRS)
+    expect(restored.companionSurface).toEqual(PLAN)
+
+    expect(router.back()).toBe(true)
+    expect(router.at('settings')).toBe(false)
+    expect(router.destination).toEqual(PRS)
+    expect(router.forward()).toBe(true)
+    expect(router.params('settings')?.tab).toBe('voice')
   })
 
   test('a remembered route that can no longer show falls back to home', () => {

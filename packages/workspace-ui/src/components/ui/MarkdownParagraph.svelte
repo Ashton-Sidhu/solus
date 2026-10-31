@@ -99,7 +99,7 @@
        playback. -->
   <dialog
     bind:this={dialog}
-    class="m-auto w-[min(90vw,64rem)] max-w-none overflow-visible bg-transparent p-0 outline-none backdrop:bg-black/70"
+    class="m-auto w-[min(90vw,64rem)] max-w-none overflow-visible bg-transparent p-0 outline-none backdrop:modal-backdrop"
     aria-label={label}
     onclick={(event) => { if (event.target === dialog) dialog?.close(); }}
     onclose={() => (expanded = false)}

@@ -5,7 +5,7 @@ import { createLogger } from '../../logger'
 import { isRawReviewSkill } from '../agents/review-command'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
+import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionLineageResolution, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { startsHistoryTurn, type SessionHistoryPageRequest, type SessionSubagentRequest, type ProviderHistoryPage, type SessionLoadMessage, type SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
 import type { SessionRuntime } from '../session-runtime'
@@ -14,6 +14,20 @@ const log = createLogger('SessionRuntime', 'session-history.ts')
 
 /** User turns in one page of a provider subagent's own history. */
 const SUBAGENT_PAGE_TURNS = 20
+
+/** The provider threads to read for a session, oldest first: its lineage's members, or the thread alone. */
+function historySegments(lineage: SessionLineageResolution | null, provider: AgentId, sessionId: string, projectPath: string | undefined): HistorySegment[] {
+  if (!lineage) return [{ provider, sessionId, projectPath }]
+  return lineage.members.map((member, index) => {
+    const previous = lineage.members[index - 1]
+    return {
+      provider: member.provider,
+      sessionId: member.providerSessionId,
+      projectPath: member.cwd || projectPath,
+      divider: previous ? lineageSwitchDivider(lineage.sessionId, previous, member) : undefined,
+    }
+  })
+}
 
 const AGENT_DISPLAY_NAMES = new Map<AgentId, string>([
   ['claude-code', 'Claude Code'],
@@ -64,15 +78,7 @@ export class SessionHistory {
   async loadSessionPage(request: SessionHistoryPageRequest): Promise<ProviderHistoryPage> {
     const { provider, sessionId, projectPath } = request
     const lineage = resolveSessionLineageById(sessionId)
-    const segments: HistorySegment[] = lineage ? lineage.members.map((member, index) => {
-      const previous = lineage.members[index - 1]
-      return {
-        provider: member.provider,
-        sessionId: member.providerSessionId,
-        projectPath: member.cwd || projectPath,
-        divider: previous ? lineageSwitchDivider(lineage.sessionId, previous, member) : undefined,
-      }
-    }) : [{ provider, sessionId, projectPath }]
+    const segments = historySegments(lineage, provider, sessionId, projectPath)
     const page = await loadHistoryPage(
       JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
       request.turnLimit, request.before,
@@ -81,6 +87,62 @@ export class SessionHistory {
     const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
     if (starting) page.messages.push(starting)
     return page
+  }
+
+  /**
+   * One page of a provider thread's history for a handoff, newest first. It
+   * reads what `loadSession` reads: across the lineage each member's rows name
+   * their provider and thread, a member's carried partial reply joins its
+   * newest page, and a member that cannot be read reads as empty.
+   */
+  async loadHandoffPage(provider: AgentId, threadId: string, projectPath: string | undefined, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {
+    const lineage = resolveSessionLineageById(threadId)
+    return loadHistoryPage(
+      JSON.stringify(lineage ? [lineage.sessionId] : [provider, threadId]), historySegments(lineage, provider, threadId, projectPath),
+      turnLimit, before,
+      async (segment, segmentTurnLimit, segmentBefore) => {
+        const memberThreadId = segment.sessionId!
+        let page: ProviderHistoryPage
+        try {
+          page = await this.readProviderPage(segment, segmentTurnLimit, segmentBefore)
+        } catch (error) {
+          if (!lineage) throw error
+          log.warn('session_handoff_segment_load_failed', {
+            sessionId: lineage.sessionId, provider: segment.provider, agentSessionId: memberThreadId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          return { messages: [], before: null }
+        }
+        if (segmentBefore === undefined) page.messages = this.rt.handoffs.handoffCarry.merge(memberThreadId, page.messages)
+        if (lineage) page.messages = page.messages.map((message) => ({ ...message, sourceProvider: segment.provider, sourceSessionId: memberThreadId }))
+        return page
+      },
+    )
+  }
+
+  /**
+   * The first turn of a handoff's history: of the lineage's oldest member with
+   * a provider thread, or of the thread alone. Its rows are labelled like
+   * `loadHandoffPage` labels them. A provider without a forward read, or a
+   * lineage member that cannot be read, gives no rows.
+   */
+  async loadHandoffFirstTurn(provider: AgentId, threadId: string, projectPath: string | undefined): Promise<SessionLoadMessage[]> {
+    const lineage = resolveSessionLineageById(threadId)
+    const segment = historySegments(lineage, provider, threadId, projectPath).find((candidate) => candidate.sessionId)
+    const backend = segment && this.rt.backendFor(segment.provider)
+    if (!segment || !backend?.loadSessionFirstTurn) return []
+    const memberThreadId = segment.sessionId!
+    try {
+      const messages = await backend.loadSessionFirstTurn(memberThreadId, segment.projectPath)
+      return lineage ? messages.map((message) => ({ ...message, sourceProvider: segment.provider, sourceSessionId: memberThreadId })) : messages
+    } catch (error) {
+      if (!lineage) throw error
+      log.warn('session_handoff_segment_load_failed', {
+        sessionId: lineage.sessionId, provider: segment.provider, agentSessionId: memberThreadId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    }
   }
 
   /**

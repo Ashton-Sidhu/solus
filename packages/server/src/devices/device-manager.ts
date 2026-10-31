@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import {
   LOCAL_DEVICE_HOST_ID,
   type DeviceConfigureRequest,
+  type CloudDeviceHostConfig,
+  type DeviceHostConfig,
+  DEVICE_SECRET_SAVED,
   type DeviceControlHolder,
   type DeviceControlResult,
   type DeviceHostStatusEntry,
@@ -45,6 +48,7 @@ export interface DeviceManagerDeps {
   makeSshHost?: ((config: SshDeviceHostConfig) => DeviceHost) | undefined
   /** True when an SSH target resolves to this machine; it would duplicate `local`. */
   isLocalSshTarget?: ((config: SshDeviceHostConfig) => Promise<boolean>) | undefined
+  makeCloudHost?: (config: CloudDeviceHostConfig) => DeviceHost
   hub?: DeviceHubClient
   /** Every state change. Receivers re-check admission before forwarding. */
   publish: (state: DeviceState) => void
@@ -63,7 +67,7 @@ export interface DeviceManagerDeps {
 
 interface HostEntry {
   host: DeviceHost
-  config?: SshDeviceHostConfig
+  config?: DeviceHostConfig
 }
 
 function statusEntry(deviceHostId: string, status: DeviceHostStatusEntry['status'], detail: string | undefined): DeviceHostStatusEntry {
@@ -85,6 +89,8 @@ export class DeviceManager {
   private readonly hub: DeviceHubClient
   private readonly now: () => number
   private revision = 0
+  private cloudRefreshTimer: ReturnType<typeof setInterval> | null = null
+  private refreshingCloud = false
   private hostSummaries = new Map<string, DeviceHostSummary>()
   /** Daemon endpoints of hosts whose agent tools are running. Never sent to clients. */
   private readonly agentEndpoints = new Map<string, AgentDeviceEndpoint>()
@@ -106,6 +112,10 @@ export class DeviceManager {
   /** Read SSH host configuration from settings. Called once at boot. */
   async start(): Promise<void> {
     await this.reconcileSshHosts(this.settings().sshHosts)
+    await this.reconcileCloudHosts()
+    for (const [id, entry] of this.hosts) {
+      try { await entry.host.recover?.() } catch (error) { this.setHostStatus(id, 'failed', deviceErrorDetail(error)) }
+    }
     await this.refreshSummaries()
   }
 
@@ -114,7 +124,7 @@ export class DeviceManager {
   }
 
   state(): DeviceState {
-    const { sshHosts: _sshHosts, ...settings } = this.settings()
+    const { sshHosts: _sshHosts, cloudHosts: _cloudHosts, ...settings } = this.settings()
     return {
       revision: this.revision,
       settings,
@@ -142,12 +152,36 @@ export class DeviceManager {
   /** Changes in one tick publish one snapshot. The revision counts changes. */
   private publish(): void {
     this.revision++
+    this.watchCloudPreviews()
     if (this.publishQueued) return
     this.publishQueued = true
     queueMicrotask(() => {
       this.publishQueued = false
       this.deps.publish(this.state())
     })
+  }
+
+  /** Cloud sessions can expire without a client action. Refresh only hosts with open previews. */
+  private watchCloudPreviews(): void {
+    const hasCloud = this.settings().enabled && this.previews.some((preview) => {
+      const kind = this.hosts.get(preview.deviceHostId)?.host.kind
+      return kind === 'eas' || kind === 'simlock'
+    })
+    if (!hasCloud) { if (this.cloudRefreshTimer) clearInterval(this.cloudRefreshTimer); this.cloudRefreshTimer = null; return }
+    if (this.cloudRefreshTimer) return
+    this.cloudRefreshTimer = setInterval(() => {
+      if (this.refreshingCloud) return
+      this.refreshingCloud = true
+      const ids = new Set(this.previews.map((preview) => preview.deviceHostId))
+      void Promise.all([...ids].map(async (id) => {
+        const entry = this.hosts.get(id)
+        const ready = this.currentReadiness(id)
+        if (!ready?.devices || !entry) return
+        try { await this.refreshHost(ready) }
+        catch { if (this.hosts.get(id) === entry) this.setHostStatus(id, 'failed', 'Cannot refresh cloud device status. Check the connection.') }
+      })).finally(() => { this.refreshingCloud = false })
+    }, 15_000)
+    this.cloudRefreshTimer.unref?.()
   }
 
   private serially<T>(work: () => Promise<T>): Promise<T> {
@@ -222,7 +256,7 @@ export class DeviceManager {
       })
       if (this.hosts.get(deviceHostId) !== entry) throw new DeviceDomainError('host_unavailable', 'The device host configuration changed. Retry the operation.')
       if (!this.settings().agentAccessEnabled) throw new DeviceDomainError('feature_disabled', 'Agent device access was turned off.')
-      this.agentEndpoints.set(deviceHostId, ready.agentDevice)
+      if (ready.agentDevice) this.agentEndpoints.set(deviceHostId, ready.agentDevice)
       this.setHostStatus(deviceHostId, 'ready')
       return { deviceHostId, ...ready }
     } catch (error) {
@@ -234,8 +268,10 @@ export class DeviceManager {
   }
 
   /** The running daemon endpoint for a host, for the agent bridge only. */
-  agentEndpoint(deviceHostId: string): AgentDeviceEndpoint | null {
-    return this.settings().enabled && this.settings().agentAccessEnabled ? this.agentEndpoints.get(deviceHostId) ?? null : null
+  agentEndpoint(deviceHostId: string, deviceId?: string): AgentDeviceEndpoint | null {
+    if (!this.settings().enabled || !this.settings().agentAccessEnabled) return null
+    const ready = this.hosts.get(deviceHostId)?.host.current()
+    return deviceId && ready?.devices ? ready.devices.agentEndpoint(deviceId) : this.agentEndpoints.get(deviceHostId) ?? null
   }
 
   /** Current hub endpoints without starting anything. */
@@ -244,8 +280,22 @@ export class DeviceManager {
     return ready ? { deviceHostId, ...ready } : null
   }
 
+  private async refreshCloudHost(ready: DeviceReadiness, entry: HostEntry | undefined): Promise<DeviceSummary[]> {
+    const devices = await ready.devices!.list()
+    if (!this.settings().enabled || !entry || this.hosts.get(ready.deviceHostId) !== entry) return this.devices
+    const gone = (target: DeviceControlTarget) => target.deviceHostId === ready.deviceHostId && !devices.some((device) => device.deviceId === target.deviceId)
+    this.previews = this.previews.filter((preview) => !gone(preview))
+    this.control.forget(gone)
+    this.deps.revokeAgentBindings?.(gone)
+    this.devices = [...this.devices.filter((device) => device.deviceHostId !== ready.deviceHostId), ...devices]
+    this.hostStatuses.set(ready.deviceHostId, statusEntry(ready.deviceHostId, 'ready', undefined))
+    this.publish()
+    return this.devices
+  }
+
   private async refreshHost(ready: DeviceReadiness): Promise<DeviceSummary[]> {
     const entry = this.hosts.get(ready.deviceHostId)
+    if (ready.devices) return this.refreshCloudHost(ready, entry)
     const iosAvailable = !!entry && (await entry.host.platformAvailability('ios')).available
     const androidAvailable = !!entry && (await entry.host.platformAvailability('android')).available
     const unavailable: DevicePlatform[] = []
@@ -348,6 +398,7 @@ export class DeviceManager {
 
   async configure(request: DeviceConfigureRequest): Promise<DeviceState> {
     let agentTurnedOn = false
+    const cleanupFailures: string[] = []
     await this.serially(async () => {
       const before = this.settings()
       const next = await this.deps.settings.update(settingsPatch(request))
@@ -355,9 +406,9 @@ export class DeviceManager {
       // comes on with access already on (the default).
       agentTurnedOn = next.enabled && next.agentAccessEnabled
         && (request.agentAccessEnabled === true || (next.enabled && !before.enabled))
-      if (!next.enabled && before.enabled) {
+      if (!next.enabled && (before.enabled || request.enabled === false)) {
         // Turning the hub off stops owned helpers. Devices keep running.
-        for (const { host } of this.hosts.values()) await host.stop().catch(() => {})
+        for (const { host } of this.hosts.values()) await host.stop().catch(() => { if (host.kind === 'eas' || host.kind === 'simlock') cleanupFailures.push(host.deviceHostId) })
         this.agentEndpoints.clear()
         this.deps.revokeAgentBindings?.(() => true)
         this.control.forget(() => true)
@@ -374,6 +425,7 @@ export class DeviceManager {
       if (!next.enabled) for (const id of this.hosts.keys()) this.hostStatuses.set(id, { deviceHostId: id, status: 'disabled' })
       this.publish()
     })
+    if (cleanupFailures.length) throw new DeviceDomainError('request_failed', `Device support is off, but cleanup could not be confirmed for ${cleanupFailures.join(', ')}. Keep these sources configured, check their service, and retry.`)
     if (agentTurnedOn && this.settings().enabled && this.settings().agentAccessEnabled) {
       await this.agentReadiness().catch((error) => log.warn('device_agent_start_failed', { error: deviceErrorDetail(error) }))
     }
@@ -384,6 +436,7 @@ export class DeviceManager {
 
   /** Save the whole SSH host list. Changed hosts are rebuilt; their old previews and tunnels end. */
   async saveSshHosts(hosts: SshDeviceHostConfig[]): Promise<DeviceState> {
+    if (hosts.some((host) => this.settings().cloudHosts?.some((cloud) => cloud.id === host.id))) throw new Error('This device host id is already used by a cloud source.')
     await this.serially(async () => {
       await this.deps.settings.update({ sshHosts: hosts })
       await this.reconcileSshHosts(hosts)
@@ -402,7 +455,7 @@ export class DeviceManager {
       wanted.set(config.id, config)
     }
     for (const [id, entry] of this.hosts) {
-      if (id === LOCAL_DEVICE_HOST_ID) continue
+      if (entry.host.kind !== 'ssh') continue
       const config = wanted.get(id)
       if (config && entry.config && JSON.stringify(config) === JSON.stringify(entry.config)) continue
       this.removeHost(id, entry)
@@ -412,6 +465,63 @@ export class DeviceManager {
     for (const [id, config] of wanted) {
       if (this.hosts.has(id)) continue
       this.hosts.set(id, { host: this.deps.makeSshHost(config), config })
+      this.hostStatuses.set(id, { deviceHostId: id, status: this.settings().enabled ? 'idle' : 'disabled' })
+    }
+    this.publish()
+  }
+
+  /** Save cloud source settings, retaining a redacted credential only for the same source. */
+  async saveCloudHost(config: CloudDeviceHostConfig): Promise<DeviceState> {
+    if (config.kind === 'eas' && !config.appId) throw new Error('Choose an Expo project before saving this source.')
+    await this.serially(async () => {
+      const hosts = this.settings().cloudHosts ?? []
+      const previous = hosts.find((host) => host.id === config.id)
+      let next = { ...config }
+      if (next.kind === 'eas' && next.accessToken === DEVICE_SECRET_SAVED) {
+        if (previous?.kind !== 'eas') throw new Error('Enter an Expo access token.')
+        next.accessToken = previous.accessToken
+      }
+      if (next.kind === 'simlock' && next.agentToken === DEVICE_SECRET_SAVED) {
+        if (previous?.kind !== 'simlock' || previous.gatewayUrl !== next.gatewayUrl) throw new Error('Enter a token for the changed Simlock gateway.')
+        next.agentToken = previous.agentToken
+      }
+      if (this.settings().sshHosts.some((host) => host.id === next.id)) throw new Error('This device host id is already used by an SSH host.')
+      if (!previous && hosts.length >= 16) throw new Error('A host can have up to 16 cloud device sources.')
+      const existing = this.hosts.get(next.id)
+      if (existing && JSON.stringify(existing.config) !== JSON.stringify(next)) {
+        await existing.host.stop()
+        this.removeHost(next.id, existing)
+      }
+      await this.deps.settings.update({ cloudHosts: [...hosts.filter((host) => host.id !== next.id), next] })
+      await this.reconcileCloudHosts()
+    })
+    await this.refreshSummaries()
+    return this.state()
+  }
+
+  async removeCloudHost(deviceHostId: string): Promise<DeviceState> {
+    await this.serially(async () => {
+      const existing = this.hosts.get(deviceHostId)
+      if (existing) { await existing.host.stop(); this.removeHost(deviceHostId, existing) }
+      await this.deps.settings.update({ cloudHosts: (this.settings().cloudHosts ?? []).filter((host) => host.id !== deviceHostId) })
+      await this.reconcileCloudHosts()
+    })
+    await this.refreshSummaries()
+    return this.state()
+  }
+
+  private async reconcileCloudHosts(): Promise<void> {
+    const wanted = new Map((this.settings().cloudHosts ?? []).map((config) => [config.id, config]))
+    for (const [id, entry] of this.hosts) {
+      if (entry.host.kind !== 'eas' && entry.host.kind !== 'simlock') continue
+      if (JSON.stringify(wanted.get(id)) === JSON.stringify(entry.config)) continue
+      // Confirm cleanup before replacing the source that owns billed sessions or leases.
+      await entry.host.stop()
+      this.removeHost(id, entry)
+    }
+    for (const [id, config] of wanted) {
+      if (this.hosts.has(id) || !this.deps.makeCloudHost) continue
+      this.hosts.set(id, { host: this.deps.makeCloudHost(config), config })
       this.hostStatuses.set(id, { deviceHostId: id, status: this.settings().enabled ? 'idle' : 'disabled' })
     }
     this.publish()
@@ -450,7 +560,7 @@ export class DeviceManager {
     this.control.authorize(target, holder)
     const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
     if (device.physical || device.booted) return device
-    const result = await this.hub.boot(ready.hubOrigin, device)
+    const result = ready.devices ? { ok: true as const, deviceId: await ready.devices.boot(device) } : await this.hub.boot(ready.hubOrigin, device)
     if (!result.ok) throw new DeviceDomainError('boot_failed', `${device.name} did not start (${result.reason}).`)
     await this.refreshHost(ready)
     return this.findDevice(target.deviceHostId, result.deviceId)
@@ -466,6 +576,7 @@ export class DeviceManager {
     }
     const ready = await this.readiness(request.deviceHostId)
     await this.refreshHost(ready)
+    this.requireEnabled()
     let device = this.findDevice(request.deviceHostId, request.deviceId)
     if (!device) throw new DeviceDomainError('device_not_found', `Device ${request.deviceId} was not found on host ${request.deviceHostId}.`)
     if (device.physical) {
@@ -477,7 +588,7 @@ export class DeviceManager {
       this.publish()
       let result: Awaited<ReturnType<DeviceHubClient['boot']>>
       try {
-        result = await this.hub.boot(ready.hubOrigin, device)
+        result = ready.devices ? { ok: true, deviceId: await ready.devices.boot(device) } : await this.hub.boot(ready.hubOrigin, device)
       } finally {
         this.booting = this.booting.filter((item) => item !== booting)
         this.publish()
@@ -495,7 +606,7 @@ export class DeviceManager {
       device = this.findDevice(request.deviceHostId, result.deviceId)
         ?? this.devices.find((candidate) => candidate.deviceHostId === request.deviceHostId && candidate.platform === 'android' && candidate.name === device!.name && candidate.booted)
         ?? device
-    } else if (device.platform === 'ios' && device.booted) {
+    } else if (!ready.devices && device.platform === 'ios' && device.booted) {
       // A simulator booted outside Solus has no capture helper attached yet.
       await this.hub.attachIos(ready.hubOrigin, device.deviceId)
     }
@@ -531,7 +642,7 @@ export class DeviceManager {
   }
 
   /** Remove previews from a session. The device keeps running. */
-  close(request: { sessionId: string; deviceHostId?: string | undefined; deviceId?: string | undefined }): DevicePreview[] {
+  async close(request: { sessionId: string; deviceHostId?: string | undefined; deviceId?: string | undefined }): Promise<DevicePreview[]> {
     const closing = this.previews.filter((preview) => preview.sessionId === request.sessionId
       && (request.deviceHostId === undefined || preview.deviceHostId === request.deviceHostId)
       && (request.deviceId === undefined || preview.deviceId === request.deviceId))
@@ -543,6 +654,10 @@ export class DeviceManager {
         && binding.deviceHostId === preview.deviceHostId && binding.deviceId === preview.deviceId)
     }
     this.publish()
+    for (const preview of closing) {
+      if (!this.previews.some((other) => other.deviceHostId === preview.deviceHostId && other.deviceId === preview.deviceId)
+        && this.hosts.get(preview.deviceHostId)?.host.current()?.devices) await this.shutdown(preview)
+    }
     return closing
   }
 
@@ -551,7 +666,8 @@ export class DeviceManager {
     const ready = await this.readiness(target.deviceHostId)
     let accepted = false
     try {
-      accepted = await this.hub.shutdown(ready.hubOrigin, target.platform, target.deviceId)
+      if (ready.devices) { await ready.devices.shutdown(target.deviceId); accepted = true }
+      else accepted = await this.hub.shutdown(ready.hubOrigin, target.platform, target.deviceId)
     } catch (error) {
       // serve-sim fails on a simulator that is already off; accept that only
       // when discovery confirms it.
@@ -572,13 +688,14 @@ export class DeviceManager {
 
   async screenshot(deviceHostId: string, deviceId: string): Promise<DeviceScreenshotResult & { png: Uint8Array }> {
     const { ready, device } = await this.resolveDevice(deviceHostId, deviceId)
-    const png = await this.hub.screenshot(ready.hubOrigin, device.platform, device.deviceId)
+    const png = ready.devices ? await ready.devices.screenshot(device) : await this.hub.screenshot(ready.hubOrigin, device.platform, device.deviceId)
     const { assetId } = await this.deps.storeImage(Buffer.from(png))
     return { device: { ...device }, assetId, ...pngDimensions(png), capturedAt: this.now(), png }
   }
 
   async detail(target: DeviceControlTarget): Promise<DeviceDetail> {
     const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
+    if (ready.devices) throw new DeviceDomainError('action_unsupported', 'Device settings are not available for this source. Use the bound agent-device CLI.')
     const read = await readDeviceDetail(ready, device.platform, device.deviceId)
     return { deviceHostId: device.deviceHostId, deviceId: device.deviceId, ...read, readAt: this.now() }
   }
@@ -587,6 +704,7 @@ export class DeviceManager {
   async action(target: DeviceControlTarget, action: DeviceAction, holder: DeviceControlHolder): Promise<DeviceDetail> {
     this.control.authorize(target, holder)
     const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
+    if (ready.devices) throw new DeviceDomainError('action_unsupported', 'Device tools are not available for this source. Use the bound agent-device CLI.')
     await runDeviceAction(ready, device.platform, device.deviceId, action)
     return this.detail(target)
   }
@@ -648,6 +766,8 @@ export class DeviceManager {
 
   /** Remove everything a host restart or process exit would invalidate. */
   async dispose(): Promise<void> {
+    if (this.cloudRefreshTimer) clearInterval(this.cloudRefreshTimer)
+    this.cloudRefreshTimer = null
     this.deps.revokeAgentBindings?.(() => true)
     for (const { host } of this.hosts.values()) await host.stop().catch(() => {})
   }

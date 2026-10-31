@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import { z } from 'zod'
 import type { DeviceControlHolder } from '@solus/contracts/device-types'
 import { createLogger } from '../logger'
@@ -77,7 +78,7 @@ export interface DeviceAgentBinding {
 
 export interface DeviceAgentBridgeDeps {
   /** The daemon endpoint for a device host, or why it is unavailable. */
-  endpoint: (deviceHostId: string) => AgentDeviceEndpoint | null
+  endpoint: (deviceHostId: string, deviceId?: string) => AgentDeviceEndpoint | null
   /** Take or renew the agent's lease. Throws `agent_paused` / `control_busy`. */
   acquire: (binding: DeviceAgentBinding, holder: DeviceControlHolder & { kind: 'agent' }) => void
 }
@@ -166,7 +167,7 @@ export class DeviceAgentBridge {
       res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'This device binding is no longer valid. Call device_open again.' } }))
       return
     }
-    const endpoint = this.deps.endpoint(entry.binding.deviceHostId)
+    const endpoint = this.deps.endpoint(entry.binding.deviceHostId, entry.binding.deviceId)
     if (!endpoint) {
       res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Agent device access is not running on this host.' } }))
       return
@@ -205,13 +206,19 @@ export class DeviceAgentBridge {
     }
     const isCommand = request.method === 'agent_device.command' || request.method === 'agent-device.command'
     const named = request.params.flags?.udid ?? request.params.flags?.serial
-    if (isCommand && named !== undefined && named !== binding.deviceId) {
+    if (isCommand && named !== undefined && named !== binding.deviceId && named !== endpoint.deviceId) {
       fail(-32602, `This binding drives ${binding.deviceId}. Call device_open for another device.`)
       return
     }
     // Commands always run in the binding's own daemon session, with the daemon's credential.
     const params: RpcRequest['params'] & { token: string; session?: string } = { ...request.params, token: endpoint.token }
-    if (isCommand) params.session = binding.agentSession
+    if (isCommand) {
+      params.session = endpoint.session ?? binding.agentSession
+      if (endpoint.deviceId === null && params.flags) {
+        delete params.flags.udid
+        delete params.flags.serial
+      }
+    }
     const refused = this.guard(binding, isCommand ? request.params.command ?? '' : request.method, isCommand)
     if (refused) {
       fail(-32001, refused.detail)
@@ -236,7 +243,7 @@ export class DeviceAgentBridge {
   private forwardRpc(res: ServerResponse, binding: DeviceAgentBinding, endpoint: AgentDeviceEndpoint, json: string, fail: (code: number, message: string, status?: number) => void): Promise<void> {
     const payload = Buffer.from(json)
     return new Promise<void>((resolve) => {
-      const upstream = httpRequest(`${endpoint.baseUrl}/rpc`, {
+      const upstream = (endpoint.baseUrl.startsWith('https:') ? httpsRequest : httpRequest)(`${endpoint.baseUrl}/rpc`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': payload.length, authorization: `Bearer ${endpoint.token}`, 'x-agent-device-token': endpoint.token },
       }, (upstreamRes) => {
@@ -258,7 +265,7 @@ export class DeviceAgentBridge {
     const search = (req.url ?? '').includes('?') ? `?${(req.url ?? '').split('?')[1]}` : ''
     const headers = { ...req.headers, authorization: `Bearer ${endpoint.token}`, 'x-agent-device-token': endpoint.token }
     delete headers.host
-    const upstream = httpRequest(`${endpoint.baseUrl}${path}${search}`, { method: req.method, headers }, (upstreamRes) => {
+    const upstream = (endpoint.baseUrl.startsWith('https:') ? httpsRequest : httpRequest)(`${endpoint.baseUrl}${path}${search}`, { method: req.method, headers }, (upstreamRes) => {
       res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers)
       upstreamRes.pipe(res)
     })

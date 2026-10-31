@@ -333,7 +333,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const list = useThreadListState();
   const record = thread.record;
   const title = threadTitle(record);
-  // Another person's session: the row names the reader's role on it.
+  // Another person's session: the row marks it shared; screen readers hear the role.
   const sharedRole = sharedRoleLabel(record);
   const snoozedRow = props.snoozed === true;
   const archivedRow = props.archived === true;
@@ -637,9 +637,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </View>
       <View className="mt-1 flex-row items-start gap-1.5">
         {record.isLead ? (
-          // The Mission mode glyph, the same as on the composer's button: this
+          // The Coordinator mode glyph, the same as on the composer's button: this
           // session plans the work and starts other sessions to do it.
-          <View className="pt-[3px]" accessibilityLabel="Mission mode session">
+          <View className="pt-[3px]" accessibilityLabel="Coordinator mode session">
             <SymbolView
               name={LEAD_SYMBOL}
               size={13}
@@ -710,16 +710,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         {sharedRole ? (
           <View className="flex-row items-center gap-1" accessibilityLabel={`Shared with you, ${sharedRole}`}>
             <SymbolView name="person.2" size={12} tintColorClassName={rowAppearance.mutedIconTintClassName} />
-            <Text
-              className={cn(
-                "text-xs",
-                selected
-                  ? selectedThreadRowColors.mutedForegroundClassName
-                  : rowAppearance.mutedForegroundClassName,
-              )}
-            >
-              {sharedRole}
-            </Text>
           </View>
         ) : null}
         {pr ? (
@@ -841,17 +831,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             </Text>
           </View>
           {sharedRole ? (
-            <Text
-              accessibilityLabel={`Shared with you, ${sharedRole}`}
-              className={cn(
-                "text-xs",
-                selected
-                  ? selectedThreadRowColors.mutedForegroundClassName
-                  : rowAppearance.tertiaryForegroundClassName,
-              )}
-            >
-              {sharedRole}
-            </Text>
+            <View accessibilityLabel={`Shared with you, ${sharedRole}`}>
+              <SymbolView name="person.2" size={12} tintColorClassName={rowAppearance.mutedIconTintClassName} />
+            </View>
           ) : null}
           <Text
             className={cn(

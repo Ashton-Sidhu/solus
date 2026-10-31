@@ -102,7 +102,7 @@ export function useAgentProfile() {
 
   /** Checks the address on the tool host and adds the server it finds. Answers why when it could not. */
   const addServer = async (url: string): Promise<string | null> => {
-    if (!isIntegrationUrl(url)) return 'Use an HTTPS address with no credentials or fragment.'
+    if (!isIntegrationUrl(url)) return 'Use an HTTPS address, or HTTP on localhost, with no credentials or fragment.'
     // The React Compiler cannot compile branches inside try/catch. The async
     // wrapper turns a synchronous throw into a rejection that catch answers.
     return await (async () => {

@@ -88,6 +88,15 @@ presence that the smaller type gives up. Body text, titles, and the transcript
 stay at the face's own weight. The branch name at the top of the project panel
 uses 600, so it stays one step heavier than the rows below it.
 
+## Icon defaults
+
+`packages/client-core/src/icon-defaults.ts` owns the default icon size (16)
+and stroke width (1.5 on a 24-unit box). The shared app core sets Lucide's
+context for desktop and web. The mobile `AppSymbol` components use the same
+defaults; iOS uses regular weight for native SF Symbols. Set an explicit size
+only when the control needs one. Adjacent action icons should use the same size
+so their visible stroke widths match.
+
 ## Task icon
 
 Use `packages/workspace-ui/src/components/ui/TaskIcon.svelte` for task

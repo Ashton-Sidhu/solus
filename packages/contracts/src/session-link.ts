@@ -1,4 +1,5 @@
-import type { AgentId } from "./types";
+import { z } from "zod";
+import type { AgentId, SessionReference } from "./types";
 
 /**
  * A link to a session, as an agent writes it in its reply (`session://open`)
@@ -56,4 +57,50 @@ export function parseSessionHref(href: string): SessionLinkParams | null {
   } catch {
     return null;
   }
+}
+
+/** The `session://ref` href of a session reference. */
+export function sessionReferenceHref(reference: SessionReference): string {
+  const params = new URLSearchParams({
+    sessionId: reference.sessionId,
+    provider: reference.provider,
+    cwd: reference.cwd,
+  });
+  if (reference.serverId) params.set("serverId", reference.serverId);
+  return `session://ref?${params}`;
+}
+
+/** A session as a prompt names it: `[title](session://ref?…)`, the chip the
+ *  input bar's reference picker inserts. Every client writes it here, so the
+ *  composer turns it into the same `SessionReference` and the agent reads the
+ *  session with read_session. */
+export function sessionReferenceMarkdown(reference: SessionReference): string {
+  const label = reference.title.replaceAll("[", "\\[").replaceAll("]", "\\]");
+  return `[${label}](${sessionReferenceHref(reference)})`;
+}
+
+const sessionReferenceSchema = z.object({
+  sessionId: z.string().refine((id) => id.trim().length > 0),
+  provider: z.enum(["claude-code", "codex", "opencode", "replay"]),
+  title: z.string(),
+  cwd: z.string(),
+  serverId: z.string().optional(),
+}) satisfies z.ZodType<SessionReference>;
+const entriesSchema = z.array(z.unknown());
+
+/** The session references in a JSON list another surface wrote, such as a
+ *  dragged session. An entry that is not a reference is left out. */
+export function parseSessionReferences(json: string): SessionReference[] {
+  let entries: z.infer<typeof entriesSchema>;
+  try {
+    const parsed = entriesSchema.safeParse(JSON.parse(json));
+    if (!parsed.success) return [];
+    entries = parsed.data;
+  } catch {
+    return [];
+  }
+  return entries.flatMap((entry) => {
+    const reference = sessionReferenceSchema.safeParse(entry);
+    return reference.success ? [reference.data] : [];
+  });
 }

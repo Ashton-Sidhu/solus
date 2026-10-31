@@ -5,6 +5,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
 import { solusIconSubset } from '../../scripts/vite-icon-collections'
 import { devServeRoots } from '../../scripts/vite-fs-allow'
+import { workspaceStartupPreloads } from '../../scripts/vite-workspace-preloads'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -40,7 +41,7 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
-  plugins: [solusIconSubset(), tailwindcss(), svelte()],
+  plugins: [solusIconSubset(), tailwindcss(), svelte(), workspaceStartupPreloads(['/apps/client/src/App.svelte'])],
   server: {
     host: '0.0.0.0',
     port: 5174,
@@ -53,6 +54,13 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, '../../dist/client'),
     emptyOutDir: true,
+    modulePreload: {
+      // Safari spends hundreds of milliseconds inserting the workspace's JS
+      // preload links. Let native imports load that graph without the DOM loop.
+      // Vite adds dynamic CSS dependencies separately and still waits for them.
+      // Keep HTML preloads so the small entry graph starts with the document.
+      resolveDependencies: (_filename, dependencies, context) => context.hostType === 'js' ? [] : dependencies,
+    },
     // Feature-level dynamic imports own chunk boundaries. Let Rollup follow
     // those boundaries instead of forcing shared dependencies into manual
     // vendor chunks, which creates circular static edges back to the entry.

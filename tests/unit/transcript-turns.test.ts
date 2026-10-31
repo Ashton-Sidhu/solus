@@ -1,7 +1,7 @@
 import type { Activity, ActivityKind } from '@solus/contracts/activity'
 import { afterAll, describe, expect, test } from 'bun:test'
 import type { Message } from '@solus/contracts/types'
-import { buildTurns, groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
+import { buildTurns, groupMessages, withoutProviderRoundTrips as withoutRoundTrips } from '@solus/workspace-ui/components/conversation/lib/turns'
 import { messageTurnIds } from '@solus/workspace-ui/components/conversation/lib/transcript-navigation'
 import { SvelteRunes } from './helpers/svelte-runes'
 
@@ -17,9 +17,10 @@ const turnsFile = SvelteRunes.file('packages/workspace-ui/src/components/convers
 const counted = runes.module('turns-counted', `
   import * as turns from ${JSON.stringify(turnsFile)}
   export * from ${JSON.stringify(turnsFile)}
-  export const calls = { group: 0, grouped: 0, build: 0 }
-  export function groupMessages(messages) { calls.group++; calls.grouped += messages.length; return turns.groupMessages(messages) }
+  export const calls = { group: 0, grouped: 0, build: 0, cut: 0 }
+  export function groupInto(grouping, messages, start, end) { calls.group++; calls.grouped += end - start; return turns.groupInto(grouping, messages, start, end) }
   export function buildTurns(items, opts) { calls.build++; return turns.buildTurns(items, opts) }
+  export function withoutProviderRoundTrips(messages) { calls.cut += messages.length; return turns.withoutProviderRoundTrips(messages) }
 `)
 const navigation = runes.source('navigation',
   'packages/workspace-ui/src/components/conversation/lib/transcript-navigation.ts', { './turns': turnsFile })
@@ -57,7 +58,7 @@ const { create } = await import(fixture) as {
     }
   }
 }
-const { calls } = await import(counted) as { calls: { group: number; grouped: number; build: number } }
+const { calls } = await import(counted) as { calls: { group: number; grouped: number; build: number; cut: number } }
 
 const ORIGIN: NonNullable<Message['agentConversationRef']>['origin'] = 'created'
 let clock = 1_000
@@ -144,7 +145,7 @@ describe('segment-local turns', () => {
     expect(live.length).toBe(2)
   })
 
-  test('a streamed token regroups only its own segment and rebuilds no turn', () => {
+  test('a streamed token regroups only the message it lands in and rebuilds no turn', () => {
     const { state, transcript, flush } = create([...varietyTranscript(),
       msg({ role: 'user', content: 'last' }), msg({ role: 'assistant', content: 'Streaming' })], true)
     const before = transcript.turns
@@ -158,7 +159,7 @@ describe('segment-local turns', () => {
     expect(after).toBe(before)
     expect(transcript.segments).toBe(segments)
     expect(calls.group - start.group).toBe(1)
-    expect(calls.grouped - start.grouped).toBe(2)
+    expect(calls.grouped - start.grouped).toBe(1)
     expect(calls.build - start.build).toBe(0)
   })
 
@@ -175,9 +176,74 @@ describe('segment-local turns', () => {
     expect(transcript.segments.slice(0, -1)).toEqual(settledSegments)
     for (let i = 0; i < settledSegments.length; i++) expect(transcript.segments[i]).toBe(settledSegments[i])
     for (let i = 0; i < before.length - 1; i++) expect(after[i]).toBe(before[i])
-    expect(calls.group - start.group).toBe(1)
+    // The new segment groups its earlier messages once, then its last one.
+    expect(calls.group - start.group).toBe(2)
     expect(calls.build - start.build).toBe(1)
     expect(JSON.parse(JSON.stringify(after))).toEqual(JSON.parse(JSON.stringify(wholeBuild(state.messages, true))))
+  })
+
+  test('regrouping the last message leaves the card it joins as the earlier messages made it', () => {
+    // WHY: the last message resumes the grouping of the ones before it. A card
+    // it joins is shared with that grouping, so growing it in place would add
+    // the member again on every streamed update.
+    const { state, transcript, flush } = create([msg({ role: 'user', content: 'go' }),
+      tool('Task', { subMessages: [] }), tool('Read'), tool('Task', { subMessages: [], toolStatus: 'running' })], true)
+    for (let update = 0; update < 3; update++) {
+      state.messages[state.messages.length - 1].subMessages = []
+      flush()
+    }
+    expect(JSON.parse(JSON.stringify(transcript.turns))).toEqual(JSON.parse(JSON.stringify(wholeBuild(state.messages, true))))
+  })
+
+  test('an append cuts only the end of the transcript', () => {
+    // WHY: a long session gets a message many times a second while it runs;
+    // the cut must cost the last segment, not every message ever sent.
+    const { state, transcript, flush } = create([...varietyTranscript(), ...varietyTranscript()], true)
+    const lastSegment = transcript.segments[transcript.segments.length - 1].messages.length
+    const start = { ...calls }
+    state.messages.push(tool('Read'))
+    flush()
+    expect(calls.cut - start.cut).toBe(lastSegment + 1)
+    expect(JSON.parse(JSON.stringify(transcript.turns))).toEqual(JSON.parse(JSON.stringify(wholeBuild(state.messages, true))))
+  })
+
+  test('a provider switch appended after open switches cancels them as a whole build does', () => {
+    const switched = (provider: string, fromProvider: string) =>
+      msg({ role: 'system', content: '', activity: divider({ kind: 'agent_switched', provider, fromProvider }) })
+    const { state, transcript, flush } = create([msg({ role: 'user', content: 'go' }), tool('Read')], true)
+    state.messages.push(switched('codex', 'claude'))
+    flush()
+    state.messages.push(switched('gemini', 'codex'))
+    flush()
+    // One append that cancels both open switches and brings a tool call.
+    state.messages.push(switched('codex', 'gemini'), switched('claude', 'codex'), tool('Edit'))
+    flush()
+    expect(JSON.parse(JSON.stringify(transcript.turns))).toEqual(JSON.parse(JSON.stringify(wholeBuild(withoutRoundTrips(state.messages), true))))
+    // Every switch cancelled: the Edit joins the turn the Read is in.
+    expect(transcript.segments).toHaveLength(1)
+  })
+
+  test('equal one whole-transcript build when messages arrive a few at a time', () => {
+    let seed = 11
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+    const providers = ['claude', 'codex', 'gemini']
+    for (let round = 0; round < 100; round++) {
+      const pool = varietyTranscript()
+      const { state, transcript, flush } = create([], random() < 0.5)
+      for (let step = 0; step < 20; step++) {
+        // One to three messages per append: a page of events can land at once.
+        const batch = Array.from({ length: 1 + Math.floor(random() * 3) }, () => {
+          const shape = pool[Math.floor(random() * pool.length)]
+          return random() < 0.3
+            ? msg({ role: 'system', content: '', activity: divider({ kind: 'agent_switched', provider: providers[Math.floor(random() * 3)], fromProvider: providers[Math.floor(random() * 3)] }) })
+            : msg({ ...shape, role: shape.role })
+        })
+        state.messages.push(...batch)
+        flush()
+        expect(JSON.parse(JSON.stringify(transcript.turns)))
+          .toEqual(JSON.parse(JSON.stringify(wholeBuild(withoutRoundTrips(state.messages), state.running))))
+      }
+    }
   })
 
   test('the run ending re-folds only the live segments', () => {

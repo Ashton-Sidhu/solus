@@ -237,6 +237,29 @@ describe('integrations store: sign-in', () => {
     stop()
   })
 
+  test('a working sign-in that expires is told once, and Settings counts it until it works again', async () => {
+    const host = signInHost('expiry', () => waiting('unused'))
+    host.connectionsOnHost.set('linear', connected('linear'))
+    const expired: Array<[string, string]> = []
+    const stop = store.listen((serverId, name) => expired.push([serverId, name]))
+    await flush()
+    const before = store.attentionCount
+    const needsSignIn = { ...connected('linear'), status: 'needs-sign-in' as const, error: 'The sign-in expired. Sign in again.' }
+    connections.emit('expiry', 'integration.connectionChanged', { integrationId: 'linear', connection: needsSignIn })
+    expect(expired).toEqual([['expiry', 'linear']])
+    expect(store.attentionCount).toBe(before + 1)
+    // The same state again is not a new expiry.
+    connections.emit('expiry', 'integration.connectionChanged', { integrationId: 'linear', connection: needsSignIn })
+    expect(expired).toHaveLength(1)
+    connections.emit('expiry', 'integration.connectionChanged', { integrationId: 'linear', connection: connected('linear') })
+    expect(store.attentionCount).toBe(before)
+    // A cloud that does not answer is not the person's to fix: no notice, no count.
+    connections.emit('expiry', 'integration.connectionChanged', { integrationId: 'linear', connection: { ...connected('linear'), status: 'cloud-unreachable' } })
+    expect(expired).toHaveLength(1)
+    expect(store.attentionCount).toBe(before)
+    stop()
+  })
+
   test('a host that drops ends the flows that wait on it', async () => {
     signInHost('drop', () => waiting('flow-4'))
     const pages = recordOpenedPages()

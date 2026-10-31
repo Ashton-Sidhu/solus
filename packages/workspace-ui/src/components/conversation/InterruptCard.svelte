@@ -31,7 +31,7 @@
 
 <div class="py-1 animate-msg-in-side">
   <section
-    class="interrupt-card flex min-w-0 flex-col gap-3.5"
+    class="interrupt-card flex min-w-0 flex-col gap-3"
     class:is-quiet={!blocking}
     class:is-destructive={tone === 'destructive'}
     data-testid={testId}
@@ -53,9 +53,11 @@
 
 <style>
   /* ── shell ── */
+  /* The agent conversation card's geometry: its radius, and padding that puts
+     the text where that card's rows put theirs. */
   :global(.interrupt-card) {
-    border-radius: 1rem;
-    padding: 0.875rem 1.125rem 1rem;
+    border-radius: var(--tx-card-radius);
+    padding: 0.625rem 0.75rem 0.75rem;
     background: var(--solus-tx-card-bg);
     box-shadow: var(--solus-tx-attention-shadow);
     font-size: var(--text-transcript-card);
@@ -95,12 +97,11 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* The one bold line: the question, or what the agent wants to do. */
+  /* The lead line: the question, or what the agent wants to do. */
   :global(.interrupt-title) {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-transcript-card);
     line-height: 1.45;
-    font-weight: 500;
     color: var(--solus-text-primary);
     text-wrap: balance;
   }
@@ -147,18 +148,17 @@
   /* ── pills: the decision ── */
   :global(.interrupt-pill) {
     display: inline-flex;
-    height: 1.875rem;
+    height: 1.5rem;
     flex-shrink: 0;
     align-items: center;
     gap: 0.375rem;
     border: none;
-    border-radius: 9999px;
+    border-radius: 0.375rem;
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
-    padding: 0 0.875rem;
+    padding: 0 0.625rem;
     white-space: nowrap;
     color: var(--solus-text-primary);
-    font-size: 0.8125rem;
-    font-weight: 500;
+    font-size: 0.75rem;
     cursor: pointer;
     transition:
       background var(--duration-quick) var(--ease-premium),
@@ -200,8 +200,8 @@
   }
   @media (pointer: coarse) {
     :global(.interrupt-pill) {
-      height: 2.5rem;
-      padding: 0 1rem;
+      height: 2rem;
+      padding: 0 0.75rem;
     }
   }
 
@@ -231,7 +231,6 @@
     white-space: nowrap;
     color: var(--primary-foreground);
     font-size: 0.8125rem;
-    font-weight: 500;
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -259,8 +258,8 @@
     align-items: flex-start;
     gap: 0.5rem;
     overflow: hidden;
-    border-radius: 0.75rem;
-    padding: 0.625rem 0.875rem;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
     background: color-mix(in oklch, var(--foreground) 3%, transparent);
     box-shadow: inset 0 0 0 0.0625rem color-mix(in oklab, var(--border) 50%, transparent);
   }
@@ -286,7 +285,7 @@
 
   :global(.interrupt-payload) {
     overflow: hidden;
-    border-radius: 0.75rem;
+    border-radius: 0.5rem;
     background: color-mix(in oklch, var(--foreground) 3%, transparent);
     box-shadow: inset 0 0 0 0.0625rem color-mix(in oklab, var(--border) 50%, transparent);
   }
@@ -306,11 +305,11 @@
     color: var(--solus-text-secondary);
   }
 
-  /* A short rule between two choices, or between answered questions and the live one. */
+  /* A hairline between two choices, or between answered questions and the live one,
+     inset to the option rows' text column as Settings' RowCard insets to its rows. */
   :global(.interrupt-divider) {
-    width: 75%;
     height: 0.0625rem;
-    margin: 0.0625rem auto;
+    margin: 0.0625rem 0.5rem;
     background: var(--solus-tx-divider);
     opacity: 0.8;
   }
@@ -327,7 +326,6 @@
     vertical-align: 0.125rem;
     font-family: var(--solus-code-font-family);
     font-size: 0.75rem;
-    font-weight: 500;
     color: var(--solus-text-secondary);
   }
 

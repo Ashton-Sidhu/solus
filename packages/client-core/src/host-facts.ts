@@ -86,6 +86,8 @@ export class HostFacts {
     private readonly now: () => number = Date.now,
   ) {
     this.stopEvents = [
+      source.events.subscribe('provider-instances.changed', () => { void this.refresh('machine'); void this.refresh('capabilities'); }),
+      source.events.subscribe('host.modelProfilesChanged', () => { if (this.requested.has('machine')) void this.refresh('machine'); }),
       source.events.subscribe('usage.limitsChanged', ({ snapshots }) => this.set('usage', snapshots)),
       source.events.subscribe('voice.modelStatusChanged', (status) => this.set('voiceModel', status)),
       // The host made this member's Linux user: its server info no longer says `preparing` (docs/plans/member-isolation.md §8.1).

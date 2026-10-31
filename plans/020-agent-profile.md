@@ -256,6 +256,19 @@ person whose profile source is `account`:
 A host-local credential is used only when the person's profile source is
 `computer`, or when the cloud has answered `not_connected` for that URL.
 
+The cached copy ends before its expiry in two cases, because a new sign-in at
+the cloud revokes the old token:
+
+- **A pull finds the connection changed.** The client makes every host pull
+  after a sign-in at the cloud. When a connection's `updatedAt` differs from the
+  one this host saw at its last pull, the host drops its copy and closes the
+  sessions that send it (`IntegrationConnections.reconcile`).
+- **A call reports HTTP 401.** Some servers take a revoked token when the session
+  opens and refuse it only in a tool's result (PlanetScale answers
+  "(status: 401)"). The gateway drops the copy and the session, reads the header
+  again, and tries the call once more. A second refusal is the call's answer; it
+  does not mark the row `needs-sign-in`.
+
 ### 5.3 Signing in while synced
 
 The connect card and Settings → MCP start the sign-in at the cloud:

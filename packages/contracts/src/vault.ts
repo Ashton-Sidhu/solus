@@ -225,7 +225,12 @@ export function deliverySchemaOf(ref: CredentialRef): z.ZodType<VaultDelivery> {
 // ── Executor routes ─────────────────────────────────────────────────────────
 
 /** `POST /v1/vault`: 200 the delivery; 404 `not_connected`; 409 `reconnect_required`. */
-export const vaultReadRequestSchema = z.object({ ref: credentialRefSchema }).strict()
+/**
+ * `POST /v1/vault`. `refused`: the server refused the delivery this executor holds,
+ * though it may not be due: the cloud refreshes now, and a refused refresh marks the
+ * connection `needs-sign-in` (409 `reconnect_required`).
+ */
+export const vaultReadRequestSchema = z.object({ ref: credentialRefSchema, refused: z.literal(true).optional() }).strict()
 export type VaultReadRequest = z.infer<typeof vaultReadRequestSchema>
 
 /**

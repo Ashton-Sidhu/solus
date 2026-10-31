@@ -146,8 +146,8 @@ reserved pane, with the collapse control available. Mobile loads the drawer shel
 with the workspace and defers its session list; opening it before the list is
 ready shows the same skeleton. The placeholders use theme colors and do not animate.
 
-Session rows under a task show the host name beside its icon on desktop,
-web, and mobile. Long names truncate within the row; hovering shows the full
+Session rows show the host name beside their icon on desktop, web, and
+mobile. Long names truncate within the row; hovering shows the full
 name. The name remains visible when the runner is offline.
 
 Linked task PRs load from summaries held in host memory in `tasksSidebarSnapshot`.

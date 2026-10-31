@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { fly } from "svelte/transition";
   import { parseReviewCommentMessageSegments } from "@solus/contracts/review-comment";
   import ReviewCommentCard from "./ReviewCommentCard.svelte";
@@ -16,10 +17,7 @@
   import { parseAnnotationAttachmentId } from "../browser/lib/annotation-attachment";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import {
-    FileText as FileTextIcon,
     Image as ImageIcon,
-    FileCode as FileCodeIcon,
-    File as FileIcon,
     Zap as LightningIcon,
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
@@ -36,7 +34,7 @@
   import { shouldCollapseUserMessage } from "./lib/user-message";
   import type { Message, OutboundPromptState } from "@solus/contracts/types";
   import type { User } from "@solus/contracts/user";
-  import type { Component, Snippet } from "svelte";
+  import type { Snippet } from "svelte";
   import { runHost } from "../../contexts/workspace/run-location";
 
   // `rawtext` is the leaf: a `text` token in a tight list item carries inline
@@ -227,18 +225,6 @@
     };
   }
 
-  const FILE_ICON_COMPONENTS = {
-    'image/png': ImageIcon,
-    'image/jpeg': ImageIcon,
-    'image/gif': ImageIcon,
-    'image/webp': ImageIcon,
-    'image/svg+xml': ImageIcon,
-    'text/plain': FileTextIcon,
-    'text/markdown': FileTextIcon,
-    'application/json': FileCodeIcon,
-    'text/yaml': FileCodeIcon,
-    'text/toml': FileCodeIcon,
-  } satisfies Record<string, Component>;
 
   // Only register the window listener while a browser is open — avoids
   // hundreds of global keydown handlers across all user messages and tabs.
@@ -327,7 +313,6 @@
   {#if fileAttachments.length > 0}
     <div class="flex gap-1.5 flex-wrap justify-end" style="max-width:85%">
       {#each fileAttachments as a, i (i)}
-        {@const IconComponent = FILE_ICON_COMPONENTS[a.mimeType || ''] || FileIcon}
         <button
           type="button"
           onclick={() => requestFilePreview({
@@ -338,7 +323,7 @@
           style="border-radius:0.625rem;padding:0.25rem 0.5rem;max-width:11.25rem"
         >
           <span class="flex-shrink-0 text-(--solus-text-tertiary)">
-            <IconComponent size={13} />
+            <FileIcon path={a.name} size={13} />
           </span>
           <span class="text-xs font-medium truncate text-(--solus-text-secondary)" style="min-width:0">
             {a.name}

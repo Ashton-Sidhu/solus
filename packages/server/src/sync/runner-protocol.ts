@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { shareResourceSchema, shareRoleSchema } from '@solus/contracts/sharing'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { activitySchema } from '@solus/contracts/activity'
+import { sessionPlaceSchema, sessionStarterSchema } from '@solus/contracts/session-starter'
 
 /**
  * What a host sends its organization's Solus API, and what comes back
@@ -53,6 +54,8 @@ export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.o
     intent: z.enum(['delegate', 'fire_and_forget']),
     createdAt: z.number(),
   }).nullable().optional(),
+  place: sessionPlaceSchema.nullable().optional(),
+  startedBy: sessionStarterSchema.nullable().optional(),
   admissionId: z.string().min(1).max(256).optional(),
   privateToOwner: z.boolean().optional(),
 })

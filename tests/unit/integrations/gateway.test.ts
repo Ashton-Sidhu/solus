@@ -32,6 +32,8 @@ const MEMBER_SCOPE = { identity: HOST_IDENTITY, personKey: 'member-1' }
 
 /** The fake server: every MCP session it opened, so a test can count and change them. */
 const upstream: McpServer[] = []
+/** The headers the `query` tool itself takes; the transport may take more. */
+const toolAccepted = new Set(['Bearer good'])
 let httpServer: Server
 let integration: Integration
 
@@ -55,6 +57,16 @@ function makeServer(): McpServer {
     })
     return { content: [{ type: 'text', text: `${answer.action}: ${String(answer.content?.colour)}` }] }
   })
+  return server
+}
+
+/** As PlanetScale does: the session takes any header the transport took, and the tool refuses a revoked one in its result. */
+function addQueryTool(server: McpServer): McpServer {
+  server.registerTool('query', { description: 'Read with the caller\'s token.' }, async (extra) => (
+    toolAccepted.has(String(extra.requestInfo?.headers.authorization))
+      ? { content: [{ type: 'text', text: 'rows' }] }
+      : { isError: true, content: [{ type: 'text', text: 'Permission denied. Please check your API token has the required permissions. (status: 401)' }] }
+  ))
   return server
 }
 
@@ -254,6 +266,8 @@ describe('integration gateway with sign-in', () => {
   /** Every `Authorization` header the server saw, in order, and the sessions it opened. */
   const seen: Array<string | undefined> = []
   const opened: McpServer[] = []
+  /** The headers the server takes now: a test removes one to make its token expire. */
+  const accepted = new Set(['Bearer good'])
   let authServer: Server
   let oauthIntegration: Integration
 
@@ -261,7 +275,7 @@ describe('integration gateway with sign-in', () => {
     const transports = new Map<string, StreamableHTTPServerTransport>()
     authServer = createServer(async (req, res) => {
       seen.push(req.headers.authorization)
-      if (req.headers.authorization !== 'Bearer good') {
+      if (!accepted.has(req.headers.authorization ?? '')) {
         res.writeHead(401, { 'www-authenticate': 'Bearer' }).end()
         return
       }
@@ -273,7 +287,7 @@ describe('integration gateway with sign-in', () => {
           sessionIdGenerator: randomUUID,
           onsessioninitialized: (id) => { transports.set(id, created) },
         })
-        const server = makeServer()
+        const server = addQueryTool(makeServer())
         opened.push(server)
         await server.connect(created)
         transport = created
@@ -358,6 +372,75 @@ describe('integration gateway with sign-in', () => {
     await gateway.close()
   })
 
+  test('a token that expires while its session is open is read again before the person is asked to sign in', async () => {
+    // WHY: a session keeps the header it opened with; an expired one must not end a connection the refresh can renew.
+    const headers = new Map([['member-1', 'Bearer old']])
+    const { gateway, credentials, raised } = signedInGateway(headers)
+    accepted.add('Bearer old')
+    try {
+      expect(await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'first' }, context()))).toEqual({ ok: true, text: 'echo: first' })
+      accepted.delete('Bearer old')
+      accepted.add('Bearer new')
+      headers.set('member-1', 'Bearer new')
+      const renewed = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'second' }, context()))
+      expect(renewed).toEqual({ ok: true, text: 'echo: second' })
+      expect(credentials.asked).toEqual(['member-1', 'member-1'])
+      expect(credentials.refused).toEqual([])
+      expect(raised).toEqual([])
+
+      // A header the server still refuses after it was read again needs the person.
+      accepted.delete('Bearer new')
+      const refused = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'third' }, context()))
+      expect(refused.text).toStartWith('CONNECTION_REQUIRED:')
+      expect(credentials.refused).toEqual([{ integrationId: oauthIntegration.id, personKey: 'member-1' }])
+    } finally {
+      accepted.delete('Bearer old')
+      accepted.delete('Bearer new')
+      await gateway.close()
+    }
+  })
+
+  test('a tool that refuses a revoked token in its result reads the header again, past the copy, and retries once', async () => {
+    // WHY: a sign-in made again revokes the old token. PlanetScale takes the old one when
+    // the session opens and refuses it only inside each call, so the host kept sending
+    // the dead copy while the row said Connected.
+    const account = new Map([['member-1', 'Bearer old']])
+    const copies = new Map<string, string>()
+    const forgotten: string[] = []
+    const gateway = gatewayFor(oauthIntegration)
+    gateway.useCredentials({
+      authorizationFor: async (_id: string, personKey: string) => {
+        if (!copies.has(personKey)) copies.set(personKey, account.get(personKey) ?? '')
+        return copies.get(personKey) ?? null
+      },
+      markNeedsSignIn: () => undefined,
+      forgetCached: (_id: string, personKey: string) => { forgotten.push(personKey); copies.delete(personKey) },
+    })
+    accepted.add('Bearer old')
+    accepted.add('Bearer new')
+    try {
+      expect(await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'warm' }, context()))).toEqual({ ok: true, text: 'echo: warm' })
+      account.set('member-1', 'Bearer new')
+      toolAccepted.add('Bearer new')
+      expect(await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'query', {}, context()))).toEqual({ ok: true, text: 'rows' })
+      expect(forgotten).toEqual(['member-1'])
+
+      // A token still refused after it was read again is the server's answer: once only, and the person is not asked to sign in.
+      account.set('member-1', 'Bearer old')
+      copies.delete('member-1')
+      toolAccepted.delete('Bearer new')
+      const refused = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'query', {}, context()))
+      expect(refused.ok).toBe(false)
+      expect(refused.text).toContain('(status: 401)')
+      expect(forgotten).toEqual(['member-1', 'member-1'])
+    } finally {
+      accepted.delete('Bearer old')
+      accepted.delete('Bearer new')
+      toolAccepted.delete('Bearer new')
+      await gateway.close()
+    }
+  })
+
   test('two people get two sessions, each with their own header', async () => {
     const { gateway, credentials } = signedInGateway(new Map([['local:owner', 'Bearer good'], ['member-1', 'Bearer bad']]))
     const sessionsBefore = opened.length
@@ -375,7 +458,7 @@ describe('integration gateway with sign-in', () => {
     const { gateway } = signedInGateway(new Map([['local:owner', 'Bearer good']]))
     await withActingScope(OWNER_SCOPE, () => gateway.tools(oauthIntegration.id))
     const tools = await withActingScope(MEMBER_SCOPE, () => gateway.tools(oauthIntegration.id))
-    expect(tools.map((tool) => tool.name)).toEqual(['echo', 'delete_all', 'confirm'])
+    expect(tools.map((tool) => tool.name)).toEqual(['echo', 'delete_all', 'confirm', 'query'])
     await gateway.close()
   })
 
@@ -392,7 +475,7 @@ describe('integration gateway with sign-in', () => {
     setIntegrationGateway(gateway)
     try {
       const names = (await integrationAgentTools(memberActor)).map((tool) => tool.name).sort()
-      expect(names).toEqual(['secure__confirm', 'secure__delete_all', 'secure__echo'])
+      expect(names).toEqual(['secure__confirm', 'secure__delete_all', 'secure__echo', 'secure__query'])
       // The host's own work has no person: the server refuses it, and nothing is cached as the member's.
       seen.length = 0
       const fresh = signedInGateway(new Map([['member-1', 'Bearer good']]), personal).gateway

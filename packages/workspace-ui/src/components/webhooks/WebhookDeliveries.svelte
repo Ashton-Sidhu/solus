@@ -5,7 +5,8 @@
   import { untrack } from "svelte";
   import { RotateCcw as ReplayIcon } from "@lucide/svelte";
   import type { Webhook, WebhookDelivery } from "@solus/contracts/webhooks";
-  import { getWorkspaceContext, webhooksStore } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
+  import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { relativeTime } from "../../lib/relative-time";
   import { Button } from "../ui/button";

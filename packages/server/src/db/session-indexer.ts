@@ -5,7 +5,9 @@ import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import { searchText } from '@solus/contracts/search-query'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
-import type { AgentId, ReasoningEffort, SessionMeta, SessionOrigin } from '@solus/contracts/types'
+import type { AgentId, ReasoningEffort, SessionMeta, SessionStarter } from '@solus/contracts/types'
+import { parseStoredStarter } from '@solus/contracts/session-starter'
+import { placeOfFolder } from '@solus/contracts/chat'
 import {
   encodePathAsFolder,
   SOLUS_WORKTREE_ENCODED_MARKER,
@@ -75,9 +77,8 @@ export const sessionRowSchema = z.object({
   delegation_intent: z.string().nullable(),
   delegation_created_at: z.number().nullable(),
   started_by: z.string().nullable().optional(),
+  place: z.enum(['chat', 'project']).nullable().optional().catch(null),
 })
-/** `sessions.started_by`: written by this host after the strict parse in `createHeadlessSession`. */
-const sessionOriginSchema = z.object({ hostLabel: z.string(), sessionId: z.string() })
 const numberRowSchema = z.object({ number: z.number() })
 const lastIdRowSchema = z.object({ last: z.number().nullable() })
 const offsetRowSchema = z.object({ last_offset: z.number() })
@@ -622,24 +623,24 @@ export function rowToSession(row: SessionRow): SessionMeta {
     serverId: row.server_id ?? undefined,
     branch: row.branch ?? undefined,
     delegation,
-    startedBy: row.started_by ? sessionOriginOf(row.started_by) : undefined,
+    ...startFactsOf(row),
   }
 }
 
-function sessionOriginOf(json: string): SessionOrigin | undefined {
-  try {
-    const parsed = sessionOriginSchema.safeParse(JSON.parse(json))
-    return parsed.success ? parsed.data : undefined
-  } catch {
-    return undefined
-  }
+/** What the index row says about how the session started; absent for a session made before it did. */
+function startFactsOf(row: SessionRow): Pick<SessionMeta, 'startedBy' | 'place'> {
+  const facts: Pick<SessionMeta, 'startedBy' | 'place'> = {}
+  const startedBy = parseStoredStarter(row.started_by ?? null)
+  if (startedBy) facts.startedBy = startedBy
+  if (row.place) facts.place = row.place
+  return facts
 }
 
 const SESSION_SELECT = `
   session_id, provider, cwd, project_path, is_worktree, slug, first_message,
   custom_title, last_timestamp, size, model, reasoning_effort, project_root,
   server_id, branch, parent_session_id, root_session_id, delegation_exchange_id,
-  delegation_depth, delegation_intent, delegation_created_at, started_by
+  delegation_depth, delegation_intent, delegation_created_at, started_by, place
 `
 
 /** The index row of a session's active thread. A thread id reads its own row. */
@@ -688,9 +689,11 @@ export function persistIndexedSessionStart(
   firstMessage: string | null = null,
   branch: string | null = null,
   delegation?: SessionDelegationStart,
-  startedBy?: SessionOrigin,
+  startedBy?: SessionStarter,
 ): void {
   const parent = delegationRowValues(delegation)
+  // The host made this folder for the session, so the folder decides the place (session-starter.md §3.1).
+  const place = placeOfFolder(cwd)
   // A run with no model leaves the provider to choose one, so the model is
   // unknown: record nothing, and keep a model an earlier run recorded.
   const knownModel = model || null
@@ -699,9 +702,9 @@ export function persistIndexedSessionStart(
       session_id, provider, cwd, project_path, project_root, is_worktree,
       slug, first_message, last_timestamp, size, model, reasoning_effort, branch,
       parent_session_id, root_session_id, delegation_exchange_id, delegation_depth,
-      delegation_intent, delegation_created_at, started_by
+      delegation_intent, delegation_created_at, started_by, place
     )
-    VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       project_root = COALESCE(sessions.project_root, excluded.project_root),
       first_message = COALESCE(sessions.first_message, excluded.first_message),
@@ -714,7 +717,8 @@ export function persistIndexedSessionStart(
       delegation_depth = COALESCE(sessions.delegation_depth, excluded.delegation_depth),
       delegation_intent = COALESCE(sessions.delegation_intent, excluded.delegation_intent),
       delegation_created_at = COALESCE(sessions.delegation_created_at, excluded.delegation_created_at),
-      started_by = COALESCE(sessions.started_by, excluded.started_by)
+      started_by = COALESCE(sessions.started_by, excluded.started_by),
+      place = COALESCE(sessions.place, excluded.place)
   `).run(
     threadId,
     provider === 'claude-code' ? 'claude' : provider,
@@ -729,6 +733,7 @@ export function persistIndexedSessionStart(
     branch,
     ...parent,
     startedBy ? JSON.stringify(startedBy) : null,
+    place,
   )
   recordSessionChange(threadId)
   const [parentSessionId, rootSessionId, messageId, depth, intent, createdAt] = parent
@@ -754,6 +759,8 @@ export function persistIndexedSessionStart(
     delegation: messageId !== null && depth !== null && createdAt !== null && (intent === 'delegate' || intent === 'fire_and_forget')
       ? { messageId, depth, intent, createdAt }
       : undefined,
+    place,
+    startedBy,
   }).then((record) => {
     // The record owns the session's name. The index row keeps a copy for
     // local reads, and a thread that joins a named session takes it.

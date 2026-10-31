@@ -32,7 +32,7 @@ function baseApi(): FakeApi {
     .on('prompt', () => ({ disposition: 'started' }))
 }
 
-async function open(api: FakeApi) {
+async function open(api: FakeApi, defaultModels: { codex?: string; 'claude-code'?: string } = {}) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
   await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
@@ -46,7 +46,7 @@ async function open(api: FakeApi) {
     executionPreferences: () => ({}),
     connection,
     outbox: new SendOutbox(() => outboxStorage),
-    runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),
+    runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels, modelOptionsByProvider: {} }),
     organizationId: () => null,
     uuid: () => `client-${++nextId}`,
     onChange: () => undefined,
@@ -96,6 +96,19 @@ describe('native conversation: provider pick', () => {
     controller.pickProvider('claude-code')
     expect(isHandoffPending(controller.threadProvider, controller.run.provider)).toBe(false)
     expect(api.calls.slice(callsBefore)).toEqual([])
+    controller.close()
+  })
+
+  test('provider picks take the saved default each time instead of the catalog or last model', async () => {
+    const { controller } = await open(baseApi(), { codex: 'gpt-5.4', 'claude-code': 'claude-sonnet-5' })
+    controller.updateRun({ model: 'claude-opus-5-5' })
+    controller.pickProvider('codex')
+    expect(controller.run.preferredModel).toBe('gpt-5.4')
+    controller.updateRun({ model: 'gpt-6-astra' })
+    controller.pickProvider('claude-code')
+    expect(controller.run.preferredModel).toBe('claude-sonnet-5')
+    controller.pickProvider('codex')
+    expect(controller.run.preferredModel).toBe('gpt-5.4')
     controller.close()
   })
 

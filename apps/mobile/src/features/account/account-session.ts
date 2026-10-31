@@ -124,7 +124,7 @@ export class AccountSession {
 
   /** The settings calls, each with a fresh account-plane token. A 401 asks the grant again. */
   settingsRequests(): SettingsCloudRequests {
-    return this.client.settingsRequests(() => this.oauth.accessToken({ kind: 'account' }), () => this.recheckGrant())
+    return this.client.settingsRequests(() => this.oauth.accessToken({ kind: 'account' }), () => this.recheckGrant(), () => this.oauth.takeStartupSettings())
   }
 
   /** The agent profile calls (plans/020-agent-profile.md §3), the same way. */
@@ -168,7 +168,12 @@ export class AccountSession {
       this.setDirectory({ kind: 'error', message: 'Solus Cloud did not answer. Check your connection and try again.' })
       return
     }
-    const [account, directory] = await Promise.allSettled([this.client.account(token), this.client.directory(token)])
+    const startup = this.oauth.takeStartupAccount()
+    const startupDirectory = this.oauth.takeStartupDirectory()
+    const [account, directory] = await Promise.allSettled([
+      startup ? Promise.resolve(startup) : this.client.account(token),
+      startupDirectory ? Promise.resolve({ directoryUrl: this.client.origin, ...startupDirectory }) : this.client.directory(token),
+    ])
     if (generation !== this.generation) return
     if (account.status === 'rejected' && account.reason instanceof AccountUnauthorizedError
       || directory.status === 'rejected' && directory.reason instanceof AccountUnauthorizedError) {
@@ -286,6 +291,10 @@ export class AccountSession {
         if (this.identity?.sub !== state.identity.sub) {
           if (this.identity) this.endAccount()
           this.generation += 1
+          // Paired hosts can load before cloud: keep their organization sessions
+          // visible until the directory can reconcile this device's saved choice.
+          const organizationId = this.deps.storage.getItem(ACTIVE_ORGANIZATION_KEY)
+          if (organizationId) this.organizations.set(organizationId)
         }
         this.identity = state.identity
         this.setView({ kind: 'signed-in', identity: state.identity, origin: state.consoleUrl, isStale: state.isStale })

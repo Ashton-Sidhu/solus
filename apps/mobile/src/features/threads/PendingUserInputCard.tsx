@@ -221,12 +221,29 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                       accessibilityRole={question.multiSelect ? "checkbox" : "radio"}
                       accessibilityState={{ checked: selected, disabled: responseDisabled }}
                       disabled={responseDisabled}
-                      className={cn(
-                        "min-h-12 w-full rounded-2xl border px-3.5 py-3",
-                        selected ? "border-primary bg-primary/10" : "border-border bg-input",
-                      )}
+                      className="min-h-12 w-full flex-row items-start gap-3 rounded-2xl border border-border bg-input px-3.5 py-3"
                       onPress={() => selectOption(question, option.label)}
                     >
+                      {/* A radio, or a checkbox for multi-select, on the label's first line. */}
+                      <View
+                        className={cn(
+                          "mt-0.5 h-5 w-5 items-center justify-center border-[1.5px]",
+                          question.multiSelect ? "rounded-md" : "rounded-full",
+                          selected ? "border-primary bg-primary" : "border-foreground-muted",
+                        )}
+                      >
+                        {selected && question.multiSelect ? (
+                          <SymbolView
+                            name="checkmark"
+                            size={11}
+                            tintColorClassName={"accent-primary-foreground"}
+                            type="monochrome"
+                          />
+                        ) : null}
+                        {selected && !question.multiSelect ? (
+                          <View className="h-2 w-2 rounded-full bg-primary-foreground" />
+                        ) : null}
+                      </View>
                       <View className="min-w-0 flex-1 gap-0.5">
                         <Text
                           className={cn(

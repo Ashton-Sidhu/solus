@@ -48,6 +48,7 @@ export function remoteWorkspaceOperations(client: SolusApiClient): WorkspaceOper
     getSession: (_context, sessionId) => call(() => client.request('getSession', { id: sessionId })),
     admitSessionTurn: async (_context, sessionId) => { await call(() => client.request('admitSessionTurn', { id: sessionId, body: {} })) },
     updateSession: (_context, sessionId, input) => call(() => client.request('updateSession', { id: sessionId, body: input })),
+    listSessionLinks: (_context, sessionId) => call(() => client.request('listSessionLinks', { id: sessionId })),
     listSessionPullRequests: (_context, sessionId) => call(() => client.request('listSessionPullRequests', { id: sessionId })),
     putLink: (_context, input) => call(() => client.request('putLink', { body: input })),
     deleteLink: (_context, input) => call(() => client.request('deleteLink', { body: input })),

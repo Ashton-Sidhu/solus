@@ -27,7 +27,9 @@ const SAMPLES: RouteRef[] = [
   { name: 'insights', params: { traceId: 'tr_9f2a41', spanId: 'sp_11' } },
   { name: 'reviewMode', params: {} as Record<string, never> },
   { name: 'settings', params: { tab: 'voice' } },
-  { name: 'settings', params: { tab: 'projects', projectCwd: '/repo/app' } },
+  { name: 'settings', params: { tab: 'chat' } },
+  { name: 'settings', params: { tab: 'sessions' } },
+  { name: 'settings', params: { tab: 'providers', projectCwd: '/repo/app' } },
   { name: 'settings', params: { tab: 'webhooks', webhooks: 'q=ci&project=%2Frepo%2Fapp&open=w1&on=host-a' } },
   { name: 'folio', params: {} as Record<string, never> },
   { name: 'notifications', params: {} as Record<string, never> },
@@ -82,6 +84,10 @@ const WORK: RouteRef = { name: 'work', params: { workId: 'w_12' } }
 const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
 
 describe('route codec', () => {
+  test('legacy project settings links open the Providers page with the same project scope', () => {
+    expect(ROUTES.settings.parse('projects//repo/app')).toEqual({ tab: 'providers', projectCwd: '/repo/app' })
+    expect(ROUTES.settings.serialize({ tab: 'projects', projectCwd: '/repo/app' })).toBe('providers//repo/app')
+  })
   test('every destination is covered by a sample', () => {
     expect([...new Set(SAMPLES.map((ref) => ref.name))].sort()).toEqual([...ROUTE_NAMES].sort())
   })
@@ -97,9 +103,12 @@ describe('route codec', () => {
       const isSurface = ROUTES[ref.name].placement === 'surface'
       // The pool's chat names no session, so it can only lead.
       if (ref.name === 'chat' && !ref.params.sessionId) continue
-      const location = isSurface ? locationOf(CHAT_ROUTE, ref) : locationOf(ref)
+      const location = isSurface || ref.name === 'settings' ? locationOf(CHAT_ROUTE) : locationOf(ref)
+      if (isSurface) location.panes.push(makePane([ref]))
+      if (ref.name === 'settings') location.settings = ref
       const parsed = parseLocation(serializeLocation(location))
       expect(parsed.panes.map((pane) => pane.surfaces)).toEqual(location.panes.map((pane) => pane.surfaces))
+      expect(parsed.settings).toEqual(location.settings)
     }
   })
 })
@@ -195,6 +204,15 @@ describe('the location grammar', () => {
 })
 
 describe('untrusted input', () => {
+  test('a settings background cannot name another dialog or a surface', () => {
+    // WHY: settings links must always leave a valid destination behind the dialog.
+    for (const from of ['settings/tools', 'plan/p_88', 'nonsense', '%']) {
+      const parsed = parseLocation(`/settings/voice?from=${encodeURIComponent(from)}`)
+      expect(parsed.settings?.params.tab).toBe('voice')
+      expect(parsed.panes[0].surfaces).toEqual([CHAT_ROUTE])
+    }
+  })
+
   // URLs and notification payloads are untrusted, so `parse` is total: a
   // surface that cannot be read is dropped and the rest of the location opens.
   test('an unknown route drops its surface, not the strip', () => {
@@ -221,10 +239,10 @@ describe('untrusted input', () => {
 
   test('invalid settings tabs fall back to the conversation', () => {
     expect(parseLocation('#/settings/connections').panes[0].surfaces).toEqual([CHAT_ROUTE])
-    expect(parseLocation('#/settings/keybindings').panes[0].surfaces).toEqual([{
+    expect(parseLocation('#/settings/keybindings').settings).toEqual({
       name: 'settings',
       params: { tab: 'keybindings' },
-    }])
+    })
   })
 
   test('reserved characters survive one path decode', () => {

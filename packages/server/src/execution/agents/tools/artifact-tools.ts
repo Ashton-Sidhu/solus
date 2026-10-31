@@ -38,6 +38,8 @@ export interface ArtifactPayload {
   html: string
   workId: string
   title: string
+  /** The organization whose Solus API holds the artifact; null when it is on this host. */
+  organizationId: string | null
 }
 
 export type OnArtifact = (artifact: ArtifactPayload) => void
@@ -182,10 +184,10 @@ export async function executeArtifactTool(
     // and matches what a preview showed.
     html = (await (deps.inlineImages ?? inlineHostImages)(html)).html
     const created = await createAgentWork(title, 'artifact', html, deps.ctx, false)
-    deps.onArtifact?.({ html, workId: created.workId, title: created.title })
+    deps.onArtifact?.({ html, workId: created.workId, title: created.title, organizationId: created.organizationId })
     const syncNote = created.foreignTaskId
       ? ` It syncs to the task's host and keeps its originating session.`
-      : created.organizationOwned
+      : created.organizationId
         ? ' It is saved in the organization’s Solus API and associated with this session.'
         : ' It is associated with this session.'
     const checkNote = await saveCheckNote(html, deps)
@@ -230,6 +232,7 @@ export const renderArtifactAgentTool: AgentTool = {
       html: artifact.html,
       workId: artifact.workId,
       title: artifact.title,
+      organizationId: artifact.organizationId,
     }),
   }),
 }

@@ -9,19 +9,21 @@ import { SessionListStore } from '@solus/workspace-ui/contexts/workspace/session
 import { sessionPullRequestsStore } from '@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte'
 
 // This person's session list (docs/plans/session-archive.md). Each session
-// carries its shared settle and the person's own archive and snooze; a change
+// carries the settle by its pull requests or task, and the person's own
+// settle, archive, and snooze; a change
 // arrives with what it leaves, and the client reads nothing back.
 
 const snoozed: SessionView = { ...EMPTY_SESSION_VIEW, snoozedUntil: 100 }
 const record = (sessionId: string, fields: Partial<SessionRecord> = {}) =>
   ({ sessionId, title: sessionId, customTitle: null, slug: null, projectRoot: '/repo', projectPath: '-repo', createdAt: 1, organizationId: 'local', state: null, view: null, listed: true, pullRequests: [], ...fields }) as SessionRecord
 
-interface FakeHome { records: SessionRecord[]; events: HostEventSubscriber; lists: Array<SessionRecordListFilter | undefined>; viewWrites: string[] }
+interface FakeHome { records: SessionRecord[]; events: HostEventSubscriber; lists: Array<SessionRecordListFilter | undefined>; gets: string[]; viewWrites: string[] }
 
 function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}, update?: SolusAPI['sessionUpdate']) {
-  const fakes = new Map<string, FakeHome>(Object.entries(homes).map(([serverId, records]) => [serverId, { records, events: new HostEventSubscriber(), lists: [], viewWrites: [] }]))
+  const fakes = new Map<string, FakeHome>(Object.entries(homes).map(([serverId, records]) => [serverId, { records, events: new HostEventSubscriber(), lists: [], gets: [], viewWrites: [] }]))
   const apis = new Map([...fakes].map(([serverId, home]) => [serverId, asHostApi({
     sessionRecordList: async (filter) => { home.lists.push(filter); return { records: home.records, indexing: false } },
+    sessionRecordGet: async (sessionId) => { home.gets.push(sessionId); return home.records.find((listed) => listed.sessionId === sessionId) ?? null },
     sessionUpdate: update ?? (async (sessionId, change) => {
       home.viewWrites.push(sessionId)
       return { state: UNSETTLED_SESSION_STATE, view: change.archived ? { ...EMPTY_SESSION_VIEW, archivedAt: 5 } : EMPTY_SESSION_VIEW }
@@ -55,11 +57,25 @@ test("reads each home's list for this person, and keeps their snooze across relo
   } finally { restore() }
 })
 
+test('a session with no project root yet is named by its working folder, never by the provider\'s encoded folder key', async () => {
+  // WHY: a chat on a remote host showed "-data-projects-…-solus-chats-<id>" as its project.
+  const { store, restore } = fakeHomes({ host: [
+    record('chat', { projectRoot: null, cwd: '/data/solus-chats/abc', projectPath: '-data-solus-chats-abc' }),
+    record('unknown', { projectRoot: null, cwd: null, projectPath: '-data-repo' }),
+  ] })
+  try {
+    await store.load()
+    const byId = new Map(store.sessions.map((listed) => [listed.sessionId, listed.projectPath]))
+    expect(byId.get('chat')).toBe('/data/solus-chats/abc')
+    expect(byId.get('unknown')).toBeNull()
+  } finally { restore() }
+})
+
 test('a shared settle and a personal archive each move one session, and nothing is read back', async () => {
   const { store, fakes, announce, restore } = fakeHomes({ host: [record('one'), record('two')] })
   try {
     await store.load()
-    announce('host', 'session.stateChanged', 'one', { settledAt: 7, settledBy: 'person' })
+    announce('host', 'session.stateChanged', 'one', { settledAt: 7, settledBy: 'pull-request' })
     expect(store.stateFor('one')).toMatchObject({ settledAt: 7, archivedAt: null })
     announce('host', 'session.viewChanged', 'two', { ...EMPTY_SESSION_VIEW, archivedAt: 3 })
     expect(store.sessions.map((listed) => listed.sessionId)).toEqual(['one'])
@@ -82,6 +98,26 @@ test('settle moves the session before its home answers, and a refusal puts it ba
   } finally { restore() }
 })
 
+test("this person's settle is read from their view, and a viewer's unsettle keeps the shared settle", async () => {
+  // WHY: a settle is one person's. A teammate's list reads the same session
+  // as active, and only an editor may end a settle by the pull requests.
+  let answer: Awaited<ReturnType<SolusAPI['sessionUpdate']>> = {}
+  const { store, restore } = fakeHomes({ host: [
+    record('mine', { view: { ...EMPTY_SESSION_VIEW, settledAt: 4 } }),
+    record('merged', { state: { settledAt: 6, settledBy: 'pull-request' } }),
+  ] }, {}, async () => answer)
+  try {
+    await store.load()
+    expect(store.stateFor('mine')).toMatchObject({ settledAt: 4, settledBy: 'person' })
+    answer = { view: EMPTY_SESSION_VIEW }
+    await store.setSettled({ serverId: 'host', sessionId: 'mine' }, false)
+    expect(store.stateFor('mine')).toBeNull()
+    // The home answers no state: the caller may not end the shared settle.
+    await store.setSettled({ serverId: 'host', sessionId: 'merged' }, false)
+    expect(store.stateFor('merged')).toMatchObject({ settledAt: 6, settledBy: 'pull-request' })
+  } finally { restore() }
+})
+
 test('archive leaves the list at once, at the session home', async () => {
   const { store, fakes, restore } = fakeHomes({ host: [record('one')] })
   try {
@@ -90,6 +126,41 @@ test('archive leaves the list at once, at the session home', async () => {
     expect(fakes.get('host')!.viewWrites).toEqual(['one'])
     expect(store.sessions).toEqual([])
     expect(store.stateFor('one')?.archivedAt).toBe(5)
+  } finally { restore() }
+})
+
+test('a returned session is read on its own, never with the whole list', async () => {
+  // WHY: un-archive used to read every page of the home's list for one row.
+  const { store, fakes, restore } = fakeHomes({ host: [record('one'), record('two')] })
+  try {
+    await store.load()
+    const two = store.listed('two')
+    await store.setArchived({ serverId: 'host', sessionId: 'one' }, true)
+    await store.setArchived({ serverId: 'host', sessionId: 'one' }, false)
+    await Promise.resolve()
+    expect(fakes.get('host')!.lists).toHaveLength(1)
+    expect(fakes.get('host')!.gets).toEqual(['one'])
+    expect(store.sessions.map((listed) => listed.sessionId).sort()).toEqual(['one', 'two'])
+    expect(store.listed('two')).toBe(two)
+  } finally { restore() }
+})
+
+test('a machine that connects reads its own list and each Solus API, not every machine', async () => {
+  // WHY: every connection change used to read every host's whole list. A
+  // Solus API's rows open on the machines that ran them, so it is read too.
+  const { store, fakes, restore } = fakeHomes({
+    'workspace:org-1': [record('on-runner', { organizationId: 'org-1', publication: 'published', runnerHostId: 'vm-b' })],
+    'machine-a': [record('a')],
+    'machine-b': [record('b')],
+  }, { 'vm-b': 'machine-b' })
+  try {
+    await store.load()
+    await store.loadConnected('machine-b')
+    expect([...fakes].map(([serverId, home]) => [serverId, home.lists.length])).toEqual([['workspace:org-1', 2], ['machine-a', 1], ['machine-b', 2]])
+    expect(store.listed('on-runner')).toMatchObject({ serverId: 'machine-b', runnerOffline: false })
+    // A Solus API that connects takes the published sessions every machine listed: every home is read.
+    await store.loadConnected('workspace:org-1')
+    expect([...fakes].map(([serverId, home]) => [serverId, home.lists.length])).toEqual([['workspace:org-1', 3], ['machine-a', 2], ['machine-b', 3]])
   } finally { restore() }
 })
 

@@ -23,6 +23,8 @@ export interface SessionSearchOptions {
   untilTs?: number
   /** Omit to search every project; set to scope to one git-root and all its worktrees. */
   projectRoot?: string
+  /** Only chats, the sessions with no project. */
+  chats?: boolean
   /** Only sessions last active at or after this instant (ms). */
   activeSince?: number
   /** Match names and metadata only; read no message. */
@@ -148,6 +150,7 @@ function sessionsInScope(db: ReturnType<typeof getDb>, options: SessionSearchOpt
   const scope: string[] = []
   const params: Array<string | number> = []
   if (options.projectRoot) { scope.push('s.project_root = ?'); params.push(options.projectRoot) }
+  if (options.chats) scope.push("s.place = 'chat'")
   const providers = options.providers?.map((provider) => provider === 'claude-code' ? 'claude' : provider)
   if (providers?.length) { scope.push(`s.provider IN (${providers.map(() => '?').join(', ')})`); params.push(...providers) }
   if (options.activeSince !== undefined) { scope.push('s.last_timestamp >= ?'); params.push(options.activeSince) }

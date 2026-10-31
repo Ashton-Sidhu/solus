@@ -9,9 +9,10 @@
   import { history } from "@codemirror/commands";
   import {
     HighlightStyle,
+    LanguageSupport,
     syntaxHighlighting,
   } from "@codemirror/language";
-  import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+  import { markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
   import { tags } from "@lezer/highlight";
   import {
     EditorView,
@@ -42,6 +43,11 @@
   import { ghostCompletion, showGhost } from "./lib/ghost-completion";
   import { needsInputSettle } from "./lib/input-settle";
   import { runtime } from "../../../contexts";
+  import {
+    carriesSessionDrag,
+    readSessionDrag,
+    sessionDropInsertion,
+  } from "../../../lib/session-drag";
 
   interface Props extends ReferenceDecorationCallbacks {
     value: string;
@@ -104,6 +110,16 @@
   }: Props = $props();
 
   const dictationOn = $derived(dictation ?? mic);
+  // A session dragged from the sidebar lands as its chip, in any editor that
+  // draws session chips.
+  const acceptsSessionDrops = $derived(
+    referenceChips && !disabled && (!referenceKinds || referenceKinds.has("session")),
+  );
+  let isSessionDropTarget = $state(false);
+  // The element a session drop lands on: the composer card around this editor
+  // (`data-session-drop-area`) when there is one, so the whole card takes the
+  // drop and draws the outline; otherwise the editor itself.
+  let sessionDropArea: HTMLElement | null = $state(null);
 
   let wrapper: HTMLDivElement | null = $state(null);
   let editorHost: HTMLDivElement | null = $state(null);
@@ -206,6 +222,62 @@
     ".cm-placeholder": { color: "var(--solus-placeholder)", display: "inline" },
   });
 
+  function dragOverSessions(event: DragEvent) {
+    if (!acceptsSessionDrops || !carriesSessionDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = "copy";
+    isSessionDropTarget = true;
+  }
+
+  function dragLeaveSessions(event: DragEvent) {
+    if (event.relatedTarget instanceof Node && sessionDropArea?.contains(event.relatedTarget)) return;
+    isSessionDropTarget = false;
+  }
+
+  function listenForSessionDrops(element: HTMLElement) {
+    const area = element.closest<HTMLElement>("[data-session-drop-area]") ?? element;
+    const drop = (event: DragEvent) => void dropSessions(event);
+    sessionDropArea = area;
+    area.addEventListener("dragover", dragOverSessions);
+    area.addEventListener("dragleave", dragLeaveSessions);
+    area.addEventListener("drop", drop);
+    return () => {
+      area.removeEventListener("dragover", dragOverSessions);
+      area.removeEventListener("dragleave", dragLeaveSessions);
+      area.removeEventListener("drop", drop);
+      sessionDropArea = null;
+    };
+  }
+
+  /** Write the sessions' chips at `position`, then return the caret to the
+   *  editor just after them. */
+  function insertSessionsAt(
+    position: number,
+    sessions: readonly SessionReference[],
+  ): boolean {
+    if (!view) return false;
+    const insertion = sessionDropInsertion(view.state.doc.toString(), position, sessions);
+    if (!insertion) return false;
+    view.dispatch({
+      changes: { from: insertion.from, insert: insertion.insert },
+      selection: { anchor: insertion.from + insertion.insert.length },
+      scrollIntoView: true,
+    });
+    view.focus();
+    return true;
+  }
+
+  /** A drop on the text lands at that point; a drop beside it, at the end. */
+  function dropSessions(event: DragEvent): boolean {
+    isSessionDropTarget = false;
+    if (!view || event.defaultPrevented || !acceptsSessionDrops) return false;
+    const position =
+      view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.doc.length;
+    if (!insertSessionsAt(position, readSessionDrag(event.dataTransfer))) return false;
+    event.preventDefault();
+    return true;
+  }
+
   function isCompositionEvent(event: KeyboardEvent): boolean {
     return event.isComposing || event.keyCode === 229;
   }
@@ -230,11 +302,10 @@
       // CodeMirror so typing and clearing the field keep the same caret.
       drawSelection({ drawRangeCursor: false }),
       EditorView.lineWrapping,
-      markdown({
-        base: markdownLanguage,
-        addKeymap: false,
-        completeHTMLTags: false,
-      }),
+      // The Markdown language itself, not `markdown()`: that wrapper parses inline
+      // HTML with lang-html, which brings the HTML, CSS and JavaScript grammars
+      // (about 170 KB) into startup. The composer highlights none of them.
+      new LanguageSupport(markdownLanguage, pasteURLAsLink),
       syntaxHighlighting(composerHighlightStyle),
       editorTheme,
       editableCompartment.of(EditorView.editable.of(!disabled)),
@@ -279,6 +350,7 @@
             return event.defaultPrevented;
           },
           drop(event) {
+            if (dropSessions(event)) return true;
             onDrop?.(event);
             return event.defaultPrevented;
           },
@@ -588,6 +660,14 @@
     return view ? insertReferenceAtCursor(view, token, pattern) : false;
   }
 
+  /** The keyboard path of a session drop: the chips go at the caret. */
+  export function insertSessionReferences(
+    sessions: readonly SessionReference[],
+  ): boolean {
+    if (!view || !acceptsSessionDrops) return false;
+    return insertSessionsAt(view.state.selection.main.head, sessions);
+  }
+
   export function unwrapFileReferenceBeforeCursor(): boolean {
     return view ? references.revealFileBeforeCursor(view) : false;
   }
@@ -604,8 +684,11 @@
 <div
   bind:this={wrapper}
   data-testid="message-input"
-  class="relative w-full min-w-0 {mic && micPlacement === 'beside' ? 'flex items-center gap-1' : ''} {klass}"
+  {@attach listenForSessionDrops}
+  data-session-drop-target={isSessionDropTarget ? "" : undefined}
+  class="relative w-full min-w-0 {mic && micPlacement === 'beside' ? 'flex items-center gap-1' : ''} {isSessionDropTarget && sessionDropArea === wrapper ? 'rounded-lg bg-primary/5 outline-1 outline-dashed outline-primary/50' : ''} {klass}"
   style="--plain-editor-max-height:{maxHeight}px; {style}"
+  role="presentation"
 >
   <div bind:this={editorHost} class="min-w-0 flex-1"></div>
   {#if dictationOn}

@@ -76,25 +76,32 @@ export function getDefaultBranch(cwd: string): Promise<string> {
   return pending
 }
 
+// A local fallback can change: `origin/HEAD` can appear (a clone or `git remote
+// set-head` finishes) and `main` can be created or deleted. Neither is a ref the
+// checkout watcher sees, so the fallback is kept for a short time only. That
+// still spares the two serial spawns on each status refresh in a burst.
+const LOCAL_FALLBACK_TTL_MS = 30_000
+const localFallbackCache = new Map<string, { branch: string; expiresAt: number }>()
+
 /** Local-only default-branch resolution for status refreshes. This deliberately
  * avoids `ls-remote` so opening a project never waits on the network. Local
- * fallbacks are not cached because a later remote-aware lookup may discover a
- * different default branch. */
+ * fallbacks stay out of `defaultBranchCache` because a later remote-aware
+ * lookup may discover a different default branch. */
 export async function getDefaultBranchLocal(cwd: string): Promise<string> {
   const cached = defaultBranchCache.get(cwd)
   if (cached && !(cached instanceof Promise)) return cached
+  const fallback = localFallbackCache.get(cwd)
+  if (fallback && fallback.expiresAt > Date.now()) return fallback.branch
   try {
     const ref = await runAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], cwd)
     const branch = ref.replace('origin/', '')
     defaultBranchCache.set(cwd, branch)
+    localFallbackCache.delete(cwd)
     return branch
   } catch {}
-  try {
-    await runAsync('git', ['rev-parse', '--verify', 'main'], cwd)
-    return 'main'
-  } catch {
-    return 'master'
-  }
+  const branch = await runAsync('git', ['rev-parse', '--verify', 'main'], cwd).then(() => 'main', () => 'master')
+  localFallbackCache.set(cwd, { branch, expiresAt: Date.now() + LOCAL_FALLBACK_TTL_MS })
+  return branch
 }
 
 export function getWorkingBranch(cwd: string): Promise<string | null> {

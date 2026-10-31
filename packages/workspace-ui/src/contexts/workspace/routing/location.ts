@@ -26,6 +26,8 @@ export interface PaneEntry {
 }
 
 export interface Location {
+  /** Settings opens over the panes without replacing or resizing them. */
+  settings?: RouteRef<'settings'>
   /** The leading pane, then the companion pane when one is open. */
   panes: PaneEntry[]
   focusedPaneId: PaneId
@@ -187,6 +189,7 @@ export function showStrip(location: Location, surfaces: RouteRef[], activeSurfac
  * DOM, and any keep-alive surface hanging off it — across back/forward.
  */
 export function applyLocation(location: Location, next: Location): void {
+  location.settings = next.settings
   for (let i = 0; i < next.panes.length; i += 1) {
     const incoming = next.panes[i]
     const current = location.panes[i]

@@ -47,6 +47,43 @@ export function nestedRowParents(
 }
 
 /**
+ * The rows of every session that a session delegated, at any depth. A settle
+ * or an archive of a row applies to these rows too: when the parent is
+ * finished, its delegated sessions must not stay in the list as rows of their
+ * own. `sessionOf` gives the session a row shows, with the session that
+ * delegated it. A cycle ends the walk.
+ */
+export function delegatedRows<T>(
+  rootSessionId: string,
+  rows: readonly T[],
+  sessionOf: (row: T) => { id: string; parentSessionId?: string | null } | null,
+): T[] {
+  const parentIds = new Set([rootSessionId])
+  const candidates = rows.flatMap((row) => {
+    const session = sessionOf(row)
+    return session?.parentSessionId ? [{ row, id: session.id, parentSessionId: session.parentSessionId }] : []
+  })
+  const found: T[] = []
+  let hasGrown = true
+  while (hasGrown) {
+    hasGrown = false
+    for (let i = 0; i < candidates.length;) {
+      const candidate = candidates[i]
+      if (!parentIds.has(candidate.parentSessionId)) {
+        i++
+        continue
+      }
+      candidates.splice(i, 1)
+      if (parentIds.has(candidate.id)) continue
+      parentIds.add(candidate.id)
+      found.push(candidate.row)
+      hasGrown = true
+    }
+  }
+  return found
+}
+
+/**
  * The delegated sessions a row lists. A collapsed row hides them, but never
  * the session on screen: collapsing must not hide the session being read.
  */

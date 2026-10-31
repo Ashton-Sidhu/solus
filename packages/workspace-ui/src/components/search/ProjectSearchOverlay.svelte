@@ -1,18 +1,16 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { Search as MagnifyingGlassIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
-  import Icon from "@iconify/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import type {
     ProjectContentMatch,
     ProjectContentSearchRequest,
   } from "@solus/contracts/types";
   import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
   import { useScope, useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { ensureIconCollections } from "../diagram/iconify";
   import {
     distinctFileCount,
     groupMatches,
@@ -35,8 +33,6 @@
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
-
-  ensureIconCollections();
 
   // Rows are cheap individually but 500 of them janks the first paint, so the
   // list grows as the sentinel at the bottom scrolls into view.
@@ -243,7 +239,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto picker-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto modal-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   class:hidden={!open}
   aria-hidden={!open}
   inert={!open}
@@ -317,15 +313,12 @@
         aria-label="Search results"
       >
         {#each groups as group (group.path)}
-          {@const icon = fileTypeIcon(group.path)}
           {@const language = languageForPath(group.path)}
           <section class="pb-1">
             <div
               class="sticky top-0 z-10 flex h-7 items-center gap-2 bg-(--solus-popover-bg) px-5 text-[length:calc(.75rem*var(--solus-font-scale,1))]"
             >
-              {#if icon}
-                <Icon {icon} width="12" height="12" class="shrink-0" />
-              {/if}
+              <FileIcon path={group.path} size={12} />
               <span class="shrink-0 font-medium text-(--solus-text-primary)">{group.name}</span>
               {#if group.directory}
                 <span class="min-w-0 truncate text-(--solus-text-tertiary)">{group.directory}</span>

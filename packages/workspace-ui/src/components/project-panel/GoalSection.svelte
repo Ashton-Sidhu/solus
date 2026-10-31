@@ -18,6 +18,7 @@
     isGoalTerminal,
     objectiveOverflows,
   } from "./lib/goal-status";
+  import { isPanelItemShown } from "./lib/panel-items";
 
   interface Props {
     sessionId: string;
@@ -27,8 +28,14 @@
     /** The panel stops rendering the section once the goal is gone. A dedicated
      *  mobile surface must also close its route. */
     onCleared?: () => void;
+    /** The person's hidden panel items: the objective, its cost and time, and the budget each can hide. */
+    hiddenItems: readonly string[];
   }
-  let { sessionId, collapsed, onToggle, onResizePointerDown, onCleared }: Props = $props();
+  let { sessionId, collapsed, onToggle, onResizePointerDown, onCleared, hiddenItems }: Props = $props();
+
+  const objectiveShown = $derived(isPanelItemShown(hiddenItems, "goal.objective"));
+  const detailsShown = $derived(isPanelItemShown(hiddenItems, "goal.details"));
+  const budgetShown = $derived(isPanelItemShown(hiddenItems, "goal.budget"));
 
   const workspace = getWorkspaceContext();
   const sessions = getSessionRecords();
@@ -215,7 +222,7 @@
             </span>
           </div>
         </div>
-      {:else}
+      {:else if objectiveShown}
         <!-- The objective is the subject of the card, so it carries the primary
              ink; every reading below it steps down from here. -->
         <p
@@ -239,9 +246,11 @@
       <!-- Cost and elapsed are footnotes to the objective, not readings worth a
            grid of their own — one tertiary line, the same weight the rail gives
            any other trailing value. -->
-      <div class="text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{goalMetaLine(goal)}</div>
+      {#if detailsShown}
+        <div class="text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{goalMetaLine(goal)}</div>
+      {/if}
 
-      {#if goal.tokenBudget !== undefined}
+      {#if budgetShown && goal.tokenBudget !== undefined}
         <div
           class="h-0.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_9%,transparent)]"
           role="progressbar"

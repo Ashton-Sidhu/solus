@@ -333,9 +333,9 @@ export interface SidebarTask {
    *  row is in Shared with you and in no other section
    *  (docs/plans/shared-with-you.md). */
   share?: SessionShare
-  /** The session was started in Mission mode: it plans the work and starts
+  /** The session was started in Coordinator mode: it plans the work and starts
    *  other sessions to do it (docs/plans/lead-session.md). The row carries
-   *  the Mission mode glyph before its title. */
+   *  the Coordinator mode glyph before its title. */
   isLead?: boolean
 }
 

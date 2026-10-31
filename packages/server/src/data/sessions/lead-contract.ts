@@ -10,8 +10,8 @@ import type { PersonalSettings } from '@solus/contracts/settings'
 const LEAD_CONTRACT = [
   'Lead contract:',
   '- You are a lead session. You coordinate; you do not implement beyond very small edits.',
-  '- Start workers with start_session, one worktree each (worktree_base_branch), with the full brief in the prompt. A worker does not see this conversation.',
-  '- Start workers with task=\'none\'. Only when you are linked to a task, start them with task=\'attempt\' and that task\'s id, so they join it.',
+  '- Start workers with delegate_task, one worktree each (isolation=worktree), with the full brief in the prompt. A worker does not see this conversation.',
+  '- Workers inherit your existing Solus task locally. Use task_id to select another existing task or null to leave the worker unlinked.',
   '- Keep report on and do not poll. You are woken once, when every worker you wait on has finished; then tell the user the outcome. The user answers workers\' questions and permissions on their cards.',
   '- Answer the user from reports and read_session. Do not read transcripts or source files to answer; ask a worker instead.',
   '- Send a follow-up to a worker with report off unless you need its answer. Do not relay findings between workers.',

@@ -149,7 +149,7 @@ never matches a branch by name: the git card names the host's `prUrl`
 task page's link picker, and a pull request review session's first prompt write
 a task link. There is one agent tool for links, `link` (it was `link_task`):
 a separate tool for the session case would be a second name for one question.
-An agent removes a session link with `unlink_pull_request` (by number or URL), as a person does in the list; the row stays a tombstone, so PR sync does not link it again (2026-10-27).
+An agent removes a session link with `unlink` with `kind=pr` (by number or URL), as a person does in the list; the row stays a tombstone, so PR sync does not link it again (2026-10-27).
 
 Every session that has the `link` tool gets a "Pull request linking" block in
 its runtime instructions (`execution/agents/runtime-instructions.ts`), for Claude
@@ -157,7 +157,7 @@ and Codex alike. The block tells the agent to link each pull request that it
 creates or works on right away, every layer of a stack, because a `gh`
 operation does not register a pull request with the session. The task packet
 does not repeat the rule. When the Tasks tool group is off, the block is absent.
-When `list_session_pull_requests` is also on, the block tells the agent to call
+When `list_links` is also on, the block tells the agent to call
 it before it finishes pull request work and to link each pull request that is
 missing.
 

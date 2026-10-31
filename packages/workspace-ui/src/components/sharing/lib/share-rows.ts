@@ -388,7 +388,7 @@ export function linkExpiryValue(expiresAt: number | null, now: number): string {
   const left = expiresAt - now
   if (left <= 0) return 'Expired'
   const hours = Math.round(left / (60 * 60 * 1000))
-  if (hours < 1) return 'In less than an hour'
+  if (hours < 1) return 'In under 1 hour'
   if (hours < 48) return `In ${hours} ${hours === 1 ? 'hour' : 'hours'}`
   return `In ${Math.round(hours / 24)} days`
 }
@@ -411,4 +411,19 @@ export function linkSettingsSummary(link: NonNullable<ShareList['link']>, now: n
   if (link.role !== 'custom') return expiry
   const count = link.actions?.length ?? 0
   return `${count} ${count === 1 ? 'permission' : 'permissions'} · ${expiry.charAt(0).toLowerCase()}${expiry.slice(1)}`
+}
+
+/**
+ * What a preset link lets anyone with it do, for the Advanced section where a
+ * custom link shows its switches. One fixed line per role, so the section's
+ * height changes only when the role does.
+ */
+export function presetLinkSummary(role: ShareRole, kind: ShareList['resource']['kind']): string {
+  if (role === 'editor') return kind === 'session'
+    ? 'Anyone with the link can do everything, approvals included. Their turns run on your login.'
+    : 'Anyone with the link can edit it.'
+  if (role === 'commenter') return 'Anyone with the link can read it and comment.'
+  return kind === 'session'
+    ? 'Anyone with the link can watch the session and read its changes and files.'
+    : 'Anyone with the link can read it.'
 }

@@ -1,4 +1,3 @@
-import { ed25519 } from '@noble/curves/ed25519.js'
 import { z } from 'zod'
 
 /**
@@ -29,15 +28,6 @@ export function newHealthNonce(): string {
 /** The bytes the host signs: they name this purpose, so a signature made for another use never counts. */
 export function hostProofMessage(nonce: string, installationId: string): Uint8Array {
   return new TextEncoder().encode(`solus-host-proof:v1\n${nonce}\n${installationId}`)
-}
-
-/** Whether `proof` is the host's signature over `nonce` for `installationId`. Never throws. */
-export function verifyHostProof(identityKey: string, nonce: string, installationId: string, proof: HealthProof): boolean {
-  try {
-    return ed25519.verify(fromBase64Url(proof.signature), hostProofMessage(nonce, installationId), fromBase64Url(identityKey))
-  } catch {
-    return false
-  }
 }
 
 /**

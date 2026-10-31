@@ -17,6 +17,7 @@
 
   interface Props {
     platform: DevicePlatform;
+    sourceKind?: "local" | "ssh" | "eas" | "simlock";
     name: string;
     version: string;
     /** Set when other sessions show this device too. */
@@ -53,6 +54,7 @@
       { button: "appSwitcher", label: props.platform === "ios" ? "App switcher" : "Recents", icon: LayoutGrid },
     ] as const).filter((entry) => deviceSupportsButton(props.platform, entry.button)),
   );
+  const cloud = $derived(props.sourceKind === "eas" || props.sourceKind === "simlock");
   const live = $derived(props.liveState === "live");
   const deviceLabel = $derived([props.name, props.version, props.sharedNote].filter(Boolean).join(", "));
 </script>
@@ -98,11 +100,11 @@
   {#each buttons as entry (entry.button)}
     {@render tool(entry.label, () => props.onButton(entry.button), entry.icon)}
   {/each}
-  {#if props.platform === "ios"}
+  {#if !cloud && props.platform === "ios"}
     {@render tool("Rotate", props.onRotate, RotateCwSquare)}
   {/if}
 
-  {#if props.control || (props.runBuild && live)}
+  {#if props.control || (!cloud && props.runBuild && live)}
     {@render divider()}
   {/if}
 
@@ -122,7 +124,7 @@
     {/if}
   {/if}
 
-  {#if props.runBuild && live}{@render props.runBuild()}{/if}
+  {#if !cloud && props.runBuild && live}{@render props.runBuild()}{/if}
 
   {@render divider()}
 
@@ -135,10 +137,10 @@
   {@render divider()}
 
   {@render tool("Type on the device", props.onKeyboard, Keyboard)}
-  {@render tool("Download screenshot", props.onScreenshot, Camera)}
-  {@render tool("Device tools", props.onToggleTools, SlidersHorizontal, { pressed: props.toolsOpen })}
+  {#if props.sourceKind !== "simlock"}{@render tool("Download screenshot", props.onScreenshot, Camera)}{/if}
+  {#if !cloud}{@render tool("Device tools", props.onToggleTools, SlidersHorizontal, { pressed: props.toolsOpen })}{/if}
 
   {@render divider()}
 
-  {@render tool("Power off device", props.onShutdown, Power, { disabled: props.liveState === "offline" || props.liveState === "stopped" })}
+  {@render tool(props.sourceKind === "simlock" ? "Return device to the pool" : props.sourceKind === "eas" ? "Stop EAS session" : "Power off device", props.onShutdown, Power, { disabled: props.liveState === "offline" || props.liveState === "stopped" })}
 </div>

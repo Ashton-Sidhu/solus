@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { FILE_TREE_ICONS } from "@solus/client-core/file-icons";
   import { onMount, tick, untrack, type Snippet } from "svelte";
   import {
     FileTree,
@@ -17,14 +18,12 @@
     PanelRight as FileTreeIcon,
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
-  import Icon from "@iconify/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import type { IpcContext, ProjectFileMutation } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { fileTypeIcon } from "../../lib/fileTypeIcon";
-  import { ensureIconCollections } from "../diagram/iconify";
   import { FILE_TREE_THEME_CSS } from "../../lib/fileTreeTheme";
   import {
     useKeybinding,
@@ -107,16 +106,6 @@
   }
   // Under the companion strip there is no floating cluster to reserve room for.
   const isUnderStrip = underStrip();
-  // Register the small offline icon subset used by file-type badges.
-  ensureIconCollections();
-
-  // Match the PR-review guide's file header: an extension badge plus a
-  // dir/name split. Uppercase extension, shown as a small badge.
-  function ext(path: string): string {
-    const name = entryDisplayName(path);
-    const dot = name.lastIndexOf(".");
-    return dot > 0 ? name.slice(dot + 1).toUpperCase() : "·";
-  }
 
   // Only the Files row in the environment section, and its ⌥⇧; binding, ask for
   // the tree. Every other way in — a code span, the file picker, a search hit, a
@@ -536,6 +525,7 @@
   function mountTree() {
     if (!treeHost || treeInstance) return;
     const tree = new FileTree({
+      icons: FILE_TREE_ICONS,
       paths: treePaths,
       flattenEmptyDirectories: true,
       initialExpansion: "closed",
@@ -743,16 +733,7 @@
       {@render chromeAction("Refresh files", () => void loadFiles(), refreshIcon)}
     </div>
     {#if selectedPath}
-      {@const icon = fileTypeIcon(selectedPath)}
-      {#if icon}
-        <Icon {icon} width="14" height="14" class="shrink-0" />
-      {:else}
-        <span
-          class="shrink-0 rounded bg-(--solus-accent-light) px-1.5 py-0.5 text-xs font-medium text-(--solus-text-tertiary)"
-        >
-          {ext(selectedPath)}
-        </span>
-      {/if}
+      <FileIcon path={selectedPath} />
       <div class="min-w-0 flex-1 truncate text-sm">
         <span class="text-(--solus-text-tertiary)">{parentDirectoryOf(selectedPath)}</span><span class="text-(--solus-text-primary)">{entryDisplayName(selectedPath)}</span>
       </div>

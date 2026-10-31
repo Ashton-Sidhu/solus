@@ -134,6 +134,17 @@ describe('thread list partition', () => {
     expect(buildThreadListV2Items({ threads: [snoozedOnHost], facts: woken, hostId: null, searchQuery: '', now: NOW }).items[0]).toMatchObject({ variant: 'card', snoozed: false })
   })
 
+  test("this person's own settle puts a thread on the Settled shelf, and an unsettle in their view takes it off", () => {
+    // WHY: a settle is one person's (docs/plans/session-archive.md). Their
+    // list must show it from their view, with no shared state to read.
+    const settledByMe = shell('h', 'mine', { view: { ...EMPTY_SESSION_VIEW, settledAt: NOW } })
+    const plain = shell('h', 'a')
+    const items = (threadFacts: ThreadListV2Facts) => buildThreadListV2Items({ threads: [settledByMe, plain], facts: threadFacts, hostId: null, searchQuery: '', now: NOW })
+      .items.map((item) => [item.thread.record.sessionId, item.variant])
+    expect(items(facts())).toEqual([['a', 'card'], ['mine', 'slim']])
+    expect(items(facts({ views: { [settledByMe.key]: {} } }))).toEqual([['mine', 'card'], ['a', 'card']])
+  })
+
   test('a thread out of the list does not show; a search finds it, and marks only an archived one', () => {
     // WHY: a session leaves a person's list when they archive it or when it
     // goes idle (docs/plans/session-archive.md). Both stay findable; only the
@@ -345,10 +356,13 @@ describe('thread list state', () => {
         sessionPullRequestWatch: async () => 'started' as const,
         sessionUpdate: async (sessionId, change) => {
           calls.push(`update:${sessionId}:${JSON.stringify(change)}`)
-          const state: SessionState = { settledAt: change.settled ? NOW : null, settledBy: change.settled ? 'person' : null }
-          const view: SessionView = { ...EMPTY_SESSION_VIEW, archivedAt: change.archived ? NOW : null, snoozedUntil: change.snoozedUntil ?? null }
-          if (change.settled !== undefined) events.receive({ type: 'session.stateChanged', payload: { sessionId, state }, occurredAt: NOW })
-          else events.receive({ type: 'session.viewChanged', payload: { sessionId, view }, occurredAt: NOW })
+          // As a host answers an editor: a settle is the caller's own, and an
+          // unsettle also ends the shared settle.
+          const view: SessionView = { ...EMPTY_SESSION_VIEW, settledAt: change.settled ? NOW : null, archivedAt: change.archived ? NOW : null, snoozedUntil: change.snoozedUntil ?? null }
+          events.receive({ type: 'session.viewChanged', payload: { sessionId, view }, occurredAt: NOW })
+          if (change.settled !== false) return { view }
+          const state: SessionState = UNSETTLED_SESSION_STATE
+          events.receive({ type: 'session.stateChanged', payload: { sessionId, state }, occurredAt: NOW })
           return { state, view }
         },
         setSessionTitle: async () => {},
@@ -432,15 +446,15 @@ describe('thread list state', () => {
     host.connection.api.sessionUpdate = () => new Promise((_resolve, reject) => { refuse = reject })
     const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
     const settling = list.setSettled('h', 's1', true)
-    expect(list.facts().states.get(threadKey('h', 's1'))?.settledBy).toBe('person')
+    expect(list.facts().views.get(threadKey('h', 's1'))?.settledAt).toEqual(expect.any(Number))
     refuse(new Error('refused'))
     await expect(settling).rejects.toThrow('refused')
-    expect(list.facts().states.get(threadKey('h', 's1'))).toBeUndefined()
+    expect(list.facts().views.get(threadKey('h', 's1'))).toBeUndefined()
   })
 
-  test('settle changes the shared state; archive and snooze change only this person\'s view', async () => {
-    // WHY: settled is the same for every person; archive and snooze are each
-    // person's own (docs/plans/session-archive.md).
+  test('settle, archive, and snooze change only this person\'s view', async () => {
+    // WHY: settle, archive, and snooze are each person's own
+    // (docs/plans/session-archive.md).
     const host = fakeConnection()
     const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
     await list.setArchived('h', 's1', true)
@@ -453,8 +467,10 @@ describe('thread list state', () => {
     await list.snooze('h', 's1', null)
     expect(list.facts().views.get(threadKey('h', 's1'))?.snoozedUntil).toBeNull()
     await list.setSettled('h', 's1', true)
-    expect(list.facts().states.get(threadKey('h', 's1'))?.settledAt).toBe(NOW)
+    expect(list.facts().views.get(threadKey('h', 's1'))?.settledAt).toBe(NOW)
+    expect(list.facts().states.get(threadKey('h', 's1'))).toBeUndefined()
     await list.setSettled('h', 's1', false)
+    expect(list.facts().views.get(threadKey('h', 's1'))?.settledAt).toBeNull()
     expect(list.facts().states.get(threadKey('h', 's1'))).toEqual(UNSETTLED_SESSION_STATE)
     expect(host.calls).toEqual([
       'update:s1:{"archived":true}', 'update:s1:{"archived":false}',
@@ -470,6 +486,7 @@ describe('thread list state', () => {
     const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
     await expect(list.setSettled('h', 's1', true)).rejects.toThrow('Resource not found.')
     expect(list.facts().states.size).toBe(0)
+    expect(list.facts().views.size).toBe(0)
     host.connection.api.sessionUpdate = update
     await list.snooze('h', 's2', NOW + HOUR)
     expect(list.facts().views.size).toBe(1)

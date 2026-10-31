@@ -356,7 +356,9 @@ export function applyRuntimeConfig(session: Session, info: RuntimeSessionInfo): 
  * docs/plans/cross-host-sessions.md §5.5). Both nest under the parent's row.
  */
 export function parentSessionIdOf(meta: Pick<SessionMeta, 'delegation' | 'startedBy'>): string | undefined {
-  return meta.delegation?.parentSessionId ?? meta.startedBy?.sessionId
+  if (meta.delegation) return meta.delegation.parentSessionId
+  // A local session started without delegation (an independent one) stays top-level.
+  return meta.startedBy?.kind === 'session' && meta.startedBy.hostLabel ? meta.startedBy.sessionId : undefined
 }
 
 /**

@@ -74,6 +74,7 @@ interface ThreadNavigationSidebarProps {
   readonly visible: boolean;
   readonly selectedThreadKey: string | null;
   readonly onOpenSettings: () => void;
+  readonly onOpenProject: (hostId: string) => void;
   readonly onOpenEnvironmentSettings: () => void;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSelectThread: (thread: SolusThreadShell) => void;
@@ -584,6 +585,12 @@ function ThreadNavigationSidebarPane(
       toggleSnoozedShelf,
     ],
   );
+  const projectHostId = options.selectedEnvironmentId ?? hosts[0]?.id;
+  const onOpenProject = props.onOpenProject;
+  const addProject = useMemo(
+    () => projectHostId ? () => onOpenProject(projectHostId) : undefined,
+    [onOpenProject, projectHostId],
+  );
   // Only the environment and project filters can light the "customized" state.
   const filterCustomized = options.selectedEnvironmentId !== null || selectedProjectKey !== null;
   const filterIcon = filterCustomized
@@ -608,8 +615,9 @@ function ThreadNavigationSidebarPane(
         filterIcon,
         filterMenu,
         onOpenSettings: props.onOpenSettings,
+        onAddProject: addProject,
       }),
-    [filterIcon, filterMenu, props.onOpenSettings],
+    [filterIcon, filterMenu, props.onOpenSettings, addProject],
   );
   // Snoozed threads need no special case: the shelf header is a list row
   // even while collapsed.
@@ -793,6 +801,7 @@ function ThreadNavigationSidebarPane(
           filterActions={listMenuActions}
           filterCustomized={filterCustomized}
           onFilterAction={handleListMenuAction}
+          onAddProject={addProject}
           onOpenSettings={props.onOpenSettings}
           onOpenEnvironments={props.onOpenEnvironmentSettings}
           onRequestVisibility={props.onRequestVisibility}
@@ -823,7 +832,7 @@ function ThreadNavigationSidebarPane(
               <ControlPillMenu actions={listMenuActions} onPressAction={handleListMenuAction}>
                 <SidebarFilterButton accessibilityLabel="Filter threads" icon={filterIcon} />
               </ControlPillMenu>
-              <SidebarHeaderActions onOpenSettings={props.onOpenSettings} />
+              <SidebarHeaderActions onOpenSettings={props.onOpenSettings} onAddProject={addProject} />
             </View>
           </View>
 

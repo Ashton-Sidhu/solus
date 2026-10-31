@@ -602,6 +602,12 @@ CREATE TABLE delivery_queue (
 CREATE INDEX delivery_queue_by_destination ON delivery_queue(organization_id, actor_user_id, seq);
 CREATE INDEX delivery_queue_by_key ON delivery_queue(kind, key);
 `,
+  // Where a session runs, `chat` or `project`, written with the thread's first
+  // row (docs/plans/session-starter.md). `started_by` now holds a SessionStarter;
+  // an older value does not read as one and counts as unknown.
+  `
+ALTER TABLE sessions ADD COLUMN place TEXT;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AGENT_DEVICE_VERSION, DEVICE_HUB_VERSION } from '@solus/contracts/device-types'
 import { LocalDeviceHost } from '@solus/server/devices/local-device-host'
 import { DeviceToolchain } from '@solus/server/devices/device-toolchain'
 import { androidUnavailableReason, findAndroidSdk, iosUnavailableReason } from '@solus/server/devices/device-platform-probe'
@@ -26,7 +27,7 @@ function installedToolchain(dir: string): DeviceToolchain {
     const paths = toolchain.paths(tool)
     mkdirSync(join(paths.entryPath, '..'), { recursive: true })
     writeFileSync(paths.entryPath, '// entry')
-    writeFileSync(paths.sentinelPath, `${tool === 'hub' ? '0.12.0' : '0.21.12'}\n`)
+    writeFileSync(paths.sentinelPath, `${tool === 'hub' ? DEVICE_HUB_VERSION : AGENT_DEVICE_VERSION}\n`)
   }
   return toolchain
 }

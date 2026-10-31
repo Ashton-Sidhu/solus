@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestControls.tsx, PullRequestPresentation.tsx, PullRequestSectionHeading.tsx, and pullRequestStatus.ts (MIT, see UPSTREAM.md).
 import { Image } from 'expo-image'
+import { PierreEntryIcon } from '../../../components/PierreEntryIcon'
 import type { ReactNode } from 'react'
 import { ActivityIndicator, Pressable, View } from 'react-native'
 import type { PullRequest } from '@solus/contracts/providers'
@@ -33,6 +34,7 @@ export function PullRequestCardGroup(props: { readonly children: ReactNode }) {
 export function PullRequestCardRow(props: {
   readonly title: string
   readonly icon: AppSymbolName
+  readonly filePath?: string
   readonly tint?: string
   readonly value?: string
   readonly detail?: string
@@ -61,7 +63,7 @@ export function PullRequestCardRow(props: {
         props.onPress && 'active:opacity-70',
       )}
     >
-      <CardRowIcon icon={props.icon} tint={props.tint} destructive={props.destructive} busy={props.busy} />
+      {props.filePath ? <PierreEntryIcon path={props.filePath} size={18} /> : <CardRowIcon icon={props.icon} tint={props.tint} destructive={props.destructive} busy={props.busy} />}
       <View className="min-w-0 flex-1 gap-0.5">
         <Text className={props.destructive ? 'text-sm font-t3-medium text-danger-foreground' : 'text-sm font-t3-medium'}>{props.title}</Text>
         {props.detail ? <Text className="text-2xs text-foreground-muted" numberOfLines={2}>{props.detail}</Text> : null}

@@ -45,7 +45,7 @@
     align="end"
     sideOffset={6}
     collisionPadding={8}
-    class="z-[10002] w-[min(34rem,calc(100vw-1rem))] gap-0 rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-popover-shadow)] ring-0"
+    class="z-[10002] w-[min(25rem,calc(100vw-1rem))] gap-0 rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-popover-shadow)] ring-0"
     aria-label="Submit review"
     onOpenAutoFocus={(e) => e.preventDefault()}
     onCloseAutoFocus={(e) => {

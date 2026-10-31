@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { File as FileIcon } from "@lucide/svelte";
+  import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { HostMediaUrl, type HostMediaRequest } from "../../lib/host-media-url.svelte";
   import { HostVideoPlayer } from "../ui/video-player";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
@@ -25,7 +25,7 @@
 
 {#if file.kind === "binary"}
   <div class="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center" data-testid="binary-file-preview">
-    <FileIcon size={28} class="text-(--solus-text-tertiary)" />
+    <FileIcon path={file.path} size={28} class="text-(--solus-text-tertiary)" />
     <p class="text-workspace-chrome text-(--solus-text-primary)">This file type cannot be shown.</p>
     <p class="text-xs text-(--solus-text-tertiary) tabular-nums">{formatFileSize(file.size)}</p>
   </div>

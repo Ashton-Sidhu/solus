@@ -54,5 +54,11 @@
         {@render children()}
       </RowCard>
     {/if}
+    <!-- Centered in the page's gap to the next section (the negative bottom
+         margin gives back the space it adds); the last section has none. -->
+    <div
+      aria-hidden="true"
+      class="mx-auto mt-4 -mb-3 h-px w-9/10 shrink-0 bg-border/60 [section:last-of-type>&]:hidden"
+    ></div>
   </section>
 {/if}

@@ -1,6 +1,6 @@
 <script module lang="ts">
   /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["organization", "owner", "member", "insights", "sync"];
+  export const searchWords = ["organization", "owner", "member", "insights", "sync", "projects", "repositories"];
 </script>
 
 <script lang="ts">
@@ -14,6 +14,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
+  import SettingsCloudProjects from "./SettingsCloudProjects.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSelect from "./SettingsSelect.svelte";
@@ -156,3 +157,5 @@
     {/if}
   {/if}
 {/if}
+
+<SettingsCloudProjects />

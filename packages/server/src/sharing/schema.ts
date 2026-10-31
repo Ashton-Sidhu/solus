@@ -37,6 +37,8 @@ export const aclEntry = defineTable('acl_entry', {
   indexes: [
     { name: 'acl_entry_subject', columns: ['resource_kind', 'resource_id', 'subject_kind', 'subject_id'], unique: true },
     { name: 'acl_entry_secret_idx', columns: ['link_secret_hash'], where: 'link_secret_hash IS NOT NULL' },
+    // What was shared with one person or team: the shares in their session list (`readSessionListPage`).
+    { name: 'acl_entry_by_subject', columns: ['subject_kind', 'subject_id', 'resource_kind', 'resource_id'] },
   ],
 })
 

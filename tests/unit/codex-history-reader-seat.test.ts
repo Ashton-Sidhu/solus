@@ -4,6 +4,10 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { CodexAppServerClient } from '@solus/server/execution/agents/codex/codex-agent'
+import { HOST_LOGIN_SEAT } from '@solus/contracts/seats'
+import { ActingIdentity } from '@solus/server/execution/seats/acting-identity'
+import { withActingScope } from '@solus/server/vault/acting-scope'
+import { providerHistoryReference } from '@solus/server/execution/seats/provider-runtime'
 import type { TurnSeat } from '@solus/server/execution/seats/seat-manager'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -72,7 +76,7 @@ function backendWith(host: ReturnType<typeof fakeAppServer>, running: Record<str
   const backend = new CodexBackend()
   Reflect.set(backend, 'client', host)
   const pool = Reflect.get(backend, 'seatClients') as Map<string, { client: unknown; activeRuns: number; idleTimer: null }>
-  for (const [accountId, client] of Object.entries(running)) pool.set(accountId, { client, activeRuns: 0, idleTimer: null })
+  for (const [accountId, client] of Object.entries(running)) pool.set(accountId, { client, historyReference: accountId.startsWith('private-instance:') ? accountId : undefined, activeRuns: 0, idleTimer: null })
   return backend
 }
 
@@ -87,6 +91,19 @@ async function runTurn(backend: InstanceType<typeof CodexBackend>, server: Retur
 }
 
 describe('Codex history reader (WORKAROUND openai/codex#54472)', () => {
+  test('private history uses its instance process and refuses another person instead of falling back to the host', async () => {
+    const host = fakeAppServer('host')
+    const work = fakeAppServer('private-work')
+    const reference = providerHistoryReference('alice', 'work')
+    const backend = backendWith(host, { [reference]: work })
+    new CodexThreadWriters().record('thread-private', reference)
+    const identity = new ActingIdentity(HOST_LOGIN_SEAT, null)
+    const messages = await withActingScope({ identity, personKey: 'alice' }, () => backend.loadSession('thread-private'))
+    expect(messages.map((message) => message.content)).toEqual(['read on private-work'])
+    await expect(withActingScope({ identity, personKey: 'bob' }, () => backend.loadSession('thread-private'))).rejects.toThrow('another Solus user')
+    expect(host.methods).toEqual([])
+    backend.shutdown()
+  })
   test('a thread is read through the seat that last ran it, and the reader follows a second member', async () => {
     const host = fakeAppServer('host')
     const ann = fakeAppServer('ann')
@@ -122,7 +139,7 @@ describe('Codex history reader (WORKAROUND openai/codex#54472)', () => {
     const backend = backendWith(host, {})
     new CodexThreadWriters().record('thread-cara', 'cara')
     const started: TurnSeat[] = []
-    backend.useReaderSeats({ readerSeat: async (key) => memberSeat(key) })
+    backend.useReaderSeats({ readerSeat: async (key) => memberSeat(key), homeFor: () => '/fixture/codex' })
     Reflect.set(backend, 'clientFor', (seat: TurnSeat) => {
       started.push(seat)
       return cara as unknown as CodexAppServerClient
@@ -140,7 +157,7 @@ describe('Codex history reader (WORKAROUND openai/codex#54472)', () => {
   test('a thread with no record, or whose member is gone, reads on the host\'s app-server', async () => {
     const host = fakeAppServer('host')
     const backend = backendWith(host, {})
-    backend.useReaderSeats({ readerSeat: async () => null })
+    backend.useReaderSeats({ readerSeat: async () => null, homeFor: () => '/fixture/codex' })
     new CodexThreadWriters().record('thread-gone', 'dan')
 
     expect((await backend.loadSession('thread-unrecorded')).map((message) => message.content)).toEqual(['read on host'])

@@ -57,10 +57,12 @@ export interface UplinkAccountSource {
  */
 export function oauthUplinkAccountSource(
   origin: string,
-  session: Pick<OAuthSession, 'accessToken' | 'state'> & Partial<Pick<OAuthSession, 'refusal'>>,
+  session: Pick<OAuthSession, 'accessToken' | 'state'> & Partial<Pick<OAuthSession, 'refusal' | 'takeStartupDirectory'>>,
   fetchImpl: typeof fetch = fetch,
 ): UplinkAccountSource {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
+    // A write makes the login's directory old.
+    if (init.method && init.method !== 'GET') session.takeStartupDirectory?.()
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return null
     try {
@@ -76,6 +78,9 @@ export function oauthUplinkAccountSource(
   }
   return {
     async listDirectory() {
+      // The first read after sign-in uses the directory the code grant returned.
+      const startup = session.takeStartupDirectory?.()
+      if (startup) return { directoryUrl: origin, ...startup }
       const response = await call('/v1/hosts')
       if (!response?.ok) return null
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))

@@ -1,10 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken, type FileReferenceToken } from './reference-tokens'
 import { tokenClassName } from './tokenStyle'
-import { FILE_ICON_VIEWBOX, getFileIconPath, FOLDER_ICON_PATH } from './fileIcons'
+import { resolveFileIcon } from '@solus/client-core/file-icons'
 import { hostPathBaseName } from '@solus/contracts/host-path'
-
-const SVG_NS = 'http://www.w3.org/2000/svg'
 
 export interface FileRefAttrs {
   /** Full path as it should be sent to the agent (e.g. `src/foo.ts`, `~/bar`). */
@@ -41,9 +39,10 @@ export const FileRefExtension = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    const isDir = node.attrs.path.endsWith('/')
     const name = node.attrs.name || hostPathBaseName(node.attrs.path)
-    const iconPath = isDir ? FOLDER_ICON_PATH : getFileIconPath(name)
+    const icon = document.createElement('span')
+    icon.className = 'solus-token__icon'
+    icon.innerHTML = resolveFileIcon(node.attrs.path || name).svg
 
     return ['span', mergeAttributes(HTMLAttributes, {
       'data-file-ref': node.attrs.path,
@@ -51,11 +50,7 @@ export const FileRefExtension = Node.create({
       title: node.attrs.path,
       class: tokenClassName('file'),
     }),
-      ['span', { class: 'solus-token__icon' },
-        [`${SVG_NS} svg`, { viewBox: FILE_ICON_VIEWBOX, fill: 'currentColor' },
-          ['path', { d: iconPath }],
-        ],
-      ],
+      icon,
       ['span', {}, name],
     ]
   },

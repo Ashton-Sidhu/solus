@@ -5,6 +5,7 @@
     CircleCheck as CheckCircleIcon,
     CircleDashed as CircleDashedIcon,
     Ellipsis as EllipsisIcon,
+    MessageCircle as MessageCircleIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
     LayoutTemplate as ArtifactIcon,
@@ -47,9 +48,10 @@
 
   // The activity timeline proper: the opened event plus commits, review
   // threads, and conversation interleaved by time on one hairline spine.
-  // Signal hierarchy — comments, reviews, and open threads are full-width
-  // cards that break the spine (a verdict is the badge in the card's header),
-  // and commit runs demote to small tertiary nodes that collapse when long.
+  // Every event is a row on the spine. A comment or review has its author's
+  // avatar as the node and no box (a verdict is the badge beside the name);
+  // a review thread is the one boxed card; commit runs demote to small
+  // tertiary nodes that collapse when long.
   let {
     events,
     diffPatch = null,
@@ -128,10 +130,9 @@
     collapsedComments[key] = !collapsedComments[key];
   }
 
-  // Folded threads the reader opened, keyed by thread id. Lifted out of
-  // PrThreadCard because the row's shape depends on it: a folded thread is
-  // one line on the spine, an open thread is a full-width card that breaks
-  // the rail.
+  // Folded threads the reader opened, keyed by thread id. Held here rather
+  // than in PrThreadCard so a thread the reader opened stays open when the
+  // timeline window or a filter remounts its card.
   const unfoldedThreads = $state<Record<string, boolean>>({});
 
   // How many events of a long timeline's folded middle the reader revealed.
@@ -337,29 +338,29 @@
       </div>
     </li>
   {:else if event.kind === "thread"}
-    {@const threadOffRail =
-      !threadStartsFolded(event.thread) || (unfoldedThreads[event.thread.id] ?? false)}
-    <!-- An open thread leaves the spine like a comment (see below). A
-         folded resolved or outdated thread stays one line beside its node.
-         One row for both shapes, so the card never remounts and keeps its
-         reply draft and diff state when the shape changes. -->
-    <li
-      class={threadOffRail
-        ? "relative -my-2.5 bg-background py-2.5 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]"
-        : "relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]"}
-    >
-      {#if !threadOffRail && event.thread.isResolved}
+    <!-- A thread stays on the spine beside its node, open or folded: the
+         card is the only box on the timeline, so it sits in the content
+         column like any other event. One row for both shapes, so the card
+         never remounts and keeps its reply draft and diff state. -->
+    <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+      {#if event.thread.isResolved}
         <span
           class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-(--solus-art-positive)"
         >
           <CheckCircleIcon size={13} weight="fill" />
         </span>
-      {:else if !threadOffRail}
+      {:else if event.thread.isOutdated}
         <!-- Outdated but open: still a question, on code that has moved. -->
         <span
           class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
         >
           <CircleDashedIcon size={13} />
+        </span>
+      {:else}
+        <span
+          class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+        >
+          <MessageCircleIcon size={13} />
         </span>
       {/if}
       <div class="min-w-0 flex-1">
@@ -382,27 +383,27 @@
     {@const hasBody = hasVisibleBody(event.comment.body)}
     {@const hasContent = hasBody || event.threads.length > 0}
     {@const contentOpen = hasContent && !collapsedComments[eventKey]}
-    <!-- A comment or review leaves the spine: the card takes the
-         timeline's full width, the author's avatar moves into its tinted
-         header, and a verdict is the badge beside the name. The rail
-         breaks around it: the row's opaque background reaches half a gap
-         past the card on each side (`-my-2.5 py-2.5`), so the rail stops
-         just above the card and resumes just below it, and two adjacent
-         cards leave no stub of rail between them. -->
-    <li class="relative -my-2.5 bg-background py-2.5 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-      <article class="group/comment overflow-hidden rounded-lg border border-border/60 bg-background">
-        <div class="flex min-h-9 items-center gap-2 bg-muted/25 py-1 pr-2 pl-3 text-xs">
-          <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-          <span class="inline-flex min-w-0 items-center gap-1.5">
-            <PrAvatar
-              name={event.comment.author}
-              url={event.comment.authorAvatarUrl}
-              size="size-4 text-[8px]"
-            />
-            <span class="truncate font-medium text-foreground"
-              >{event.comment.author}</span
-            >
-          </span>
+    <!-- A comment or review is one event on the spine, with no box: the
+         author's avatar is its node, the name line reads like a commit
+         row's, and the body runs in the content column. Only its review
+         threads are boxed. -->
+    <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
+      <!-- An opaque disc behind the avatar stops the rail at its edge, as
+           every node does, even when a bot's image is transparent. -->
+      <span class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-background">
+        <PrAvatar
+          name={event.comment.author}
+          url={event.comment.authorAvatarUrl}
+          size="size-[22px] text-[10px]"
+        />
+      </span>
+      <article class="group/comment min-w-0 flex-1">
+        <div class="flex min-h-6 items-center gap-2">
+          <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span class="truncate font-medium text-foreground">{event.comment.author}</span>
+          {#if event.comment.kind === "review"}
+            <span class="text-muted-foreground">reviewed</span>
+          {/if}
           <TooltipUI.Root>
             <TooltipUI.Trigger>
               {#snippet child({ props: tooltipProps })}
@@ -442,17 +443,19 @@
           {/if}
         </div>
         {#if contentOpen && hasBody}
-          <div class="p-3">
+          <!-- 13px, a step under the page's body: a timeline holds many
+               comments, and a long bot report should not read as a page. -->
+          <div class="mt-1 [&_.prose]:[--prose-size:calc(0.8125rem*var(--solus-font-scale,1))]">
             <CommentMarkdown source={event.comment.body} />
           </div>
         {/if}
         <!-- The review's inline threads, nested as the host nests them: each
-             the same card a lone thread gets on the spine, stacked inside the
-             review under a hairline, so one act of review reads as one event.
+             the same card a lone thread gets on the spine, stacked under the
+             review's body, so one act of review reads as one event.
              They are the same thread objects the Diff tab renders, and reply
              and resolve mutate them in place. -->
         {#if contentOpen && event.threads.length > 0}
-          <div class="flex flex-col gap-3 border-t border-border/60 p-3">
+          <div class="mt-3 flex flex-col gap-3">
             {#each event.threads as thread (thread.id)}
               <PrThreadCard
                 {thread}
@@ -474,13 +477,11 @@
 {/snippet}
 <!-- The spine: a 1px rail under 22px nodes, so every row's content column
      starts 30px in (node + gap) and the rail runs through the node centers.
-     Comments, reviews, and open review threads are the exception: they span
-     the full width and break the rail.
      Every node is opaque — the muted wash is mixed over the page background
      rather than laid over it — so the rail stops at a node's edge instead of
      showing through it. -->
 <ol
-  class="relative flex flex-col gap-5"
+  class="relative flex flex-col gap-6"
   role="list"
 >
   <span

@@ -36,6 +36,8 @@ export type Scope =
   | 'project-search'
   | 'go-to-file'
   | 'shortcuts-help'
+  /** Settings blocks shortcuts from the workspace kept behind its dialog. */
+  | 'settings-dialog'
   /** A capture from a snapshot plate, open at full size. Exclusive: while a
    *  frame is up the arrow keys step the reel rather than the transcript. */
   | 'snapshot-lightbox'

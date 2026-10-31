@@ -155,7 +155,7 @@ describe('restored tab metadata', () => {
     // Without the origin as the parent, the child lists as a peer of the session
     // that started it.
     const remoteChild = restoredSession()
-    applyRestoredSessionMeta(remoteChild, meta({ startedBy: { hostLabel: 'studio', sessionId: 'parent-on-studio' } }))
+    applyRestoredSessionMeta(remoteChild, meta({ startedBy: { kind: 'session', hostLabel: 'studio', sessionId: 'parent-on-studio' } }))
     expect(remoteChild.parentSessionId).toBe('parent-on-studio')
 
     const localChild = restoredSession()

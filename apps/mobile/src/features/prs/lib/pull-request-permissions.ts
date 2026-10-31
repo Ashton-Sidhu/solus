@@ -144,7 +144,7 @@ export function pullRequestPermissions(pr: PullRequest | null, viewerLogin: stri
     lifecycle: (['ready', 'draft', 'close', 'reopen'] as const).filter((action) => lifecycleAllowed(pr, action)),
     canRequestReviewers: pr.state === 'open' && pr.capabilities.reviewerRequests && pr.viewerPermissions.requestReviewers,
     canManageLabels: pr.capabilities.labelManagement && pr.viewerPermissions.manageLabels,
-    canEditPullRequest: true,
+    canEditPullRequest: pr.viewerPermissions.editPullRequest !== false,
     canRevert: pr.state === 'merged' && may(pr, 'revert'),
     canApproveWorkflows: pr.state === 'open' && may(pr, 'approve-workflows'),
   }

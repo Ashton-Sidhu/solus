@@ -38,7 +38,7 @@ import {
   ComposerUploadingThumbnail,
 } from "../../components/ComposerAttachmentStrip";
 import { GlassSurface } from "../../components/GlassSurface";
-import { ComposerEditor, ComposerTextMeasure, type ComposerEditorHandle } from "../../components/ComposerEditor";
+import { ComposerEditor, ComposerTextMeasure, type ComposerEditorHandle, type ComposerEditorSelection } from "../../components/ComposerEditor";
 import {
   ComposerActionButton,
   ComposerInlineControl,
@@ -68,6 +68,9 @@ import {
 } from "./composer-layout";
 import { ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
 import { composerDraftView, useComposerQueuedEdit } from "./use-composer-queued-edit";
+import { SessionReferencePicker } from "./SessionReferencePicker";
+import { insertSessionReference, sessionReferenceOf } from "./session-reference";
+import type { SolusThreadShell } from "./thread-directory";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -433,6 +436,29 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     [inputRef, locked, onChangeText, store, text],
   );
 
+  // "Reference Session…" in the + menu, as desktop's drag from the sidebar:
+  // the token goes in at the caret, and the user keeps typing after it.
+  const selectionRef = useRef<ComposerEditorSelection | null>(null);
+  const [referencing, setReferencing] = useState(false);
+  const openReferencePicker = useCallback(() => {
+    inputRef.current?.blur();
+    setReferencing(true);
+  }, [inputRef]);
+  const closeReferencePicker = useCallback((thread: SolusThreadShell | null) => {
+    setReferencing(false);
+    let caret: number | null = null;
+    if (thread && !locked) {
+      const next = insertSessionReference(text, selectionRef.current, sessionReferenceOf(thread));
+      onChangeText(next.text);
+      caret = next.caret;
+    }
+    // The sheet must be gone before the editor can take focus.
+    setTimeout(() => {
+      inputRef.current?.focus();
+      if (caret !== null) inputRef.current?.setSelection({ start: caret, end: caret });
+    }, 300);
+  }, [inputRef, locked, onChangeText, text]);
+
   // A question that closed unanswered gives back what the user typed for it.
   // It goes to the conversation's draft, not to a queued message being edited.
   useEffect(
@@ -581,6 +607,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         }
         pointerEvents="none"
       />
+      {referencing ? (
+        <SessionReferencePicker
+          hostId={hostId}
+          currentSessionId={conversationIdOf(store)}
+          onPick={closeReferencePicker}
+          onClose={() => closeReferencePicker(null)}
+        />
+      ) : null}
       <Animated.View
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
@@ -619,10 +653,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           >
             {!usesCard ? (
               <ComposerAttachmentButton
-                disabled={attachmentsFull || locked}
+                disabled={locked}
+                attachmentsFull={attachmentsFull}
                 supportsFiles
                 onPickMedia={onPickDraftMedia}
                 onPickFiles={onPickDraftFiles}
+                onReferenceSession={openReferencePicker}
               />
             ) : null}
             {usesCard && queuedAttachments !== null ? (
@@ -671,6 +707,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onFocus={handleFocus}
                 onBlur={handleBlur}
                 onPasteImages={onPasteDraftImages}
+                onSelectionChange={(selection) => { selectionRef.current = selection; }}
                 scrollEnabled={isEditing}
                 // Android: a one-row line centers natively in a pill-height
                 // box matching the send button; iOS centers it with insets.
@@ -776,10 +813,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   >
                     <View className="min-w-0 flex-1 flex-row items-center justify-between">
                       <ComposerAttachmentButton
-                        disabled={attachmentsFull || locked}
+                        disabled={locked}
+                        attachmentsFull={attachmentsFull}
                         supportsFiles
                         onPickMedia={onPickDraftMedia}
                         onPickFiles={onPickDraftFiles}
+                        onReferenceSession={openReferencePicker}
                       />
                       <View className="min-w-0 shrink">
                         <ComposerInlineControl

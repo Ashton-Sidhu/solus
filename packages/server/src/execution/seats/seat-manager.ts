@@ -1,3 +1,5 @@
+import { privateProviderInstances } from './provider-instances'
+import { captureActingScope } from '../../vault/acting-scope'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -256,6 +258,14 @@ export class SeatManager implements SeatStore {
   async resolveForTurn(seat: Seat, provider: AgentId): Promise<TurnSeat | null> {
     if (!isSeatProvider(provider)) return null
     if (seat.kind === 'host-login') return this.connectedSeat(seat, provider)
+    const personKey = captureActingScope()?.personKey
+    if (personKey) {
+      const snapshot = privateProviderInstances().snapshot(personKey)
+      const hasPrivateRuntime = snapshot.instances.some((instance) => instance.provider === provider && (instance.id !== provider || instance.homePath || instance.shadowHomePath || instance.environment.length))
+      if (hasPrivateRuntime) {
+        return { seat, provider, home: this.homeFor(seat, provider), launch: await identityFor(seat).launchOptions() }
+      }
+    }
     await this.adoptPresentLogin(seat, provider)
     const row = this.row(seat, provider)
     if (!row) throw new SeatRequiredError(provider, 'none')

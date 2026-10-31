@@ -964,7 +964,7 @@
 {:else}
   <div
     use:portal={document.body}
-    class="doc-shell-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
+    class="doc-shell-backdrop modal-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
     onclick={(e) => {
       if (e.target === e.currentTarget) onClose();
     }}
@@ -1023,13 +1023,6 @@
     width: min(20rem, calc(100% - 1.5rem));
   }
 
-  .doc-shell-backdrop {
-    background: radial-gradient(
-      circle at 50% 38%,
-      color-mix(in srgb, var(--solus-modal-scrim) 82%, transparent) 0%,
-      var(--solus-modal-scrim) 72%
-    );
-  }
   .doc-shell-root--floating {
     box-shadow:
       var(--solus-popover-shadow),

@@ -40,7 +40,7 @@ import {
 // ─── Fakes ───
 
 /** The web page's sign-in, reduced to the access token the adapter asks for. */
-const ACCOUNT_SIGN_IN = { accessToken: async () => 'account-token' }
+const ACCOUNT_SIGN_IN = { accessToken: async () => 'account-token', takeStartupSettings: async () => null }
 
 interface AccountDocument {
   generation: number
@@ -765,7 +765,7 @@ describe('settings requests', () => {
     expect(seen[0]?.credentials).toBe('omit')
     expect(new Headers(seen[0]?.headers).get('authorization')).toBe('Bearer account-token')
     // With no sign-in, nothing is sent.
-    expect(await webSettingsRequests(ORIGIN_A, { accessToken: async () => null }).accountSettingsGet()).toEqual({ kind: 'signed-out' })
+    expect(await webSettingsRequests(ORIGIN_A, { accessToken: async () => null, takeStartupSettings: async () => null }).accountSettingsGet()).toEqual({ kind: 'signed-out' })
   })
 })
 

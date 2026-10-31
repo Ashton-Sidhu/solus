@@ -261,7 +261,12 @@ version. Emit after the enclosing database transaction commits, including
 nested API transactions. Reuse `afterDatabaseCommit`; never notify on rollback.
 Avoid sending full content on the general event stream. Existing session
 `work_updated` events may still describe agent activity, but must not be the
-only mechanism that updates an open work.
+only mechanism that updates an open work. The session events name where the
+work is: `organizationId` is the organization whose Solus API holds it, null
+when the session's host holds it. An organization session on an attached
+machine saves through the Solus API, so the client opens its works there,
+never on the machine. A client keeps an owner it already knows; only Share
+moves a work.
 
 Wire the signal through `boot-server.ts`, `host-events.ts`, RPC topic
 registration, and both transports. Add work-resource audience handling in

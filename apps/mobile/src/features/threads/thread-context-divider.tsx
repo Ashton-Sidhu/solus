@@ -3,7 +3,7 @@ import { memo } from "react";
 import { View, type ColorValue } from "react-native";
 
 import { compactionDividerText } from "@solus/contracts/context-compaction";
-import type { SessionOrigin } from "@solus/contracts/types";
+import type { SessionStarterFromHost } from "@solus/contracts/types";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
@@ -58,7 +58,7 @@ export const CompactionDivider = memo(function CompactionDivider(props: {
  * words as the desktop divider (docs/plans/cross-host-sessions.md).
  */
 export const SessionOriginDivider = memo(function SessionOriginDivider(props: {
-  readonly origin: SessionOrigin;
+  readonly origin: SessionStarterFromHost;
   readonly iconSubtleColor: ColorValue;
 }) {
   const text = `Started by an agent on ${props.origin.hostLabel}`;

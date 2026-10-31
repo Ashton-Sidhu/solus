@@ -8,18 +8,21 @@ export const MAX_MOUNTED_CONVERSATIONS = 4
  * one, then the most recently shown, up to `limit`. A closed tab drops out.
  * An inactive pool — the web shell that is not on screen — mounts nothing, so
  * two shells never hold the same conversation.
+ * A covered pool retains conversations already shown, but does not start a new
+ * transcript while a draft, settings page, or work is in front of it.
  */
 export function mountedConversationTabIds(
   recentTabIds: readonly string[],
   activeTabId: string | null,
   openTabIds: readonly string[],
   poolActive: boolean,
+  surfaceVisible = true,
   limit = MAX_MOUNTED_CONVERSATIONS,
 ): string[] {
   if (!poolActive) return []
   const open = new Set(openTabIds)
   const mounted: string[] = []
-  for (const tabId of activeTabId ? [activeTabId, ...recentTabIds] : recentTabIds) {
+  for (const tabId of surfaceVisible && activeTabId ? [activeTabId, ...recentTabIds] : recentTabIds) {
     if (mounted.length >= limit) break
     if (open.has(tabId) && !mounted.includes(tabId)) mounted.push(tabId)
   }

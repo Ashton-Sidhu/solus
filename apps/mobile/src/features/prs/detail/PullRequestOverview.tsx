@@ -1,3 +1,4 @@
+import { PierreEntryIcon } from "../../../components/PierreEntryIcon";
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestRouteScreen.tsx (overview) and PullRequestStackCard.tsx (MIT, see UPSTREAM.md).
 import { useNavigation } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -153,7 +154,7 @@ function ChangedFilesSummary({ view, onOpenFile }: { readonly view: PullRequestV
             onPress={() => onOpenFile(file.path)}
             className="min-h-12 flex-row items-center gap-3 border-b border-border-subtle py-2.5 active:opacity-70"
           >
-            <SymbolView name="doc" size={16} tintColorClassName="accent-icon-muted" />
+            <PierreEntryIcon path={file.path} size={16} />
             <View className="min-w-0 flex-1">
               <Text className="text-sm font-t3-medium" numberOfLines={1}>{file.path.slice(slash + 1)}</Text>
               {slash > 0 ? <Text className="text-2xs text-foreground-muted" numberOfLines={1}>{file.path.slice(0, slash)}</Text> : null}

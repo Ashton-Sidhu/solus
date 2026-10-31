@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { probeMcpServer } from '@solus/server/integrations/probe'
+import { probeAddress } from '@solus/server/integrations/integration-create'
+import { integrationUrlSchema } from '@solus/contracts/integration-types'
 
 // docs/plans/mcp-integrations.md §3.2: the probe decides how an integration
 // authenticates from what the server answers without credentials. Each case is
@@ -131,6 +133,22 @@ describe('MCP probe', () => {
     expect(await probeMcpServer(`${base}/anonymous/mcp`)).toMatchObject({ outcome: 'undetermined', reason: 'refused', signals: [] })
     expect(await probeMcpServer('https://10.0.0.5/mcp', options)).toMatchObject({ outcome: 'undetermined', reason: 'refused' })
     expect(await probeMcpServer('https://[fe80::1]/mcp', options)).toMatchObject({ outcome: 'undetermined', reason: 'refused' })
+  })
+
+  test('a person can add a server on the host\'s own loopback, but not on its private network', async () => {
+    // WHY: a local MCP server (http://localhost:8000) is a common way to run one; the host's LAN stays out of reach.
+    expect(await probeAddress(`${base}/anonymous/mcp`)).toMatchObject({ outcome: 'anonymous' })
+    expect(await probeAddress('https://10.0.0.5/mcp')).toMatchObject({ outcome: 'undetermined', reason: 'refused' })
+  })
+
+  test('the address rule allows HTTP only to loopback', () => {
+    // WHY: plain HTTP to another machine would send a person's token in the clear.
+    for (const url of ['http://localhost:8000', 'http://127.0.0.1:3000/mcp', 'http://[::1]:8000/mcp', 'http://dev.localhost/mcp']) {
+      expect({ url, accepted: integrationUrlSchema.safeParse(url).success }).toEqual({ url, accepted: true })
+    }
+    for (const url of ['http://example.com/mcp', 'http://10.0.0.5/mcp', 'http://localhost.example.com/mcp', 'ftp://localhost/mcp']) {
+      expect({ url, accepted: integrationUrlSchema.safeParse(url).success }).toEqual({ url, accepted: false })
+    }
   })
 
   test('signals never carry a URL or a body', async () => {

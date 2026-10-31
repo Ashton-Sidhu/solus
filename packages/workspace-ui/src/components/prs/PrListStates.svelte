@@ -7,6 +7,7 @@
   } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import PageEmpty from "../ui/PageEmpty.svelte";
+  import PrListLoading from "./PrListLoading.svelte";
   import GithubConnectionRequired from "./GithubConnectionRequired.svelte";
   import type { PrInboxFailure } from "./lib/pr-inbox-failure";
   import { prUnavailableTitle, type PrSurfaceError } from "./lib/pr-surface-error";
@@ -28,6 +29,7 @@
     projectsFailure: PrInboxFailure;
     /** Any row loaded at all — before the page's own filters. */
     hasItems: boolean;
+    loading: boolean;
     onRetry: () => void;
     onShowAll: () => void;
     children: Snippet;
@@ -40,6 +42,7 @@
     serverId,
     projectsFailure,
     hasItems,
+    loading,
     onRetry,
     onShowAll,
     children,
@@ -61,6 +64,8 @@
   <PageEmpty icon={GitPullRequestIcon} title="Open a project to see its pull requests.">
     The project in the input bar sets this list.
   </PageEmpty>
+{:else if loading && !hasItems}
+  <PrListLoading />
 {:else if !allProjects && scopeError?.kind === "github-auth"}
   <PageEmpty icon={GitPullRequestIcon} tone="muted" title="Connect GitHub to load pull requests.">
     {#if serverId}

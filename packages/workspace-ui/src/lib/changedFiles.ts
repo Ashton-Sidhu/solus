@@ -1,6 +1,6 @@
 import type { Message } from "@solus/contracts/types";
 import { z } from "zod";
-import { patchFileChunks } from "./pierre-diff";
+import { patchFileChunks } from "./pierre-diff/patch-files";
 import { isAbsoluteHostPath, joinHostPath, relativeHostPath } from "@solus/contracts/host-path";
 
 const SHELL_WRAPPED = /^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/;

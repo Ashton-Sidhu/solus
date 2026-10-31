@@ -36,6 +36,12 @@ Amended 2026-10-25 (implementation). Where the text below differs, this list win
    test install beside a live install on the same machine.
 10. **No backward compatibility.** Hosts that an earlier build saved with `url` do not
    load, and must be paired again.
+11. **Managed machines use tunnel routes only.** Their private cloud addresses are
+    not client LAN addresses. Managed servers do not advertise interface routes.
+    Desktop, web, mobile, and host-to-host connections filter saved and newly
+    learned routes with `routesForMachine`, so older hosts cannot cause repeated
+    `/health` checks of their internal addresses. Personal and self-hosted
+    machines keep LAN, tailnet, and forwarded routes.
 
 Solus has no users yet, so this plan keeps no backward compatibility. Saved
 hosts, contracts, and RPC names change in place.

@@ -148,6 +148,37 @@ describe('native host connections', () => {
     expect(connection?.state.readiness).toBe('ready')
   })
 
+  test('a managed host never probes a saved or newly advertised cloud network address', async () => {
+    const url = 'https://managed.solus.test'
+    const internal: HostRoute = { kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }
+    const requested: string[] = []
+    const health = healthFetch({ [url]: 'managed:test' })
+    const { registry, connections, transports, timers } = createHostWorld({
+      fetch: ((input: string | URL | Request, init?: RequestInit) => {
+        requested.push(String(input))
+        return health(input, init)
+      }) as typeof fetch,
+    })
+    await registry.load()
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+      installationId: 'managed:test', kind: 'managed', category: 'managed', managedState: 'ready',
+      routes: [internal, { kind: 'tunnel', url }],
+    })])
+    const connection = connections.connection('managed:test')
+    expect(transports[0]?.serverUrl).toBe(url)
+    await transports[0]?.accept()
+    expect(connection?.state.readiness).toBe('ready')
+    registry.applyAdvertised('managed:test', { routes: [internal], identityKey: identityKeyFor('managed:test') })
+    timers.runAll()
+    connections.suspend(0)
+    connections.resume(60_000)
+    await flushPromises()
+    expect(requested.length).toBeGreaterThan(0)
+    expect(requested.every((request) => request.startsWith(url))).toBe(true)
+    expect(transports[0]?.serverUrl).toBe(url)
+    connections.disposeAll()
+  })
+
   test('a matching host is accepted and its reported name fills an unnamed label', async () => {
     const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })
     await registry.load()

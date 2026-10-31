@@ -52,7 +52,7 @@
 
   const firstComment = $derived(thread.comments[0]);
   const statusLabel = $derived(
-    `${thread.isResolved ? "Resolved" : "Open"} · ${thread.comments.length} ${thread.comments.length === 1 ? "comment" : "comments"}`,
+    `${thread.isResolved ? "Resolved" : "Open"} · ${thread.comments.length} ${thread.comments.length === 1 ? "comment" : "comments"}${thread.isOutdated ? " · outdated" : ""}`,
   );
   const diffHunk = $derived(fullDiffHunk ?? firstComment?.diffHunk);
 
@@ -155,18 +155,20 @@
   </button>
 {:else}
 <!-- The same card as a thread in the Diff tab (DiffThreadComment), with the
-     anchored file and hunk as its head. -->
+     anchored file and hunk as its head. One header row carries the file, the
+     thread's state, and Resolve, so the first comment starts right under the
+     diff. -->
 <div
-  class="overflow-hidden rounded-xl border border-border/70 bg-background text-sm shadow-sm"
+  class="overflow-hidden rounded-lg border border-border/70 bg-background text-sm"
 >
   <div
-    class="flex items-center gap-2 border-b border-border/60 px-2 py-1"
+    class="flex min-h-8 items-center gap-1 border-b border-border/60 py-0.5 pr-1.5 pl-1 text-xs"
   >
     {#if diffHunk}
       <Button
         type="button"
         variant="ghost"
-        class="relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground after:absolute after:size-10 hover:bg-muted hover:text-foreground"
+        class="relative flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground after:absolute after:size-10 hover:bg-muted hover:text-foreground"
         aria-expanded={diffOpen}
         aria-label={diffOpen
           ? `Collapse diff for ${fileName(thread.filePath)}`
@@ -181,13 +183,41 @@
         {/if}
       </Button>
     {/if}
+    {#if thread.isResolved}
+      <CheckCircleIcon class="size-3.5 shrink-0 text-(--solus-art-positive)" />
+    {:else}
+      <CircleIcon class="size-3.5 shrink-0 text-muted-foreground" />
+    {/if}
     <Button
       type="button"
       variant="ghost"
-      class="min-h-10 min-w-0 flex-1 justify-start cursor-pointer truncate rounded-md text-left  text-foreground hover:text-primary"
+      class="h-7 min-w-0 shrink justify-start cursor-pointer overflow-hidden rounded-md px-1.5 text-left text-xs font-normal text-foreground hover:text-primary"
       onclick={() => onJump?.(thread.filePath, thread.line)}
     >
-      <span class="text-muted-foreground">{dirName(thread.filePath)}</span>{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}
+      <span class="truncate"><span class="text-muted-foreground">{dirName(thread.filePath)}</span>{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}</span>
+    </Button>
+    <!-- A thread that folds by default folds again from its status. -->
+    {#if startsFolded}
+      <button
+        type="button"
+        class="shrink-0 cursor-pointer rounded-sm whitespace-nowrap text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        aria-expanded="true"
+        onclick={() => (unfolded = false)}
+      >
+        {statusLabel}
+      </button>
+    {:else}
+      <span class="shrink-0 whitespace-nowrap text-muted-foreground">{statusLabel}</span>
+    {/if}
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      disabled={busy}
+      class="ml-auto shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+      onclick={toggleResolved}
+    >
+      {thread.isResolved ? "Unresolve" : "Resolve"}
     </Button>
   </div>
 
@@ -196,7 +226,7 @@
     {#if diffHunk && diffOpen}
       <div class="border-b border-border/60">
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenBeforeLineCount > 0}
-          <div class="flex min-h-8 items-center gap-2 px-3 py-1">
+          <div class="flex min-h-7 items-center gap-2 px-3 py-0.5">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
             <Button
               type="button"
@@ -235,7 +265,7 @@
           ></div>
         {/if}
         {#if collapsedDiffPreview && collapsedDiffPreview.hiddenAfterLineCount > 0}
-          <div class="flex min-h-8 items-center gap-2 px-3 py-1">
+          <div class="flex min-h-7 items-center gap-2 px-3 py-0.5">
             <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
             <Button
               type="button"
@@ -257,75 +287,42 @@
       </div>
     {/if}
 
-    <div class="p-3">
-      <div class="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-        {#if thread.isResolved}
-          <CheckCircleIcon class="size-3.5 shrink-0 text-(--solus-art-positive)" />
-        {:else}
-          <CircleIcon class="size-3.5 shrink-0" />
-        {/if}
-        <!-- A thread that folds by default folds again from its status. -->
-        {#if startsFolded}
-          <button
-            type="button"
-            class="cursor-pointer rounded-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            aria-expanded="true"
-            onclick={() => (unfolded = false)}
-          >
-            {statusLabel}
-          </button>
-        {:else}
-          <span>{statusLabel}</span>
-        {/if}
-        {#if thread.isOutdated}
-          <span>outdated</span>
-        {/if}
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={busy}
-          class="ml-auto cursor-pointer"
-          onclick={toggleResolved}
-        >
-          {thread.isResolved ? "Unresolve" : "Resolve"}
-        </Button>
-      </div>
-
-      <!-- Each comment hangs from an avatar in a gutter, with a hairline
-           between comments: a long bot comment otherwise runs into the next
-           author's row, and the thread reads as one message. -->
-      <div class="mt-3 divide-y divide-border/60">
-        {#each thread.comments as comment (comment.id)}
-          <article class="flex min-w-0 gap-2.5 py-3 first:pt-0 last:pb-1">
-            <span class="mt-px shrink-0">
-              <PrAvatar
-                name={comment.author}
-                url={comment.authorAvatarUrl}
-                size="size-6 text-[10px]"
-              />
-            </span>
-            <div class="min-w-0 flex-1">
-              <div class="flex min-w-0 items-baseline gap-1.5 text-xs text-muted-foreground">
-                <span class="truncate text-sm font-semibold text-foreground">{comment.author}</span>
-                <span class="shrink-0">
-                  {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
-                </span>
-              </div>
-              <div class="mt-0.5">
-                <CommentMarkdown source={comment.body} />
-              </div>
+    <!-- The conversation: each comment hangs from its avatar, and a hairline
+         joins one avatar to the next, so replies read top to bottom as one
+         exchange. 16px between comments keeps two short replies apart. -->
+    <div class="px-3 pt-3 pb-3">
+      {#each thread.comments as comment, index (comment.id)}
+        <article class="relative grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-x-2 pb-4 last-of-type:pb-0">
+          {#if index < thread.comments.length - 1}
+            <span class="absolute top-6 bottom-1 left-[8.5px] w-px bg-border" aria-hidden="true"></span>
+          {/if}
+          <PrAvatar
+            name={comment.author}
+            url={comment.authorAvatarUrl}
+            size="size-[18px] text-[9px]"
+          />
+          <div class="min-w-0">
+            <div class="flex min-h-[18px] min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <span class="truncate font-semibold text-foreground">{comment.author}</span>
+              <span class="shrink-0">
+                {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
+              </span>
             </div>
-          </article>
-        {/each}
-      </div>
+            <div class="mt-1 [&_.prose]:[--prose-size:calc(0.8125rem*var(--solus-font-scale,1))]">
+              <CommentMarkdown source={comment.body} />
+            </div>
+          </div>
+        </article>
+      {/each}
 
-      <!-- Reply aligns with the comment bodies, past the avatar gutter. -->
+      <!-- Reply aligns with the comment bodies, past the avatar gutter. At
+           rest it is a quiet field, so the card ends on an invitation rather
+           than a row of buttons. -->
       {#if replying}
         <!-- Forced 400 weight so typed text never reads bold. -->
         <CommentComposer
           surface="embedded"
-          class="mt-2 pl-8.5"
+          class="mt-3 pl-[26px]"
           initialValue={replyText}
           onFormValueChange={(markdown) => (replyText = markdown)}
           onSave={submitReply}
@@ -338,15 +335,15 @@
           editorClass="min-h-16 rounded-lg border border-input bg-background px-2.5 py-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/24 dark:bg-input/32 [&_.cm-content]:![font-weight:400]"
         />
       {:else}
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          class="mt-2 ml-6.5 cursor-pointer"
-          onclick={() => (replying = true)}
-        >
-          Reply
-        </Button>
+        <div class="mt-3 pl-[26px]">
+          <button
+            type="button"
+            class="flex h-8 w-full cursor-text items-center rounded-lg border border-border/70 px-2.5 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:h-10"
+            onclick={() => (replying = true)}
+          >
+            Reply…
+          </button>
+        </div>
       {/if}
     </div>
 </div>

@@ -45,7 +45,7 @@ export function githubPullRequestDetailAnswer(options: DetailAnswerOptions = {})
         reviewDecision: 'REVIEW_REQUIRED',
         reviews: { totalCount: 2 },
         autoMergeRequest: null,
-        baseRepository: { nameWithOwner: 'acme/app' },
+        baseRepository: { nameWithOwner: 'acme/app', defaultBranchRef: { name: 'develop' } },
         headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
         labels: { nodes: [{ name: 'bug', color: 'd73a4a' }] },
         assignees: { nodes: [{ login: 'octocat' }] },

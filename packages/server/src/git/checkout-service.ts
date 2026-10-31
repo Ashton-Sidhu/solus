@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { resolveHomePath } from '../platform/paths'
 import type { CheckoutChange, CheckoutSnapshot, CheckoutState } from '@solus/contracts/checkout'
 import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitState } from '@solus/contracts/types'
-import { computeGitState } from './git-helpers'
-import { gitOutputPath, runAsync } from './exec'
+import { readCheckout } from './git-helpers'
 import { createWorktree, ensureBranchWorktree, fetchAndCheckoutPr, renameWorktreeBranch, type CreateWorktreeOptions } from './worktree-manager'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
@@ -37,7 +36,7 @@ export class CheckoutService {
 
   constructor(
     private isForeground: () => boolean = () => true,
-    private readState: typeof computeGitState = computeGitState,
+    private readState: typeof readCheckout = readCheckout,
   ) {}
 
   onChange(listener: (change: CheckoutChange) => void): () => void {
@@ -129,11 +128,11 @@ export class CheckoutService {
       do {
         this.pending.delete(cwd)
         const revision = this.states.get(cwd)?.revision
-        const status = await this.readState(cwd)
-        const checkoutRoot = status ? gitOutputPath(cwd, await runAsync('git', ['rev-parse', '--show-toplevel'], cwd)) : null
+        const checkoutRead = await this.readState(cwd)
+        const status = checkoutRead?.status ?? null
         if (this.states.get(cwd)?.revision !== revision) { this.pending.add(cwd); continue }
         const projectRoot = this.states.get(cwd)?.checkout?.repoRoot ?? status?.repoRoot
-        const checkout = status ? gitCheckoutFromState(status, checkoutRoot !== status.repoRoot ? cwd : undefined, projectRoot) : null
+        const checkout = status ? gitCheckoutFromState(status, checkoutRead?.checkoutRoot !== status.repoRoot ? cwd : undefined, projectRoot) : null
         this.commit(cwd, checkout, 'observed')
         const serialized = JSON.stringify(status)
         if (this.statuses.get(cwd) !== serialized) {

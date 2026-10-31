@@ -10,12 +10,17 @@ const ATTACHMENT_MENU_ACTIONS: MenuAction[] = [
   { id: "photos", title: "Photo Library", image: "photo" },
   { id: "files", title: "Choose Files", image: "folder" },
 ];
+const REFERENCE_SESSION_ACTION: MenuAction = { id: "session", title: "Reference Session…", image: "text.bubble" };
 
 export function ComposerAttachmentButton(props: {
   readonly disabled?: boolean;
   readonly supportsFiles: boolean;
   readonly onPickMedia: () => Promise<void>;
   readonly onPickFiles: () => Promise<void>;
+  /** Full attachments still allow a session reference. */
+  readonly attachmentsFull?: boolean;
+  /** Offers "Reference Session…": a session reference is text, not a file. */
+  readonly onReferenceSession?: () => void;
 }) {
   const { scale } = useAndroidControlSizing();
   const button = (
@@ -37,7 +42,9 @@ export function ComposerAttachmentButton(props: {
     </Pressable>
   );
 
-  if (props.disabled || !props.supportsFiles) {
+  const attachActions = props.attachmentsFull ? [] : props.supportsFiles ? ATTACHMENT_MENU_ACTIONS : ATTACHMENT_MENU_ACTIONS.slice(0, 1);
+  const actions = props.onReferenceSession ? [...attachActions, REFERENCE_SESSION_ACTION] : attachActions;
+  if (props.disabled || actions.length === 0 || (!props.supportsFiles && !props.onReferenceSession)) {
     return button;
   }
 
@@ -46,12 +53,14 @@ export function ComposerAttachmentButton(props: {
       accessible
       accessibilityLabel="Add attachment"
       accessibilityRole="button"
-      actions={ATTACHMENT_MENU_ACTIONS}
+      actions={actions}
       onPressAction={({ nativeEvent }) => {
         if (nativeEvent.event === "photos") {
           void props.onPickMedia();
         } else if (nativeEvent.event === "files") {
           void props.onPickFiles();
+        } else if (nativeEvent.event === "session") {
+          props.onReferenceSession?.();
         }
       }}
     >

@@ -25,6 +25,7 @@ You can find these actions here:
 | Entry point | New project | Open or clone |
 |---|---|---|
 | Open project dialog (`⌘⇧O`; `⌥⇧O` on the web) | first action | the other actions |
+| Session sidebar, **Add project** (folder with a plus) | **New project** in the project flow | folder, GitHub, or Git URL in the project flow |
 | Project chip above the composer | **New project…** | **Open project…** |
 | Command palette | **New project…** | **Open project…** |
 | Project switcher on a list page | — | **Open project…** |
@@ -196,3 +197,22 @@ An automation with no project runs each time in a new chat of its own.
 On a managed host, each turn runs on the seat of the member who sent it. If you
 have no seat for the agent that you chose, the new session shows **Connect
 Claude** or **Connect Codex** above the composer before you send.
+
+## Agent tools
+
+Claude and Codex can use `create_project` and `clone_project` on the host where
+their turn runs. These tools use the same permission checks, project folder,
+Git credentials, and project registration as **Add project** on every client.
+Enable or disable them under **Settings → Tools → Projects**.
+
+`create_project` takes `name` and an optional `parent` folder. It creates a new
+folder with a Git repository. An existing folder is refused.
+
+`clone_project` takes `clone_url` (an HTTPS or SSH Git URL ending in `.git`),
+and optional `name`, `destination`, and `protocol` (`https` or `ssh`). The
+destination must be new or empty. The cloned repository is registered as a
+project in the same call; no second registration is required.
+
+Both tools return `path` and `projectKey`. Paths name folders on that host.
+The current session keeps its folder. To start work in the project, call
+`start_session` with the returned path as `cwd`.

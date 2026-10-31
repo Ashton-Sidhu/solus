@@ -33,46 +33,92 @@ export type GroupedItem =
 /** The card kinds that gather a whole turn's members into one card. */
 type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'document'
 
+/**
+ * Where a grouping stands after some messages: the rows made so far, the open
+ * card of each kind, and the activity row still collecting. A transcript
+ * segment keeps the grouping of all its messages but the last, and resumes it
+ * for the last one (`resumeGrouping`), so a streamed token regroups one message.
+ */
+export interface Grouping {
+  items: GroupedItem[]
+  /** The open card of each kind: its row in `items`, and its members. A
+   *  resumed grouping shares the members with the grouping it resumed from
+   *  until it grows the card, and copies them then. */
+  cards: Map<CardGroupKind, { index: number; messages: Message[]; shared: boolean }>
+  activity: Message[]
+}
+
+export function emptyGrouping(): Grouping {
+  return { items: [], cards: new Map(), activity: [] }
+}
+
+/** A copy of `from` to group more messages into. `from` is left as it was. */
+export function resumeGrouping(from: Grouping): Grouping {
+  const cards: Grouping['cards'] = new Map()
+  for (const [kind, card] of from.cards) cards.set(kind, { ...card, shared: true })
+  return { items: from.items.slice(), cards, activity: from.activity.slice() }
+}
+
 export function groupMessages(messages: Message[]): GroupedItem[] {
-  const result: GroupedItem[] = []
-  // A turn's cards of one kind are one act — delegating to sub-agents, talking
-  // to other sessions, looking at pages, writing documents — so each kind is one
-  // card at the position of its FIRST member, in the order they happened. Tool
-  // rows, prose, and other cards between two members still render in place,
-  // below the card, and do NOT close it — only a new turn does. An open card's
-  // array is grown in place.
-  const cardGroups = new Map<CardGroupKind, Message[]>()
-  const openOrGrowCard = (kind: CardGroupKind, msg: Message) => {
-    const group = cardGroups.get(kind)
-    if (group) {
-      const existing = kind === 'document'
-        ? group.findIndex((message) => message.workRef?.workId === msg.workRef?.workId)
-        : -1
-      if (existing >= 0) group[existing] = msg
-      else group.push(msg)
-    } else {
-      const messages = [msg]
-      cardGroups.set(kind, messages)
-      result.push({ kind, messages })
-    }
+  const grouping = emptyGrouping()
+  groupInto(grouping, messages, 0, messages.length)
+  return finishGrouping(grouping)
+}
+
+/** The rows of a grouping, with its open activity row closed. */
+export function finishGrouping(grouping: Grouping): GroupedItem[] {
+  flushActivity(grouping)
+  return grouping.items
+}
+
+// A turn's cards of one kind are one act — delegating to sub-agents, talking
+// to other sessions, looking at pages, writing documents — so each kind is one
+// card at the position of its FIRST member, in the order they happened. Tool
+// rows, prose, and other cards between two members still render in place,
+// below the card, and do NOT close it — only a new turn does. An open card's
+// array is grown in place.
+function openOrGrowCard(grouping: Grouping, kind: CardGroupKind, msg: Message): void {
+  const card = grouping.cards.get(kind)
+  if (!card) {
+    const messages = [msg]
+    grouping.cards.set(kind, { index: grouping.items.length, messages, shared: false })
+    grouping.items.push({ kind, messages })
+    return
   }
-  // Everything between two prose blocks is one activity row: the tool calls,
-  // and the thoughts of the messages around them. Only prose, a card, or a
-  // notice closes the row.
-  let activity: Message[] = []
-  const flushActivity = () => {
-    if (activity.length === 0) return
-    const tools = activity.filter((message) => message.role === 'tool')
-    if (tools.length > 0) result.push({ kind: 'tool-group', messages: tools, steps: activity })
-    else for (const message of activity) result.push({ kind: 'thought', message })
-    activity = []
+  if (card.shared) {
+    card.messages = card.messages.slice()
+    card.shared = false
+    grouping.items[card.index] = { kind, messages: card.messages }
   }
-  for (const msg of messages) {
+  const existing = kind === 'document'
+    ? card.messages.findIndex((message) => message.workRef?.workId === msg.workRef?.workId)
+    : -1
+  if (existing >= 0) card.messages[existing] = msg
+  else card.messages.push(msg)
+}
+
+// Everything between two prose blocks is one activity row: the tool calls,
+// and the thoughts of the messages around them. Only prose, a card, or a
+// notice closes the row.
+function flushActivity(grouping: Grouping): void {
+  const { activity } = grouping
+  if (activity.length === 0) return
+  const tools = activity.filter((message) => message.role === 'tool')
+  if (tools.length > 0) grouping.items.push({ kind: 'tool-group', messages: tools, steps: activity })
+  else for (const message of activity) grouping.items.push({ kind: 'thought', message })
+  grouping.activity = []
+}
+
+/** Group `messages[start..end)` into `grouping`. */
+export function groupInto(grouping: Grouping, messages: Message[], start: number, end: number): void {
+  const result = grouping.items
+  for (let i = start; i < end; i++) {
+    const msg = messages[i]
     if (msg.activity?.kind === 'mcp_app') {
-      flushActivity()
+      flushActivity(grouping)
       result.push({ kind: 'mcp-app', message: msg })
     } else if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
-      flushActivity()
+      flushActivity(grouping)
       result.push({ kind: 'question', message: msg })
     } else if (msg.role === 'tool' && isAgentConversationTool(msg.toolName) && msg.toolStatus !== 'error') {
       // The agent card shows what the call did; the call shows only if it
@@ -80,21 +126,21 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       // sessions keeps one activity row and one card group.
       continue
     } else if (msg.role === 'tool' && msg.subMessages) {
-      flushActivity()
-      openOrGrowCard('subagent-group', msg)
+      flushActivity(grouping)
+      openOrGrowCard(grouping, 'subagent-group', msg)
     } else if (msg.role === 'tool') {
-      activity.push(msg)
+      grouping.activity.push(msg)
     } else if (msg.agentConversationRef) {
-      flushActivity()
-      openOrGrowCard('agent-conversation-group', msg)
+      flushActivity(grouping)
+      openOrGrowCard(grouping, 'agent-conversation-group', msg)
     } else {
       // The thoughts before a message belong to the row above it, not to the
       // message: they are how the agent got there.
-      if (msg.thoughts?.length) activity.push(msg)
+      if (msg.thoughts?.length) grouping.activity.push(msg)
       // A blank assistant message shows nothing, so it does not close the row.
-      if (activity.length > 0 && isBlankAssistant(msg)) continue
-      flushActivity()
-      if (opensTurn(msg)) cardGroups.clear()
+      if (grouping.activity.length > 0 && isBlankAssistant(msg)) continue
+      flushActivity(grouping)
+      if (opensTurn(msg)) grouping.cards.clear()
       if (msg.browserSnapshot) {
         result.push({ kind: 'browser-snapshot', messages: [msg] })
         continue
@@ -102,7 +148,7 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       // A rendered artifact carries its work reference for the frame's own
       // rail; it is shown flush, never folded into a document stack.
       if (msg.workRef && !msg.artifact) {
-        openOrGrowCard('document', msg)
+        openOrGrowCard(grouping, 'document', msg)
         continue
       }
       // The SDK writes its interrupt notice back as a user turn to keep the
@@ -124,8 +170,6 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       else result.push({ kind: 'system', message: msg })
     }
   }
-  flushActivity()
-  return result
 }
 
 /** An assistant message with nothing to render: a placeholder before its
@@ -438,11 +482,11 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
 
     // One cut, so both slices keep the order they happened in.
     //
-    // A live turn puts everything in `body` — not in `tail` — so that ending it
-    // moves only the answer between the two blocks. Were it the other way round,
-    // the whole turn would change `{#each}` at the fold and Svelte would destroy
-    // and rebuild every subtree in it (markdown re-parse, code blocks, artifacts,
-    // entry animations) in a single frame. `body` is hidden, never unmounted.
+    // A live turn puts everything in `body` — not in `tail` — so it folds
+    // nothing. `ConversationTurn` renders `body` and `tail` as one keyed list,
+    // so ending the turn moves no item between blocks: Svelte would destroy and
+    // rebuild one that moved (markdown re-parse, an artifact's iframe reload).
+    // Folded items are hidden, never unmounted.
     const cut = isLive ? body.length : tailStart
     for (let j = 0; j < body.length; j++) {
       if (j === endIndex) continue

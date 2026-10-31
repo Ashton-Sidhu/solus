@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import { LogOut as SignOutIcon } from "@lucide/svelte";
-  import { atlassianStore } from "../../contexts";
+  import { atlassianStore } from "../../contexts/atlassian/atlassian.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ensureIconCollections } from "../diagram/iconify";
   import SettingsRow from "../settings/SettingsRow.svelte";

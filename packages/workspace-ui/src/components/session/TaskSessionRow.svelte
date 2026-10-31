@@ -42,6 +42,8 @@
     onRenameCancel: () => void;
     onMore: (event: MouseEvent | PointerEvent) => void;
     onClose: () => void;
+    /** Start a drag of this session onto an input bar. Absent on touch. */
+    onDragStart?: (event: DragEvent) => void;
   }
   let {
     session,
@@ -57,6 +59,7 @@
     onRenameCancel,
     onMore,
     onClose,
+    onDragStart,
   }: Props = $props();
 
   const status = $derived(taskStatusFor(session.attention));
@@ -261,6 +264,8 @@
   }}
   ondblclick={onStartRename}
   oncontextmenu={onMore}
+  draggable={!!onDragStart && !renaming}
+  ondragstart={onDragStart}
   onpointerdown={startLongPress}
   onpointerup={cancelLongPress}
   onpointercancel={cancelLongPress}

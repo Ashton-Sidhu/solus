@@ -3,7 +3,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
-  import ConversationView from "./ConversationView.svelte";
+  import LazyConversationView from "./LazyConversationView.svelte";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
 
   let {
@@ -65,7 +65,7 @@
            action row can hide while this bar is collapsed. -->
       <div class="contents" data-composer-column>
       <div class="flex min-h-0 flex-1 flex-col">
-        <ConversationView
+        <LazyConversationView
           tabId={conversationTabId}
           forceVisible
           {surfaceVisible}

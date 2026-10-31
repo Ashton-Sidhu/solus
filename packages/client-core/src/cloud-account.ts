@@ -19,7 +19,7 @@ import type { OAuthSession } from './oauth-session'
  * client paired to a machine have none, and so get the host onboarding flow.
  */
 /** The part of the page's sign-in that the account uses. */
-export type CloudAccountSession = Pick<OAuthSession, 'accessToken' | 'signOut' | 'state' | 'onChange'>
+export type CloudAccountSession = Pick<OAuthSession, 'accessToken' | 'signOut' | 'state' | 'onChange' | 'takeStartupAccount' | 'takeStartupSettings' | 'takeStartupDirectory'>
 
 export interface CloudAccount {
   /** The sign-in this account's calls use; its state is who is signed in. */
@@ -70,6 +70,7 @@ export interface CloudAgentSeat {
 
 export function oauthCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch): CloudAccount {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
+    if (init.method && init.method !== 'GET') session.takeStartupAccount()
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return null
     const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
@@ -90,6 +91,8 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
     connectionsUrl: `${origin}/connections`,
     consoleUrl: origin,
     async readAccount() {
+      const startup = session.takeStartupAccount()
+      if (startup) return startup
       const response = await call('/v1/account')
       if (!response?.ok) return null
       const parsed = accountResponseSchema.safeParse(await response.json().catch(() => null))

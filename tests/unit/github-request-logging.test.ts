@@ -3,7 +3,7 @@ import type { Logger } from '@solus/server/logger'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { runGithubRequest } from '@solus/server/providers/github/request'
 import { GitHubRateLimitedError, githubRateLimitOf } from '@solus/server/providers/github/rate-limit'
-import { isGithubCredentialAccessFailure } from '@solus/server/providers/github/octokit'
+import { githubFailureFacts, isGithubCredentialAccessFailure } from '@solus/server/providers/github/octokit'
 
 interface RecordedEntry {
   level: 'debug' | 'info' | 'warn' | 'error'
@@ -158,5 +158,46 @@ describe('GitHub request logging', () => {
     })
     expect(githubRateLimitOf(graphql, now)?.retryAt).toBe(2_000_000)
     expect(githubRateLimitOf(Object.assign(new Error('x'), { errors: [{ type: 'RATE_LIMITED' }] }), now)?.retryAt).toBeNull()
+  })
+})
+
+
+describe('GitHub failure diagnostics', () => {
+  test('HTTP gateway failures retain response IDs and quota headers without request secrets', () => {
+    const facts = githubFailureFacts(Object.assign(new Error('Bad Gateway'), {
+      status: 502,
+      request: { headers: { authorization: 'Bearer private-token' }, body: 'private-query' },
+      response: { headers: {
+        'x-github-request-id': 'gateway-request-id',
+        'content-type': 'text/html',
+        'x-ratelimit-remaining': '4999',
+        'x-ratelimit-reset': '2000',
+        'retry-after': '5',
+        'set-cookie': 'private-cookie',
+      }, data: 'private-response' },
+    }))
+    expect(facts).toEqual({
+      status: 502, errorTypes: [], githubRequestId: 'gateway-request-id',
+      responseContentType: 'text/html', retryAfter: '5', rateLimitRemaining: '4999', rateLimitReset: '2000',
+    })
+    expect(JSON.stringify(facts)).not.toContain('private-')
+  })
+
+  test('GraphQL resource failures read their top-level headers and allow an error without a type', () => {
+    const facts = githubFailureFacts({
+      errors: [{ type: 'RESOURCE_LIMITS_EXCEEDED' }, { message: 'An untyped error' }],
+      headers: { 'x-github-request-id': 'graphql-request-id', 'content-type': 'application/json' },
+    })
+    expect(facts.status).toBeNull()
+    expect(facts.githubRequestId).toBe('graphql-request-id')
+    expect(facts.responseContentType).toBe('application/json')
+    expect(facts.errorTypes).toEqual(['RESOURCE_LIMITS_EXCEEDED'])
+  })
+
+  test('a transport failure without a response leaves response facts unknown', () => {
+    expect(githubFailureFacts(new Error('connection reset'))).toEqual({
+      status: null, errorTypes: [], githubRequestId: null, responseContentType: null,
+      retryAfter: null, rateLimitRemaining: null, rateLimitReset: null,
+    })
   })
 })

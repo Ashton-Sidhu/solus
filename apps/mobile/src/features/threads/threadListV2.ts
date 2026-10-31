@@ -1,15 +1,14 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
-import { isChat } from "@solus/contracts/chat";
 import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
 import type { MenuAction } from "@react-native-menu/menu";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import {
   EMPTY_SESSION_VIEW,
-  UNSETTLED_SESSION_STATE,
+  settleFor,
   type SessionState,
   type SessionView,
 } from "@solus/contracts/session-state";
-import { worktreeProjectRoot, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
+import { worktreeProjectRoot, type SessionPlace, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
 
 import { relativeTime } from "../../lib/time";
 import { isSharedWithReader } from "./shared-with-you";
@@ -141,16 +140,16 @@ export function threadProjectKey(
   return `${thread.hostId}\u0000${thread.record.projectPath}`;
 }
 
-/** Whether a session is a chat: it runs in a chat folder, not a project. */
-export function isChatSession(record: { readonly projectPath: string; readonly cwd?: string | null }): boolean {
-  return isChat(record.projectPath) || isChat(record.cwd);
+/** Whether a session is a chat, as its record says (docs/plans/session-starter.md §3.1). */
+export function isChatSession(record: { readonly place?: SessionPlace | null }): boolean {
+  return record.place === "chat";
 }
 
 /** The folder whose favicon a thread row shows: the listed project's, else the
     session's own project root, so a project the host does not list (a removed
     project, a dispatch checkout) still shows its mark. A chat has none. */
 export function threadFaviconRoot(
-  record: { readonly projectPath: string; readonly cwd?: string | null; readonly projectRoot?: string | null },
+  record: { readonly projectPath: string; readonly cwd?: string | null; readonly projectRoot?: string | null; readonly place?: SessionPlace | null },
   listedProjectPath: string | null,
 ): string | null {
   if (listedProjectPath) return listedProjectPath;
@@ -508,10 +507,10 @@ export interface ThreadListV2Facts {
   readonly pullRequests: ReadonlyMap<string, ReadonlyArray<SessionPullRequestLink>>;
 }
 
-/** Whether a thread's work is finished, for everyone: the latest state the
-    host announced, else the one its record carries. */
+/** Whether a thread is settled for this person: their own settle, else the
+    shared one. Each is the latest the host announced, else the record's. */
 export function threadState(thread: SolusThreadShell, facts: ThreadListV2Facts): SessionState {
-  return facts.states.get(thread.key) ?? thread.record.state ?? UNSETTLED_SESSION_STATE;
+  return settleFor(facts.states.get(thread.key) ?? thread.record.state, threadView(thread, facts));
 }
 
 /** This person's archive and snooze of a thread: the latest view the host
@@ -734,6 +733,8 @@ export function buildThreadListV2Items(input: {
     }
     if (!matchesSearch(thread, query, threadPullRequests(thread, input.facts))) continue;
     const view = threadView(thread, input.facts);
+    // Completion is personal: the owner's settle does not clear this reader's list.
+    if (isSharedWithReader(thread.record) && view.settledAt != null) continue;
     // The open thread keeps its row, as a desktop tab keeps an archived session.
     const isFound = query.length > 0 || thread.key === input.selectedThreadKey;
     if (view.archivedAt !== null) {

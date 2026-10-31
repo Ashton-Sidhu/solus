@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { getWorkspaceContext } from "../../contexts";
-  import ConversationView from "./ConversationView.svelte";
+  import LazyConversationView from "./LazyConversationView.svelte";
   import { conversationViewStates } from "./lib/conversation-view-state.svelte";
   import { mountedConversationTabIds } from "./lib/conversation-pool";
 
@@ -32,7 +32,7 @@
     const openTabIds = session.tabOrder.filter((tabId) => !!session.tabs[tabId]);
     const activeTabId = session.activeTabId && session.tabs[session.activeTabId] ? session.activeTabId : null;
     const previous = untrack(() => mountedTabIds);
-    const next = mountedConversationTabIds(previous, activeTabId, openTabIds, active);
+    const next = mountedConversationTabIds(previous, activeTabId, openTabIds, active, surfaceVisible);
     if (next.length === previous.length && next.every((tabId, index) => tabId === previous[index])) return;
     mountedTabIds = next;
     untrack(() => {
@@ -53,7 +53,7 @@
       class="tab-slot flex h-full min-h-0 flex-col [contain-intrinsic-size:auto_62.5rem] [content-visibility:auto]"
       class:tab-hidden={tabId !== session.activeTabId}
     >
-      <ConversationView
+      <LazyConversationView
         {tabId}
         {surfaceVisible}
         {showActions}

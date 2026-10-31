@@ -135,7 +135,7 @@
 {:else}
   <div
     use:portal={document.body}
-    class="plan-skeleton-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
+    class="plan-skeleton-backdrop modal-backdrop fixed inset-0 z-[10000] flex items-center justify-center"
     role="presentation"
   >
     {@render shellInner()}
@@ -172,13 +172,6 @@
   .plan-skeleton-composer {
     max-width: min(var(--solus-doc-measure), calc(100% - 2.5rem));
     margin-inline: auto;
-  }
-  .plan-skeleton-backdrop {
-    background: radial-gradient(
-      circle at 50% 38%,
-      color-mix(in srgb, var(--solus-modal-scrim) 82%, transparent) 0%,
-      var(--solus-modal-scrim) 72%
-    );
   }
 
   /* The same pane-width ladder the real column steps down, so the swap is a

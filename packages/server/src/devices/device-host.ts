@@ -2,6 +2,7 @@ import type {
   DeviceHostSummary,
   DevicePlatform,
   DevicePlatformAvailability,
+  DeviceSummary,
 } from '@solus/contracts/device-types'
 import type { DeviceCommandRunner } from './device-process'
 import type { DeviceToolName } from './device-toolchain'
@@ -20,6 +21,16 @@ import type { DeviceToolName } from './device-toolchain'
 export interface DeviceHostReady {
   /** Loopback origin of expo-device-hub, e.g. `http://127.0.0.1:3400`. */
   hubOrigin: string
+  /** Cloud sources own discovery, lifecycle, and per-device credentials. */
+  devices?: {
+    list(): Promise<DeviceSummary[]>
+    boot(device: DeviceSummary): Promise<string>
+    shutdown(deviceId: string): Promise<void>
+    screenshot(device: DeviceSummary): Promise<Uint8Array>
+    agentEndpoint(deviceId: string): AgentDeviceEndpoint | null
+  }
+  upstream?: (deviceId: string, route: string) => { url: string; headers: { authorization: string }; protocols?: string[] } | null
+  serveSimOnly?: boolean
   /** Node on the device host, for helper scripts the hub vendors. */
   nodePath: string
   /** Runs `xcrun`, `adb`, `emulator` or a vendored helper where the devices live. */
@@ -30,10 +41,14 @@ export interface DeviceHostReady {
 export interface AgentDeviceEndpoint {
   baseUrl: string
   token: string
+  deviceId?: string | null
+  session?: string
+  stateDir?: string
+  installDirectory?: string
 }
 
 export interface DeviceHostAgentReady extends DeviceHostReady {
-  agentDevice: AgentDeviceEndpoint
+  agentDevice: AgentDeviceEndpoint | null
 }
 
 export type DeviceHostPhase = 'installing' | 'starting'
@@ -47,7 +62,9 @@ export class DeviceHostError extends Error {
 
 export interface DeviceHost {
   readonly deviceHostId: string
-  readonly kind: 'local' | 'ssh'
+  readonly kind: 'local' | 'ssh' | 'eas' | 'simlock'
+  /** Recover resources owned by a previous process before admitting new work. */
+  recover?(): Promise<void>
   /** Inventory and tool versions. Never installs or starts anything. */
   summary(): Promise<DeviceHostSummary>
   platformAvailability(platform: DevicePlatform): Promise<DevicePlatformAvailability>

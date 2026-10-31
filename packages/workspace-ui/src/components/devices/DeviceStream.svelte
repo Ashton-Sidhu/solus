@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { DevicePlatform, DeviceInput } from "@solus/contracts/device-types";
+  import { cloudDeviceVideo } from "@solus/client-core/device-webrtc";
   import { DeviceHubStream } from "@solus/client-core/device-hub-stream";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import type { DeviceScreenConfig } from "@solus/contracts/device-types";
@@ -25,6 +26,7 @@
     /** The simulator's name: it picks a phone or a tablet body. */
     deviceName: string;
     showPhone: boolean;
+    sourceKind?: "local" | "ssh" | "eas" | "simlock";
     onPhoneUnavailable: () => void;
     active: boolean;
     /** Input is refused while someone else controls the device. */
@@ -32,7 +34,7 @@
     onInputError: (message: string) => void;
   }
 
-  let { serverId, deviceHostId, deviceId, platform, deviceName, showPhone, onPhoneUnavailable, active, canInteract, onInputError }: Props = $props();
+  let { serverId, deviceHostId, deviceId, platform, deviceName, showPhone, sourceKind = "local", onPhoneUnavailable, active, canInteract, onInputError }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let textBridge = $state<HTMLInputElement | null>(null);
@@ -46,7 +48,7 @@
     portraitAspect: frame ? Math.min(frame.width, frame.height) / Math.max(frame.width, frame.height) : 0.46,
   }));
   /** iOS falls back to JPEG when this client cannot decode the H.264 profile. */
-  let format = $state<"h264" | "jpeg">(browserVideoCodecs() || platform === "android" ? "h264" : "jpeg");
+  let format = $state<"h264" | "jpeg">(browserVideoCodecs() || platform === "android" || sourceKind === "simlock" ? "h264" : "jpeg");
   let pointerDown = false;
   /** The open hub stream; input goes over its socket. */
   let stream: DeviceHubStream | null = null;
@@ -59,6 +61,14 @@
     const context = node.getContext("2d");
     const currentFormat = format;
     let screen: DeviceScreenConfig | null = null;
+    let fallbackStream: DeviceHubStream | null = null;
+    const paintVideo = (source: HTMLVideoElement, width: number, height: number) => {
+      if (!context) return;
+      if (node.width !== width || node.height !== height) { node.width = width; node.height = height; }
+      context.drawImage(source, 0, 0, width, height);
+      phoneView?.frameUpdated();
+      if (frame?.width !== width || frame?.height !== height) frame = { width, height };
+    };
     const decoder = new DeviceVideoDecoder(
       {
         present: (source, width, height) => {
@@ -76,7 +86,7 @@
           if (frame?.width !== placement.width || frame?.height !== placement.height) frame = { width: placement.width, height: placement.height };
         },
         status: (next) => {
-          if (next.kind === "unsupported" && platform === "ios" && currentFormat === "h264") {
+          if (next.kind === "unsupported" && sourceKind !== "simlock" && platform === "ios" && currentFormat === "h264") {
             format = "jpeg";
             return;
           }
@@ -93,13 +103,25 @@
     );
     const hub = new DeviceHubStream({
       platform,
+      serveSimOnly: sourceKind === "simlock",
+      video: sourceKind !== "eas",
       format: currentFormat,
       openUrl: () => devicesStore.streamUrl(serverId, target),
       onPacket: (packet, data) => decoder.push(packet, data),
     });
     stream = hub;
     hub.start();
+    const closeCloud = sourceKind === "eas" ? cloudDeviceVideo({
+      openUrl: () => devicesStore.streamUrl(serverId, target), present: paintVideo,
+      status: (kind, detail) => { status = kind === "ended" ? { kind, detail: detail ?? "The video ended." } : { kind }; },
+      fallback: () => {
+        fallbackStream = new DeviceHubStream({ platform, format: currentFormat, openUrl: () => devicesStore.streamUrl(serverId, target), onPacket: (packet, data) => decoder.push(packet, data) });
+        fallbackStream.start();
+      },
+    }) : null;
     return () => {
+      closeCloud?.();
+      fallbackStream?.close();
       hub.close();
       if (stream === hub) stream = null;
       decoder.close();

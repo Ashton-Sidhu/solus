@@ -430,6 +430,8 @@ export interface HeadlessSessionRequest {
   /** The id the new session takes. A caller that watches the session before it
    *  starts chooses it; absent, the host chooses one. */
   sessionId?: string
+  /** The caller's inherited or narrowed permission policy. */
+  permissionMode?: PermissionMode
   prompt: string
   /** The requester's name for the session; absent, the host names it from the prompt. */
   title?: string
@@ -443,7 +445,7 @@ export interface HeadlessSessionRequest {
   /** The requester's preferences for this session (plans/018 §6); absent means the built-in defaults. */
   executionPreferences?: ExecutionPreferences
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
-  startedBy?: SessionOrigin
+  startedBy?: SessionStarterFromHost
   /** Images already uploaded to this host's attachment store, sent with the prompt. */
   imageAttachmentRefs?: PromptImageRef[]
   /**
@@ -467,12 +469,22 @@ export interface HeadlessPromptRequest {
   imageAttachmentRefs?: PromptImageRef[]
 }
 
-/** The agent session on another host that started a session. The host it names
- *  is shown by its label; the session id is that host's own. */
-export interface SessionOrigin {
-  hostLabel: string
-  sessionId: string
-}
+/** Where a session runs (docs/plans/session-starter.md §3.1): a chat folder
+ *  or a project. The host writes it once, when it makes the session. */
+export type SessionPlace = 'chat' | 'project'
+
+/** What started a session (docs/plans/session-starter.md §3.2). The host writes
+ *  it once, when it makes the session. Ids only: a client reads the current name
+ *  of an automation or a webhook from its store. */
+export type SessionStarter =
+  | { kind: 'person'; personKey: string }
+  | { kind: 'automation'; automationId: string; runId: string }
+  | { kind: 'webhook'; webhookId: string; deliveryId: string }
+  /** Another agent session. `hostLabel` names its host when that host is not this one. */
+  | { kind: 'session'; sessionId: string; hostLabel?: string }
+
+/** A session start that another host asks for (docs/plans/cross-host-sessions.md). */
+export type SessionStarterFromHost = Extract<SessionStarter, { kind: 'session' }> & { hostLabel: string }
 
 // ─── Model Profiles ───
 
@@ -729,7 +741,7 @@ export interface QuestionRequest {
   questions: QuestionItem[]
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
-  /** `secret`: a private card from `request_secret`; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6). */
+  /** `secret`: a private card from `request_secret`, one question per secret; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6). */
   kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret'
   message?: string
   url?: string
@@ -1063,8 +1075,8 @@ export interface Session {
   queueHeld?: boolean
   id: string
   run: RunConfig
-  /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
-  startedBy?: SessionOrigin
+  /** What started this session (docs/plans/session-starter.md). */
+  startedBy?: SessionStarter
   /** The session that delegated this one, from its host's `delegation` record.
    *  The sidebar nests this session under its parent's row. */
   parentSessionId?: string
@@ -2028,11 +2040,13 @@ export type NormalizedEvent =
   | { type: 'status_change'; status: SessionStatus; oldStatus: SessionStatus }
   | { type: 'plan_rejected'; planToolUseId: string }
   | { type: 'permission_mode_changed'; permissionMode: PermissionMode }
-  | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string }
-  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number }
+  /** `organizationId` names the organization whose Solus API holds the work;
+   *  null when the session's host holds it. Older hosts send neither. */
+  | { type: 'work_created'; workId: string; title: string; docType: WorkType; content: string; organizationId?: string | null }
+  | { type: 'work_updated'; toolId?: string; workId: string; title: string; docType: WorkType; content: string; updatedAt: string; contentVersion?: number; organizationId?: string | null }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
-  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
+  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string; organizationId?: string | null }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
@@ -2546,9 +2560,9 @@ export interface SessionMeta {
    *  history remains the source of conversation content; this relationship is
    *  local orchestration metadata that survives provider index refreshes. */
   delegation?: SessionDelegation
-  /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
-  startedBy?: SessionOrigin
-  /** The session was started in Mission mode: it is a lead
+  /** What started this session (docs/plans/session-starter.md); absent for a session made before the host recorded it. */
+  startedBy?: SessionStarter
+  /** The session was started in Coordinator mode: it is a lead
    *  (docs/plans/lead-session.md). The sidebar marks it. Absent when not. */
   isLead?: boolean
   /** The organization of the session's record: `local` or an organization id
@@ -2564,6 +2578,8 @@ export interface SessionMeta {
   /** Another person owns the session and the reader has a role on it
    *  (docs/plans/shared-with-you.md). The session picker marks it "Shared". */
   shared?: boolean
+  /** Where the session runs; absent for a session made before the host recorded it. */
+  place?: SessionPlace
 }
 
 export interface SessionDelegation {
@@ -2634,7 +2650,12 @@ export interface SessionRecord {
   projectRoot: string | null
   /** How the parent session started this one; null for a session nobody delegated. */
   delegation: SessionRecordDelegation | null
-  /** The session was started in Mission mode: it is a lead
+  /** Where the session runs. Written once when the host makes the session;
+   *  null for a session made before (docs/plans/session-starter.md §3.3). */
+  place: SessionPlace | null
+  /** What started the session. Written once, as `place` is. */
+  startedBy: SessionStarter | null
+  /** The session was started in Coordinator mode: it is a lead
    *  (docs/plans/lead-session.md). The list marks it. Absent when not. */
   isLead?: boolean
   /** Whether the session's work is finished (docs/plans/session-archive.md).
@@ -2713,6 +2734,8 @@ export interface SessionRecordSearchQuery {
   /** One repository's sessions on every machine that ran them; the workspace service answers it. */
   repositoryKey?: string
   provider?: AgentId
+  /** Only chats, the sessions with no project, in every chat folder. */
+  chats?: boolean
   /** Match names and metadata only; read no message. */
   namesOnly?: boolean
   /** Only sessions last active at or after this instant (ms). */
@@ -2800,6 +2823,9 @@ export interface DispatchHistoryRoot {
 // ─── Agent Types ───
 
 export interface AgentMetadata {
+  instancePreferences?: import('./provider-instances').ProviderInstancePreferences
+  /** Private effective model catalog for this caller on this host. */
+  modelProfiles?: Record<string, ModelProfile>
   id: AgentId
   label: string
   models: Array<{ id: string; label: string }>

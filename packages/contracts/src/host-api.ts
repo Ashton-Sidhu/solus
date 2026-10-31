@@ -1,3 +1,4 @@
+import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanceTarget, ProviderInstanceCode, ProviderInstanceStatus } from './provider-instances'
 import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
 import type { CheckoutSnapshot } from './checkout'
@@ -23,7 +24,7 @@ import type { ClientNotificationRequest, NotificationSoundLog } from './notifica
 import type { ShareDialogLog } from './sharing'
 import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
-import type { DeviceActionRequest, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
+import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
@@ -263,6 +264,9 @@ export interface SolusAPI {
   acceptPlan(ctx: IpcContext, request: AcceptPlanRequest): Promise<AcceptPlanResult>
   /** Collaboration plane: the session records of the caller's organization (docs/plans/cloud-service-model.md). */
   sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecordList>
+  /** Collaboration plane: one session record with the caller's view and whether it is in their list
+   *  (`/v1/sessions/:sessionId`); null when the caller may not read it. */
+  sessionRecordGet(sessionId: string): Promise<SessionRecord | null>
   /** Collaboration plane: what was said in the sessions this home keeps. */
   sessionRecordSearch(query: SessionRecordSearchQuery): Promise<SessionRecordSearch>
   /** Collaboration plane, at the session's home (`/v1/sessions/:sessionId`;
@@ -431,6 +435,13 @@ export interface SolusAPI {
   /** The origin a resource's guest link names (docs/plans/host-sharing.md §2): the account origin for a mirrored session, else this host's tunnel when online, else its first direct address; null when nobody off this machine can reach it. */
   shareLinkOrigin(resource: ShareResource): Promise<{ origin: string | null }>
   /** Provider seats (Step 2 plan §3.2): the caller's own Claude and Codex logins on this host. */
+  providerInstanceStatus(request: ProviderInstanceTarget): Promise<ProviderInstanceStatus>
+  providerInstanceSignIn(request: ProviderInstanceTarget): Promise<SeatConnectStartResult>
+  providerInstanceSubmitCode(request: ProviderInstanceCode): Promise<{ submitted: true }>
+  providerInstanceCancelSignIn(request: ProviderInstanceTarget): Promise<{ cancelled: boolean }>
+  providerInstanceSignOut(request: ProviderInstanceTarget): Promise<ProviderInstanceStatus>
+  providerInstancesGet(): Promise<ProviderInstancesSnapshot>
+  providerInstancesWrite(request: ProviderInstancesWrite): Promise<ProviderInstancesSnapshot>
   seatList(): Promise<SeatStatus[]>
   /** Starts the provider's login on the host for the caller's seat; answers once it has printed where to sign in. */
   seatConnectStart(request: SeatProviderRequest): Promise<SeatConnectStartResult>
@@ -929,8 +940,8 @@ export interface SolusAPI {
   webhookDryRun(request: WebhookDryRunRequest): Promise<WebhookDryRunResult>
   hostWebhookSettingsRead(): Promise<HostWebhookSettings>
   hostWebhookSettingsUpdate(patch: HostWebhookSettingsPatch): Promise<HostWebhookSettings>
-  /** Answers a `secret` card: the value, or null to decline. The value goes to the host's secret-ref store only, never to the transcript. */
-  secretRequestAnswer(sessionId: string, questionId: string, value: string | null): Promise<boolean>
+  /** Answers a `secret` card: one value for each of its questions, in order, null for each secret declined. The values go to the host's secret-ref store only, never to the transcript. */
+  secretRequestAnswer(sessionId: string, questionId: string, values: (string | null)[]): Promise<boolean>
   /** The Solus API: the organization webhooks of every host, for an organization admin. */
   webhookAdminList(organizationId: string): Promise<WebhookAdminOutcome<WebhookAdminList>>
   /** The Solus API: an admin pause. The forwarder refuses the webhook at once; the host within 5 minutes. */
@@ -1102,18 +1113,18 @@ export interface SolusAPI {
   /** Settings and foreground app as read from the device. */
   deviceDetail(target: DeviceTarget): Promise<DeviceDetail>
   deviceConfigure(request: DeviceConfigureRequest): Promise<DeviceState>
-  /** Add or replace one SSH device host on this Solus host. */
-  deviceHostSave(config: SshDeviceHostConfig): Promise<DeviceState>
+  /** Add or replace one SSH, EAS, or Simlock device source on this Solus host. */
+  deviceHostSave(config: DeviceHostConfig): Promise<DeviceState>
   deviceHostRemove(deviceHostId: string): Promise<DeviceState>
-  /** Read-only connection test: SSH, Node, npm and platform tools. Installs nothing. */
-  deviceHostTest(config: SshDeviceHostConfig): Promise<DeviceHostTestResult>
+  /** Read-only source check: SSH tools, Expo account, or Simlock identity. Starts no devices. */
+  deviceHostTest(config: DeviceHostConfig): Promise<DeviceHostTestResult>
   deviceToolUpdate(request: DeviceToolUpdateRequest): Promise<DeviceState>
   deviceHostRetry(deviceHostId: string): Promise<DeviceState>
   /** Ask a connected iPhone or iPad to pair with the device host. Waits until the person accepts on the device. */
   devicePair(target: DeviceTarget): Promise<DeviceState>
   /** Show a device in a session, booting it when asked. */
   deviceOpen(request: DeviceOpenRequest): Promise<DevicePreview>
-  /** Remove a session's preview. The device keeps running. */
+  /** Remove a session's preview. The last cloud preview also ends its session or lease. */
   deviceClose(request: DeviceCloseRequest): Promise<void>
   /** Power a device off. Every session's preview of it ends. */
   deviceShutdown(request: DeviceShutdownRequest): Promise<void>

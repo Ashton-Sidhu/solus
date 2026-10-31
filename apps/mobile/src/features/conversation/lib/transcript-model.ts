@@ -1,7 +1,7 @@
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
-import type { ContextCompaction, PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, PermissionOption, QuestionItem, QuestionRequest, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
 import { settleSetupCard } from '@solus/contracts/setup-card'
@@ -118,6 +118,8 @@ export interface PendingQuestion {
   questionId: string
   questions: QuestionItem[]
   responseMode?: 'message'
+  /** `secret`: a `request_secret` card, answered with `secretRequestAnswer`, never `respondQuestion`. */
+  kind?: QuestionRequest['kind']
   /** Set when the question can no longer be answered. */
   expired?: RequestExpiry
 }
@@ -481,7 +483,7 @@ export class TranscriptModel {
         return true
       case 'question_request':
         if (this.questions.some((question) => question.questionId === event.questionId)) return true
-        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode }]
+        this.questions = [...this.questions, { questionId: event.questionId, questions: event.questions, responseMode: event.responseMode, kind: event.kind }]
         this.metaChanged = true
         return true
       case 'question_answered':

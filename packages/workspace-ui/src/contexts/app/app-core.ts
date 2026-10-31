@@ -3,6 +3,8 @@ import { sharesStore } from '../sharing/shares.store.svelte'
 import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
+import { setLucideProps } from '@lucide/svelte'
+import { ICON_DEFAULTS } from '@solus/client-core/icon-defaults'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
 import { answerAgentPersonalOnEveryHost } from './agent-personal-requests.svelte'
 import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
@@ -71,6 +73,7 @@ export interface AppCore {
  * each App.svelte — only what is identical lives here.
  */
 export function createAppCore(shell: ClientShellContext): AppCore {
+  setLucideProps(ICON_DEFAULTS)
   const settings = new SettingsContext()
   // One account sync owner and one host-settings follower per client, not per tab.
   onDestroy(accountSyncStore.start(settings.personal, agentProfileLocalStore))
@@ -124,6 +127,15 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   session.onTabClosing = (tabId) => sessionSidebarStore.releaseTab(tabId)
   statusBar.bind(session)
   statusBar.bindAgent(agent)
+
+  // A sign-in that expires while the app runs is told at once; Settings counts the rest.
+  onDestroy(integrationsStore.listen((_serverId, integrationName) => {
+    toasts.error(`${integrationName} needs you to sign in again`, {
+      description: 'Its sign-in expired, so agents cannot use its tools.',
+      duration: 10_000,
+      action: { label: 'Open MCP settings', onAction: () => session.showSettings('mcp') },
+    })
+  }))
 
   const unsubscribeReviewGuideReady = reviewGuideStore.onReady((serverId, event) => {
     if (!notificationsStore.wants('review_guide_ready')) return

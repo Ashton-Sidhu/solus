@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { markSessionUnread } from '../../../data/sessions/session-states'
+import { settleFor } from '@solus/contracts/session-state'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import type { WorkspaceOperations } from '../../../data/workspace/operations'
 import type { WorkspaceRequestContext } from '../../../admission/workspace-credentials'
@@ -16,7 +17,7 @@ import { findSession } from './session-tools'
 const ACTIONS = ['settle', 'unsettle', 'snooze', 'unsnooze', 'archive', 'unarchive', 'mark_unread'] as const
 
 const DESCRIPTION =
-  "Organize a session in the user's session list. Omit session_id for this session. settle moves a finished session out of the active list; unsettle makes it active again. snooze hides an active session until snoozed_until; unsnooze wakes it now. archive removes a session from the user's own list on every device; the session picker still finds it, and unarchive returns it to the list. Snooze and archive change only the user's own list; settle is shared. mark_unread shows the session as unread. A new prompt to a session makes it active, awake, and in the list again. Do not settle, snooze, or archive a session that still has work the user expects."
+  "Organize a session in the user's session list. Omit session_id for this session. settle moves a finished session out of the active list; unsettle makes it active again. snooze hides an active session until snoozed_until; unsnooze wakes it now. archive removes a session from the user's own list on every device; the session picker still finds it, and unarchive returns it to the list. Settle, snooze, and archive change only the user's own list. mark_unread shows the session as unread. A new prompt to a session makes it active, awake, and in the list again. Do not settle, snooze, or archive a session that still has work the user expects."
 
 const fields = {
   action: z.enum(ACTIONS),
@@ -62,7 +63,7 @@ class SessionHome {
   ) {}
 
   async setSettled(isSettled: boolean): Promise<AgentToolResult> {
-    const before = (await this.operations.getSession(this.context, this.sessionId)).state?.settledAt != null
+    const before = await this.isSettled()
     if (before === isSettled) return { ok: true, text: isSettled ? `${this.label} was settled already.` : `${this.label} was not settled.` }
     await this.operations.updateSession(this.context, this.sessionId, { settled: isSettled })
     return { ok: true, text: isSettled ? `${this.label} is settled.` : `${this.label} is active again.` }
@@ -74,7 +75,7 @@ class SessionHome {
     if (!input.snoozed_until) return { ok: false, text: 'snooze needs snoozed_until.' }
     const until = Date.parse(input.snoozed_until)
     if (until <= now) return { ok: false, text: 'snoozed_until must be in the future.' }
-    if ((await this.operations.getSession(this.context, this.sessionId)).state?.settledAt != null) {
+    if (await this.isSettled()) {
       return { ok: false, text: `${this.label} is settled. Unsettle it before you snooze it.` }
     }
     await this.operations.updateSession(this.context, this.sessionId, { snoozedUntil: until, snoozeNote: input.note })
@@ -85,6 +86,12 @@ class SessionHome {
     if ((await this.operations.getSession(this.context, this.sessionId)).view?.snoozedUntil == null) return { ok: true, text: `${this.label} was not snoozed.` }
     await this.operations.updateSession(this.context, this.sessionId, { snoozedUntil: null })
     return { ok: true, text: `${this.label} is awake.` }
+  }
+
+  /** Whether the session is settled for the person: their own settle, or the shared one. */
+  private async isSettled(): Promise<boolean> {
+    const session = await this.operations.getSession(this.context, this.sessionId)
+    return settleFor(session.state, session.view).settledAt != null
   }
 
   /** Archive the session for the person, or return it to their list. */
@@ -101,5 +108,8 @@ export const organizeSessionAgentTool: AgentTool<typeof fields> = {
   description: DESCRIPTION,
   inputFields: fields,
   requiresApproval: false,
+  // An unknown field such as `session_ids` must fail: dropped, it leaves no
+  // session_id, and the tool would organize the caller's own session.
+  strictInput: true,
   execute: async (args, context) => organizeSession(inputSchema.parse(args), context.sessionId()),
 }

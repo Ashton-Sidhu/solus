@@ -60,13 +60,13 @@ test('the request carries which account is missing and what it is for', async ()
     sessionId: 'session-a',
   })
 
-  expect(store.request).toEqual({
+  expect(store.requests).toEqual([{
     kind: 'account',
     serverId: 'studio',
     sessionId: 'session-a',
     provider: 'atlassian',
     reason: 'confluence',
-  })
+  }])
 
   unsubscribe()
 })
@@ -83,13 +83,13 @@ test('an integration that needs the caller to sign in raises the same card for i
     sessionId: 'session-a',
   })
 
-  expect(store.request).toEqual({
+  expect(store.requests).toEqual([{
     kind: 'integration',
     serverId: 'studio',
     sessionId: 'session-a',
     integrationId: 'int-linear',
     integrationName: 'Linear',
-  })
+  }])
   expect(store.visibleFor('studio', 'session-b')).toBe(false)
 
   unsubscribe()
@@ -104,10 +104,54 @@ test('a dismissal retires the card without waiting for the agent', async () => {
     reason: 'pull-requests',
     sessionId: 'session-a',
   })
-  store.dismiss()
+  store.dismiss('studio', 'session-a')
 
-  expect(store.request).toBeNull()
+  expect(store.requests).toEqual([])
   expect(store.visibleFor('studio', 'session-a')).toBe(false)
+
+  unsubscribe()
+})
+
+test('a turn that needs several services gets one row per service', async () => {
+  // An agent that asks for Linear and then Notion must not lose the first ask:
+  // both rows stand in one card, so the person connects each before continuing.
+  const store = await newStore()
+  const unsubscribe = store.listen()
+
+  mockedServerConnections.emit('studio', 'integration.connectNeeded', { integrationId: 'int-linear', integrationName: 'Linear', sessionId: 'session-a' })
+  mockedServerConnections.emit('studio', 'integration.connectNeeded', { integrationId: 'int-notion', integrationName: 'Notion', sessionId: 'session-a' })
+  mockedServerConnections.emit('studio', 'connection.connectNeeded', { provider: 'github', reason: 'pull-requests', sessionId: 'session-a' })
+
+  expect(store.requestsFor('studio', 'session-a').map((request) => request.kind === 'integration' ? request.integrationName : request.provider)).toEqual(['Linear', 'Notion', 'github'])
+
+  unsubscribe()
+})
+
+test('a repeated ask for the same service keeps one row', async () => {
+  // Agents retry a tool call; each retry asks again. The card lists the service once.
+  const store = await newStore()
+  const unsubscribe = store.listen()
+
+  mockedServerConnections.emit('studio', 'connection.connectNeeded', { provider: 'atlassian', reason: 'jira', sessionId: 'session-a' })
+  mockedServerConnections.emit('studio', 'connection.connectNeeded', { provider: 'atlassian', reason: 'confluence', sessionId: 'session-a' })
+
+  const requests = store.requestsFor('studio', 'session-a')
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).toMatchObject({ provider: 'atlassian', reason: 'confluence' })
+
+  unsubscribe()
+})
+
+test('another conversation asking does not retire this card, and closing one keeps the other', async () => {
+  const store = await newStore()
+  const unsubscribe = store.listen()
+
+  mockedServerConnections.emit('studio', 'integration.connectNeeded', { integrationId: 'int-linear', integrationName: 'Linear', sessionId: 'session-a' })
+  mockedServerConnections.emit('studio', 'integration.connectNeeded', { integrationId: 'int-linear', integrationName: 'Linear', sessionId: 'session-b' })
+  store.dismiss('studio', 'session-a')
+
+  expect(store.visibleFor('studio', 'session-a')).toBe(false)
+  expect(store.visibleFor('studio', 'session-b')).toBe(true)
 
   unsubscribe()
 })
