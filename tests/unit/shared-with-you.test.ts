@@ -36,7 +36,7 @@ beforeAll(async () => {
     const principal = readers.get(bearer)
     return principal ? { principal, home: { kind: 'organization' as const, organizationId: 'A', serviceId: 'api' }, scopes: ['sessions:read' as const, 'sessions:write' as const] } : null
   } }
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   app = new Hono().route('/v1', router)
   const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
   // Bob's sessions. `old` was last active long before the list's idle window.
