@@ -1,6 +1,6 @@
 /** Used by solus-cloud's isolated OAuth browser proof. Synthetic accounts and an isolated mock host only. */
 import { createHash, randomBytes } from 'node:crypto'
-import { io, type Socket } from 'socket.io-client'
+import { dialHostSocket, type DialedHostSocket } from '@solus/client-core/host-socket'
 import { z } from 'zod'
 import { bootLabHost } from '../packages/lab/src/host'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
@@ -19,9 +19,7 @@ interface ProofOptions {
 
 const tokenSchema = z.object({ access_token: z.string().optional(), refresh_token: z.string().optional(), error: z.string().optional(), error_description: z.string().optional() })
 const authorizeSchema = z.object({ url: z.string() })
-const ticketSchema = z.object({ ticket: z.string() })
 const statusSchema = z.object({ connected: z.boolean() })
-interface StatusReply { result?: { connected: boolean }; error?: { message: string } }
 
 const DESKTOP_REDIRECT = 'http://127.0.0.1:53123/callback'
 
@@ -66,19 +64,16 @@ export async function accountIntegrationHostProof(options: ProofOptions) {
       }),
     },
   })
-  let socket: Socket | null = null
+  let socket: DialedHostSocket | null = null
   try {
+    // The person's access token is the socket's one credential (plan §3 rule 4).
     const accessToken = await personAccessToken(options)
-    const ticketResponse = await fetch(`${host.tunnelUrl}/auth/ws-ticket`, { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, body: '{}' })
-    if (!ticketResponse.ok) throw new Error(`Host ticket failed: ${ticketResponse.status}`)
-    const { ticket } = ticketSchema.parse(await ticketResponse.json())
-    const client = io(host.tunnelUrl, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket, clientInstanceId: `account-proof-${crypto.randomUUID()}` } })
+    const dialed = await dialHostSocket(host.tunnelUrl, { credential: { kind: 'access-token', token: accessToken }, clientInstanceId: `account-proof-${crypto.randomUUID()}` })
+    if (!dialed.ok) throw new Error(`The host refused the socket: ${dialed.code ?? dialed.message}`)
+    const client = dialed.socket
     socket = client
-    await new Promise<void>((resolve, reject) => { client.once('connect', resolve); client.once('connect_error', reject) })
     async function status(method: RpcMethod): Promise<boolean> {
-      const answer = await new Promise<unknown>((resolve, reject) => {
-        client.timeout(15_000).emit('rpc', crypto.randomUUID(), method, [], (error: Error | null, result: StatusReply) => error ? reject(error) : resolve(result))
-      })
+      const answer = await client.call(method, [], 15_000)
       const parsed = z.object({ result: statusSchema.optional(), error: z.object({ message: z.string() }).optional() }).parse(answer)
       if (parsed.error) throw new Error(parsed.error.message)
       return parsed.result?.connected ?? false

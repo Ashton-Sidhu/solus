@@ -25,9 +25,9 @@ describe('browser frame subscriber', () => {
   })
 
   test('normalizes a Buffer view to a standalone ArrayBuffer', () => {
-    // WHY: socket.io delivers node binary as a Buffer view over a shared pool;
-    // handing that straight to `createImageBitmap` would decode neighbouring
-    // frames' bytes. The subscriber copies out exactly this frame.
+    // WHY: a decoded wire frame is a view into the frame's buffer, after its header.
+    // Handing the whole buffer to `createImageBitmap` would decode the header's
+    // bytes too. The subscriber copies out exactly this frame.
     const subscriber = new BrowserFrameSubscriber()
     let seen: ArrayBuffer | null = null
     subscriber.subscribe('browser_1', (_header, data) => { seen = data })
@@ -47,8 +47,8 @@ describe('browser frame subscriber', () => {
     let called = false
     subscriber.subscribe('browser_1', () => { called = true })
 
-    // `JSON.parse` returns `any`, which is how Socket.IO's untyped frame args
-    // reach `receive` — so this feeds the runtime validation the wire junk it
+    // `JSON.parse` returns `any`, as a decoded wire header does when it
+    // reaches `receive` — so this feeds the runtime validation the wire junk it
     // exists to drop (a header with no browserPageId, then non-buffer bytes)
     // without a type assertion the parameter types would otherwise need.
     subscriber.receive(JSON.parse('{"seq":1}'), new ArrayBuffer(1))

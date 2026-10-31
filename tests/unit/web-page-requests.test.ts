@@ -3,9 +3,8 @@ import { createServer, type Server } from 'http'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { io as connect } from 'socket.io-client'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { handshake } from './helpers/socket-handshake'
+import { HOST_SOCKET_PATH, HOST_SOCKET_PROTOCOL_VERSION } from '@solus/contracts/host-socket'
 
 // docs/plans/fast-secure-startup.md decision 4. A page the person visits runs on the
 // same machine as the desktop's host, so a request from loopback proves nothing about
@@ -97,18 +96,18 @@ describe('an open loopback host', () => {
     expect(fromItsOwnPage.status).toBe(200)
   })
 
+  /** Opens the host socket as a browser page would (its `Origin`), says hello with no credential, and answers the host's first frame. */
   function dial(url: string, origin?: string): Promise<string> {
     return new Promise((resolve) => {
-      const socket = connect(url, {
-        path: '/ws',
-        transports: ['websocket'],
-        reconnection: false,
-        auth: handshake(undefined, 'test0123456789abcdef'),
-        extraHeaders: origin ? { origin } : {},
-      })
-      cleanups.push(() => socket.disconnect())
-      socket.once('connect', () => resolve('connected'))
-      socket.once('connect_error', (error: Error & { data?: { code?: string } }) => resolve(error.data?.code ?? error.message))
+      const socket = new WebSocket(`${url.replace(/^http/, 'ws')}${HOST_SOCKET_PATH}`, { headers: origin ? { origin } : {} })
+      cleanups.push(() => socket.close())
+      socket.onopen = () => socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, clientInstanceId: 'test0123456789abcdef' }))
+      socket.onmessage = (message) => {
+        const frame = JSON.parse(String(message.data)) as { t: string; code?: string }
+        if (frame.t === 'welcome') resolve('connected')
+        else if (frame.t === 'refused') resolve(frame.code ?? 'refused')
+      }
+      socket.onerror = () => resolve('error')
     })
   }
 

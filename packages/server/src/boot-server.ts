@@ -115,7 +115,7 @@ import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './host
 import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-policy'
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
 import { readHostLinkEnv } from './host/host-link-env'
-import { attachWebSocketTransport } from './transport/websocket'
+import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
@@ -1583,9 +1583,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (!apiMode) seats.sweep().catch((err) => log.warn('seat_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 24 * 60 * 60_000)
   seatSweepTimer.unref()
-  // Engine.IO answers `/ws` upgrades; the device hub proxy answers its own.
+  // The host socket answers `/ws` upgrades (`attachWebSocketTransport`); the device
+  // hub proxy answers its own. Nothing else upgrades.
   http.on('upgrade', (request, socket, head) => {
-    devices.hubProxy.handleUpgrade(request, socket, head)
+    if (!isHostSocketPath(request.url) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
@@ -1696,7 +1697,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // listener — not the address — is what tells the policy it came from outside.
   const tunnelHttp = createNodeHttpServer(requestListener)
   tunnelHttp.on('upgrade', (request, socket, head) => {
-    if (request.url?.startsWith('/ws')) ws.handleUpgrade(request, socket, head)
+    if (isHostSocketPath(request.url)) ws.handleUpgrade(request, socket, head)
     else if (!devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).

@@ -4,10 +4,10 @@
  * desired; the transport below it never retries — it dials when told, and
  * reports how the dial went.
  *
- * The transport keeps its single socket.io Socket for the supervisor's whole
- * life, so connection-state recovery, the pending-request queue, and the
- * host-event subscriber all survive drops exactly as before. Only the backoff
- * schedule, the attempt counter, and the window wake listeners moved here.
+ * The transport lives for the supervisor's whole life and opens a new socket
+ * for each dial, so event replay, the pending-request queue, and the
+ * host-event subscriber all survive drops. Only the backoff schedule, the
+ * attempt counter, and the window wake listeners are here.
  */
 
 import type { HostSessionChange } from './host-facts'
@@ -30,8 +30,7 @@ export interface SupervisedTransport {
   setUnreachable(unreachable: boolean): void
 }
 
-// The same curve socket.io used, so retry behavior is bit-compatible with the
-// pre-supervisor transport: 1s base, ×2 per attempt, 30s cap, ±50% jitter.
+// The curve the earlier socket library used: 1s base, ×2 per attempt, 30s cap, ±50% jitter.
 const BASE_DELAY_MS = 1_000
 const MAX_DELAY_MS = 30_000
 const JITTER_FACTOR = 0.5

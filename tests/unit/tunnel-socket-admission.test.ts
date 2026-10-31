@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { createServer, type Server } from 'http'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { io as connect } from 'socket.io-client'
 import type { HandshakeCredential } from '@solus/contracts/uplink'
-import { fakeAccessTokens, handshake } from './helpers/socket-handshake'
+import { dialTestSocket, fakeAccessTokens, handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -17,8 +16,7 @@ const { attachWebSocketTransport } = await import('@solus/server/transport/webso
 // docs/plans/personal-uplink.md H3, the proxied-listener rule, on the socket path:
 // a WebSocket that arrived through the tunnel listener is loopback on the wire and
 // must never be admitted without a credential, whatever the bind policy says. The
-// marker is read from the handshake, so the request it rides on must still be
-// there when Socket.IO builds that handshake.
+// marker is read from the upgrade request, before the request is released.
 const cleanups: Array<() => void> = []
 
 afterEach(() => {
@@ -43,18 +41,9 @@ async function tunnelHost(): Promise<string> {
   return `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`
 }
 
-function dial(url: string, credential?: HandshakeCredential): Promise<string> {
-  return new Promise((resolve) => {
-    const socket = connect(url, {
-      path: '/ws',
-      transports: ['websocket'],
-      reconnection: false,
-      auth: handshake(credential, 'test0123456789abcdef'),
-    })
-    cleanups.push(() => socket.disconnect())
-    socket.once('connect', () => resolve('connected'))
-    socket.once('connect_error', (error: Error & { data?: { code?: string } }) => resolve(error.data?.code ?? error.message))
-  })
+async function dial(url: string, credential?: HandshakeCredential): Promise<string> {
+  const dialed = await dialTestSocket(url, handshake(credential, 'test0123456789abcdef'), cleanups)
+  return dialed.ok ? 'connected' : dialed.code ?? dialed.message
 }
 
 describe('socket admission through the tunnel listener', () => {
