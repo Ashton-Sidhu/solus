@@ -3,6 +3,7 @@
   import SessionSidebarSkeleton from "@solus/workspace-ui/components/session/SessionSidebarSkeleton.svelte";
   import DeferredPromptEditor from "@solus/workspace-ui/components/ui/DeferredPromptEditor.svelte";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
+  import WorkspaceMark from "@solus/workspace-ui/components/ui/WorkspaceMark.svelte";
   import { setClientShellContext } from "@solus/workspace-ui/contexts/app/client-shell.svelte";
   import {
     SIDEBAR_MAX_WIDTH,
@@ -64,6 +65,9 @@
       <div class="relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3">
         <div class="relative w-full max-w-[max(min(60%,50rem),min(100%,30rem))]">
           <div class="absolute inset-x-0 bottom-full pb-4">
+            <!-- As in SessionDraftPane: Safari paints a page only once it shows a
+                 picture of about this size, so the frame needs it to paint early. -->
+            <WorkspaceMark class="mx-auto mb-4 size-10" />
             <h1 class="w-full text-center text-3xl leading-[1.25] font-normal tracking-tight text-pretty text-(--solus-text-primary)">
               What should we build?
             </h1>

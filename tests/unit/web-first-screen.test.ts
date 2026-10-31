@@ -34,6 +34,10 @@ describe('the web first screen in the HTML', () => {
     expect(body).toContain('<main')
     expect(body).toContain('What should we build?')
     expect(body).toMatch(/<textarea[^>]*aria-label="Plan, Build, Automate/)
+    // Safari paints a page only once it is "visually non-empty": enough text, or a picture
+    // of more than about 1024 px². The frame has little text, so the 40 px Solus mark
+    // (size-10) is what lets Safari paint it when the HTML arrives.
+    expect(body).toMatch(/<svg[^>]*class="[^"]*size-10/)
     // The side panel's scoped styles come with the markup: the first paint has no workspace CSS.
     expect(styles).toContain('.side-panel-shell')
   }, 60_000)
