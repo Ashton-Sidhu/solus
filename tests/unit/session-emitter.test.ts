@@ -176,6 +176,33 @@ describe.serial('session emitter', () => {
     })
   })
 
+  test('records the partial spend of a stopped Claude turn, and never over a success result', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    const dimensions = {
+      provider: 'claude-code', model: 'claude-sonnet-5', projectRoot: '/repo', origin: 'typed', branch: 'main', isResume: false,
+    } as const
+    emitter.beginTurn({ sessionId: 'stopped', prompt: 'fix it', promptSource: 'typed', startedAt: 1_000 })
+    emitter.completeSetup('stopped', dimensions, 1_010)
+    emitter.onEvent('stopped', { type: 'text_chunk', text: 'I will' }, 1_020)
+    emitter.onEvent('stopped', { type: 'usage', partialTurn: { usage: { inputTokens: 100, outputTokens: 20 } } }, 1_030)
+    emitter.recordTerminal('stopped', 'interrupted', 1_040)
+    emitter.finishTurn('stopped', 'interrupted', 1_041)
+
+    emitter.beginTurn({ sessionId: 'done', prompt: 'fix it', promptSource: 'typed', startedAt: 2_000 })
+    emitter.completeSetup('done', dimensions, 2_010)
+    emitter.onEvent('done', {
+      type: 'task_complete', result: 'done', costUsd: 0.25, durationMs: 50, numTurns: 1,
+      usage: { inputTokens: 300, outputTokens: 40 }, sessionId: 'provider-1',
+    }, 2_020)
+    emitter.onEvent('done', { type: 'usage', partialTurn: { usage: { inputTokens: 7, outputTokens: 7 }, costUsd: 0.01 } }, 2_030)
+    emitter.recordTerminal('done', 'ok', 2_040)
+    emitter.finishTurn('done', 'completed', 2_041)
+
+    const turns = rows().filter((span) => span.kind === 'turn')
+    expect(attrs(turns.find((span) => span.session_id === 'stopped')!)).toMatchObject({ inputTokens: 100, outputTokens: 20 })
+    expect(attrs(turns.find((span) => span.session_id === 'done')!)).toMatchObject({ inputTokens: 300, outputTokens: 40, costUsd: 0.25 })
+  })
+
   test('records the instructions the turn ran under and the answer it returned', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'texts', prompt: 'ship it', promptSource: 'typed', startedAt: 3_000 })

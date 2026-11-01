@@ -464,6 +464,9 @@ export class ClaudeAgent {
           for (const evt of normalized) yield evt
         }
 
+        // A query can end without the result that reports the turn's spend.
+        const unreported = normalizer.takeUnreportedUsage()
+        if (unreported) yield unreported
         resolveResult({
           sessionId: state.sessionId,
           toolCallCount: normalizer.summary.toolCallCount,
@@ -472,6 +475,10 @@ export class ClaudeAgent {
           signal: null,
         })
       } catch (err: any) {
+        // A stopped or failed turn never reaches its result; what its calls
+        // already spent is still spent.
+        const unreported = normalizer.takeUnreportedUsage()
+        if (unreported) yield unreported
         const isAbort = abortController.signal.aborted || err?.name === 'AbortError'
         if (isAbort) {
           normalizer.interrupt()

@@ -478,6 +478,10 @@ export class ProviderEvents {
         const goal = this.rt.claudeGoals.recordCompletedTurn(agentSessionId, event.usage, event.durationMs)
         if (goal) this.rt.publish(sessionId, { type: 'goal_updated', goal })
       }
+      if (backend.id === 'claude-code' && event.type === 'usage' && event.partialTurn) {
+        const goal = this.rt.claudeGoals.recordCompletedTurn(agentSessionId, event.partialTurn.usage, event.partialTurn.durationMs ?? 0)
+        if (goal) this.rt.publish(sessionId, { type: 'goal_updated', goal })
+      }
 
       this.rt.publish(sessionId, event)
       if (initializedGoal) this.rt.publish(sessionId, { type: 'goal_updated', goal: initializedGoal })
