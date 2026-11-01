@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
-import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
+import { Options, query, type CanUseTool, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
@@ -253,6 +253,8 @@ export interface ClaudeRunOptions {
    *  and no built-in tool but WebFetch when `webAccess` is set. */
   bare?: { webAccess: boolean }
   canUseTool?: CanUseTool
+  /** Answers MCP elicitations; without it the SDK declines them. */
+  onElicitation?: OnElicitation
   persistSession?: boolean
   abortController?: AbortController
   /** Persists the turn and returns the authoritative net session paths. */
@@ -345,6 +347,7 @@ export class ClaudeAgent {
       claudeOptions.onUserDialog = resumeCompactionDialog(opts.seat.idleCompaction, opts.canUseTool)
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
+    if (opts.onElicitation) claudeOptions.onElicitation = opts.onElicitation
     if (opts.bare) claudeOptions.tools = bareTools
     // Flag settings: they beat the user's and the project's settings.json.
     let flagSettings: Settings | undefined
