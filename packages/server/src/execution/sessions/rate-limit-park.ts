@@ -172,6 +172,9 @@ export class RateLimitPark {
         rateLimitSessionId: sessionId,
         releaseAt: event.resetsAt ?? undefined,
         rateLimitType: event.rateLimitType,
+        // The limit stopped this prompt before what was queued behind it, so
+        // it runs first when the limit releases.
+        position: 'first',
       })
       // Completion routes are fields on the copied request, so they move with
       // the logical prompt into its retry instead of being rebound by queue id.

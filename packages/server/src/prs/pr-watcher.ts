@@ -18,7 +18,7 @@ import type { PullRequestWatchFingerprint } from '../providers/types'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex } from './pr-index'
 import { withUserScope } from '../vault/acting-scope'
-import { evaluateWatch, wakeText, type WatchEndReason, type WatchRead, type WatchRemark } from './pr-watch-rules'
+import { NO_CHECKS_GRACE_MS, evaluateWatch, wakeText, type WatchEndReason, type WatchRead, type WatchRemark } from './pr-watch-rules'
 
 const log = createLogger('main', 'pr-watcher')
 
@@ -239,7 +239,15 @@ export class PrWatcher {
     if (!last || !fingerprint || !last.fingerprint || watches.some((watch) => watch.startedAt > last.readAt)) return { remarks: true }
     const remarks = fingerprint.remarks !== last.fingerprint.remarks || this.now() - last.remarksReadAt >= REMARKS_REREAD_MS
     if (remarks || fingerprint.status !== last.fingerprint.status || last.unsettled) return { remarks }
+    // A head with no check is told so at the end of its grace period, which
+    // the fingerprint does not show: it does not move when nothing reports.
+    if (watches.some((watch) => this.noChecksGraceOver(watch))) return { remarks: false }
     return null
+  }
+
+  private noChecksGraceOver(watch: PullRequestWatch): boolean {
+    const since = watch.state.checksAwaitedSince
+    return since !== null && this.now() - Date.parse(since) >= NO_CHECKS_GRACE_MS
   }
 
   /**

@@ -60,6 +60,8 @@ export class RunScheduler {
       rateLimitSessionId?: string
       releaseAt?: number
       rateLimitType?: string
+      /** 'first' puts the prompt ahead of the queue; a prompt queued behind it waits. */
+      position?: 'first' | 'last'
     },
   ): SessionRunLifecycle {
     // A prompt keeps the provider it was sent with (plans/021). Behind a
@@ -123,7 +125,7 @@ export class RunScheduler {
       resolve: resolveDone,
       reject: rejectDone,
       enqueuedAt,
-    })
+    }, metadata.position)
 
     this.rt.publish(queueKey, queuedEvent)
     this.publishQueue(queueKey)
