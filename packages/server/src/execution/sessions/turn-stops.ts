@@ -20,14 +20,14 @@ export class TurnStop {
     return () => { this.cancels.delete(cancel) }
   }
 
-  /** Cancels the work of every open phase. True when there was work to cancel. */
+  /** Cancels the work of every open phase. True when there was work to cancel.
+   *  A phase stays registered until it ends, so a second Stop on work that
+   *  ignored the first reaches it again: a provider makes that a force stop. */
   stop(): boolean {
-    if (this.signal.aborted) return false
     let hasStopped = false
     for (const cancel of this.cancels) hasStopped = cancel() || hasStopped
     if (!hasStopped) return false
-    this.cancels.clear()
-    this.controller.abort(new Error('Interrupted'))
+    if (!this.signal.aborted) this.controller.abort(new Error('Interrupted'))
     return true
   }
 }

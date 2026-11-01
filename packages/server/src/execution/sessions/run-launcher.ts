@@ -209,8 +209,9 @@ export class RunLauncher {
     const releaseRun = turn.onStop(() => {
       const session = this.rt.activeSessions.get(sessionId)
       // Stop is the way out of a task that never settles: cancelling the query
-      // is what ends the work the agent left running, held or not.
-      if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session))
+      // is what ends the work the agent left running, held or not. A run that
+      // is still live after a first Stop takes the second one (a force stop).
+      if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session) || backend.isSessionRunning(session.agentSessionId))
         && backend.cancelSession(session.agentSessionId)) return true
       // Before `session_init` the run has no thread to cancel by.
       if (!backend.getPendingHandles().includes(handle)) return false

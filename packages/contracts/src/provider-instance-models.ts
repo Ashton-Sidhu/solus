@@ -61,6 +61,8 @@ export function agentForProject(metadata: AgentMetadata, cwd?: string): AgentMet
   const instance = preferences.instances.find((item) => item.id === instanceId)
   if (!instance) return { ...metadata, available: false, unavailableReason: 'The project provider instance is unavailable.' }
   const catalog = instanceModelCatalog(instance)
+  // Profiles the provider reported live (Codex `model/list`) stay under the instance's catalog.
+  if (metadata.modelProfiles) catalog.modelProfiles = { ...metadata.modelProfiles, ...catalog.modelProfiles }
   const enabled = project?.enabled[instance.id] ?? instance.enabled
   const builtin = Object.entries(catalog.modelProfiles).find(([, profile]) => profile.isDefault)?.[0] ?? metadata.defaultModel
   return { ...metadata, ...catalog, defaultModel: builtin, available: enabled && instance.binaryAvailable,
