@@ -107,6 +107,22 @@ describe('HistorySwipe', () => {
     expect(steps.every((step) => step.indicator === null && step.navigate === null)).toBe(true)
   })
 
+  test('a scroller that remounts before the axis locks still keeps the wheel', () => {
+    // The first event, below the lock distance, saw the old scroller; the lock reads the page again.
+    const machine = new HistorySwipe()
+    let target = OPEN_PAGE
+    const scroller: SwipeTarget = { takesHorizontalWheel: () => true, canNavigate: () => true }
+    let at = 0
+    const steps: SwipeStep[] = []
+    for (const deltaX of [3, ...FINGERS, ...MOMENTUM]) {
+      at += 16
+      const event = { deltaX, deltaY: 0, ctrlKey: false, isPixelDelta: true, clientY: 200, timeStamp: at }
+      steps.push(machine.wheel(event, () => target))
+      target = scroller
+    }
+    expect(navigations(steps)).toEqual([])
+  })
+
   test('nowhere to go is not a swipe', () => {
     const machine = new HistorySwipe()
     const newest: SwipeTarget = { takesHorizontalWheel: () => false, canNavigate: (d) => d === 'back' }
@@ -134,31 +150,54 @@ describe('HistorySwipe', () => {
 })
 
 describe('canScrollHorizontally', () => {
-  interface FakeElement extends ScrollableElement<FakeElement> {}
-  function element(
-    scroll: { scrollLeft: number; scrollWidth: number; clientWidth: number },
-    parentElement: FakeElement | null = null,
-  ): FakeElement {
-    return { ...scroll, parentElement }
-  }
+  // The path runs from the element under the pointer out to the window, as
+  // `event.composedPath()` gives it.
+  const element = (scrollLeft: number, scrollWidth: number, clientWidth: number): ScrollableElement => ({
+    scrollLeft,
+    scrollWidth,
+    clientWidth,
+  })
   const auto = () => 'auto'
+  const line = () => element(0, 100, 100)
 
   test('a scrollable ancestor that can still move this way takes the wheel', () => {
-    const codeBlock = element({ scrollLeft: 0, scrollWidth: 900, clientWidth: 400 })
-    const leaf = element({ scrollLeft: 0, scrollWidth: 100, clientWidth: 100 }, codeBlock)
-    expect(canScrollHorizontally(leaf, 30, auto)).toBe(true)
+    const codeBlock = element(0, 900, 400)
+    expect(canScrollHorizontally([line(), codeBlock], 30, auto)).toBe(true)
     // At its left edge it cannot move left, so a back swipe is free.
-    expect(canScrollHorizontally(leaf, -30, auto)).toBe(false)
+    expect(canScrollHorizontally([line(), codeBlock], -30, auto)).toBe(false)
   })
 
   test('at its right edge it cannot move right', () => {
-    const table = element({ scrollLeft: 500, scrollWidth: 900, clientWidth: 400 })
-    expect(canScrollHorizontally(table, 30, auto)).toBe(false)
-    expect(canScrollHorizontally(table, -30, auto)).toBe(true)
+    const table = element(500, 900, 400)
+    expect(canScrollHorizontally([table], 30, auto)).toBe(false)
+    expect(canScrollHorizontally([table], -30, auto)).toBe(true)
   })
 
   test('overflow that is clipped, not scrollable, does not count', () => {
-    const clipped = element({ scrollLeft: 0, scrollWidth: 900, clientWidth: 400 })
-    expect(canScrollHorizontally(clipped, 30, () => 'hidden')).toBe(false)
+    expect(canScrollHorizontally([element(0, 900, 400)], 30, () => 'hidden')).toBe(false)
+  })
+
+  // The diff and file views render into an open shadow root. The wheel's
+  // `target` is the shadow host, which does not scroll; the scroller is only on
+  // the composed path. A sideways scroll in the diff must not navigate.
+  test('a scroller inside a shadow root keeps the wheel while it can still scroll', () => {
+    const diffScroller = element(100, 2000, 600)
+    const shadowHost = element(0, 600, 600)
+    const path = [line(), diffScroller, shadowHost]
+    const diff: SwipeTarget = {
+      takesHorizontalWheel: (deltaX) => canScrollHorizontally(path, deltaX, auto),
+      canNavigate: () => true,
+    }
+    expect(canScrollHorizontally([shadowHost], 30, auto)).toBe(false)
+    for (const sign of [1, -1]) {
+      const { steps } = swipe(new HistorySwipe(), [...FINGERS, ...MOMENTUM].map((delta) => sign * delta), {
+        target: diff,
+      })
+      expect(navigations(steps)).toEqual([])
+    }
+    // At the scroller's left edge a back swipe is free again.
+    diffScroller.scrollLeft = 0
+    const atEdge = swipe(new HistorySwipe(), [...FINGERS, ...MOMENTUM].map((delta) => -delta), { target: diff })
+    expect(navigations(atEdge.steps)).toEqual(['back'])
   })
 })
