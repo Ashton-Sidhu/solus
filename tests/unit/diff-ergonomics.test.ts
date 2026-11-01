@@ -5,6 +5,7 @@ import {
   analyzeDiffNoise,
   collapseFormatOnlyHunks,
   isFormatOnlyHunk,
+  isGeneratedPath,
 } from '@solus/workspace-ui/lib/diff-noise'
 import { orderDiffFiles } from '@solus/workspace-ui/lib/diff-order'
 
@@ -108,6 +109,13 @@ diff --git a/src/new.ts b/src/new.ts
       lineCount: 3,
       autoCollapse: true,
     })
+  })
+
+  test('generated bindings under _generated/ collapse like other generated output', () => {
+    // Convex writes its client bindings to `convex/_generated/`; nobody reviews them by hand.
+    expect(isGeneratedPath('convex/_generated/api.d.ts')).toBe(true)
+    expect(isGeneratedPath('src/generated/schema.ts')).toBe(true)
+    expect(isGeneratedPath('src/not_generated/app.ts')).toBe(false)
   })
 
   test('a whitespace-only hunk collapses because formatting carries no behavioral review signal', () => {

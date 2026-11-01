@@ -155,7 +155,7 @@ export interface ComposerClipboard {
  *  before the first upload awaits. */
 export function clipboardMedia(clipboard: ComposerClipboard): File[] {
   const images = Array.from(clipboard.items ?? [])
-    .filter((item) => isImageMime(item.type) || item.type.startsWith('video/'))
+    .filter((item) => isImageMime(item.type) || videoMimeType({ name: '', mimeType: item.type }) !== null)
     .map((item) => item.getAsFile())
     .filter((blob): blob is File => !!blob)
   for (const file of clipboard.files ?? []) {

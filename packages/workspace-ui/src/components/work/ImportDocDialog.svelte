@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { fade } from "svelte/transition";
   import { portal } from "../portal";
   import { Button } from "../ui/button";
@@ -61,6 +62,9 @@
       importing = false;
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open });
 </script>
 
 {#if open}

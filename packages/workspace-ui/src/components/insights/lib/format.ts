@@ -42,9 +42,11 @@ export function formatCostTick(usd: number): string {
 
 export function formatTokens(count: number | null | undefined): string {
   if (count == null || !Number.isFinite(count)) return '—'
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}k`
-  return String(Math.round(count))
+  // The unit follows the rounded figure: 999,960 reads as 1.0M, not 1000.0k.
+  if (Math.round(count) < 1000) return String(Math.round(count))
+  const thousands = Math.round(count / 100) / 10
+  if (thousands < 1000) return `${thousands.toFixed(1)}k`
+  return `${(count / 1_000_000).toFixed(1)}M`
 }
 
 /** Wall-clock `HH:MM` in the viewer's zone — spans carry epoch milliseconds. */

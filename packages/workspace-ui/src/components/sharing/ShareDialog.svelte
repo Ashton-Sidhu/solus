@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Copy as CopyIcon, Globe as GlobeIcon, LoaderCircle as CircleNotchIcon, Lock as LockIcon, TriangleAlert as WarningIcon, Users as UsersIcon } from "@lucide/svelte";
   import { Switch } from "../ui/switch";
   import type { SessionActionLeaf } from "@solus/contracts/permissions";
@@ -147,6 +148,9 @@
       toasts.error("Couldn't copy the link");
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => !!target });
 </script>
 
 {#snippet scopeIcon(option: ScopeOption)}

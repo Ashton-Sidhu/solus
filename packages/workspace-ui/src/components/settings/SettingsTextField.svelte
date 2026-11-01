@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   /** A long-form settings text field. The field edits in place, and its expand
    *  button opens the same text in a large dialog. Both editors write through
    *  `onValueChange`; `onBlur` runs once when the user leaves the field or
@@ -34,6 +35,9 @@
     expanded = next;
     if (!next) onBlur?.();
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => expanded });
 </script>
 
 <div class="group/text-field relative">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { CircleCheck } from "@lucide/svelte";
   import { BROWSER_COOKIE_BROWSERS } from "@solus/contracts/browser-types";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
@@ -44,6 +45,9 @@
       current = false;
     };
   });
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => isOffered });
 </script>
 
 {#if isOffered}

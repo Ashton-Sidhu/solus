@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     ArrowRight as ArrowRightIcon,
     Bookmark as BookmarkSimpleIcon,
@@ -168,6 +169,9 @@
       ? "0 0 0 .5px var(--hairline-strongest), 0 0 0 3px color-mix(in oklch,var(--primary) 13%,transparent)"
       : "var(--insights-card-shadow)",
   );
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => editorPopoutOpen });
 </script>
 
 {#snippet consoleSurface(isPopout: boolean)}

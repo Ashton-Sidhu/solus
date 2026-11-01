@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
 import Icon from "@iconify/svelte";
   import { LoaderCircle as CircleNotchIcon, X as XIcon } from "@lucide/svelte";
   import {
@@ -119,6 +120,9 @@ import Icon from "@iconify/svelte";
       if (!publishing) onClose();
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
