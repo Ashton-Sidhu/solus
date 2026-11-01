@@ -24,6 +24,9 @@ import { queuedMessageAttachments, uploadedMessageAttachments } from './lib/mess
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
+import type { ClipboardAttachmentRef } from '@solus/client-core/attachment-clipboard'
+import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { referencedAttachments, refsOnHost } from './lib/pasted-attachments'
 import type { AgentPlanAwaiting } from './lib/agent-plans'
 import { TranscriptModel, type TranscriptItem } from './lib/transcript-model'
 import { isHandoffPending } from './lib/provider-handoff'
@@ -520,6 +523,23 @@ export class ConversationController {
         this.flush(true)
       }
     }
+  }
+
+  /**
+   * Attaches files this session's host already holds, named by a copy made in
+   * another Solus client. Nothing uploads. Answers false when they cannot join
+   * the prompt this way, so the paste falls back to uploading its bytes.
+   */
+  async attachHostFiles(refs: readonly ClipboardAttachmentRef[]): Promise<boolean> {
+    if (!refsOnHost(refs, this.hostId)) return false
+    if (refs.length + this.attachments.length + this.uploading > MAX_ATTACHMENT_UPLOAD_COUNT) return false
+    // An image without its bytes reaches the agent only as a ref the host reads.
+    if (refs.some((ref) => ref.type === 'image')
+      && !hasHostCapability(await this.deps.connection.facts.when('capabilities'), 'promptImageRefs')) return false
+    if (this.closed) return false
+    this.attachments = [...this.attachments, ...referencedAttachments(refs, this.deps.uuid)]
+    this.flush(true)
+    return true
   }
 
   /** Takes an attachment off the next prompt. The host keeps the upload. */

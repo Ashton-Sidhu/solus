@@ -44,6 +44,7 @@ import { modelLabel, modelOptionsSummary, offersPlanToggle, PERMISSION_MODE_ICON
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { pastedComposerImages, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import { withoutPastedText } from "../conversation/lib/pasted-attachments";
 import { rememberNewThreadTarget } from "./new-thread-targets";
 import {
   filterProjectScopes,
@@ -681,6 +682,20 @@ function NewTaskDraftContent(props: {
       onFocus={() => setIsPromptFocused(true)}
       onBlur={() => setIsPromptFocused(false)}
       onPasteImages={(uris) => void attach(pastedComposerImages(uris))}
+      onPasteAttachmentRefs={async (refs, pastedText) => {
+        const attached = await store.controller.attachHostFiles(refs);
+        // The field pasted the copy's names natively; the updater reads the
+        // draft after that change. Saving there is idempotent.
+        if (attached && pastedText) {
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          setPrompt((current) => {
+            const next = withoutPastedText(current, pastedText);
+            app.saveDraft(props.hostId, draftKey, next);
+            return next;
+          });
+        }
+        return attached;
+      }}
       // The context-first screen opens with the keyboard closed.
       autoFocus={false}
       editable={!submitting}

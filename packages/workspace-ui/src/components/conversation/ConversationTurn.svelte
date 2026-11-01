@@ -3,6 +3,7 @@
   import type { StatusCardState, TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { getSettingsContext } from "../../contexts";
+  import { NO_BURST, type UserBurst } from "./lib/user-burst";
   import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from "./lib/turns";
   import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
   import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
@@ -15,17 +16,19 @@
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationTurn");
-  let { turn, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, turnStart, attempt,
+  let { turn, burst = NO_BURST, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, turnStart, attempt,
     hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId,
     settledSetupCard }: {
-    turn: Turn; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
+    turn: Turn;
+    /** Whether this turn's prompt sits in a burst of one person's messages. */
+    burst?: UserBurst; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
     activityLabel?: string;
     /** The setup step that runs now, while the session's setup card is active. */
     setupLabel?: string; turnStart: TurnStartKind | null; attempt: number;
     /** The session's turn ended, but a task it launched is still running. */
     hasBackgroundWork?: boolean; onStopBackgroundWork?: () => Promise<void>; history: ToolHistoryStore;
     onToggle: (expanded: boolean) => void; onRetry: () => void;
-    transcriptItem: Snippet<[GroupedItem, boolean]>;
+    transcriptItem: Snippet<[GroupedItem, boolean, UserBurst?]>;
     /** The session's host, for naming who stopped a turn. */
     serverId?: string;
     /** The setup this turn's send ran, once it finished: drawn after the prompt. */
@@ -57,7 +60,7 @@
   !live &&
   (body.length > 0 || turn.end?.kind === "failed")}
 {#if turn.lead}
-  {@render transcriptItem(turn.lead, skipMotion)}
+  {@render transcriptItem(turn.lead, skipMotion, burst)}
 {/if}
 {#if settledSetupCard}
   <StatusCard card={settledSetupCard} {skipMotion} />

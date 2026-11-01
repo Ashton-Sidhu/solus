@@ -91,3 +91,74 @@ export function attachmentTypeLabel(name: string): string {
   const extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toUpperCase()
   return extension ?? 'File'
 }
+
+/** The name the desktop composer gives a large paste (`pastedTextFile`); the desktop label rule, kept in step by a test. */
+const GENERATED_PASTED_TEXT_NAME = /^pasted text \d{4}-\d{2}-\d{2} \d{6}(?: \d+)?\.txt$/i
+
+/** What a chip or card calls a file: its name, unless Solus made the name up. */
+export function attachmentDisplayName(name: string): string {
+  return GENERATED_PASTED_TEXT_NAME.test(name) ? 'Pasted text' : name
+}
+
+/** A file card's second line: its type, or "Sending…" while the prompt is on its way, so the card keeps its height. */
+export function attachmentCardDetail(name: string, sending: boolean): string {
+  if (sending) return 'Sending…'
+  return attachmentDisplayName(name) === name ? attachmentTypeLabel(name) : 'Text'
+}
+
+/**
+ * How a prompt draws what it carried, as desktop does (`userMessageShape`):
+ * pictures and videos as their own shape above the bubble, files as chips
+ * beside the words or as cards when there are no words.
+ */
+export interface MessageAttachmentLayout {
+  readonly images: readonly MessageAttachment[]
+  readonly videos: readonly MessageAttachment[]
+  readonly files: readonly MessageAttachment[]
+  readonly imageLayout: 'none' | 'lone' | 'collage'
+  readonly fileStyle: 'none' | 'chips' | 'cards'
+  /** The bubble meets media above it, so its top-right corner tightens. */
+  readonly bubbleMeetsMedia: boolean
+}
+
+export function messageAttachmentLayout(attachments: readonly MessageAttachment[], hasText: boolean): MessageAttachmentLayout {
+  const images = attachments.filter((attachment) => attachment.kind !== 'file')
+  const videos = attachments.filter((attachment) => attachment.kind === 'file' && attachment.video)
+  const files = attachments.filter((attachment) => attachment.kind === 'file' && !attachment.video)
+  return {
+    images,
+    videos,
+    files,
+    imageLayout: images.length === 0 ? 'none' : images.length === 1 ? 'lone' : 'collage',
+    fileStyle: files.length === 0 ? 'none' : hasText ? 'chips' : 'cards',
+    bubbleMeetsMedia: hasText && images.length + videos.length > 0,
+  }
+}
+
+/**
+ * The rows of a collage, by picture index: two side by side, three as a tall
+ * lead beside two stacked, more in pairs with an odd last one across.
+ */
+export interface CollagePlan {
+  /** Three pictures: the first stands tall beside the other two. */
+  readonly lead: boolean
+  readonly rows: readonly (readonly number[])[]
+}
+
+export function collageRows(count: number): CollagePlan {
+  if (count === 3) return { lead: true, rows: [[1], [2]] }
+  const rows: number[][] = []
+  for (let index = 0; index < count; index += 2) rows.push(index + 1 < count ? [index, index + 1] : [index])
+  return { lead: false, rows }
+}
+
+/**
+ * The picture a prompt sent without words copies. The system clipboard holds
+ * one image, so only a lone picture copies; videos and several pictures are
+ * saved or shared from their viewer instead.
+ */
+export function copyableImage(attachments: readonly MessageAttachment[], hasText: boolean): MessageAttachment | null {
+  if (hasText || attachments.length !== 1) return null
+  const [only] = attachments
+  return only && only.kind !== 'file' ? only : null
+}

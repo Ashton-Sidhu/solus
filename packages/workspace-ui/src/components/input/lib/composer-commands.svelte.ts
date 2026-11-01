@@ -11,6 +11,8 @@ import { isTextOnly, permissionForFeedback, type PermissionFeedbackTarget } from
 import { requestInputFocus } from '../../../lib/inputFocus';
 import { isMac } from '../../../lib/keybindings/match';
 import { toasts } from '../../../lib/toasts';
+import { parseAttachmentClipboardHtml, refsMatchHost } from '@solus/client-core/attachment-clipboard';
+import { reattachedAttachment } from '../../../lib/attachment-clipboard';
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry';
 import { hostPolicy } from '@solus/client-core/host-policy';
 import { serverConnections } from '@solus/client-core/server-connections';
@@ -23,6 +25,7 @@ import {
   uploadPastedImage,
 } from './attachment-upload';
 import { attachmentKind } from '@solus/contracts/media-types';
+import { uuid } from '@solus/contracts/uuid';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
 import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
 import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.svelte';
@@ -539,6 +542,26 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     const clipboard = e.clipboardData;
     if (!clipboard) return;
     const blobs = clipboardMedia(clipboard);
+    // Media copied from a Solus message: the run host already holds those
+    // files, so they attach again by reference and nothing uploads.
+    const refs = parseAttachmentClipboardHtml(clipboard.getData("text/html"));
+    if (refs) {
+      const runServerId = runHost(run) ?? LOCAL_SERVER_ID;
+      const runHostIds = { serverId: runServerId, installationId: serverConnections.diagnosticsFor(runServerId).installationId };
+      if (refsMatchHost(refs, runHostIds)) {
+        e.preventDefault();
+        pasteAsTextRequested = false;
+        prompt.attachments.push(...refs.map((ref) => reattachedAttachment(ref, uuid())));
+        return;
+      }
+      // Another host's paths name nothing here. A lone picture's bytes still
+      // travel below as an ordinary image paste; files cannot.
+      if (blobs.length === 0) {
+        e.preventDefault();
+        toasts.info("Those files are on another host. Attach them from a conversation on this one.");
+        return;
+      }
+    }
     const foldable = foldableText(clipboard, blobs.length > 0);
     if (foldable) {
       e.preventDefault();
