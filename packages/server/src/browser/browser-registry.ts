@@ -64,6 +64,7 @@ import {
   type BrowserHeadlessHost,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
+  browserUrlForLog,
 } from './surface-driver'
 import type { BrowserFrameChannel } from './browser-frame-channel'
 
@@ -880,7 +881,7 @@ export class BrowserRegistry {
     page.loadState = 'loading'
     record.loadStartedAt = Date.now()
     this.publish(record)
-    log.info('browser_page_load', { browserPageId: page.browserPageId, stage: 'navigating', url: page.url })
+    log.info('browser_page_load', { browserPageId: page.browserPageId, stage: 'navigating', url: browserUrlForLog(page.url) })
     void driver.navigate({ kind: 'goto', url: page.url }).catch((error) => {
       // A load that fails still commits an error page, and the guest reports
       // that failure itself; this only records the reason it never started.
