@@ -227,6 +227,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const uiMode = request.permissionMode
     const sessionRef = { current: conversation.kind === 'resume' ? sessionId : null }
     const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended)
+    const onElicitation = this.permissions.createOnElicitation(sessionRef, request.unattended)
 
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
@@ -299,6 +300,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         maxBudgetUsd: request.maxBudgetUsd,
         bare: request.bare,
         canUseTool,
+        onElicitation,
         seat: request.providerRuntime ? {
           ...(request.seat ? claudeSeatOf(request.seat) : { home: request.providerRuntime.homePath ?? '' }),
           envToken: request.providerRuntime.homePath ? undefined : request.seat?.envToken,
