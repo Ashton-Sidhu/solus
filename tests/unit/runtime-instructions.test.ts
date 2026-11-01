@@ -114,6 +114,8 @@ describe('runtime instructions', () => {
       expect(prompt).toContain(PR_LINKING_HEADING)
       expect(prompt).toContain('Call link with kind=pr')
       expect(prompt).toContain('link every layer')
+      // A stack is one call, not one call per layer.
+      expect(prompt).toContain('target_ids')
     }
   })
 
