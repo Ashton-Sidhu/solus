@@ -38,7 +38,8 @@
   import AssistantAlert from "./AssistantAlert.svelte";
   import FootnoteRef from "./FootnoteRef.svelte";
   import FootnoteSection from "./FootnoteSection.svelte";
-  import { ALERT_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN } from "./lib/markdown-extensions";
+  import FileChipGroup from "./FileChipGroup.svelte";
+  import { ALERT_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN, FILE_CHIP_GROUP_TOKEN } from "./lib/markdown-extensions";
   import { RAW_HTML_TOKEN } from "./lib/raw-html";
   import FencedBlock from "./FencedBlock.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
@@ -82,6 +83,7 @@
     [ALERT_TOKEN]: AssistantAlert,
     [FOOTNOTE_REF_TOKEN]: FootnoteRef,
     [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
+    [FILE_CHIP_GROUP_TOKEN]: FileChipGroup,
   };
   /** The store is the truth for a work's title and type; the message's
    *  own ref is the fallback that keeps a historical row named. */

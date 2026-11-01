@@ -28,3 +28,32 @@ test('replies that need the whole reply, or render differently in HTML, are not 
   expect(blocksOf('- one\n\n- two')!.every((block) => 'tokens' in block)).toBe(true)
   expect(blocksOf('- [ ] todo')!.every((block) => 'tokens' in block)).toBe(true)
 })
+
+test('a finished reply that mounts again reuses its lexed blocks, and a very long reply is not kept', () => {
+  // WHY: ConversationPool unmounts older conversations; lexing a 50 KB reply
+  // again on each return cost about 280 ms. The cache is bounded, so one huge
+  // reply cannot push every other reply out.
+  const source = 'A reply with **bold** text and `code`.\n\n```ts\nconst x = 1\n```\n'
+  const extensions = assistantMarkdownExtensions(source)
+  const first = settledMarkdownBlocks(source, extensions)
+  expect(settledMarkdownBlocks(source, extensions)).toBe(first)
+  // Another extension set is another entry.
+  expect(settledMarkdownBlocks(source, assistantMarkdownExtensions('<b>x</b>'))).not.toBe(first)
+  const huge = 'word '.repeat(30_000)
+  expect(settledMarkdownBlocks(huge, extensions)).not.toBe(settledMarkdownBlocks(huge, extensions))
+})
+
+test('the reply cache drops its least recently used reply when it is full', () => {
+  const extensions = assistantMarkdownExtensions('')
+  const kept = 'kept reply\n'
+  const keptBlocks = settledMarkdownBlocks(kept, extensions)
+  const dropped = 'dropped reply\n'
+  const droppedBlocks = settledMarkdownBlocks(dropped, extensions)
+  // About 600K characters of other replies: past the 500K budget.
+  for (let i = 0; i < 6; i++) {
+    expect(settledMarkdownBlocks(kept, extensions)).toBe(keptBlocks)
+    settledMarkdownBlocks(`${i} ${'filler '.repeat(14_000)}`, extensions)
+  }
+  expect(settledMarkdownBlocks(kept, extensions)).toBe(keptBlocks)
+  expect(settledMarkdownBlocks(dropped, extensions)).not.toBe(droppedBlocks)
+})
