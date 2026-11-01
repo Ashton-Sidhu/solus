@@ -704,6 +704,12 @@ export class SessionEmitter {
           state.rootAttrs.contextUsedTokens = event.context.usedTokens
         }
         if (event.run) state.latestCodexUsage = copyUsage(event.run)
+        // A turn's success result is authoritative; partial spend only fills
+        // in for a turn that never reached one.
+        if (event.partialTurn && !state.taskComplete) {
+          setUsageAttrs(state.rootAttrs, event.partialTurn.usage)
+          if (event.partialTurn.costUsd !== undefined) state.rootAttrs.costUsd = event.partialTurn.costUsd
+        }
         return
       }
       if (event.type === 'task_complete') {

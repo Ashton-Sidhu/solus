@@ -345,6 +345,14 @@ export interface UsageData {
   contextWindowTokens?: number
 }
 
+/** The spend of a turn that ended without a success result. `costUsd` and
+ *  `durationMs` are present only when the provider reported them. */
+export interface PartialTurnUsage {
+  usage: UsageData
+  costUsd?: number
+  durationMs?: number
+}
+
 /**
  * What occupies the model's context window right now — the provider's latest
  * context snapshot, not a running total. Providers report cumulative spend for
@@ -2003,7 +2011,10 @@ export type NormalizedEvent =
    *  nearly every turn, which is what keeps the usage store current enough to
    *  answer the moment a limit lands. */
   | { type: 'usage_limits'; windows: UsageWindowUpdate[] }
-  | { type: 'usage'; context?: ContextUsage; run?: UsageData }
+  /** `partialTurn`: what a turn spent when it ended without a success result
+   *  (stopped or failed), so insights and goals still count it. Clients
+   *  ignore it: the context meter does not read it. */
+  | { type: 'usage'; context?: ContextUsage; run?: UsageData; partialTurn?: PartialTurnUsage }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User; guestTurn?: true; supportsFeedback?: true }
