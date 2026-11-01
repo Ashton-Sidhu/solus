@@ -93,9 +93,17 @@ interface BrowserLocationLike {
   search: string
 }
 
+/** The Navigation API's answers. Chromium and Safari have it; where it is
+ *  missing, both answers stay `true`. */
+interface BrowserNavigationLike {
+  readonly canGoBack: boolean
+  readonly canGoForward: boolean
+}
+
 interface BrowserWindowLike {
   location: BrowserLocationLike
   history: BrowserHistoryLike
+  navigation?: BrowserNavigationLike
   addEventListener(type: 'popstate' | 'hashchange', listener: () => void): void
   removeEventListener(type: 'popstate' | 'hashchange', listener: () => void): void
 }
@@ -106,15 +114,15 @@ export class BrowserRouteHistory implements RouteHistory {
 
   constructor(private readonly browserWindow: BrowserWindowLike = window) {}
 
-  // The browser does not expose its cursor. These answer whether requesting
-  // navigation is meaningful; the browser remains authoritative about whether
-  // an entry actually exists.
+  // `History` does not expose its cursor; the Navigation API does. Without it
+  // these answer only whether requesting navigation is meaningful, and the
+  // browser remains authoritative about whether an entry actually exists.
   get canGoBack(): boolean {
-    return true
+    return this.browserWindow.navigation?.canGoBack ?? true
   }
 
   get canGoForward(): boolean {
-    return true
+    return this.browserWindow.navigation?.canGoForward ?? true
   }
 
   current(): string {

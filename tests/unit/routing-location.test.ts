@@ -307,6 +307,19 @@ describe('route history adapters', () => {
     browser.history.forward()
     expect(history.current()).toBe('/chat/c')
   })
+
+  test('BrowserRouteHistory answers from the Navigation API when the browser has it', () => {
+    const browser = Object.assign(new FakeBrowserWindow(), {
+      navigation: { canGoBack: false, canGoForward: true },
+    })
+    const history = new BrowserRouteHistory(browser)
+    expect(history.canGoBack).toBe(false)
+    expect(history.canGoForward).toBe(true)
+    // Without it the browser stays authoritative: asking is always allowed.
+    const plain = new BrowserRouteHistory(new FakeBrowserWindow())
+    expect(plain.canGoBack).toBe(true)
+    expect(plain.canGoForward).toBe(true)
+  })
 })
 
 let RouterStore: typeof import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte').RouterStore
@@ -315,6 +328,26 @@ beforeAll(async () => {
   // These checks exercise route ownership, not Svelte reactivity.
   Object.assign(globalThis, { $state: <T>(value: T) => value })
   ;({ RouterStore } = await import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'))
+})
+
+describe('desktop history buttons', () => {
+  // The back and forward buttons disable themselves from these answers.
+  test('back and forward are available only where an entry exists', () => {
+    const router = new RouterStore()
+    expect(router.canGoBack).toBe(false)
+    expect(router.canGoForward).toBe(false)
+    router.navigate(TASKS)
+    router.navigate(PRS)
+    expect(router.canGoBack).toBe(true)
+    expect(router.canGoForward).toBe(false)
+    expect(router.back()).toBe(true)
+    expect(router.at('tasks')).toBe(true)
+    expect(router.canGoForward).toBe(true)
+    router.back()
+    expect(router.canGoBack).toBe(false)
+    expect(router.back()).toBe(false)
+    router.destroy()
+  })
 })
 
 describe('web address bar', () => {

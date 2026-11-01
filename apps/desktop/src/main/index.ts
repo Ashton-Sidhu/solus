@@ -378,6 +378,11 @@ function createMainWindow(): BrowserWindow {
   mainContents.on('render-process-gone', (_event, details) => {
     log.error('renderer_process_gone', { reason: details.reason, exitCode: details.exitCode })
   })
+  // The history swipe reads these as the fingers touching and lifting.
+  mainContents.on('input-event', (_event, input) => {
+    if (input.type === 'gestureScrollBegin') sendNativeEvent('solus:trackpad-scroll', 'begin')
+    else if (input.type === 'gestureScrollEnd') sendNativeEvent('solus:trackpad-scroll', 'end')
+  })
   mainWindow.on('unresponsive', () => log.warn('renderer_unresponsive'))
   mainWindow.on('responsive', () => log.info('renderer_responsive'))
 
