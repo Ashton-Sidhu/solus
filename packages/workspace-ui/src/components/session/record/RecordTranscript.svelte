@@ -37,12 +37,14 @@
   import AssistantAlert from "../../conversation/AssistantAlert.svelte";
   import FootnoteRef from "../../conversation/FootnoteRef.svelte";
   import FootnoteSection from "../../conversation/FootnoteSection.svelte";
+  import FileChipGroup from "../../conversation/FileChipGroup.svelte";
   import ArtifactView from "../../artifact/ArtifactView.svelte";
   import { planTypeLabel } from "../../plan/lib/plan-type-label";
   import {
     ALERT_TOKEN,
     FOOTNOTE_REF_TOKEN,
     FOOTNOTE_SECTION_TOKEN,
+    FILE_CHIP_GROUP_TOKEN,
   } from "../../conversation/lib/markdown-extensions";
   import { artifactIsReadable, recordDocuments, recordRows } from "./lib/record-transcript";
   import { hostPathBaseName } from "@solus/contracts/host-path";
@@ -83,6 +85,7 @@
     [ALERT_TOKEN]: AssistantAlert,
     [FOOTNOTE_REF_TOKEN]: FootnoteRef,
     [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
+    [FILE_CHIP_GROUP_TOKEN]: FileChipGroup,
   };
 
   function togglePlan(planId: string) {

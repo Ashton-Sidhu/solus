@@ -10,6 +10,7 @@ import type { MarkedExtension, Token } from 'marked'
 export const ALERT_TOKEN = 'solusAlert'
 export const FOOTNOTE_REF_TOKEN = 'solusFootnoteRef'
 export const FOOTNOTE_SECTION_TOKEN = 'solusFootnoteSection'
+export const FILE_CHIP_GROUP_TOKEN = 'solusFileChipGroup'
 
 export const ALERT_TYPES = ['note', 'tip', 'important', 'warning', 'caution'] as const
 export type AlertType = (typeof ALERT_TYPES)[number]
@@ -126,6 +127,41 @@ export const spacedImagePathMarkedExtension: MarkedExtension = {
         return index === -1 ? undefined : index
       },
       tokenizer: spacedImageTokenizer,
+    },
+  ],
+}
+
+/**
+ * A file link and the punctuation right after it, as one token. A file chip is
+ * an inline block, so a browser can break the line between the chip and its
+ * `.` or `,`, and the mark then starts the next line alone. The renderer keeps
+ * the two on one line. `FILE_CHIP_PUNCTUATION_RE` finds the candidates in a
+ * reply. Both take only a link that `MarkdownLink` draws as a file: like
+ * `parseFileHref`, a `file://` URL or a path with no scheme and no `#`.
+ */
+const FILE_HREF = String.raw`(?:file:\/\/|(?![a-z][a-z0-9+.-]*:|#))[^()\s]+`
+export const FILE_CHIP_PUNCTUATION_RE = new RegExp(String.raw`\]\(${FILE_HREF}\)[.,;:!?)]`, 'i')
+const FILE_CHIP_GROUP_RE = new RegExp(String.raw`^(\[(?:\\.|[^[\]\\\n])*\]\(${FILE_HREF}\))([.,;:!?)]+)`, 'i')
+
+function fileChipGroupTokenizer(this: { lexer: { inlineTokens(src: string): Token[] } }, src: string) {
+  const match = FILE_CHIP_GROUP_RE.exec(src)
+  if (!match) return undefined
+  // The link alone: lexing the punctuation with it would match this tokenizer again.
+  const punctuation = { type: 'text', raw: match[2], text: match[2], escaped: false }
+  return { type: FILE_CHIP_GROUP_TOKEN, raw: match[0], tokens: [...this.lexer.inlineTokens(match[1]), punctuation] }
+}
+Object.assign(fileChipGroupTokenizer, { [TAIL_WINDOW_SAFE]: true })
+
+export const fileChipGroupMarkedExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: FILE_CHIP_GROUP_TOKEN,
+      level: 'inline',
+      start(src: string) {
+        const index = src.indexOf('[')
+        return index === -1 ? undefined : index
+      },
+      tokenizer: fileChipGroupTokenizer,
     },
   ],
 }
