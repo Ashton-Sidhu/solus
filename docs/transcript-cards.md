@@ -369,3 +369,15 @@ start and end times, and the card shows the durations from them. A card that the
 client makes (a pull request checkout, a continue-in-worktree, a conflict
 resolution) has no host times; it shows the times that the client saw. The steps
 and their meaning are in [worktree names](worktree-names.md#start-point).
+
+## Copy tool rows
+
+On desktop and web, use **Copy tool row** beside the activity header to copy
+its tool calls, or expand the row and use **Copy tool call** beside one call.
+The copy includes the tool name, status, full available input, and error head.
+Ordinary tool output is not sent to the client and is not included.
+Historical inputs load on demand; a failed load reports an error instead of
+copying an incomplete summary. Formatting runs only on click, with no new
+streaming derivations, row timers, or history prefetch.
+
+On mobile, long-press a tool row to copy its full detail.
