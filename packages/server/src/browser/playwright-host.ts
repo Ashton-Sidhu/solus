@@ -33,6 +33,7 @@ import {
   type BrowserProfileCookie,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
+  browserUrlForLog,
 } from './surface-driver'
 
 /**
@@ -423,10 +424,7 @@ async function openPlaywrightGuest(
   }
   report()
 
-  // A data: URL is the whole page, inlined images included; logging it would
-  // write megabytes per line.
-  const loggedUrl = request.url.startsWith('data:') ? `${request.url.slice(0, request.url.indexOf(',') + 1)}…` : request.url
-  log.info('browser_playwright_opened', { url: loggedUrl, partition: request.partition })
+  log.info('browser_playwright_opened', { url: browserUrlForLog(request.url), partition: request.partition })
   return driver
 }
 

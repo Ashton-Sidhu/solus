@@ -338,7 +338,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.post('/pair/open', async (c) => {
     if (!verifyPairOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
     const pairToken = generatePairToken()
-    log.info('pair_token_generated', { code: pairToken.code, expiresInMinutes: 5 })
+    log.info('pair_token_generated', { expiresInMinutes: 5 })
     captureServerEvent('pair_token_generated', {})
     return c.json({
       token: pairToken.token,
