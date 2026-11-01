@@ -41,7 +41,7 @@
   $effect(() => {
     const swipe = new HistorySwipe();
     const onWheel = (event: WheelEvent) =>
-      apply(swipe.wheel(swipeWheelOf(event), () => swipeTargetAt(event.target, canNavigate)));
+      apply(swipe.wheel(swipeWheelOf(event), () => swipeTargetAt(event.composedPath(), canNavigate)));
     const unsubscribe = onTrackpadScroll((phase) => {
       if (phase === "begin") swipe.scrollBegin();
       else apply(swipe.scrollEnd(performance.now()));

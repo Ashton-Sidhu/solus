@@ -85,7 +85,8 @@ export class HistorySwipe {
     return step
   }
 
-  /** `target` is read once, when the gesture picks its axis. */
+  /** `target` is read when the gesture starts and again when it picks its axis,
+   *  so a scroller that remounts between the two still takes the wheel. */
   wheel(event: SwipeWheel, target: () => SwipeTarget): SwipeStep {
     if (this.gesture === null) {
       this.gesture =
@@ -99,7 +100,7 @@ export class HistorySwipe {
       gesture.sumX += event.deltaX
       gesture.sumY += event.deltaY
       if (Math.abs(gesture.sumX) + Math.abs(gesture.sumY) < SWIPE_AXIS_LOCK_DISTANCE) return idle()
-      this.gesture = lockAxis(gesture, event.timeStamp)
+      this.gesture = lockAxis(gesture, target(), event.timeStamp)
       return this.show()
     }
     if (event.deltaX === 0 && event.deltaY === 0) return this.release(event.timeStamp)
@@ -142,31 +143,36 @@ function idle(): SwipeStep {
   return { indicator: null, navigate: null }
 }
 
-function lockAxis(pending: Extract<SwipeGesture, { kind: 'pending' }>, now: number): SwipeGesture {
+function lockAxis(
+  pending: Extract<SwipeGesture, { kind: 'pending' }>,
+  latest: SwipeTarget,
+  now: number,
+): SwipeGesture {
   const { target, sumX, sumY } = pending
   if (Math.abs(sumX) <= Math.abs(sumY)) return { kind: 'ignored' }
-  if (target.takesHorizontalWheel(sumX)) return { kind: 'ignored' }
+  if (target.takesHorizontalWheel(sumX) || latest.takesHorizontalWheel(sumX)) return { kind: 'ignored' }
   const direction: SwipeDirection = sumX < 0 ? 'back' : 'forward'
   if (!target.canNavigate(direction)) return { kind: 'ignored' }
   return { kind: 'tracking', direction, distance: Math.abs(sumX), deltas: [], clientY: pending.clientY, lastAt: now }
 }
 
 /** The parts of an element the scroll check reads. */
-export interface ScrollableElement<Parent = unknown> {
+export interface ScrollableElement {
   scrollLeft: number
   scrollWidth: number
   clientWidth: number
-  parentElement: Parent | null
 }
 
-/** Whether `element` or an ancestor can still scroll horizontally the way the
- *  wheel moves. A diff, a code block, or a wide table keeps its own wheel. */
-export function canScrollHorizontally<E extends ScrollableElement<E>>(
-  element: E | null,
+/** Whether an element on the wheel's path can still scroll horizontally the way
+ *  the wheel moves. A diff, a code block, or a wide table keeps its own wheel.
+ *  The path is the event's composed path: `event.target` stops at a shadow host,
+ *  and the diff and file views scroll inside one. */
+export function canScrollHorizontally<E extends ScrollableElement>(
+  path: readonly E[],
   deltaX: number,
   overflowX: (element: E) => string,
 ): boolean {
-  for (let current = element; current; current = current.parentElement) {
+  for (const current of path) {
     if (current.scrollWidth <= current.clientWidth) continue
     const overflow = overflowX(current)
     if (overflow !== 'auto' && overflow !== 'scroll') continue
@@ -189,16 +195,16 @@ export function swipeWheelOf(event: WheelEvent): SwipeWheel {
   }
 }
 
-/** What the page says about a swipe that starts on `target`. */
+/** What the page says about a swipe along `path`, a wheel event's composed path. */
 export function swipeTargetAt(
-  target: EventTarget | null,
+  path: readonly EventTarget[],
   canNavigate: (direction: SwipeDirection) => boolean,
 ): SwipeTarget {
-  const element = target instanceof Element ? target : null
+  const elements = path.filter((node): node is Element => node instanceof Element)
   return {
     takesHorizontalWheel: (deltaX) =>
-      !!element?.closest('[role="dialog"]') ||
-      canScrollHorizontally<Element>(element, deltaX, (current) => getComputedStyle(current).overflowX),
+      elements.some((element) => element.matches('[role="dialog"]')) ||
+      canScrollHorizontally(elements, deltaX, (current) => getComputedStyle(current).overflowX),
     canNavigate,
   }
 }
