@@ -72,7 +72,9 @@ export interface HostEventMap {
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.transcriptChanged': { sessionId: string }
-  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number }
+  /** `hasPendingQuestion` is set while a question that does not block the turn
+   *  waits for the person: the session needs input whatever its status. Absent means none. */
+  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true }
   'setup.statusChanged': SetupStatusEvent
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus

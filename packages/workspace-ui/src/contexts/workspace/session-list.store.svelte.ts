@@ -135,6 +135,7 @@ export class SessionListStore {
   /** Per home, the latest grant this client told the reader about. */
   private grantsSeenUntil = new Map<string, number>()
   private shareListeners = new Set<(granted: ListedSession[]) => void>()
+  private recordListeners = new Set<(serverId: string, records: readonly SessionRecord[], readStartedAt: number) => void>()
   /** Shared sessions this client knows that are not in the list: archived, or
    *  opened from a link or a notice. An open tab of one is still in Shared with
    *  you (docs/plans/shared-with-you.md §2, rule 1). */
@@ -156,6 +157,7 @@ export class SessionListStore {
   private async loadHost(serverId: string): Promise<void> {
     this.watchHost(serverId)
     const api = serverConnections.apiFor(serverId)
+    const readStartedAt = performance.now()
     const answer = await api.sessionRecordList().catch(() => null)
     if (!answer || serverConnections.apiFor(serverId) !== api) return
     // A published organization session a machine lists is its Solus API's to list.
@@ -166,6 +168,7 @@ export class SessionListStore {
       this.removeListed(listed)
     }
     for (const record of records) this.writeListed(serverId, record)
+    this.announceRecords(serverId, records, readStartedAt)
     sessionPullRequestsStore.adopt(serverId, records)
     this.announceNewGrants(serverId, records)
   }
@@ -184,11 +187,13 @@ export class SessionListStore {
    *  list, and nothing else in this home's list. */
   private async loadSession(serverId: string, sessionId: string): Promise<void> {
     const api = serverConnections.apiFor(serverId)
+    const readStartedAt = performance.now()
     const record = await api.sessionRecordGet(sessionId).catch(() => undefined)
     if (record === undefined || serverConnections.apiFor(serverId) !== api) return
     // The rows the list answers: root sessions in the reader's list that this home keeps.
     const isListed = !!record && record.listed !== false && !record.parentSessionId
       && (isSolusApiId(serverId) || this.homeOf(serverId, record) === serverId)
+    if (record) this.announceRecords(serverId, [record], readStartedAt)
     if (isListed) {
       this.writeListed(serverId, record)
       this.announceNewGrants(serverId, [record])
@@ -252,6 +257,20 @@ export class SessionListStore {
   /** A shared session leaves the list: keep whose it was for the notice when it does not open. */
   private rememberFormerShare(listed: ListedSession): void {
     if (listed.share) this.formerShares.set(listed.sessionId, { title: listed.title, share: listed.share })
+  }
+
+  /** Hear of each record a machine answered, as read, with when the read
+   *  began (`performance.now()`): a live event heard after it is newer. A
+   *  Solus API's records are its mirror; the machine that runs a session
+   *  answers for its live facts. */
+  onRecordsRead(listener: (serverId: string, records: readonly SessionRecord[], readStartedAt: number) => void): () => void {
+    this.recordListeners.add(listener)
+    return () => this.recordListeners.delete(listener)
+  }
+
+  private announceRecords(serverId: string, records: readonly SessionRecord[], readStartedAt: number): void {
+    if (isSolusApiId(serverId)) return
+    for (const listener of this.recordListeners) listener(serverId, records, readStartedAt)
   }
 
   /** Hear of each direct share a list read shows for the first time. */

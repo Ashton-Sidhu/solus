@@ -71,6 +71,7 @@ export class ThreadListState {
   private readonly states = new Map<string, SessionState>();
   private readonly views = new Map<string, SessionView>();
   private readonly liveStatus = new Map<string, SessionStatus>();
+  private readonly pendingQuestions = new Set<string>();
   private readonly statusSince = new Map<string, number>();
   private readonly unread = new Map<string, boolean>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
@@ -199,6 +200,7 @@ export class ThreadListState {
     this.dropHostEntries(this.views, hostId);
     this.dropHostEntries(this.pullRequests, hostId);
     this.dropHostEntries(this.liveStatus, hostId);
+    this.dropHostEntries(this.pendingQuestions, hostId);
     this.dropHostEntries(this.statusSince, hostId);
     this.dropHostEntries(this.unread, hostId);
     this.publish();
@@ -221,16 +223,18 @@ export class ThreadListState {
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
     });
-    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at }) => {
+    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at, hasPendingQuestion }) => {
       // A list may hold either id for the same session.
-      this.setLiveStatus(threadKey(hostId, sessionId), status, at);
-      if (agentSessionId) this.setLiveStatus(threadKey(hostId, agentSessionId), status, at);
+      const pending = hasPendingQuestion === true;
+      this.setLiveStatus(threadKey(hostId, sessionId), status, pending, at);
+      if (agentSessionId) this.setLiveStatus(threadKey(hostId, agentSessionId), status, pending, at);
       this.publish();
     });
     // A fresh server session forgets what was live, and a change may have
     // been missed; the records read again answer it.
     connection.onReset(() => {
       this.dropHostEntries(this.liveStatus, hostId);
+      this.dropHostEntries(this.pendingQuestions, hostId);
       this.dropHostEntries(this.statusSince, hostId);
       this.dropHostEntries(this.states, hostId);
       this.dropHostEntries(this.views, hostId);
@@ -241,13 +245,15 @@ export class ThreadListState {
 
   /** A row's elapsed time counts from the change into what it shows: a
    *  connecting session that starts running is still the same "Working". */
-  private setLiveStatus(key: string, status: SessionStatus, at: number): void {
+  private setLiveStatus(key: string, status: SessionStatus, hasPendingQuestion: boolean, at: number): void {
     const previous = this.liveStatus.get(key);
-    const shown = (value: SessionStatus) => resolveThreadListV2Status({ status: "idle" }, value);
-    if (previous === undefined || shown(previous) !== shown(status)) {
+    const shown = (value: SessionStatus, pending: boolean) => resolveThreadListV2Status({ status: "idle" }, value, pending);
+    if (previous === undefined || shown(previous, this.pendingQuestions.has(key)) !== shown(status, hasPendingQuestion)) {
       this.statusSince.set(key, at);
     }
     this.liveStatus.set(key, status);
+    if (hasPendingQuestion) this.pendingQuestions.add(key);
+    else this.pendingQuestions.delete(key);
   }
 
   /** A state or view the host announced or answered overrides the record
@@ -282,7 +288,7 @@ export class ThreadListState {
     return connection;
   }
 
-  private dropHostEntries(map: Map<string, unknown>, hostId: string): void {
+  private dropHostEntries(map: Map<string, unknown> | Set<string>, hostId: string): void {
     const prefix = threadKey(hostId, "");
     for (const key of Array.from(map.keys())) if (key.startsWith(prefix)) map.delete(key);
   }
@@ -292,6 +298,7 @@ export class ThreadListState {
       states: new Map(this.states),
       views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),
+      pendingQuestions: new Set(this.pendingQuestions),
       statusSince: new Map(this.statusSince),
       unread: new Map(this.unread),
       pullRequests: new Map(this.pullRequests),

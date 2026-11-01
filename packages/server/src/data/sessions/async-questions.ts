@@ -52,6 +52,21 @@ export function pendingAsyncQuestions(sessionId: string): AsyncQuestionEvent[] {
   }))
 }
 
+/** Whether the session has a message-mode question the person has not answered. */
+export function hasPendingAsyncQuestion(sessionId: string): boolean {
+  return questionDb().prepare("SELECT 1 FROM async_questions WHERE session_id = ? AND state = 'pending' LIMIT 1").get(sessionId) != null
+}
+
+/** The sessions, of those named, that have a message-mode question the person has not answered. */
+export function sessionsWithPendingAsyncQuestion(sessionIds: readonly string[]): Set<string> {
+  if (sessionIds.length === 0) return new Set()
+  const rows = z.array(z.object({ session_id: z.string() })).parse(questionDb().prepare(`
+    SELECT DISTINCT session_id FROM async_questions
+    WHERE state = 'pending' AND session_id IN (${sessionIds.map(() => '?').join(', ')})
+  `).all(...sessionIds))
+  return new Set(rows.map((row) => row.session_id))
+}
+
 export function claimAsyncQuestion(sessionId: string, questionId: string): { agentSessionId: string; questions: AsyncQuestionEvent['questions'] } | null {
   const db = questionDb()
   const claimed = db.prepare(`

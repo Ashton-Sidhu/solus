@@ -284,7 +284,7 @@ export class ProviderEvents {
           this.rt.reportToActiveRun(session.sessionId, (run) => this.rt.orchestration?.runEvent(run, event))
         } else if (event.type === 'question_request' && event.responseMode === 'message') {
           if (!saveAsyncQuestion(session.sessionId, agentSessionId, event)) return
-          this.rt.statuses.syncAttention(agentSessionId, session.sessionId, session.status)
+          this.rt.statuses.questionsChanged(agentSessionId, session.sessionId)
           this.rt.reportToActiveRun(session.sessionId, (run) => this.rt.orchestration?.runEvent(run, event))
         } else if (event.type === 'permission_request' || event.type === 'question_request') {
           session.hasPendingInput = true

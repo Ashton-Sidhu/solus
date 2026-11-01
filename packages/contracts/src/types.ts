@@ -2669,6 +2669,10 @@ export interface SessionRecord {
   listed?: boolean
   /** The pull requests the session works on, with what PR sync last saw. */
   pullRequests?: SessionPullRequestLink[]
+  /** A question that does not block the turn waits for the person, as the
+   *  host read it with the record. A client that has no live status since it
+   *  connected reads it here. Absent when none waits. */
+  hasPendingQuestion?: true
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
   /** Who shared another person's session with the reader directly — a person or team share — as a person key; absent otherwise (docs/plans/shared-with-you.md). */

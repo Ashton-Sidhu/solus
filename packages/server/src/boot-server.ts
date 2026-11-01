@@ -1171,6 +1171,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       void prSync.turnEnded(event.sessionId).catch((error) => log.warn('pr_sync_turn_end_failed', { sessionId: event.sessionId, error: String(error) }))
     }
   })
+  // A message-mode question was asked or settled: the status is unchanged, so
+  // nothing a turn's end does runs again. Only readers of the feed learn of it.
+  opts.sessionRuntime.on('session-question', (event: HostEventMap['session.statusChanged']) => {
+    events.broadcast('session.statusChanged', event)
+  })
   opts.sessionRuntime.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 
   // Personal Uplink: the tunnel listener, the link to the control plane, and the
