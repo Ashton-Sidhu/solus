@@ -13,6 +13,10 @@ const log = createLogger('browser', 'target-scanner.ts')
  * spawns anything: it reads the listening sockets the OS already has, asks each
  * owner where it is working, and probes the port to confirm it serves HTML
  * before offering it. A port that answers with JSON is an API, not a browser.
+ *
+ * The probe is an HTTP request to someone else's process, and Redis, Postgres,
+ * or a game engine on that port reads it as junk. So each listener is probed
+ * once for its lifetime (see `ProbeVerdicts`), not once per scan.
  */
 
 /** Ports below this are system services, never a dev server worth offering. */
@@ -23,6 +27,9 @@ const PROBE_TIMEOUT_MS = 1500
 const MAX_REDIRECTS = 3
 /** A scan shells out three times; the pane re-asks on every open and event. */
 const CACHE_TTL_MS = 4000
+/** A timed-out probe may be a dev server that bound its port before it was
+ *  ready, so it is asked again after this long. Every other answer is final. */
+const TIMEOUT_RETRY_MS = 30_000
 
 export interface Listener {
   pid: number
@@ -30,10 +37,49 @@ export interface Listener {
   command: string
 }
 
+/** What a probe learned about one listener. `other` is any answer that is not
+ *  HTML: JSON, a closed socket, a protocol error — a service that is not a page. */
+export type ProbeResult = { kind: 'html'; title?: string } | { kind: 'other' } | { kind: 'timeout' }
+
+/**
+ * The probe verdict of each listener, keyed by its process and port, so a
+ * process's port is probed at most once while it lives. A timeout is the one
+ * exception: it is asked again after `TIMEOUT_RETRY_MS`. A listener that is no
+ * longer in the socket list loses its verdict, which keeps the map bounded and
+ * lets a new process on the same port be probed fresh. Exported for its test.
+ */
+export class ProbeVerdicts {
+  private readonly verdicts = new Map<string, { result: ProbeResult; at: number }>()
+
+  constructor(private readonly probe: (port: number) => Promise<ProbeResult>) {}
+
+  /** The verdict of each listener, in order. Probes only the ones without one. */
+  async verdictsFor(listeners: Listener[], now = Date.now()): Promise<ProbeResult[]> {
+    const live = new Set(listeners.map(verdictKey))
+    for (const key of this.verdicts.keys()) {
+      if (!live.has(key)) this.verdicts.delete(key)
+    }
+    return Promise.all(listeners.map(async (listener) => {
+      const key = verdictKey(listener)
+      const known = this.verdicts.get(key)
+      if (known && (known.result.kind !== 'timeout' || now - known.at < TIMEOUT_RETRY_MS)) return known.result
+      const result = await this.probe(listener.port)
+      this.verdicts.set(key, { result, at: now })
+      return result
+    }))
+  }
+}
+
+function verdictKey(listener: Listener): string {
+  return `${listener.pid}:${listener.port}`
+}
+
+const probeVerdicts = new ProbeVerdicts((port) => probeForHtml(port))
 let cache: { at: number; targets: BrowserDiscoveredTarget[] } | null = null
 let inFlight: Promise<BrowserDiscoveredTarget[]> | null = null
 
-/** Invalidate the cache — used when something already knows the world moved. */
+/** Invalidate the scan cache — used when something already knows the world
+ *  moved. The socket list is read again; known listeners are not re-probed. */
 export function forgetDiscoveredTargets(): void {
   cache = null
 }
@@ -72,22 +118,21 @@ async function scan(): Promise<BrowserDiscoveredTarget[]> {
     if (!byPort.has(listener.port)) byPort.set(listener.port, listener)
   }
 
-  const probed = await Promise.all(
-    [...byPort.values()].map(async (listener) => {
-      const html = await probeForHtml(listener.port)
-      if (!html) return null
-      const target: BrowserDiscoveredTarget = {
-        url: `http://localhost:${listener.port}/`,
-        port: listener.port,
-        pid: listener.pid,
-        cwd: cwdByPid.get(listener.pid) ?? '',
-      }
-      if (html.title) target.title = html.title
-      return target
-    }),
-  )
-
-  const targets = probed.filter((target): target is BrowserDiscoveredTarget => target !== null)
+  const unique = [...byPort.values()]
+  const verdicts = await probeVerdicts.verdictsFor(unique)
+  const targets: BrowserDiscoveredTarget[] = []
+  unique.forEach((listener, index) => {
+    const verdict = verdicts[index]
+    if (verdict.kind !== 'html') return
+    const target: BrowserDiscoveredTarget = {
+      url: `http://localhost:${listener.port}/`,
+      port: listener.port,
+      pid: listener.pid,
+      cwd: cwdByPid.get(listener.pid) ?? '',
+    }
+    if (verdict.title) target.title = verdict.title
+    targets.push(target)
+  })
   await Promise.all(targets.map((target) => attributeToWorktree(target)))
   return targets.sort((a, b) => a.port - b.port)
 }
@@ -188,7 +233,7 @@ async function workingDirectories(pids: number[]): Promise<Map<number, string>> 
  * servers legitimately 404 at `/` when the app is mounted elsewhere — but the
  * content type must be HTML, which is what separates the app from its API.
  */
-async function probeForHtml(port: number, path = '/', redirects = 0): Promise<{ title?: string } | null> {
+async function probeForHtml(port: number, path = '/', redirects = 0): Promise<ProbeResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
   try {
@@ -199,15 +244,17 @@ async function probeForHtml(port: number, path = '/', redirects = 0): Promise<{ 
     })
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location')
-      if (!location || redirects >= MAX_REDIRECTS) return null
+      if (!location || redirects >= MAX_REDIRECTS) return { kind: 'other' }
       const next = location.startsWith('http') ? new URL(location).pathname : location
       return probeForHtml(port, next, redirects + 1)
     }
-    if (!(response.headers.get('content-type') ?? '').includes('text/html')) return null
+    if (!(response.headers.get('content-type') ?? '').includes('text/html')) return { kind: 'other' }
     const title = titleOf(await response.text())
-    return title ? { title } : {}
+    return title ? { kind: 'html', title } : { kind: 'html' }
   } catch {
-    return null
+    // A non-HTTP service closes the socket or answers in its own protocol; only
+    // a probe we aborted ourselves is a timeout.
+    return controller.signal.aborted ? { kind: 'timeout' } : { kind: 'other' }
   } finally {
     clearTimeout(timer)
   }
