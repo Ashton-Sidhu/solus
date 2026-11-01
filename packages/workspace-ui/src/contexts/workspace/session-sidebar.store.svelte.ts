@@ -886,9 +886,14 @@ export class SessionSidebarStore {
 
   /** Keep the status of linked sessions with no tab live for the picker. */
   subscribeSessionStatuses(): () => void {
-    return subscribeAllHosts('session.statusChanged', (serverId, event) => {
+    const stopEvents = subscribeAllHosts('session.statusChanged', (serverId, event) => {
       this.sessionStatusFeed().apply(serverId, event)
     })
+    // A list read (each reconnect makes one) answers what the events missed.
+    const stopRecords = sessionListStore.onRecordsRead((serverId, records, readStartedAt) => {
+      for (const record of records) this.sessionStatusFeed().adoptRecord(serverId, record, readStartedAt)
+    })
+    return () => { stopEvents(); stopRecords() }
   }
 
   /** A tab is closing: the status the feed held for its session is stale. */

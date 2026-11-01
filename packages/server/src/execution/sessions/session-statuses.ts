@@ -2,7 +2,7 @@ import { createLogger } from '../../logger'
 import { attentionActionForStatus } from '../../attention/attention-service'
 import { finishedSummary } from '../../attention/finished-summary'
 import type { AttentionKind } from '@solus/contracts/attention-types'
-import { pendingAsyncQuestions } from '../../data/sessions/async-questions'
+import { hasPendingAsyncQuestion, pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { sessionRecordStatusOf, setSessionRecordStatus } from '../../data/sessions/session-records'
 import { applyPendingAssignment } from './turn-organization'
@@ -13,6 +13,11 @@ import { isSessionBusyStatus } from '@solus/contracts/types'
 import type { SessionRuntime } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'session-statuses.ts')
+
+/** The `session.statusChanged` field for a waiting message-mode question; absent when there is none. */
+function pendingQuestionFact(sessionId: string): { hasPendingQuestion?: true } {
+  return hasPendingAsyncQuestion(sessionId) ? { hasPendingQuestion: true } : {}
+}
 
 const RUN_WATCHDOG_INTERVAL_MS = 30_000
 
@@ -253,6 +258,15 @@ export class SessionStatuses {
     })
   }
 
+  /** A message-mode question was asked, answered, or dismissed. The status
+   *  does not change, but a reader with no transcript (a sidebar row, the
+   *  mobile list) must learn that the session waits on the person, or no longer does. */
+  questionsChanged(agentSessionId: string, sessionId: string): void {
+    const status = this.rt.activeSessions.get(sessionId)?.status ?? 'completed'
+    this.syncAttention(agentSessionId, sessionId, status)
+    this.rt.emit('session-question', { sessionId, agentSessionId, status, at: Date.now(), ...pendingQuestionFact(sessionId) })
+  }
+
   private attentionSummary(kind: Exclude<AttentionKind, 'finished'>, event?: NormalizedEvent): string {
     switch (kind) {
       case 'needs_approval':
@@ -340,7 +354,7 @@ export class SessionStatuses {
     }
     // Global (not watch-scoped) feed so agent-conversation cards can track
     // sessions no client is looking at.
-    this.rt.emit('session-status', { sessionId, agentSessionId, status: newStatus, at: Date.now() })
+    this.rt.emit('session-status', { sessionId, agentSessionId, status: newStatus, at: Date.now(), ...pendingQuestionFact(sessionId) })
 
     if (session && newStatus === 'interrupted' && session.pendingInputEvents.length > 0) {
       const hasPendingPlans = session.pendingInputEvents.some((e) => e.type === 'plan')

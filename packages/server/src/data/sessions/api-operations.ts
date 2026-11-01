@@ -24,6 +24,7 @@ import { readApiTranscript } from './api-transcript'
 import { admitSessionRecord, SessionAdmissionConflict, type SessionAdmission } from './session-admissions'
 import { resolveSessionLineageById } from './session-lineage'
 import { readSessionPullRequests } from './session-pull-requests'
+import { sessionsWithPendingAsyncQuestion } from './async-questions'
 import { SessionShelf, SessionViewer } from './session-states'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
@@ -74,6 +75,8 @@ export class SessionApiOperations {
     const projects = await projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : []))
     const links = records.length ? await readSessionPullRequests(apiScope(context), records.map(session => session.sessionId)) : {}
     const access = await this.shares.accessOf(context.principal, 'session', records.map(session => session.sessionId))
+    // Questions wait on the host that runs the session; the workspace service keeps none.
+    const asking = isApiMode() ? new Set<string>() : sessionsWithPendingAsyncQuestion(records.map(session => session.sessionId))
     return records.map(session => {
       const item: WorkspaceSession = {
         id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
@@ -96,6 +99,7 @@ export class SessionApiOperations {
         item.sharedBy = session.sharedBy
         item.grantedAt = session.grantedAt
       }
+      if (asking.has(session.sessionId)) item.hasPendingQuestion = true
       return item
     })
   }
