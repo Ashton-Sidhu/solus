@@ -30,7 +30,8 @@ import { toasts } from '@solus/workspace-ui/lib/toasts'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import WebToaster from './components/WebToaster.svelte'
 import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
-import { removeFirstScreen, restoreFirstScreenDraft } from './lib/first-screen'
+import { stylesheetsApplied } from './lib/page-styles'
+import { BOOT_SPLASH_ID } from '@solus/workspace-ui/lib/boot-splash'
 import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
 import { z } from 'zod'
@@ -44,6 +45,7 @@ window.addEventListener('unhandledrejection', (event) => {
   if (event.reason instanceof TransportDisconnectedError) event.preventDefault()
   else if (event.reason instanceof Error && isStaleBuildError(event.reason)) {
     event.preventDefault()
+    revealPage()
     reportStaleBuild()
   }
 })
@@ -52,6 +54,7 @@ window.addEventListener('unhandledrejection', (event) => {
 // listener it rethrows, and the surface that asked for the chunk stays blank.
 window.addEventListener('vite:preloadError', (event) => {
   event.preventDefault()
+  revealPage()
   reportStaleBuild()
 })
 
@@ -103,6 +106,23 @@ const stopHostReadyMark = serverConnections.onReadinessChange((_serverId, readin
   stopHostReadyMark()
 })
 mount(WebToaster, { target: root })
+
+/**
+ * The page's stylesheet does not hold the first paint, so the boot splash paints
+ * with the HTML (scripts/vite-boot-splash.ts). Every surface waits for it to apply
+ * before it mounts, so none paints with no styles.
+ */
+const pageStyled = stylesheetsApplied(document)
+
+/** The boot splash shows until a surface takes its place. */
+function removeBootSplash(): void {
+  document.getElementById(BOOT_SPLASH_ID)?.remove()
+}
+
+/** No surface mounts: the splash goes, so it does not cover the toast that says why. */
+function revealPage(): void {
+  void pageStyled.then(removeBootSplash)
+}
 
 let solusApp: ReturnType<typeof mount> | null = null
 let serviceWorkerBridgeInstalled = false
@@ -170,14 +190,14 @@ async function connectToServer(target: SolusServerTarget, intent?: BootIntent): 
     // Pairing and reconnect plumbing live in the small entry chunk; the
     // multi-megabyte shared workspace graph loads lazily behind it.
     // Saved tabs provide the loading state while history arrives in the background.
-    const { default: App } = await loadWorkspaceApp()
+    const [{ default: App }] = await Promise.all([loadWorkspaceApp(), pageStyled])
     if (generation !== connectionGeneration) return
-    // The workspace takes the place of the frame the HTML painted, in this same task.
-    const firstScreenDraft = removeFirstScreen(root)
+    // The workspace takes the place of the splash in this same task.
+    removeBootSplash()
     solusApp = mount(App, { target: root })
-    restoreFirstScreenDraft(root, firstScreenDraft)
   } catch (error) {
     if (generation !== connectionGeneration) return
+    revealPage()
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
     else toasts.error(error instanceof Error ? error.message : 'Workspace failed to load')
   }
@@ -187,9 +207,9 @@ function bootHostlessHome(): void {
   const generation = ++connectionGeneration
   toasts.dismiss()
   // Only a browser with no host shows this page, so only that path loads it.
-  void import('./routes/HostlessHome.svelte').then(({ default: HostlessHome }) => {
+  void Promise.all([import('./routes/HostlessHome.svelte'), pageStyled]).then(([{ default: HostlessHome }]) => {
     if (generation !== connectionGeneration) return
-    removeFirstScreen(root)
+    removeBootSplash()
     mount(HostlessHome, { target: root })
   })
 }
@@ -208,8 +228,8 @@ function offerAppOrPair(pairToken: string): void {
   }
   const appLink = appPairLink(location.href)
   history.replaceState({}, '', '/')
-  void import('./routes/PairInApp.svelte').then(({ default: PairInApp }) => {
-    removeFirstScreen(root)
+  void Promise.all([import('./routes/PairInApp.svelte'), pageStyled]).then(([{ default: PairInApp }]) => {
+    removeBootSplash()
     const page = mount(PairInApp, {
       target: root,
       props: {
@@ -328,8 +348,8 @@ async function bootGuest(link: GuestLink, opening: GuestOpening, signedIn: { nam
   guestBoot.accountUserId = signedIn?.userId ?? null
   if (opening.kind === 'failed') guestBoot.fail(opening.reason)
   else void loadGuestApp().catch(() => {})
-  const { default: GuestLanding } = await import('./routes/GuestLanding.svelte')
-  removeFirstScreen(root)
+  const [{ default: GuestLanding }] = await Promise.all([import('./routes/GuestLanding.svelte'), pageStyled])
+  removeBootSplash()
   const landing = mount(GuestLanding, {
     target: root,
     props: { onContinue: (displayName: string) => void connectGuest(link, opening, displayName, () => void unmount(landing)) },
@@ -432,9 +452,9 @@ async function startPage(): Promise<void> {
   if (bootShareLink) {
     void openShareLink(bootShareLink)
   } else if (/^\/(w|s)\//.test(location.pathname)) {
-    void import('./routes/GuestLanding.svelte').then(({ default: GuestLanding }) => {
+    void Promise.all([import('./routes/GuestLanding.svelte'), pageStyled]).then(([{ default: GuestLanding }]) => {
       guestBoot.fail('This link is incomplete. Ask the sharer to copy it again.')
-      removeFirstScreen(root)
+      removeBootSplash()
       mount(GuestLanding, { target: root, props: { onContinue: () => {} } })
     })
   } else {

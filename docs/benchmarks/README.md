@@ -71,3 +71,16 @@ The [results](web-first-screen-2026-10-31.json) compare the branch before and af
 Chromium paints the frame when the HTML and the entry CSS (545 KB raw, render-blocking) are in. The code mark does not move: the frame adds 8.6 KB of HTML and no script.
 
 WebKit paints a page only when it is "visually non-empty": more than 200 characters of text, or more than 1024 px² of inline SVG, or no script, style, or font load pending. The frame has about 100 characters and one 12 px icon, and the startup preloads in the HTML stay pending until about the code mark, so WebKit paints the frame just before the code runs. With every script held for 1 s, WebKit painted the frame as built at 11.1 s, without the preload block at 1.04 s, and with a 40 × 40 inline SVG or 300 more characters at 0.12 s. Safari gets the gain only when the first screen passes that gate; what the first screen shows to pass it is a product decision (`docs/plans/fast-secure-startup.md`, step 5).
+
+## The boot splash on the web (fast-secure-startup step 5, revised)
+
+The [results](web-boot-splash-2026-10-31.json) compare the branch before and after the change, 5 runs each, medians. Before: the empty workspace in the HTML and a render-blocking entry stylesheet. After: the desktop's boot splash in the HTML (inline styles), and the entry stylesheet as a preload that becomes a stylesheet when it arrives. Each surface mounts only after the stylesheet applies. "CSS" is when the HTML's stylesheet has arrived.
+
+| Profile | Engine | FCP before | FCP after | CSS before | CSS after | Code mark before | Code mark after |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Slow | Chromium | 1100 ms | 352 ms | 4373 ms | 4360 ms | 4483 ms | 4476 ms |
+| Slow | WebKit | 4412 ms | 336 ms | 4377 ms | 4364 ms | 4434 ms | 4421 ms |
+| Fast | Chromium | 224 ms | 56 ms | 372 ms | 373 ms | 399 ms | 400 ms |
+| Fast | WebKit | 400 ms | 55 ms | 371 ms | 371 ms | 426 ms | 420 ms |
+
+Both engines now paint the splash when the HTML arrives: the 84 px mark is more than 1024 px² of inline SVG, so WebKit takes the page as "visually non-empty", and no stylesheet holds the paint. The stylesheet's arrival and the code mark do not move, so the first surface mounts when it did before. The bench server sends its responses first in, first out, with no HTTP/2 priorities. A CDN that honours priorities can send the stylesheet (a preload, high priority) before the low-priority startup preloads, and the bench cannot show that gain.

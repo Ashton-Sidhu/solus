@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { solusIconSubset } from './scripts/vite-icon-collections'
 import { devServeRoots } from './scripts/vite-fs-allow'
 import { workspaceStartupPreloads } from './scripts/vite-workspace-preloads'
+import { bootSplash } from './scripts/vite-boot-splash'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -149,7 +150,8 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       // Vite's runtime preloads start the workspace graph only once main.ts has
       // set up the transport; the list in the HTML starts it as the page parses.
-      workspaceStartupPreloads(['/apps/desktop/src/renderer/App.svelte', '/packages/workspace-ui/src/components/layout/WorkspaceLayout.svelte'])
+      workspaceStartupPreloads(['/apps/desktop/src/renderer/App.svelte', '/packages/workspace-ui/src/components/layout/WorkspaceLayout.svelte']),
+      bootSplash()
     ],
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),

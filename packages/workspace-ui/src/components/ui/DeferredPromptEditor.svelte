@@ -6,17 +6,13 @@
   // in parallel with the rest of the workspace, but it is not in the
   // workspace's own chunks. Until it runs, a plain text field holds the draft.
   // The loaded module is kept as state: an await block would draw the stand-in
-  // for a frame on every later mount. The build renders the stand-in into the
-  // web page's HTML (docs/plans/fast-secure-startup.md, step 5): there is no
-  // document then, and the editor does not load.
+  // for a frame on every later mount.
   let LoadedEditor = $state<typeof PromptEditorComponent | null>(null);
-  if (!import.meta.env.SSR) {
-    import("./PromptEditor.svelte").then(
-      (module) => (LoadedEditor = module.default),
-      // The stand-in stays and still sends; the console says why.
-      (error: Error) => console.error("prompt_editor_load_failed", error),
-    );
-  }
+  import("./PromptEditor.svelte").then(
+    (module) => (LoadedEditor = module.default),
+    // The stand-in stays and still sends; the console says why.
+    (error: Error) => console.error("prompt_editor_load_failed", error),
+  );
 </script>
 
 <script lang="ts">

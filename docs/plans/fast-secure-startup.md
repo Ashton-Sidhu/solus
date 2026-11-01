@@ -92,31 +92,35 @@ Speed first. Each step lands with a measurement.
    renderer at build time into `index.html`; `hydrate` instead of `mount`. First paint at
    HTML arrival. The first-screen components must render without `window`; a test
    renders them on the server.
-   **Status: implemented and measured in Chromium; WebKit open** (2026-10-31). The
-   build renders `apps/client/src/shell/FirstScreen.svelte` with `svelte/server`
-   (`scripts/vite-workspace-first-screen.ts`) into `#root`: the real `SidePanel` with
-   `SessionSidebarSkeleton`, and the draft headline over a composer card with
-   `DeferredPromptEditor`'s plain field. Nothing in it belongs to a person. The scoped
-   styles of its components are inlined. The client does not hydrate it: `App` needs
-   its whole context graph and a host, which the build does not have. The workspace
-   replaces the frame in the same task as it mounts and takes the text and focus of
-   its field (`apps/client/src/lib/first-screen.ts`); every other page removes it
-   before it mounts. The page's inline script hides it on `/w/`, `/s/`, `/t/`, and
-   `/pair` before the first paint. `tests/unit/web-first-screen.test.ts`. Slow profile,
-   FCP: Chromium 5.35 s to 1.09 s, WebKit 5.06 s to 4.41 s; the code mark does not move
-   (`docs/benchmarks/README.md`). WebKit paints only a "visually non-empty" page, and
-   the frame is not one while the startup preloads load; it needs more than 200
-   characters of text or 1024 px² of inline SVG. The frame and the draft page now show the Solus mark
-   (40 px) above the headline. That did not move WebKit: measured on 2026-10-31
-   (`scripts/bench-web-load.ts` now records when the HTML's stylesheet arrives), both
-   engines wait for the 545 KB entry stylesheet, the startup preloads share its
-   bandwidth (it arrives at about 385 ms with them and 265–300 ms without, fast
-   profile), and WebKit paints only after it (418 ms). More text, an explicitly sized
-   mark, preloads in `<body>`, an `async` entry, and preloads inserted after the first
-   frame did not help; the last made WebKit's code arrive much later. Next: inline the
-   CSS the frame needs into the HTML and load the full stylesheet without blocking the
-   first paint, with the workspace mount waiting for it. Desktop is unchanged: it loads from disk and already paints its boot shell
-   from the HTML.
+   **Status: replaced by the boot splash, measured** (2026-10-31). Decided by the
+   developer: the desktop's splash is the Solus loading screen on the web too.
+   - One splash, written once: `packages/workspace-ui/src/lib/boot-splash.ts` holds its
+     markup and inline styles (the Solus mark at 5.25rem, centred on the edge
+     background, light and dark from the theme script). `scripts/vite-boot-splash.ts`
+     (`bootSplash`) writes it into `#root` and the head of both
+     `apps/desktop/src/renderer/index.html` and `apps/client/index.html`, in the dev
+     server and the build. `boot-scene.ts` draws the same mark at the same size on a
+     desktop boot failure. The mark breathes for 2.5 cycles (4.5 s) and then stays
+     still; under `prefers-reduced-motion: reduce` it does not move.
+   - Web only: the entry stylesheet does not block the first paint.
+     `nonBlockingStylesheets` links it as `rel="preload" as="style"` that becomes a
+     stylesheet on `load`, with a `<noscript>` fallback. `apps/client/src/main.ts`
+     mounts no surface (workspace, page with no host, pairing, guest landing,
+     incomplete share link) until `stylesheetsApplied` settles
+     (`apps/client/src/lib/page-styles.ts`), then removes the splash and mounts in the
+     same task. When the workspace does not load, the splash goes so its toast shows.
+     The desktop keeps its blocking stylesheet: it loads from disk and its window
+     shows only after the app mounts. The preload markers and their removal on share
+     links do not change.
+   - Removed: the empty workspace in the HTML (`FirstScreen.svelte`,
+     `vite-workspace-first-screen.ts`, `first-screen.ts`, the script that hid it on
+     `/w/ /s/ /t/ /pair`), the 40 px mark over the draft headline, and the server-render
+     guard in `DeferredPromptEditor`. The person cannot type before the workspace
+     mounts.
+   - Measured (`docs/benchmarks/README.md`, 5 runs, medians): FCP on the slow profile
+     goes from 1100 ms to 352 ms in Chromium and from 4412 ms to 336 ms in WebKit; on
+     the fast profile from 224 ms to 56 ms and from 400 ms to 55 ms. The stylesheet's
+     arrival and the code mark do not move. `tests/unit/web-boot-splash.test.ts`.
 6. **A plain WebSocket protocol to hosts.** Replace socket.io: the token rides in the
    first message, so the CONNECT acknowledgement round trip goes, and about 90 KB leaves
    the entry chunk. Server, desktop, web, and mobile change together.

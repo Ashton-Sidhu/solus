@@ -20,7 +20,6 @@
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
 
   let {
@@ -176,11 +175,6 @@
   <!-- The headline is display type, not chrome, so it has no responsive rung.
        The question shares the bar's measure, so it is never wider than the
        composer under it on any display. -->
-  <!-- The mark is also what the page's first frame paints from the HTML
-       (apps/client/src/shell/FirstScreen.svelte): Safari waits for a picture of
-       this size before it paints a page at all, and it stays when the workspace
-       takes over. -->
-  <WorkspaceMark class="mx-auto mb-4 size-10" />
   <h1
     class="w-full text-center text-3xl leading-[1.25] font-normal tracking-tight text-pretty text-(--solus-text-primary)"
   >
