@@ -681,7 +681,11 @@ export class SessionRuntime extends EventEmitter {
 
     // The turn's open phase says what its work is: the launch, a setup, the
     // provider run, or the background work the run left (docs/plans/turn-stop.md).
-    if (this.turnStops.get(sessionId)?.stop()) {
+    const turn = this.turnStops.get(sessionId)
+    // A second Stop on the same turn force stops it; the turn was already recorded as stopped.
+    const isRepeatedStop = !!turn?.signal.aborted
+    if (turn?.stop()) {
+      if (isRepeatedStop) return true
       this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
       stopped()
       return true
