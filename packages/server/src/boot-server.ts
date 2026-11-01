@@ -102,7 +102,7 @@ import { SeatConnector } from './execution/seats/seat-connect'
 import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
-import { closeDatabase, getDatabase } from './db/database'
+import { closeDatabaseForShutdown, getDatabase } from './db/database'
 import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
 import { isLeadSession } from './data/sessions/lead-sessions'
 import { sessionIndexComplete } from './db/session-indexer'
@@ -1869,7 +1869,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await new Promise<void>((resolve) => http.close(() => resolve()))
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
         await workStorageRuntime.stop()
-        await closeDatabase()
+        await closeDatabaseForShutdown()
         lock?.release()
       })()
       return shutdownPromise

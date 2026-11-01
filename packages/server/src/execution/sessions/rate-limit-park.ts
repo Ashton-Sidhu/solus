@@ -54,15 +54,8 @@ export class RateLimitPark {
     }
 
     if (action === 'stop') {
-      this.rt.sessionEmitter.resolveRateLimit(sessionId)
-      this.clearRateLimitTimer(sessionId)
-      this.rateLimits.clear(sessionId)
-      this.rt.statuses.setStatus(sessionId, 'idle')
-      this.rt.cancelRunExchanges(this.rt.activeRunRequests.get(sessionId))
-      this.rejectRateLimitQueue(sessionId, new Error('Rate-limited prompts stopped'))
-      this.broadcastRateLimitResolved(sessionId, action)
+      this.stopParked(sessionId)
       decided()
-      this.dropParkedSession(sessionId)
       return true
     }
 
@@ -70,6 +63,18 @@ export class RateLimitPark {
     this.releaseRateLimitQueue(sessionId, action)
     decided()
     return true
+  }
+
+  /** End the park: no prompt the limit holds resumes at the reset. */
+  stopParked(sessionId: string): void {
+    this.rt.sessionEmitter.resolveRateLimit(sessionId)
+    this.clearRateLimitTimer(sessionId)
+    this.rateLimits.clear(sessionId)
+    this.rt.statuses.setStatus(sessionId, 'idle')
+    this.rt.cancelRunExchanges(this.rt.activeRunRequests.get(sessionId))
+    this.rejectRateLimitQueue(sessionId, new Error('Rate-limited prompts stopped'))
+    this.broadcastRateLimitResolved(sessionId, 'stop')
+    this.dropParkedSession(sessionId)
   }
 
   currentRateLimitEvent(sessionId: string | null | undefined): Extract<NormalizedEvent, { type: 'rate_limit' }> | null {

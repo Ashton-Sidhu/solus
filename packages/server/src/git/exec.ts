@@ -26,7 +26,7 @@ export interface GitExecOptions {
   env?: NodeJS.ProcessEnv
   /** Stops the spawned process when the owning setup is interrupted. */
   signal?: AbortSignal
-  /** Timeout in ms. Defaults to 60s. */
+  /** Timeout in ms. Defaults to 60s; 0 sets no deadline, and only `signal` stops the command. */
   timeout?: number
   /** Max stdout bytes. Defaults to 64 MiB; raise for whole-repo diffs. */
   maxBuffer?: number

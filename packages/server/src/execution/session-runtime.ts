@@ -694,6 +694,14 @@ export class SessionRuntime extends EventEmitter {
       return true
     }
 
+    // A session parked on a rate limit has no run, only a prompt held for the
+    // reset. Stop releases nothing at the reset.
+    if (this.activeSessions.get(sessionId)?.status === 'rate_limited') {
+      if (actor.user || agent) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' }, undefined, agent)
+      this.rateLimitPark.stopParked(sessionId)
+      return true
+    }
+
     return !!moveController
   }
 
