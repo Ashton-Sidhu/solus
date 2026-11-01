@@ -63,10 +63,9 @@ test('the record service answers its own paths on a listener it does not own, an
     expect((await fetch(url + '/health')).status).toBe(200)
     // The site's paths never reach the record service.
     expect(await (await fetch(url + '/account')).text()).toBe('site')
-    // Engine.IO answers `/ws` before either handler: an unauthenticated poll is refused by the transport, not served as a page.
-    const poll = await fetch(url + '/ws/?EIO=4&transport=polling')
-    expect(poll.status).not.toBe(418)
-    expect(poll.status).not.toBe(404)
+    // The host socket answers `/ws` before either handler: a plain request is told to upgrade, not served as a page.
+    expect((await fetch(url + '/ws')).status).toBe(426)
+    expect((await fetch(url + '/ws/?v=1')).status).toBe(426)
     expect(service.server.hasHandler('prompt')).toBe(false)
     expect(service.server.hasHandler('automationRun')).toBe(false)
   } finally {

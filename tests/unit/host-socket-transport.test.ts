@@ -2,9 +2,9 @@ import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
 import { createServer as createNetServer } from 'node:net'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { io } from 'socket.io-client'
+import { WebSocket as RawSocket } from 'ws'
 import type { Doors } from '@solus/server/admission/doors'
-import { handshake } from './helpers/socket-handshake'
+import { dialTestSocket, handshake } from './helpers/socket-handshake'
 import { SOCKET_CONNECT_TIMEOUT_MS, WsTransport, type ConnectionStatus, type GrantSource } from '@solus/client-core/ws-transport'
 import { withBrowserCapabilities } from '@solus/client-core/ws-browser-api'
 import { UNREACHABLE_AFTER_MS } from '@solus/client-core/host-readiness'
@@ -13,6 +13,8 @@ import type { SolusAPI } from '../../src/preload'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import { readWav } from '@solus/server/transcription/wav'
+import { HOST_SOCKET_CLOSE, HOST_SOCKET_PROTOCOL_VERSION, serverFrameSchema, type ServerFrame } from '@solus/contracts/host-socket'
+import type { HostSocket } from '@solus/client-core/host-socket'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -21,6 +23,7 @@ const { issueSessionToken, resetAuthStateForTests, revokeDevice, verifySessionTo
 const { pairedPrincipalFor } = await import('@solus/server/admission/doors')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
+const { BrowserFrameChannel } = await import('@solus/server/browser/browser-frame-channel')
 const { HostEventPublisher } = await import('@solus/server/transport/events/host-event-publisher')
 const { attachWebSocketTransport, isLoopbackAddress } = await import('@solus/server/transport/websocket')
 const { PresenceManager } = await import('@solus/server/presence/presence-manager')
@@ -32,6 +35,7 @@ interface Harness {
   url: string
   events: InstanceType<typeof HostEventPublisher>
   transport: ReturnType<typeof attachWebSocketTransport>
+  browserFrames: InstanceType<typeof BrowserFrameChannel>
 }
 
 const cleanups: Array<() => void> = []
@@ -43,7 +47,7 @@ afterEach(() => {
   resetAuthStateForTests()
 })
 
-describe('Socket.IO transport', () => {
+describe('host socket transport', () => {
   test('an Uplink connection streams video larger than the RPC limit', async () => {
     const harness = await createHarness(true)
     let receivedBytes = 0
@@ -145,15 +149,7 @@ describe('Socket.IO transport', () => {
       },
     })
     for (const clientInstanceId of ['same_client_12345', 'same_client_12345', 'other_client_1234']) {
-      const socket = io(harness.url, {
-        path: '/ws', transports: ['websocket'], reconnection: false,
-        forceNew: true, auth: handshake(undefined, clientInstanceId),
-      })
-      cleanups.push(() => socket.disconnect())
-      await new Promise<void>((resolve, reject) => {
-        socket.once('connect', resolve)
-        socket.once('connect_error', reject)
-      })
+      expect((await dialTestSocket(harness.url, handshake(undefined, clientInstanceId), cleanups)).ok).toBe(true)
     }
     expect(harness.transport.sessions.size).toBe(3)
     expect((await presence.hostSnapshot()).participants).toHaveLength(2)
@@ -187,19 +183,9 @@ describe('Socket.IO transport', () => {
     // (docs/plans/simplify-auth-and-sync.md §3 rule 4); any other field is no credential.
     const harness = await createHarness(true)
     const sessionToken = issueSessionToken('Legacy browser').token
-    const socket = io(harness.url, {
-      path: '/ws',
-      transports: ['websocket'],
-      reconnection: false,
-      auth: { ...handshake(undefined, 'legacy_browser_1234'), token: sessionToken },
-    })
-    cleanups.push(() => socket.disconnect())
-
-    const error = await new Promise<Error & { data?: { code?: string } }>((resolve, reject) => {
-      socket.once('connect', () => reject(new Error('legacy handshake unexpectedly connected')))
-      socket.once('connect_error', resolve)
-    })
-    expect(error.data?.code).toBe('UNAUTHORIZED')
+    const legacy = { ...handshake(undefined, 'legacy_browser_1234'), token: sessionToken }
+    const dialed = await dialTestSocket(harness.url, legacy, cleanups)
+    expect(dialed.ok ? null : dialed.code).toBe('UNAUTHORIZED')
   })
 
   test('requeues an unanswered RPC across reconnect and runs its handler once', async () => {
@@ -445,8 +431,8 @@ describe('Socket.IO transport', () => {
   })
 
   test('a dial on a route that does not answer fails at the socket\'s short connect timeout', async () => {
-    // WHY: a host's LAN route seen from another network drops packets. socket.io waits
-    // 20s to call that a failure; the next dial's route choice needs the answer sooner.
+    // WHY: a host's LAN route seen from another network drops packets. A TCP connect can
+    // wait far longer to call that a failure; the next dial's route choice needs the answer sooner.
     const silent = createNetServer(() => {})
     await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
     cleanups.push(() => { silent.close() })
@@ -465,16 +451,16 @@ describe('Socket.IO transport', () => {
     // WHY: a socket lives no longer than its grant — revocation is grant expiry plus
     // a re-dial the revoked device cannot complete. Nothing else ends the socket.
     const harness = await createHarness(true)
-    const socket = io(harness.url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'access-token', token: 'grant:short-lived' }) })
-    cleanups.push(() => socket.disconnect())
-    const reasons: string[] = []
-    socket.on('disconnect', (reason) => reasons.push(reason))
-    await waitFor(() => socket.connected)
-    await waitFor(() => reasons.length === 1)
-    expect(reasons).toEqual(['io server disconnect'])
+    const dialed = await dialTestSocket(harness.url, handshake({ kind: 'access-token', token: 'grant:short-lived' }), cleanups)
+    if (!dialed.ok) throw new Error(dialed.message)
+    const codes: number[] = []
+    dialed.socket.onClose((close) => codes.push(close.code))
+    await waitFor(() => codes.length === 1)
+    expect(codes).toEqual([HOST_SOCKET_CLOSE.ended])
   })
 
-  test('replays CSR events without reset and resets after a fresh Socket.IO session', async () => {
+  test('replays the events a dropped socket missed without a reset, and resets when the host has no stream to resume', async () => {
+    // WHY: a reset makes every surface reload; a short drop must not cost that.
     const harness = await createHarness(false)
     const client = createClient(harness.url)
     const taskEvents: unknown[] = []
@@ -552,6 +538,98 @@ describe('Socket.IO transport', () => {
   })
 })
 
+describe('the host socket protocol', () => {
+  test('a socket is ready one round trip after it opens: the hello, then the welcome, with no other step', async () => {
+    // WHY: through a tunnel every round trip before the first RPC is a delay the person sees.
+    const harness = await createHarness(true)
+    harness.server.register('connectionsGetServerInfo', async () => ({ installationId: 'server-1' }))
+    const { socket, frames } = await rawSocket(harness.url)
+    socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, credential: { kind: 'access-token', token: 'grant:ready' } }))
+    await waitFor(() => frames.length === 1)
+    expect(frames[0]).toMatchObject({ t: 'welcome', recovered: false })
+
+    // The first RPC needs nothing more than the welcome.
+    socket.send(JSON.stringify({ t: 'rpc', id: '1', method: 'connectionsGetServerInfo', args: [] }))
+    await waitFor(() => frames.length === 2)
+    expect(frames[1]).toEqual({ t: 'result', id: '1', result: { installationId: 'server-1' } })
+  })
+
+  test('a refused credential gets a refused frame with its code, then the host closes the socket', async () => {
+    const harness = await createHarness(true)
+    const { socket, frames, closed } = await rawSocket(harness.url)
+    socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, credential: { kind: 'session-token', token: 'forged.token' } }))
+    expect(await closed).toBe(HOST_SOCKET_CLOSE.refused)
+    expect(frames).toEqual([{ t: 'refused', code: 'UNAUTHORIZED', message: 'unauthorized' }])
+    expect(harness.transport.sessions.size).toBe(0)
+  })
+
+  test('a frame before the hello is refused, and the RPC in it never runs', async () => {
+    // WHY: admission is the hello; a request that comes first has no principal to run as.
+    const harness = await createHarness(false)
+    let calls = 0
+    harness.server.register('connectionsGetServerInfo', async () => { calls++; return { installationId: 'server-1' } })
+    const { socket, frames, closed } = await rawSocket(harness.url)
+    socket.send(JSON.stringify({ t: 'rpc', id: '1', method: 'connectionsGetServerInfo', args: [] }))
+    expect(await closed).toBe(HOST_SOCKET_CLOSE.refused)
+    expect(frames).toEqual([{ t: 'refused', code: 'PROTOCOL', message: 'hello first' }])
+    expect(calls).toBe(0)
+  })
+
+  test('a hello for another protocol is refused', async () => {
+    const harness = await createHarness(false)
+    const { socket, frames, closed } = await rawSocket(harness.url)
+    socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION + 1 }))
+    expect(await closed).toBe(HOST_SOCKET_CLOSE.refused)
+    expect(frames).toEqual([{ t: 'refused', code: 'PROTOCOL', message: 'unsupported protocol' }])
+  })
+
+  test('a socket opened before the credential is ready is admitted when the late hello comes', async () => {
+    // WHY: the socket opens while the client signs in, so the open costs no time after the token arrives.
+    const harness = await createHarness(true)
+    let upgrades = 0
+    harness.http.on('upgrade', () => { upgrades++ })
+    let release!: () => void
+    const tokenReady = new Promise<void>((resolve) => { release = resolve })
+    const client = createClient(harness.url, { acquire: async () => { await tokenReady; return 'grant:late' } })
+    client.start()
+    await waitFor(() => upgrades === 1)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(harness.transport.sessions.size).toBe(0)
+    release()
+    await waitForStatus(client, 'connected')
+    expect(upgrades).toBe(1)
+  })
+
+  test('a client the host dropped dials again and calls go through on the new socket', async () => {
+    const harness = await createHarness(false)
+    harness.server.register('connectionsGetServerInfo', async () => ({ installationId: 'server-1' }))
+    const statuses: ConnectionStatus[] = []
+    const client = createClient(harness.url, { onStatusChange: (status) => statuses.push(status) })
+    client.start()
+    await waitForStatus(client, 'connected')
+    const firstSession = [...harness.transport.sessions.keys()][0]
+    expect(harness.transport.disconnectWhere(() => true, 'test drop')).toBe(1)
+    await waitFor(() => statuses.at(-1) === 'connected' && statuses.includes('reconnecting'))
+    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI.
+    const api = client.buildSolusApi() as SolusAPI
+    expect(await api.connectionsGetServerInfo()).toEqual({ installationId: 'server-1' })
+    expect([...harness.transport.sessions.keys()]).not.toContain(firstSession)
+    expect(statuses).toEqual(['connecting', 'connected', 'reconnecting', 'connected'])
+  })
+
+  test('a browser frame arrives as one binary frame with its header', async () => {
+    const harness = await createHarness(false)
+    const client = createClient(harness.url)
+    const received: Array<{ seq: number; bytes: number[] }> = []
+    client.frames.subscribe('page-1', (header, data) => received.push({ seq: header.seq, bytes: [...new Uint8Array(data)] }))
+    client.start()
+    await waitForStatus(client, 'connected')
+    harness.browserFrames.publish([`ws:local:${getClientInstanceId(client)}`], { browserPageId: 'page-1', seq: 4 }, new Uint8Array([255, 216, 1, 2]))
+    await waitFor(() => received.length === 1)
+    expect(received).toEqual([{ seq: 4, bytes: [255, 216, 1, 2] }])
+  })
+})
+
 async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost, lifecycle: Pick<Parameters<typeof attachWebSocketTransport>[2], 'onClientConnected' | 'onClientDisconnected'> = {}): Promise<Harness> {
   const http = createServer((_request, response) => {
     response.statusCode = 404
@@ -560,8 +638,10 @@ async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHo
   const server = new SolusServer()
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
+  const browserFrames = new BrowserFrameChannel()
   const transport = attachWebSocketTransport(http, server, {
     clientEvents,
+    browserFrames,
     requireAuth,
     doors: testDoors,
     ...lifecycle,
@@ -569,7 +649,7 @@ async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHo
   await new Promise<void>((resolve) => http.listen(0, bindHost, resolve))
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
-  const harness = { server, http, events, transport, url: `http://${urlHost}:${address.port}` }
+  const harness = { server, http, events, transport, browserFrames, url: `http://${urlHost}:${address.port}` }
   cleanups.push(() => transport.close())
   return harness
 }
@@ -623,14 +703,12 @@ function createClient(url: string, { acquire, ...overrides }: Partial<Constructo
   return client
 }
 
-function getClientSocket(client: WsTransport): { io: { engine: { close: () => void } }; _pid?: string } {
-  return (client as unknown as { socket: { io: { engine: { close: () => void } }; _pid?: string } }).socket
-}
-
+/** Drops the client's socket as a network does: the WebSocket closes under the transport. */
 function closeClientEngine(client: WsTransport, discardRecovery = false): void {
-  const socket = getClientSocket(client)
-  socket.io.engine.close()
-  if (discardRecovery) socket._pid = undefined
+  const transport = client as unknown as { socket: HostSocket | null; resume: object | null }
+  const socket = transport.socket as unknown as { ws: WebSocket } | null
+  socket?.ws.close()
+  if (discardRecovery) transport.resume = null
 }
 
 function getClientInstanceId(client: WsTransport): string {
@@ -639,11 +717,23 @@ function getClientInstanceId(client: WsTransport): string {
 
 function hasServerFrameCompression(harness: Harness): boolean {
   const session = [...harness.transport.sessions.values()][0]
-  const raw = (session.socket.conn.transport as unknown as {
-    socket?: { extensions?: unknown; _extensions?: { 'permessage-deflate'?: unknown } }
-  }).socket
-  if (typeof raw?.extensions === 'string') return raw.extensions.includes('permessage-deflate')
-  return !!raw?._extensions?.['permessage-deflate']
+  // `ws` names the negotiated extensions as a header string; Bun's `ws` as an object.
+  const extensions: unknown = session.socket.extensions
+  return typeof extensions === 'string' ? extensions.includes('permessage-deflate') : Object.keys(extensions ?? {}).includes('permessage-deflate')
+}
+
+/** A socket with no client logic: what it sends and what the host answers, frame by frame. */
+async function rawSocket(url: string): Promise<{ socket: RawSocket; frames: ServerFrame[]; closed: Promise<number> }> {
+  const socket = new RawSocket(`${url.replace('http', 'ws')}/ws`)
+  cleanups.push(() => socket.terminate())
+  const frames: ServerFrame[] = []
+  socket.on('message', (data) => {
+    const frame = serverFrameSchema.safeParse(JSON.parse(data.toString()))
+    if (frame.success) frames.push(frame.data)
+  })
+  const closed = new Promise<number>((resolve) => socket.once('close', (code) => resolve(code)))
+  await new Promise<void>((resolve, reject) => { socket.once('open', () => resolve()); socket.once('error', reject) })
+  return { socket, frames, closed }
 }
 
 

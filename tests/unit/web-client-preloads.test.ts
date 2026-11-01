@@ -43,7 +43,9 @@ test('the HTML lists the workspace startup graph and its CSS between the markers
   const html = '<head><script type="module" crossorigin src="/assets/index.js"></script><link rel="modulepreload" crossorigin href="/assets/shared.js"></head>'
   const out = hook.handler(html, { bundle })
   const block = /<!--solus:workspace-preloads-->(.*)<!--\/solus:workspace-preloads-->/.exec(out)?.[1] ?? ''
-  expect([...block.matchAll(/rel="modulepreload" crossorigin href="([^"]+)"/g)].map((match) => match[1])).toEqual(['/assets/App.js', '/assets/store.js', '/assets/deep.js'])
-  expect(block).toContain('rel="preload" as="style" crossorigin href="/assets/App.css"')
+  // Low priority, so the entry script and the first token request are not starved (docs/plans/fast-secure-startup.md, step 3).
+  expect([...block.matchAll(/rel="modulepreload" fetchpriority="low" crossorigin href="([^"]+)"/g)].map((match) => match[1])).toEqual(['/assets/App.js', '/assets/store.js', '/assets/deep.js'])
+  expect(block).toContain('rel="preload" as="style" fetchpriority="low" crossorigin href="/assets/App.css"')
+  expect(out).toContain('<script type="module" crossorigin src="/assets/index.js">')
   expect(block).not.toContain('Settings')
 })

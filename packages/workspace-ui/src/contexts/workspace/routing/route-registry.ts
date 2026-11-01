@@ -432,8 +432,8 @@ export const ROUTES: RouteTable = {
     },
     serialize: (p) => serializeScopedId(p.workId, p.serverId),
     placement: 'surface',
-    // The pane shell mounts WorkPane eagerly: it owns the loading state for the
-    // content read, so there is no module boundary to cover in front of it.
+    // The pane shell loads WorkPane itself, behind the skeleton the pane draws
+    // for its content read.
   },
   automation: {
     parse: (s) => {

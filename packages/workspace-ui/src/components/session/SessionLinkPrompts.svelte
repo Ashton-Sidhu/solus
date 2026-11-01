@@ -1,7 +1,5 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../../contexts";
-  import LinkPullRequestDialog from "./LinkPullRequestDialog.svelte";
-  import LinkSessionTaskDialog from "./LinkSessionTaskDialog.svelte";
 
   /**
    * The link prompts that a row's menu opens (`WorkspaceUiStore.linkPrompt`).
@@ -13,10 +11,20 @@
   const close = () => (session.ui.linkPrompt = null);
 </script>
 
+<!-- Each dialog loads when a menu first opens it. -->
 {#if prompt?.kind === "session-task" && session.tabs[prompt.tabId]}
-  <LinkSessionTaskDialog tabId={prompt.tabId} onClose={close} />
+  {@const tabId = prompt.tabId}
+  {#await import("./LinkSessionTaskDialog.svelte") then { default: LinkSessionTaskDialog }}
+    <LinkSessionTaskDialog {tabId} onClose={close} />
+  {/await}
 {:else if prompt?.kind === "session-pull-request" && session.tabs[prompt.tabId]}
-  <LinkPullRequestDialog owner={{ kind: "session", tabId: prompt.tabId }} onClose={close} />
+  {@const tabId = prompt.tabId}
+  {#await import("./LinkPullRequestDialog.svelte") then { default: LinkPullRequestDialog }}
+    <LinkPullRequestDialog owner={{ kind: "session", tabId }} onClose={close} />
+  {/await}
 {:else if prompt?.kind === "task-pull-request"}
-  <LinkPullRequestDialog owner={{ kind: "task", taskId: prompt.taskId }} onClose={close} />
+  {@const taskId = prompt.taskId}
+  {#await import("./LinkPullRequestDialog.svelte") then { default: LinkPullRequestDialog }}
+    <LinkPullRequestDialog owner={{ kind: "task", taskId }} onClose={close} />
+  {/await}
 {/if}

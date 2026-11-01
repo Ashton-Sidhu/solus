@@ -36,6 +36,7 @@ import { ATLASSIAN_CALLBACK_PATH, answerOAuthCallback as answerAtlassianOAuthCal
 import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
+import { HOST_SOCKET_PROTOCOL_VERSION } from '@solus/contracts/host-socket'
 import { parseByteRange } from '../data/assets/byte-range'
 import { serveAssetToken } from '../data/assets/assets'
 import { getAssetSigningSecret } from '../admission/signed-token'
@@ -46,6 +47,7 @@ import { hostDisplayName } from '../platform/host-display-name'
 import { hostIdentity } from '../host/host-identity'
 import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_OUTCOME_HEADER } from '@solus/contracts/webhooks'
 import type { WebhookReceiver } from '../execution/webhooks/receiver'
+import { couldBeForgedByWebPage } from './web-page-requests'
 
 const log = createLogger('main', 'http')
 
@@ -134,7 +136,7 @@ export const HTTP_SERVER_TIMEOUTS = { requestTimeout: 30_000, headersTimeout: 15
 
 /**
  * Builds the HTTP server. Returns a node http.Server that the caller
- * `.listen()`s separately. Engine.IO intercepts `/ws` requests on this server
+ * `.listen()`s separately. The host socket takes `/ws` upgrades on this server
  * before they reach Hono.
  *
  * Routing/CORS/body-parsing/static-serving are handled by Hono; the raw Node
@@ -228,7 +230,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       admission: workspaceAdmissionFor(opts, doors), operations: opts.solusApi.operations,
       capabilities: { serviceId: opts.solusApi.serviceId, mode: opts.isApiMode ? 'solus-api' : 'combined-host',
         apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'notifications', ...(opts.isApiMode ? ['insights' as const] : [])],
-        events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } },
+        events: { transport: 'websocket', relativePath: '/ws', protocolVersion: HOST_SOCKET_PROTOCOL_VERSION } },
       openApi: () => spec,
     })
     app.route('/v1', solusApiRouter)
@@ -238,6 +240,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
    *  loopback on the wire and gets no relaxation of any kind. */
   const authRequiredFor = async (c: Ctx): Promise<boolean> => {
     if (viaTunnel(c)) return true
+    // A page on another site, or a DNS-rebound name, never acts without a credential.
+    if (couldBeForgedByWebPage({ host: c.req.header('host'), origin: c.req.header('origin') })) return true
     if (!(opts.requireAuth?.() ?? true)) return false
     if (!opts.isTrustedRequester) return true
     return !(await opts.isTrustedRequester(clientIp(c)))

@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { PanelLeft as SidebarSimpleIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { getClientShellContext } from "../../contexts";
+  import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
   import * as Sidebar from "../ui/sidebar";
 
   interface Props {

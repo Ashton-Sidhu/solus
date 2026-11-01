@@ -114,7 +114,8 @@ describe('native mobile import boundary', () => {
     expect(files).toContain('packages/client-core/src/ws-transport.ts')
     expect(files).toContain('packages/client-core/src/host-supervisor.ts')
     expect(files).toContain('packages/client-core/src/send-outbox.ts')
-    expect(graph.packages.has('socket.io-client')).toBe(true)
+    // The platform WebSocket carries the host socket; no socket library ships in the app.
+    expect(files).toContain('packages/client-core/src/host-socket.ts')
   })
 
   test('no Svelte, Electron, server, or browser-only client module is loaded', () => {

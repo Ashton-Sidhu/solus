@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { oauthUplinkAccountSource } from '@solus/client-core/uplink-session'
+import { webUplinkAccountSource } from '@solus/client-core/uplink-session'
 
 const session = { accessToken: async () => 'account-token' }
-const accountSource = (origin: string, fetchImpl: typeof fetch) => oauthUplinkAccountSource(origin, session, fetchImpl)
+const accountSource = (origin: string, fetchImpl: typeof fetch) => webUplinkAccountSource(origin, session, fetchImpl)
 
 // docs/plans/project-model.md §6: a member's cloud work routes to the Cloud host
 // when their machines are off, and a stopped Cloud host is started on Send. On the

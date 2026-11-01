@@ -39,69 +39,12 @@
         } catch (e) {}
       })()
     </script>
-    <style>
-      /*
-        Static boot shell: a branded, themed first paint that appears before the
-        JS bundle evaluates and mounts the app — matching the "instant" feel of a
-        pre-rendered splash. main.ts leaves it in place for the local path and
-        removes it on mount (root.innerHTML = ''); remote/error states replace it
-        with the connecting card. The background lives on the shell so the app
-        owns the complete first paint.
-      */
-      /*
-        Background and mark geometry are the handoff contract with boot-scene.ts:
-        it re-renders this exact field, at this exact size and centre, so the
-        splash gains detail instead of repainting. --solus-edge-bg literals,
-        because index.css has not loaded yet.
-      */
-      #solus-boot-shell {
-        position: fixed;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        background: #21201d;
-        z-index: 2147483647;
-      }
-      html.light #solus-boot-shell {
-        background: #fbfaf6;
-      }
-      #solus-boot-shell svg {
-        width: 5.25rem;
-        height: 5.25rem;
-        animation: solus-boot-breathe 1.8s ease-in-out infinite;
-      }
-      @keyframes solus-boot-breathe {
-        0%,
-        100% {
-          opacity: 0.4;
-          transform: scale(0.97);
-        }
-        50% {
-          opacity: 0.95;
-          transform: scale(1);
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #solus-boot-shell svg {
-          animation: none;
-          opacity: 0.9;
-        }
-      }
-    </style>
   </head>
   <body style="background: transparent !important;">
-    <div id="root">
-      <div id="solus-boot-shell">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true">
-          <circle cx="512" cy="512" r="180" fill="#B45A3C" />
-          <g fill="none" stroke="#D97757" stroke-width="60" stroke-linecap="round">
-            <path d="M512,212 A300,300 0 0 1 812,512" />
-            <path d="M764,716 A300,300 0 0 1 416,800" />
-            <path d="M260,716 A300,300 0 0 1 212,416" />
-          </g>
-        </svg>
-      </div>
-    </div>
+    <!-- scripts/vite-boot-splash.ts writes the boot splash into #root. main.ts
+         removes it when the app mounts. On a boot failure, boot-scene.ts draws
+         its mark again. -->
+    <div id="root"></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

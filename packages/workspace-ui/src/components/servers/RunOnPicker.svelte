@@ -38,7 +38,6 @@
     isManagedHost,
   } from "./lib/managed-host";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
-  import CopiedFilesDialog from "./CopiedFilesDialog.svelte";
   import { checkoutGit, checkoutPlace, dispatchTo, openFolder, pendingClone, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
@@ -187,9 +186,12 @@
       : null,
   );
   let copiedFilesOpen = $state(false);
+  // The dialog loads on its first open and then stays mounted, so it can close.
+  let copiedFilesRequested = $state(false);
 
   function configureCopiedFiles() {
     open = false;
+    copiedFilesRequested = true;
     copiedFilesOpen = true;
   }
 
@@ -546,11 +548,13 @@
   {/if}
 {/if}
 
-{#if copiedFilesHome}
-  <CopiedFilesDialog
-    bind:open={copiedFilesOpen}
-    serverId={copiedFilesHome.serverId}
-    cwd={copiedFilesHome.path}
-    onClose={() => (onDismiss ? onDismiss() : requestInputFocus())}
-  />
+{#if copiedFilesHome && copiedFilesRequested}
+  {#await import("./CopiedFilesDialog.svelte") then { default: CopiedFilesDialog }}
+    <CopiedFilesDialog
+      bind:open={copiedFilesOpen}
+      serverId={copiedFilesHome.serverId}
+      cwd={copiedFilesHome.path}
+      onClose={() => (onDismiss ? onDismiss() : requestInputFocus())}
+    />
+  {/await}
 {/if}

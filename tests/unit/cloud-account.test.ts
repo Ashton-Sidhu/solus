@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { configureCloudAccount, oauthCloudAccount, startupAccountRead, type CloudAccountSession } from '@solus/client-core/cloud-account'
+import { configureCloudAccount, webCloudAccount, startupAccountRead, type CloudAccountSession } from '@solus/client-core/cloud-account'
 import type { TokenResource } from '@solus/contracts/auth/clients'
 
 // The web client at a Solus Cloud origin reads and ends onboarding for the account,
@@ -23,17 +23,14 @@ function fakeSession(token: string | null = 'account-token') {
   let signedOut = false
   const session: CloudAccountSession = {
     accessToken: async (resource) => { asked.push(resource); return signedOut ? null : token },
-    signOut: async () => { signedOut = true },
+    signOut: async () => { signedOut = true; return true },
     state: () => ({ kind: 'signed-out' }),
     onChange: () => () => {},
-    takeStartupAccount: () => null,
-    takeStartupDirectory: () => null,
-    takeStartupSettings: async () => null,
   }
   return { session, asked, isSignedOut: () => signedOut }
 }
 
-const signedInAccount = (origin: string, fetchImpl: typeof fetch) => oauthCloudAccount(origin, fakeSession().session, fetchImpl)
+const signedInAccount = (origin: string, fetchImpl: typeof fetch) => webCloudAccount(origin, fakeSession().session, fetchImpl)
 
 describe('the cloud account source', () => {
   test('cloud agent status reads the seat refs of the account vault, never an execution host', async () => {
@@ -120,25 +117,20 @@ describe('the cloud account source', () => {
   test('calls ask the sign-in for an account-plane token, and none is sent when there is none', async () => {
     const fake = fakeSession()
     const { calls, fetchImpl } = recordingFetch(() => Response.json({}))
-    await oauthCloudAccount(ORIGIN, fake.session, fetchImpl).readAccount()
+    await webCloudAccount(ORIGIN, fake.session, fetchImpl).readAccount()
     expect(fake.asked).toEqual([{ kind: 'account' }])
     const signedOut = recordingFetch(() => Response.json({}))
-    expect(await oauthCloudAccount(ORIGIN, fakeSession(null).session, signedOut.fetchImpl).readAccount()).toBeNull()
+    expect(await webCloudAccount(ORIGIN, fakeSession(null).session, signedOut.fetchImpl).readAccount()).toBeNull()
     expect(signedOut.calls).toEqual([])
     expect(calls).toHaveLength(1)
   })
 
-  test('sign-out ends the client grant, then the website cookie, so the page does not sign itself in again', async () => {
+  test('sign-out is the page sign-in\'s own: it ends the website session, which ends the grant', async () => {
+    // WHY (fast-secure-startup.md): the account origin holds the web grant for the session; one sign-out ends both.
     const fake = fakeSession()
-    const sent: Array<{ url: string; credentials: RequestCredentials | undefined }> = []
-    const fetchImpl = (async (input: string | URL | Request, init: RequestInit = {}) => {
-      sent.push({ url: String(input), credentials: init.credentials })
-      return new Response(null, { status: 200 })
-    }) as typeof fetch
-    const source = oauthCloudAccount(ORIGIN, fake.session, fetchImpl)
+    const source = webCloudAccount(ORIGIN, fake.session, (async () => { throw new Error('the account sends nothing itself') }) as typeof fetch)
     expect(await source.signOut()).toBe(true)
     expect(fake.isSignedOut()).toBe(true)
-    expect(sent).toEqual([{ url: `${ORIGIN}/api/auth/sign-out`, credentials: 'same-origin' }])
     expect(source.consoleUrl).toBe(ORIGIN)
   })
 

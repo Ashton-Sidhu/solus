@@ -14,8 +14,9 @@ import type { AccountSettingsResponse } from '@solus/contracts/settings'
  * One sign-in of one Solus client to the account plane
  * (docs/adr/0001-standard-authentication.md §3.2): the authorization code with PKCE
  * through the system browser, OIDC identity, and access tokens. Desktop main, mobile,
- * web, and the CLI use this one implementation; each gives its platform parts
- * (`BrowserAuthorizer`, `TokenStore`) and its `fetch` and clock.
+ * and the CLI use this one implementation; each gives its platform parts
+ * (`BrowserAuthorizer`, `TokenStore`) and its `fetch` and clock. The web client holds no
+ * grant: the account origin holds it for the website session (`web-token-session.ts`).
  *
  * A client holds one grant (docs/plans/simplify-auth-and-sync.md §3 rules 1 and 2):
  * - sign-in gives the servers token for the account plane and the Solus API together.
@@ -90,22 +91,11 @@ export interface OAuthSessionDeps {
   cloudOrigin: string
   clientId: string
   store: TokenStore
-  /** Absent where the client runs the browser step itself (web: a top-level redirect). */
+  /** Absent where the client has no browser step (the CLI's device grant). */
   authorizer?: BrowserAuthorizer
   fetch: FetchLike
   now: () => number
   log?: OAuthSessionLog
-  /**
-   * Set where several instances hold one grant at once (the web's tabs). Without it,
-   * this instance is the grant's only refresher and keeps its tokens to itself.
-   */
-  sharing?: GrantSharing
-  /**
-   * The provider's metadata when the platform already holds it: the web shell on the
-   * account origin carries it (docs/plans/instant-share-open.md). Its issuer is
-   * checked as a read one's is; one for another issuer is read from the issuer instead.
-   */
-  knownDiscovery?: Discovery
   /** Defaults to Web Crypto; a platform without it gives its own. */
   randomBytes?: (length: number) => Uint8Array
   sha256?: (data: Uint8Array) => Promise<Uint8Array>
@@ -182,37 +172,16 @@ const idTokenSchema = z.object({
   nonce: z.string().optional(),
 })
 
-export interface CachedToken {
+interface CachedToken {
   token: string
   expiresAt: number
-}
-
-/** Access tokens by resource URI. */
-export interface TokenCache {
-  get(uri: string): CachedToken | undefined
-  set(uri: string, token: CachedToken): void
-  delete(uri: string): void
-  clear(): void
-}
-
-/**
- * One grant held by several instances at once (docs/plans/instant-share-open.md):
- * the web's tabs share the sign-in in `localStorage`. The refresh token rotates and a
- * replay ends the grant (ADR 0001 §5), so a refresh runs only while no other instance
- * refreshes, and starts from the grant as stored, which another may have rotated. The
- * servers token any instance mints is shared too. Host tokens are exchanges, which
- * rotate nothing: each instance makes its own, with no lock.
- */
-export interface GrantSharing {
-  /** Runs `refresh` while no other instance runs one. */
-  exclusive<T>(refresh: () => Promise<T>): Promise<T>
-  tokens: TokenCache
 }
 
 export class OAuthSession {
   private current: AccountState
   private grant: StoredGrant | null
-  private readonly cache: TokenCache
+  /** The servers token, by its cache key. */
+  private readonly cache = new Map<string, CachedToken>()
   private startupAccount: AccountResponse | null = null
   private startupSettings: NonNullable<OAuthTokenResponse['startup']>['settings'] | undefined
   private startupDirectory: DirectoryResponse | null = null
@@ -220,7 +189,7 @@ export class OAuthSession {
   private readonly inFlight = new Map<string, Promise<string | null>>()
   /** The last refusal for each resource, until a token for it is issued or the grant changes. */
   private readonly refusals = new Map<string, ResourceRefusal>()
-  /** Host tokens by resource URI: an exchange, never shared with other instances (`GrantSharing`). */
+  /** Host tokens by resource URI: each one an exchange of the servers token. */
   private readonly hostTokens = new Map<string, CachedToken>()
   private readonly hostExchanges = new Map<string, Promise<string | null>>()
   /** Every refresh runs after the one before it: the rotated refresh token is the next one's input. */
@@ -231,16 +200,8 @@ export class OAuthSession {
   private readonly listeners = new Set<(state: AccountState) => void>()
 
   constructor(private readonly deps: OAuthSessionDeps) {
-    this.cache = deps.sharing?.tokens ?? new Map<string, CachedToken>()
     this.grant = deps.store.load()
     this.current = this.grant ? this.signedIn(this.grant, false) : { kind: 'signed-out' }
-    if (deps.knownDiscovery !== undefined) {
-      try {
-        this.discoveryRead = Promise.resolve(this.fromIssuer(deps.knownDiscovery))
-      } catch (error) {
-        this.log('warn', 'oauth_known_discovery_refused', { reason: String(error) })
-      }
-    }
   }
 
   state(): AccountState {
@@ -291,31 +252,6 @@ export class OAuthSession {
     this.setState(this.signedIn(grant, false))
   }
 
-  /**
-   * Takes the grant as another instance stored it (`GrantSharing`): its rotated
-   * refresh token, a sign-in made there, or no grant after a sign-out there. The web
-   * calls it when another tab writes the store, and every refresh calls it first.
-   */
-  syncWithStore(): void {
-    const stored = this.deps.store.load()
-    if (stored?.refreshToken === this.grant?.refreshToken) return
-    this.clearStartup()
-    if (!stored) {
-      this.grant = null
-      this.refusals.clear()
-      this.hostTokens.clear()
-      this.setState({ kind: 'signed-out' })
-      return
-    }
-    // A sign-in as another person drops this instance's tokens; a rotation keeps the shared ones.
-    if (stored.identity.sub !== this.grant?.identity.sub) {
-      this.refusals.clear()
-      this.hostTokens.clear()
-    }
-    this.grant = stored
-    this.setState(this.signedIn(stored, false))
-  }
-
   /** The browser step and the code exchange. */
   async signIn(): Promise<SignInEnd> {
     const authorizer = this.deps.authorizer
@@ -360,11 +296,8 @@ export class OAuthSession {
     this.restoreAfterSignIn()
   }
 
-  /**
-   * The authorize request, with a new `state`, `nonce`, and PKCE verifier. The web
-   * client calls it itself and sends it with one fetch (`resumeWebSignIn`).
-   */
-  async beginSignIn(redirectUri: string, options: { prompt?: 'none' } = {}): Promise<{ authorizeUrl: URL; pending: PendingSignIn }> {
+  /** The authorize request, with a new `state`, `nonce`, and PKCE verifier. */
+  async beginSignIn(redirectUri: string): Promise<{ authorizeUrl: URL; pending: PendingSignIn }> {
     const discovery = await this.discovery()
     const pending: PendingSignIn = {
       state: this.randomToken(),
@@ -385,7 +318,6 @@ export class OAuthSession {
     query.set('code_challenge_method', 'S256')
     query.append('resource', ACCOUNT_AUDIENCE)
     query.append('resource', SOLUS_API_AUDIENCE)
-    if (options.prompt) query.set('prompt', options.prompt)
     this.setState({ kind: 'signing-in', authorizeUrl: authorizeUrl.toString() })
     this.log('info', 'oauth_sign_in_started')
     return { authorizeUrl, pending }
@@ -488,7 +420,7 @@ export class OAuthSession {
     return this.hostToken(uri)
   }
 
-  /** The token for both our servers: one refresh, under the grant's lock, for every caller. */
+  /** The token for both our servers: one refresh for every caller. */
   private serversToken(): Promise<string | null> {
     const cached = this.cache.get(SERVERS_TOKEN_KEY)
     if (cached && this.isFresh(cached)) return Promise.resolve(cached.token)
@@ -561,20 +493,7 @@ export class OAuthSession {
     this.setState(this.signedIn(this.grant, false))
   }
 
-  private refresh(): Promise<string | null> {
-    const sharing = this.deps.sharing
-    if (!sharing) return this.refreshWith()
-    return sharing.exclusive(async () => {
-      // Another instance may have refreshed while this one waited: its grant is the one
-      // to present, and the token it minted may be the one asked for.
-      this.syncWithStore()
-      const minted = this.cache.get(SERVERS_TOKEN_KEY)
-      if (minted && this.isFresh(minted)) return minted.token
-      return this.refreshWith()
-    })
-  }
-
-  private async refreshWith(): Promise<string | null> {
+  private async refresh(): Promise<string | null> {
     const grant = this.grant
     if (!grant || this.isEnding) return null
     let response: Response

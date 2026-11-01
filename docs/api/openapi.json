@@ -59,7 +59,7 @@
                       "properties": {
                         "transport": {
                           "type": "string",
-                          "const": "socket.io"
+                          "const": "websocket"
                         },
                         "relativePath": {
                           "type": "string",

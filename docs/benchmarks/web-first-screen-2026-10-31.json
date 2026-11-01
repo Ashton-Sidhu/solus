@@ -1,0 +1,157 @@
+{
+  "date": "2026-10-31",
+  "measures": "node scripts/bench-web-load.ts before=<build> after=<build> --runs 7 --profile <p>, one session per profile. before = solus/fast-secure-startup at 1302a3da1; after = the same with step 5 (the empty workspace in the HTML). No host and no sign-in: both builds end on the hostless page, so 'before' paints only after the workspace code (the hostless page is the first content).",
+  "webkitPaintGate": "WebKit paints nothing until the page is 'visually non-empty' (more than 200 characters of text, or more than 1024 px2 of inline SVG; an img that is still loading did not count) or no script, style, or font load is pending. The HTML's startup preloads stay pending until about the solus:workspace-code mark. Probe with every script held 1 s: frame as built 11.1 s; frame without the preload block 1.04 s; frame plus a 40x40 inline SVG 0.12 s; frame plus 300 characters of text 0.12 s.",
+  "profiles": {
+    "slow": {
+      "network": {
+        "roundTripMs": 300,
+        "megabitsPerSecond": 1.5,
+        "cpuSlowdown": 4
+      },
+      "runs": 7,
+      "results": [
+        {
+          "build": "before",
+          "engine": "chromium",
+          "firstPaintMedianMs": 5352,
+          "medianMs": 4471,
+          "minMs": 4469,
+          "maxMs": 4486,
+          "requests": 96,
+          "transferredKb": 752
+        },
+        {
+          "build": "after",
+          "engine": "chromium",
+          "firstPaintMedianMs": 1088,
+          "medianMs": 4487,
+          "minMs": 4484,
+          "maxMs": 4492,
+          "requests": 72,
+          "transferredKb": 703
+        },
+        {
+          "build": "before",
+          "engine": "webkit",
+          "firstPaintMedianMs": 5056,
+          "medianMs": 4417,
+          "minMs": 4407,
+          "maxMs": 4429,
+          "requests": 87,
+          "transferredKb": 747
+        },
+        {
+          "build": "after",
+          "engine": "webkit",
+          "firstPaintMedianMs": 4412,
+          "medianMs": 4437,
+          "minMs": 4430,
+          "maxMs": 4440,
+          "requests": 72,
+          "transferredKb": 702
+        }
+      ]
+    },
+    "fast": {
+      "network": {
+        "roundTripMs": 40,
+        "megabitsPerSecond": 20,
+        "cpuSlowdown": 1
+      },
+      "runs": 7,
+      "results": [
+        {
+          "build": "before",
+          "engine": "chromium",
+          "firstPaintMedianMs": 496,
+          "medianMs": 402,
+          "minMs": 398,
+          "maxMs": 418,
+          "requests": 97,
+          "transferredKb": 752
+        },
+        {
+          "build": "after",
+          "engine": "chromium",
+          "firstPaintMedianMs": 224,
+          "medianMs": 400,
+          "minMs": 400,
+          "maxMs": 404,
+          "requests": 73,
+          "transferredKb": 709
+        },
+        {
+          "build": "before",
+          "engine": "webkit",
+          "firstPaintMedianMs": 490,
+          "medianMs": 421,
+          "minMs": 420,
+          "maxMs": 431,
+          "requests": 84,
+          "transferredKb": 743
+        },
+        {
+          "build": "after",
+          "engine": "webkit",
+          "firstPaintMedianMs": 400,
+          "medianMs": 425,
+          "minMs": 423,
+          "maxMs": 431,
+          "requests": 73,
+          "transferredKb": 708
+        }
+      ]
+    },
+    "local": {
+      "network": {
+        "roundTripMs": 0,
+        "megabitsPerSecond": 100000,
+        "cpuSlowdown": 1
+      },
+      "runs": 7,
+      "results": [
+        {
+          "build": "before",
+          "engine": "chromium",
+          "firstPaintMedianMs": 176,
+          "medianMs": 146,
+          "minMs": 140,
+          "maxMs": 239,
+          "requests": 105,
+          "transferredKb": 884
+        },
+        {
+          "build": "after",
+          "engine": "chromium",
+          "firstPaintMedianMs": 124,
+          "medianMs": 148,
+          "minMs": 142,
+          "maxMs": 155,
+          "requests": 78,
+          "transferredKb": 732
+        },
+        {
+          "build": "before",
+          "engine": "webkit",
+          "firstPaintMedianMs": 183,
+          "medianMs": 129,
+          "minMs": 127,
+          "maxMs": 166,
+          "requests": 106,
+          "transferredKb": 898
+        },
+        {
+          "build": "after",
+          "engine": "webkit",
+          "firstPaintMedianMs": 183,
+          "medianMs": 130,
+          "minMs": 127,
+          "maxMs": 135,
+          "requests": 106,
+          "transferredKb": 898
+        }
+      ]
+    }
+  }
+}

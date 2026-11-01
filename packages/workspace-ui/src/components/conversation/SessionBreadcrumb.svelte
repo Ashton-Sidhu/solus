@@ -44,8 +44,6 @@
   import * as Command from "../ui/command";
   import { MenuSearch } from "../ui/menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import SessionContextMenu from "../session/SessionContextMenu.svelte";
-  import LinkSessionTaskDialog from "../session/LinkSessionTaskDialog.svelte";
   import TaskPicker from "../input/TaskPicker.svelte";
   import type { PaneId } from "../../contexts/workspace/routing/location";
   import TaskIcon from "../ui/TaskIcon.svelte";
@@ -923,13 +921,15 @@
         <TaskIcon size={16} />
       </button>
       {#if taskLinkOpen && taskLinkAnchor}
-        <LinkSessionTaskDialog
-          {tabId}
-          anchor={taskLinkAnchor}
-          onClose={() => {
-            taskLinkOpen = false;
-          }}
-        />
+        {#await import("../session/LinkSessionTaskDialog.svelte") then { default: LinkSessionTaskDialog }}
+          <LinkSessionTaskDialog
+            {tabId}
+            anchor={taskLinkAnchor}
+            onClose={() => {
+              taskLinkOpen = false;
+            }}
+          />
+        {/await}
       {/if}
     {/if}
 
@@ -1014,35 +1014,38 @@
 
   {#if contextMenu?.kind === "session"}
     {@const menuChild = contextMenu.child}
+    {@const menuAt = { x: contextMenu.x, y: contextMenu.y }}
     <!-- Completion belongs to a session's own row, as in the sidebar. -->
     {@const menuSessionRow = menuChild.tabId
       ? sidebarStore.taskForTab(menuChild.tabId)
       : null}
-    <SessionContextMenu
-      x={contextMenu.x}
-      y={contextMenu.y}
-      tabId={menuChild.tabId ?? null}
-      sessionId={menuChild.sessionId ?? null}
-      showSplit
-      onStartRename={(target) => {
-        // The leaf is the only session the band draws, so only it can turn into
-        // a field. Renaming any other session picked from the dropdown keeps the
-        // dialog — there is no in-place row for it once the menu has closed.
-        if (target === tabId) renamingTabId = target;
-        else session.ui.sessionRename = { tabId: target };
-      }}
-      rowActions={{
-        onStop:
-          menuChild.tabId && menuChild.attention === "running"
-            ? () => session.controls.interruptTabSession(menuChild.tabId!)
+    {#await import("../session/SessionContextMenu.svelte") then { default: SessionContextMenu }}
+      <SessionContextMenu
+        x={menuAt.x}
+        y={menuAt.y}
+        tabId={menuChild.tabId ?? null}
+        sessionId={menuChild.sessionId ?? null}
+        showSplit
+        onStartRename={(target) => {
+          // The leaf is the only session the band draws, so only it can turn into
+          // a field. Renaming any other session picked from the dropdown keeps the
+          // dialog — there is no in-place row for it once the menu has closed.
+          if (target === tabId) renamingTabId = target;
+          else session.ui.sessionRename = { tabId: target };
+        }}
+        rowActions={{
+          onStop:
+            menuChild.tabId && menuChild.attention === "running"
+              ? () => session.controls.interruptTabSession(menuChild.tabId!)
+              : undefined,
+          done: menuSessionRow?.status === "done",
+          onToggleDone: menuSessionRow
+            ? () => void completeTask(menuSessionRow)
             : undefined,
-        done: menuSessionRow?.status === "done",
-        onToggleDone: menuSessionRow
-          ? () => void completeTask(menuSessionRow)
-          : undefined,
-      }}
-      onClose={() => (contextMenu = null)}
-    />
+        }}
+        onClose={() => (contextMenu = null)}
+      />
+    {/await}
   {/if}
 {/if}
 

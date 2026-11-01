@@ -134,7 +134,7 @@ one-second lock timeout. These limits bound work; they are not a throughput SLA.
 
 The standalone entry branches to `boot-solus-api.ts` for `SOLUS_API=1`
 before loading the execution composition. It registers data HTTP routes, scoped
-Socket.IO events, stored-session reads, sharing, project directory, shared-prompt
+host socket events, stored-session reads, sharing, project directory, shared-prompt
 relay, and runner intake. It creates no SessionRuntime, agent backends, browser
 host, or automation scheduler. Host-owned execution and provider features stay
 on an execution host.

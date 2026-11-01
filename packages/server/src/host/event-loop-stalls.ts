@@ -24,7 +24,7 @@ export interface StallMonitorOptions {
 
 /**
  * Finds stalls of this host's event loop from how late a coarse timer fires.
- * A stall over the Socket.IO ping timeout drops every client, and a client
+ * A stall over the host socket's ping timeout drops every client, and a client
  * cannot tell that from a network drop. The monitor keeps the last stall of
  * 5 s or more, so the host can say why when the client comes back.
  */

@@ -69,20 +69,19 @@ export class DevicesStore {
   private projectReads = new Set<string>()
   private loadVersions = new Map<string, number>()
 
-  /** Set by the shell: a session's device asked to be shown. */
-  onSurfaceRequested: ((serverId: string, payload: { sessionId: string; devicePreviewId: string; openedBy: 'user' | 'agent' }) => void) | null = null
-
-  subscribe(): () => void {
-    const unsubscribers = [
-      subscribeAllHosts('device.stateChanged', (serverId, { state }) => this.adopt(serverId, state, false)),
-      subscribeAllHosts('device.surfaceRequested', (serverId, payload) => this.onSurfaceRequested?.(serverId, payload)),
-      serverConnections.onReadinessChange((serverId, status) => {
-        if (status !== 'ready') return
-        void this.load(serverId)
-      }),
-    ]
-    return () => {
-      for (const unsubscribe of unsubscribers) unsubscribe()
+  /**
+   * Follow every host for the app's lifetime. The store loads on first use
+   * (`device-feature.ts`), after hosts can already be ready, so it also reads
+   * each host that is ready now instead of waiting for a readiness change.
+   */
+  follow(): void {
+    subscribeAllHosts('device.stateChanged', (serverId, { state }) => this.adopt(serverId, state, false))
+    serverConnections.onReadinessChange((serverId, status) => {
+      if (status !== 'ready') return
+      void this.load(serverId)
+    })
+    for (const serverId of serverConnections.connectedServerIds()) {
+      if (serverConnections.readinessFor(serverId).readiness === 'ready') void this.load(serverId)
     }
   }
 
@@ -356,4 +355,5 @@ export class DevicesStore {
 }
 
 export const devicesStore = new DevicesStore()
+devicesStore.follow()
 
