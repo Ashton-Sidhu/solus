@@ -416,6 +416,10 @@
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
     },
   );
+  // The browser binds the same keys to its own history; the binding claims
+  // them so a press navigates once, and the router follows the browser.
+  useKeybinding("global.history-back", () => void session.router.back());
+  useKeybinding("global.history-forward", () => void session.router.forward());
   // In the companion pane the tab keys move between its surfaces.
   useKeybinding("global.next-tab", () => {
     if (session.moveBetweenSurfaces(1)) return;

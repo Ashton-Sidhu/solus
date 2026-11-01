@@ -703,7 +703,7 @@
       class={`-translate-x-[4.5px] ${!sidebarOpen ? "pointer-events-none opacity-0" : ""}`}
     />
 
-    <Resizable.Pane order={2} class="min-w-0">
+    <Resizable.Pane order={2} class="min-w-0" data-history-swipe-area>
       <!-- Conversation view | secondary. The conversation view owns the
            breadcrumb band AND the project rail, so the band spans exactly what
            it belongs to and its right edge tracks the secondary divider in this

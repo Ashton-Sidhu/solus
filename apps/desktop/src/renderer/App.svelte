@@ -42,6 +42,7 @@
   import { localApi } from "@solus/client-core/local-api";
 
   import BrowserWebviewLayer from "./shell/BrowserWebviewLayer.svelte";
+  import HistorySwipeIndicator from "@solus/workspace-ui/components/layout/HistorySwipeIndicator.svelte";
   import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
@@ -528,6 +529,11 @@
      whichever pane asks for it. It cannot live inside a pane: reparenting a
      `<webview>` reloads its guest and `display: none` stops it rendering. -->
     <BrowserWebviewLayer />
+
+    <!-- Two-finger trackpad swipes drive the same history as the buttons. -->
+    {#if window.solusNative?.onTrackpadScroll}
+      <HistorySwipeIndicator onTrackpadScroll={window.solusNative.onTrackpadScroll} />
+    {/if}
 
     {#if isDraggingFile}
       <div data-solus-ui class="drop-overlay">
