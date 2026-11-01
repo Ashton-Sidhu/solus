@@ -308,6 +308,37 @@ describe('PR watcher', () => {
     expect(await watches.readPullRequestWatches()).toEqual([])
   })
 
+  test('a quiet head with no check is told so at the end of its grace period, once', async () => {
+    // WHY: no check means the fingerprint never moves, so only the grace
+    // period can wake the session; waiting for the remarks reread is too late.
+    const host = new FakeHost()
+    host.checks = []
+    let now = Date.now()
+    await watch('session-1', now - 60_000)
+    const woke: string[] = []
+    const watcher = new watcherModule.PrWatcher({
+      wake: async (_sessionId, text) => { woke.push(text) },
+      codeHost: codeHostOf(host),
+      now: () => now,
+    })
+    await watcher.start()
+    await watcher.sweep()
+    const start = now
+    const sweepAt = async (minutes: number) => {
+      now = start + minutes * 60_000
+      await watcher.sweep()
+    }
+    await sweepAt(10)
+    expect(woke).toEqual([])
+    await sweepAt(16)
+    expect(woke).toHaveLength(1)
+    expect(woke[0]).toContain('No checks have reported on this head after 16 minutes')
+    await sweepAt(18)
+    await sweepAt(24)
+    watcher.stop()
+    expect(woke).toHaveLength(1)
+  })
+
   test('a rate limit never ends a watch; repeated read failures do, and say so', async () => {
     const host = new FakeHost()
     await watch('session-1')
