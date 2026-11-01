@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { tick } from "svelte";
   import {
     Network as ArchitectureIcon,
@@ -54,6 +55,9 @@
       onSelect(filtered[selectedIndex]);
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <div

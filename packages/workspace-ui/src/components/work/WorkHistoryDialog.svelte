@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { untrack } from "svelte";
   import { Dialog } from "bits-ui";
   import { RotateCcw as RestoreIcon, X as XIcon } from "@lucide/svelte";
@@ -208,6 +209,9 @@
     chosenBase = undefined;
     document.querySelector<HTMLElement>(`[data-history-point="${next}"]`)?.focus();
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open });
 </script>
 
 

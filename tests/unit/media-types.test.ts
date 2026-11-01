@@ -18,6 +18,14 @@ describe('videoMimeType', () => {
     expect(videoMimeType({ name: 'a.txt', mimeType: '' })).toBeNull()
     expect(videoMimeType({ name: 'mp4', mimeType: '' })).toBeNull()
   })
+
+  // macOS and Windows name a `.ts` file a video by its extension, so a
+  // TypeScript file would attach as a video that cannot play.
+  test('a video type guessed from a .ts extension does not make a video', () => {
+    expect(videoMimeType({ name: 'index.ts', mimeType: 'video/mp2t' })).toBeNull()
+    expect(videoMimeType({ name: 'index.ts', mimeType: 'video/vnd.dlna.mpeg-tts' })).toBeNull()
+    expect(videoMimeType({ name: 'clip.mp4', mimeType: 'video/mp2t' })).toBe('video/mp4')
+  })
 })
 
 // The host, the file pane, and every media surface read this one list, so a

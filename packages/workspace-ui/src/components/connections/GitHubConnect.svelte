@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
 import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { ensureIconCollections } from "../diagram/iconify";
@@ -114,6 +115,9 @@ import Icon from "@iconify/svelte";
       cancel();
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => !!connections.providerPrompt });
 </script>
 
 <!-- Named for the group, as on the Source Control page it sits on; the row

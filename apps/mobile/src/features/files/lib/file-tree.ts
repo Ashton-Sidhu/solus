@@ -95,7 +95,9 @@ export function folderTitle(folderPath: string, projectName: string): string {
 /** "1.2 KB" — the size a binary file shows in place of its contents. */
 export function fileSizeLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  // The unit follows the rounded figure: 1023.96 KB reads as 1.0 MB, not 1024.0 KB.
+  const tenthsOfKilobyte = Math.round(bytes / 102.4)
+  if (tenthsOfKilobyte < 10240) return `${(tenthsOfKilobyte / 10).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 

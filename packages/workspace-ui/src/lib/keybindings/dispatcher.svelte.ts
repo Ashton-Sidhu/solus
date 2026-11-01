@@ -40,6 +40,12 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
+/** True when the keystroke lands in a native modal `<dialog>` (`showModal()`).
+ *  It sits in the top layer, above the surface of every pushed scope. */
+function isInModalDialog(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest('dialog:modal') !== null
+}
+
 export class KeybindingsContext {
   private scopeStack: ScopeEntry[] = []
   // Multiple components (e.g. one session action row per tab) can register the same
@@ -98,7 +104,11 @@ export class KeybindingsContext {
 
     // Determine which scopes are in play: if any exclusive scope is active,
     // only check that scope; otherwise check all active scopes newest-first.
-    const exclusiveIdx = this.scopeStack.findLastIndex((s) => s.exclusive)
+    // A native modal dialog holds the keystroke like an exclusive scope above
+    // every other one, so no scope's bindings fire from inside it.
+    const exclusiveIdx = isInModalDialog(e.target)
+      ? this.scopeStack.length
+      : this.scopeStack.findLastIndex((s) => s.exclusive)
     const start = this.scopeStack.length - 1
     const end = exclusiveIdx !== -1 ? exclusiveIdx : 0
 

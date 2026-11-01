@@ -9,7 +9,7 @@
   // control; the complete markdown stays in the DOM, so find-in-page and
   // keyboard focus still reach it. Focus moving inside opens the preview.
   // The fade is painted in `--background`, the fill of every comment card.
-  let { source, policy = 'remote' }: { source: string; policy?: MarkdownPolicy } = $props()
+  let { source, policy = 'remote', lineBreaks = false }: { source: string; policy?: MarkdownPolicy; lineBreaks?: boolean } = $props()
 
   const PREVIEW_HEIGHT = 240
 
@@ -37,7 +37,7 @@
   onfocusin={() => (expanded = true)}
 >
   <div bind:clientHeight={contentHeight} class="prose">
-    <GithubMarkdown {source} {policy} />
+    <GithubMarkdown {source} {policy} {lineBreaks} />
   </div>
   {#if overflowing && !expanded}
     <div

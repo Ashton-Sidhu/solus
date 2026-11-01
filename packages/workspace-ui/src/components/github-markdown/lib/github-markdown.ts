@@ -6,7 +6,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import { visit } from 'unist-util-visit'
 import { find, html } from 'property-information'
-import type { Root as MarkdownRoot } from 'mdast'
+import type { PhrasingContent, Root as MarkdownRoot } from 'mdast'
 import type { Element, Root, RootContent } from 'hast'
 import { standaloneLocalVideoHref, standaloneMarkdownMediaLink } from '../../../lib/githubMarkdown'
 import { isInlineTaskImageUrl } from '../../tasks/task-page/lib/task-image'
@@ -32,7 +32,26 @@ function githubAlerts() {
   }
 }
 
-function processor(policy: MarkdownPolicy) {
+/** A single newline as a line break, the way GitHub renders a pull request
+ *  body or comment. CommonMark joins the lines into one. */
+function hardLineBreaks() {
+  return (tree: MarkdownRoot) => {
+    visit(tree, 'text', (node, index, parent) => {
+      if (!parent || index === undefined || !/[\r\n]/.test(node.value)) return
+      const replacement: PhrasingContent[] = []
+      node.value.split(/\r?\n|\r/).forEach((value, line) => {
+        if (line > 0) replacement.push({ type: 'break' })
+        if (value) replacement.push({ type: 'text', value })
+      })
+      // SAFETY: a text node only sits among phrasing content, and a break and text are phrasing content.
+      const siblings = parent.children as PhrasingContent[]
+      siblings.splice(index, 1, ...replacement)
+      return index + replacement.length
+    })
+  }
+}
+
+function processor(policy: MarkdownPolicy, lineBreaks: boolean) {
   const protocols = policy === 'local'
     ? {
         ...defaultSchema.protocols,
@@ -44,6 +63,7 @@ function processor(policy: MarkdownPolicy) {
     .use(remarkParse)
     .use(remarkGfm)
     .use(githubAlerts)
+    .use(lineBreaks ? [hardLineBreaks] : [])
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
     .use(rehypeSanitize, {
@@ -56,11 +76,16 @@ function processor(policy: MarkdownPolicy) {
     })
 }
 
-const processors = { remote: processor('remote'), local: processor('local') }
+const processors = {
+  remote: { joined: processor('remote', false), broken: processor('remote', true) },
+  local: { joined: processor('local', false), broken: processor('local', true) },
+}
 
-/** Parse complete documents once. Never use this full-document path for streaming turns. */
-export function parseGithubMarkdown(source: string, policy: MarkdownPolicy = 'remote'): Root {
-  const parser = processors[policy]
+/** Parse complete documents once. Never use this full-document path for streaming turns.
+ *  `lineBreaks` renders a single newline as a line break: set it for text
+ *  written on GitHub, such as a pull request body or comment. */
+export function parseGithubMarkdown(source: string, policy: MarkdownPolicy = 'remote', lineBreaks = false): Root {
+  const parser = processors[policy][lineBreaks ? 'broken' : 'joined']
   const tree = parser.runSync(parser.parse(source))
   visit(tree, 'element', (node) => {
     const src = node.properties.src

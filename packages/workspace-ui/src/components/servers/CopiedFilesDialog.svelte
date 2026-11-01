@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   /**
    * Which files git ignores still go with the work (docs/run-on.md#copied-files).
    * The boxes edit the project's `.worktreeinclude`: Run on copies those files
@@ -37,6 +38,9 @@
   async function save() {
     if (draft && (await draft.save())) open = false;
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open });
 </script>
 
 <Dialog.Root bind:open onOpenChangeComplete={(isOpen) => { if (!isOpen) onClose(); }}>

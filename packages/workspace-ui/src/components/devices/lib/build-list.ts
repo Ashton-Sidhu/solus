@@ -21,7 +21,8 @@ export function buildSourceLabel(build: Pick<DeviceBuild, 'buildId'>, runs: read
 }
 
 export function buildSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  const kilobytes = Math.max(1, Math.round(bytes / 1024))
+  if (kilobytes < 1024) return `${kilobytes} KB`
   return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
 }
 
