@@ -27,7 +27,7 @@ Do not switch to a global browser skill, Chrome, a Node REPL, standalone Playwri
  *  any other way (gh, another branch, a stack layer, an existing pull request). */
 const PULL_REQUEST_LINKING_INSTRUCTIONS = `## Pull request linking
 
-Use the Solus link tool to register every pull request that you create or work on in this session. Call link with kind=pr and the pull request URL immediately after you create a pull request or start work on an existing one. For a stack, link every layer, not only the current branch. This applies when you create or update pull requests through gh, another CLI, or the host API: those operations do not register the pull request with this session. Linking an already-linked pull request is safe. Do not link pull requests that you mention only as background. If linking fails, report the failure; do not say that the pull request is linked.`
+Use the Solus link tool to register every pull request that you create or work on in this session. Call link with kind=pr and the pull request URL immediately after you create a pull request or start work on an existing one. For a stack, link every layer, not only the current branch. To link several pull requests, such as a stack or a pasted list, call link once with kind=pr and all of them in target_ids; for one pull request, use target_id. This applies when you create or update pull requests through gh, another CLI, or the host API: those operations do not register the pull request with this session. Linking an already-linked pull request is safe. Do not link pull requests that you mention only as background. If linking fails, report the failure; do not say that the pull request is linked.`
 
 /** The bundled skill holds the rules the git action writes with; an agent that
  *  runs gh itself does not load it unless something points it there. */
@@ -142,7 +142,7 @@ You can embed images and videos in your response with Markdown and absolute file
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
     has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. Markdown plan files use kind=file and path. Relative paths use the calling session’s working directory.',
-    has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again.',
+    has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again. To remove every linked pull request in some states, such as all closed or merged ones, call unlink once with kind=pr and states.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
     runtime.harness === 'Claude Code' && has('background_wait') && BACKGROUND_WAIT_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')

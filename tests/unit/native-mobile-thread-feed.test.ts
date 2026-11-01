@@ -110,6 +110,17 @@ describe('native work log wording', () => {
     expect(toolActivitySummary({ toolName: 'Read', input: '{"file_path":"/repo/src/app.ts"}', status: 'completed' })).toBe('Read app.ts')
   })
 
+  // WHY: one batch call links a whole stack. Its row must say how many, not
+  // repeat the tool name, and a one-target call stays as it was.
+  test('a batch link or unlink call reads as its pull requests', () => {
+    const urls = [1, 2, 3, 4, 5, 6].map((number) => `https://github.com/acme/app/pull/${number}`)
+    const link = { toolName: 'mcp__solus__link', input: JSON.stringify({ kind: 'pr', target_ids: urls }), status: 'running' as const }
+    expect(toolActivitySummary(link)).toBe('Linking 6 pull requests')
+    expect(summarizeToolGroup([{ ...link, status: 'completed' }])).toBe('Linked 6 pull requests')
+    expect(toolActivitySummary({ toolName: 'unlink', input: '{"kind":"pr","states":["closed","merged"]}', status: 'completed' })).toBe('Unlinked closed and merged pull requests')
+    expect(toolActivitySummary({ toolName: 'link', input: JSON.stringify({ kind: 'pr', target_id: urls[0] }), status: 'completed' })).toBe('link')
+  })
+
   test('a row shows the command or file; its detail adds the error', () => {
     expect(toolRowLabel({ toolName: 'exec_command', input: '{"cmd":["bash","-lc","git status --short"]}' })).toBe('git status --short')
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/src/app.ts"}' })).toBe('app.ts')

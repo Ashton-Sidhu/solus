@@ -267,6 +267,15 @@ describe('getToolDescription', () => {
     ).toBe('search_sessions: {"query":"host selection","role":"any","limit":10}')
   })
 
+  // WHY: one batch call links a whole stack. A row of six URLs is unreadable;
+  // the count is what the reader scans for.
+  test('names a batch link or unlink by its pull requests', () => {
+    const urls = [1, 2, 3, 4, 5, 6].map((number) => `https://github.com/acme/app/pull/${number}`)
+    expect(getToolDescription('mcp__solus__link', JSON.stringify({ kind: 'pr', target_ids: urls }))).toBe('Link 6 pull requests')
+    expect(getToolDescription('unlink', JSON.stringify({ kind: 'pr', states: ['closed', 'merged'] }))).toBe('Unlink closed and merged pull requests')
+    expect(getToolDescription('link', JSON.stringify({ kind: 'pr', target_id: urls[0] }), { truncate: false })).toBe(`link: {"kind":"pr","target_id":"${urls[0]}"}`)
+  })
+
   test('shows the same arguments for Claude-prefixed Solus tools', () => {
     expect(
       getToolDescription(
