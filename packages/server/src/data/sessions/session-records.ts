@@ -8,6 +8,7 @@ import {
   type SessionStatus,
 } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../../db/database'
+import { removeAttachmentFolder } from '../assets/attachment-store'
 import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type RecordScope } from '../../admission/principal'
 import { provisionedOrganizationId } from '../../host/host-category'
 import { hostUserKey } from '../../host/host-user'
@@ -632,13 +633,15 @@ export function markSessionPublished(sessionId: string): Promise<void> {
   })
 }
 
-/** The transcript is gone from the runner and nothing else holds the session: the record goes with it. */
+/** The transcript is gone from the runner and nothing else holds the session:
+ *  the record goes with it, and so do the files uploaded to it. */
 export function deleteSessionRecord(scope: RecordScope, sessionId: string): Promise<void> {
   return serialized(sessionId, async () => {
-    await getDatabase().run(sql`
+    const result = await getDatabase().run(sql`
       DELETE FROM ${sessionRecords} WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
     `)
     organizationBySession.delete(sessionId)
+    if (result.changes > 0) await removeAttachmentFolder(sessionId)
   })
 }
 

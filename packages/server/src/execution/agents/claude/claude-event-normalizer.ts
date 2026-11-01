@@ -134,6 +134,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // its status back to null. The status carries no state of its own, so
   // remember that a compaction runs to know what that null ends.
   private isCompacting = false
+  // The advisor's tokens of each main-thread API call, keyed by message id.
+  // Claude repeats a message once per content block, so the latest copy of a
+  // message replaces the one before it. The result adds them to its usage.
+  private readonly advisorUsage = new Map<string, UsageData>()
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -154,12 +158,22 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     }
 
+    if (raw.type === 'assistant') {
+      // SAFETY: ClaudeEvent.type is the provider discriminant for assistant events.
+      const { message, parent_tool_use_id } = raw as AssistantEvent
+      if (!parent_tool_use_id && message?.id) this.advisorUsage.set(message.id, advisorUsageFrom(message.usage))
+    }
+
     const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
     if (this.isCompacting && isBareIdleStatus(raw)) {
       // A failed stop removes the running divider and draws none.
       normalized.push({ type: 'context_compaction', state: 'stop', trigger: 'auto', failed: true })
     }
     for (const event of normalized) {
+      if (event.type === 'task_complete') {
+        for (const advisor of this.advisorUsage.values()) event.usage = addUsage(event.usage, advisor)
+        this.advisorUsage.clear()
+      }
       if (event.type === 'context_compaction') this.isCompacting = event.state === 'start'
       if (event.type === 'tool_call' && event.toolId) {
         if (event.isSubagent) this.subagentToolIds.add(event.toolId)
@@ -639,6 +653,25 @@ function normalizeClaudeUsage(usage: ClaudeUsageData | undefined): UsageData {
     cacheCreationTokens: usage.cache_creation_input_tokens,
     reasoningTokens: usage.reasoning_output_tokens,
   }
+}
+
+/** The tokens of the call's advisor steps. The advisor runs on the server
+ *  inside the call, and the call's top-level usage leaves it out. */
+function advisorUsageFrom(usage: ClaudeUsageData | undefined): UsageData {
+  let advisor: UsageData = {}
+  for (const iteration of usage?.iterations ?? []) {
+    if (iteration.type !== 'advisor_message') continue
+    advisor = addUsage(advisor, normalizeClaudeUsage(iteration))
+  }
+  return advisor
+}
+
+function addUsage(total: UsageData, extra: UsageData): UsageData {
+  const sum = { ...total }
+  for (const key of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens'] as const) {
+    if (extra[key] !== undefined) sum[key] = (sum[key] ?? 0) + extra[key]
+  }
+  return sum
 }
 
 /** Claude names its windows; the store keys them by duration, which is the one

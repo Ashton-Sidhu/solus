@@ -392,8 +392,11 @@ export async function createWorktree(
         fn: 'runAsync',
         file: 'worktree-manager.ts',
       },
+      // No deadline: a large checkout or a slow post-checkout hook can take
+      // minutes. Stop still cancels it through the signal.
       () => runStreamed('git', checkoutArgs, projectPath, {
         signal: options.signal,
+        timeout: 0,
         env: GIT_PROGRESS_ENV,
         onStderrLine: checkoutProgress(options.onStage),
       }),
@@ -410,6 +413,7 @@ export async function createWorktree(
           { worktreePath, startPoint, fn: 'runAsync', file: 'worktree-manager.ts' },
           () => runStreamed('git', [...checkoutConfig, 'reset', '--hard', latestCommit], worktreePath, {
             signal: options.signal,
+            timeout: 0,
             env: GIT_PROGRESS_ENV,
             onStderrLine: checkoutProgress(options.onStage),
           }),

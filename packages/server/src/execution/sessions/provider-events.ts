@@ -409,6 +409,14 @@ export class ProviderEvents {
           event = rateLimitEvent
         }
 
+        if (event.type === 'rate_limit' && event.status !== 'allowed' && !event.isUsingOverage
+          && this.rt.turnStops.get(session.sessionId)?.signal.aborted) {
+          // A person stopped this turn before its limit arrived. Stop wins: the
+          // turn settles as interrupted, and its prompt is not held or re-queued.
+          this.rt.rateLimitPark.rateLimits.clear(session.sessionId)
+          return
+        }
+
         if (event.type === 'rate_limit' && event.status !== 'allowed' && !event.isUsingOverage) {
           const run = this.rt.activeRunRequests.get(session.sessionId)
           const deferCurrentRun = event.deferCurrentRun === true && !!run
@@ -516,6 +524,8 @@ export class ProviderEvents {
         const exitWasRateLimited = hasPendingRateLimit && rateLimitEvent.deferCurrentRun !== true
         const settledStatus: SessionStatus = exitWasRateLimited
           ? 'rate_limited'
+          : this.rt.turnStops.get(sessionId)?.signal.aborted
+          ? 'interrupted'
           : code === 0
           ? 'completed'
           : signal === 'SIGINT' || signal === 'SIGKILL'
