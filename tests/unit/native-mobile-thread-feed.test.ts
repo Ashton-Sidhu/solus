@@ -118,3 +118,21 @@ describe('native work log wording', () => {
     expect(toolFullDetail({ input: null, errorHead: null })).toBeNull()
   })
 })
+
+// Back-to-back prompts on the phone read as one burst, as on desktop: the
+// first drops its gap. A reply between them, or a host wake, keeps them apart.
+describe('native thread feed bursts', () => {
+  const grouped = (rows: ThreadFeedRow[]) =>
+    rows.flatMap((row) => row.type === 'message' && row.role === 'user' ? [`${row.id}:${row.groupedWithNext === true}`] : [])
+
+  test('consecutive prompts group; a reply ends the burst', () => {
+    expect(grouped(present([user('u1'), user('u2'), user('u3'), assistant('a1'), user('u4')]))).toEqual([
+      'u1:true', 'u2:true', 'u3:false', 'u4:false',
+    ])
+  })
+
+  test('a host wake drawn as a notice row never joins a burst', () => {
+    const wake: FeedSourceEntry = { id: 'w1', kind: 'user', hostNotice: true }
+    expect(grouped(present([user('u1'), wake, user('u2')]))).toEqual(['u1:false', 'w1:false', 'u2:false'])
+  })
+})

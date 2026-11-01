@@ -3,6 +3,7 @@
   import { getWorkspaceContext, getPlanStore, runtime } from "../../contexts";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import type { GroupedItem } from "./lib/turns";
+  import type { UserBurst } from "./lib/user-burst";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import ThoughtRow from "./ThoughtRow.svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -53,9 +54,11 @@
   import { untrack } from "svelte";
   measureMount("TranscriptItem");
 
-  let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
+  let { item, skipMotion, burst, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
     navigateToSourceSession }: {
-    item: GroupedItem; skipMotion: boolean; tabId: string; linkContext: TaskLinkContext;
+    item: GroupedItem; skipMotion: boolean;
+    /** A prompt's place in a burst of one person's messages. */
+    burst?: UserBurst; tabId: string; linkContext: TaskLinkContext;
     activeHandoffDivider?: Message; activeHandoffTargetModel: string | null;
     navigateToSourceSession: (sessionId: string) => Promise<void>;
   } = $props();
@@ -146,7 +149,7 @@
   {:else if notice === "background-command"}
     <BackgroundCommandRow message={item.message} {skipMotion} />
   {:else}
-    <UserMessageBubble message={item.message} {skipMotion} {tabId} />
+    <UserMessageBubble message={item.message} {skipMotion} {burst} {tabId} />
   {/if}
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}

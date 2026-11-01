@@ -66,6 +66,7 @@
     type Turn,
   } from "./lib/turns";
   import { TranscriptTurns } from "./lib/transcript-turns.svelte";
+  import type { UserBurst } from "./lib/user-burst";
   import { ConversationViewState } from "./lib/conversation-view-state.svelte";
   import { provideConversationVisibility } from "./lib/conversation-visibility";
   import SessionActionRow from "../layout/SessionActionRow.svelte";
@@ -772,8 +773,8 @@
             active={isVisible}
             bind:element={messagesEl}
           >
-            {#snippet children(turn: Turn, turnIdx: number)}
-              <ConversationTurn {turn} index={turnIdx} total={turns.length}
+            {#snippet children(turn: Turn, turnIdx: number, burst: UserBurst)}
+              <ConversationTurn {turn} {burst} index={turnIdx} total={turns.length}
                 expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
                 {isAwaitingInput} {activityLabel} {setupLabel} turnStart={sess.currentTurnStart}
                 hasBackgroundWork={showsBackgroundWork(sess.status, !!sess.backgroundWorkRunning)}
@@ -804,8 +805,8 @@
 
           <PendingHandoffDivider session={sess} />
 
-          {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean)}
-            <TranscriptItem {item} {skipMotion} {tabId} {linkContext}
+          {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean, burst?: UserBurst)}
+            <TranscriptItem {item} {skipMotion} {burst} {tabId} {linkContext}
               {activeHandoffDivider} {activeHandoffTargetModel}
               navigateToSourceSession={navigateToSourceSession} />
           {/snippet}

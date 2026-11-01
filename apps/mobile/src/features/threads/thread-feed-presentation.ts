@@ -19,10 +19,21 @@ export interface FeedSourceEntry {
   readonly tone?: 'error' | 'info'
   /** Artifacts only: the work its revisions share. */
   readonly workId?: string | null
+  /** Users only: the host's own wake (a pull request watch, a background
+   *  command), drawn as a notice row. It is not a person's message, so it
+   *  never joins a burst. */
+  readonly hostNotice?: boolean
 }
 
 export type ThreadFeedRow =
-  | { readonly type: 'message'; readonly id: string; readonly role: 'user' | 'assistant'; readonly showMeta: boolean }
+  | {
+      readonly type: 'message'
+      readonly id: string
+      readonly role: 'user' | 'assistant'
+      readonly showMeta: boolean
+      /** User only: the next row is another message from the person, so the gap below closes. */
+      readonly groupedWithNext?: boolean
+    }
   | {
       readonly type: 'work-toggle'
       readonly id: string
@@ -83,8 +94,17 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
   const lastTurn = turns.at(-1)
   const rows: ThreadFeedRow[] = []
   const latestRevisions = latestArtifactRevisions(input.entries)
+  const hostNotices = new Set<string>()
   for (const { user, turn } of turns) {
-    if (user) rows.push({ type: 'message', id: user.id, role: 'user', showMeta: true })
+    if (user) {
+      // A prompt directly after another prompt is a burst: nothing came between them.
+      const previous = rows.at(-1)
+      if (!user.hostNotice && previous?.type === 'message' && previous.role === 'user' && !hostNotices.has(previous.id)) {
+        rows[rows.length - 1] = { ...previous, groupedWithNext: true }
+      }
+      if (user.hostNotice) hostNotices.add(user.id)
+      rows.push({ type: 'message', id: user.id, role: 'user', showMeta: true })
+    }
     const active = input.turnActive && turn === lastTurn?.turn
     appendTurnRows(rows, turn, active, input, latestRevisions)
   }

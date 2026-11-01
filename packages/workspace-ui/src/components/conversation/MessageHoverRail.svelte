@@ -20,8 +20,11 @@
     text: string;
     /** Which edge to hang from: assistant prose left, user bubble right. */
     side?: "left" | "right";
+    /** Copies something other than `text`: a message sent without words
+     *  copies its media. Rejects when nothing was copied. */
+    onCopy?: () => Promise<void>;
   }
-  let { timestamp, text, side = "left" }: Props = $props();
+  let { timestamp, text, side = "left", onCopy }: Props = $props();
 
   let copied = $state(false);
   let now = $state(Date.now());
@@ -40,7 +43,8 @@
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(text);
+      if (onCopy) await onCopy();
+      else await navigator.clipboard.writeText(text);
       copied = true;
       setTimeout(() => (copied = false), 1200);
     } catch {}
@@ -56,7 +60,7 @@
   {#if label}
     <span class="hover-rail-time text-conversation-gutter" {title}>{label}</span>
   {/if}
-  {#if text}
+  {#if text || onCopy}
     <button
       type="button"
       class="hover-rail-copy"

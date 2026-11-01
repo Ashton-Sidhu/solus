@@ -44,6 +44,12 @@ export function downloadPayload(fileName: string, mimeType: string, payload: Fil
     payload.encoding === "base64"
       ? new Blob([Uint8Array.from(atob(payload.contents), (c) => c.charCodeAt(0))], { type: mimeType })
       : new Blob([payload.contents], { type: mimeType });
+  downloadBlob(fileName, blob);
+}
+
+/** The browser's own download path, which Electron also takes: the file lands
+ *  on the device running the client, named `fileName`. */
+export function downloadBlob(fileName: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

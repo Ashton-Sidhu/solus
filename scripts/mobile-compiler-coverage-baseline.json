@@ -1630,11 +1630,16 @@
     "apps/mobile/src/features/threads/MessageAttachments.tsx": {
       "compiled": [
         "AttachmentFileCard",
+        "AttachmentFileChip",
         "AttachmentImageFrame",
         "HostAttachmentImage",
         "HostAttachmentVideo",
+        "ImageCollage",
         "InlineAttachmentImage",
-        "MessageAttachments",
+        "LoneImage",
+        "MessageFiles",
+        "MessageImage",
+        "MessageMedia",
         "useOpenHostFile"
       ],
       "skipped": []
@@ -1959,6 +1964,12 @@
     "apps/mobile/src/features/threads/ThreadTurnImages.tsx": {
       "compiled": [
         "ThreadTurnImages"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadUserMessageRow.tsx": {
+      "compiled": [
+        "UserMessageMeta"
       ],
       "skipped": []
     },
