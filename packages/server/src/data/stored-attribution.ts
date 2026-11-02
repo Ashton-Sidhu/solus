@@ -1,6 +1,5 @@
 import type { AgentId } from '@solus/contracts/types'
 import { attributionSchema, parseUserKey, userKey, type Attribution, type User } from '@solus/contracts/user'
-import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getDb } from '../db'
 import type { Db } from '../db/database'
