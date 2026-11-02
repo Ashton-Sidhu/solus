@@ -39,6 +39,14 @@ export const works = defineTable('works', {
   location: json(),
   /** The user id of who made the work (plans/029 decision 2): also its owner, never empty, never changed. */
   created_by: text({ notNull: true }),
+  /** The position the work's next comment thread takes (`comment_threads.position`), advanced in the inserting transaction. */
+  comment_position: integer({ notNull: true, default: 0 }),
+  /** `WorkExternalComments` JSON: the linked document's threads and the
+   *  operations sent to it (plans/029 §5.2). Never read by a list or a work
+   *  row projection; `loadWorkAnnotations` and `work-comments.ts` read it. */
+  external_comments: json(),
+  /** Advanced by every write of `external_comments`; a refresh that read an older state is refused. */
+  external_comments_version: integer({ notNull: true, default: 0 }),
 }, {
   indexes: [
     { name: 'works_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },
@@ -64,13 +72,6 @@ export const workRevisions = defineTable('work_revisions', {
   content_hash: text({ notNull: true }),
 }, {
   primaryKey: ['work_id', 'rev'],
-})
-
-export const workAnnotations = defineTable('work_annotations', {
-  work_id: text({ primaryKey: true }),
-  data: json(),
-  updated_at: bigint(),
-  organization_id: ORGANIZATION,
 })
 
 /**
@@ -154,4 +155,4 @@ export const workStorageBodies = defineTable('work_storage_bodies', {
   commit_id: text(),
 }, { primaryKey: ['work_id', 'content_hash'] })
 
-export const WORK_TABLES = [works, workRevisions, workAnnotations, workReviewers, workLiveDocs, workStorage, workStorageBodies]
+export const WORK_TABLES = [works, workRevisions, workReviewers, workLiveDocs, workStorage, workStorageBodies]

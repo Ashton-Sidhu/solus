@@ -1704,11 +1704,15 @@ export interface PlanAnnotations {
   bookmarkedAt?: number
   /** The provider document this plan revision mirrors. */
   mirroredDoc?: WorkExternalLink
+  /** Epoch ms on the host's clock of the newest change to the plan's metadata
+   *  or threads. A client that saves the plan whole sends back the value it
+   *  loaded: the host reconciles the threads against that state, so a copy
+   *  that never saw a thread cannot delete it. */
   updatedAt: number
 }
 
-/** An agent wrote to a plan's or a work's comment threads. Broadcast so the open
- *  document's rail refreshes without being reopened. */
+/** A plan's or a work's comment threads changed on the host. Broadcast so every
+ *  open copy of the document re-reads its rail without being reopened. */
 export interface AnnotationsChanged {
   kind: 'plan' | 'work'
   /** `sessionId__planToolUseId` for a plan, the work id for a work. */

@@ -9,10 +9,22 @@ import type {
   TaskSyncState,
 } from '@solus/contracts/task-types'
 import { getDatabase, type Db } from '../../db/database'
-import { taskComments, taskExternalLinks, tasks } from './schema'
+import { taskExternalLinks, tasks } from './schema'
 import { scopeClause } from '../scope'
 import type { RecordScope } from '../../admission/principal'
 import { z } from 'zod'
+import { ulid } from '@solus/contracts/ulid'
+import { hostUserKey } from '../../host/host-user'
+import { commentThreads } from '../comments/schema'
+import {
+  deleteThread,
+  insertThread,
+  readExternalThread,
+  readThread,
+  updateThread,
+  type ExternalThreadIdentity,
+  type ThreadSubject,
+} from '../comments/comment-threads'
 
 const syncFieldSchema = z.enum(['title', 'body', 'status', 'labels', 'priority', 'assignee'])
 
@@ -33,15 +45,30 @@ const externalLinkRowSchema = z.object({
   organization_id: z.string(),
 })
 
-const dirtyCommentRowSchema = z.object({ id: z.string(), body: z.string() })
+const pendingCommentRowSchema = z.object({ thread_id: z.string(), body: z.string() })
 const externalIdRowSchema = z.object({ external_id: z.string() })
-const adoptableCommentRowSchema = z.object({ id: z.string(), external_id: z.string() })
+const adoptableCommentRowSchema = z.object({ thread_id: z.string(), external_id: z.string(), version: z.number() })
 
 type ExternalLinkRow = z.infer<typeof externalLinkRowSchema>
 
-interface DirtyCommentRow {
+/** A comment queued for the linked ticket: what the push posts. */
+export interface PendingComment {
   id: string
   body: string
+}
+
+/** The task's comment threads, as every thread write names them. */
+function threadsOf(organizationId: string, taskId: string): ThreadSubject {
+  return { organizationId, kind: 'task', id: taskId }
+}
+
+/**
+ * The upstream target a comment id is unique under (plans/029 §5.2): the
+ * provider, its scope, and the ticket. A task relinked to another ticket keeps
+ * the old target's ids apart from the new one's.
+ */
+export function externalScopeOf(link: Pick<ExternalTicketRef, 'provider' | 'externalKey' | 'externalId'>): string {
+  return `${link.provider}:${link.externalKey}:${link.externalId}`
 }
 
 type SyncField = TaskExternalLink['dirtyFields'][number]
@@ -257,6 +284,7 @@ export async function updateExternalLinkAfterSync(
  * local row are acknowledged. */
 export async function acknowledgeExternalPush(
   db: Db,
+  organizationId: string,
   taskId: string,
   ticket: NormalizedTicket,
   acknowledgedFields: SyncField[],
@@ -266,10 +294,7 @@ export async function acknowledgeExternalPush(
   if (!link) return
   const acknowledged = new Set(acknowledgedFields)
   const remaining = link.dirtyFields.filter((field) => !acknowledged.has(field))
-  const pendingComment = await db.get(sql`
-    SELECT 1 AS present FROM ${taskComments} WHERE task_id = ${taskId} AND dirty = 1 LIMIT 1
-  `)
-  const isDirty = remaining.length > 0 || Boolean(pendingComment)
+  const isDirty = remaining.length > 0 || await hasPendingComments(db, organizationId, taskId)
   await db.run(sql`
     UPDATE ${taskExternalLinks} SET
       url = ${ticket.url}, external_updated_at = ${ticket.externalUpdatedAt},
@@ -300,19 +325,29 @@ export async function markExternalLinkError(
   `)
 }
 
-export async function dirtyCommentsForTask(
+function subjectClause(organizationId: string, taskId: string) {
+  return sql`organization_id = ${organizationId} AND subject_kind = 'task' AND subject_id = ${taskId} AND subject_part = ''`
+}
+
+/** The comments queued for the linked ticket, oldest first: the push posts them in this order. */
+export async function pendingCommentsForTask(
+  organizationId: string,
   taskId: string,
   db: Db = getDatabase(),
-): Promise<DirtyCommentRow[]> {
-  const rows = await db.all(sql`
-    SELECT id, body FROM ${taskComments}
-    WHERE task_id = ${taskId} AND dirty = 1
-    ORDER BY created_at, id
-  `)
-  return rows.flatMap((row) => {
-    const parsed = dirtyCommentRowSchema.safeParse(row)
-    return parsed.success ? [parsed.data] : []
-  })
+): Promise<PendingComment[]> {
+  const rows = pendingCommentRowSchema.array().parse(await db.all(sql`
+    SELECT thread_id, body FROM ${commentThreads}
+    WHERE ${subjectClause(organizationId, taskId)} AND delivery_state = 'pending'
+    ORDER BY created_at, thread_id
+  `))
+  return rows.map((row) => ({ id: row.thread_id, body: row.body }))
+}
+
+async function hasPendingComments(db: Db, organizationId: string, taskId: string): Promise<boolean> {
+  return Boolean(await db.get(sql`
+    SELECT 1 AS present FROM ${commentThreads}
+    WHERE ${subjectClause(organizationId, taskId)} AND delivery_state = 'pending' LIMIT 1
+  `))
 }
 
 /**
@@ -323,31 +358,45 @@ export async function dirtyCommentsForTask(
  * duplicate. Returns how many were newly queued, so a no-op does not announce
  * itself as a push.
  */
-export async function markCommentsDirty(
+export async function queueCommentsForPush(
   db: Db,
+  organizationId: string,
   taskId: string,
   commentIds: string[],
 ): Promise<number> {
   if (!commentIds.length) return 0
   const result = await db.run(sql`
-    UPDATE ${taskComments} SET dirty = 1
-    WHERE task_id = ${taskId}
+    UPDATE ${commentThreads} SET delivery_state = 'pending', version = version + 1, updated_at = ${Date.now()}
+    WHERE ${subjectClause(organizationId, taskId)}
       AND source = 'local'
       AND external_id IS NULL
-      AND dirty = 0
-      AND id IN (${sql.join(commentIds.map((id) => sql`${id}`), sql`, `)})
+      AND delivery_state = 'private'
+      AND thread_id IN (${sql.join(commentIds.map((id) => sql`${id}`), sql`, `)})
   `)
   return result.changes
 }
 
+/**
+ * The ticket has the comment: record its id there and that it is sent. An
+ * import that reached the same comment first, as upstream's copy, goes, so the
+ * two copies cannot both stand under one external id. The ticket link names the
+ * target the id is unique under; a comment of a task with no link cannot have
+ * been posted, so there is nothing to record.
+ */
 export async function markCommentSynced(
   db: Db,
+  organizationId: string,
+  taskId: string,
   commentId: string,
   externalId: string,
 ): Promise<void> {
-  await db.run(sql`
-    UPDATE ${taskComments} SET external_id = ${externalId}, dirty = 0 WHERE id = ${commentId}
-  `)
+  const link = await externalLinkForTask(taskId, db)
+  const thread = await readThread(db, threadsOf(organizationId, taskId), commentId)
+  if (!link || !thread) return
+  const external: ExternalThreadIdentity = { scope: externalScopeOf(link), id: externalId }
+  const imported = await readExternalThread(db, threadsOf(organizationId, taskId), external)
+  if (imported && imported.source === 'external') await deleteThread(db, threadsOf(organizationId, taskId), imported.threadId)
+  await updateThread(db, threadsOf(organizationId, taskId), commentId, thread.version, { deliveryState: 'sent', external })
 }
 
 export async function insertExternalComments(
@@ -356,42 +405,51 @@ export async function insertExternalComments(
   taskId: string,
   comments: NormalizedTaskComment[],
 ): Promise<number> {
+  const link = await externalLinkForTask(taskId, db)
+  if (!link) return 0
+  const subject = threadsOf(organizationId, taskId)
+  const scope = externalScopeOf(link)
   let changedCommentCount = 0
   for (const comment of comments) {
+    const external: ExternalThreadIdentity = { scope, id: comment.externalId }
+    if (await readExternalThread(db, subject, external)) continue
     // Comments posted before the adapter stamped node ids carry GitHub's REST
     // database id, which the GraphQL read never matches — so the pull used to
     // insert a second copy of our own comment. Adopt the node id onto that row
     // instead; the unique index then makes the insert below a no-op. Whether an
     // id is all digits is decided here: neither engine's pattern match is portable.
     const candidates = adoptableCommentRowSchema.array().parse(await db.all(sql`
-      SELECT id, external_id FROM ${taskComments}
-      WHERE task_id = ${taskId}
+      SELECT thread_id, external_id, version FROM ${commentThreads}
+      WHERE ${subjectClause(organizationId, taskId)}
         AND source = 'local'
+        AND external_scope = ${scope}
         AND external_id IS NOT NULL
         AND body = ${comment.body}
-      ORDER BY created_at, id
+      ORDER BY created_at, thread_id
     `))
     const adoptable = candidates.find((candidate) => /^[0-9]+$/.test(candidate.external_id))
-    const adopted = adoptable
-      ? await db.run(sql`UPDATE ${taskComments} SET external_id = ${comment.externalId} WHERE id = ${adoptable.id}`)
-      : { changes: 0 }
-    const inserted = await db.run(sql`
-      INSERT INTO ${taskComments}(
-        id, task_id, author, source, external_id, origin_session_id, body,
-        created_at, dirty, organization_id
-      ) VALUES (
-        ${`external:${comment.externalId}`}, ${taskId}, ${comment.author ?? null}, 'external',
-        ${comment.externalId}, NULL, ${comment.body}, ${comment.createdAt}, 0, ${organizationId}
-      )
-      ON CONFLICT DO NOTHING
-    `)
-    changedCommentCount += adopted.changes + inserted.changes
+    if (adoptable) {
+      if (await updateThread(db, subject, adoptable.thread_id, adoptable.version, { external })) changedCommentCount++
+      continue
+    }
+    const inserted = await insertThread(db, subject, {
+      threadId: ulid(comment.createdAt),
+      body: comment.body,
+      author: { kind: 'external', name: comment.author ?? null },
+      createdBy: hostUserKey(),
+      source: 'external',
+      createdAt: comment.createdAt,
+      deliveryState: 'sent',
+      external,
+    })
+    if (inserted) changedCommentCount++
   }
   return changedCommentCount
 }
 
-export async function hasPendingSync(taskId: string, db: Db = getDatabase()): Promise<boolean> {
+export async function hasPendingSync(organizationId: string, taskId: string, db: Db = getDatabase()): Promise<boolean> {
   const link = await externalLinkForTask(taskId, db)
   if (!link) return false
-  return link.dirtyFields.length > 0 || (await dirtyCommentsForTask(taskId, db)).length > 0
+  return link.dirtyFields.length > 0 || await hasPendingComments(db, organizationId, taskId)
 }
+

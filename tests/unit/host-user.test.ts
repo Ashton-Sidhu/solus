@@ -68,8 +68,6 @@ describe('the host user rows', () => {
     else process.env.SOLUS_DATA_DIR = previousDataDir
   })
 
-  const MEMBER_PERSON = { userId: 'bob', displayName: 'Bob', colorIndex: 3 }
-  const OLD_OWNER_PERSON = { userId: 'host-owner', displayName: 'Host owner', colorIndex: 1 }
 
   async function notificationRows(): Promise<[string, string, number | null][]> {
     const found = await database.getDatabase().all<{ id: string; user_id: string; read_at: number | null }>(sql`SELECT id, user_id, read_at FROM notifications ORDER BY id`)
@@ -90,22 +88,21 @@ describe('the host user rows', () => {
     await db.run(sql`INSERT INTO notifications (id, organization_id, user_id, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at) VALUES
       ('n-local', 'local', 'host-owner', 'e1', 'task.assigned', 'task:t1', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t1"}', '{"kind":"system"}', '{"title":"t"}', 1, 7),
       ('n-org', 'org1', 'host-owner', 'e2', 'task.assigned', 'task:t2', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t2"}', '{"kind":"system"}', '{"title":"t"}', 1, NULL)`)
-    // Stored the way hosts wrote them before users had ids.
-    const workThreads = [
-      { id: 'c-owner', selectedText: 'a', comment: 'mine', author: 'you', person: OLD_OWNER_PERSON, readBy: [{ userId: 'host-owner', readAt: 5 }] },
-      { id: 'c-bob', selectedText: 'b', comment: 'his', author: 'you', person: MEMBER_PERSON, replies: [
-        { id: 'r-agent', author: 'solus', authorAgent: { sessionId: 's-1', provider: 'codex', title: 'Reviewer' }, text: 'noted', createdAt: 2 },
-      ] },
-      { id: 'c-anon', selectedText: 'c', comment: 'before people', resolvedAt: 9, resolvedBy: 'you' },
-    ]
-    await db.run(sql`INSERT INTO work_annotations (work_id, data, updated_at, organization_id) VALUES
-      ('w-local', ${JSON.stringify({ version: 1, workId: 'w-local', comments: workThreads, updatedAt: 1 })}, 1, 'local')`)
-    const planThreads = [
-      { id: 'p-you', selectedText: 'x', comment: 'plan note', author: 'you' },
-      { id: 'p-solus', selectedText: 'y', comment: 'decided', author: 'solus' },
-    ]
-    await db.run(sql`INSERT INTO plan_annotations (session_id, plan_tool_use_id, status, title, bookmarked, project_path, cwd, comments, updated_at, organization_id) VALUES
-      ('s-local', 'tool-1', 'pending', 'Plan', 0, '/p', '/p', ${JSON.stringify(planThreads)}, 1, 'local')`)
+    // The host's own threads name its local user; a read mark from before users had ids holds the sentinel.
+    const owner = { kind: 'user', user: { id: { kind: 'local', localId: 'L1' }, displayName: 'Host owner' } }
+    const bob = { kind: 'user', user: { id: parseUserKey('bob'), displayName: 'Bob' } }
+    const agent = { kind: 'agent', sessionId: 's-1', provider: 'codex', title: 'Reviewer' }
+    const thread = (subject: [string, string, string], id: string, position: number, author: object, review: object, createdBy = 'local:L1') => sql`
+      INSERT INTO comment_threads (organization_id, subject_kind, subject_id, subject_part, thread_id, body, created_by, author, source, created_at, updated_at, position, review) VALUES
+      ('local', ${subject[0]}, ${subject[1]}, ${subject[2]}, ${id}, 'note', ${createdBy}, ${JSON.stringify(author)}, 'local', 1, 1, ${position}, ${JSON.stringify(review)})`
+    // A thread made before the host had a user: its creator is the sentinel the boot move replaces.
+    await db.run(thread(['work', 'w-local', ''], 'c-owner', 1, owner, { selectedText: 'a', readBy: [{ userId: 'local:L1', readAt: 5 }] }, 'host-owner'))
+    await db.run(thread(['work', 'w-local', ''], 'c-bob', 2, bob, { selectedText: 'b', replies: [{ id: 'r-agent', author: agent, text: 'noted', createdAt: 2 }] }))
+    await db.run(thread(['work', 'w-local', ''], 'c-anon', 3, owner, { selectedText: 'c', resolvedAt: 9, resolvedBy: owner }))
+    await db.run(sql`INSERT INTO plan_annotations (session_id, plan_tool_use_id, status, title, bookmarked, project_path, cwd, updated_at, organization_id, comment_position) VALUES
+      ('s-local', 'tool-1', 'pending', 'Plan', 0, '/p', '/p', 1, 'local', 2)`)
+    await db.run(thread(['plan', 's-local', 'tool-1'], 'p-you', 1, owner, { selectedText: 'x' }))
+    await db.run(thread(['plan', 's-local', 'tool-1'], 'p-solus', 2, { kind: 'system' }, { selectedText: 'y' }))
   }
 
   /** The key a record the local owner makes is owned under. */
@@ -122,9 +119,10 @@ describe('the host user rows', () => {
     return row?.owner
   }
 
-  async function storedWorkThreads(): Promise<Array<{ id: string; author: unknown; person?: unknown; readBy?: Array<{ userId: string }> }>> {
-    const row = await database.getDatabase().get<{ data: string }>(sql`SELECT data FROM work_annotations WHERE work_id = 'w-local'`)
-    return JSON.parse(row!.data).comments
+  async function storedWorkThreads(): Promise<Array<{ id: string; createdBy: string; author: unknown; readBy?: Array<{ userId: string }> }>> {
+    const found = await database.getDatabase().all<{ thread_id: string; created_by: string; author: string; review: string }>(sql`
+      SELECT thread_id, created_by, author, review FROM comment_threads WHERE subject_kind = 'work' AND subject_id = 'w-local' ORDER BY position`)
+    return found.map((row) => ({ id: row.thread_id, createdBy: row.created_by, author: JSON.parse(row.author), readBy: JSON.parse(row.review).readBy }))
   }
 
   test('boot moves the sentinel rows and the old comment authors to the local user, once', async () => {
@@ -139,15 +137,15 @@ describe('the host user rows', () => {
     expect(await ownerOf('s-local')).toBe('local:L1')
     expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM resource_preferences WHERE resource_id = 's-org'`))?.owner_key).toBe('local:L1')
 
-    // No `'you'` label and no separate person is stored any more.
+    // The sentinel read mark moved to the host's user; every author stays who it was.
     const stored = await storedWorkThreads()
     expect(stored.map((thread) => thread.author)).toEqual([
       { kind: 'user', user: expect.objectContaining({ id: { kind: 'local', localId: 'L1' } }) },
       { kind: 'user', user: { id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob' } },
       { kind: 'user', user: expect.objectContaining({ id: { kind: 'local', localId: 'L1' } }) },
     ])
-    expect(stored.every((thread) => thread.person === undefined)).toBe(true)
     expect(stored[0]!.readBy).toEqual([{ userId: 'local:L1', readAt: 5 }])
+    expect(stored.map((thread) => thread.createdBy)).toEqual(['local:L1', 'local:L1', 'local:L1'])
 
     // The wire carries the same attributions: the member keeps their name, the agent its signature (plans/012 stage 4).
     const wire = (await workAnnotations.loadWorkAnnotations('local', 'w-local'))!.comments
@@ -155,7 +153,6 @@ describe('the host user rows', () => {
     expect(wire[1]!.replies![0]!.author).toEqual({ kind: 'agent', sessionId: 's-1', provider: 'codex', title: 'Reviewer' })
     expect(wire[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
     expect(wire[2]!.resolvedBy).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
-    // A plan's `'you'` was the host's user, and its unsigned `'solus'` was Solus itself.
     const plan = (await planAnnotations.loadAnnotations('local', 's-local', 'tool-1'))!
     expect(plan.comments.map((comment) => comment.author)).toEqual([
       { kind: 'user', user: expect.objectContaining({ id: { kind: 'local', localId: 'L1' } }) },
@@ -186,6 +183,8 @@ describe('the host user rows', () => {
     const stored = await storedWorkThreads()
     expect(stored[0]!.author).toEqual({ kind: 'user', user: { id: { kind: 'account', accountId: 'acc-1' }, displayName: 'Ashton', email: 'a@example.com' } })
     expect(stored[0]!.readBy).toEqual([{ userId: 'acc-1', readAt: 5 }])
+    // The thread's creator column follows the person, as every `created_by` does.
+    expect(stored.map((thread) => thread.createdBy)).toEqual(['acc-1', 'acc-1', 'acc-1'])
     expect(settings.getServerSettings().hostUser?.account).toEqual({ accountId: 'acc-1', displayName: 'Ashton', email: 'a@example.com' })
     expect(await notificationRows()).toEqual([['n-local', 'acc-1', 7], ['n-org', 'acc-1', null]])
   })

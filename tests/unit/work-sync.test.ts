@@ -622,7 +622,7 @@ describe('Google-linked work read-only policy', () => {
     expect((await works.loadWork('local', workId))?.content).toBe('# Before linking')
 
     const localComments = await import('@solus/server/data/works/work-annotations')
-    await localComments.saveWorkAnnotations('local', { version: 1, updatedAt: Date.now(), workId, comments: [{ id: 'private', comment: 'Keep commenting', author: 'you', createdAt: Date.now() }] })
+    await localComments.applyWorkComment('local', workId, { kind: 'add', comment: { id: 'private', selectedText: '', comment: 'Keep commenting' } }, { by: EDITOR, canModerate: true, now: Date.now() })
     upstream.markdown = '# Edited in Google'
     upstream.title = 'Google title'
     expect((await workSync.pullWorkUpstream('local', workId)).ok).toBe(true)

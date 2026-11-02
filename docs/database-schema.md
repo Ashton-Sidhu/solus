@@ -170,6 +170,41 @@ oldest expiry first, through the partial index `operation_receipts_expiry`; a
 row with no expiry is never swept. A webhook's receipts are deleted with it, by
 scope.
 
+## Comment threads
+
+`comment_threads` is the one table for the comments of a task, a work, and a
+plan (plans/029-fresh-database-baseline.md §5.2; the model in
+plans/data-model-validation/README.md). One row is one thread, keyed by
+`(organization_id, subject_kind, subject_id, subject_part, thread_id)`: the
+subject is `task:<task id>`, `work:<work id>`, or `plan:<session id>` with the
+plan's tool use id as `subject_part`. The row holds the body, `created_by`, the
+`author` attribution (an external comment's upstream author is a name, never a
+local user), `source`, task provenance, times, `position`, `version`,
+`delivery_state`, the scoped external identity, and the `review` payload
+(anchor, replies, read marks, resolution). `packages/server/src/data/comments/`
+owns it.
+
+- **Writes are per thread.** A command reads one thread, applies the reducer in
+  `@solus/contracts/comment-commands`, and writes the row back `WHERE version =
+  ?`; a thread another writer changed is read again and the command reapplied.
+  A whole copy of a plan's threads (`savePlanAnnotations`) is reconciled thread
+  by thread against the `updatedAt` the copy was read at: a thread the copy
+  never saw is not deleted by its absence.
+- **Order.** A task's comments read by `(created_at, thread_id)`; a work's and a
+  plan's by `position`, allocated by advancing the parent row's
+  `comment_position` (`tasks`, `works`, `plan_annotations`) in the inserting
+  transaction.
+- **Delivery.** A task comment is `private`, `pending` (queued for the linked
+  ticket), or `sent`. Its external id is unique under `external_scope`,
+  `<provider>:<external key>:<ticket id>`, so a relinked task keeps the old
+  target's ids apart. A work's external document state is
+  `works.external_comments`, guarded by `works.external_comments_version`; a
+  refresh that read an older state is refused.
+- **Lifetime.** The subject is polymorphic, so nothing cascades: a task's or a
+  work's delete, and a task's move, delete its threads in the same transaction.
+  A work's move keeps them. A plan's threads belong to its `plan_annotations`
+  identity, so a rebuild of `indexed_plans` never touches them.
+
 ## Person columns
 
 Two columns name a person, and no other column does

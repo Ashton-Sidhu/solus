@@ -241,7 +241,7 @@ export function annotateScanned(scanned: ScannedPlan, index: AnnotationIndex): A
     ...scanned,
     title: ann?.title || scanned.title,
     status: ann?.status ?? scanned.derivedStatus,
-    commentCount: ann?.comments?.length ?? 0,
+    commentCount: ann?.commentCount ?? 0,
     bookmarked: !!ann?.bookmarked,
     bookmarkedAt: ann?.bookmarkedAt,
   }

@@ -9,6 +9,7 @@ import type { HandlerCtx, SolusServer } from '../server'
 import { organizationForNew, recordScopeOf } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { stampComments } from '../../annotations/stored-comments'
+import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { getSessionRecord, upsertSessionRecord } from '../../data/sessions/session-records'
@@ -347,8 +348,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [annotations] = args
     try {
       // The client sends the whole plan; whatever it wrote and the host has not stamped yet is the caller's.
-      await saveAnnotations(recordScopeOf(ctx.principal), { ...annotations, comments: stampComments(annotations.comments, attributionOf(ctx.actor)) })
+      const by = attributionOf(ctx.actor)
+      await saveAnnotations(recordScopeOf(ctx.principal), { ...annotations, comments: stampComments(annotations.comments, by) }, by)
       sessionRuntime.history.invalidatePlanCaches(annotations.sessionId)
+      // Every open copy of the plan, the sender's included, re-reads the threads the host now holds.
+      notifyAnnotationsChanged({ kind: 'plan', targetId: `${annotations.sessionId}__${annotations.planToolUseId}` })
       return { ok: true }
     } catch (err) {
       log.error('save_plan_annotations_failed', { error: String(err), sessionId: annotations.sessionId })

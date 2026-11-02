@@ -83,7 +83,7 @@ describe('native task migration', () => {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%task%' OR name = 'asset_publications' ORDER BY name",
     ).all().map((row) => (row as { name: string }).name)
     expect(tables()).toEqual([
-      'asset_publications', 'task_comments', 'task_counters', 'task_external_links',
+      'asset_publications', 'task_counters', 'task_external_links',
       'tasks', 'upstream_task_cache',
     ])
     const generated = readdirSync(migrationsFolder('sqlite')).filter((file) => file.endsWith('.sql')).length

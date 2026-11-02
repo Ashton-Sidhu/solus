@@ -80,7 +80,7 @@ describe('task record scope', () => {
     expect(commentId).toBeDefined()
 
     const row = await database.getDatabase().get(sql`
-      SELECT organization_id FROM task_comments WHERE id = ${commentId}
+      SELECT organization_id FROM comment_threads WHERE thread_id = ${commentId}
     `)
     expect(row).toEqual({ organization_id: 'org-a' })
     expect((await (await tasks.Task.byId('org-a', organized.id)).details()).comments).toHaveLength(1)
