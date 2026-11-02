@@ -1,4 +1,5 @@
 import type { LogEventRow, SpanRow } from '../../data/insights/span-table'
+import type { SpanAttributes } from '../../data/insights/registries'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { isOrganizationAttached } from '../../host/organization-attachment'
 import { appendDelivery } from '../delivery-queue'
@@ -67,6 +68,26 @@ function sendTurn(traceId: string): number {
   return appendDelivery({ organizationId: turn.organizationId, actorUserId: turn.actorUserId }, 'insights', [{ key: traceId, payload: { spans: turn.spans } }]).count
 }
 
+/** The two texts of a turn that never leave the host that ran it. */
+const HOST_ONLY_TEXTS = ['response', 'systemPrompt'] as const
+
+/**
+ * The span as the mirror carries it: every attribute but a turn's response and
+ * system prompt. Those two are the long texts of a turn and are read only on the
+ * host that ran it (plans/029 §6); the prompt and a thought go, because the
+ * cross-host list shows a prompt preview and the cross-host trace view shows
+ * each thought (docs/plans/insights-across-hosts.md §2).
+ */
+function mirroredSpan(span: SpanRow): SpanRow {
+  const attrs = span.attrs
+  if (!attrs || !HOST_ONLY_TEXTS.some((name) => name in attrs)) return span
+  const mirrored: SpanAttributes = {}
+  for (const [name, value] of Object.entries(attrs)) {
+    if (!HOST_ONLY_TEXTS.some((hostOnly) => hostOnly === name)) mirrored[name] = value
+  }
+  return { ...span, attrs: mirrored }
+}
+
 /**
  * Route from the session organization captured at turn admission. Setup spans
  * can finish before the session record exists; later assignment must not
@@ -76,7 +97,10 @@ function sendTurn(traceId: string): number {
 export async function mirrorInsightSpan(span: SpanRow, events: LogEventRow[], eventIds: number[]): Promise<number> {
   const organizationId = span.organizationId
   if (!span.sessionId || !organizationId || !insightsEligible(organizationId)) return 0
-  const entry = { span, events: events.map((event, index) => ({ ...event, eventId: eventIds[index] })) }
+  const entry = {
+    span: mirroredSpan(span),
+    events: events.map((event, index) => ({ ...event, eventId: eventIds[index] })),
+  }
   const turn = openTurns.get(span.traceId) ?? { organizationId, actorUserId: span.userId ?? '', spans: [] }
   turn.spans.push(entry)
   openTurns.set(span.traceId, turn)

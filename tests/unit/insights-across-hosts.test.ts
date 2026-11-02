@@ -34,14 +34,15 @@ function member(userId: string): WorkspaceRequestContext {
   }
 }
 
-const longResponse = 'r'.repeat(5_000)
 const longPrompt = 'p'.repeat(500)
 
+/** A turn as the producer mirrors it (sync/mirror/insight-mirror.ts): with its
+ *  prompt, without its response and system prompt. */
 async function mirror(hostId: string, traceId: string, userId: string, startedAt: number, extra: { children?: number } = {}): Promise<void> {
   const root = {
     spanId: traceId, traceId, kind: 'turn', name: 'turn', service: 'solus.sessions', sessionId: `session-${traceId}`, provider: 'claude-code', model: 'claude-sonnet-5',
     userId, userEmail: `${userId}@example.test`, startedAt, endedAt: startedAt + 100, status: 'ok',
-    attrs: { costUsd: 0.5, toolCallCount: 2, prompt: longPrompt, response: longResponse, systemPrompt: 'system' },
+    attrs: { costUsd: 0.5, toolCallCount: 2, prompt: longPrompt },
   }
   await sinks.applyMirrorItem({ organizationId: 'A', hostId }, { kind: 'insights', payload: { spans: [{ span: root, events: [] }] } })
   for (let index = 0; index < (extra.children ?? 0); index++) {
@@ -78,6 +79,13 @@ function localRows(): LocalRow[] {
   return rows as LocalRow[]
 }
 
+/** One of a local span's texts, as `span_texts` holds it; null when it has none. */
+function localText(spanId: string, name: string): string | null {
+  const row: unknown = metricsDb.getMetricsDb().prepare('SELECT text FROM span_texts WHERE span_id = ? AND name = ?').get(spanId, name)
+  // SAFETY: the statement selects the one column.
+  return (row as { text: string } | undefined)?.text ?? null
+}
+
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-insights-across-hosts-')); process.env.SOLUS_DATA_DIR = dataDir
   database = await import('@solus/server/db/database')
@@ -104,8 +112,9 @@ afterAll(async () => {
 
 describe('turn rows on the workspace service', () => {
   test('a row carries the root attributes and a short prompt, not the response or system prompt', async () => {
-    // WHY: a pull downloads rows for every turn in the window; the long texts
-    // are what makes a row heavy, and the tree carries them when it is opened.
+    // WHY: a pull downloads rows for every turn in the window; the prompt is
+    // what makes a row heavy, and the tree carries all of it when it is opened.
+    // The response and the system prompt never reach the service at all.
     await mirror('laptop', 'trace-alice', 'alice', now - HOUR)
     const page = await read.readInsightPage(member('alice'), { limit: 50 }, now)
     const [alice] = page.items
@@ -126,7 +135,7 @@ describe('turn rows on the workspace service', () => {
     for (const reader of [member('alice'), owner]) {
       const tree = await read.readInsightTree(reader, id)
       expect(tree.spans.map((span) => span.spanId).sort()).toEqual(['trace-alice', 'trace-alice-child-0', 'trace-alice-child-1'])
-      expect(tree.spans.find((span) => span.spanId === 'trace-alice')?.attrs.response).toBe(longResponse)
+      expect(tree.spans.find((span) => span.spanId === 'trace-alice')?.attrs.prompt).toBe(longPrompt)
       expect(tree.events).toHaveLength(2)
     }
     await expect(read.readInsightTree(member('bob'), id)).rejects.toThrow('Resource not found')
@@ -176,13 +185,14 @@ describe('the pull on a host', () => {
   })
 
   test('a turn this host recorded keeps its own row when the cloud sends a copy', async () => {
-    // WHY: the own row is complete (response, system prompt); the pulled copy is trimmed.
+    // WHY: the own row is complete (its response is here, as a text of the span); the pulled copy is trimmed.
     spanTable.writeSpan({ spanId: 'trace-1', traceId: 'trace-1', kind: 'turn', name: 'turn', service: 'solus.sessions', startedAt: now - HOUR, endedAt: now - HOUR + 100, status: 'ok', attrs: { response: 'full answer' } })
     await mirror('laptop', 'trace-1', 'alice', now - HOUR)
     await pull().request()
     const [row] = localRows()
     expect(row?.host_id).toBeNull()
-    expect(JSON.parse(row?.attrs ?? '{}').response).toBe('full answer')
+    expect(localText('trace-1', 'response')).toBe('full answer')
+    expect(JSON.parse(row?.attrs ?? '{}')).toEqual({})
   })
 
   test('a later pull finds a turn that arrived late but started inside the overlap', async () => {
@@ -194,17 +204,24 @@ describe('the pull on a host', () => {
     expect(localRows().map((row) => row.span_id)).toEqual(['trace-late', 'trace-newest'])
   })
 
-  test('opening a pulled turn writes its tree once, with the full root', async () => {
+  test('opening a pulled turn writes its tree once, with the full root and its measures', async () => {
     await mirror('laptop', 'trace-1', 'alice', now - HOUR, { children: 2 })
     const host = pull()
     await host.request()
-    expect(JSON.parse(localRows()[0]?.attrs ?? '{}').response).toBeUndefined()
+    // The list row's prompt is a preview, stored as this host stores its own texts.
+    expect(localText('trace-1', 'prompt')).toBe(longPrompt.slice(0, 200))
+    expect(JSON.parse(localRows()[0]?.attrs ?? '{}')).toMatchObject({ promptTruncated: true })
+    expect(metricsDb.getMetricsDb().prepare('SELECT tool_time_ms FROM spans WHERE span_id = ?').get('trace-1')).toEqual({ tool_time_ms: null })
 
     expect(await host.fetchTree('trace-1')).toBe(true)
     const rows = localRows()
     expect(rows.map((row) => row.span_id)).toEqual(['trace-1', 'trace-1-child-0', 'trace-1-child-1'])
     expect(rows.every((row) => row.host_id === 'laptop')).toBe(true)
-    expect(JSON.parse(rows[0]?.attrs ?? '{}').response).toBe(longResponse)
+    expect(localText('trace-1', 'prompt')).toBe(longPrompt)
+    // WHY: the `turns` view reads a root's measures from its row; a pulled root
+    // gets them when its children arrive, as an own root does when it ends.
+    expect(metricsDb.getMetricsDb().prepare('SELECT tool_time_ms, provider_wait_ms FROM spans WHERE span_id = ?').get('trace-1'))
+      .toEqual({ tool_time_ms: 20, provider_wait_ms: 90 })
     expect(await host.fetchTree('trace-1')).toBe(false)
     expect(metricsDb.getMetricsDb().prepare('SELECT COUNT(*) AS count FROM log_events').get()).toEqual({ count: 2 })
   })

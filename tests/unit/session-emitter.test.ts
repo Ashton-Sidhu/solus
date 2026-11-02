@@ -89,8 +89,14 @@ function rows(): SpanRow[] {
   return metricsDb.getMetricsDb().prepare('SELECT * FROM spans ORDER BY started_at, kind').all() as SpanRow[]
 }
 
+/** A span's attributes as the emitter recorded them. The table stores the long
+ *  texts (prompt, system prompt, response, thought) as `span_texts` rows, so
+ *  the record is the `attrs` JSON and those rows together. */
 function attrs(row: SpanRow): SpanAttrs {
-  return JSON.parse(row.attrs) as SpanAttrs
+  const texts = metricsDb.getMetricsDb()
+    .prepare('SELECT name, text FROM span_texts WHERE span_id = ?')
+    .all(row.span_id) as Array<{ name: string; text: string }>
+  return { ...JSON.parse(row.attrs), ...Object.fromEntries(texts.map((text) => [text.name, text.text])) } as SpanAttrs
 }
 
 describe.serial('session emitter', () => {

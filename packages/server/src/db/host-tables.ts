@@ -306,23 +306,30 @@ export const notificationPrObservations = defineTable('notification_pr_observati
   observed_at: bigint({ notNull: true }),
 }, { primaryKey: ['authority', 'repo', 'recipient_key'] })
 
+// A saved query and a turn flag are a person's judgement (plans/029 P8): each
+// carries the user key of the person who made it, `created_by` (`ownerKeyOf`,
+// the key `automations.owner_key` holds), and a list read is theirs alone.
 export const savedMetricsQueries = defineTable('saved_metrics_queries', {
   id: text({ primaryKey: true }),
+  created_by: text({ notNull: true }),
   name: text({ notNull: true }),
   form: text({ notNull: true }),
   spec: json(),
   sql: text(),
   created_at: bigint({ notNull: true }),
   updated_at: bigint({ notNull: true }),
+}, {
+  indexes: [{ name: 'saved_metrics_queries_by_creator', columns: ['created_by', 'updated_at'], descending: ['updated_at'] }],
 })
 
 export const turnFlags = defineTable('turn_flags', {
-  trace_id: text({ primaryKey: true }),
+  created_by: text({ notNull: true }),
+  trace_id: text({ notNull: true }),
   kind: text({ notNull: true }),
   note: text({ notNull: true, default: '' }),
   created_at: bigint({ notNull: true }),
   updated_at: bigint({ notNull: true }),
-})
+}, { primaryKey: ['created_by', 'trace_id'] })
 
 /** Every host table, in declaration order. */
 export const HOST_TABLES = [

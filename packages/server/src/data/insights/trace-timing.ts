@@ -1,9 +1,22 @@
-import type { MetricsSpan } from '@solus/contracts/observability-types'
-import { SPAN_KINDS } from './registries'
+import { SPAN_KINDS, type SpanKind } from './registries'
 
 type Interval = [number, number]
 
-export function blockingIntervals(root: MetricsSpan, children: MetricsSpan[]): Interval[] {
+/** What the timing model reads of a span: the trace root's own interval, and
+ *  of each child its kind and interval. A `MetricsSpan` and a `spans` row both
+ *  satisfy it, so the trace view and the root's stored measures share one
+ *  definition of Thinking and provider wait. */
+export interface TimedSpan {
+  spanId: string
+  kind: string
+  startedAt: number
+  endedAt: number | null
+  durationMs: number | null
+}
+
+export type TimedRoot = Pick<TimedSpan, 'startedAt' | 'endedAt'>
+
+export function blockingIntervals(root: TimedRoot, children: TimedSpan[]): Interval[] {
   if (root.endedAt === null) return []
   const intervals: Interval[] = []
   for (const child of children) {
@@ -15,7 +28,7 @@ export function blockingIntervals(root: MetricsSpan, children: MetricsSpan[]): I
   return intervals.sort((a, b) => a[0] - b[0])
 }
 
-export function intervalComplement(root: MetricsSpan, intervals: Interval[]): Interval[] {
+export function intervalComplement(root: TimedRoot, intervals: Interval[]): Interval[] {
   if (root.endedAt === null) return []
   const gaps: Interval[] = []
   let cursor = root.startedAt
@@ -33,7 +46,7 @@ export function intervalComplement(root: MetricsSpan, intervals: Interval[]): In
  *  model has begun to reason, so Thinking owns the immediately preceding
  *  uncovered interval. Persisted spans stay as provider facts; semantic query
  *  and waterfall surfaces use this projection. */
-export function effectiveTraceSpans(root: MetricsSpan, children: MetricsSpan[]): MetricsSpan[] {
+export function effectiveTraceSpans<Span extends TimedSpan>(root: TimedRoot, children: Span[]): Span[] {
   return children.map((child) => {
     if (child.kind !== SPAN_KINDS.thinking) return child
     const blockers = children.filter((candidate) =>
@@ -89,41 +102,56 @@ export function effectiveDurationSql(rowAlias: string): string {
     + ` ELSE MAX(0, ${rowAlias}.ended_at - (${effectiveStartedAtSql(rowAlias)})) END`
 }
 
-export function thinkingTimeSql(rootAlias: string): string {
-  return `(SELECT SUM(${effectiveDurationSql('thinking_child')}) FROM spans AS thinking_child`
-    + ` WHERE thinking_child.trace_id = ${rootAlias}.trace_id`
-    + ` AND thinking_child.kind = '${SPAN_KINDS.thinking}')`
+/** The measures stored on a turn's root when it ends (plans/029 §6, P3): the
+ *  columns the `turns` view selects. Each per-kind sum is a duration total over
+ *  the trace's children of that kind, null when the trace has none, so a
+ *  parallel pair of tools sums past wall-clock by design. */
+export interface TurnMeasures {
+  providerWaitMs: number | null
+  thinkingTimeMs: number | null
+  toolTimeMs: number | null
+  streamingTimeMs: number | null
+  setupTimeMs: number | null
+  permissionWaitMs: number | null
+  questionWaitMs: number | null
+  compactionTimeMs: number | null
+  queueWaitMs: number | null
+  rateLimitWaitMs: number | null
+  settlementTimeMs: number | null
 }
 
-/** Wall-clock remainder after the union of semantic blocking intervals. This
- *  is the query-view equivalent of the waterfall's derived gap total. */
-export function providerWaitSql(rootAlias: string): string {
-  const effectiveStart = effectiveStartedAtSql('wait_child')
-  return `(WITH effective_intervals AS (`
-    + ` SELECT MAX(${rootAlias}.started_at, ${effectiveStart}) AS started_at,`
-    + ` MIN(${rootAlias}.ended_at, wait_child.ended_at) AS ended_at`
-    + ` FROM spans AS wait_child`
-    + ` WHERE wait_child.trace_id = ${rootAlias}.trace_id`
-    + ` AND wait_child.span_id <> ${rootAlias}.span_id`
-    + ` AND wait_child.kind <> '${SPAN_KINDS.backgroundTask}'`
-    + ` AND wait_child.ended_at IS NOT NULL`
-    + `), ordered_intervals AS (`
-    + ` SELECT started_at, ended_at,`
-    + ` MAX(ended_at) OVER (ORDER BY started_at, ended_at`
-    + ` ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prior_ended_at`
-    + ` FROM effective_intervals WHERE ended_at > started_at`
-    + `), marked_intervals AS (`
-    + ` SELECT started_at, ended_at,`
-    + ` CASE WHEN prior_ended_at IS NULL OR started_at > prior_ended_at THEN 1 ELSE 0 END AS starts_group`
-    + ` FROM ordered_intervals`
-    + `), grouped_intervals AS (`
-    + ` SELECT started_at, ended_at,`
-    + ` SUM(starts_group) OVER (ORDER BY started_at, ended_at) AS interval_group`
-    + ` FROM marked_intervals`
-    + `), merged_intervals AS (`
-    + ` SELECT MIN(started_at) AS started_at, MAX(ended_at) AS ended_at`
-    + ` FROM grouped_intervals GROUP BY interval_group`
-    + `) SELECT CASE WHEN ${rootAlias}.ended_at IS NULL THEN NULL ELSE MAX(0,`
-    + ` ${rootAlias}.ended_at - ${rootAlias}.started_at`
-    + ` - COALESCE((SELECT SUM(ended_at - started_at) FROM merged_intervals), 0)) END)`
+function kindTotal(children: TimedSpan[], kind: SpanKind): number | null {
+  let total: number | null = null
+  for (const child of children) {
+    if (child.kind !== kind || child.durationMs === null) continue
+    total = (total ?? 0) + child.durationMs
+  }
+  return total
+}
+
+/** Root wall-clock time outside the union of blocking child intervals, after
+ *  Thinking has absorbed its lead-ins; null while the root is open. */
+export function providerWaitMs(root: TimedRoot, children: TimedSpan[]): number | null {
+  if (root.endedAt === null) return null
+  return intervalComplement(root, blockingIntervals(root, effectiveTraceSpans(root, children)))
+    .reduce((total, [startedAt, endedAt]) => total + (endedAt - startedAt), 0)
+}
+
+/** A root's measures from its children. `children` is every other span of the
+ *  trace; the caller passes them when the root has ended. */
+export function turnMeasures(root: TimedRoot, children: TimedSpan[]): TurnMeasures {
+  const attributed = effectiveTraceSpans(root, children)
+  return {
+    providerWaitMs: providerWaitMs(root, children),
+    thinkingTimeMs: kindTotal(attributed, SPAN_KINDS.thinking),
+    toolTimeMs: kindTotal(children, SPAN_KINDS.toolCall),
+    streamingTimeMs: kindTotal(children, SPAN_KINDS.responseStream),
+    setupTimeMs: kindTotal(children, SPAN_KINDS.setup),
+    permissionWaitMs: kindTotal(children, SPAN_KINDS.permissionWait),
+    questionWaitMs: kindTotal(children, SPAN_KINDS.questionWait),
+    compactionTimeMs: kindTotal(children, SPAN_KINDS.contextCompaction),
+    queueWaitMs: kindTotal(children, SPAN_KINDS.queueWait),
+    rateLimitWaitMs: kindTotal(children, SPAN_KINDS.rateLimitWait),
+    settlementTimeMs: kindTotal(children, SPAN_KINDS.turnSettlement),
+  }
 }

@@ -778,6 +778,7 @@ CREATE TABLE `runs` (
 --> statement-breakpoint
 CREATE TABLE `saved_metrics_queries` (
 	`id` text PRIMARY KEY NOT NULL,
+	`created_by` text NOT NULL,
 	`name` text NOT NULL,
 	`form` text NOT NULL,
 	`spec` text,
@@ -786,6 +787,7 @@ CREATE TABLE `saved_metrics_queries` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `saved_metrics_queries_by_creator` ON `saved_metrics_queries` (`created_by`,"updated_at" desc);--> statement-breakpoint
 CREATE TABLE `session_files` (
 	`path` text PRIMARY KEY NOT NULL,
 	`provider` text,
@@ -865,11 +867,13 @@ CREATE TABLE `transcript_mirror_rows` (
 );
 --> statement-breakpoint
 CREATE TABLE `turn_flags` (
-	`trace_id` text PRIMARY KEY NOT NULL,
+	`created_by` text NOT NULL,
+	`trace_id` text NOT NULL,
 	`kind` text NOT NULL,
 	`note` text DEFAULT '' NOT NULL,
 	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL
+	`updated_at` integer NOT NULL,
+	PRIMARY KEY(`created_by`, `trace_id`)
 );
 
 --> statement-breakpoint
