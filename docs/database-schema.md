@@ -24,7 +24,11 @@ with a message that names the file to delete, and the file is recreated empty.
   for both engines; a read goes through `getDatabase()`.
 - **Metrics** holds this host's spans and log events. Rollover deletes rows
   older than the retention setting and gives the freed pages back to the file
-  system.
+  system. A span's long texts (a turn's prompt, system prompt, and response; a
+  thought) are rows of `span_texts`, so an aggregate over `spans` never reads
+  a body; a turn root's timing measures (`provider_wait_ms`, `thinking_time_ms`,
+  the per-kind sums) are columns written when the root ends, and the `turns`
+  view selects them (plans/029 §6).
 
 `sessions` and `session_records` hold similar facts, but they are different
 things. `sessions` is this host's local, synchronous index of provider threads

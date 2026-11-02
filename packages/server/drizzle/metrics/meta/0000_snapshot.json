@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0099e9d5-334c-4900-88ed-58d846e4f0b7",
+  "id": "da5737b4-9a45-4bb4-a52d-7af79ec52ffb",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "log_events": {
@@ -106,6 +106,59 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "span_texts": {
+      "name": "span_texts",
+      "columns": {
+        "span_id": {
+          "name": "span_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "span_texts_span_id_spans_span_id_fk": {
+          "name": "span_texts_span_id_spans_span_id_fk",
+          "tableFrom": "span_texts",
+          "tableTo": "spans",
+          "columnsFrom": [
+            "span_id"
+          ],
+          "columnsTo": [
+            "span_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "span_texts_span_id_name_pk": {
+          "columns": [
+            "span_id",
+            "name"
+          ],
+          "name": "span_texts_span_id_name_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -252,6 +305,83 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "provider_wait_ms": {
+          "name": "provider_wait_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "thinking_time_ms": {
+          "name": "thinking_time_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "tool_time_ms": {
+          "name": "tool_time_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "streaming_time_ms": {
+          "name": "streaming_time_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "setup_time_ms": {
+          "name": "setup_time_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "permission_wait_ms": {
+          "name": "permission_wait_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "question_wait_ms": {
+          "name": "question_wait_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "compaction_time_ms": {
+          "name": "compaction_time_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "queue_wait_ms": {
+          "name": "queue_wait_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rate_limit_wait_ms": {
+          "name": "rate_limit_wait_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "settlement_time_ms": {
+          "name": "settlement_time_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -294,6 +424,22 @@
             "started_at"
           ],
           "isUnique": false
+        },
+        "spans_turn_pulled": {
+          "name": "spans_turn_pulled",
+          "columns": [
+            "started_at"
+          ],
+          "isUnique": false,
+          "where": "kind = 'turn' AND host_id IS NOT NULL"
+        },
+        "spans_turn_open": {
+          "name": "spans_turn_open",
+          "columns": [
+            "started_at"
+          ],
+          "isUnique": false,
+          "where": "kind = 'turn' AND ended_at IS NULL"
         }
       },
       "foreignKeys": {},

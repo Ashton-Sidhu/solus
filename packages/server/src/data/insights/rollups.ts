@@ -11,6 +11,7 @@ import type {
 } from '@solus/contracts/observability-types'
 import { getMetricsDb } from './metrics-db'
 import { SPAN_KINDS } from './registries'
+import { isSpanTextName } from './span-table'
 import {
   blockingIntervals,
   effectiveTraceSpans,
@@ -22,6 +23,40 @@ import {
 // Child spans record only observed intervals and may overlap (parallel or
 // nested tools), so rollups use interval unions and derive Provider wait
 // from the root turn minus the union — never from synthetic spans.
+//
+// A span's texts are `span_texts` rows (`span-table.ts`). The trace view reads
+// them back into `attrs`, so a client sees one attribute bag as before.
+
+interface SpanTextRow {
+  span_id: string
+  name: string
+  text: string
+}
+
+/** The texts of every span of one trace, by span id. */
+function traceTexts(traceId: string): Map<string, Array<{ name: string; text: string }>> {
+  const rawRows: unknown = getMetricsDb().prepare(`
+    SELECT span_texts.span_id, span_texts.name, span_texts.text FROM span_texts
+    WHERE span_texts.span_id IN (SELECT span_id FROM spans WHERE trace_id = ?)
+  `).all(traceId)
+  // SAFETY: the SELECT names exactly the columns `SpanTextRow` declares.
+  const rows = rawRows as SpanTextRow[]
+  const bySpan = new Map<string, Array<{ name: string; text: string }>>()
+  for (const row of rows) {
+    const texts = bySpan.get(row.span_id) ?? []
+    texts.push({ name: row.name, text: row.text })
+    bySpan.set(row.span_id, texts)
+  }
+  return bySpan
+}
+
+function withTexts(attrs: MetricsSpanAttrs, texts: Array<{ name: string; text: string }> | undefined): MetricsSpanAttrs {
+  if (!texts) return attrs
+  for (const { name, text } of texts) {
+    if (isSpanTextName(name)) attrs[name] = text
+  }
+  return attrs
+}
 
 interface SpanRow {
   span_id: string
@@ -236,14 +271,8 @@ export function gapSegments(root: MetricsSpan, children: MetricsSpan[]): Metrics
   })
 }
 
-/** Root turn time not covered by blocking child spans, clipped to the root
- *  interval. Background tasks are excluded — they never block the turn. */
-export function providerWaitMs(root: MetricsSpan, children: MetricsSpan[]): number | null {
-  if (root.endedAt === null) return null
-  return gapSegments(root, children).reduce((total, segment) => total + segment.durationMs, 0)
-}
-
-/** One turn's full span tree for the waterfall, ordered `(started_at, span_id)`. */
+/** One turn's full span tree for the waterfall, ordered `(started_at, span_id)`,
+ *  each span's texts back in its `attrs`. */
 export function turnTrace(traceId: string): MetricsTurnTrace {
   const rawRows: unknown = getMetricsDb().prepare(`
     SELECT * FROM spans WHERE trace_id = ? ORDER BY started_at, span_id
@@ -251,7 +280,12 @@ export function turnTrace(traceId: string): MetricsTurnTrace {
   // SAFETY: `SELECT *` over `spans` returns that table's columns, which `SpanRow`
   // names one-for-one.
   const rows = rawRows as SpanRow[]
-  const spans = rows.map(toSpan)
+  const texts = traceTexts(traceId)
+  const spans = rows.map((row) => {
+    const span = toSpan(row)
+    span.attrs = withTexts(span.attrs, texts.get(row.span_id))
+    return span
+  })
   const rawLogRows: unknown = getMetricsDb().prepare(`
     SELECT trace_id, span_id, occurred_at, level, name, tag, file, attrs
     FROM log_events WHERE trace_id = ? ORDER BY occurred_at, event_id
@@ -289,14 +323,16 @@ function summaryPrompt(prompt: string | null): string | null {
 /** Root-turn rollup for session surfaces. Turn numbers are display ordinals
  *  over `(started_at, span_id)` — computed here, never persisted. */
 export function sessionSummary(sessionId: string): MetricsSessionSummary {
+  // The prompt is a `span_texts` row; the row's own line of it is all a summary shows.
   const rawRows: unknown = getMetricsDb().prepare(`
-    SELECT * FROM spans
+    SELECT spans.*, prompt_text.text AS prompt FROM spans
+    LEFT JOIN span_texts AS prompt_text ON prompt_text.span_id = spans.span_id AND prompt_text.name = 'prompt'
     WHERE kind = ? AND session_id = ?
     ORDER BY started_at, span_id
   `).all(SPAN_KINDS.turn, sessionId)
-  // SAFETY: `SELECT *` over `spans` returns that table's columns, which `SpanRow`
-  // names one-for-one.
-  const rows = rawRows as SpanRow[]
+  // SAFETY: `spans.*` returns that table's columns, which `SpanRow` names
+  // one-for-one, and the join adds the one named `prompt` column.
+  const rows = rawRows as Array<SpanRow & { prompt: string | null }>
 
   const rowsWithAttrs = rows.map((row) => ({ row, attrs: parseAttrs(row.attrs) }))
   const firstTaskId = rowsWithAttrs
@@ -317,7 +353,7 @@ export function sessionSummary(sessionId: string): MetricsSessionSummary {
       model: row.model,
       origin: row.origin,
       promptSource: attrs.promptSource ?? null,
-      prompt: summaryPrompt(attrs.prompt ?? null),
+      prompt: summaryPrompt(row.prompt),
       costUsd: attrs.costUsd ?? null,
       inputTokens: attrs.inputTokens ?? null,
       outputTokens: attrs.outputTokens ?? null,

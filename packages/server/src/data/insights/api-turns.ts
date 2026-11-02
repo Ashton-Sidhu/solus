@@ -63,13 +63,10 @@ function turn(row: z.infer<typeof rowSchema>): WorkspaceInsight {
   }
 }
 
-function columns(): SQL {
-  // The two long texts of a root (the response and the system prompt) never leave storage.
-  const attrs = getDatabase().engine === 'postgres'
-    ? sql`CAST(attrs::jsonb - 'response' - 'systemPrompt' AS TEXT)`
-    : sql`json_remove(attrs, '$.response', '$.systemPrompt')`
-  return sql`trace_id, host_id, session_id, user_id, user_email, provider, model, started_at, ended_at, duration_ms, status, ${attrs} AS attrs, name, service, origin, project_root`
-}
+// A mirrored root never carries its response or system prompt: the host that
+// ran the turn keeps them (sync/mirror/insight-mirror.ts), so a row's `attrs`
+// are served as stored.
+const columns = sql`trace_id, host_id, session_id, user_id, user_email, provider, model, started_at, ended_at, duration_ms, status, CAST(attrs AS TEXT) AS attrs, name, service, origin, project_root`
 const rootTurn = sql`kind = 'turn' AND span_id = trace_id`
 
 /** One indexed seek; no full result materialization, OFFSET, COUNT or SUM. */
@@ -83,7 +80,7 @@ export async function listApiInsights(
   if (query.provider) filters.push(sql`provider = ${query.provider}`)
   if (after) filters.push(sql`(started_at, host_id, trace_id) < (${after.time}, ${after.hostId ?? ''}, ${after.id})`)
   const rows = rowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${columns()} FROM ${insightSpans} WHERE ${sql.join(filters, sql` AND `)}
+    SELECT ${columns} FROM ${insightSpans} WHERE ${sql.join(filters, sql` AND `)}
     ORDER BY started_at DESC, host_id DESC, trace_id DESC LIMIT ${query.limit + 1}
   `))
   return rows.map(turn)
@@ -94,7 +91,7 @@ export async function getApiInsight(organizationId: string, id: string): Promise
   if (!identity) return null
   const [hostId, traceId] = identity
   const row = rowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT ${columns()} FROM ${insightSpans}
+    SELECT ${columns} FROM ${insightSpans}
     WHERE organization_id = ${organizationId} AND host_id = ${hostId} AND span_id = ${traceId} AND ${rootTurn}
   `))
   return row ? turn(row) : null

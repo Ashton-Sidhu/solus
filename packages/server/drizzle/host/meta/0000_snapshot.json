@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ac008723-f53a-4442-844a-44773a689e44",
+  "id": "0fea2432-6da9-41a8-8915-d1fca6126bbc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "activity_mirror_rows": {
@@ -1201,6 +1201,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -1244,7 +1251,16 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "saved_metrics_queries_by_creator": {
+          "name": "saved_metrics_queries_by_creator",
+          "columns": [
+            "created_by",
+            "\"updated_at\" desc"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -1790,10 +1806,17 @@
     "turn_flags": {
       "name": "turn_flags",
       "columns": {
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "trace_id": {
           "name": "trace_id",
           "type": "text",
-          "primaryKey": true,
+          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -1829,7 +1852,15 @@
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "turn_flags_created_by_trace_id_pk": {
+          "columns": [
+            "created_by",
+            "trace_id"
+          ],
+          "name": "turn_flags_created_by_trace_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     }
@@ -1846,6 +1877,13 @@
       "runs_by_automation": {
         "columns": {
           "\"started_at\" desc": {
+            "isExpression": true
+          }
+        }
+      },
+      "saved_metrics_queries_by_creator": {
+        "columns": {
+          "\"updated_at\" desc": {
             "isExpression": true
           }
         }
