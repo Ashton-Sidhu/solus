@@ -4,6 +4,7 @@
 // tables here and in `postgres.ts`, a host table in `./host`.
 export * from './host'
 import * as activitySchema from '../../data/activity/schema'
+import * as commentsSchema from '../../data/comments/schema'
 import * as folioSchema from '../../data/works/schema'
 import * as notificationsSchema from '../../data/notifications/schema'
 import * as insightSchema from '../../data/insights/insight-schema'
@@ -21,14 +22,12 @@ export const tasks = tasksSchema.tasks.sqlite
 export const task_counters = tasksSchema.taskCounters.sqlite
 export const task_snoozes = tasksSchema.taskSnoozes.sqlite
 export const task_session_links = tasksSchema.taskSessionLinks.sqlite
-export const task_comments = tasksSchema.taskComments.sqlite
 export const task_links = tasksSchema.taskLinks.sqlite
 export const task_external_links = tasksSchema.taskExternalLinks.sqlite
 export const upstream_task_cache = tasksSchema.upstreamTaskCache.sqlite
 export const asset_publications = tasksSchema.assetPublications.sqlite
 export const works = folioSchema.works.sqlite
 export const work_revisions = folioSchema.workRevisions.sqlite
-export const work_annotations = folioSchema.workAnnotations.sqlite
 export const work_reviewers = folioSchema.workReviewers.sqlite
 export const work_live_docs = folioSchema.workLiveDocs.sqlite
 export const work_storage = folioSchema.workStorage.sqlite
@@ -36,6 +35,7 @@ export const work_storage_bodies = folioSchema.workStorageBodies.sqlite
 export const plan_annotations = plansSchema.planAnnotations.sqlite
 export const indexed_plans = plansSchema.indexedPlans.sqlite
 export const plan_index_providers = plansSchema.planIndexProviders.sqlite
+export const comment_threads = commentsSchema.commentThreads.sqlite
 export const acl_entry = sharingSchema.aclEntry.sqlite
 export const session_leads = sessionsSchema.sessionLeads.sqlite
 export const session_links = sessionsSchema.sessionLinks.sqlite

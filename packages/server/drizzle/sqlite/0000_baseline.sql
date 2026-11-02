@@ -46,6 +46,32 @@ CREATE TABLE `asset_publications` (
 	PRIMARY KEY(`asset_id`, `provider`, `target_key`)
 );
 --> statement-breakpoint
+CREATE TABLE `comment_threads` (
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`subject_kind` text NOT NULL,
+	`subject_id` text NOT NULL,
+	`subject_part` text DEFAULT '' NOT NULL,
+	`thread_id` text NOT NULL,
+	`body` text NOT NULL,
+	`created_by` text NOT NULL,
+	`author` text NOT NULL,
+	`source` text DEFAULT 'local' NOT NULL,
+	`origin_session_id` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`position` integer NOT NULL,
+	`version` integer DEFAULT 1 NOT NULL,
+	`delivery_state` text DEFAULT 'private' NOT NULL,
+	`external_scope` text,
+	`external_id` text,
+	`review` text DEFAULT '{}' NOT NULL,
+	PRIMARY KEY(`organization_id`, `subject_kind`, `subject_id`, `subject_part`, `thread_id`)
+);
+--> statement-breakpoint
+CREATE INDEX `comment_threads_position` ON `comment_threads` (`organization_id`,`subject_kind`,`subject_id`,`subject_part`,`position`,`thread_id`);--> statement-breakpoint
+CREATE INDEX `comment_threads_task_order` ON `comment_threads` (`organization_id`,`subject_kind`,`subject_id`,`subject_part`,`created_at`,`thread_id`) WHERE subject_kind = 'task';--> statement-breakpoint
+CREATE INDEX `comment_threads_pending` ON `comment_threads` (`organization_id`,`subject_kind`,`subject_id`,`subject_part`,`created_at`,`thread_id`) WHERE delivery_state = 'pending';--> statement-breakpoint
+CREATE UNIQUE INDEX `comment_threads_external` ON `comment_threads` (`organization_id`,`subject_kind`,`subject_id`,`subject_part`,`external_scope`,`external_id`) WHERE external_id IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `indexed_plans` (
 	`provider` text NOT NULL,
 	`session_id` text NOT NULL,
@@ -165,10 +191,10 @@ CREATE TABLE `plan_annotations` (
 	`bookmarked_at` integer,
 	`project_path` text,
 	`cwd` text,
-	`comments` text,
 	`updated_at` integer,
 	`mirrored_doc` text,
 	`organization_id` text DEFAULT 'local' NOT NULL,
+	`comment_position` integer DEFAULT 0 NOT NULL,
 	PRIMARY KEY(`session_id`, `plan_tool_use_id`)
 );
 --> statement-breakpoint
@@ -317,22 +343,6 @@ CREATE TABLE `session_views` (
 --> statement-breakpoint
 CREATE INDEX `session_views_by_person` ON `session_views` (`person_key`,`session_id`);--> statement-breakpoint
 CREATE INDEX `session_views_snoozed` ON `session_views` (`person_key`,`session_id`) WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
-CREATE TABLE `task_comments` (
-	`id` text PRIMARY KEY NOT NULL,
-	`task_id` text NOT NULL,
-	`author` text,
-	`source` text DEFAULT 'local' NOT NULL,
-	`external_id` text,
-	`origin_session_id` text,
-	`body` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`dirty` integer DEFAULT 0 NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `task_comments_by_task` ON `task_comments` (`task_id`,`created_at`);--> statement-breakpoint
-CREATE UNIQUE INDEX `task_comments_external` ON `task_comments` (`task_id`,`external_id`) WHERE external_id IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `task_counters` (
 	`name` text PRIMARY KEY NOT NULL,
 	`value` integer NOT NULL
@@ -429,7 +439,8 @@ CREATE TABLE `tasks` (
 	`last_read_at` integer,
 	`location` text,
 	`organization_id` text DEFAULT 'local' NOT NULL,
-	`created_by` text NOT NULL
+	`created_by` text NOT NULL,
+	`comment_position` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `tasks_short_id_unique` ON `tasks` (`short_id`);--> statement-breakpoint
@@ -484,13 +495,6 @@ CREATE TABLE `webhooks` (
 --> statement-breakpoint
 CREATE INDEX `webhooks_by_creator` ON `webhooks` (`organization_id`,`created_by`);--> statement-breakpoint
 CREATE INDEX `webhooks_by_project` ON `webhooks` (`project`);--> statement-breakpoint
-CREATE TABLE `work_annotations` (
-	`work_id` text PRIMARY KEY NOT NULL,
-	`data` text,
-	`updated_at` integer,
-	`organization_id` text DEFAULT 'local' NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE `work_live_docs` (
 	`work_id` text PRIMARY KEY NOT NULL,
 	`state` text NOT NULL,
@@ -584,7 +588,10 @@ CREATE TABLE `works` (
 	`content_author` text,
 	`previous_revision_id` integer,
 	`location` text,
-	`created_by` text NOT NULL
+	`created_by` text NOT NULL,
+	`comment_position` integer DEFAULT 0 NOT NULL,
+	`external_comments` text,
+	`external_comments_version` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `works_api_page` ON `works` (`organization_id`,"created_at" desc,"id" desc);--> statement-breakpoint

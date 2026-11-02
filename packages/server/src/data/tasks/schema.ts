@@ -41,6 +41,8 @@ export const tasks = defineTable('tasks', {
   organization_id: ORGANIZATION,
   /** The user id of who made the task (plans/029 decision 2): also its owner, never empty, never changed. */
   created_by: text({ notNull: true }),
+  /** The position the task's next comment thread takes (`comment_threads.position`), advanced in the inserting transaction. */
+  comment_position: integer({ notNull: true, default: 0 }),
 }, {
   indexes: [
     { name: 'tasks_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },
@@ -66,24 +68,6 @@ export const taskSessionLinks = defineTable('task_session_links', {
 }, {
   primaryKey: ['task_id', 'session_id'],
   indexes: [{ name: 'task_session_links_by_session', columns: ['session_id'] }],
-})
-
-export const taskComments = defineTable('task_comments', {
-  id: text({ primaryKey: true }),
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  author: text(),
-  source: text({ notNull: true, default: 'local' }),
-  external_id: text(),
-  origin_session_id: text(),
-  body: text({ notNull: true }),
-  created_at: bigint({ notNull: true }),
-  dirty: integer({ notNull: true, default: 0 }),
-  organization_id: ORGANIZATION,
-}, {
-  indexes: [
-    { name: 'task_comments_by_task', columns: ['task_id', 'created_at'] },
-    { name: 'task_comments_external', columns: ['task_id', 'external_id'], unique: true, where: 'external_id IS NOT NULL' },
-  ],
 })
 
 export const taskLinks = defineTable('task_links', {
@@ -198,7 +182,6 @@ export const TASK_TABLES = [
   taskSnoozes,
   taskCounters,
   taskSessionLinks,
-  taskComments,
   taskLinks,
   taskExternalLinks,
   upstreamTaskCache,

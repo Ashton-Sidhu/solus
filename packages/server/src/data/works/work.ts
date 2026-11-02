@@ -16,7 +16,8 @@ import { parseDiagram } from '@solus/contracts/diagram-types'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
 import { type RecordScope } from '../../admission/principal'
-import { workAnnotations, workRevisions, works, workLiveDocs } from './schema'
+import { workRevisions, works, workLiveDocs } from './schema'
+import { deleteThreadsOf } from '../comments/comment-threads'
 import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { workLiveBridge } from './work-live-bridge'
@@ -538,13 +539,14 @@ export class Work implements WorkRecord {
     })
   }
 
-  /** Permanently remove the work, its revisions (by cascade), its annotations, and its activity. */
+  /** Permanently remove the work, its revisions (by cascade), its comment threads, and its activity. */
   async delete(): Promise<void> {
     await getDatabase().transaction(async (db) => {
       const row = await workRow(db, this.#organizationId, this.id, true)
       if (!row) throw new Error(`Work not found: ${this.id}`)
       await (await storageForWork(db, this.#organizationId, this.id)).remove(db, this.#organizationId, this.id)
-      await db.run(sql`DELETE FROM ${workAnnotations} WHERE work_id = ${this.id}`)
+      // The threads have no foreign key to cascade: their subject is polymorphic (plans/029 §5.2).
+      await deleteThreadsOf(db, { organizationId: row.organization_id, kind: 'work', id: this.id })
       await deleteActivityFor({ kind: 'work', id: this.id }, db)
       await db.run(sql`DELETE FROM ${works} WHERE id = ${this.id}`)
       await removeNotificationsFor(db, row.organization_id, { kind: 'work', workId: this.id })

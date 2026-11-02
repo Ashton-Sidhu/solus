@@ -1,5 +1,5 @@
 import type { WorkTransfer } from '@solus/contracts/work-transfer'
-import { loadWorkAnnotations } from './work-annotations'
+import { importWorkAnnotations, loadWorkAnnotations } from './work-annotations'
 import { createHash, randomUUID } from 'node:crypto'
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
@@ -8,7 +8,7 @@ import { afterDatabaseCommit, getDatabase } from '../../db/database'
 import type { AgentId, Work, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
 import { attributionSchema, type Attribution } from '@solus/contracts/user'
 import { documentContentHash } from '../../docs/content-hash'
-import { workAnnotations, workRevisions, works } from './schema'
+import { workRevisions, works } from './schema'
 import { type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { Work as WorkEntity, validateWorkContent } from './work'
@@ -260,17 +260,18 @@ type WorkSnapshot = Omit<WorkTransfer, 'fingerprint'>
  * The fingerprint names the content, not the home: the same work in `local`
  * and in the organization it was published to hashes the same, so the
  * destination can tell a retry from a different version. It covers the body,
- * every revision, the previous-version reference, and the comments. Both
- * sides assemble these records with the same row readers, so their keys come
- * in the same order.
+ * every revision, the previous-version reference, and the comments; not the
+ * comments' `updatedAt`, which is each host's own clock. Both sides assemble
+ * these records with the same row readers, so their keys come in the same order.
  */
 export function workTransferFingerprint(snapshot: WorkSnapshot): string {
   const { organizationId: _organizationId, ...work } = snapshot.work
+  const annotations = snapshot.annotations && { comments: snapshot.annotations.comments, externalComments: snapshot.annotations.externalComments }
   return createHash('sha256').update(JSON.stringify({
     work,
     previousRevisionId: snapshot.previousRevisionId,
     revisions: snapshot.revisions,
-    annotations: snapshot.annotations,
+    annotations,
   })).digest('hex')
 }
 
@@ -326,7 +327,7 @@ export async function importWorkFromHost(organizationId: string, transfer: WorkT
     }
     await insertWorkRow(db, organizationId, ownerKey, work.id, imported, imported, previousRevisionId)
     for (const revision of revisions) await copyRevision(db, organizationId, revision)
-    if (annotations) await db.run(sql`INSERT INTO ${workAnnotations} (work_id, data, updated_at, organization_id) VALUES (${work.id}, ${JSON.stringify(annotations)}, ${annotations.updatedAt}, ${organizationId})`)
+    if (annotations) await importWorkAnnotations(db, organizationId, work.id, annotations)
     emitWorkChanged({ workId: work.id, version: work.updatedAt, contentVersion: work.contentVersion })
     return imported
   })

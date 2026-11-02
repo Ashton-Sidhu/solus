@@ -22,7 +22,7 @@ import { taskSessions } from './task-sessions'
 import { createTask, emitChanged, TASK_HERE } from './task-store'
 import { Task as TaskModel } from './task'
 import {
-  dirtyCommentsForTask,
+  pendingCommentsForTask,
   acknowledgeExternalPush,
   externalLinkForTask,
   externalLinkForTicket,
@@ -251,7 +251,7 @@ export class TaskSyncEngine {
         const link = record.link
         const mustVisit = link.lastSyncedAt == null
           || link.syncState !== 'ok'
-          || await hasPendingSync(link.taskId)
+          || await hasPendingSync(record.organizationId, link.taskId)
         if (mustVisit || changed.has(link.externalId)) due.push(record)
       }
     }
@@ -381,19 +381,20 @@ export class TaskSyncEngine {
         }
       }
 
-      const dirtyComments = await dirtyCommentsForTask(taskId)
-      for (const comment of dirtyComments) {
+      const pendingComments = await pendingCommentsForTask(organizationId, taskId)
+      for (const comment of pendingComments) {
         // Assets go up before the text that references them, and the durable
         // comment keeps its `asset://` reference: only the posted body carries
         // the provider URL. A mention goes up as `@Name`: the provider knows no
         // Solus member, and the durable comment keeps the user id.
         const publishedBody = await adapter.publishAssets(refFor(currentLink), mentionsAsText(comment.body))
         const posted = await adapter.postComment(refFor(currentLink), publishedBody)
-        await markCommentSynced(getDatabase(), comment.id, posted.externalId)
+        await markCommentSynced(getDatabase(), organizationId, taskId, comment.id, posted.externalId)
       }
       const currentTask = (await TaskModel.byId(organizationId, taskId)).record()
       await getDatabase().transaction((db) => acknowledgeExternalPush(
         db,
+        organizationId,
         taskId,
         lastTicket,
         acknowledgedFields(adapter, currentTask, currentLink, pushedPatch),
@@ -402,7 +403,7 @@ export class TaskSyncEngine {
       const hasClientVisibleChange = changedCommentCount > 0
         || epicChanged
         || currentLink.dirtyFields.length > 0
-        || dirtyComments.length > 0
+        || pendingComments.length > 0
         || currentLink.syncState !== 'ok'
       if (hasClientVisibleChange) emitChanged(taskId)
       return externalLinkForTask(taskId)

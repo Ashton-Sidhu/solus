@@ -3,7 +3,9 @@ import { z } from 'zod'
 import type { HostOwnerIdentity } from '@solus/contracts/uplink'
 import { userKey } from '@solus/contracts/user'
 import type { PlanComment } from '@solus/contracts/types'
-import { moveCommentUser, readStoredComments, type StoredThread } from '../annotations/stored-comments'
+import { moveCommentUser, readStoredComments } from '../annotations/stored-comments'
+import { commentOfThread, readThreads, reviewOf, updateThread, type ThreadSubject } from '../data/comments/comment-threads'
+import { commentThreads } from '../data/comments/schema'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
 import { vault, type HostConnectionKey } from '../vault/vault'
@@ -54,6 +56,7 @@ const OWNED_RESOURCES = [
 const PERSON_COLUMNS = [
   { table: 'session_admissions', column: 'owner_key' },
   { table: 'acl_entry', column: 'created_by' },
+  { table: 'comment_threads', column: 'created_by' },
 ] as const
 
 /**
@@ -125,33 +128,34 @@ async function connectedIntegrations(db: Db, userKey: string, scope: MoveScope):
     .map((row) => ({ integrationId: row.integration_id, accountId: row.account_id }))
 }
 
-const planCommentsRowSchema = z.object({ session_id: z.string(), plan_tool_use_id: z.string(), comments: z.string().nullable() })
-const workAnnotationsRowSchema = z.object({ work_id: z.string(), data: z.string().nullable() })
+const threadSubjectRowSchema = z.object({
+  organization_id: z.string(),
+  subject_kind: z.enum(['task', 'work', 'plan']),
+  subject_id: z.string(),
+  subject_part: z.string(),
+})
 
-/** Every stored comment thread, rewritten by `rewrite`; a row it leaves as it was is not written. */
-async function rewriteComments(db: Db, scope: MoveScope, rewrite: (threads: StoredThread[]) => PlanComment[]): Promise<number> {
+/**
+ * Every comment thread, rewritten by `rewrite` one thread at a time; a thread it
+ * leaves as it was is not written. An upstream comment names no local person and
+ * is not read.
+ */
+async function rewriteComments(db: Db, scope: MoveScope, rewrite: (threads: PlanComment[]) => PlanComment[]): Promise<number> {
   const where = scope === 'local' ? sql`WHERE organization_id = ${LOCAL_ORGANIZATION_ID}` : sql``
   let rewritten = 0
-  const plans = planCommentsRowSchema.array().parse(await db.all(sql`SELECT session_id, plan_tool_use_id, comments FROM plan_annotations ${where}`))
-  for (const row of plans) {
-    if (!row.comments) continue
-    // SAFETY: plan annotations are the sole writer of this column and store `StoredThread[]`.
-    const before = JSON.parse(row.comments) as StoredThread[]
-    const after = JSON.stringify(rewrite(before))
-    if (after === row.comments) continue
-    await db.run(sql`UPDATE plan_annotations SET comments = ${after} WHERE session_id = ${row.session_id} AND plan_tool_use_id = ${row.plan_tool_use_id}`)
-    rewritten++
-  }
-  const works = workAnnotationsRowSchema.array().parse(await db.all(sql`SELECT work_id, data FROM work_annotations ${where}`))
-  for (const row of works) {
-    if (!row.data) continue
-    // SAFETY: work annotations are the sole writer of this column and store their comments as `StoredThread[]`.
-    const annotations = JSON.parse(row.data) as { comments?: StoredThread[] }
-    if (!annotations.comments) continue
-    const after = JSON.stringify({ ...annotations, comments: rewrite(annotations.comments) })
-    if (after === row.data) continue
-    await db.run(sql`UPDATE work_annotations SET data = ${after} WHERE work_id = ${row.work_id}`)
-    rewritten++
+  const subjects = threadSubjectRowSchema.array().parse(await db.all(sql`
+    SELECT DISTINCT organization_id, subject_kind, subject_id, subject_part FROM ${commentThreads} ${where}
+  `))
+  for (const row of subjects) {
+    const subject: ThreadSubject = { organizationId: row.organization_id, kind: row.subject_kind, id: row.subject_id, part: row.subject_part }
+    for (const thread of await readThreads(db, subject)) {
+      if (thread.author.kind === 'external') continue
+      const before = commentOfThread(thread)
+      const [after] = rewrite([before])
+      if (!after || JSON.stringify(after) === JSON.stringify(before)) continue
+      await updateThread(db, subject, thread.threadId, thread.version, { author: after.author ?? thread.author, review: reviewOf(after), updatedAt: thread.updatedAt })
+      rewritten++
+    }
   }
   return rewritten
 }

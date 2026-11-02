@@ -404,7 +404,7 @@ export interface TaskLinkInput {
 
 /** What a `task_changed` activity says changed. Interleaved with
  *  `TaskComment[]` to build the feed. Comments deliberately have no activity of
- *  their own — `task_comments` already is that log, and a mirrored row would be
+ *  their own — their `comment_threads` rows already are that log, and a mirrored row would be
  *  a second thing to keep in sync. */
 export type TaskEventKind =
   | 'created'

@@ -181,22 +181,15 @@ describe('an agent’s actions', () => {
 
 describe('rows written before stage 4', () => {
   // Old task event actors move with `task_events` into `activity` (activity.test.ts).
-  test('old comment authors and link makers still read', async () => {
+  test('old link makers still read', async () => {
     const task = await taskStore.createTask('local', { title: 'Old task' })
     const raw = database.getDatabase()
-    await raw.run(sql`INSERT INTO task_comments (id, task_id, author, source, origin_session_id, body, created_at, organization_id) VALUES
-      ('01C1', ${task.id}, 'You', 'local', NULL, 'mine', 10, 'local'),
-      ('01C2', ${task.id}, 'agent', 'local', 'thread-9', 'the agent', 11, 'local')`)
-    await raw.run(sql`INSERT INTO task_comments (id, task_id, author, source, external_id, body, created_at, organization_id) VALUES
-      ('external:1', ${task.id}, 'octocat', 'external', '1', 'upstream', 12, 'local')`)
     await raw.run(sql`INSERT INTO task_links (task_id, kind, target_scope, target_key, title, created_by, origin_session_id, linked_at, organization_id) VALUES
       (${task.id}, 'automation', '', 'a1', 'A', 'migration', NULL, 1, 'local'),
       (${task.id}, 'automation', '', 'a2', 'B', 'agent', 'thread-9', 2, 'local')`)
 
     const details = await (await tasks.Task.byId('local', task.id)).details()
-    const owner: Attribution = { kind: 'user', user: hostUser.hostUser()! }
     const agent: Attribution = { kind: 'agent', sessionId: 'thread-9' }
-    expect(details.comments.map((comment) => [comment.author, comment.externalAuthor])).toEqual([[owner, undefined], [agent, undefined], [undefined, 'octocat']])
     expect(Object.fromEntries(details.links.map((link) => [link.targetKey, link.createdBy]))).toEqual({ a1: { kind: 'system' }, a2: agent })
   })
 

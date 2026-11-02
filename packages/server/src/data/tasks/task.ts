@@ -1,11 +1,12 @@
 import { sql } from 'drizzle-orm'
 import { ulid } from '@solus/contracts/ulid'
-import { taskComments, taskExternalLinks, taskLinks, taskSessionLinks, tasks } from './schema'
+import { taskExternalLinks, taskLinks, taskSessionLinks, tasks } from './schema'
 import { sameUser, type Attribution } from '@solus/contracts/user'
 import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
 import { removeNotificationsFor } from '../notifications/store'
-import { agentAttribution, attributionJson, parseStoredAttribution } from '../stored-attribution'
+import { agentAttribution } from '../stored-attribution'
+import { creatorKeyOf, deleteThread, deleteThreadsOf, insertThread, newestThreadCreatedAt, readThread, type ThreadSubject } from '../comments/comment-threads'
 import { claimSessionOutputLink, deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink, type TaskLinkWrite } from './task-links'
 import { readSessionOutputs } from './session-outputs'
 import {
@@ -29,14 +30,13 @@ import { createLogger } from '../../logger'
 import { loadProjectConfig } from '../../project-config/project-config'
 import {
   externalLinkForTask,
-  markCommentsDirty,
+  queueCommentsForPush,
   markTaskFieldsDirty,
   notifyTaskSyncDirty,
 } from './task-sync-store'
 import { blockedAssetReferences } from './adapters/registry'
 import type {
   Task as TaskRecord,
-  TaskComment,
   TaskDetails,
   TaskLink,
   TaskLinkInput,
@@ -56,7 +56,6 @@ import { z } from 'zod'
 const log = createLogger('main', 'task')
 const taskIdRowSchema = z.object({ task_id: z.string() })
 const taskPrRowSchema = z.object({ pr: z.string().nullable() })
-const commentSourceRowSchema = z.object({ source: z.string(), external_id: z.string().nullable(), author: z.string().nullable() })
 const existingPrLinkRowSchema = z.object({
   target_scope: z.string(),
   url: z.string().nullable(),
@@ -112,8 +111,6 @@ function nextPrLinkIdentity(
 interface AddTaskCommentOptions {
   /** Who wrote it: the admitted actor, or the agent that asked. */
   by: Attribution
-  source?: TaskComment['source']
-  externalId?: string | null
   originSessionId?: string | null
   /** Caller-supplied comment id (an outbox op id, so a redelivered op inserts
    *  the same row and `INSERT OR IGNORE` makes the write idempotent). Omitted
@@ -280,7 +277,7 @@ export class Task implements TaskRecord {
     const externalLink = await externalLinkForTask(this.id, db)
     const details: TaskDetails = {
       task: this.record(),
-      comments: await commentsForTask(this.id, db),
+      comments: await commentsForTask(this.#organizationId, this.id, db),
       links: await readTaskLinks(db, this.#organizationId, this.id),
       activity: await activityFor(this.#organizationId, { kind: 'task', id: this.id }, { limit: TASK_ACTIVITY_LIMIT, db }),
     }
@@ -411,21 +408,20 @@ export class Task implements TaskRecord {
       && !blockedAssetReferences(text, link.provider).length
     await database().transaction(async (db) => {
       await requireTask(this.#organizationId, this.id, db)
-      const now = Date.now()
-      // A redelivered outbox op inserts under the same id, so the conflict is a no-op.
-      await db.run(sql`
-        INSERT INTO ${taskComments}(
-          id, task_id, author, source, external_id, origin_session_id, body,
-          created_at, dirty, organization_id
-        ) VALUES (
-          ${options.id ?? ulid(now)}, ${this.id}, ${attributionJson(options.by)},
-          ${options.source ?? 'local'}, ${normalizedOptional(options.externalId)},
-          ${normalizedOptional(options.originSessionId)}, ${text}, ${now}, ${shouldPush ? 1 : 0},
-          ${this.#organizationId}
-        )
-        ON CONFLICT DO NOTHING
-      `)
-      // No mirrored event: task_comments already is that log, and a second row
+      // Written after the comment before it, even within one millisecond: the
+      // comments read in `(created_at, id)` order, and ids are not ordered within a millisecond.
+      const now = Math.max(Date.now(), await newestThreadCreatedAt(db, this.#threads()) + 1)
+      // A redelivered outbox op inserts under the same id, so the second insert is a no-op.
+      await insertThread(db, this.#threads(), {
+        threadId: options.id ?? ulid(now),
+        body: text,
+        author: options.by,
+        createdBy: creatorKeyOf(options.by),
+        originSessionId: normalizedOptional(options.originSessionId),
+        createdAt: now,
+        deliveryState: shouldPush ? 'pending' : 'private',
+      })
+      // No mirrored event: the thread already is that log, and a second row
       // would be one more thing to keep in sync.
       await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${this.id}`)
     })
@@ -443,19 +439,16 @@ export class Task implements TaskRecord {
   async deleteComment(commentId: string, actor: { by: Attribution; canModerate: boolean }): Promise<TaskDetails> {
     const deleted = await database().transaction(async (db) => {
       await requireTask(this.#organizationId, this.id, db)
-      const comment = commentSourceRowSchema.nullish().parse(await db.get(sql`
-        SELECT source, external_id, author FROM ${taskComments} WHERE id = ${commentId} AND task_id = ${this.id}
-      `))
+      const comment = await readThread(db, this.#threads(), commentId)
       if (!comment) throw new Error('This task comment no longer exists.')
-      if (comment.source !== 'local' || comment.external_id !== null) {
+      if (comment.source !== 'local' || comment.external !== null) {
         throw new Error('Only unpublished local task comments can be deleted in Solus.')
       }
-      if (!mayDeleteComment(parseStoredAttribution(comment.author), actor)) {
+      if (comment.author.kind === 'external' || !mayDeleteComment(comment.author, actor)) {
         throw new Error('Only the person who wrote a comment or the task owner may delete it.')
       }
-      const removed = (await db.run(sql`
-        DELETE FROM ${taskComments} WHERE id = ${commentId} AND task_id = ${this.id}
-      `)).changes > 0
+      // The same rule again on the row: a comment sent while this ran stays.
+      const removed = await deleteThread(db, this.#threads(), commentId, sql`source = 'local' AND external_id IS NULL`)
       if (removed) await db.run(sql`UPDATE ${tasks} SET updated_at = ${Date.now()} WHERE id = ${this.id}`)
       return removed
     })
@@ -488,7 +481,7 @@ export class Task implements TaskRecord {
         + 'Add the file with the provider composer before publishing this comment.',
       )
     }
-    const queued = await database().transaction((db) => markCommentsDirty(db, this.id, commentIds))
+    const queued = await database().transaction((db) => queueCommentsForPush(db, this.#organizationId, this.id, commentIds))
     if (queued) {
       emitChanged(this.id)
       notifyTaskSyncDirty(this.#organizationId, this.id)
@@ -757,9 +750,8 @@ export class Task implements TaskRecord {
   async moveTo(location: TaskLocation): Promise<void> {
     await database().transaction(async (db) => {
       await requireTask(this.#organizationId, this.id, db)
-      for (const table of [taskComments, taskExternalLinks]) {
-        await db.run(sql`DELETE FROM ${table} WHERE task_id = ${this.id}`)
-      }
+      await deleteThreadsOf(db, this.#threads())
+      await db.run(sql`DELETE FROM ${taskExternalLinks} WHERE task_id = ${this.id}`)
       await deleteActivityFor({ kind: 'task', id: this.id }, db)
       await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
       await db.run(sql`
@@ -770,12 +762,18 @@ export class Task implements TaskRecord {
     emitChanged()
   }
 
+  /** The task's comment threads: the subject every thread write names. */
+  #threads(): ThreadSubject {
+    return { organizationId: this.#organizationId, kind: 'task', id: this.id }
+  }
+
   async delete(): Promise<boolean> {
     const deleted = await database().transaction(async (db) => {
       const removed = (await db.run(sql`
         DELETE FROM ${tasks} WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
       `)).changes > 0
-      // The task's history goes with it, as `task_events` did by its foreign key.
+      // The task's comments and history go with it; the threads have no foreign key to cascade.
+      if (removed) await deleteThreadsOf(db, this.#threads())
       if (removed) await deleteActivityFor({ kind: 'task', id: this.id }, db)
       if (removed) await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
       return removed
