@@ -14,14 +14,23 @@ User decisions, 2026-11-01:
    marker" step exists in this plan. Every change is written into one baseline
    schema. The wipe itself is the developer's action; no plan step deletes or
    opens a live database.
-2. **Creator identity is stored.** Every user-created record carries an
-   immutable `created_by` (a user id, set from the verified acting identity;
-   `user_id` is acceptable where the table's meaning is unambiguous; never both
-   for one fact). Ownership never transfers, so there is no separate owner
-   field where owner and creator are the same person. A recipient or the
-   person whose preference a row stores is a different role and keeps its own
-   column. Creator identity is not an access grant. Internal cursors, caches
-   and derived rows carry no creator; they reach ownership through their parent.
+2. **Two person columns, no more.** `created_by` is on every user-created
+   table: the user id of who made the row, set from the verified acting
+   identity, never from a client value, immutable. Ownership never transfers,
+   so `created_by` is also the owner; `owner_key`, `person_key`,
+   `granted_by_user_id`, and `by_user_key` all become `created_by`. `user_id`
+   is the person a row is *for*, and exists only where that can differ from
+   the creator: notifications (the recipient), activity (the person an event
+   names), the delivery cursors and queue (the person whose token delivers).
+   A personal preference is created by the person it belongs to, so its key is
+   `(resource, created_by)`. An agent acting for a person records that person;
+   agent and session provenance stay in their own columns. External authors
+   keep an `author` attribution and are never presented as local users.
+   Creator identity is not an access grant. Internal cursors, caches and
+   derived rows carry no creator; they reach ownership through their parent.
+   The baseline test enforces this: every table has `created_by` or is on the
+   internal allowlist, `user_id` is the only other person column, and no other
+   column names a person (user decision, 2026-11-01).
 3. **Organization scope is canonical.** Every root record carries one
    `organization_id` (`local` or an organization id, never changed). Child rows
    that organization filters read carry it too. A host shared with several
@@ -54,7 +63,7 @@ causes; the table sections below carry the detail.
 | P5 | **Parent-child integrity is declared.** Every child of a session, task, or work has a foreign key with `ON DELETE CASCADE`. | Ten session child tables gain the key (§4). `resource_links` and `comment_threads` state their deletion rules explicitly because their parents are polymorphic (§5). |
 | P6 | **JSON is a payload, never a predicate.** A field the app filters, sorts, or groups on is a column. | Promoted columns on spans; `started_by`, `trigger_config`, `attrs` stay JSON TEXT on both engines because nothing filters them in SQL. `json` remains TEXT in the schema DSL; no `jsonb`. |
 | P7 | **One schema system.** Every table is a `defineTable`; one generated baseline per engine; nothing is created at runtime. | The legacy `CREATE TABLE` strings in `db/migrations.ts` and the history under `packages/server/drizzle/` are replaced by one baseline. `member_folder` becomes a `defineTable`. `session_fts` is created contentless once; the first-open rebuild in `db/index.ts:69` is deleted (§3.7). |
-| P8 | **Owner scope is uniform.** Every table a person writes has `created_by` and, where filtered, `organization_id`; audited as a checklist, not case by case. | `turn_flags` and `saved_metrics_queries` gain an owner column and filter. `task_counters` loses its meaningless `organization_id`. `session_states`/`session_views` split by shared versus personal (§4). |
+| P8 | **Owner scope is uniform.** Two person columns (decision 2); `organization_id` wherever a filter needs it; enforced by the baseline test, not by review. | `turn_flags` and `saved_metrics_queries` gain `created_by` and filter on it. `owner_key` → `created_by` on `session`, `tasks`, `works`, `webhooks`, `automations`, `integration`, `browser_profiles`, `workspace_projects`; `recipient_key` → `user_id` on `notifications`; `person_key` → `created_by` on preferences; `granted_by_user_id` → `created_by` and `target_user_key` → `user_id`. `task_counters` loses its meaningless `organization_id`. |
 
 ## 3. Table consolidations (absorbed from plans 022–027)
 
