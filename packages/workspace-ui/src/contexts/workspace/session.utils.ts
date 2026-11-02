@@ -7,7 +7,7 @@ import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
 import { pendingHandoffProvider } from '../../components/conversation/lib/pending-handoff'
-import { hostPathBaseName, isAbsoluteHostPath } from '@solus/contracts/host-path'
+import { hostPathBaseName, isAbsoluteHostPath, UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
 import { readAnnotationPrompt } from '../../components/browser/lib/annotation-prompt'
 
 let msgCounter = 0
@@ -406,8 +406,6 @@ const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
 const ANNOTATION_LINE = /^\[Browser annotation: (.+)\]$/
 const ANNOTATION_CAPTURE_LINE = /^Annotated capture: (.+)$/
 const ANNOTATION_MARK_LINE = /^\d+\. /
-/** The slot and random prefix the host puts before an uploaded file's name. */
-const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
 
 function attachedFile(path: string, index: number, serverId: string | undefined): Attachment {
   const name = (hostPathBaseName(path) || path).replace(UPLOAD_NAME_PREFIX, '')

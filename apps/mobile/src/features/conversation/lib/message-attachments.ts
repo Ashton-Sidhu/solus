@@ -1,4 +1,4 @@
-import { hostPathBaseName } from '@solus/contracts/host-path'
+import { hostPathBaseName, UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
 import { videoMimeType } from '@solus/contracts/media-types'
 import type { PromptImageRef } from '@solus/contracts/types'
 import type { QueueAttachment } from '@solus/contracts/session-queue'
@@ -16,8 +16,6 @@ export type MessageAttachment =
   | { readonly kind: 'file'; readonly key: string; readonly name: string; readonly hostPath: string; readonly video: boolean }
 
 const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
-/** The slot and random prefix the host puts before an uploaded file's name. */
-const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
 
 function fileAttachment(hostPath: string, index: number, name?: string): MessageAttachment {
   const fileName = name || (hostPathBaseName(hostPath) || hostPath).replace(UPLOAD_NAME_PREFIX, '')
@@ -92,8 +90,8 @@ export function attachmentTypeLabel(name: string): string {
   return extension ?? 'File'
 }
 
-/** The name the desktop composer gives a large paste (`pastedTextFile`); the desktop label rule, kept in step by a test. */
-const GENERATED_PASTED_TEXT_NAME = /^pasted text \d{4}-\d{2}-\d{2} \d{6}(?: \d+)?\.txt$/i
+/** The name the desktop composer gives a large paste (`pastedTextFile`), or the host's stored spelling with `_` for each space; the desktop label rule, kept in step by a test. */
+const GENERATED_PASTED_TEXT_NAME = /^pasted[ _]text[ _]\d{4}-\d{2}-\d{2}[ _]\d{6}(?:[ _]\d+)?\.txt$/i
 
 /** What a chip or card calls a file: its name, unless Solus made the name up. */
 export function attachmentDisplayName(name: string): string {

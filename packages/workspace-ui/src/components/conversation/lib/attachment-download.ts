@@ -1,10 +1,7 @@
 import type { Attachment } from '@solus/contracts/types'
-import { hostPathBaseName } from '@solus/contracts/host-path'
+import { hostPathBaseName, UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
 import { resolveHostMediaUrl, type HostMediaRequest } from '../../../lib/host-media-url.svelte'
 import { downloadBlob } from '../../work/lib/work-export'
-
-/** The slot and random prefix the host puts before an uploaded file's name. */
-const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
 
 /**
  * The name a downloaded attachment is saved under: the name it was sent with,
