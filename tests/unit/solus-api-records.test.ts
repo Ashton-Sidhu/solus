@@ -38,6 +38,9 @@ test('create retries return one task; conflicting input and stale writes cannot 
   const replay = await operations.createTask(context, input, 'create-task-key-001')
   expect(replay.id).toBe(first.id)
   await expect(operations.createTask(context, { title: 'Different' }, 'create-task-key-001')).rejects.toThrow('different input')
+  // The receipt's namespace carries the kind: the same authority and key create a work of their own.
+  const sameKeyWork = await operations.createWork(context, { title: 'Same key', type: 'doc', content: '' }, 'create-task-key-001')
+  expect(sameKeyWork.id).not.toBe(first.id)
   const updated = await operations.updateTask(context, first.id, { title: 'Updated' }, first.version)
   expect(updated.version).not.toBe(first.version)
   await expect(operations.updateTask(context, first.id, { title: 'Lost update' }, first.version)).rejects.toThrow('latest version')

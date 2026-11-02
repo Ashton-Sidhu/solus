@@ -136,6 +136,17 @@ CREATE TABLE `notifications` (
 CREATE UNIQUE INDEX `notifications_event` ON `notifications` (`organization_id`,`recipient_key`,`event_id`);--> statement-breakpoint
 CREATE INDEX `notifications_for_recipient` ON `notifications` (`recipient_key`,`created_at`,`id`);--> statement-breakpoint
 CREATE INDEX `notifications_by_resource` ON `notifications` (`organization_id`,`resource_key`);--> statement-breakpoint
+CREATE TABLE `operation_receipts` (
+	`scope` text NOT NULL,
+	`namespace` text NOT NULL,
+	`key` text NOT NULL,
+	`request_hash` text,
+	`result_id` text,
+	`expires_at` integer,
+	PRIMARY KEY(`scope`, `namespace`, `key`)
+);
+--> statement-breakpoint
+CREATE INDEX `operation_receipts_expiry` ON `operation_receipts` (`expires_at`,`scope`,`namespace`,`key`) WHERE expires_at IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `plan_annotations` (
 	`session_id` text NOT NULL,
 	`plan_tool_use_id` text NOT NULL,
@@ -445,14 +456,6 @@ CREATE TABLE `webhook_deliveries` (
 );
 --> statement-breakpoint
 CREATE INDEX `webhook_deliveries_by_webhook` ON `webhook_deliveries` (`webhook_id`,`arrived_at`,`id`);--> statement-breakpoint
-CREATE TABLE `webhook_seen_keys` (
-	`kind` text NOT NULL,
-	`key` text NOT NULL,
-	`expires_at` integer NOT NULL,
-	PRIMARY KEY(`kind`, `key`)
-);
---> statement-breakpoint
-CREATE INDEX `webhook_seen_keys_by_expiry` ON `webhook_seen_keys` (`expires_at`);--> statement-breakpoint
 CREATE TABLE `webhooks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
@@ -579,15 +582,6 @@ CREATE TABLE `works` (
 CREATE INDEX `works_api_page` ON `works` (`organization_id`,"created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX `works_api_type_page` ON `works` (`organization_id`,`type`,"created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX `works_by_session` ON `works` (`session_id`) WHERE session_id IS NOT NULL;--> statement-breakpoint
-CREATE TABLE `workspace_api_receipts` (
-	`key` text PRIMARY KEY NOT NULL,
-	`request_hash` text NOT NULL,
-	`resource_kind` text NOT NULL,
-	`resource_id` text,
-	`expires_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `workspace_api_receipts_expiry` ON `workspace_api_receipts` (`expires_at`);--> statement-breakpoint
 CREATE TABLE `workspace_projects` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
@@ -604,12 +598,6 @@ CREATE TABLE `activity_mirror_rows` (
 	`session_id` text NOT NULL,
 	`activity_id` text NOT NULL,
 	PRIMARY KEY(`session_id`, `activity_id`)
-);
---> statement-breakpoint
-CREATE TABLE `applied_ops` (
-	`op_id` text PRIMARY KEY NOT NULL,
-	`resource_id` text NOT NULL,
-	`applied_at` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `async_questions` (

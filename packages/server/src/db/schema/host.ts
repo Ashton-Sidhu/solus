@@ -16,7 +16,6 @@ export const run_queue = host.runQueue.sqlite
 export const run_exchanges = host.runExchanges.sqlite
 export const async_questions = host.asyncQuestions.sqlite
 export const outbox_ops = host.outboxOps.sqlite
-export const applied_ops = host.appliedOps.sqlite
 export const delivery_queue = host.deliveryQueue.sqlite
 export const transcript_mirror_rows = host.transcriptMirrorRows.sqlite
 export const activity_mirror_rows = host.activityMirrorRows.sqlite

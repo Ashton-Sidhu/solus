@@ -8,6 +8,7 @@ import * as insightSchema from '../../data/insights/insight-schema'
 import * as outboxSchema from '../../sync/outbox/schema'
 import * as plansSchema from '../../plans/schema'
 import * as projectsSchema from '../../projects/schema'
+import * as receiptsSchema from '../../data/receipts/schema'
 import * as sessionsSchema from '../../data/sessions/schema'
 import * as transcriptSchema from '../../data/sessions/transcript-schema'
 import * as sharingSchema from '../../sharing/schema'
@@ -49,7 +50,6 @@ export const insight_log_events = insightSchema.insightLogEvents.pg
 export const workspace_projects = projectsSchema.workspaceProjects.pg
 export const activity = activitySchema.activity.pg
 export const notifications = notificationsSchema.notifications.pg
-export { solusApiReceiptsPostgres as workspace_api_receipts } from '../../data/workspace/schema'
 export const webhooks = webhooksSchema.webhooks.pg
 export const webhook_deliveries = webhooksSchema.webhookDeliveries.pg
-export const webhook_seen_keys = webhooksSchema.webhookSeenKeys.pg
+export const operation_receipts = receiptsSchema.operationReceipts.pg

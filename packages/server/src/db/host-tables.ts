@@ -5,7 +5,7 @@ import { bigint, defineTable, integer, json, text } from './schema/define-table'
  * execution ledger, the delivery queues, and host-local settings. They live in
  * `solus.db` on every machine whatever its records engine, and are read
  * synchronously through `getDb()`. Declared here once; drizzle-kit generates
- * their baseline into `packages/server/drizzle/host` from `./schema/host.ts`.
+ * their baseline into `packages/server/drizzle/sqlite` through `./schema/host.ts`.
  * `session_fts`, an FTS5 virtual table, is hand-written in
  * `./schema/custom/host.sql` and appended to that baseline.
  */
@@ -174,12 +174,6 @@ export const outboxOps = defineTable('outbox_ops', {
   ],
 })
 
-export const appliedOps = defineTable('applied_ops', {
-  op_id: text({ primaryKey: true }),
-  resource_id: text({ notNull: true }),
-  applied_at: bigint({ notNull: true }),
-})
-
 export const deliveryQueue = defineTable('delivery_queue', {
   seq: integer({ primaryKey: true }),
   kind: text({ notNull: true }),
@@ -337,7 +331,7 @@ export const turnFlags = defineTable('turn_flags', {
 export const HOST_TABLES = [
   sessions, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
   runs, runQueue, runExchanges, asyncQuestions,
-  outboxOps, appliedOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
+  outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, recentProjects, savedPrompts, automations, automationRuns, browserProfiles, browserProfileDefaults,
   integration, integrationConnection, notificationPrObservations, savedMetricsQueries, turnFlags,
 ] as const

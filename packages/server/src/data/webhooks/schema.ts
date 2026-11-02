@@ -49,18 +49,7 @@ export const webhookDeliveries = defineTable('webhook_deliveries', {
   ],
 })
 
-/**
- * The replay keys and the proven delivery IDs a webhook has seen (plan §2.5, §3.4):
- * one table, one sweeper. `kind` is `replay` or `delivery`; `key` starts with the
- * webhook ID.
- */
-export const webhookSeenKeys = defineTable('webhook_seen_keys', {
-  kind: text({ notNull: true }),
-  key: text({ notNull: true }),
-  expires_at: bigint({ notNull: true }),
-}, {
-  primaryKey: ['kind', 'key'],
-  indexes: [{ name: 'webhook_seen_keys_by_expiry', columns: ['expires_at'] }],
-})
+// The replay keys and the proven delivery IDs a webhook has seen (plan §2.5, §3.4)
+// are operation receipts in the webhook's scope (`data/receipts/operation-receipts.ts`).
 
-export const WEBHOOK_TABLES = [webhooks, webhookDeliveries, webhookSeenKeys]
+export const WEBHOOK_TABLES = [webhooks, webhookDeliveries]
