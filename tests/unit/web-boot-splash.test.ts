@@ -127,6 +127,28 @@ describe('the web stylesheet does not hold the first paint', () => {
   })
 })
 
+describe('the web entry script does not hold the first paint', () => {
+  test('only the web loads its entry async, and the entry reads the page only after the parse', () => {
+    // WHY: Safari painted a fresh login's splash only when the entry had loaded and
+    // run (docs/benchmarks/fresh-login-profile-2026-11-01.json). With `async` the parse
+    // ends, and the splash paints, while the entry still loads, so the entry must not
+    // read `#root`, the shell's data blocks, or the stylesheet links before the parse ends.
+    expect(htmlHook(clients.desktop.plugins, 'solus-async-entry-script')).toBeNull()
+    const asyncEntry = htmlHook(clients.web.plugins, 'solus-async-entry-script')
+    if (!asyncEntry) throw new Error('The web client must load its entry script async')
+    expect(asyncEntry('<head><script type="module" crossorigin src="/assets/index.js"></script></head>'))
+      .toBe('<head><script type="module" async crossorigin src="/assets/index.js"></script></head>')
+
+    const path = 'apps/client/src/main.ts'
+    const source = ts.createSourceFile(path, read(path), ts.ScriptTarget.Latest, true)
+    const statements = source.statements.map((statement) => statement.getText(source))
+    const parseWait = statements.findIndex((text) => text.includes("addEventListener('DOMContentLoaded'"))
+    const firstPageRead = statements.findIndex((text) => !text.startsWith('import ') && /document\.(getElementById|querySelector)|\(document\)/.test(text))
+    expect(parseWait).toBeGreaterThan(-1)
+    expect(firstPageRead).toBeGreaterThan(parseWait)
+  })
+})
+
 describe('every web surface waits for the stylesheet and takes the place of the splash', () => {
   const path = 'apps/client/src/main.ts'
   const source = ts.createSourceFile(path, read(path), ts.ScriptTarget.Latest, true)

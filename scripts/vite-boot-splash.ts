@@ -54,3 +54,30 @@ export function nonBlockingStylesheets(): Plugin {
     },
   }
 }
+
+const ENTRY_SCRIPT = /<script type="module" crossorigin src=/g
+
+/**
+ * Web only. A module script holds `DOMContentLoaded` until it has loaded and run, and
+ * Safari holds the first paint of a page reached from another site until then too: a
+ * fresh login painted the splash only when the 460 KB entry had run, about 300 ms after
+ * the HTML arrived (docs/benchmarks/fresh-login-profile-2026-11-01.json). `async` lets
+ * the parse end, and the splash paint, while the entry still loads. The entry then waits
+ * for the parse before it reads the page (`apps/client/src/main.ts`).
+ *
+ * The desktop renderer keeps the plain script: its window shows only after the app mounts.
+ */
+export function asyncEntryScript(): Plugin {
+  return {
+    name: 'solus-async-entry-script',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const scripts = html.match(ENTRY_SCRIPT)?.length ?? 0
+        if (scripts !== 1) throw new Error(`index.html must have one module entry script, not ${scripts}`)
+        return html.replace(ENTRY_SCRIPT, '<script type="module" async crossorigin src=')
+      },
+    },
+  }
+}

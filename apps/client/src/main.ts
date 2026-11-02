@@ -36,6 +36,13 @@ import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
 import { z } from 'zod'
 
+// The built page loads this script `async` (`asyncEntryScript`), so the first paint does
+// not wait for it. It can run before the parse has reached `#root` and the shell's data
+// blocks, so it reads the page only once the parse is done.
+if (document.readyState === 'loading') {
+  await new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve, { once: true }))
+}
+
 const serviceWorkerMessageSchema = z.object({
   type: z.string().optional(),
   route: z.string().nullable().optional(),
