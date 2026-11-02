@@ -17,8 +17,8 @@ import type {
   TaskComment,
   TaskCreateInput,
   TaskListFilter,
-  TaskListResult,
   TaskSource,
+  TaskSummary,
   TaskStatus,
   TaskTitleSource,
 } from '@solus/contracts/task-types'
@@ -89,8 +89,11 @@ export const taskEpicSchema = z.object({
 })
 const labelListSchema = z.array(z.string())
 const nextShortIdRowSchema = z.object({ next_id: z.number() })
+/** A task row without its body and epic: what the board list reads (plans/029 §8). */
+const taskSummaryRowSchema = taskRowSchema.omit({ body: true, epic: true })
 
 export type TaskRow = z.infer<typeof taskRowSchema>
+type TaskSummaryRow = z.infer<typeof taskSummaryRowSchema>
 type TaskCommentRow = z.infer<typeof taskCommentRowSchema>
 
 type TasksChangedListener = (taskId?: string) => void
@@ -133,14 +136,20 @@ export function jsonValue<T>(value: string | null, schema: z.ZodType<T>): T | un
 }
 
 export function taskFromRow(row: TaskRow): Task {
-  const task: Task = {
+  const task: Task = { ...taskSummaryFromRow(row), body: row.body }
+  const epic = jsonValue(row.epic, taskEpicSchema)
+  if (epic) task.epic = epic
+  return task
+}
+
+function taskSummaryFromRow(row: TaskSummaryRow): TaskSummary {
+  const task: TaskSummary = {
     id: row.id,
     providerId: 'local',
     organizationId: row.organization_id,
     projectKey: row.project_key,
     title: row.title,
     titleSource: row.title_source,
-    body: row.body,
     status: row.status,
     url: null,
     labels: jsonValue(row.labels, labelListSchema) ?? [],
@@ -163,8 +172,6 @@ export function taskFromRow(row: TaskRow): Task {
   if (row.priority !== null) task.priority = row.priority
   const pr = jsonValue(row.pr, taskPrSchema)
   if (pr) task.pr = pr
-  const epic = jsonValue(row.epic, taskEpicSchema)
-  if (epic) task.epic = epic
   if (row.origin_session_id !== null) task.originSessionId = row.origin_session_id
   if (row.origin_automation_id !== null) task.originAutomationId = row.origin_automation_id
   if (row.triaged_at !== null) task.triagedAt = row.triaged_at
@@ -228,15 +235,23 @@ export async function taskLocation(scope: RecordScope, id: string, db: Db = data
  * provider everywhere it is listed — not only on the detail page, which is the
  * one surface that separately reads the full sync state.
  */
-const TASK_SELECT = sql`
-  SELECT
-    tasks.*,
+const TASK_EXTERNAL_LINK_COLUMNS = sql`
     task_external_links.provider AS external_provider,
     task_external_links.external_id AS external_id,
     task_external_links.url AS external_url
   FROM ${tasks}
   LEFT JOIN ${taskExternalLinks} ON task_external_links.task_id = tasks.id
 `
+const TASK_SELECT = sql`SELECT tasks.*, ${TASK_EXTERNAL_LINK_COLUMNS}`
+
+/** The board list never shows a body or an epic, so the list statement selects
+ *  neither; the detail read (`taskRow`) still selects every column. */
+const TASK_SUMMARY_SELECT = sql`SELECT ${sql.join(
+  tasks.columnNames()
+    .filter((name) => name !== 'body' && name !== 'epic')
+    .map((name) => sql`${sql.identifier('tasks')}.${sql.identifier(name)}`),
+  sql`, `,
+)}, ${TASK_EXTERNAL_LINK_COLUMNS}`
 
 /**
  * Every read names the scope the caller may see (organization-scope §3): one
@@ -368,7 +383,7 @@ export async function listTasks(
   scope: RecordScope,
   filter: TaskListFilter = {},
   taskIds?: readonly string[],
-): Promise<TaskListResult> {
+): Promise<{ tasks: TaskSummary[] }> {
   const clauses: SQL[] = [scopeClause(scope, sql`tasks.organization_id`), TASK_HERE]
   if (taskIds) {
     if (!taskIds.length) return { tasks: [] }
@@ -392,12 +407,12 @@ export async function listTasks(
   if (filter.scope === 'project') clauses.push(sql`project_key IS NOT NULL`)
   if (filter.scope === 'up_next') clauses.push(sql`status IN ('todo', 'in_progress', 'in_review')`)
 
-  const rows = taskRowSchema.array().parse(await database().all(sql`
-    ${TASK_SELECT}
+  const rows = taskSummaryRowSchema.array().parse(await database().all(sql`
+    ${TASK_SUMMARY_SELECT}
     WHERE ${sql.join(clauses, sql` AND `)}
     ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
   `))
-  return { tasks: rows.map(taskFromRow) }
+  return { tasks: rows.map(taskSummaryFromRow) }
 }
 
 const unfinishedTaskRowSchema = z.object({ id: z.string(), project_key: z.string().nullable() })

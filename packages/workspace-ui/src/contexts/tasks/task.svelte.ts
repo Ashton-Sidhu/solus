@@ -38,6 +38,7 @@ import type {
   TaskSnapshot,
   TaskSource,
   TaskStatus,
+  TaskSummary,
   TaskTitleSource,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
@@ -598,9 +599,10 @@ export class Task implements TaskRecord {
    * whole workspace — including the sidebar's pull request discovery inputs,
    * whose effect issued the read in the first place. An absent optional is
    * cleared rather than left standing: the row is authoritative about what it
-   * omits.
+   * omits — except a list row (`TaskSummary`), which never carries the body or
+   * the epic; only a full record speaks for those.
    */
-  hydrate(record: TaskRecord, serverId?: string): this {
+  hydrate(record: TaskRecord | TaskSummary, serverId?: string): this {
     if (serverId) this.#serverId = serverId
     // A task inside its Undo window still exists on the host, so a refresh
     // landing here would otherwise put it straight back on screen.
@@ -615,7 +617,10 @@ export class Task implements TaskRecord {
     this.projectKey = record.projectKey
     this.title = record.title
     this.titleSource = record.titleSource
-    this.body = record.body
+    if ('body' in record) {
+      this.body = record.body
+      if (!sameEpic(this.epic, record.epic)) this.epic = record.epic
+    }
     this.status = record.status
     this.url = record.url
     this.assignee = record.assignee
@@ -640,7 +645,6 @@ export class Task implements TaskRecord {
       this.mirroredTicket = record.mirroredTicket
     }
     if (!sameStrings(this.labels, record.labels)) this.labels = record.labels
-    if (!sameEpic(this.epic, record.epic)) this.epic = record.epic
     if (!samePr(this.pr, record.pr)) this.pr = record.pr
     this.raw = record.raw
     this.#file()

@@ -20,7 +20,7 @@ import { hostAttribution } from '../stored-attribution'
 import { hostUserKey } from '../../host/host-user'
 import {
   REVISION_COLUMNS,
-  WORK_COLUMNS,
+  WORK_META_COLUMNS,
   copyRevision,
   epochMs,
   insertBaseline,
@@ -31,6 +31,7 @@ import {
   revisionSummaryFromRow,
   revisionReasonSchema,
   workFromRow,
+  workMetaRowSchema,
   workRow,
   workRowSchema,
   type WorkBody,
@@ -133,12 +134,13 @@ export async function duplicateWork(scope: RecordScope, id: string, ownerKey: st
 /**
  * `dirty` cannot be stored, only derived: a work's content changes without the
  * link being touched. Every state the provider owns — conflict, error, upstream
- * change — is stored and left alone here.
+ * change — is stored and left alone here. `contentHash` is the row's stored
+ * hash of its body, so a list derives the state without reading a body.
  */
-function withDerivedSyncState<T extends WorkMeta>(meta: T, content: string): T {
+function withDerivedSyncState<T extends WorkMeta>(meta: T, contentHash: string): T {
   const link = meta.mirroredDoc
   if (!link || link.syncState !== 'ok' && link.syncState !== 'dirty') return meta
-  const dirty = link.lastPushedContentHash !== documentContentHash(content)
+  const dirty = link.lastPushedContentHash !== contentHash
   if ((link.syncState === 'dirty') === dirty) return meta
   return { ...meta, mirroredDoc: { ...link, syncState: dirty ? 'dirty' : 'ok' } }
 }
@@ -158,7 +160,7 @@ export async function loadWork(scope: RecordScope, id: string): Promise<Work | n
     const row = await workRow(database(), scope, id)
     if (!row) return null
     const work = workFromRow(row)
-    return withDerivedSyncState(work, work.content)
+    return withDerivedSyncState(work, work.contentHash)
   } catch (err: any) {
     log.error('work_load_failed', { workId: id, error: err instanceof Error ? err.message : String(err) })
     return null
@@ -167,15 +169,15 @@ export async function loadWork(scope: RecordScope, id: string): Promise<Work | n
 
 export async function listWorks(scope: RecordScope): Promise<(WorkMeta & { id: string })[]> {
   try {
-    const rows = workRowSchema.array().parse(await database().all(sql`
-      SELECT ${WORK_COLUMNS}
+    const rows = workMetaRowSchema.array().parse(await database().all(sql`
+      SELECT ${WORK_META_COLUMNS}
       FROM ${works}
       WHERE ${scopeClause(scope)} AND location IS NULL
       ORDER BY updated_at DESC, id
     `))
     return rows.map((row) => ({
       id: row.id,
-      ...withDerivedSyncState(metaFromRow(row), row.content ?? ''),
+      ...withDerivedSyncState(metaFromRow(row), row.content_hash),
     }))
   } catch (err: any) {
     log.error('works_list_failed', { error: err instanceof Error ? err.message : String(err) })

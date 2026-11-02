@@ -21,18 +21,19 @@ import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { workLiveBridge } from './work-live-bridge'
 import { storageForWork } from './work-storage'
+import { deleteActivityFor } from '../activity/activity'
 import { recordNewMentions } from '../activity/mentions'
 import { removeNotificationsFor } from '../notifications/store'
 import { hostAttribution } from '../stored-attribution'
 import {
-  REVISION_COLUMNS,
+  REVISION_SUMMARY_COLUMNS,
   authorJson,
   insertRevision,
   isoTime,
   metaFromRow,
   metaJson,
   revisionRow,
-  revisionRowSchema,
+  revisionSummaryRowSchema,
   revisionSummaryFromRow,
   workFromRow,
   workLocation,
@@ -450,10 +451,10 @@ export class Work implements WorkRecord {
     return this.revision(revisionId)
   }
 
-  /** Every checkpoint, oldest first, without bodies. */
+  /** Every checkpoint, oldest first, without bodies: the statement selects none. */
   async revisions(): Promise<WorkRevisionSummary[]> {
-    const rows = revisionRowSchema.array().parse(await getDatabase().all(sql`
-      SELECT ${REVISION_COLUMNS} FROM ${workRevisions} WHERE work_id = ${this.id} ORDER BY rev
+    const rows = revisionSummaryRowSchema.array().parse(await getDatabase().all(sql`
+      SELECT ${REVISION_SUMMARY_COLUMNS} FROM ${workRevisions} WHERE work_id = ${this.id} ORDER BY rev
     `))
     return rows.map(revisionSummaryFromRow)
   }
@@ -537,13 +538,14 @@ export class Work implements WorkRecord {
     })
   }
 
-  /** Permanently remove the work, its revisions (by cascade), and its annotations. */
+  /** Permanently remove the work, its revisions (by cascade), its annotations, and its activity. */
   async delete(): Promise<void> {
     await getDatabase().transaction(async (db) => {
       const row = await workRow(db, this.#organizationId, this.id, true)
       if (!row) throw new Error(`Work not found: ${this.id}`)
       await (await storageForWork(db, this.#organizationId, this.id)).remove(db, this.#organizationId, this.id)
       await db.run(sql`DELETE FROM ${workAnnotations} WHERE work_id = ${this.id}`)
+      await deleteActivityFor({ kind: 'work', id: this.id }, db)
       await db.run(sql`DELETE FROM ${works} WHERE id = ${this.id}`)
       await removeNotificationsFor(db, row.organization_id, { kind: 'work', workId: this.id })
     })

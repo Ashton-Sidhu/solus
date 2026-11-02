@@ -923,4 +923,44 @@ describe('one owning task per session', () => {
     expect((await tasks.Task.forSession('local', 'shared-session'))?.id).toBe(owner.id)
   })
 
+  test('the board list selects no body or epic; the detail read carries both', async () => {
+    // WHY: the sidebar renders neither, and a body is the one unbounded column
+    // of a task. The list statement must not read it, and its rows must not
+    // pretend to: a blank body on a list row would overwrite the one a detail
+    // read filled in (plans/029 §8).
+    const { writeTaskEpic } = await import('@solus/server/data/tasks/task-sync-store')
+    const epic = { provider: 'jira' as const, externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: 'Ship it.' }
+    const task = await taskStore.createTask('local', { title: 'Listed', body: 'A long description', projectKey: '/workspace/solus' })
+    await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, epic))
+
+    // The connection carries `prepare` as its own property, so the capture wraps the instance.
+    const connection = db.getDb()
+    const prepare = connection.prepare
+    const prepared: string[] = []
+    connection.prepare = ((text: string) => {
+      prepared.push(text)
+      return prepare.call(connection, text)
+    }) as typeof connection.prepare
+    let listed: Awaited<ReturnType<typeof taskStore.listTasks>>['tasks']
+    try {
+      listed = (await taskStore.listTasks('local')).tasks
+    } finally {
+      connection.prepare = prepare
+    }
+    const statements = prepared.filter((text) => /\bFROM\s+"?tasks"?\b/i.test(text))
+    expect(statements.length).toBeGreaterThan(0)
+    for (const statement of statements) {
+      const selected = statement.split(/\bFROM\b/i)[0] ?? ''
+      expect(selected).not.toMatch(/"body"|"epic"|tasks\.\*/)
+    }
+
+    const row = listed.find((candidate) => candidate.id === task.id)
+    expect(row?.title).toBe('Listed')
+    expect(row && 'body' in row).toBe(false)
+    expect(row && 'epic' in row).toBe(false)
+
+    const detail = await taskStore.loadTaskRecord('local', task.id)
+    expect(detail?.body).toBe('A long description')
+    expect(detail?.epic).toEqual(epic)
+  })
 })

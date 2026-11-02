@@ -131,12 +131,10 @@ export function recordProjectUse(cwd: string): void {
  *  per-project data stay; adding the folder again lists it again. */
 export async function untrackProject(projectPath: string): Promise<void> {
   if (!projectPath) return
-  const root = resolveProjectRoot(projectPath)
   let removed = 0
   withTx(() => {
     const db = getDb()
     removed = Number(db.prepare('DELETE FROM projects WHERE path = ? OR key = ?').run(projectPath, resolveProjectKey(projectPath)).changes)
-    db.prepare('DELETE FROM recent_projects WHERE path IN (?, ?)').run(projectPath, root)
   })
   if (removed > 0) emitChanged()
 }
@@ -172,7 +170,6 @@ export async function deleteProject(projectPath: string): Promise<void> {
       db.prepare('DELETE FROM task_session_links WHERE project_key = ?').run(entry.key)
       db.prepare('DELETE FROM task_cache WHERE project_key = ?').run(entry.key)
     }
-    db.prepare('DELETE FROM recent_projects WHERE path = ?').run(projectPath)
     db.prepare('DELETE FROM projects WHERE path = ?').run(projectPath)
   })
   emitChanged()

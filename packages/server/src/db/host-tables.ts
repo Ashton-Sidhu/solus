@@ -147,10 +147,13 @@ export const asyncQuestions = defineTable('async_questions', {
   answers_json: json(),
   state: text({ notNull: true, default: 'pending' }),
   created_at: bigint({ notNull: true }),
+  /** When a settled question may be pruned; null while it is open (plan 029 §7). */
+  retained_until: bigint(),
 }, {
   indexes: [
     { name: 'async_questions_by_session', columns: ['session_id', 'state', 'created_at'] },
     { name: 'async_questions_by_agent', columns: ['agent_session_id', 'state', 'created_at'] },
+    { name: 'async_questions_retained', columns: ['retained_until'], where: 'retained_until IS NOT NULL' },
   ],
 })
 
@@ -166,11 +169,9 @@ export const outboxOps = defineTable('outbox_ops', {
   recorded_at: bigint({ notNull: true }),
   state: text({ notNull: true, default: 'pending' }),
   error: text(),
-  publication_id: text(),
 }, {
   indexes: [
     { name: 'outbox_ops_by_resource', columns: ['domain', 'resource_id', 'id'] },
-    { name: 'outbox_ops_by_publication', columns: ['publication_id', 'state'] },
   ],
 })
 
@@ -215,20 +216,14 @@ export const projects = defineTable('projects', {
   last_used_at: bigint(),
 })
 
-export const recentProjects = defineTable('recent_projects', {
-  path: text({ primaryKey: true }),
-  folder_name: text(),
-  last_opened: bigint(),
-})
-
-export const savedPrompts = defineTable('saved_prompts', {
-  id: text({ primaryKey: true }),
-  project_root: text({ notNull: true }),
-  text: text({ notNull: true }),
-  attachments: json({ notNull: true, default: '[]' }),
-  created_at: bigint({ notNull: true }),
-}, {
-  indexes: [{ name: 'saved_prompts_by_project', columns: ['project_root', 'created_at'], descending: ['created_at'] }],
+/**
+ * The one folder name a member's things on this host live under
+ * (`host/member-folders.ts`): fixed the first time it is known and kept
+ * through a rename.
+ */
+export const memberFolder = defineTable('member_folder', {
+  user_id: text({ primaryKey: true }),
+  folder: text({ notNull: true, unique: true }),
 })
 
 export const automations = defineTable('automations', {
@@ -258,19 +253,21 @@ export const automationRuns = defineTable('automation_runs', {
   indexes: [{ name: 'runs_by_automation', columns: ['automation_id', 'started_at'], descending: ['started_at'] }],
 })
 
+/** A person's named browser identity in a project; `created_by` is the person whose jar it is (member-isolation.md §6). */
 export const browserProfiles = defineTable('browser_profiles', {
-  owner_key: text({ notNull: true }),
+  created_by: text({ notNull: true }),
   project_root: text({ notNull: true }),
   profile_id: text({ notNull: true }),
   name: text({ notNull: true }),
   created_at: bigint({ notNull: true }),
-}, { primaryKey: ['owner_key', 'project_root', 'profile_id'] })
-
-export const browserProfileDefaults = defineTable('browser_profile_defaults', {
-  owner_key: text({ notNull: true }),
-  project_root: text({ notNull: true }),
-  profile_id: text({ notNull: true }),
-}, { primaryKey: ['owner_key', 'project_root'] })
+  /** The one profile new pages in this person's project open as; none flagged means the built-in profile (plan 023). */
+  is_default: integer({ notNull: true, default: 0 }),
+}, {
+  primaryKey: ['created_by', 'project_root', 'profile_id'],
+  indexes: [
+    { name: 'browser_profiles_default', columns: ['created_by', 'project_root'], unique: true, where: 'is_default = 1' },
+  ],
+})
 
 export const integration = defineTable('integration', {
   id: text({ primaryKey: true }),
@@ -332,6 +329,6 @@ export const HOST_TABLES = [
   sessions, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
-  kv, projects, recentProjects, savedPrompts, automations, automationRuns, browserProfiles, browserProfileDefaults,
+  kv, projects, memberFolder, automations, automationRuns, browserProfiles,
   integration, integrationConnection, notificationPrObservations, savedMetricsQueries, turnFlags,
 ] as const

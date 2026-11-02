@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
-import type { Task, TaskSidebarSnapshot } from '@solus/contracts/task-types'
+import type { Task, TaskSidebarSnapshot, TaskSummary } from '@solus/contracts/task-types'
 import type { LinkReadiness } from '@solus/client-core/host-readiness'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -87,6 +87,37 @@ function task(): Task {
 }
 
 describe('renderer task hydration', () => {
+  test('a list row never blanks the body or the epic a detail read filled in', async () => {
+    // WHY: the sidebar snapshot carries `TaskSummary` rows, without body or
+    // epic (plans/029 §8), and every `tasks.invalidated` re-hydrates from it.
+    // A row that spoke for the body would empty the open task page on each
+    // refresh. A full record still clears an epic it no longer has.
+    installStateRune()
+    const api = { tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }) }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: { solus: api } })
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    const epic = { provider: 'jira' as const, externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: 'Ship it.' }
+    const full: Task = { ...task(), body: 'Full body', epic }
+    const hydrated = store.get('task-1').hydrate(full)
+    expect(hydrated.body).toBe('Full body')
+    expect(hydrated.epic).toEqual(epic)
+
+    const { body: _body, epic: _epic, ...summary } = full
+    const listRow: TaskSummary = summary
+    hydrated.hydrate(listRow)
+    expect(hydrated.body).toBe('Full body')
+    expect(hydrated.epic).toEqual(epic)
+
+    const { epic: _dropped, ...withoutEpic } = full
+    hydrated.hydrate(withoutEpic)
+    expect(hydrated.body).toBe('Full body')
+    expect(hydrated.epic).toBeUndefined()
+  })
+
   test('loads task assignees lazily and reuses the project result', async () => {
     // WHY: repositories can have many assignable users. Opening a task must
     // not fetch them until the user opens the assignee menu.

@@ -607,11 +607,13 @@ CREATE TABLE `async_questions` (
 	`questions_json` text NOT NULL,
 	`answers_json` text,
 	`state` text DEFAULT 'pending' NOT NULL,
-	`created_at` integer NOT NULL
+	`created_at` integer NOT NULL,
+	`retained_until` integer
 );
 --> statement-breakpoint
 CREATE INDEX `async_questions_by_session` ON `async_questions` (`session_id`,`state`,`created_at`);--> statement-breakpoint
 CREATE INDEX `async_questions_by_agent` ON `async_questions` (`agent_session_id`,`state`,`created_at`);--> statement-breakpoint
+CREATE INDEX `async_questions_retained` ON `async_questions` (`retained_until`) WHERE retained_until IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `automation_runs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`automation_id` text NOT NULL,
@@ -639,22 +641,17 @@ CREATE TABLE `automations` (
 	`owner_key` text DEFAULT '' NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `browser_profile_defaults` (
-	`owner_key` text NOT NULL,
-	`project_root` text NOT NULL,
-	`profile_id` text NOT NULL,
-	PRIMARY KEY(`owner_key`, `project_root`)
-);
---> statement-breakpoint
 CREATE TABLE `browser_profiles` (
-	`owner_key` text NOT NULL,
+	`created_by` text NOT NULL,
 	`project_root` text NOT NULL,
 	`profile_id` text NOT NULL,
 	`name` text NOT NULL,
 	`created_at` integer NOT NULL,
-	PRIMARY KEY(`owner_key`, `project_root`, `profile_id`)
+	`is_default` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`created_by`, `project_root`, `profile_id`)
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `browser_profiles_default` ON `browser_profiles` (`created_by`,`project_root`) WHERE is_default = 1;--> statement-breakpoint
 CREATE TABLE `delivery_queue` (
 	`seq` integer PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
@@ -701,6 +698,12 @@ CREATE TABLE `kv` (
 	`value` text
 );
 --> statement-breakpoint
+CREATE TABLE `member_folder` (
+	`user_id` text PRIMARY KEY NOT NULL,
+	`folder` text NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `member_folder_folder_unique` ON `member_folder` (`folder`);--> statement-breakpoint
 CREATE TABLE `notification_pr_observations` (
 	`authority` text NOT NULL,
 	`repo` text NOT NULL,
@@ -719,12 +722,10 @@ CREATE TABLE `outbox_ops` (
 	`session_id` text,
 	`recorded_at` integer NOT NULL,
 	`state` text DEFAULT 'pending' NOT NULL,
-	`error` text,
-	`publication_id` text
+	`error` text
 );
 --> statement-breakpoint
 CREATE INDEX `outbox_ops_by_resource` ON `outbox_ops` (`domain`,`resource_id`,`id`);--> statement-breakpoint
-CREATE INDEX `outbox_ops_by_publication` ON `outbox_ops` (`publication_id`,`state`);--> statement-breakpoint
 CREATE TABLE `pinned_sessions` (
 	`session_id` text NOT NULL,
 	`server_id` text DEFAULT '' NOT NULL,
@@ -741,12 +742,6 @@ CREATE TABLE `projects` (
 	`folder_name` text,
 	`added_at` integer,
 	`last_used_at` integer
-);
---> statement-breakpoint
-CREATE TABLE `recent_projects` (
-	`path` text PRIMARY KEY NOT NULL,
-	`folder_name` text,
-	`last_opened` integer
 );
 --> statement-breakpoint
 CREATE TABLE `run_exchanges` (
@@ -791,15 +786,6 @@ CREATE TABLE `saved_metrics_queries` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `saved_prompts` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_root` text NOT NULL,
-	`text` text NOT NULL,
-	`attachments` text DEFAULT '[]' NOT NULL,
-	`created_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `saved_prompts_by_project` ON `saved_prompts` (`project_root`,"created_at" desc);--> statement-breakpoint
 CREATE TABLE `session_files` (
 	`path` text PRIMARY KEY NOT NULL,
 	`provider` text,

@@ -188,13 +188,11 @@ describe('host project list (project-model §2)', () => {
     const projectData = join(dataDir, 'projects', project!.key)
     mkdirSync(projectData, { recursive: true })
     db.getDb().prepare('INSERT INTO tasks (id, project_key, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('t1', project!.key, 'Keep me', 1, 1)
-    db.getDb().prepare('INSERT INTO recent_projects (path, folder_name, last_opened) VALUES (?, ?, ?)').run(repo, 'web', 1)
     changes = 0
 
     await manifest.untrackProject(repo)
 
     expect(await manifest.listProjects()).toEqual([])
-    expect(db.getDb().prepare('SELECT path FROM recent_projects').all()).toEqual([])
     expect(db.getDb().prepare('SELECT title FROM tasks WHERE project_key = ?').all(project!.key)).toEqual([{ title: 'Keep me' }])
     expect(existsSync(projectData)).toBe(true)
     expect(changes).toBe(1)

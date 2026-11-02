@@ -11,7 +11,7 @@ import {
   type BrowserProfile,
   type BrowserProfileSet,
 } from '@solus/contracts/browser-types'
-import { getDb } from '../db'
+import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { readCookieSource, resolveCookieSource } from './cookie-sources'
 import { browserProfileHost } from './surface-driver'
@@ -22,7 +22,7 @@ import { browserProfileHost } from './surface-driver'
  *
  * A browser profile is a personal resource (docs/plans/access-model.md §2.3):
  * only its owner lists, opens, changes, or imports into it. Every function here
- * takes the owner's person key and reads and writes only that person's rows, so
+ * takes the owner's person key, stored as `created_by`, and reads and writes only that person's rows, so
  * another person's profile cannot be named at all. The person's automatic
  * profile in a project has no row; it is synthesised into every answer as the
  * built-in default.
@@ -46,27 +46,22 @@ const profileRowSchema = z.object({
   profile_id: z.string(),
   name: z.string(),
   created_at: z.number(),
+  is_default: z.number(),
 })
-
-const defaultRowSchema = z.object({ profile_id: z.string() })
 
 export function browserProfiles(ownerKey: string, projectRoot: string | undefined): BrowserProfileSet {
   const key = projectKey(projectRoot)
   const rows = profileRowSchema.array().parse(getDb()
-    .prepare('SELECT profile_id, name, created_at FROM browser_profiles WHERE owner_key = ? AND project_root = ? ORDER BY created_at, profile_id')
+    .prepare('SELECT profile_id, name, created_at, is_default FROM browser_profiles WHERE created_by = ? AND project_root = ? ORDER BY created_at, profile_id')
     .all(ownerKey, key))
   const profiles: BrowserProfile[] = [
     builtInProfile(),
     ...rows.map((row) => ({ id: row.profile_id, name: row.name, createdAt: row.created_at, builtIn: false })),
   ]
-  const chosen = defaultRowSchema.nullable().parse(getDb()
-    .prepare('SELECT profile_id FROM browser_profile_defaults WHERE owner_key = ? AND project_root = ?')
-    .get(ownerKey, key) ?? null)
-  // A default pointing at a profile that was deleted out from under it is not an
-  // error state to preserve: new pages fall back to the person's own jar in the project.
-  const defaultProfileId = chosen && profiles.some((profile) => profile.id === chosen.profile_id)
-    ? chosen.profile_id
-    : BROWSER_DEFAULT_PROFILE_ID
+  // The default is a flag on its own row (`browser_profiles_default` allows one
+  // per owner and project), so a deleted profile takes its default with it and
+  // new pages fall back to the person's own jar in the project.
+  const defaultProfileId = rows.find((row) => row.is_default === 1)?.profile_id ?? BROWSER_DEFAULT_PROFILE_ID
   const set: BrowserProfileSet = { profiles, defaultProfileId }
   if (projectRoot) set.projectRoot = projectRoot
   return set
@@ -123,11 +118,11 @@ export function createBrowserProfile(ownerKey: string, projectRoot: string | und
     throw new Error(`"${BROWSER_DEFAULT_PROFILE_NAME}" is the project's own profile and already exists.`)
   }
   const existing = getDb()
-    .prepare('SELECT profile_id FROM browser_profiles WHERE owner_key = ? AND project_root = ? AND profile_id = ?')
+    .prepare('SELECT profile_id FROM browser_profiles WHERE created_by = ? AND project_root = ? AND profile_id = ?')
     .get(ownerKey, key, id)
   if (existing) throw new Error(`You already have a browser profile called "${label}" in this project.`)
   getDb()
-    .prepare('INSERT INTO browser_profiles (owner_key, project_root, profile_id, name, created_at) VALUES (?, ?, ?, ?, ?)')
+    .prepare('INSERT INTO browser_profiles (created_by, project_root, profile_id, name, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(ownerKey, key, id, label, Date.now())
   log.info('browser_profile_created', { profileId: id })
   return browserProfiles(ownerKey, projectRoot)
@@ -147,7 +142,7 @@ export function renameBrowserProfile(
   }
   const label = validateName(name)
   const changed = getDb()
-    .prepare('UPDATE browser_profiles SET name = ? WHERE owner_key = ? AND project_root = ? AND profile_id = ?')
+    .prepare('UPDATE browser_profiles SET name = ? WHERE created_by = ? AND project_root = ? AND profile_id = ?')
     .run(label, ownerKey, key, profileId)
   if (changed.changes === 0) throw new Error(`No browser profile ${profileId} in this project.`)
   return browserProfiles(ownerKey, projectRoot)
@@ -166,35 +161,34 @@ export function deleteBrowserProfileRow(ownerKey: string, projectRoot: string | 
     throw new Error("The project's own browser profile cannot be deleted. Clear its data instead.")
   }
   const changed = getDb()
-    .prepare('DELETE FROM browser_profiles WHERE owner_key = ? AND project_root = ? AND profile_id = ?')
+    .prepare('DELETE FROM browser_profiles WHERE created_by = ? AND project_root = ? AND profile_id = ?')
     .run(ownerKey, key, profileId)
   if (changed.changes === 0) throw new Error(`No browser profile ${profileId} in this project.`)
-  getDb()
-    .prepare('DELETE FROM browser_profile_defaults WHERE owner_key = ? AND project_root = ? AND profile_id = ?')
-    .run(ownerKey, key, profileId)
   log.info('browser_profile_deleted', { profileId })
   return browserProfiles(ownerKey, projectRoot)
 }
 
+/**
+ * Make one profile the default for new pages in this owner's project. The old
+ * flag is cleared and the new one set in one transaction: a profile that is
+ * not the person's rolls the clear back, so the prior default stands. The
+ * built-in profile has no row, so choosing it only clears the flag.
+ */
 export function setBrowserDefaultProfile(
   ownerKey: string,
   projectRoot: string | undefined,
   profileId: string,
 ): BrowserProfileSet {
   const key = projectKey(projectRoot)
-  if (!browserProfileExists(ownerKey, projectRoot, profileId)) {
-    throw new Error(`No browser profile ${profileId} in this project.`)
-  }
-  if (profileId === BROWSER_DEFAULT_PROFILE_ID) {
-    getDb().prepare('DELETE FROM browser_profile_defaults WHERE owner_key = ? AND project_root = ?').run(ownerKey, key)
-  } else {
-    getDb()
-      .prepare(`
-        INSERT INTO browser_profile_defaults (owner_key, project_root, profile_id) VALUES (?, ?, ?)
-        ON CONFLICT (owner_key, project_root) DO UPDATE SET profile_id = excluded.profile_id
-      `)
+  withTx(() => {
+    const db = getDb()
+    db.prepare('UPDATE browser_profiles SET is_default = 0 WHERE created_by = ? AND project_root = ? AND is_default = 1').run(ownerKey, key)
+    if (profileId === BROWSER_DEFAULT_PROFILE_ID) return
+    const changed = db
+      .prepare('UPDATE browser_profiles SET is_default = 1 WHERE created_by = ? AND project_root = ? AND profile_id = ?')
       .run(ownerKey, key, profileId)
-  }
+    if (changed.changes === 0) throw new Error(`No browser profile ${profileId} in this project.`)
+  })
   return browserProfiles(ownerKey, projectRoot)
 }
 
