@@ -1,45 +1,71 @@
-# Database schema and migrations
+# Database schema and baselines
 
-Solus keeps its data in three schemas. Each one starts from a single baseline.
-The baselines replaced every earlier migration on 2026-09-30. A database made
-before that date cannot be opened: Solus stops with a message that names the
-file to delete.
+Solus keeps its data in four schemas. Each one is a single generated baseline
+with no migration history (plans/029-fresh-database-baseline.md, decision 1).
+A database made by another version of the schema cannot be opened: Solus stops
+with a message that names the file to delete, and the file is recreated empty.
 
-## The three schemas
+## The four schemas
 
-| Schema | File | Defined in | Migrated by |
-|---|---|---|---|
-| Host tables | `solus.db` | `packages/server/src/db/migrations.ts` | `PRAGMA user_version`, one slot per change |
-| Ported tables | `solus.db` on SQLite, the `DATABASE_URL` database on Postgres | `defineTable` in each domain's `schema.ts` | drizzle-kit, `packages/server/drizzle/<engine>/` |
-| Metrics | `metrics.db` | `packages/server/src/data/insights/migrations.ts` | `PRAGMA user_version`, one slot per change |
+| Schema | File | Declared in | drizzle-kit entry | Generated into |
+|---|---|---|---|---|
+| Host tables | `solus.db` | `packages/server/src/db/host-tables.ts` | `db/schema/host.ts` | `packages/server/drizzle/host/` |
+| Ported records, SQLite | `solus.db` when SQLite is the engine | `defineTable` in each domain's `schema.ts` | `db/schema/sqlite.ts` | `packages/server/drizzle/sqlite/` |
+| Ported records, Postgres | the `DATABASE_URL` database | the same `defineTable` declarations | `db/schema/postgres.ts` | `packages/server/drizzle/postgres/` |
+| Metrics | `metrics.db` | `packages/server/src/data/insights/metrics-schema.ts` | `db/schema/metrics.ts` | `packages/server/drizzle/metrics/` |
 
-- **Host tables** exist on every machine, whatever its engine. They include the
+- **Host tables** exist on every machine, whatever its records engine: the
   index of the transcripts on the machine's own disk (`sessions`,
-  `session_messages`, `session_fts`), the delivery queues, and host settings.
-  They are read synchronously.
-- **Ported tables** are the durable, replicated records, such as tasks, works,
+  `session_messages`, `session_fts`), the execution ledger, the delivery
+  queues, and host-local settings. They are read synchronously through
+  `getDb()`.
+- **Ported records** are the durable, replicated records, such as tasks, works,
   and `session_records`. They are written once in `defineTable` and generated
-  for both engines.
+  for both engines; a read goes through `getDatabase()`.
 - **Metrics** holds this host's spans and log events. Rollover deletes rows
   older than the retention setting and gives the freed pages back to the file
   system.
 
 `sessions` and `session_records` hold similar facts, but they are different
-things. `sessions` is this host's local, synchronous index. `session_records`
-is the replicated record, and on the Postgres engine it lives in Postgres. Do
-not merge them.
+things. `sessions` is this host's local, synchronous index of provider threads
+(one session has several after a handoff). `session_records` is the replicated
+record, and on the Postgres engine it lives in Postgres. Plan 029 §4 narrows
+`sessions` to indexer state; it does not merge the two.
+
+## How a baseline is applied
+
+`runSqliteSchemaMigrations(db, schema, fileName)` (`db/sqlite-migrations.ts`)
+applies one schema's folder to an open SQLite connection, synchronously, the
+moment the file is opened: the host schema and, when SQLite is the engine, the
+ported schema on `solus.db`; the metrics schema on `metrics.db`. Each schema
+keeps its own bookkeeping table (`__drizzle_migrations` for the ported records,
+`__drizzle_migrations_<schema>` for the others), because the host and ported
+schemas share one file. Postgres uses Drizzle's own migrator on the `postgres`
+folder (`db/database.ts`).
+
+A file is refused when its `user_version` is not zero (a file from before the
+baselines, which numbered its hand-written slots there) or when its
+bookkeeping table holds a hash this folder does not know.
 
 ## To change a schema
 
-- **Host tables or metrics.** Add a new slot at the end of the migrations
-  array. Do not change a released slot.
-- **Ported tables.** Change the domain's `schema.ts`, then run
-  `bun run db:generate --name <tag>`. Review the generated SQL for both engines.
-- **Search.** The search indexes are hand-written SQL at the end of each Drizzle
-  baseline. On SQLite this is `works_fts`, with `works_fts_rows` and its
-  triggers. On Postgres it is the generated `tsvector` columns. A migration that
-  rebuilds `works` on SQLite drops the triggers with the old table, so it must
-  create them again.
+1. Change the declaration: a domain's `schema.ts`, `db/host-tables.ts`, or
+   `data/insights/metrics-schema.ts`. A new table is also exported from the
+   schema's drizzle-kit entry module (drizzle-kit reads named exports only).
+2. Run `bun run db:generate`. The script empties every `drizzle/<schema>`
+   folder, lets drizzle-kit write `0000_baseline` from the entry module, and
+   appends that schema's hand-written SQL from
+   `packages/server/src/db/schema/custom/<schema>.sql`.
+3. Review the generated SQL. For the ported records, review both engines.
+
+Hand-written SQL is for what `defineTable` cannot say: FTS5 virtual tables and
+their triggers on SQLite (`session_fts`, `works_fts` with `works_fts_rows`,
+`session_transcripts_fts`), and the generated `tsvector` columns with their GIN
+indexes on Postgres.
+
+There is no additive migration. While the product has no deployed data this is
+the whole story; when it does, the first additive migration is a new decision
+and a new section here.
 
 ## Index rules
 

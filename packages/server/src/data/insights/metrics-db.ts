@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { solusDir } from '../../platform/paths'
 import { cacheStatements } from '../../db'
+import { runSqliteSchemaMigrations } from '../../db/sqlite-migrations'
 import { createMetricsViews } from './field-registry'
-import { runMetricsMigrations } from './migrations'
 
 let metricsDb: DatabaseSync | null = null
 let readOnlyMetricsDb: DatabaseSync | null = null
@@ -72,7 +72,7 @@ export function getMetricsDb(): DatabaseSync {
     openedDb.exec('PRAGMA foreign_keys = ON')
     openedDb.exec('PRAGMA busy_timeout = 5000')
     openedDb.exec('PRAGMA synchronous = NORMAL')
-    runMetricsMigrations(openedDb)
+    runSqliteSchemaMigrations(openedDb, 'metrics', 'metrics.db')
     createMetricsViews(openedDb)
     // Once per process: a reopen later in the same process would find this
     // process's own running turns open, and they are not abandoned.

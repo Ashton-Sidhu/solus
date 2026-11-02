@@ -74,9 +74,10 @@ describe('native task migration', () => {
 
   // The file is the store only on SQLite; on Postgres these tables are not in it.
   test.skipIf(process.env.SOLUS_DB === 'postgres')('a new file is made from the baselines; a file from before them is refused, not half-read', async () => {
-    // WHY: the schema was reset to one baseline per engine. A file an older
-    // build made has none of the steps between, so opening it must stop with
-    // a message that names the fix instead of running queries on a wrong shape.
+    // WHY: every schema is one generated baseline with no history. A file an
+    // older build made (its slots counted in `user_version`) cannot be brought
+    // forward, so opening it must stop with a message that names the fix
+    // instead of running queries on a wrong shape.
     const fresh = db.getDb()
     const tables = () => db.getDb().prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%task%' OR name = 'asset_publications' ORDER BY name",
@@ -93,7 +94,7 @@ describe('native task migration', () => {
     const legacy = new Database(join(dataDir, 'solus.db'))
     legacy.exec('PRAGMA user_version = 50')
     legacy.close()
-    expect(() => db.getDb()).toThrow('predates the current schema')
+    expect(() => db.getDb()).toThrow('was made by another version of the schema')
     for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
   })
 })

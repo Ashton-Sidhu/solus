@@ -1,3 +1,24 @@
+CREATE TABLE `acl_entry` (
+	`id` text PRIMARY KEY NOT NULL,
+	`resource_kind` text NOT NULL,
+	`resource_id` text NOT NULL,
+	`subject_kind` text NOT NULL,
+	`subject_id` text DEFAULT '' NOT NULL,
+	`role` text NOT NULL,
+	`link_secret_hash` text,
+	`link_secret` text,
+	`actions` text,
+	`expires_at` integer,
+	`granted_by_user_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`granted_at` integer,
+	`granted_by_name` text,
+	`organization_id` text DEFAULT 'local' NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `acl_entry_subject` ON `acl_entry` (`resource_kind`,`resource_id`,`subject_kind`,`subject_id`);--> statement-breakpoint
+CREATE INDEX `acl_entry_secret_idx` ON `acl_entry` (`link_secret_hash`) WHERE link_secret_hash IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `acl_entry_by_subject` ON `acl_entry` (`subject_kind`,`subject_id`,`resource_kind`,`resource_id`);--> statement-breakpoint
 CREATE TABLE `activity` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
@@ -28,6 +49,7 @@ CREATE TABLE `asset_publications` (
 CREATE TABLE `indexed_plans` (
 	`provider` text NOT NULL,
 	`session_id` text NOT NULL,
+	`thread_id` text DEFAULT '' NOT NULL,
 	`plan_tool_use_id` text NOT NULL,
 	`project_path` text NOT NULL,
 	`cwd` text NOT NULL,
@@ -45,6 +67,7 @@ CREATE TABLE `indexed_plans` (
 --> statement-breakpoint
 CREATE INDEX `indexed_plans_by_project` ON `indexed_plans` (`provider`,`project_root`,"timestamp" desc);--> statement-breakpoint
 CREATE INDEX `indexed_plans_by_session` ON `indexed_plans` (`session_id`);--> statement-breakpoint
+CREATE INDEX `indexed_plans_by_thread` ON `indexed_plans` (`provider`,`thread_id`);--> statement-breakpoint
 CREATE TABLE `insight_log_events` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`host_id` text NOT NULL,
@@ -61,6 +84,7 @@ CREATE TABLE `insight_log_events` (
 );
 --> statement-breakpoint
 CREATE INDEX `insight_log_events_time_idx` ON `insight_log_events` (`occurred_at`);--> statement-breakpoint
+CREATE INDEX `insight_log_events_trace_idx` ON `insight_log_events` (`organization_id`,`host_id`,`trace_id`);--> statement-breakpoint
 CREATE TABLE `insight_spans` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`host_id` text NOT NULL,
@@ -90,7 +114,28 @@ CREATE INDEX `insight_turns_user_page` ON `insight_spans` (`organization_id`,`us
 CREATE INDEX `insight_turns_host_page` ON `insight_spans` (`organization_id`,`host_id`,"started_at" desc,"trace_id" desc) WHERE kind = 'turn' AND span_id = trace_id;--> statement-breakpoint
 CREATE INDEX `insight_turns_session_page` ON `insight_spans` (`organization_id`,`session_id`,"started_at" desc,"host_id" desc,"trace_id" desc) WHERE kind = 'turn' AND span_id = trace_id;--> statement-breakpoint
 CREATE INDEX `insight_turns_provider_page` ON `insight_spans` (`organization_id`,`provider`,"started_at" desc,"host_id" desc,"trace_id" desc) WHERE kind = 'turn' AND span_id = trace_id;--> statement-breakpoint
+CREATE INDEX `insight_spans_trace_idx` ON `insight_spans` (`organization_id`,`host_id`,`trace_id`);--> statement-breakpoint
 CREATE INDEX `insight_spans_time_idx` ON `insight_spans` (`started_at`);--> statement-breakpoint
+CREATE TABLE `notifications` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text NOT NULL,
+	`recipient_key` text NOT NULL,
+	`event_id` text NOT NULL,
+	`activity_id` text,
+	`kind` text NOT NULL,
+	`resource_key` text NOT NULL,
+	`facts` text NOT NULL,
+	`resource` text NOT NULL,
+	`by` text NOT NULL,
+	`summary` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`read_at` integer,
+	`archived_at` integer
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `notifications_event` ON `notifications` (`organization_id`,`recipient_key`,`event_id`);--> statement-breakpoint
+CREATE INDEX `notifications_for_recipient` ON `notifications` (`recipient_key`,`created_at`,`id`);--> statement-breakpoint
+CREATE INDEX `notifications_by_resource` ON `notifications` (`organization_id`,`resource_key`);--> statement-breakpoint
 CREATE TABLE `plan_annotations` (
 	`session_id` text NOT NULL,
 	`plan_tool_use_id` text NOT NULL,
@@ -113,32 +158,51 @@ CREATE TABLE `plan_index_providers` (
 	`organization_id` text DEFAULT 'local' NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE `resource_owner` (
-	`resource_kind` text NOT NULL,
-	`resource_id` text NOT NULL,
-	`owner_user_id` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`resource_kind`, `resource_id`)
-);
---> statement-breakpoint
-CREATE TABLE `runner_cursors` (
+CREATE TABLE `runner_delivery_cursors` (
 	`organization_id` text NOT NULL,
 	`host_id` text NOT NULL,
 	`actor_user_id` text DEFAULT '' NOT NULL,
-	`stream` text NOT NULL,
 	`last_seq` integer DEFAULT 0 NOT NULL,
 	`updated_at` integer NOT NULL,
-	PRIMARY KEY(`organization_id`, `host_id`, `actor_user_id`, `stream`)
+	PRIMARY KEY(`organization_id`, `host_id`, `actor_user_id`)
 );
 --> statement-breakpoint
 CREATE TABLE `session_admissions` (
 	`organization_id` text NOT NULL,
 	`admission_id` text NOT NULL,
 	`host_id` text NOT NULL,
-	`owner_user_id` text NOT NULL,
+	`owner_key` text NOT NULL,
 	`created_at` integer NOT NULL,
 	PRIMARY KEY(`organization_id`, `admission_id`)
+);
+--> statement-breakpoint
+CREATE TABLE `session_leads` (
+	`session_id` text PRIMARY KEY NOT NULL,
+	`created_at` integer NOT NULL,
+	`organization_id` text DEFAULT 'local' NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `session_links` (
+	`session_id` text NOT NULL,
+	`link_id` text NOT NULL,
+	`target` text NOT NULL,
+	`title` text NOT NULL,
+	`created_by` text NOT NULL,
+	`linked_at` integer NOT NULL,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	PRIMARY KEY(`session_id`, `link_id`)
+);
+--> statement-breakpoint
+CREATE TABLE `session_pull_request_watches` (
+	`session_id` text NOT NULL,
+	`repository` text NOT NULL,
+	`number` integer NOT NULL,
+	`watch_id` text NOT NULL,
+	`started_at` integer NOT NULL,
+	`state` text NOT NULL,
+	`acting_user_key` text,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	PRIMARY KEY(`session_id`, `repository`, `number`)
 );
 --> statement-breakpoint
 CREATE TABLE `session_pull_requests` (
@@ -158,11 +222,12 @@ CREATE TABLE `session_pull_requests` (
 );
 --> statement-breakpoint
 CREATE INDEX `session_pull_requests_by_pull_request` ON `session_pull_requests` (`repository`,`number`);--> statement-breakpoint
+CREATE INDEX `session_pull_requests_open` ON `session_pull_requests` (`session_id`) WHERE source <> 'dismissed' AND (pr_state IS NULL OR pr_state NOT IN ('merged', 'closed', 'missing'));--> statement-breakpoint
 CREATE TABLE `session_records` (
 	`session_id` text PRIMARY KEY NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`publication` text DEFAULT 'local' NOT NULL,
-	`owner_user_id` text,
+	`owner_key` text NOT NULL,
 	`provider` text NOT NULL,
 	`project_path` text NOT NULL,
 	`project_remote` text,
@@ -185,19 +250,24 @@ CREATE TABLE `session_records` (
 	`delegation_message_id` text,
 	`delegation_depth` integer,
 	`delegation_intent` text,
-	`delegation_created_at` integer
+	`delegation_created_at` integer,
+	`place` text,
+	`started_by` text
 );
 --> statement-breakpoint
 CREATE INDEX `sessions_api_page` ON `session_records` (`organization_id`,"created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX `sessions_api_provider_page` ON `session_records` (`organization_id`,`provider`,"created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `sessions_api_activity_page` ON `session_records` (`organization_id`,"last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_records_by_activity` ON `session_records` (`last_activity_at`);--> statement-breakpoint
+CREATE INDEX `session_records_by_place` ON `session_records` (`place`,`last_activity_at`);--> statement-breakpoint
 CREATE TABLE `session_states` (
 	`session_id` text PRIMARY KEY NOT NULL,
 	`settled_at` integer,
 	`settled_by` text,
 	`unsettled_at` integer,
-	`snoozed_until` integer,
-	`snooze_note` text,
 	`last_prompt_at` integer,
+	`viewed_at` integer,
+	`execution_preferences` text,
 	`organization_id` text DEFAULT 'local' NOT NULL
 );
 --> statement-breakpoint
@@ -208,26 +278,25 @@ CREATE TABLE `session_transcripts` (
 	`position` integer NOT NULL,
 	`runner_host_id` text NOT NULL,
 	`message` text NOT NULL,
+	`search_text` text DEFAULT '' NOT NULL,
 	`updated_at` integer NOT NULL,
 	PRIMARY KEY(`session_id`, `position`, `organization_id`)
 );
 --> statement-breakpoint
-CREATE TABLE `share_grant` (
-	`id` text PRIMARY KEY NOT NULL,
-	`resource_kind` text NOT NULL,
-	`resource_id` text NOT NULL,
-	`subject_kind` text NOT NULL,
-	`subject_id` text DEFAULT '' NOT NULL,
-	`role` text NOT NULL,
-	`link_secret_hash` text,
-	`link_secret` text,
-	`granted_by_user_id` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL
+CREATE INDEX `session_transcripts_search_pending` ON `session_transcripts` (`session_id`) WHERE search_text = '';--> statement-breakpoint
+CREATE TABLE `session_views` (
+	`session_id` text NOT NULL,
+	`person_key` text NOT NULL,
+	`settled_at` integer,
+	`archived_at` integer,
+	`snoozed_until` integer,
+	`snooze_note` text,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	PRIMARY KEY(`session_id`, `person_key`)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `share_grant_subject` ON `share_grant` (`resource_kind`,`resource_id`,`subject_kind`,`subject_id`);--> statement-breakpoint
-CREATE INDEX `share_grant_secret_idx` ON `share_grant` (`link_secret_hash`) WHERE link_secret_hash IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `session_views_by_person` ON `session_views` (`person_key`,`session_id`);--> statement-breakpoint
+CREATE INDEX `session_views_snoozed` ON `session_views` (`person_key`,`session_id`) WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `task_comments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`task_id` text NOT NULL,
@@ -298,12 +367,24 @@ CREATE TABLE `task_session_links` (
 	`pr` text,
 	`injected_at` integer,
 	`linked_at` integer NOT NULL,
+	`started_by` text,
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	PRIMARY KEY(`task_id`, `session_id`),
 	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE INDEX `task_session_links_by_session` ON `task_session_links` (`session_id`);--> statement-breakpoint
+CREATE TABLE `task_snoozes` (
+	`task_id` text NOT NULL,
+	`person_key` text NOT NULL,
+	`snoozed_until` integer NOT NULL,
+	`snooze_note` text,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	PRIMARY KEY(`task_id`, `person_key`),
+	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `task_snoozes_by_person` ON `task_snoozes` (`person_key`,`snoozed_until`);--> statement-breakpoint
 CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`short_id` integer,
@@ -313,6 +394,7 @@ CREATE TABLE `tasks` (
 	`body` text DEFAULT '' NOT NULL,
 	`status` text DEFAULT 'inbox' NOT NULL,
 	`assignee` text,
+	`assignee_user_id` text,
 	`due_date` text,
 	`priority` text,
 	`labels` text DEFAULT '[]' NOT NULL,
@@ -326,7 +408,9 @@ CREATE TABLE `tasks` (
 	`triaged_at` integer,
 	`done_at` integer,
 	`last_read_at` integer,
-	`organization_id` text DEFAULT 'local' NOT NULL
+	`location` text,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`owner_key` text NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `tasks_short_id_unique` ON `tasks` (`short_id`);--> statement-breakpoint
@@ -345,6 +429,50 @@ CREATE TABLE `upstream_task_cache` (
 	PRIMARY KEY(`project_key`, `provider`, `external_key`, `scope`)
 );
 --> statement-breakpoint
+CREATE TABLE `webhook_deliveries` (
+	`id` text PRIMARY KEY NOT NULL,
+	`webhook_id` text NOT NULL,
+	`received_at` integer NOT NULL,
+	`arrived_at` integer NOT NULL,
+	`source` text NOT NULL,
+	`outcome` text NOT NULL,
+	`reason` text,
+	`replay_of` text,
+	`request` text NOT NULL,
+	`verification_failure` text,
+	`actions` text DEFAULT '[]' NOT NULL,
+	FOREIGN KEY (`webhook_id`) REFERENCES `webhooks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `webhook_deliveries_by_webhook` ON `webhook_deliveries` (`webhook_id`,`arrived_at`,`id`);--> statement-breakpoint
+CREATE TABLE `webhook_seen_keys` (
+	`kind` text NOT NULL,
+	`key` text NOT NULL,
+	`expires_at` integer NOT NULL,
+	PRIMARY KEY(`kind`, `key`)
+);
+--> statement-breakpoint
+CREATE INDEX `webhook_seen_keys_by_expiry` ON `webhook_seen_keys` (`expires_at`);--> statement-breakpoint
+CREATE TABLE `webhooks` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`owner_key` text NOT NULL,
+	`name` text NOT NULL,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`project` text,
+	`verification` text NOT NULL,
+	`replay_key` text,
+	`actions` text NOT NULL,
+	`created_by` text NOT NULL,
+	`copied_url_hash` text,
+	`lost_count` integer DEFAULT 0 NOT NULL,
+	`lost_at` integer,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `webhooks_by_owner` ON `webhooks` (`organization_id`,`owner_key`);--> statement-breakpoint
+CREATE INDEX `webhooks_by_project` ON `webhooks` (`project`);--> statement-breakpoint
 CREATE TABLE `work_annotations` (
 	`work_id` text PRIMARY KEY NOT NULL,
 	`data` text,
@@ -356,6 +484,9 @@ CREATE TABLE `work_live_docs` (
 	`work_id` text PRIMARY KEY NOT NULL,
 	`state` text NOT NULL,
 	`client_seqs` text,
+	`last_author` text,
+	`body_version` integer,
+	`needs_projection` integer DEFAULT 0 NOT NULL,
 	`updated_at` integer NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	FOREIGN KEY (`work_id`) REFERENCES `works`(`id`) ON UPDATE no action ON DELETE cascade
@@ -395,6 +526,34 @@ CREATE TABLE `work_revisions` (
 	FOREIGN KEY (`work_id`) REFERENCES `works`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `work_storage` (
+	`work_id` text PRIMARY KEY NOT NULL,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`provider` text NOT NULL,
+	`repository` text,
+	`storage_scope` text,
+	`commit_id` text,
+	`generation` integer DEFAULT 0 NOT NULL,
+	`archived_generation` integer DEFAULT 0 NOT NULL,
+	`dirty_since` integer,
+	`due_at` integer,
+	`deleted` integer DEFAULT 0 NOT NULL,
+	`error` text,
+	`claim_id` text,
+	`claim_until` integer,
+	`operation` text
+);
+--> statement-breakpoint
+CREATE INDEX `work_storage_due` ON `work_storage` (`provider`,`due_at`) WHERE due_at IS NOT NULL;--> statement-breakpoint
+CREATE TABLE `work_storage_bodies` (
+	`work_id` text NOT NULL,
+	`content_hash` text NOT NULL,
+	`content` text,
+	`commit_id` text,
+	PRIMARY KEY(`work_id`, `content_hash`),
+	FOREIGN KEY (`work_id`) REFERENCES `work_storage`(`work_id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `works` (
 	`id` text PRIMARY KEY NOT NULL,
 	`title` text,
@@ -412,7 +571,9 @@ CREATE TABLE `works` (
 	`content_version` integer DEFAULT 1 NOT NULL,
 	`content_hash` text NOT NULL,
 	`content_author` text,
-	`previous_revision_id` integer
+	`previous_revision_id` integer,
+	`location` text,
+	`owner_key` text NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `works_api_page` ON `works` (`organization_id`,"created_at" desc,"id" desc);--> statement-breakpoint
@@ -433,11 +594,13 @@ CREATE TABLE `workspace_projects` (
 	`repository_key` text NOT NULL,
 	`display_name` text NOT NULL,
 	`default_branch` text,
+	`owner_key` text NOT NULL,
 	`created_by` text,
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `workspace_projects_by_repository` ON `workspace_projects` (`organization_id`,`repository_key`);--> statement-breakpoint
+CREATE UNIQUE INDEX `workspace_projects_by_repository` ON `workspace_projects` (`organization_id`,`repository_key`);
+--> statement-breakpoint
 -- The works search index on SQLite (packages/server/src/db/search-index.ts):
 -- an FTS5 table kept in step by triggers on `works`. `works.id` is text and its
 -- implicit rowid can change when a migration rebuilds the table, so
@@ -473,4 +636,21 @@ CREATE TRIGGER works_fts_au AFTER UPDATE OF title, content ON works
 WHEN old.title IS NOT new.title OR old.content IS NOT new.content BEGIN
   UPDATE works_fts SET title = COALESCE(new.title, ''), content = COALESCE(new.content, '')
     WHERE rowid = (SELECT rowid FROM works_fts_rows WHERE work_id = new.id);
+END;
+--> statement-breakpoint
+-- The session search index on SQLite (packages/server/src/db/session-search.ts): an FTS5
+-- table over each mirrored message's `search_text`, kept in step by triggers.
+CREATE VIRTUAL TABLE session_transcripts_fts USING fts5(search_text, content='session_transcripts', content_rowid='rowid', tokenize='unicode61');
+--> statement-breakpoint
+CREATE TRIGGER session_transcripts_search_insert AFTER INSERT ON session_transcripts BEGIN
+  INSERT INTO session_transcripts_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
+END;
+--> statement-breakpoint
+CREATE TRIGGER session_transcripts_search_update AFTER UPDATE OF search_text ON session_transcripts WHEN old.search_text IS NOT new.search_text BEGIN
+  INSERT INTO session_transcripts_fts(session_transcripts_fts, rowid, search_text) VALUES ('delete', old.rowid, old.search_text);
+  INSERT INTO session_transcripts_fts(rowid, search_text) VALUES (new.rowid, new.search_text);
+END;
+--> statement-breakpoint
+CREATE TRIGGER session_transcripts_search_delete AFTER DELETE ON session_transcripts BEGIN
+  INSERT INTO session_transcripts_fts(session_transcripts_fts, rowid, search_text) VALUES ('delete', old.rowid, old.search_text);
 END;

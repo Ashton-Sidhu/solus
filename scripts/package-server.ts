@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     writeFileSync(join(staging, 'server-release.json'), JSON.stringify({
       version: JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version,
       protocol: SERVER_UPDATE_PROTOCOL,
-      storage: createHash('sha256').update(String(SERVER_STORAGE_EPOCH)).update(readFileSync(join(repoRoot, 'packages/server/src/db/migrations.ts'))).digest('hex'),
+      storage: storageHash(),
     }))
 
     const out = join(releaseDir, `solus-server-${target.headless ? 'headless-' : ''}${targetName}.${target.platform === 'win32' ? 'zip' : 'tar.gz'}`)
@@ -112,6 +112,16 @@ async function installNodeRuntime(target: Target, staging: string): Promise<void
   const archive = await downloadNodeArchive(staging, `${nodeName}.tar.gz`)
   await run('tar', ['-xzf', archive, '-C', binDir, '--strip-components=2', `${nodeName}/bin/node`])
   chmodSync(join(binDir, 'node'), 0o755)
+}
+
+/** The schema fingerprint of a release: the generated baselines of every schema (docs/database-schema.md). */
+function storageHash(): string {
+  const hash = createHash('sha256').update(String(SERVER_STORAGE_EPOCH))
+  for (const schema of ['host', 'sqlite', 'postgres', 'metrics']) {
+    const folder = join(repoRoot, 'packages', 'server', 'drizzle', schema)
+    for (const file of readdirSync(folder).filter((name) => name.endsWith('.sql')).sort()) hash.update(readFileSync(join(folder, file)))
+  }
+  return hash.digest('hex')
 }
 
 /** The verified Node archive for `name`, written beside the staging folder. */
