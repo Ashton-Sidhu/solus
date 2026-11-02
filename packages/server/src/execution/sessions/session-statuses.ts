@@ -5,7 +5,6 @@ import type { AttentionKind } from '@solus/contracts/attention-types'
 import { pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { sessionRecordStatusOf, setSessionRecordStatus } from '../../data/sessions/session-records'
-import { applyPendingAssignment } from './turn-organization'
 import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession } from '../../db/session-indexer'
 import type { BackendSession, SessionStatus, NormalizedEvent, SessionRecordStatus, ThreadGoal } from '@solus/contracts/types'
@@ -294,8 +293,6 @@ export class SessionStatuses {
 
   private writeSessionRecordStatus(sessionId: string, status: SessionRecordStatus): void {
     if (this.recordStatusWritten.get(sessionId) === status) return
-    // A session admitted for an organization before its record existed is assigned now that the record exists.
-    applyPendingAssignment(sessionId)
     this.recordStatusWritten.set(sessionId, status)
     void setSessionRecordStatus(ANY_ORGANIZATION, sessionId, status).catch((error) => {
       // Unknown outcome: the next transition writes again.

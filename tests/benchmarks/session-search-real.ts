@@ -67,7 +67,7 @@ try {
       }
       if (!messages.length) continue
       const last = Math.max(...messages.map(message => message.timestamp))
-      getDb().prepare(`INSERT INTO sessions(session_id, provider, cwd, project_path, project_root, custom_title, last_timestamp)
+      getDb().prepare(`INSERT INTO transcript_index(session_id, provider, cwd, project_path, project_root, custom_title, last_timestamp)
         VALUES (?, 'claude', ?, ?, ?, ?, ?)`).run(sessionId, project, project, project, title, last)
       indexer.indexSessionMessages(sessionId, messages)
       corpus.push({ sessionId, title, last, userTexts: messages.filter(message => message.role === 'user').map(message => message.content) })

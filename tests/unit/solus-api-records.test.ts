@@ -77,7 +77,7 @@ test('task reads expose only readable session IDs and artifacts retain their ses
   const task = await operations.createTask(context, { title: 'Session context' }, 'task-session-context')
   const db = database.getDatabase()
   for (const [sessionId, owner] of [['task-session-alice', 'alice'], ['task-session-bob', 'bob']]) {
-    await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A',${owner},'codex','/project','idle',1,2,100)`)
+    await db.run(sql`INSERT INTO session(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${sessionId},'A',${owner},'codex','/project','idle',1,2,100,1)`)
     await (await Task.byId('A', task.id)).linkSession(sessionId)
   }
   const read = workspaceTaskSchema.parse(await operations.getTask(context, task.id))
@@ -94,7 +94,7 @@ test('task reads expose only readable session IDs and artifacts retain their ses
 
 test('transcript paging reconstructs Unicode text without loading an unbounded message', async () => {
   const db = database.getDatabase(), sessionId = 'text-session'
-  await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100)`)
+  await db.run(sql`INSERT INTO session(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100,1)`)
   const content = 'Hello 😃 '.repeat(14000)
   await db.run(sql`INSERT INTO session_transcripts(organization_id,session_id,position,runner_host_id,message,updated_at) VALUES ('A',${sessionId},0,'host',${JSON.stringify({ messageId: 'message-1', role: 'assistant', content, timestamp: 1000 })},1)`)
   let cursor: string | undefined, result = '', offset = 0

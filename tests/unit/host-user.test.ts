@@ -84,8 +84,8 @@ describe('the host user rows', () => {
     await db.run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES
       ('g1', 'work', 'w-local', 'user', 'bob', 'viewer', 'host-owner', 1, 'local')`)
     await seedResource(db, 'session', 's-local', 'host-owner')
-    await db.run(sql`INSERT INTO session_admissions (organization_id, admission_id, host_id, owner_key, created_at) VALUES
-      ('org1', 'a1', 'h1', 'host-owner', 1)`)
+    await db.run(sql`INSERT INTO resource_preferences (organization_id, resource_kind, resource_id, created_by, archived_at) VALUES
+      ('org1', 'session', 's-org', 'host-owner', 1)`)
     // The owner's notifications (plans/015): one Local, one of an organization, one read.
     await db.run(sql`INSERT INTO notifications (id, organization_id, recipient_key, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at) VALUES
       ('n-local', 'local', 'host-owner', 'e1', 'task.assigned', 'task:t1', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t1"}', '{"kind":"system"}', '{"title":"t"}', 1, 7),
@@ -118,7 +118,7 @@ describe('the host user rows', () => {
     const row = await database.getDatabase().get<{ owner_key: string }>(sql`
       SELECT owner_key FROM works WHERE id = ${resourceId}
       UNION ALL SELECT owner_key FROM tasks WHERE id = ${resourceId}
-      UNION ALL SELECT owner_key FROM session_records WHERE session_id = ${resourceId}`)
+      UNION ALL SELECT created_by AS owner_key FROM session WHERE session_id = ${resourceId}`)
     return row?.owner_key
   }
 
@@ -137,7 +137,7 @@ describe('the host user rows', () => {
     const grant = await database.getDatabase().get<{ subject_id: string; granted_by_user_id: string }>(sql`SELECT subject_id, granted_by_user_id FROM acl_entry WHERE id = 'g1'`)
     expect(grant).toEqual({ subject_id: 'bob', granted_by_user_id: 'local:L1' })
     expect(await ownerOf('s-local')).toBe('local:L1')
-    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT owner_key FROM session_admissions WHERE admission_id = 'a1'`))?.owner_key).toBe('local:L1')
+    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM resource_preferences WHERE resource_id = 's-org'`))?.owner_key).toBe('local:L1')
 
     // No `'you'` label and no separate person is stored any more.
     const stored = await storedWorkThreads()
@@ -196,7 +196,7 @@ describe('the host user rows', () => {
     expect(await ownerOf('w-local')).toBe('local:L1')
     expect(await ownerOf('s-local')).toBe('local:L1')
     expect(await ownerOf('s-org')).toBe('acc-1')
-    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT owner_key FROM session_admissions WHERE admission_id = 'a1'`))?.owner_key).toBe('acc-1')
+    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM resource_preferences WHERE resource_id = 's-org'`))?.owner_key).toBe('acc-1')
     expect((await storedWorkThreads())[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
     expect(localOwnerKey()).toBe('local:L1')
     expect(settings.getServerSettings().hostUser?.account).toBeUndefined()

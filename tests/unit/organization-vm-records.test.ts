@@ -19,6 +19,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // admission, never from the host's report.
 
 let turnOrganization: typeof import('@solus/server/execution/sessions/turn-organization')
+let identity: typeof import('@solus/server/data/sessions/session-identity')
 let actorFor: typeof import('@solus/server/admission/actor')['actorFor']
 let organizations: typeof import('@solus/server/host/organizations')
 let hostCategory: typeof import('@solus/server/host/host-category')
@@ -72,6 +73,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-organization-vm-records-'))
   process.env.SOLUS_DATA_DIR = dataDir
   turnOrganization = await import('@solus/server/execution/sessions/turn-organization')
+  identity = await import('@solus/server/data/sessions/session-identity')
   ;({ actorFor } = await import('@solus/server/admission/actor'))
   organizations = await import('@solus/server/host/organizations')
   hostCategory = await import('@solus/server/host/host-category')
@@ -134,27 +136,26 @@ describe('the link transition', () => {
     await expect(turnOrganization.admitTurnOrganization(ctx('s-paired'), actorFor(PAIRED), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
     await expect(turnOrganization.admitTurnOrganization(ctx('s-local-window', 'local'), actorFor(ALICE), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
     expect(authorities.calls).toEqual([])
-    expect(turnOrganization.pendingOrganizationFor('s-paired')).toBeNull()
-    expect(turnOrganization.pendingOrganizationFor('s-local-window')).toBeNull()
+    expect(await identity.sessionIdentityOf('s-paired')).toBeNull()
+    expect(await identity.sessionIdentityOf('s-local-window')).toBeNull()
   })
 
-  test('the owner\'s window in A starts an API session: the API admits it first, and the record is born published, owned by the verified person, under that admission', async () => {
+  test('the owner\'s window in A starts an API session: the API admits it first, and the row is born published, owned by the verified person, under that admission', async () => {
     const authorities = new FakeDelegations()
     expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
     expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'alice', organizationId: 'A', admit: true }])
-    // The record is keyed by the session id, so it is born in its API home whenever it is first written.
+    // The row is the birth: it holds the home and the admission before the provider starts, and the start report keeps them.
+    expect(await identity.sessionIdentityOf('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'alice', admittedAt: expect.any(Number), startedAt: null })
+    expect(await recordOf('s-new')).toBeNull()
     expect(await localRecord('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'alice' })
-    expect(records.admissionIdFor('s-new')).toBe('s-new')
-    turnOrganization.applyPendingAssignment('s-new')
-    expect(turnOrganization.pendingOrganizationFor('s-new')).toBeNull()
-
+    expect((await identity.sessionIdentityOf('s-new'))?.startedAt).toEqual(expect.any(Number))
   })
 
   test('an API refusal or outage prevents the start; nothing waits to be born, and the next attempt asks again', async () => {
     const authorities = new FakeDelegations()
     authorities.refusal = { code: 'ORGANIZATION_API_UNAVAILABLE', message: 'The Solus API is not reachable.' }
     await expect(turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).rejects.toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })
-    expect(turnOrganization.pendingOrganizationFor('s-outage')).toBeNull()
+    expect(await identity.sessionIdentityOf('s-outage')).toBeNull()
     authorities.refusal = null
     expect(await turnOrganization.admitTurnOrganization(ctx('s-outage', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
     // The retry is the same admission (the API answers the same one); a later prompt before the record exists asks nothing more.
@@ -266,7 +267,7 @@ describe('every new session passes the turn admission', () => {
 
   /** An organization session on the Solus API, run for Bob: its record is published in A. */
   async function bobsParent(actors: Map<string, ReturnType<typeof actorFor>>) {
-    records.rememberSessionBirth('parent-a', { organizationId: 'A', published: true, ownerKey: 'bob' })
+    await identity.claimSessionOwner('parent-a', { ownerKey: 'bob', organizationId: 'A' }, { published: true })
     await records.upsertOwnSessionRecord({ sessionId: 'parent-a', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
     actors.set('parent-a', actorFor(BOB_IN_A))
   }
@@ -285,7 +286,7 @@ describe('every new session passes the turn admission', () => {
     // The API writes the session's record from the facts the admission carries.
     expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'alice', organizationId: 'A', admit: true, record: expect.objectContaining({ provider: 'claude-code', privateToOwner: false }) }])
     expect(runs.map((run) => run.sessionId)).toEqual([started.sessionId])
-    expect(turnOrganization.pendingOrganizationFor(started.sessionId)).toBe('A')
+    expect((await identity.sessionIdentityOf(started.sessionId))?.organizationId).toBe('A')
     expect((await shares.homeOf({ kind: 'session', id: started.sessionId }))?.ownerKey).toBe('alice')
   })
 
@@ -295,7 +296,7 @@ describe('every new session passes the turn admission', () => {
     const child = await startChild()
     expect(authorities.calls).toEqual([{ sessionId: child.sessionId, userId: 'bob', organizationId: 'A', admit: true, record: expect.objectContaining({ privateToOwner: false }) }])
     expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
-    expect(turnOrganization.pendingOrganizationFor(child.sessionId)).toBe('A')
+    expect((await identity.sessionIdentityOf(child.sessionId))?.organizationId).toBe('A')
     expect((await shares.homeOf({ kind: 'session', id: child.sessionId }))?.ownerKey).toBe('bob')
   })
 
@@ -314,7 +315,7 @@ describe('every new session passes the turn admission', () => {
     const child = await startChild('parent-local')
     expect(authorities.calls).toEqual([])
     expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
-    expect(turnOrganization.pendingOrganizationFor(child.sessionId)).toBeNull()
+    expect((await identity.sessionIdentityOf(child.sessionId))?.organizationId).toBe('local')
   })
 
   test('a prompt from another host on an organization session checks the person\'s authority, as a prompt does', async () => {
@@ -521,7 +522,6 @@ describe('an agent\'s record tools follow its session\'s home', () => {
       expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks.map((task) => task.title)).not.toContain('First write')
     } finally {
       uninstall()
-      turnOrganization.applyPendingAssignment('s-first')
     }
   })
 })
@@ -563,16 +563,16 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'solus-admitted-chat' })).toBe('none')
   })
 
-  test('the first report takes the admission\'s owner, not the linker\'s or the report\'s; later reports and replays cannot change it', async () => {
+  test('the first report under the admitted session id takes the admission\'s owner, not the report\'s; later reports and replays cannot change it', async () => {
     const report = (seq: number, sessionId: string, extra: { admissionId?: string; ownerKey?: string; title?: string } = {}) => ({ seq, kind: 'session' as const, payload: { sessionId, provider: 'claude-code' as const, projectPath: '-repo', lastActivityAt: seq, ...extra } })
-    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(1, 'thread-bob', { admissionId: 'solus-bob', ownerKey: 'mallory' })] }, { shares })
-    expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM' })
-    expect((await shares.homeOf({ kind: 'session', id: 'thread-bob' }))?.ownerKey).toBe('bob')
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(1, 'solus-bob', { ownerKey: 'mallory' })] }, { shares })
+    expect(await records.getSessionRecord('A', 'solus-bob')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM' })
+    expect((await shares.homeOf({ kind: 'session', id: 'solus-bob' }))?.ownerKey).toBe('bob')
     // Existing organization access: the organization's members may open it (editor), as anything made in its space.
-    expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'thread-bob' })).toBe('editor')
-    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(2, 'thread-bob', { ownerKey: 'mallory', title: 'Renamed' })] }, { shares })
-    expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerKey: 'bob', title: 'Renamed' })
-    expect((await shares.homeOf({ kind: 'session', id: 'thread-bob' }))?.ownerKey).toBe('bob')
+    expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'solus-bob' })).toBe('editor')
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(2, 'solus-bob', { ownerKey: 'mallory', title: 'Renamed' })] }, { shares })
+    expect(await records.getSessionRecord('A', 'solus-bob')).toMatchObject({ ownerKey: 'bob', title: 'Renamed' })
+    expect((await shares.homeOf({ kind: 'session', id: 'solus-bob' }))?.ownerKey).toBe('bob')
     // A record with no admission — a published Local session — belongs to the account that linked the runner.
     await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(3, 'thread-published', { ownerKey: 'mallory' })] }, { shares })
     expect(await records.getSessionRecord('A', 'thread-published')).toMatchObject({ ownerKey: 'alice' })

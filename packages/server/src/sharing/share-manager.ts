@@ -32,8 +32,8 @@ import { roleOf, roleThroughSession, standingOf, visibleTo, type AccessResource,
 import { aclEntry } from './schema'
 import { hostUserKey } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
-import { sessionRecords } from '../data/sessions/schema'
-import { claimSessionOwner, machineSessionHome, pendingSessionHome, type SessionHome } from '../data/sessions/session-records'
+import { session } from '../data/sessions/schema'
+import { claimSessionOwner, machineSessionHome, type SessionHome } from '../data/sessions/session-identity'
 import { works } from '../data/works/schema'
 import { sessionIdsOfWorks, visibleThroughSession } from '../data/works/session-access'
 import { tasks } from '../data/tasks/schema'
@@ -51,19 +51,20 @@ const log = createLogger('main', 'share-manager')
  * The ACL entries and links of sessions, works, and tasks
  * (docs/plans/access-model.md §2.2; docs/plans/cloud-sharing.md §4c). This file
  * owns every `acl_entry` row: what a resource's owner gave to a person, a team,
- * the organization, or everyone with the link. The owner itself is the
- * resource's `owner_key`, and `roleOf` (admission/access.ts) decides every role
- * from the two; nothing here decides one. The table is in the ported schema
- * (`./schema.ts`), so the same code answers on a host's SQLite and in the
- * Solus API's Postgres (docs/plans/cloud-service-model.md).
+ * the organization, or everyone with the link. The owner itself is on the
+ * resource's own row (`created_by` on a session; `owner_key` on a work or a
+ * task), and `roleOf` (admission/access.ts) decides every role from the two;
+ * nothing here decides one. The table is in the ported schema (`./schema.ts`),
+ * so the same code answers on a host's SQLite and in the Solus API's Postgres
+ * (docs/plans/cloud-service-model.md).
  */
 
-/** Each shareable kind's table, and the column that holds its id. */
+/** Each shareable kind's table, the column that holds its id, and the column that holds its owner. */
 const RESOURCE_TABLES = {
-  session: { table: sessionRecords, id: sql`session_id` },
-  work: { table: works, id: sql`id` },
-  task: { table: tasks, id: sql`id` },
-} as const satisfies Record<ShareResourceKind, { table: unknown; id: SQL }>
+  session: { table: session, id: sql`session_id`, owner: sql`created_by` },
+  work: { table: works, id: sql`id`, owner: sql`owner_key` },
+  task: { table: tasks, id: sql`id`, owner: sql`owner_key` },
+} as const satisfies Record<ShareResourceKind, { table: unknown; id: SQL; owner: SQL }>
 
 const entryRowSchema = z.object({
   id: z.string(),
@@ -320,18 +321,18 @@ export class ShareManager {
 
   /** The resource's owner and organization, from its own row; null when there is no such resource. */
   async homeOf(resource: ShareResource): Promise<SessionHome | null> {
-    const { table, id } = RESOURCE_TABLES[resource.kind]
+    const { table, id, owner } = RESOURCE_TABLES[resource.kind]
     const row = homeRowSchema.nullish().parse(await this.deps.db.get(sql`
-      SELECT owner_key, organization_id FROM ${table} WHERE ${id} = ${resource.id}
+      SELECT ${owner} AS owner_key, organization_id FROM ${table} WHERE ${id} = ${resource.id}
     `))
     return this.homeFrom(resource, row ?? null)
   }
 
-  /** The home a resource's own row gives, or, for a session with none, the one it is being started with. */
+  /** The home a resource's own row gives, or, for a session on this disk with no row yet, the machine's own. */
   private homeFrom(resource: ShareResource, row: z.infer<typeof homeRowSchema> | null): SessionHome | null {
     if (row) return { ownerKey: row.owner_key, organizationId: row.organization_id }
     if (resource.kind !== 'session') return null
-    return pendingSessionHome(resource.id) ?? (this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null)
+    return this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null
   }
 
   /**
@@ -342,11 +343,11 @@ export class ShareManager {
   async accessOf(principal: Principal, kind: ShareResourceKind, ids: readonly string[]): Promise<Map<string, { ownerKey: string; share: ShareSummary } & ResourceStanding>> {
     if (ids.length === 0) return new Map()
     if (ids.length > 201) throw new Error('Role reads require a bounded resource page.')
-    const { table, id } = RESOURCE_TABLES[kind]
+    const { table, id, owner } = RESOURCE_TABLES[kind]
     const listed = sql.join(ids.map((value) => sql`${value}`), sql`, `)
     const [rows, entries] = await Promise.all([
       accessRowSchema.array().parse(await this.deps.db.all(sql`
-        SELECT ${id} AS id, owner_key, organization_id FROM ${table} WHERE ${id} IN (${listed})
+        SELECT ${id} AS id, ${owner} AS owner_key, organization_id FROM ${table} WHERE ${id} IN (${listed})
       `)),
       entryRowSchema.array().parse(await this.deps.db.all(sql`
         SELECT * FROM ${aclEntry} WHERE resource_kind = ${kind} AND resource_id IN (${listed})
@@ -475,8 +476,8 @@ export class ShareManager {
         await db.run(sql`DELETE FROM ${aclEntry} WHERE id = ${named.id}`)
         access.entries = access.entries.filter((row) => row !== named)
       }
-      const { table, id } = RESOURCE_TABLES[resource.kind]
-      await db.run(sql`UPDATE ${table} SET owner_key = ${request.toUserId} WHERE ${id} = ${resource.id}`)
+      const { table, id, owner } = RESOURCE_TABLES[resource.kind]
+      await db.run(sql`UPDATE ${table} SET ${owner} = ${request.toUserId} WHERE ${id} = ${resource.id}`)
       home.ownerKey = request.toUserId
       log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
       await this.announce(home.organizationId, access, principal, previousOwner !== request.toUserId ? [previousOwner] : [], false)
@@ -613,9 +614,9 @@ export class ShareManager {
   async filterVisible<T>(principal: Principal, kind: ShareResourceKind, items: T[], idOf: (item: T) => string): Promise<T[]> {
     if (principal.kind === 'system') return items
     const ids = [...new Set(items.map(idOf))]
-    const { table, id } = RESOURCE_TABLES[kind]
+    const { table, id, owner } = RESOURCE_TABLES[kind]
     const actor = actorFor(principal)
-    const own = visibleTo(actor, kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.owner_key` }, this.now())
+    const own = visibleTo(actor, kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.${owner}` }, this.now())
     const predicate = kind === 'work' ? sql`(${own} OR ${visibleThroughSession(this.deps.db, actor, sql`${table}.${id}`)})` : own
     const visible = new Set<string>()
     for (let start = 0; start < ids.length; start += ID_CHUNK) {
@@ -909,12 +910,12 @@ export class ShareManager {
     const hash = hashLinkSecret(secret)
     const rows = openedLinkRowSchema.array().parse(await this.deps.db.all(sql`
       SELECT e.*,
-        COALESCE(s.owner_key, w.owner_key) AS home_owner_key,
+        COALESCE(s.created_by, w.owner_key) AS home_owner_key,
         COALESCE(s.organization_id, w.organization_id) AS home_organization_id,
         s.runner_host_id AS runner_host_id
       FROM ${aclEntry} l
       JOIN ${aclEntry} e ON e.resource_kind = l.resource_kind AND e.resource_id = l.resource_id
-      LEFT JOIN ${sessionRecords} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
+      LEFT JOIN ${session} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
       LEFT JOIN ${works} w ON l.resource_kind = 'work' AND w.id = l.resource_id
       WHERE l.subject_kind = 'everyone' AND l.link_secret_hash = ${hash}
       ORDER BY e.created_at, e.id
@@ -1038,7 +1039,7 @@ export class ShareManager {
    */
   private async recordSessionUnshared(db: Db, organizationId: string, sessionId: string, recipients: string[], principal: Principal): Promise<void> {
     const record = z.object({ title: z.string().nullable(), custom_title: z.string().nullable() }).nullish().parse(await db.get(sql`
-      SELECT title, custom_title FROM ${sessionRecords} WHERE session_id = ${sessionId}
+      SELECT title, custom_title FROM ${session} WHERE session_id = ${sessionId}
     `))
     const user = actorFor(principal).user
     await recordNotification(db, {

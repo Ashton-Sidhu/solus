@@ -252,7 +252,7 @@ CREATE TABLE `session_thread_aliases` (
 	PRIMARY KEY(`provider_session_id`, `provider`)
 );
 --> statement-breakpoint
-CREATE TABLE `sessions` (
+CREATE TABLE `transcript_index` (
 	`session_id` text PRIMARY KEY NOT NULL,
 	`provider` text NOT NULL,
 	`cwd` text,
@@ -274,13 +274,11 @@ CREATE TABLE `sessions` (
 	`delegation_depth` integer,
 	`delegation_intent` text,
 	`delegation_created_at` integer,
-	`started_by` text,
 	`place` text
 );
 --> statement-breakpoint
-CREATE INDEX `sessions_by_parent` ON `sessions` (`parent_session_id`,"last_timestamp" desc);--> statement-breakpoint
-CREATE INDEX `sessions_by_project_root` ON `sessions` (`project_root`,"last_timestamp" desc);--> statement-breakpoint
-CREATE INDEX `sessions_worktree_recent` ON `sessions` (`last_timestamp`) WHERE is_worktree = 1;--> statement-breakpoint
+CREATE INDEX `transcript_index_by_project_root` ON `transcript_index` (`project_root`,"last_timestamp" desc);--> statement-breakpoint
+CREATE INDEX `transcript_index_recent_branches` ON `transcript_index` (`last_timestamp`) WHERE branch IS NOT NULL AND branch <> '';--> statement-breakpoint
 CREATE TABLE `transcript_mirror_rows` (
 	`session_id` text NOT NULL,
 	`position` integer NOT NULL,

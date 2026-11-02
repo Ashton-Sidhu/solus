@@ -176,27 +176,8 @@ export const taskCounters = defineTable('task_counters', {
   organization_id: ORGANIZATION,
 })
 
-/**
- * One person's snooze of a task (docs/task-snooze.md): the task leaves that
- * person's task lists until `snoozed_until`. It is the person's own view, so it
- * is keyed by their user key (`ownerKeyOf`) and is never part of the task record,
- * its events, or its sync. `organization_id` is the task's, so a read is scoped
- * as the task is.
- */
-export const taskSnoozes = defineTable('task_snoozes', {
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  person_key: text({ notNull: true }),
-  snoozed_until: bigint({ notNull: true }),
-  snooze_note: text(),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['task_id', 'person_key'],
-  indexes: [{ name: 'task_snoozes_by_person', columns: ['person_key', 'snoozed_until'] }],
-})
-
 export const TASK_TABLES = [
   tasks,
-  taskSnoozes,
   taskCounters,
   taskSessionLinks,
   taskComments,

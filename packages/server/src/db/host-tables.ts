@@ -12,8 +12,16 @@ import { bigint, defineTable, integer, json, text } from './schema/define-table'
 
 // --- Transcript index -------------------------------------------------------
 
-/** One row per provider thread this host has indexed from its own disk. */
-export const sessions = defineTable('sessions', {
+/**
+ * One row per provider thread this host has indexed from its own disk: the
+ * indexer's state (file facts, timestamp, size) and the per-thread facts the
+ * host's synchronous readers need (`getIndexedSession`, the transcript search,
+ * the task and PR readers). The session's own facts live on the ported
+ * `session` row (plans/029 §4.1); `custom_title` and `branch` are copies the
+ * synchronous readers project from. Keyed by the provider thread id: one
+ * session has several rows after a handoff.
+ */
+export const transcriptIndex = defineTable('transcript_index', {
   session_id: text({ primaryKey: true }),
   provider: text({ notNull: true }),
   cwd: text(),
@@ -35,13 +43,13 @@ export const sessions = defineTable('sessions', {
   delegation_depth: integer(),
   delegation_intent: text(),
   delegation_created_at: bigint(),
-  started_by: json(),
   place: text(),
 }, {
   indexes: [
-    { name: 'sessions_by_parent', columns: ['parent_session_id', 'last_timestamp'], descending: ['last_timestamp'] },
-    { name: 'sessions_by_project_root', columns: ['project_root', 'last_timestamp'], descending: ['last_timestamp'] },
-    { name: 'sessions_worktree_recent', columns: ['last_timestamp'], where: 'is_worktree = 1' },
+    // `listProjectRoots` and the search's project scope.
+    { name: 'transcript_index_by_project_root', columns: ['project_root', 'last_timestamp'], descending: ['last_timestamp'] },
+    // The PR-sync tick (`recentBranchSessions`): recent threads on a branch.
+    { name: 'transcript_index_recent_branches', columns: ['last_timestamp'], where: "branch IS NOT NULL AND branch <> ''" },
   ],
 })
 
@@ -335,7 +343,7 @@ export const turnFlags = defineTable('turn_flags', {
 
 /** Every host table, in declaration order. */
 export const HOST_TABLES = [
-  sessions, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
+  transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, appliedOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, recentProjects, savedPrompts, automations, automationRuns, browserProfiles, browserProfileDefaults,

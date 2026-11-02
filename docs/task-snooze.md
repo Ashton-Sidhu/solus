@@ -26,10 +26,12 @@ A snooze is personal. It hides the task only for the person who snoozed it,
 on every client that person uses. Other people who can see a shared task keep
 it in their lists and are not told about the snooze.
 
-- The host keeps snoozes in their own table, `task_snoozes`, keyed by task and
-  person (`person_key`, the user key `ownerKeyOf` gives the connection, as
-  notifications use). The task record has no snooze, so task lists, task
-  events, activity, sync, and publication never carry one.
+- The host keeps snoozes as `resource_preferences` rows of kind `task`
+  (plans/029 §3.4), keyed by the task and the person (`created_by`, the user
+  key `ownerKeyOf` gives the connection). The task record has no snooze, so
+  task lists, task events, activity, sync, and publication never carry one.
+  Waking deletes the row; deleting the task deletes every snooze of it in the
+  same transaction.
 - `tasksSnooze(id, until | null, note?)` writes the caller's own snooze. The
   person comes from the connection, never from the request. The caller must be
   able to read the task (viewer); the host itself and a runner are no person
@@ -51,9 +53,7 @@ it in their lists and are not told about the snooze.
   (its README parity table lists Tasks as missing), so it cannot show or set a
   snooze. Desktop and web share the Svelte surfaces above.
 
-## Migration
+## Schema
 
-`0009_task_snooze` creates the `task_snoozes` table. It follows `0007_task_location` and
-`0008_task_session_started_by`, and its snapshot is based on the `0008`
-snapshot. Its journal `when` is later than theirs, so a host that already ran
-`0007` and `0008` applies only `0009`.
+`resource_preferences` is declared in `packages/server/src/data/preferences/schema.ts`
+and generated into the one baseline of each engine (docs/database-schema.md).

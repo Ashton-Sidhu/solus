@@ -5,6 +5,7 @@ import { solusApiReceipts } from '../../data/workspace/schema'
 import { insightLogEvents, insightSpans } from '../../data/insights/insight-schema'
 import { OUTBOX_TABLES } from '../../sync/outbox/schema'
 import { PLAN_TABLES } from '../../plans/schema'
+import { PREFERENCE_TABLES } from '../../data/preferences/schema'
 import { PROJECT_TABLES } from '../../projects/schema'
 import { SESSION_TABLES } from '../../data/sessions/schema'
 import { sessionTranscripts } from '../../data/sessions/transcript-schema'
@@ -18,7 +19,7 @@ const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightLogEvents]
 
 /** Every table a ported domain declares. A domain adds its list here when it is ported. */
 export const PORTED_TABLES: readonly TableDefinition[] = [
-  ...TASK_TABLES, ...WORK_TABLES, ...PLAN_TABLES, ...SHARING_TABLES, ...SESSION_TABLES, ...OUTBOX_TABLES, ...MIRROR_TABLES,
+  ...TASK_TABLES, ...WORK_TABLES, ...PLAN_TABLES, ...SHARING_TABLES, ...SESSION_TABLES, ...PREFERENCE_TABLES, ...OUTBOX_TABLES, ...MIRROR_TABLES,
   ...PROJECT_TABLES, ...ACTIVITY_TABLES, ...NOTIFICATION_TABLES, ...WEBHOOK_TABLES,
   solusApiReceipts,
 ]

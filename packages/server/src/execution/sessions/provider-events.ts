@@ -3,7 +3,6 @@ import { Task } from '../../data/tasks/task'
 import { saveAsyncQuestion } from '../../data/sessions/async-questions'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { applyPendingAssignment } from './turn-organization'
 import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession, persistIndexedSessionStart } from '../../db/session-indexer'
 import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread } from '../../data/sessions/session-lineage'
@@ -202,10 +201,6 @@ export class ProviderEvents {
         if (runReqInput && indexedStart && this.indexedThreadStarts.get(event.sessionId) !== indexedStart) {
           this.indexedThreadStarts.set(event.sessionId, indexedStart)
           this.rt.statuses.recordStatusWritten.set(initSessionId, 'running')
-          // The status write below is skipped as already written, so an
-          // admitted or inherited organization lands here, before the record
-          // is born, not at the turn's end.
-          applyPendingAssignment(initSessionId)
           persistIndexedSessionStart(
             event.sessionId,
             backend.id,

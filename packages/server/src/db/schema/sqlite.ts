@@ -7,6 +7,7 @@ import * as notificationsSchema from '../../data/notifications/schema'
 import * as insightSchema from '../../data/insights/insight-schema'
 import * as outboxSchema from '../../sync/outbox/schema'
 import * as plansSchema from '../../plans/schema'
+import * as preferencesSchema from '../../data/preferences/schema'
 import * as projectsSchema from '../../projects/schema'
 import * as sessionsSchema from '../../data/sessions/schema'
 import * as transcriptSchema from '../../data/sessions/transcript-schema'
@@ -16,7 +17,6 @@ import * as webhooksSchema from '../../data/webhooks/schema'
 
 export const tasks = tasksSchema.tasks.sqlite
 export const task_counters = tasksSchema.taskCounters.sqlite
-export const task_snoozes = tasksSchema.taskSnoozes.sqlite
 export const task_session_links = tasksSchema.taskSessionLinks.sqlite
 export const task_comments = tasksSchema.taskComments.sqlite
 export const task_links = tasksSchema.taskLinks.sqlite
@@ -34,14 +34,11 @@ export const plan_annotations = plansSchema.planAnnotations.sqlite
 export const indexed_plans = plansSchema.indexedPlans.sqlite
 export const plan_index_providers = plansSchema.planIndexProviders.sqlite
 export const acl_entry = sharingSchema.aclEntry.sqlite
-export const session_leads = sessionsSchema.sessionLeads.sqlite
+export const session = sessionsSchema.session.sqlite
 export const session_links = sessionsSchema.sessionLinks.sqlite
-export const session_records = sessionsSchema.sessionRecords.sqlite
-export const session_admissions = sessionsSchema.sessionAdmissions.sqlite
 export const session_pull_requests = sessionsSchema.sessionPullRequests.sqlite
 export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.sqlite
-export const session_states = sessionsSchema.sessionStates.sqlite
-export const session_views = sessionsSchema.sessionViews.sqlite
+export const resource_preferences = preferencesSchema.resourcePreferences.sqlite
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite
 export const insight_spans = insightSchema.insightSpans.sqlite

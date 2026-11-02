@@ -1,12 +1,12 @@
 import type { SessionSettledBy, SessionState, SessionView } from '@solus/contracts/session-state'
 
-/** The `session_states` columns that say whether a session is settled. */
+/** The `session` columns that say whether a session is settled. */
 export interface SessionStateColumns {
   settled_at: number | null
   settled_by: SessionSettledBy | null
 }
 
-/** The `session_views` columns of one person's view of a session. */
+/** The `resource_preferences` columns of one person's view of a session. */
 export interface SessionViewColumns {
   view_settled_at: number | null
   archived_at: number | null

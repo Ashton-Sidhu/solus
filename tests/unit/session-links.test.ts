@@ -32,7 +32,7 @@ beforeAll(async () => {
   operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(new ShareManager({ db: getDatabase() }))
   const { installWorkspaceToolOperations } = await import('@solus/server/data/workspace/tool-context')
   stopTools = installWorkspaceToolOperations(operations, 'host-1')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, cwd, status, created_at, last_activity_at) VALUES ('session-1', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, cwd, status, created_at, last_activity_at, started_at) VALUES ('session-1', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2, 1)`)
 })
 afterAll(async () => {
   stopTools()
@@ -107,7 +107,7 @@ test('a caller cannot link items to a session it cannot edit', async () => {
 
 test("the link route stores a session's file reference once, on its execution host, and removes it", async () => {
   const { getDatabase } = await import('@solus/server/db/database')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, runner_host_id, status, created_at, last_activity_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, runner_host_id, status, created_at, last_activity_at, started_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2, 1)`)
   const inA: WorkspaceRequestContext = { ...context, home: { kind: 'organization', organizationId: 'organization-A', serviceId: 'api' } }
   const link = { from: { kind: 'session' as const, id: 'remote-session' }, to: { kind: 'file' as const, path: 'C:\\runner\\plan.md', hostId: 'runner-A' }, title: 'Runner plan' }
   await operations.putLink(inA, link)

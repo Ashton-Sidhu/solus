@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ac008723-f53a-4442-844a-44773a689e44",
+  "id": "413a6a86-7d6e-4442-a983-74a42bef3978",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "activity_mirror_rows": {
@@ -1552,8 +1552,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "sessions": {
-      "name": "sessions",
+    "transcript_index": {
+      "name": "transcript_index",
       "columns": {
         "session_id": {
           "name": "session_id",
@@ -1702,13 +1702,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "started_by": {
-          "name": "started_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "place": {
           "name": "place",
           "type": "text",
@@ -1718,29 +1711,21 @@
         }
       },
       "indexes": {
-        "sessions_by_parent": {
-          "name": "sessions_by_parent",
-          "columns": [
-            "parent_session_id",
-            "\"last_timestamp\" desc"
-          ],
-          "isUnique": false
-        },
-        "sessions_by_project_root": {
-          "name": "sessions_by_project_root",
+        "transcript_index_by_project_root": {
+          "name": "transcript_index_by_project_root",
           "columns": [
             "project_root",
             "\"last_timestamp\" desc"
           ],
           "isUnique": false
         },
-        "sessions_worktree_recent": {
-          "name": "sessions_worktree_recent",
+        "transcript_index_recent_branches": {
+          "name": "transcript_index_recent_branches",
           "columns": [
             "last_timestamp"
           ],
           "isUnique": false,
-          "where": "is_worktree = 1"
+          "where": "branch IS NOT NULL AND branch <> ''"
         }
       },
       "foreignKeys": {},
@@ -1857,14 +1842,7 @@
           }
         }
       },
-      "sessions_by_parent": {
-        "columns": {
-          "\"last_timestamp\" desc": {
-            "isExpression": true
-          }
-        }
-      },
-      "sessions_by_project_root": {
+      "transcript_index_by_project_root": {
         "columns": {
           "\"last_timestamp\" desc": {
             "isExpression": true
