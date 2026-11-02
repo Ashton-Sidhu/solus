@@ -15,13 +15,19 @@ export interface AttachmentFileMetadata {
   readonly mimeType: string;
 }
 
-function downloadFileName(name: string): string {
+/** Characters expo-file-system leaves unencoded in a file URI and Android's
+ *  `java.net.URI` rejects, so a file named `Report [draft].pdf` cannot be made. */
+const ANDROID_URI_UNSAFE = new Set(['"', "<", ">", "[", "]", "\\", "^", "`", "{", "|", "}"]);
+
+/** The name of the cached copy. The person sees it in the viewer and the share sheet. */
+export function downloadFileName(name: string): string {
   const basename = hostPathBaseName(name);
   const sanitized = Array.from(basename, (character) => {
     const codePoint = character.codePointAt(0)!;
     return codePoint < 32 ||
       (codePoint >= 127 && codePoint <= 159) ||
-      (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+      ANDROID_URI_UNSAFE.has(character)
       ? "_"
       : character;
   })
