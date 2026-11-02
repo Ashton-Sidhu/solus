@@ -2,7 +2,7 @@ import { ACTIVITY_TABLES } from '../../data/activity/schema'
 import { WORK_TABLES } from '../../data/works/schema'
 import { NOTIFICATION_TABLES } from '../../data/notifications/schema'
 import { RECEIPT_TABLES } from '../../data/receipts/schema'
-import { insightLogEvents, insightSpans } from '../../data/insights/insight-schema'
+import { insightLogEvents, insightSpans, insightSpanTexts } from '../../data/insights/insight-schema'
 import { OUTBOX_TABLES } from '../../sync/outbox/schema'
 import { PLAN_TABLES } from '../../plans/schema'
 import { PROJECT_TABLES } from '../../projects/schema'
@@ -14,7 +14,7 @@ import { WEBHOOK_TABLES } from '../../data/webhooks/schema'
 import type { TableDefinition } from './define-table'
 
 /** The mirrored transcript and Insights tables, in their registration order. */
-const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightLogEvents]
+const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightSpanTexts, insightLogEvents]
 
 /** Every table a ported domain declares. A domain adds its list here when it is ported. */
 export const PORTED_TABLES: readonly TableDefinition[] = [

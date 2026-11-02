@@ -46,6 +46,7 @@ export const session_views = sessionsSchema.sessionViews.pg
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.pg
 export const session_transcripts = transcriptSchema.sessionTranscripts.pg
 export const insight_spans = insightSchema.insightSpans.pg
+export const insight_span_texts = insightSchema.insightSpanTexts.pg
 export const insight_log_events = insightSchema.insightLogEvents.pg
 export const workspace_projects = projectsSchema.workspaceProjects.pg
 export const activity = activitySchema.activity.pg

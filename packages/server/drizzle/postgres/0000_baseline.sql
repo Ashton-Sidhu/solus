@@ -75,6 +75,15 @@ CREATE TABLE "insight_log_events" (
 	CONSTRAINT "insight_log_events_organization_id_host_id_event_id_pk" PRIMARY KEY("organization_id","host_id","event_id")
 );
 --> statement-breakpoint
+CREATE TABLE "insight_span_texts" (
+	"organization_id" text DEFAULT 'local' NOT NULL,
+	"host_id" text NOT NULL,
+	"span_id" text NOT NULL,
+	"name" text NOT NULL,
+	"text" text NOT NULL,
+	CONSTRAINT "insight_span_texts_organization_id_host_id_span_id_name_pk" PRIMARY KEY("organization_id","host_id","span_id","name")
+);
+--> statement-breakpoint
 CREATE TABLE "insight_spans" (
 	"organization_id" text DEFAULT 'local' NOT NULL,
 	"host_id" text NOT NULL,

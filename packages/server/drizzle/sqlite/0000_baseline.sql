@@ -85,6 +85,15 @@ CREATE TABLE `insight_log_events` (
 --> statement-breakpoint
 CREATE INDEX `insight_log_events_time_idx` ON `insight_log_events` (`occurred_at`);--> statement-breakpoint
 CREATE INDEX `insight_log_events_trace_idx` ON `insight_log_events` (`organization_id`,`host_id`,`trace_id`);--> statement-breakpoint
+CREATE TABLE `insight_span_texts` (
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`host_id` text NOT NULL,
+	`span_id` text NOT NULL,
+	`name` text NOT NULL,
+	`text` text NOT NULL,
+	PRIMARY KEY(`organization_id`, `host_id`, `span_id`, `name`)
+);
+--> statement-breakpoint
 CREATE TABLE `insight_spans` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`host_id` text NOT NULL,

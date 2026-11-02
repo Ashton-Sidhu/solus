@@ -13,7 +13,7 @@ import {
   type InsightsMirrorPayload,
   type TranscriptMirrorPayload,
 } from '../runner-protocol'
-import { insightLogEvents, insightSpans } from '../../data/insights/insight-schema'
+import { insightLogEvents, insightSpans, insightSpanTexts } from '../../data/insights/insight-schema'
 import { sessionTranscripts } from '../../data/sessions/transcript-schema'
 import { storeMirroredActivity } from '../../data/activity/activity'
 
@@ -80,6 +80,13 @@ async function applyInsights(origin: MirrorOrigin, payload: InsightsMirrorPayloa
       project_root = excluded.project_root, origin = excluded.origin, user_id = excluded.user_id, user_email = excluded.user_email,
       started_at = excluded.started_at, ended_at = excluded.ended_at,
       duration_ms = excluded.duration_ms, status = excluded.status, attrs = excluded.attrs
+  `)
+  const textRows = payload.spans.flatMap(({ span }) => Object.entries(span.texts ?? {}).map(([name, text]) => sql`(
+    ${origin.organizationId}, ${origin.hostId}, ${span.spanId}, ${name}, ${text}
+  )`))
+  for (const rows of chunks(textRows)) await db.run(sql`
+    INSERT INTO ${insightSpanTexts} (organization_id, host_id, span_id, name, text) VALUES ${sql.join(rows, sql`, `)}
+    ON CONFLICT (organization_id, host_id, span_id, name) DO UPDATE SET text = excluded.text
   `)
   const eventRows = payload.spans.flatMap(({ events }) => events.map((event) => sql`(
     ${origin.organizationId}, ${origin.hostId}, ${event.eventId}, ${event.traceId}, ${event.spanId}, ${event.occurredAt},

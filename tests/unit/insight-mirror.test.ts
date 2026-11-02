@@ -113,11 +113,11 @@ describe('insight mirror', () => {
     expect(queue.listDelivery(bobIn('org1'), 10)).toEqual([])
   })
 
-  test('a mirrored turn carries its prompt and its thoughts, never its response or system prompt', async () => {
-    // WHY (plans/029 §6): the cross-host list shows a prompt preview and the
-    // cross-host trace view shows each thought, so those texts travel. The
-    // response and the system prompt are read only on the host that ran the
-    // turn, so they never leave it — the service has nothing to strip.
+  test('a mirrored span carries its long texts as texts, beside an attrs without them', async () => {
+    // WHY (plans/029 §6): the service stores a span's prompt, system prompt,
+    // response, and thought as `insight_span_texts`, as the host stores its own
+    // in `span_texts`, so its `attrs` stay small and the cross-host trace view
+    // still shows every text.
     insightMirror.useInsightsPolicy({ syncAllInsights: () => true, optedIn: () => false, attached: () => false })
     await sessionIn('session-texts', 'org1')
     const root = { ...turnSpan('trace-texts', 'session-texts', 'org1'), attrs: { costUsd: 1, prompt: 'fix it', response: 'Done.', systemPrompt: 'You are Solus.' } }
@@ -127,8 +127,8 @@ describe('insight mirror', () => {
     const [item] = queue.listDelivery(bobIn('org1'), 10)
     expect(item?.payload).toEqual({
       spans: [
-        { span: thought, events: [] },
-        { span: { ...root, attrs: { costUsd: 1, prompt: 'fix it' } }, events: [] },
+        { span: { ...thought, attrs: {}, texts: { thought: 'Reading the test.' } }, events: [] },
+        { span: { ...root, attrs: { costUsd: 1 }, texts: { prompt: 'fix it', response: 'Done.', systemPrompt: 'You are Solus.' } }, events: [] },
       ],
     })
   })
