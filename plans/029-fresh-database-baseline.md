@@ -191,9 +191,14 @@ resulting baseline.
   record and nowhere else (P1). The indexer writes the record once and the index
   row once; renames and branch changes write one row.
 - The record gains the indexes the facts need: `(parent_session_id, created_at
-  DESC, session_id DESC)`, `(created_at DESC, session_id DESC)` for the
-  any-organization page, `session_records_by_activity` as `(last_activity_at
-  DESC, session_id DESC)`, and `(project_path, last_activity_at)` for the picker.
+  DESC, session_id DESC)` and `(parent_session_id, last_activity_at DESC,
+  session_id DESC)` for the pages (every page names a parent: the top-level
+  sessions are `parent_session_id IS NULL`, and an index on the order alone
+  loses to that equality and sorts every row, as `EXPLAIN` showed; the
+  `(created_at DESC, session_id DESC)` any-organization index had no reader
+  left and is not in the baseline), `session_by_activity` as
+  `(last_activity_at DESC, session_id DESC)` for the recent sessions of the
+  list, and `(project_path, last_activity_at)` for the picker.
 - Every session child table (`session_links`, `session_transcripts`,
   `transcript_mirror_rows`, `activity_mirror_rows`, `runs`, `run_queue`,
   `run_exchanges`, `async_questions`, `resource_preferences` rows of kind

@@ -1,7 +1,6 @@
-import { createInterface } from 'node:readline'
 import { isInsideHostPath } from '@solus/contracts/host-path'
-import { createReadStream, existsSync } from 'node:fs'
-import { readdir, stat as fsStat } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { open, readdir, stat as fsStat, type FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 import { extractPlanTitle } from '../plan-text'
 import type { AnnotationIndex } from '../../../plans/annotations'
@@ -53,7 +52,24 @@ export interface ScannedPlan {
   derivedStatus: DerivedStatus
 }
 
-const _planFileCache = new Map<string, { mtime: number; plans: ScannedPlan[] }>()
+/**
+ * What one transcript's scan has found so far, and how far it read. A file
+ * grows at its end while a turn streams, so the next scan goes on from
+ * `offset`: the plans found before keep their entry here, a plan still
+ * `pending` takes its status from a tool result that arrives later, and the
+ * bytes before the offset are never read again.
+ */
+interface PlanScan {
+  /** The end of the last complete line read. */
+  offset: number
+  /** The file's first `cwd`, which every plan of the file is placed in. */
+  resolvedCwd: string | null
+  seenIds: Set<string>
+  /** The plans found, by tool-use id, in the order found. */
+  plans: Map<string, ScannedPlan>
+}
+const _planFileCache = new Map<string, PlanScan>()
+const SCAN_CHUNK_BYTES = 256 * 1024
 
 function classifyToolResult(content: string, isError: boolean): DerivedStatus | 'skip' {
   if (isError && content.includes('You are not in plan mode')) return 'skip'
@@ -63,6 +79,45 @@ function classifyToolResult(content: string, isError: boolean): DerivedStatus | 
   return 'pending'
 }
 
+/**
+ * The complete lines of a file from `offset` to `end`, each with the offset
+ * after its newline. A last line with no newline yet is the agent's current
+ * write; it is left for the next scan. An unreadable file (another user's)
+ * yields nothing: it never crashes the server.
+ */
+async function* readLinesFrom(filePath: string, offset: number, end: number): AsyncGenerator<{ line: string; endOffset: number }> {
+  let file: FileHandle
+  try {
+    file = await open(filePath, 'r')
+  } catch {
+    return
+  }
+  try {
+    let position = offset
+    let pending: Buffer[] = []
+    while (position < end) {
+      const buffer = Buffer.allocUnsafe(Math.min(SCAN_CHUNK_BYTES, end - position))
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, position)
+      if (bytesRead === 0) break
+      const chunk = buffer.subarray(0, bytesRead)
+      let lineStart = 0
+      for (let newline = chunk.indexOf(0x0a); newline !== -1; newline = chunk.indexOf(0x0a, lineStart)) {
+        const segment = chunk.subarray(lineStart, newline)
+        const line = pending.length ? Buffer.concat([...pending, segment]) : segment
+        pending = []
+        yield { line: line.toString('utf8'), endOffset: position + newline + 1 }
+        lineStart = newline + 1
+      }
+      if (lineStart < chunk.length) pending.push(Buffer.from(chunk.subarray(lineStart)))
+      position += bytesRead
+    }
+  } catch {
+    // A read that fails midway keeps what was scanned; the next scan goes on from there.
+  } finally {
+    await file.close()
+  }
+}
+
 export async function scanPlanFile(
   filePath: string,
   threadId: string,
@@ -70,90 +125,81 @@ export async function scanPlanFile(
   fallbackCwd: string,
 ): Promise<ScannedPlan[]> {
   const stat = await fsStat(filePath)
-  const mtime = stat.mtimeMs
-  const cached = _planFileCache.get(filePath)
-  // The file's plans are cached; their session is read now, because the
-  // thread may have joined a session since the file was read.
-  if (cached && cached.mtime === mtime) return inSession(cached.plans)
-  if (stat.size < 100) {
-    _planFileCache.set(filePath, { mtime, plans: [] })
-    return []
+  let scan = _planFileCache.get(filePath)
+  // A file that shrank was written anew; the scan starts over.
+  if (!scan || stat.size < scan.offset) {
+    scan = { offset: 0, resolvedCwd: null, seenIds: new Set(), plans: new Map() }
+    _planFileCache.set(filePath, scan)
+  }
+  // The file's plans are kept; their session is read now, because the thread
+  // may have joined a session since the file was read.
+  if (stat.size === scan.offset || stat.size < 100) return inSession([...scan.plans.values()])
+
+  const place = { threadId, encodedPath, fallbackCwd, mtime: stat.mtime.getTime() }
+  for await (const { line, endOffset } of readLinesFrom(filePath, scan.offset, stat.size)) {
+    scan.offset = endOffset
+    try {
+      scanLine(scan, JSON.parse(line), place)
+    } catch {}
   }
 
-  let resolvedCwd: string | null = null
-  const seenIds = new Set<string>()
-  const pending = new Map<string, ScannedPlan>()
+  return inSession([...scan.plans.values()])
+}
 
-  await new Promise<void>((resolve) => {
-    const rl = createInterface({ input: createReadStream(filePath) })
-    rl.on('line', (line: string) => {
-      try {
-        const obj = JSON.parse(line)
-        if (!resolvedCwd && obj.cwd) resolvedCwd = obj.cwd
+/** Where a file's plans belong, and the time a line without one gets. */
+interface PlanPlace {
+  threadId: string
+  encodedPath: string
+  fallbackCwd: string
+  mtime: number
+}
 
-        if (obj.type === 'assistant') {
-          const content = obj.message?.content
-          if (!Array.isArray(content)) return
-          for (const block of content) {
-            if (block?.type === 'tool_use' && block?.name === 'ExitPlanMode') {
-              const planContent: string = block.input?.plan || ''
-              if (!planContent) continue
-              const id = block.id || `${threadId}__${obj.timestamp || ''}`
-              if (seenIds.has(id)) continue
-              seenIds.add(id)
-              const ts = obj.timestamp ? new Date(obj.timestamp).getTime() : stat.mtime.getTime()
-              pending.set(id, {
-                planToolUseId: id,
-                sessionId: threadId,
-                threadId,
-                projectPath: encodedPath,
-                cwd: resolveHomePath(resolvedCwd || fallbackCwd),
-                timestamp: ts,
-                title: extractPlanTitle(planContent),
-                excerpt: extractExcerpt(planContent),
-                content: planContent,
-                planFilePath: block.input?.planFilePath || undefined,
-                derivedStatus: 'pending',
-              })
-            }
-          }
-          return
-        }
+/** One transcript line into the scan: a plan the assistant proposed, or the result that settled one. */
+function scanLine(scan: PlanScan, obj: any, place: PlanPlace): void {
+  if (!scan.resolvedCwd && obj.cwd) scan.resolvedCwd = obj.cwd
+  const content = obj.message?.content
+  if (!Array.isArray(content)) return
+  if (obj.type === 'assistant') scanProposedPlans(scan, obj.timestamp, content, place)
+  else if (obj.type === 'user') scanPlanResults(scan, content)
+}
 
-        if (obj.type === 'user') {
-          const content = obj.message?.content
-          if (!Array.isArray(content)) return
-          for (const block of content) {
-            if (block?.type !== 'tool_result') continue
-            const tid: string = block.tool_use_id || ''
-            const plan = pending.get(tid)
-            if (!plan) continue
-            const raw = block.content
-            const parsedText = stringSchema.safeParse(raw)
-            const parsedValues = valueArraySchema.safeParse(raw)
-            const text = parsedText.success
-              ? parsedText.data
-              : parsedValues.success
-                ? JSON.stringify(parsedValues.data)
-                : ''
-            const status = classifyToolResult(text, !!block.is_error)
-            if (status === 'skip') {
-              pending.delete(tid)
-              continue
-            }
-            plan.derivedStatus = status
-          }
-        }
-      } catch {}
+function scanProposedPlans(scan: PlanScan, timestamp: string | number | undefined, content: any[], place: PlanPlace): void {
+  for (const block of content) {
+    if (block?.type !== 'tool_use' || block?.name !== 'ExitPlanMode') continue
+    const planContent: string = block.input?.plan || ''
+    if (!planContent) continue
+    const id = block.id || `${place.threadId}__${timestamp || ''}`
+    if (scan.seenIds.has(id)) continue
+    scan.seenIds.add(id)
+    scan.plans.set(id, {
+      planToolUseId: id,
+      sessionId: place.threadId,
+      threadId: place.threadId,
+      projectPath: place.encodedPath,
+      cwd: resolveHomePath(scan.resolvedCwd || place.fallbackCwd),
+      timestamp: timestamp ? new Date(timestamp).getTime() : place.mtime,
+      title: extractPlanTitle(planContent),
+      excerpt: extractExcerpt(planContent),
+      content: planContent,
+      planFilePath: block.input?.planFilePath || undefined,
+      derivedStatus: 'pending',
     })
-    rl.on('close', () => resolve())
-    // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
-    rl.on('error', () => resolve())
-  })
+  }
+}
 
-  const plans = Array.from(pending.values())
-  _planFileCache.set(filePath, { mtime, plans })
-  return inSession(plans)
+function scanPlanResults(scan: PlanScan, content: any[]): void {
+  for (const block of content) {
+    if (block?.type !== 'tool_result') continue
+    const tid: string = block.tool_use_id || ''
+    const plan = scan.plans.get(tid)
+    if (!plan) continue
+    const parsedText = stringSchema.safeParse(block.content)
+    const parsedValues = valueArraySchema.safeParse(block.content)
+    const text = parsedText.success ? parsedText.data : parsedValues.success ? JSON.stringify(parsedValues.data) : ''
+    const status = classifyToolResult(text, !!block.is_error)
+    if (status === 'skip') scan.plans.delete(tid)
+    else plan.derivedStatus = status
+  }
 }
 
 function inSession(plans: ScannedPlan[]): ScannedPlan[] {

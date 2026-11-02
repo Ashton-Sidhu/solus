@@ -554,9 +554,9 @@ CREATE INDEX "resource_preferences_snoozed" ON "resource_preferences" USING btre
 CREATE INDEX "session_api_page" ON "session" USING btree ("organization_id","created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_api_provider_page" ON "session" USING btree ("organization_id","provider","created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_api_activity_page" ON "session" USING btree ("organization_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_any_page" ON "session" USING btree ("created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_by_activity" ON "session" USING btree ("last_activity_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_by_parent" ON "session" USING btree ("parent_session_id","created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_by_parent_activity" ON "session" USING btree ("parent_session_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_by_project_path" ON "session" USING btree ("project_path","last_activity_at");--> statement-breakpoint
 CREATE INDEX "session_by_place" ON "session" USING btree ("place","last_activity_at");--> statement-breakpoint
 CREATE INDEX "session_pull_requests_by_pull_request" ON "session_pull_requests" USING btree ("repository","number");--> statement-breakpoint

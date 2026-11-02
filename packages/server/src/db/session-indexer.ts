@@ -79,6 +79,8 @@ export const sessionRowSchema = z.object({
 })
 const numberRowSchema = z.object({ number: z.number() })
 const lastIdRowSchema = z.object({ last: z.number().nullable() })
+const storedMessageCountSchema = z.object({ count: z.number(), last: z.number().nullable() })
+const lastStoredMessageSchema = z.object({ uuid: z.string().nullable(), role: z.string(), ts: z.number().nullable(), text: z.string() })
 const offsetRowSchema = z.object({ last_offset: z.number() })
 const pathRowSchema = z.object({ path: z.string() })
 const storedMessageRowSchema = z.object({
@@ -242,9 +244,25 @@ export function indexSessionMessages(
 
   withTx(() => {
     const db = getDb()
-    db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
-    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
-    insertSessionMessageRows(sessionId, storedMessages)
+    // A thread's messages are append-only, so a refresh adds the ones after
+    // the stored count. The whole set is written again only when the thread
+    // shrank or its last stored message is not where the refresh has it: a
+    // forked or edited thread.
+    const first = sessionNumber(sessionId) * SESSION_ROW_SPAN
+    const stored = storedMessageCountSchema.parse(db.prepare(`
+      SELECT COUNT(*) AS count, MAX(id) AS last FROM session_messages WHERE id >= ? AND id < ?
+    `).get(first, first + SESSION_ROW_SPAN))
+    const lastStored = stored.last === null ? null : lastStoredMessageSchema.parse(
+      db.prepare('SELECT uuid, role, ts, text FROM session_messages WHERE id = ?').get(stored.last))
+    const lastRefreshed = storedMessages[stored.count - 1]
+    const appends = lastStored !== null && lastRefreshed !== undefined && lastStored.uuid === lastRefreshed.uuid
+      && lastStored.role === lastRefreshed.role && lastStored.ts === lastRefreshed.ts && lastStored.text === lastRefreshed.text
+    if (!appends && stored.count > 0) {
+      db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
+      db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
+    }
+    const added = appends ? storedMessages.slice(stored.count) : storedMessages
+    if (added.length) insertSessionMessageRows(sessionId, added)
   })
 }
 
@@ -258,7 +276,9 @@ function upsertSession(
   lastTimestamp: number,
   size: number,
 ): void {
-  getDb().prepare(`
+  // A pass over a file that did not grow writes nothing: the row and its
+  // indexes stay as they are, and no task row is told of a change.
+  const { changes } = getDb().prepare(`
     INSERT INTO transcript_index(
       session_id, provider, cwd, project_path, project_root, is_worktree,
       slug, first_message, last_timestamp, size
@@ -274,6 +294,7 @@ function upsertSession(
       first_message = excluded.first_message,
       last_timestamp = excluded.last_timestamp,
       size = excluded.size
+    WHERE transcript_index.last_timestamp IS NOT excluded.last_timestamp OR transcript_index.size IS NOT excluded.size
   `).run(
     sessionId,
     cwd,
@@ -286,7 +307,7 @@ function upsertSession(
     size,
   )
   // A task row shows this session's title and activity (docs/plans/task-snapshot-resume.md).
-  recordSessionChange(sessionId)
+  if (changes > 0) recordSessionChange(sessionId)
 }
 
 /** The collaboration plane's record of a session, fed by the same sweep that

@@ -264,13 +264,17 @@ export interface DeliveryQuery {
   outcomes?: WebhookDeliveryOutcome[]
   /** Deliveries that arrived before this time: the next page. */
   before?: number
+  /** With `before`, the id of the last delivery shown: the page goes on after it in `(arrived_at, id)` order. */
+  beforeId?: string
   limit?: number
 }
 
-/** A webhook's deliveries, newest first. */
+/** A webhook's deliveries, newest first. The cursor is the list's own order, `(arrived_at, id)`, so a page never skips a delivery that arrived in the same millisecond as the last one shown. */
 export async function listDeliveries(webhookId: string, query: DeliveryQuery = {}, db: Db = getDatabase()): Promise<WebhookDeliverySummary[]> {
   const outcomes = query.outcomes?.length ? sql`AND outcome IN (${sql.join(query.outcomes.map((outcome) => sql`${outcome}`), sql`, `)})` : sql``
-  const before = query.before === undefined ? sql`` : sql`AND arrived_at < ${query.before}`
+  const before = query.before === undefined
+    ? sql``
+    : query.beforeId === undefined ? sql`AND arrived_at < ${query.before}` : sql`AND (arrived_at, id) < (${query.before}, ${query.beforeId})`
   const limit = Math.min(Math.max(query.limit ?? 50, 1), MAX_DELIVERIES_PER_WEBHOOK)
   const rows = await db.all(sql`
     SELECT ${deliverySummaryColumns} FROM ${webhookDeliveries}

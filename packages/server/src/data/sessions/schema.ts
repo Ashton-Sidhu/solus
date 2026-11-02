@@ -76,11 +76,13 @@ export const session = defineTable('session', {
     { name: 'session_api_page', columns: ['organization_id', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
     { name: 'session_api_provider_page', columns: ['organization_id', 'provider', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
     { name: 'session_api_activity_page', columns: ['organization_id', 'last_activity_at', 'session_id'], descending: ['last_activity_at', 'session_id'] },
-    // A host owner reads every organization (`scopeClause` is `1 = 1`): the any-organization pages.
-    { name: 'session_any_page', columns: ['created_at', 'session_id'], descending: ['created_at', 'session_id'] },
+    // A host owner reads every organization (`scopeClause` is `1 = 1`): the recent sessions of the list (`listCandidates`).
     { name: 'session_by_activity', columns: ['last_activity_at', 'session_id'], descending: ['last_activity_at', 'session_id'] },
-    // The sessions one session started (`parentSessionId` filters, `readDelegatedSessions`).
+    // Every page names a parent: the top-level sessions (`parent_session_id IS NULL`) or the ones one session
+    // started (`parentSessionId` filters, `readDelegatedSessions`). One index per page order, so a page is an
+    // index walk that stops at its limit: an index on the order alone loses to this equality and sorts every row.
     { name: 'session_by_parent', columns: ['parent_session_id', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
+    { name: 'session_by_parent_activity', columns: ['parent_session_id', 'last_activity_at', 'session_id'], descending: ['last_activity_at', 'session_id'] },
     // The picker asks for one project's sessions.
     { name: 'session_by_project_path', columns: ['project_path', 'last_activity_at'] },
     // The chats of a home: the picker asks for them beside a project (unified-search.md decision 12).
