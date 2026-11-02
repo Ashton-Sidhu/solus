@@ -58,7 +58,7 @@ describe('integration store', () => {
     expect(store.get(b.id, 'org-a')).toBeNull()
     expect(store.getBySlug('deepwiki', 'org-b', 'alice')?.id).toBe(b.id)
     expect(store.list(principal.ANY_ORGANIZATION, 'alice').map((each) => each.id).sort()).toEqual([a.id, b.id].sort())
-    expect(a).toMatchObject({ organizationId: 'org-a', ownerKey: 'alice', kind: 'mcp', slug: 'deepwiki', createdBy: 'alice', auth: anonymous })
+    expect(a).toMatchObject({ organizationId: 'org-a', ownerKey: 'alice', kind: 'mcp', slug: 'deepwiki', auth: anonymous })
   })
 
   test('a second integration of one owner with a taken slug gets a numeric suffix, in that organization only', () => {

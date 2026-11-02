@@ -58,14 +58,14 @@ const nullableTimeSchema = z.union([z.null(), z.coerce.number()])
 const webhookRowSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
-  owner_key: z.string(),
+  created_by: z.string(),
   name: z.string(),
   enabled: flagSchema,
   project: z.string().nullable(),
   verification: z.string(),
   replay_key: z.string().nullable(),
   actions: z.string(),
-  created_by: z.string(),
+  author: z.string(),
   copied_url_hash: z.string().nullable(),
   lost_count: z.coerce.number(),
   lost_at: nullableTimeSchema,
@@ -77,14 +77,14 @@ function recordFromRow(row: z.infer<typeof webhookRowSchema>): WebhookRecord {
   return {
     id: row.id,
     organizationId: row.organization_id,
-    ownerKey: row.owner_key,
+    ownerKey: row.created_by,
     name: row.name,
     enabled: row.enabled,
     project: row.project,
     verification: webhookVerificationSchema.parse(JSON.parse(row.verification)),
     replayKey: row.replay_key,
     actions: z.array(webhookActionSchema).parse(JSON.parse(row.actions)),
-    createdBy: parseStoredAttribution(row.created_by) ?? hostAttribution(),
+    createdBy: parseStoredAttribution(row.author) ?? hostAttribution(),
     copiedUrlHash: row.copied_url_hash,
     lostCount: row.lost_count,
     lostAt: row.lost_at,
@@ -95,7 +95,7 @@ function recordFromRow(row: z.infer<typeof webhookRowSchema>): WebhookRecord {
 
 export async function insertWebhook(record: WebhookRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${webhooks} (id, organization_id, owner_key, name, enabled, project, verification, replay_key, actions, created_by, copied_url_hash, lost_count, lost_at, created_at, updated_at)
+    INSERT INTO ${webhooks} (id, organization_id, created_by, name, enabled, project, verification, replay_key, actions, author, copied_url_hash, lost_count, lost_at, created_at, updated_at)
     VALUES (
       ${record.id}, ${record.organizationId}, ${record.ownerKey}, ${record.name}, ${flag(db, record.enabled)}, ${record.project},
       ${JSON.stringify(record.verification)}, ${record.replayKey}, ${JSON.stringify(record.actions)}, ${attributionJson(record.createdBy)},

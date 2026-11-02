@@ -49,14 +49,14 @@ import { mentionsAsText } from '@solus/contracts/mentions'
 const log = createLogger('main', 'task-sync')
 const PUSH_DEBOUNCE_MS = 2_000
 
-const ownerRowSchema = z.object({ owner_key: z.string() })
+const ownerRowSchema = z.object({ created_by: z.string() })
 
 /** Whose credentials a task's link syncs with: its owner's (docs/plans/access-model.md §2.2). */
 async function taskOwnerKey(organizationId: string, taskId: string): Promise<string | null> {
   const row = ownerRowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT owner_key FROM ${tasks} WHERE organization_id = ${organizationId} AND id = ${taskId}
+    SELECT created_by FROM ${tasks} WHERE organization_id = ${organizationId} AND id = ${taskId}
   `))
-  return row?.owner_key || null
+  return row?.created_by || null
 }
 const POLL_INTERVAL_MS = 5 * 60_000
 

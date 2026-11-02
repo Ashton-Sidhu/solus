@@ -185,7 +185,7 @@ export async function insertWorkRow(db: Db, organizationId: string, ownerKey: st
     INSERT INTO ${works} (
       id, title, preview, type, session_id, agent_provider, cwd,
       pinned, content, created_at, updated_at, meta, organization_id,
-      content_version, content_hash, content_author, previous_revision_id, owner_key
+      content_version, content_hash, content_author, previous_revision_id, created_by
     ) VALUES (
       ${id}, ${meta.title}, ${meta.preview}, ${meta.type}, ${meta.sessionId ?? null},
       ${meta.agentProvider}, ${meta.cwd}, ${meta.pinned === undefined ? null : meta.pinned ? 1 : 0},

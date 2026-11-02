@@ -108,7 +108,7 @@ const automationRunDataSchema = z.object({
 const automationRowSchema = z.object({
   id: z.string(),
   organization_id: z.string().catch('local'),
-  owner_key: z.string(),
+  created_by: z.string(),
   name: z.string(),
   enabled: z.number(),
   favorite: z.number().nullable(),
@@ -227,7 +227,7 @@ function writeAutomation(db: DatabaseSync, automation: Automation, ownerKey = ''
   if (lastRunAt !== undefined) lastRun.lastRunAt = lastRunAt
   db.prepare(`
     INSERT INTO automations(
-      id, organization_id, owner_key, name, enabled, favorite, action, trigger_config, next_run_at,
+      id, organization_id, created_by, name, enabled, favorite, action, trigger_config, next_run_at,
       last_run, created_at, updated_at
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -368,7 +368,7 @@ const dialect = new SQLiteSyncDialect()
  * `automations`, with the values it binds.
  */
 function visibleAutomations(actor: Actor) {
-  const { sql: text, params } = dialect.sqlToQuery(visibleTo(actor, 'automation', { id: sql`id`, organization: sql`organization_id`, owner: sql`owner_key` }))
+  const { sql: text, params } = dialect.sqlToQuery(visibleTo(actor, 'automation', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` }))
   // SAFETY: the predicate binds only person keys and organization ids, which are strings.
   return { text, params: params as SQLInputValue[] }
 }
@@ -381,7 +381,7 @@ export async function listAutomations(actor: Actor): Promise<Automation[]> {
     WHERE ${visible.text}
     ORDER BY created_at DESC
   `).all(...visible.params))
-  return rows.map((row) => ({ ...automationFromRow(row), role: roleOf(actor, automationResource(row.id, { ownerKey: row.owner_key, organizationId: row.organization_id })) }))
+  return rows.map((row) => ({ ...automationFromRow(row), role: roleOf(actor, automationResource(row.id, { ownerKey: row.created_by, organizationId: row.organization_id })) }))
 }
 
 function automationResource(id: string, home: { ownerKey: string; organizationId: string }): ResourceRow {
@@ -398,10 +398,10 @@ export function withAutomationRole(actor: Actor, automation: Automation | null):
 
 /** The owner and organization of an automation, from its row; null when there is none. */
 export function automationHomeOf(id: string): { ownerKey: string; organizationId: string } | null {
-  const row = automationRowSchema.pick({ owner_key: true, organization_id: true }).nullish().parse(
-    database().prepare('SELECT owner_key, organization_id FROM automations WHERE id = ?').get(id),
+  const row = automationRowSchema.pick({ created_by: true, organization_id: true }).nullish().parse(
+    database().prepare('SELECT created_by, organization_id FROM automations WHERE id = ?').get(id),
   )
-  return row ? { ownerKey: row.owner_key, organizationId: row.organization_id } : null
+  return row ? { ownerKey: row.created_by, organizationId: row.organization_id } : null
 }
 
 export async function loadAutomation(id: string): Promise<Automation | null> {

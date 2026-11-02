@@ -39,8 +39,8 @@ export const tasks = defineTable('tasks', {
    * location keeps its id, title, and links, and nothing else. */
   location: json(),
   organization_id: ORGANIZATION,
-  /** The person the task belongs to (docs/plans/access-model.md §2.2): its creator, never empty. */
-  owner_key: text({ notNull: true }),
+  /** The user id of who made the task (plans/029 decision 2): also its owner, never empty, never changed. */
+  created_by: text({ notNull: true }),
 }, {
   indexes: [
     { name: 'tasks_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },
@@ -173,7 +173,6 @@ export const assetPublications = defineTable('asset_publications', {
 export const taskCounters = defineTable('task_counters', {
   name: text({ primaryKey: true }),
   value: integer({ notNull: true }),
-  organization_id: ORGANIZATION,
 })
 
 /**

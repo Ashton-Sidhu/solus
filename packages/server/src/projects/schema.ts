@@ -11,9 +11,8 @@ export const workspaceProjects = defineTable('workspace_projects', {
   repository_key: text({ notNull: true }),
   display_name: text({ notNull: true }),
   default_branch: text(),
-  /** The person who added it: they, or an administrator, change or remove it (docs/plans/access-model.md §2.2). */
-  owner_key: text({ notNull: true }),
-  created_by: text(),
+  /** The user id of who added it: they, or an administrator, change or remove it (docs/plans/access-model.md §2.2). */
+  created_by: text({ notNull: true }),
   created_at: bigint({ notNull: true }),
 }, {
   indexes: [

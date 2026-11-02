@@ -13,7 +13,8 @@ export interface WorkspaceProject {
   displayName: string
   /** The branch new cloud worktrees start from; null until someone sets it. */
   defaultBranch: string | null
-  createdBy: string | null
+  /** The user key of the member who added it; also its owner. */
+  createdBy: string
   createdAt: number
   /** The reader's resource role (docs/plans/access-model.md §2.7): rename and remove need `edit`, the owner's or an administrator's. */
   role: ResourceRole

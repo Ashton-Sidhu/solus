@@ -362,7 +362,7 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
       id, short_id, project_key, title, title_source, body, status,
       assignee, assignee_user_id, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
-      triaged_at, done_at, organization_id, owner_key
+      triaged_at, done_at, organization_id, created_by
     ) VALUES (
       ${id}, ${await nextShortId(db)}, ${projectKey}, ${title}, ${input.titleSource},
       ${input.body ?? ''}, ${input.status},

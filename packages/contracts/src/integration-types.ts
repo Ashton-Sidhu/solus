@@ -85,7 +85,6 @@ export const integrationSchema = z.object({
    * A host from before this field sends none.
    */
   disabledTools: z.array(z.string()).default([]),
-  createdBy: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
   /** The reader's resource role (docs/plans/access-model.md §2.7): `owner` on every one a host answers, since an integration is personal. Absent in the store. */

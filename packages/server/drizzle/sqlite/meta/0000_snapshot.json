@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ff97aacd-91fe-4ac2-865e-cacf9b9b2613",
+  "id": "6d0c1b1e-d5b9-4158-b437-4a35048e6e0e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -78,8 +78,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "granted_by_user_id": {
-          "name": "granted_by_user_id",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -210,15 +210,15 @@
           "notNull": true,
           "autoincrement": false
         },
-        "by_user_key": {
-          "name": "by_user_key",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "target_user_key": {
-          "name": "target_user_key",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -254,7 +254,7 @@
         "activity_for_user": {
           "name": "activity_for_user",
           "columns": [
-            "target_user_key",
+            "user_id",
             "at",
             "id"
           ],
@@ -904,8 +904,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "recipient_key": {
-          "name": "recipient_key",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -994,15 +994,15 @@
           "name": "notifications_event",
           "columns": [
             "organization_id",
-            "recipient_key",
+            "user_id",
             "event_id"
           ],
           "isUnique": true
         },
-        "notifications_for_recipient": {
-          "name": "notifications_for_recipient",
+        "notifications_for_user": {
+          "name": "notifications_for_user",
           "columns": [
-            "recipient_key",
+            "user_id",
             "created_at",
             "id"
           ],
@@ -1247,8 +1247,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "actor_user_id": {
-          "name": "actor_user_id",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1274,13 +1274,13 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "runner_delivery_cursors_organization_id_host_id_actor_user_id_pk": {
+        "runner_delivery_cursors_organization_id_host_id_user_id_pk": {
           "columns": [
             "organization_id",
             "host_id",
-            "actor_user_id"
+            "user_id"
           ],
-          "name": "runner_delivery_cursors_organization_id_host_id_actor_user_id_pk"
+          "name": "runner_delivery_cursors_organization_id_host_id_user_id_pk"
         }
       },
       "uniqueConstraints": {},
@@ -2270,14 +2270,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'local'"
         }
       },
       "indexes": {},
@@ -2937,8 +2929,8 @@
           "autoincrement": false,
           "default": "'local'"
         },
-        "owner_key": {
-          "name": "owner_key",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -3195,8 +3187,8 @@
           "autoincrement": false,
           "default": "'local'"
         },
-        "owner_key": {
-          "name": "owner_key",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -3245,8 +3237,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "created_by": {
-          "name": "created_by",
+        "author": {
+          "name": "author",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -3290,11 +3282,11 @@
         }
       },
       "indexes": {
-        "webhooks_by_owner": {
-          "name": "webhooks_by_owner",
+        "webhooks_by_creator": {
+          "name": "webhooks_by_creator",
           "columns": [
             "organization_id",
-            "owner_key"
+            "created_by"
           ],
           "isUnique": false
         },
@@ -3990,8 +3982,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "owner_key": {
-          "name": "owner_key",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4071,18 +4063,11 @@
           "notNull": false,
           "autoincrement": false
         },
-        "owner_key": {
-          "name": "owner_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "created_by": {
           "name": "created_by",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
@@ -4397,13 +4382,12 @@
           "autoincrement": false,
           "default": "'local'"
         },
-        "owner_key": {
-          "name": "owner_key",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "''"
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -4522,8 +4506,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "actor_user_id": {
-          "name": "actor_user_id",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4543,7 +4527,7 @@
           "name": "delivery_queue_by_destination",
           "columns": [
             "organization_id",
-            "actor_user_id",
+            "user_id",
             "seq"
           ],
           "isUnique": false
@@ -4579,8 +4563,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "owner_key": {
-          "name": "owner_key",
+        "created_by": {
+          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4629,13 +4613,6 @@
           "autoincrement": false,
           "default": "'[]'"
         },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -4656,7 +4633,7 @@
           "name": "integration_slug",
           "columns": [
             "organization_id",
-            "owner_key",
+            "created_by",
             "slug"
           ],
           "isUnique": true
@@ -4824,8 +4801,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "recipient_key": {
-          "name": "recipient_key",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -4849,13 +4826,13 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "notification_pr_observations_authority_repo_recipient_key_pk": {
+        "notification_pr_observations_authority_repo_user_id_pk": {
           "columns": [
             "authority",
             "repo",
-            "recipient_key"
+            "user_id"
           ],
-          "name": "notification_pr_observations_authority_repo_recipient_key_pk"
+          "name": "notification_pr_observations_authority_repo_user_id_pk"
         }
       },
       "uniqueConstraints": {},

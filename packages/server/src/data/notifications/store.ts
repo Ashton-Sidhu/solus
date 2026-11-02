@@ -116,7 +116,7 @@ function prKey(pr: { host: string; owner: string; repo: string; number: number }
 interface NotificationRow {
   id: string
   organization_id: string
-  recipient_key: string
+  user_id: string
   event_id: string
   activity_id: string | null
   kind: string
@@ -140,7 +140,7 @@ function rowsFor(input: NotificationInput): NotificationRow[] {
     if (!recipientKey) continue
     if (OTHER_PERSON_KINDS.has(facts.kind) && recipientKey === actor) continue
     rows.push({
-      id: ulid(createdAt), organization_id: input.organizationId, recipient_key: recipientKey, event_id: input.eventId,
+      id: ulid(createdAt), organization_id: input.organizationId, user_id: recipientKey, event_id: input.eventId,
       activity_id: input.activityId ?? null, kind: facts.kind, resource_key: resourceKeyOf(resource),
       facts: JSON.stringify(facts), resource: JSON.stringify(resource), by: attributionJson(input.by),
       summary: JSON.stringify(summary), created_at: createdAt,
@@ -157,16 +157,16 @@ export async function recordNotification(tx: Db, input: NotificationInput): Prom
   const created: NotificationRow[] = []
   for (const row of rowsFor(input)) {
     const inserted = await tx.run(sql`
-      INSERT INTO ${notifications} (id, organization_id, recipient_key, event_id, activity_id, kind, resource_key, facts, resource, by, summary, created_at)
+      INSERT INTO ${notifications} (id, organization_id, user_id, event_id, activity_id, kind, resource_key, facts, resource, by, summary, created_at)
       VALUES (
-        ${row.id}, ${row.organization_id}, ${row.recipient_key}, ${row.event_id}, ${row.activity_id}, ${row.kind},
+        ${row.id}, ${row.organization_id}, ${row.user_id}, ${row.event_id}, ${row.activity_id}, ${row.kind},
         ${row.resource_key}, ${row.facts}, ${row.resource}, ${row.by}, ${row.summary}, ${row.created_at}
       )
-      ON CONFLICT (organization_id, recipient_key, event_id) DO NOTHING
+      ON CONFLICT (organization_id, user_id, event_id) DO NOTHING
     `)
     if (inserted.changes > 0) created.push(row)
   }
-  announceNotifications(input.organizationId, created.map((row) => row.recipient_key))
+  announceNotifications(input.organizationId, created.map((row) => row.user_id))
   return created.map((row) => row.id)
 }
 
@@ -179,15 +179,15 @@ export async function recordNotification(tx: Db, input: NotificationInput): Prom
  */
 export function recordNotificationSync(sqlite: DatabaseSync, input: NotificationInput): string[] {
   const statement = sqlite.prepare(`
-    INSERT INTO notifications (id, organization_id, recipient_key, event_id, activity_id, kind, resource_key, facts, resource, by, summary, created_at)
+    INSERT INTO notifications (id, organization_id, user_id, event_id, activity_id, kind, resource_key, facts, resource, by, summary, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (organization_id, recipient_key, event_id) DO NOTHING
+    ON CONFLICT (organization_id, user_id, event_id) DO NOTHING
   `)
   const recipients: string[] = []
   for (const row of rowsFor(input)) {
-    const result = statement.run(row.id, row.organization_id, row.recipient_key, row.event_id, row.activity_id, row.kind,
+    const result = statement.run(row.id, row.organization_id, row.user_id, row.event_id, row.activity_id, row.kind,
       row.resource_key, row.facts, row.resource, row.by, row.summary, row.created_at)
-    if (Number(result.changes) > 0) recipients.push(row.recipient_key)
+    if (Number(result.changes) > 0) recipients.push(row.user_id)
   }
   return recipients
 }
@@ -198,10 +198,10 @@ export async function removeNotificationsFor(tx: Db, organizationId: string, res
 }
 
 async function removeWhere(tx: Db, organizationId: string, where: SQL): Promise<void> {
-  const recipients = z.array(z.object({ recipient_key: z.string() })).parse(await tx.all(sql`
-    DELETE FROM ${notifications} WHERE organization_id = ${organizationId} AND ${where} RETURNING recipient_key
+  const recipients = z.array(z.object({ user_id: z.string() })).parse(await tx.all(sql`
+    DELETE FROM ${notifications} WHERE organization_id = ${organizationId} AND ${where} RETURNING user_id
   `))
-  announceNotifications(organizationId, recipients.map((row) => row.recipient_key))
+  announceNotifications(organizationId, recipients.map((row) => row.user_id))
 }
 
 // ─── Reads ───
@@ -219,7 +219,7 @@ export interface NotificationReader {
 
 /** The rows `reader` may reach: `visibleTo` with the recipient as the owner. */
 function visibleRows(reader: NotificationReader): SQL {
-  return visibleTo(reader.actor, 'notification', { id: sql`id`, organization: sql`organization_id`, owner: sql`recipient_key` })
+  return visibleTo(reader.actor, 'notification', { id: sql`id`, organization: sql`organization_id`, owner: sql`user_id` })
 }
 
 const rowSchema = z.object({

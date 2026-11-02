@@ -144,7 +144,7 @@ describe('host project list (project-model §2)', () => {
 
       // A pre-fix entry leaves the list without losing the member's data.
       db.getDb().prepare('INSERT INTO projects (key, path, folder_name, added_at) VALUES (?, ?, ?, ?)').run('old-member-root', memberRoot, 'ashton-sidhu', 1)
-      db.getDb().prepare('INSERT INTO tasks (id, project_key, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('t1', 'old-member-root', 'Keep me', 1, 1)
+      db.getDb().prepare('INSERT INTO tasks (id, project_key, title, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?)').run('t1', 'old-member-root', 'Keep me', 1, 1, 'member1')
       manifest.recordProjectUse(memberRoot)
       expect(changes).toBe(0)
       expect(await manifest.listProjects()).toEqual([])
@@ -187,7 +187,7 @@ describe('host project list (project-model §2)', () => {
     const [project] = await manifest.listProjects()
     const projectData = join(dataDir, 'projects', project!.key)
     mkdirSync(projectData, { recursive: true })
-    db.getDb().prepare('INSERT INTO tasks (id, project_key, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('t1', project!.key, 'Keep me', 1, 1)
+    db.getDb().prepare('INSERT INTO tasks (id, project_key, title, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?)').run('t1', project!.key, 'Keep me', 1, 1, 'member1')
     changes = 0
 
     await manifest.untrackProject(repo)

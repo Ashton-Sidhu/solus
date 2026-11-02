@@ -16,7 +16,7 @@ export function workspaceResourceVisibility(principal: Principal, kind: ShareRes
   const actor = actorFor(principal)
   const direct = visibleTo(actor, kind, columns)
   if (kind === 'task') return direct
-  const taskVisible = visibleTo(actor, 'task', { id: sql`api_parent.id`, organization: sql`api_parent.organization_id`, owner: sql`api_parent.owner_key` })
+  const taskVisible = visibleTo(actor, 'task', { id: sql`api_parent.id`, organization: sql`api_parent.organization_id`, owner: sql`api_parent.created_by` })
   const link = kind === 'work'
     ? sql`SELECT 1 FROM ${taskLinks} AS api_link JOIN ${tasks} AS api_parent ON api_parent.id = api_link.task_id
         WHERE api_link.kind = 'work' AND api_link.target_key = ${columns.id}`
