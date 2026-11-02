@@ -1,6 +1,8 @@
-// drizzle-kit's SQLite entry: every ported table as a `sqlite-core` table.
-// drizzle-kit reads named exports only, so each table is listed by hand; a
-// ported domain adds its tables here and in `postgres.ts`.
+// drizzle-kit's SQLite entry: everything `solus.db` holds — the host tables
+// (`./host`) and every ported table as a `sqlite-core` table. drizzle-kit reads
+// named exports only, so each table is listed by hand; a ported domain adds its
+// tables here and in `postgres.ts`, a host table in `./host`.
+export * from './host'
 import * as activitySchema from '../../data/activity/schema'
 import * as folioSchema from '../../data/works/schema'
 import * as notificationsSchema from '../../data/notifications/schema'

@@ -2,7 +2,6 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { solusDir } from '../platform/paths'
-import { resolveEngine } from './engine'
 import { runSqliteSchemaMigrations } from './sqlite-migrations'
 import { assertTestDatabase } from './test-safety'
 
@@ -50,9 +49,10 @@ export function getDb(): DatabaseSync {
     openedDb.exec('PRAGMA foreign_keys = ON')
     openedDb.exec('PRAGMA busy_timeout = 5000')
     openedDb.exec('PRAGMA synchronous = NORMAL')
-    runSqliteSchemaMigrations(openedDb, 'host', 'solus.db')
-    // The generated records live in this file only when it is the engine.
-    if (resolveEngine().kind === 'sqlite') runSqliteSchemaMigrations(openedDb, 'sqlite', 'solus.db')
+    // The whole SQLite baseline, host tables and records alike. On the Postgres
+    // engine the record tables here stay empty: records are read through
+    // `getDatabase()`, which points at Postgres.
+    runSqliteSchemaMigrations(openedDb, 'sqlite', 'solus.db')
     // Without planner statistics SQLite guesses index selectivity. This is the
     // open-time form SQLite recommends for a long-lived connection: check
     // every table (0x10000), analyze one only when its statistics are absent

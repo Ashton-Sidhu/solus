@@ -51,3 +51,8 @@ END;
 CREATE TRIGGER session_transcripts_search_delete AFTER DELETE ON session_transcripts BEGIN
   INSERT INTO session_transcripts_fts(session_transcripts_fts, rowid, search_text) VALUES ('delete', old.rowid, old.search_text);
 END;
+--> statement-breakpoint
+-- The transcript search index on this host (packages/server/src/db/session-indexer.ts):
+-- a contentless FTS5 table over `session_messages`, written by the indexer beside
+-- each message row. Contentless so a delete needs only the rowid.
+CREATE VIRTUAL TABLE session_fts USING fts5(text, content='', contentless_delete=1, tokenize='unicode61');

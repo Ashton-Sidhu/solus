@@ -117,7 +117,7 @@ async function installNodeRuntime(target: Target, staging: string): Promise<void
 /** The schema fingerprint of a release: the generated baselines of every schema (docs/database-schema.md). */
 function storageHash(): string {
   const hash = createHash('sha256').update(String(SERVER_STORAGE_EPOCH))
-  for (const schema of ['host', 'sqlite', 'postgres', 'metrics']) {
+  for (const schema of ['sqlite', 'postgres', 'metrics']) {
     const folder = join(repoRoot, 'packages', 'server', 'drizzle', schema)
     for (const file of readdirSync(folder).filter((name) => name.endsWith('.sql')).sort()) hash.update(readFileSync(join(folder, file)))
   }

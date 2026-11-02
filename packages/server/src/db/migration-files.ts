@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** The four generated schemas: the host tables and the metrics file (SQLite on
- *  every machine), and the ported records on either engine. */
-export type MigrationSchema = 'host' | 'sqlite' | 'postgres' | 'metrics'
+/** The three databases, one generated baseline each: `solus.db`, the Postgres
+ *  records database, and `metrics.db` (docs/database-schema.md). */
+export type MigrationSchema = 'sqlite' | 'postgres' | 'metrics'
 
 /**
  * Where the generated Drizzle baseline of one schema lives at runtime.

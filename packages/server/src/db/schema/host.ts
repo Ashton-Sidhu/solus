@@ -1,6 +1,7 @@
-// drizzle-kit's entry for the host tables of `solus.db`: every host table as a
-// `sqlite-core` table. drizzle-kit reads named exports only, so each table is
-// listed by hand; a new host table is added here and in `../host-tables.ts`.
+// The host tables of `solus.db` as `sqlite-core` tables, re-exported by
+// `./sqlite.ts` (drizzle-kit's SQLite entry). drizzle-kit reads named exports
+// only, so each table is listed by hand; a new host table is added here and in
+// `../host-tables.ts`.
 import * as host from '../host-tables'
 
 export const sessions = host.sessions.sqlite

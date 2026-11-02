@@ -3,26 +3,24 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { migrationsFolder, type MigrationSchema } from './migration-files'
 
 /**
- * Apply one schema's generated SQLite migrations to an open connection,
+ * Apply a database's generated SQLite baseline to an open connection,
  * synchronously.
  *
  * This is the rule of `drizzle-orm/sqlite-proxy/migrator` — one bookkeeping
  * row per applied file, a file is due when it is newer than the last row — run
  * inline so the file is fully migrated the moment `getDb()` returns, and a
- * synchronous caller never sees half a schema. The host tables and the ported
- * records share `solus.db`, so each schema keeps its own bookkeeping table.
+ * synchronous caller never sees half a schema.
  *
- * There is no migration history: every schema is one generated baseline
+ * There is no migration history: every database is one generated baseline
  * (docs/database-schema.md). A file whose applied rows this folder does not
  * know was made by another version of the schema and cannot be opened; the
  * error names the file to delete.
  */
 export function runSqliteSchemaMigrations(db: DatabaseSync, schema: MigrationSchema, fileName: string): void {
   const migrations = readMigrationFiles({ migrationsFolder: migrationsFolder(schema) })
-  const table = schema === 'sqlite' ? '__drizzle_migrations' : `__drizzle_migrations_${schema}`
-  db.exec(`CREATE TABLE IF NOT EXISTS "${table}" (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC)`)
+  db.exec('CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC)')
   // SAFETY: the statement selects the two columns of the table created above.
-  const applied = db.prepare(`SELECT hash, created_at FROM "${table}" ORDER BY created_at`).all() as
+  const applied = db.prepare('SELECT hash, created_at FROM "__drizzle_migrations" ORDER BY created_at').all() as
     Array<{ hash: string; created_at: number | string }>
   const known = new Set(migrations.map((migration) => migration.hash))
   // SAFETY: the pragma always returns one row with this integer column.
@@ -45,7 +43,7 @@ export function runSqliteSchemaMigrations(db: DatabaseSync, schema: MigrationSch
       db.exec('BEGIN IMMEDIATE')
       try {
         for (const statement of migration.sql) db.exec(statement)
-        db.prepare(`INSERT INTO "${table}" (hash, created_at) VALUES (?, ?)`).run(migration.hash, migration.folderMillis)
+        db.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(migration.hash, migration.folderMillis)
         db.exec('COMMIT')
       } catch (error) {
         db.exec('ROLLBACK')

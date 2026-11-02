@@ -1,18 +1,21 @@
 # Database schema and baselines
 
-Solus keeps its data in four schemas. Each one is a single generated baseline
-with no migration history (plans/029-fresh-database-baseline.md, decision 1).
+Solus keeps its data in three databases. Each one is a single generated
+baseline, `0000_baseline.sql`, with no migration history
+(plans/029-fresh-database-baseline.md, decision 1).
 A database made by another version of the schema cannot be opened: Solus stops
 with a message that names the file to delete, and the file is recreated empty.
 
-## The four schemas
+## The three databases
 
-| Schema | File | Declared in | drizzle-kit entry | Generated into |
+| Database | Holds | Declared in | drizzle-kit entry | Baseline |
 |---|---|---|---|---|
-| Host tables | `solus.db` | `packages/server/src/db/host-tables.ts` | `db/schema/host.ts` | `packages/server/drizzle/host/` |
-| Ported records, SQLite | `solus.db` when SQLite is the engine | `defineTable` in each domain's `schema.ts` | `db/schema/sqlite.ts` | `packages/server/drizzle/sqlite/` |
-| Ported records, Postgres | the `DATABASE_URL` database | the same `defineTable` declarations | `db/schema/postgres.ts` | `packages/server/drizzle/postgres/` |
-| Metrics | `metrics.db` | `packages/server/src/data/insights/metrics-schema.ts` | `db/schema/metrics.ts` | `packages/server/drizzle/metrics/` |
+| `solus.db` (SQLite, every host) | the host tables, and the ported records when SQLite is the engine | host tables in `packages/server/src/db/host-tables.ts`; records in each domain's `schema.ts` | `db/schema/sqlite.ts` (re-exports `db/schema/host.ts`) | `packages/server/drizzle/sqlite/0000_baseline.sql` |
+| Postgres (`DATABASE_URL`) | the ported records when Postgres is the engine | the same `defineTable` declarations | `db/schema/postgres.ts` | `packages/server/drizzle/postgres/0000_baseline.sql` |
+| `metrics.db` (SQLite, every host) | this host's spans and log events | `packages/server/src/data/insights/metrics-schema.ts` | `db/schema/metrics.ts` | `packages/server/drizzle/metrics/0000_baseline.sql` |
+
+On the Postgres engine `solus.db` still carries the record tables, empty:
+records are read through `getDatabase()`, which points at Postgres.
 
 - **Host tables** exist on every machine, whatever its records engine: the
   index of the transcripts on the machine's own disk (`sessions`,
@@ -35,13 +38,10 @@ record, and on the Postgres engine it lives in Postgres. Plan 029 §4 narrows
 ## How a baseline is applied
 
 `runSqliteSchemaMigrations(db, schema, fileName)` (`db/sqlite-migrations.ts`)
-applies one schema's folder to an open SQLite connection, synchronously, the
-moment the file is opened: the host schema and, when SQLite is the engine, the
-ported schema on `solus.db`; the metrics schema on `metrics.db`. Each schema
-keeps its own bookkeeping table (`__drizzle_migrations` for the ported records,
-`__drizzle_migrations_<schema>` for the others), because the host and ported
-schemas share one file. Postgres uses Drizzle's own migrator on the `postgres`
-folder (`db/database.ts`).
+applies a database's folder to an open SQLite connection, synchronously, the
+moment the file is opened: `sqlite` on `solus.db`, `metrics` on `metrics.db`.
+Each file keeps one bookkeeping table, `__drizzle_migrations`. Postgres uses
+Drizzle's own migrator on the `postgres` folder (`db/database.ts`).
 
 A file is refused when its `user_version` is not zero (a file from before the
 baselines, which numbered its hand-written slots there) or when its
@@ -51,11 +51,11 @@ bookkeeping table holds a hash this folder does not know.
 
 1. Change the declaration: a domain's `schema.ts`, `db/host-tables.ts`, or
    `data/insights/metrics-schema.ts`. A new table is also exported from the
-   schema's drizzle-kit entry module (drizzle-kit reads named exports only).
-2. Run `bun run db:generate`. The script empties every `drizzle/<schema>`
+   database's drizzle-kit entry module (drizzle-kit reads named exports only).
+2. Run `bun run db:generate`. The script empties every `drizzle/<database>`
    folder, lets drizzle-kit write `0000_baseline` from the entry module, and
-   appends that schema's hand-written SQL from
-   `packages/server/src/db/schema/custom/<schema>.sql`.
+   appends that database's hand-written SQL from
+   `packages/server/src/db/schema/custom/<database>.sql`.
 3. Review the generated SQL. For the ported records, review both engines.
 
 Hand-written SQL is for what `defineTable` cannot say: FTS5 virtual tables and

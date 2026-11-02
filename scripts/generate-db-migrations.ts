@@ -1,8 +1,8 @@
-// Generate the one baseline migration of every schema (docs/database-schema.md):
+// Generate the one baseline migration of every database (docs/database-schema.md):
 // `bun run db:generate`.
 //
 // There is no migration history. Each run empties the folder, lets drizzle-kit
-// write `0000_baseline` from the schema module, and appends that schema's
+// write `0000_baseline` from the schema module, and appends that database's
 // hand-written SQL (FTS tables, triggers, tsvector columns) from
 // packages/server/src/db/schema/custom/<schema>.sql.
 import { spawnSync } from 'node:child_process'
@@ -10,7 +10,7 @@ import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'n
 import { join, resolve } from 'node:path'
 
 const serverDir = resolve(import.meta.dir, '..', 'packages', 'server')
-const SCHEMAS = ['host', 'sqlite', 'postgres', 'metrics'] as const
+const SCHEMAS = ['sqlite', 'postgres', 'metrics'] as const
 
 for (const schema of SCHEMAS) {
   const out = join(serverDir, 'drizzle', schema)
