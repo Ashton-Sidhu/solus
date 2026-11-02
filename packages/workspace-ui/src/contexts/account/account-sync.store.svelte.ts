@@ -50,7 +50,7 @@ export function accountSettingsRequests(): SettingsCloudRequests | null {
   // The desktop preload bridge has the account methods; a browser has no bridge.
   if (localApi.accountSettingsGet !== undefined) return localApi
   const account = cloudAccount()
-  return account ? webSettingsRequests(account.consoleUrl, account.session) : null
+  return account ? webSettingsRequests(account.consoleUrl, account.session, fetch, () => account.takeShellSettings()) : null
 }
 
 export function accountAgentProfileRequests(): AgentProfileCloudRequests | null {

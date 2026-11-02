@@ -1,15 +1,14 @@
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
-import type { UplinkDirectory } from '@solus/contracts/uplink'
-import { configureCloudAccount, oauthCloudAccount, type CloudAccountSession } from './cloud-account'
+import type { AccountResponse, DirectoryResponse, UplinkDirectory } from '@solus/contracts/uplink'
+import { configureCloudAccount, webCloudAccount, type CloudAccountSession } from './cloud-account'
 import type { AccountState } from '@solus/contracts/account-types'
-import { isSignedOutState, oauthUplinkAccountSource, type UplinkAccountSource } from './uplink-session'
-import { webAccountSession } from './web-sign-in'
+import { isSignedOutState, webUplinkAccountSource, type UplinkAccountSource } from './uplink-session'
 
 /**
  * The one account source this page has, resolved once (decision U9): the native
- * bridge on desktop, the page's own sign-in on the cloud-served web client, nothing
- * anywhere else. `configureUplinkAccountSource` lets the web boot path record the
- * account origin before any host is dialed.
+ * bridge on desktop, the page's `WebTokenSession` on the cloud-served web client,
+ * nothing anywhere else. `configureUplinkAccountSource` lets the web boot path record
+ * the account origin before any host is dialed.
  */
 
 let configuredSource: UplinkAccountSource | null | undefined
@@ -54,37 +53,36 @@ export function uplinkAccountSource(): UplinkAccountSource | null {
   return configuredSource
 }
 
-/**
- * The account source while the page's sign-in is still completing (docs/plans/
- * instant-share-open.md §4.14): a host dialed from the shell's directory opens its
- * socket now, and its token waits for the sign-in. A page that does not sign in
- * gets no token, so its dials are refused as for any signed-out page.
- */
-export function awaitingSignIn(source: UplinkAccountSource, signedIn: Promise<boolean>): UplinkAccountSource {
-  return {
-    ...source,
-    accessToken: async (resource, options) => ((await signedIn) ? source.accessToken(resource, options) : null),
-  }
-}
-
 export interface AccountOriginAdoption {
   kind: 'signed-in' | 'signed-out'
   /** The directory when signed in and the account origin answered. */
   directory: UplinkDirectory | null
 }
 
+/** What the account origin's shell carried for the first screen; each part is absent when its read failed. */
+export interface ShellStartup {
+  directory?: DirectoryResponse
+  account?: AccountResponse
+  /** The settings as JSON text, decoded at their first read (`takeShellSettings`). */
+  settingsJson?: string
+}
+
 /**
  * Web boot on the account origin, which its shell names (`accountOriginShell` in the
- * web client; docs/plans/instant-share-open.md): the origin becomes the account
- * source. The page's sign-in (`web-sign-in.ts`) is already resumed; signed in, the
- * directory is read once here, with an account-plane access token.
+ * web client; docs/plans/web-session-tokens.md, decision 4): the origin becomes the
+ * account source at once, so hosts dial now and their tokens come with the first token
+ * answer. The first screen's directory, account, and settings are the shell's, read
+ * here once with no request; a part the shell did not carry is read from its account
+ * route. A page with no session (a guest on a share link) is signed out.
  */
-export async function adoptAccountOrigin(origin: string, accountSession?: CloudAccountSession): Promise<AccountOriginAdoption> {
-  const session = accountSession ?? webAccountSession(origin)
-  const source = oauthUplinkAccountSource(origin, session)
+export async function adoptAccountOrigin(origin: string, session: CloudAccountSession | null, shell: ShellStartup = {}): Promise<AccountOriginAdoption> {
+  if (!session) {
+    configureUplinkAccountSource(null)
+    return { kind: 'signed-out', directory: null }
+  }
+  const source = webUplinkAccountSource(origin, session)
   configureUplinkAccountSource(source)
-  if (session.state().kind !== 'signed-in') return { kind: 'signed-out', directory: null }
-  configureCloudAccount(oauthCloudAccount(origin, session))
-  startupDirectory = source.listDirectory()
+  configureCloudAccount(webCloudAccount(origin, session, fetch, shell.settingsJson), shell.account)
+  startupDirectory = shell.directory ? Promise.resolve({ directoryUrl: origin, ...shell.directory }) : source.listDirectory()
   return { kind: 'signed-in', directory: await startupDirectory }
 }

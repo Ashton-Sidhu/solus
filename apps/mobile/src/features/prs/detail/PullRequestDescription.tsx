@@ -40,7 +40,7 @@ export function PullRequestDescription(props: { readonly markdown: string; reado
             <View style={{ height: expanded ? bodyHeight : Math.min(bodyHeight, COLLAPSED_HEIGHT), overflow: 'hidden' }}>
               {/* The full body is measured apart from the cut view. */}
               <View style={{ position: 'absolute', top: 0, left: 0, right: 0 }} onLayout={(event) => setBodyHeight(event.nativeEvent.layout.height)}>
-                <PullRequestMarkdown markdown={props.markdown} />
+                <PullRequestMarkdown markdown={props.markdown} lineBreaks />
               </View>
             </View>
             {collapsed ? (

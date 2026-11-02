@@ -156,7 +156,7 @@ async function measureRedial(routes: HostRoute[]): Promise<Sample> {
   link.start()
   await transport.invoke('connectionsGetServerInfo', [])
   // A network change: the standing socket is gone and the link redials now.
-  ;(transport as unknown as { socket: { disconnect(): void } }).socket.disconnect()
+  ;(transport as unknown as { socket: { ws: WebSocket } | null }).socket?.ws.close()
   const started = performance.now()
   const firstRpc = transport.invoke('connectionsGetServerInfo', [])
   link.dialNow()

@@ -64,6 +64,8 @@ export const restartRunSchema = z.object({
   clientPromptId: z.string().optional(),
   prompt: z.string(),
   backgroundTools: z.array(z.object({ toolId: z.string(), name: z.string() })).max(32),
+  /** More tools started than `backgroundTools` holds, so the list is incomplete. */
+  moreToolsRunning: z.boolean().optional(),
 })
 export type RestartRun = z.infer<typeof restartRunSchema>
 

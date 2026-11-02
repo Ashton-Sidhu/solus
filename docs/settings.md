@@ -104,8 +104,8 @@ the synced preset on that device, and "Use synced font" removes it.
 - Engine: `packages/client-core/src/document-sync.ts`, bound to settings by
   `settings-sync.ts`. One account sync owner per client holds this engine and the agent
   profile's: `contexts/account/account-sync.store.svelte.ts` on desktop and web,
-  `features/account/account-sync.ts` on mobile. The web client calls the account API with an access token from its own
-  sign-in (`web-sign-in.ts`), not with the website's cookie. Desktop calls the account
+  `features/account/account-sync.ts` on mobile. The web client calls the account API with an access token from
+  `POST /api/web/tokens` (`web-token-session.ts`), not with the website's cookie. Desktop calls the account
   API from the main process, so the credential never reaches the renderer. Mobile calls
   it with an access token from its own sign-in, got for each call
   (docs/adr/0001-standard-authentication.md).

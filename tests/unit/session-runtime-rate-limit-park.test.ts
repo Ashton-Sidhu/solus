@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import { FIVE_HOUR_WINDOW_MINS } from '@solus/contracts/types'
 import type { AgentId, AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 
@@ -70,13 +70,14 @@ class Backend extends EventEmitter implements AgentBackend {
     return new Promise((resolve) => { this.startWaiters.push(resolve) })
   }
 
-  startRun(request: AgentRunRequest): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     this.requests.push(request)
     const threadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? `thread-${this.starts + 1}`
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
       agentSessionId: (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? null,
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -166,6 +167,8 @@ async function park(
   rateLimitBehavior: 'ask' | 'queue' = 'ask',
   promptSource: 'typed' | 'agent' | 'automation' = 'typed',
   otherProvider?: Backend,
+  /** Runs while the first turn is live, before the limit stops it. */
+  duringTurn?: (plane: InstanceType<SessionRuntimeModule['SessionRuntime']>) => Promise<void>,
 ): Promise<Parked> {
   const backend = new Backend()
   const backends = new Map<AgentId, AgentBackend>([['codex', backend]])
@@ -184,6 +187,7 @@ async function park(
   lifecycle.done.catch(() => {})
   await lifecycle.agentSessionId
   await Promise.resolve()
+  await duringTurn?.(plane)
 
   const resetsAt = resetsInMs === null ? null : Date.now() + resetsInMs
   backend.reportWindow('thread-1', resetsAt)
@@ -546,6 +550,30 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       plane.shutdown()
       // The suite shares one session id and database; later tests expect its codex-only lineage.
       db.getDb().prepare('DELETE FROM session_lineage_members WHERE session_id = ?').run(SESSION_ID)
+    }
+  })
+
+  test('on release the prompt the limit stopped runs before a follow-up queued during its turn', async () => {
+    // WHY: the follow-up was written after the limited prompt and may build on
+    // its answer. The re-queued prompt used to go to the end of the queue, so
+    // the release sent the follow-up first.
+    const { backend, plane, settleRelease } = await park(1, 'queue', 'typed', undefined, async (running) => {
+      const followUp = await running.runTurn({
+        target: { kind: 'session', sessionId: SESSION_ID }, sessionId: SESSION_ID, tools: [],
+        input: { ...input('queue'), agentSessionId: 'thread-1' },
+        options: { prompt: 'then test it', promptSource: 'typed' },
+      })
+      followUp.done.catch(() => {})
+      expect(followUp.disposition).toBe('queued')
+    })
+    try {
+      expect(plane.scheduler.queuedPromptsForSession(SESSION_ID).map((entry) => entry.text)).toEqual(['ship it', 'then test it'])
+      const dispatched = backend.nextStart()
+      await settleRelease()
+      await dispatched
+      expect(backend.requests.map((request) => request.prompt)).toEqual(['ship it', 'ship it'])
+    } finally {
+      plane.shutdown()
     }
   })
 

@@ -323,7 +323,7 @@ export const KIND_REGISTRY = {
     description: 'one browser page load, from navigation to the guest reporting it ready',
     fields: [
       ...withGroup('dimension', [
-        attr('url', 'url', 'string', 'Address the browser page loaded'),
+        attr('url', 'url', 'string', 'Address the browser page loaded, without its query or fragment'),
         attr('viewport', 'viewport', 'string', 'The emulated viewport, e.g. "iPhone 15 — 393×852"'),
         attr('preset', 'preset', 'string', 'Device preset id when the viewport is a named device'),
         attr('branch', 'branch', 'string', 'Branch of the worktree serving the page, when the scan knew one'),
@@ -349,7 +349,7 @@ export const KIND_REGISTRY = {
         attr('console_error_count', 'consoleErrorCount', 'number', 'Console errors the page had accumulated at capture time'),
       ]),
       ...withGroup('dimension', [
-        attr('url', 'url', 'string', 'Address that was captured'),
+        attr('url', 'url', 'string', 'Address that was captured, without its query or fragment'),
         attr('viewport', 'viewport', 'string', 'The emulated viewport the capture was taken at'),
         attr('preset', 'preset', 'string', 'Device preset id when the viewport is a named device'),
         attr('branch', 'branch', 'string', 'Branch of the worktree serving the page, when the scan knew one'),

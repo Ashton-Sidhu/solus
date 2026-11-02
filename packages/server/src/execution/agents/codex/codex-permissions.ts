@@ -3,6 +3,7 @@ import { CodexAppServerClient } from './codex-agent'
 import type { CodexPendingServerRequest } from './codex-event-normalizer'
 import type { PermissionResponder } from '../agent-backend'
 import type { PermissionOption, QuestionItem } from '@solus/contracts/types'
+import type { ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 import type {
   GrantedPermissionProfile,
   McpServerElicitationRequestResponse,
@@ -490,6 +491,21 @@ export function mcpElicitationResponse(params: any, answers: Record<string, stri
     return [[key, coerceMcpValue(rawValue, properties[key])]]
   }))
 
+  return { action: 'accept', content }
+}
+
+/** One value of an accepted elicitation form, as the MCP SDK takes it. */
+const elicitValueSchema = z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
+
+/** The Codex answer shape as the MCP SDK's: no null content, only the value kinds a form may hold. */
+export function mcpElicitResult(response: ElicitationResponse): ElicitResult {
+  const fields = z.record(z.string(), z.json()).safeParse(response.content)
+  if (response.action !== 'accept' || !fields.success) return { action: response.action }
+  const content: NonNullable<ElicitResult['content']> = {}
+  for (const [name, value] of Object.entries(fields.data)) {
+    const parsed = elicitValueSchema.safeParse(value)
+    if (parsed.success) content[name] = parsed.data
+  }
   return { action: 'accept', content }
 }
 

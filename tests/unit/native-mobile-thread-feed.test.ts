@@ -110,11 +110,40 @@ describe('native work log wording', () => {
     expect(toolActivitySummary({ toolName: 'Read', input: '{"file_path":"/repo/src/app.ts"}', status: 'completed' })).toBe('Read app.ts')
   })
 
+  // WHY: one batch call links a whole stack. Its row must say how many, not
+  // repeat the tool name, and a one-target call stays as it was.
+  test('a batch link or unlink call reads as its pull requests', () => {
+    const urls = [1, 2, 3, 4, 5, 6].map((number) => `https://github.com/acme/app/pull/${number}`)
+    const link = { toolName: 'mcp__solus__link', input: JSON.stringify({ kind: 'pr', target_ids: urls }), status: 'running' as const }
+    expect(toolActivitySummary(link)).toBe('Linking 6 pull requests')
+    expect(summarizeToolGroup([{ ...link, status: 'completed' }])).toBe('Linked 6 pull requests')
+    expect(toolActivitySummary({ toolName: 'unlink', input: '{"kind":"pr","states":["closed","merged"]}', status: 'completed' })).toBe('Unlinked closed and merged pull requests')
+    expect(toolActivitySummary({ toolName: 'link', input: JSON.stringify({ kind: 'pr', target_id: urls[0] }), status: 'completed' })).toBe('link')
+  })
+
   test('a row shows the command or file; its detail adds the error', () => {
     expect(toolRowLabel({ toolName: 'exec_command', input: '{"cmd":["bash","-lc","git status --short"]}' })).toBe('git status --short')
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/src/app.ts"}' })).toBe('app.ts')
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/src/app.ts"}' }, true)).toBe('/repo/src/app.ts')
     expect(toolFullDetail({ input: '{"command":"bun test"}', errorHead: 'exit 1' })).toBe('bun test\n\nexit 1')
     expect(toolFullDetail({ input: null, errorHead: null })).toBeNull()
+  })
+})
+
+// Back-to-back prompts on the phone read as one burst, as on desktop: the
+// first drops its gap. A reply between them, or a host wake, keeps them apart.
+describe('native thread feed bursts', () => {
+  const grouped = (rows: ThreadFeedRow[]) =>
+    rows.flatMap((row) => row.type === 'message' && row.role === 'user' ? [`${row.id}:${row.groupedWithNext === true}`] : [])
+
+  test('consecutive prompts group; a reply ends the burst', () => {
+    expect(grouped(present([user('u1'), user('u2'), user('u3'), assistant('a1'), user('u4')]))).toEqual([
+      'u1:true', 'u2:true', 'u3:false', 'u4:false',
+    ])
+  })
+
+  test('a host wake drawn as a notice row never joins a burst', () => {
+    const wake: FeedSourceEntry = { id: 'w1', kind: 'user', hostNotice: true }
+    expect(grouped(present([user('u1'), wake, user('u2')]))).toEqual(['u1:false', 'w1:false', 'u2:false'])
   })
 })

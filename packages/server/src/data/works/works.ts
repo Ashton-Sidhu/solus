@@ -349,7 +349,7 @@ export async function importWorkFromHost(organizationId: string, transfer: WorkT
     }
     await insertWorkRow(db, organizationId, ownerKey, work.id, imported, imported, previousRevisionId)
     // Membership travels with the work: the same edges here make a retried upload fingerprint the same.
-    for (const sessionId of imported.sessionIds) await insertOriginMembership(db, organizationId, work.id, sessionId, ownerKey, null, epochMs(work.createdAt))
+    for (const sessionId of imported.sessionIds ?? []) await insertOriginMembership(db, organizationId, work.id, sessionId, ownerKey, null, epochMs(work.createdAt))
     for (const revision of revisions) await copyRevision(db, organizationId, revision)
     if (annotations) await importWorkAnnotations(db, organizationId, work.id, annotations)
     emitWorkChanged({ workId: work.id, version: work.updatedAt, contentVersion: work.contentVersion })

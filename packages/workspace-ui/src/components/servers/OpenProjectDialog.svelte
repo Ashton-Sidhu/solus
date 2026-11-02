@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { fade, fly, slide } from "svelte/transition";
   import { expoOut } from "svelte/easing";
   import {
@@ -319,6 +320,9 @@
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   });
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => store.isOpen && store.step !== "browse" });
 </script>
 
 {#if store.isOpen && store.step !== "browse" && layer.el}

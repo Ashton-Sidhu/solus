@@ -5,7 +5,7 @@ import { drizzle as drizzlePostgres, type PostgresJsDatabase } from 'drizzle-orm
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
 import { drizzle as drizzleSqliteProxy, type SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy'
 import postgres from 'postgres'
-import { getDb, withAsyncTx } from '.'
+import { closeDbForShutdown, getDb, withAsyncTx } from '.'
 import { resolveEngine, type DatabaseEngine } from './engine'
 import { migrationsFolder } from './migration-files'
 import { assertTestDatabase } from './test-safety'
@@ -285,10 +285,12 @@ async function migrateWithoutLimits(url: string): Promise<void> {
 // --- The singleton ----------------------------------------------------------
 
 let database: RootDb | null = null
+let isClosedForShutdown = false
 
 /** The process's database, opened on first use for the engine `resolveEngine()` chose. */
 export function getDatabase(): Db {
   if (database) return database
+  if (isClosedForShutdown) throw new Error('The database is closed because the host shut down')
   const engine = resolveEngine()
   assertTestDatabase(engine)
   database = engine.kind === 'postgres' ? new PostgresDb(engine.url) : new SqliteDb()
@@ -300,4 +302,12 @@ export async function closeDatabase(): Promise<void> {
   const open = database
   database = null
   await open.close()
+}
+
+/** Close both connections for good when the host shuts down. A writer that
+ *  runs later (a provider event in flight) fails instead of reopening them. */
+export async function closeDatabaseForShutdown(): Promise<void> {
+  isClosedForShutdown = true
+  await closeDatabase()
+  closeDbForShutdown()
 }

@@ -34,8 +34,7 @@
   } from "@solus/workspace-ui/contexts";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
-  import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
-  import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+  import { followDeviceRequests } from "@solus/workspace-ui/contexts/devices/device-feature";
   import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
@@ -274,8 +273,8 @@
       browserStore.onRecordingSaved = (serverId, result) =>
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
-      devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
-      const unsubDevices = devicesStore.subscribe();
+      // Devices load on first use; their first event loads them (device-feature.ts).
+      const unsubDevices = followDeviceRequests(session);
       return () => {
         unsubSessionStatuses();
         unsubProjectDirectory();
@@ -417,6 +416,10 @@
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
     },
   );
+  // The browser binds the same keys to its own history; the binding claims
+  // them so a press navigates once, and the router follows the browser.
+  useKeybinding("global.history-back", () => void session.router.back());
+  useKeybinding("global.history-forward", () => void session.router.forward());
   // In the companion pane the tab keys move between its surfaces.
   useKeybinding("global.next-tab", () => {
     if (session.moveBetweenSurfaces(1)) return;

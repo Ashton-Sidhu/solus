@@ -75,7 +75,7 @@ export const workspaceCapabilitiesSchema = z.strictObject({
   mode: z.enum(['combined-host', 'solus-api']),
   apiVersion: z.string().max(32),
   capabilities: z.array(z.enum(['tasks', 'works', 'session-records', 'insights', 'notifications'])).max(5).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
-  events: z.strictObject({ transport: z.literal('socket.io'), relativePath: z.literal('/ws'), protocolVersion: z.number().int().min(1) }),
+  events: z.strictObject({ transport: z.literal('websocket'), relativePath: z.literal('/ws'), protocolVersion: z.number().int().min(1) }),
 }).meta({ description: 'Features supported by this deployment, not permission grants. Insights currently requires organization context. HTTP works without a connected event socket.' })
 export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
 
@@ -461,6 +461,8 @@ export const workspaceSessionSchema = z.strictObject({
   grantedAt: z.number().int().min(0).optional(),
   /** The pull requests the session works on. */
   pullRequests: z.array(workspaceSessionPullRequestSchema).max(500),
+  /** A question that does not block the turn waits for the person: the session needs input whatever its status. Absent when none waits, and on the workspace service. */
+  hasPendingQuestion: z.literal(true).optional(),
 }).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerKey: 'user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, place: 'project', startedBy: { kind: 'person', personKey: 'user_example' }, state: null, view: null, listed: true, pullRequests: [] }] })
 export type WorkspaceSession = z.infer<typeof workspaceSessionSchema>
 

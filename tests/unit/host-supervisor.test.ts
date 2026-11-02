@@ -42,7 +42,7 @@ function harness() {
 }
 
 describe('host supervisor', () => {
-  test('the ladder is the old socket.io curve: doubling, capped, jittered', () => {
+  test('the ladder doubles, is capped, and is jittered', () => {
     // WHY: retry pacing must not change out from under users when ownership moves.
     expect(ladderDelayMs(1, () => 0.5)).toBe(1_000)
     expect(ladderDelayMs(2, () => 0.5)).toBe(2_000)

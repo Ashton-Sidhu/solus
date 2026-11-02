@@ -36,6 +36,7 @@ function setup() {
     activeRunRequests: new Map(),
     missingRunCounts: new Map(),
     turnLog: new Map(),
+    turnStops: new Map(),
     launcher: { pendingStarts: new Map() },
     orchestration: undefined,
     isShuttingDown: false,

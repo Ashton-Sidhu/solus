@@ -680,7 +680,11 @@ export class SessionRuntime extends EventEmitter {
 
     // The turn's open phase says what its work is: the launch, a setup, the
     // provider run, or the background work the run left (docs/plans/turn-stop.md).
-    if (this.turnStops.get(sessionId)?.stop()) {
+    const turn = this.turnStops.get(sessionId)
+    // A second Stop on the same turn force stops it; the turn was already recorded as stopped.
+    const isRepeatedStop = !!turn?.signal.aborted
+    if (turn?.stop()) {
+      if (isRepeatedStop) return true
       this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
       stopped()
       return true
@@ -690,6 +694,14 @@ export class SessionRuntime extends EventEmitter {
     // the sessions it sent work to stops waiting.
     if (this.orchestration?.cancelSentBy(sessionId)) {
       stopped()
+      return true
+    }
+
+    // A session parked on a rate limit has no run, only a prompt held for the
+    // reset. Stop releases nothing at the reset.
+    if (this.activeSessions.get(sessionId)?.status === 'rate_limited') {
+      if (actor.user || agent) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' }, undefined, agent)
+      this.rateLimitPark.stopParked(sessionId)
       return true
     }
 

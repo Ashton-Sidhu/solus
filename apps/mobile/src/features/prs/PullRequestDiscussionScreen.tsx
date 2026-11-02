@@ -97,7 +97,7 @@ export function PullRequestDiscussionScreen({ navigation, route }: ScreenProps<'
                 <Text className="min-w-0 flex-1 text-sm font-t3-medium" numberOfLines={1}>{comment.author}</Text>
                 <Text className="text-2xs text-foreground-muted">{prAge(comment.createdAt, now)}</Text>
               </View>
-              <PullRequestMarkdown markdown={comment.body} />
+              <PullRequestMarkdown markdown={comment.body} lineBreaks />
             </View>
           ))}
           {error ? <Text selectable className="py-4 text-sm text-danger-foreground">{error}</Text> : null}

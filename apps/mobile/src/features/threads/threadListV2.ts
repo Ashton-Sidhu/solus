@@ -51,9 +51,14 @@ export function threadTitle(record: Pick<SessionRecord, "customTitle" | "title" 
  * record.
  */
 export function resolveThreadListV2Status(
-  record: Pick<SessionRecord, "status">,
+  record: Pick<SessionRecord, "status" | "hasPendingQuestion">,
   liveStatus: SessionStatus | undefined,
+  // A live status carries its own question fact; with none, the record's answers.
+  hasPendingQuestion = liveStatus === undefined && record.hasPendingQuestion === true,
 ): ThreadListV2Status {
+  // A question that does not block the turn still waits on the person,
+  // whether the run still works or has finished. A plan to approve says more.
+  if (hasPendingQuestion && liveStatus !== "awaiting_plan") return "input";
   switch (liveStatus) {
     case "awaiting_plan":
       return "approval";
@@ -498,6 +503,8 @@ export interface ThreadListV2Facts {
   readonly views: ReadonlyMap<string, SessionView>;
   /** Last live status by thread key. */
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
+  /** Thread keys whose last live status said a question waits on the person. */
+  readonly pendingQuestions?: ReadonlySet<string>;
   /** When the live status began, by thread key: the host's time of the
       change into it. */
   readonly statusSince?: ReadonlyMap<string, number>;
@@ -560,7 +567,11 @@ export function buildThreadListV2ListItems(input: {
     const key = item.thread.key;
     const state = threadState(item.thread, input.facts);
     const view = threadView(item.thread, input.facts);
-    const status = resolveThreadListV2Status(item.thread.record, input.facts.liveStatus.get(key));
+    const status = resolveThreadListV2Status(
+      item.thread.record,
+      input.facts.liveStatus.get(key),
+      input.facts.pendingQuestions?.has(key) || undefined,
+    );
     const snoozedUntil = item.snoozed ? view.snoozedUntil : null;
     const hasElapsedTime = status === "working" || status === "waiting";
     return {

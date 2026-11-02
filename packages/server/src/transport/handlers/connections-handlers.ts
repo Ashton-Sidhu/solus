@@ -150,7 +150,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsGeneratePairToken', () => {
     const t = generatePairToken()
-    log.info('pair_token_generated', { code: t.code, expiresInMinutes: 5 })
+    log.info('pair_token_generated', { expiresInMinutes: 5 })
     captureServerEvent('pair_token_generated', {})
     return t
   })

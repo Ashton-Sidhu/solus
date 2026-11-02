@@ -4,6 +4,7 @@ import type { Message, TurnStartKind } from '@solus/contracts/types'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { prettyToolName } from '../../../contexts/workspace/session.utils'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
+import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { GroupedItem } from './turns'
 import { parseSubagentInput } from './subagent'
 import { agentsAwaitingReply, waitingOnLabel } from '../agent-conversation/lib/agent-conversation'
@@ -307,6 +308,10 @@ function describeSolusTool(
 ): string {
   const label = prettyToolName(name)
   if (parsed.sourceJson.trim() === '{}') return label
+  // A batch reads as its count, not as a long list of URLs.
+  const batch = pullRequestBatchOf(name, parsed.sourceJson)
+  if (batch?.action === 'link') return `Link ${batch.count} pull request${batch.count === 1 ? '' : 's'}`
+  if (batch) return `Unlink ${batch.states.join(' and ')} pull requests`
 
   const description = `${label}: ${parsed.sourceJson}`
   return truncate && description.length > 60

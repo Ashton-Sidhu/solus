@@ -31,8 +31,12 @@ const RESTART_CONTINUATION_PROMPT = 'Continue where you left off'
  *  background work the run had going, so the agent is told which, rather than
  *  waiting for a result that may never come. Names only: tool inputs can hold
  *  private data. */
-export function restartContinuationPrompt(saved: Pick<RestartRun, 'backgroundTools'>): string {
-  if (saved.backgroundTools.length === 0) return RESTART_CONTINUATION_PROMPT
+export function restartContinuationPrompt(saved: Pick<RestartRun, 'backgroundTools' | 'moreToolsRunning'>): string {
+  if (saved.backgroundTools.length === 0 && !saved.moreToolsRunning) return RESTART_CONTINUATION_PROMPT
   const names = [...new Set(saved.backgroundTools.map((tool) => tool.name))].join(', ')
-  return `${RESTART_CONTINUATION_PROMPT}. The host restarted while these tools or child agents were running: ${names}. Check whether they still run before you start them again.`
+  const running = names
+    ? `The host restarted while these tools or child agents were running: ${names}.${saved.moreToolsRunning ? ' More tools were running than this list shows.' : ''}`
+    : 'The host restarted while tools or child agents were running.'
+  return `${RESTART_CONTINUATION_PROMPT}. ${running}`
+    + ' Check whether they still run before you start them again. A command may already have finished and taken effect, so confirm its result before you run it again.'
 }

@@ -12,6 +12,7 @@ import type {
   JsonRpcMessage,
   JsonRpcResponse,
 } from './codex-protocol'
+import type { InitializeResponse } from './generated/InitializeResponse'
 
 const log = createLogger('CodexAppServerClient', 'codex-agent.ts')
 const REQUEST_TIMEOUT_MS = 120_000
@@ -19,6 +20,9 @@ const REQUEST_TIMEOUT_MS = 120_000
 // output end waits this long for the exit status before it fails the client.
 const EXIT_STATUS_GRACE_MS = 250
 const KILL_GRACE_MS = 5000
+/** The oldest Codex whose app-server protocol matches the one Solus speaks
+ *  (the types in `generated/`). An older one rejects `thread/start` payloads. */
+export const MIN_CODEX_VERSION = '0.159.0'
 
 interface PendingRequest {
   resolve: (value: any) => void
@@ -228,13 +232,31 @@ export class CodexAppServerClient extends EventEmitter {
       })
     })
 
+    // A Codex too old for the protocol Solus speaks fails every later request
+    // with a decode error that names no cause. Refuse it here, with what to do.
+    let incompatibility: string | null = null
     try {
-      await this._send('initialize', {
+      const result: InitializeResponse | undefined = await this._send('initialize', {
         clientInfo: { name: 'Solus', title: null, version: '0.7.0' },
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       }, 15_000)
+      incompatibility = codexVersionProblem(result?.userAgent)
     } catch (err) {
       log.warn('app_server_initialize_failed', { error: err instanceof Error ? err.message : String(err) })
+      // Codex answered, and refused: its protocol is not the one Solus speaks.
+      // A process that died or hung fails the next request on its own.
+      if (err instanceof CodexRpcError) {
+        incompatibility = `Codex refused the Solus handshake (${err.message}). Update Codex to ${MIN_CODEX_VERSION} or later, then try again.`
+      }
+    }
+    if (incompatibility) {
+      log.warn('app_server_incompatible', { reason: incompatibility })
+      // Stopped, so it does not restart; the next request spawns the binary
+      // again, and an updated Codex works without restarting Solus.
+      this.stopped = true
+      this.proc = null
+      stopProcess(proc)
+      throw new Error(incompatibility)
     }
 
     // Point Codex at the app-bundled skills via the live API rather than config,
@@ -331,4 +353,17 @@ let sharedClient: CodexAppServerClient | null = null
 export function getCodexAppServerClient(): CodexAppServerClient {
   if (!sharedClient) sharedClient = new CodexAppServerClient()
   return sharedClient
+}
+
+/** Why this Codex cannot run Solus sessions, or null when it can. The version
+ *  comes from the `initialize` user agent (`<originator>/<version> (...)`); a
+ *  user agent with no version passes, so a format change never blocks Codex. */
+export function codexVersionProblem(userAgent: string | undefined): string | null {
+  const version = userAgent?.match(/\/(\d+)\.(\d+)\.(\d+)/)
+  if (!version) return null
+  const found = version.slice(1, 4).map(Number)
+  const minimum = MIN_CODEX_VERSION.split('.').map(Number)
+  const index = found.findIndex((part, i) => part !== minimum[i])
+  if (index === -1 || found[index]! > minimum[index]!) return null
+  return `Codex ${found.join('.')} does not work with this Solus. Update Codex to ${MIN_CODEX_VERSION} or later, then try again.`
 }

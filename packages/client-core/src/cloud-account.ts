@@ -8,30 +8,35 @@ import {
   type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
 import type { SeatProvider } from '@solus/contracts/seats'
+import type { AccountSettingsResponse } from '@solus/contracts/settings'
 import { VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
-import type { OAuthSession } from './oauth-session'
+import type { WebTokenSession } from './web-token-session'
 
 /**
  * The signed-in Solus Cloud account, as cloud onboarding uses it
  * (docs/plans/cloud-onboarding.md). It exists only on the web client served at the
- * account origin: the page's `OAuthSession` is the credential (an account-plane
- * access token on each call) and the same origin serves `/v1`. The desktop app and a
+ * account origin: the page's `WebTokenSession` gives an account-plane access token for
+ * each call, and the same origin serves `/v1`. The desktop app and a
  * client paired to a machine have none, and so get the host onboarding flow.
  */
 /** The part of the page's sign-in that the account uses. */
-export type CloudAccountSession = Pick<OAuthSession, 'accessToken' | 'signOut' | 'state' | 'onChange' | 'takeStartupAccount' | 'takeStartupSettings' | 'takeStartupDirectory'>
+export type CloudAccountSession = Pick<WebTokenSession, 'accessToken' | 'signOut' | 'state' | 'onChange'>
 
 export interface CloudAccount {
   /** The sign-in this account's calls use; its state is who is signed in. */
   readonly session: CloudAccountSession
   /** Null when signed out or the account origin could not be reached. */
   readAccount(): Promise<AccountResponse | null>
+  /**
+   * The settings the shell carried, for the first settings read: null after the first
+   * call, and for a write before it, which makes them old. Throws when they do not decode.
+   */
+  takeShellSettings(): Promise<AccountSettingsResponse | null>
   /** The agent seat logins (`seat:*` refs) in the account vault; null means the check failed. */
   readAgentSeats(): Promise<CloudAgentSeat[] | null>
   /**
-   * Ends this client grant (revocation), then the website's cookie session: on the
-   * account origin the web client and the website are one page, and the cookie would
-   * sign the page in again. False when the website did not confirm the cookie's end.
+   * Ends the website's cookie session, which is the web client's grant: every token
+   * made from it ends with it. False when the website did not confirm it.
    */
   signOut(): Promise<boolean>
   /** Records that the account finished or skipped onboarding; false when the call failed. */
@@ -68,9 +73,14 @@ export interface CloudAgentSeat {
   updatedAt: number
 }
 
-export function oauthCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch): CloudAccount {
+/**
+ * `shellSettingsJson` is the settings the account origin's shell carried for the first
+ * screen (docs/plans/web-session-tokens.md, decision 4), as JSON text: the settings
+ * schema loads with the workspace, not with the page's first code.
+ */
+export function webCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch, shellSettingsJson?: string): CloudAccount {
+  let unreadShellSettings = shellSettingsJson
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
-    if (init.method && init.method !== 'GET') session.takeStartupAccount()
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return null
     const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
@@ -91,12 +101,17 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
     connectionsUrl: `${origin}/connections`,
     consoleUrl: origin,
     async readAccount() {
-      const startup = session.takeStartupAccount()
-      if (startup) return startup
       const response = await call('/v1/account')
       if (!response?.ok) return null
       const parsed = accountResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data : null
+    },
+    async takeShellSettings() {
+      const json = unreadShellSettings
+      unreadShellSettings = undefined
+      if (json === undefined) return null
+      const { accountSettingsResponseSchema } = await import('@solus/contracts/settings')
+      return accountSettingsResponseSchema.parse(JSON.parse(json))
     },
     async readAgentSeats() {
       const response = await call(VAULT_PATH, { cache: 'no-store' })
@@ -107,19 +122,7 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
         ? [{ provider: connection.ref.provider, connected: connection.status === 'connected', updatedAt: connection.updatedAt }]
         : [])
     },
-    async signOut() {
-      await session.signOut()
-      try {
-        const response = await fetchImpl(`${origin}/api/auth/sign-out`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          signal: AbortSignal.timeout(15_000),
-        })
-        return response.ok
-      } catch {
-        return false
-      }
-    },
+    signOut: () => session.signOut(),
     async completeOnboarding() {
       const response = await call('/v1/account/onboarding', { method: 'POST' })
       return !!response?.ok
@@ -160,13 +163,14 @@ let configured: CloudAccount | null = null
 let startupRead: Promise<AccountResponse | null> | null = null
 
 /**
- * Web boot records the account when the serving origin is the account origin and
- * the page is signed in, and starts reading it at once: whether onboarding is due must be known
- * before the workspace paints, or the draft composer flashes before it.
+ * Web boot records the account when the serving origin is the account origin and the
+ * page is signed in: whether onboarding is due must be known before the workspace
+ * paints, or the draft composer flashes before it. The shell's account answers that
+ * with no request; with none, the read starts at once.
  */
-export function configureCloudAccount(account: CloudAccount | null): void {
+export function configureCloudAccount(account: CloudAccount | null, shellAccount?: AccountResponse): void {
   configured = account
-  startupRead = account ? account.readAccount() : null
+  startupRead = account ? (shellAccount ? Promise.resolve(shellAccount) : account.readAccount()) : null
 }
 
 /** The account read web boot started; null when there is no cloud account. One answer, shared. */

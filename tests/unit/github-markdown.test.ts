@@ -26,7 +26,7 @@ function stubs(): Plugin {
 
 describe('complete GitHub Markdown documents', () => {
   let server: ViteDevServer
-  let renderDocument: (source: string, policy?: 'remote' | 'local') => HTMLElement
+  let renderDocument: (source: string, policy?: 'remote' | 'local', lineBreaks?: boolean) => HTMLElement
 
   beforeAll(async () => {
     server = await createServer({
@@ -40,7 +40,7 @@ describe('complete GitHub Markdown documents', () => {
       server.ssrLoadModule('/src/components/github-markdown/GithubMarkdown.svelte'),
       server.ssrLoadModule('svelte/server'),
     ])
-    renderDocument = (source, policy = 'remote') => new JSDOM(render(Markdown, { props: { source, policy } }).body).window.document.body
+    renderDocument = (source, policy = 'remote', lineBreaks = false) => new JSDOM(render(Markdown, { props: { source, policy, lineBreaks } }).body).window.document.body
   })
   afterAll(async () => { await server.close() })
 
@@ -73,6 +73,17 @@ describe('complete GitHub Markdown documents', () => {
     expect(outer.open).toBe(true)
     summary.click()
     expect(outer.open).toBe(false)
+  })
+
+  it('breaks lines on a single newline only for GitHub text', () => {
+    // WHY: GitHub renders a pull request body or comment with a line break per
+    // newline; joining the lines turns a written list of steps into one run.
+    const github = renderDocument('First line\nSecond line\n\n> [!NOTE]\n> One\n> Two\n\n```\ncode\nstays\n```', 'remote', true)
+    expect(github.querySelectorAll(':scope > p br')).toHaveLength(1)
+    expect(github.querySelector('.prose-callout[data-kind="note"] br')).not.toBeNull()
+    expect(github.querySelector('pre code')?.textContent).toBe('code\nstays')
+    expect(github.querySelectorAll('pre br')).toHaveLength(0)
+    expect(renderDocument('First line\nSecond line').querySelectorAll('br')).toHaveLength(0)
   })
 
   it('renders alerts inside details, with one code block and literal entities in code', () => {

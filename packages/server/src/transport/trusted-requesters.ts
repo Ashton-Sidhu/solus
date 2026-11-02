@@ -16,6 +16,9 @@ import { isApiMode } from '../host/api-mode'
  *   "trust my local network" server setting: a shared network is not an
  *   identity, so this is never the default.
  *
+ * Network position never speaks for a web page: a request a page on another site
+ * could have made is refused first (`couldBeForgedByWebPage`).
+ *
  * On a managed host (docs/plans/managed-hosts.md §1) and on the workspace service
  * (cloud-service-model.md §15) nobody is trusted by network position: loopback,
  * tailnet, and LAN are all strangers, and the setting is ignored.

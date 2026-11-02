@@ -1,0 +1,200 @@
+{
+  "date": "2026-10-31",
+  "tool": "node scripts/bench-web-load.ts label=<vite build dir> ... --runs 7 --profile slow|fast|local",
+  "measures": "First visit, empty cache: navigation to the solus:workspace-code mark. No sign-in, no host. All three builds in one session per profile. startupJavaScript is the entry plus the App chunk and their static imports, from the build manifest (measure.py).",
+  "profileDetails": {
+    "slow": {
+      "roundTripMs": 300,
+      "megabitsPerSecond": 1.5,
+      "cpuSlowdown": 4
+    },
+    "fast": {
+      "roundTripMs": 40,
+      "megabitsPerSecond": 20,
+      "cpuSlowdown": 1
+    },
+    "local": {
+      "roundTripMs": 0,
+      "megabitsPerSecond": 100000,
+      "cpuSlowdown": 1
+    }
+  },
+  "steps": [
+    {
+      "step": "base",
+      "change": "Before step 4 (branch solus/fast-secure-startup at 8c7a95b2f).",
+      "startupJavaScript": {
+        "chunks": 136,
+        "rawKb": 3130,
+        "gzipKb": 1000
+      },
+      "slow": {
+        "chromium": {
+          "medianMs": 6071,
+          "minMs": 6067,
+          "maxMs": 6118,
+          "requests": 148,
+          "transferredKbBrotli": 1006
+        },
+        "webkit": {
+          "medianMs": 6067,
+          "minMs": 6061,
+          "maxMs": 6081,
+          "requests": 148,
+          "transferredKbBrotli": 1006
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 514,
+          "minMs": 513,
+          "maxMs": 528,
+          "requests": 148,
+          "transferredKbBrotli": 1006
+        },
+        "webkit": {
+          "medianMs": 565,
+          "minMs": 562,
+          "maxMs": 575,
+          "requests": 148,
+          "transferredKbBrotli": 1006
+        }
+      },
+      "local": {
+        "chromium": {
+          "medianMs": 155,
+          "minMs": 149,
+          "maxMs": 172,
+          "requests": 149,
+          "transferredKbBrotli": 1006
+        },
+        "webkit": {
+          "medianMs": 213,
+          "minMs": 212,
+          "maxMs": 236,
+          "requests": 150,
+          "transferredKbBrotli": 1020
+        }
+      }
+    },
+    {
+      "step": "cut2",
+      "change": "Code cuts: the prompt editor loads beside the workspace behind a plain stand-in field; menus, dialogs, the work pane, the companion strip, the host-connect page, and the hostless page load on first use; devices load at their first event; the MCP sign-ins after the first paint; the cron parser, the changed-file scan, and the file icon set leave startup.",
+      "startupJavaScript": {
+        "chunks": 120,
+        "rawKb": 2380,
+        "gzipKb": 760
+      },
+      "slow": {
+        "chromium": {
+          "medianMs": 4823,
+          "minMs": 4819,
+          "maxMs": 4834,
+          "requests": 131,
+          "transferredKbBrotli": 775
+        },
+        "webkit": {
+          "medianMs": 4806,
+          "minMs": 4803,
+          "maxMs": 4810,
+          "requests": 131,
+          "transferredKbBrotli": 774
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 419,
+          "minMs": 418,
+          "maxMs": 423,
+          "requests": 131,
+          "transferredKbBrotli": 775
+        },
+        "webkit": {
+          "medianMs": 452,
+          "minMs": 449,
+          "maxMs": 460,
+          "requests": 132,
+          "transferredKbBrotli": 780
+        }
+      },
+      "local": {
+        "chromium": {
+          "medianMs": 136,
+          "minMs": 135,
+          "maxMs": 139,
+          "requests": 133,
+          "transferredKbBrotli": 775
+        },
+        "webkit": {
+          "medianMs": 161,
+          "minMs": 159,
+          "maxMs": 164,
+          "requests": 164,
+          "transferredKbBrotli": 961
+        }
+      }
+    },
+    {
+      "step": "chunk2",
+      "change": "The same code, with the workspace's own startup modules in one chunk (scripts/vite-workspace-preloads.ts, workspaceStartupChunk). Web only.",
+      "startupJavaScript": {
+        "chunks": 66,
+        "rawKb": 2360,
+        "gzipKb": 720
+      },
+      "slow": {
+        "chromium": {
+          "medianMs": 4564,
+          "minMs": 4560,
+          "maxMs": 4567,
+          "requests": 72,
+          "transferredKbBrotli": 719
+        },
+        "webkit": {
+          "medianMs": 4503,
+          "minMs": 4495,
+          "maxMs": 4506,
+          "requests": 72,
+          "transferredKbBrotli": 718
+        }
+      },
+      "fast": {
+        "chromium": {
+          "medianMs": 407,
+          "minMs": 406,
+          "maxMs": 411,
+          "requests": 72,
+          "transferredKbBrotli": 719
+        },
+        "webkit": {
+          "medianMs": 430,
+          "minMs": 427,
+          "maxMs": 433,
+          "requests": 73,
+          "transferredKbBrotli": 724
+        }
+      },
+      "local": {
+        "chromium": {
+          "medianMs": 148,
+          "minMs": 145,
+          "maxMs": 153,
+          "requests": 75,
+          "transferredKbBrotli": 720
+        },
+        "webkit": {
+          "medianMs": 131,
+          "minMs": 128,
+          "maxMs": 132,
+          "requests": 77,
+          "transferredKbBrotli": 748
+        }
+      }
+    }
+  ],
+  "limits": [
+    "The mark ends when App.svelte and its static imports have run. The prompt editor chunk starts to load at the same time but is not awaited; in the local profile it often arrives before the mark, which is why its request count and bytes are higher there.",
+    "The first-screen target of 400-600 KB raw is not met: 2.36 MB remain. The floor is the libraries the shell itself draws with (bits-ui, svelte, zod, tailwind-merge and tailwind-variants, lucide, paneforge, svelte-sonner, socket.io) and the workspace core.",
+    "Desktop gets the code cuts, not the single chunk: Electron is Chromium, where the chunk made the local profile 12 ms slower."
+  ]
+}

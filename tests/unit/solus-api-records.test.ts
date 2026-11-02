@@ -126,7 +126,7 @@ test('HTTP works without a socket; the bearer binds scope and strict inputs reje
       return bearer === 'paired-source' ? { principal: context.principal, home: context.home, scopes: ['tasks:read', 'tasks:write'] } : null
     },
   }
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   const app = new Hono().route('/v1', router)
   expect((await app.request('/v1/tasks')).status).toBe(401)
   const headers = { Authorization: 'Bearer paired-source', 'Content-Type': 'application/json', 'Idempotency-Key': 'http-create-key-001' }
@@ -169,7 +169,7 @@ test('records over a socket take its principal as authority and never exchange a
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   revokeDevice('revoked-device')
   const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true }))
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
   const http = new Hono().route('/v1', router)
   const requests = (request: SolusApiRequest, principal: Principal) => answerSocketRequest(router, request, principal)
@@ -274,7 +274,7 @@ test('a link guest opens only its shared work with the secret alone, with the li
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   const resolveShareSecret = (secret: string) => shares.resolveLinkSecret(secret)
   const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true, resolveShareSecret }))
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   const guestOf = async (shareSecret: string) => {
     const admitted = await guestPrincipalFor(resolveShareSecret, shareSecret, 'maya-guest-0000001', 'Maya')
     if (!admitted.ok) return null

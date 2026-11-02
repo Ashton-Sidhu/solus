@@ -34,6 +34,10 @@ mock.module('@solus/client-core/server-connections', () => ({
       deviceControlRelease: async (target: { deviceId: string }) => { calls.push(`release ${target.deviceId}`) },
     }),
     onStatusChange: () => () => {},
+    // The store follows hosts once it loads; this test connects none.
+    connectedServerIds: () => [],
+    onConnectionCreated: () => () => {},
+    onReadinessChange: () => () => {},
   },
 }))
 const { runDeviceBuild } = await import('@solus/workspace-ui/components/devices/lib/run-build')

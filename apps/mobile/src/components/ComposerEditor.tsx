@@ -3,6 +3,9 @@ import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
 import { useImperativeHandle, useRef, type Ref } from "react";
 import { Platform, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputInstance, type TextStyle, type ViewStyle } from "react-native";
 
+import type { ClipboardAttachmentRef } from "@solus/client-core/attachment-clipboard";
+import { mayCarryAttachmentRefs } from "../features/conversation/lib/pasted-attachments";
+import { readClipboardAttachmentRefs } from "../lib/pastedAttachmentRefs";
 import { MOBILE_FONTS } from "../lib/typography";
 
 /**
@@ -45,6 +48,13 @@ export interface ComposerEditorProps {
   readonly onBlur?: () => void;
   /** Local file URIs of images the user pasted. */
   readonly onPasteImages?: (uris: string[]) => void;
+  /**
+   * Host files a Solus copy named, read from the clipboard's HTML. Answers true
+   * when they were attached; then a pasted image does not upload again.
+   * `pastedText` is the copy's plain text the field inserted, for the composer
+   * to take back out.
+   */
+  readonly onPasteAttachmentRefs?: (refs: ClipboardAttachmentRef[], pastedText: string | null) => Promise<boolean>;
   readonly style?: StyleProp<ViewStyle>;
   readonly textStyle?: TextStyle;
 }
@@ -82,8 +92,20 @@ export function ComposerEditor(props: ComposerEditorProps) {
     [],
   );
 
+  const onPasteImages = props.onPasteImages;
+  const onPasteAttachmentRefs = props.onPasteAttachmentRefs;
   const onPaste = (payload: PasteEventPayload) => {
-    if (payload.type === "images" && payload.uris.length > 0) props.onPasteImages?.(payload.uris);
+    const pastedImages = payload.type === "images" && payload.uris.length > 0 ? payload.uris : null;
+    if (!onPasteAttachmentRefs || !mayCarryAttachmentRefs(payload)) {
+      if (pastedImages) onPasteImages?.(pastedImages);
+      return;
+    }
+    const pastedText = payload.type === "text" ? payload.value : null;
+    void readClipboardAttachmentRefs()
+      .then((refs) => (refs ? onPasteAttachmentRefs(refs, pastedText) : false))
+      .then((attached) => {
+        if (!attached && pastedImages) onPasteImages?.(pastedImages);
+      });
   };
 
   return (

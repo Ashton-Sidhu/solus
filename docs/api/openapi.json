@@ -59,7 +59,7 @@
                       "properties": {
                         "transport": {
                           "type": "string",
-                          "const": "socket.io"
+                          "const": "websocket"
                         },
                         "relativePath": {
                           "type": "string",
@@ -10404,6 +10404,10 @@
                               "additionalProperties": false,
                               "description": "A pull request the session works on."
                             }
+                          },
+                          "hasPendingQuestion": {
+                            "type": "boolean",
+                            "const": true
                           }
                         },
                         "required": [
@@ -11894,6 +11898,10 @@
                                   "additionalProperties": false,
                                   "description": "A pull request the session works on."
                                 }
+                              },
+                              "hasPendingQuestion": {
+                                "type": "boolean",
+                                "const": true
                               }
                             },
                             "required": [
@@ -13307,6 +13315,10 @@
                         "additionalProperties": false,
                         "description": "A pull request the session works on."
                       }
+                    },
+                    "hasPendingQuestion": {
+                      "type": "boolean",
+                      "const": true
                     }
                   },
                   "required": [

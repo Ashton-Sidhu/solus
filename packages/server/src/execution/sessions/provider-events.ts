@@ -279,7 +279,7 @@ export class ProviderEvents {
           this.rt.reportToActiveRun(session.sessionId, (run) => this.rt.orchestration?.runEvent(run, event))
         } else if (event.type === 'question_request' && event.responseMode === 'message') {
           if (!saveAsyncQuestion(session.sessionId, agentSessionId, event)) return
-          this.rt.statuses.syncAttention(agentSessionId, session.sessionId, session.status)
+          this.rt.statuses.questionsChanged(agentSessionId, session.sessionId)
           this.rt.reportToActiveRun(session.sessionId, (run) => this.rt.orchestration?.runEvent(run, event))
         } else if (event.type === 'permission_request' || event.type === 'question_request') {
           session.hasPendingInput = true
@@ -404,6 +404,14 @@ export class ProviderEvents {
           event = rateLimitEvent
         }
 
+        if (event.type === 'rate_limit' && event.status !== 'allowed' && !event.isUsingOverage
+          && this.rt.turnStops.get(session.sessionId)?.signal.aborted) {
+          // A person stopped this turn before its limit arrived. Stop wins: the
+          // turn settles as interrupted, and its prompt is not held or re-queued.
+          this.rt.rateLimitPark.rateLimits.clear(session.sessionId)
+          return
+        }
+
         if (event.type === 'rate_limit' && event.status !== 'allowed' && !event.isUsingOverage) {
           const run = this.rt.activeRunRequests.get(session.sessionId)
           const deferCurrentRun = event.deferCurrentRun === true && !!run
@@ -465,6 +473,10 @@ export class ProviderEvents {
         const goal = this.rt.claudeGoals.recordCompletedTurn(agentSessionId, event.usage, event.durationMs)
         if (goal) this.rt.publish(sessionId, { type: 'goal_updated', goal })
       }
+      if (backend.id === 'claude-code' && event.type === 'usage' && event.partialTurn) {
+        const goal = this.rt.claudeGoals.recordCompletedTurn(agentSessionId, event.partialTurn.usage, event.partialTurn.durationMs ?? 0)
+        if (goal) this.rt.publish(sessionId, { type: 'goal_updated', goal })
+      }
 
       this.rt.publish(sessionId, event)
       if (initializedGoal) this.rt.publish(sessionId, { type: 'goal_updated', goal: initializedGoal })
@@ -511,6 +523,8 @@ export class ProviderEvents {
         const exitWasRateLimited = hasPendingRateLimit && rateLimitEvent.deferCurrentRun !== true
         const settledStatus: SessionStatus = exitWasRateLimited
           ? 'rate_limited'
+          : this.rt.turnStops.get(sessionId)?.signal.aborted
+          ? 'interrupted'
           : code === 0
           ? 'completed'
           : signal === 'SIGINT' || signal === 'SIGKILL'

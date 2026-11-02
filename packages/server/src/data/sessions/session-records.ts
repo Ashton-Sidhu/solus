@@ -9,6 +9,7 @@ import {
 } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../../db/database'
 import { getDb, withTx } from '../../db'
+import { removeAttachmentFolder } from '../assets/attachment-store'
 import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
@@ -643,7 +644,10 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
     })
     organizationBySession.delete(sessionId)
     forgetLeadSession(sessionId)
-    if (removed) deleteHostRowsOfSession(sessionId)
+    if (removed) {
+      deleteHostRowsOfSession(sessionId)
+      await removeAttachmentFolder(sessionId)
+    }
   })
 }
 

@@ -1252,6 +1252,10 @@ export interface NativeSolusAPI {
   onThemeChange(callback: (isDark: boolean) => void): () => void
   onWindowShown(callback: () => void): () => void
   onWindowHidden(callback: () => void): () => void
+  /** Chromium brackets each trackpad scroll, momentum included, with a begin
+   *  and an end. DOM wheel events carry no such phase; the history swipe
+   *  reads the end as the fingers lifting. */
+  onTrackpadScroll(callback: (phase: 'begin' | 'end') => void): () => void
   /** The Solus shortcuts that must still work while a browser page has focus.
    *  A `<webview>` guest is its own process, so its keys never reach the
    *  renderer's listener; main takes these out of the guest and sends them back. */

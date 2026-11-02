@@ -128,8 +128,10 @@ export class RestartRecovery {
     if (!restartRun) return
     const toolId = 'toolUseId' in event ? event.toolUseId : event.toolId
     if (event.type === 'tool_call') {
-      if (restartRun.backgroundTools.length >= 32 || restartRun.backgroundTools.some((tool) => tool.toolId === toolId)) return
-      restartRun.backgroundTools.push({ toolId: event.toolId, name: event.isSubagent ? `Child agent (${event.subagentType ?? event.toolName})` : event.toolName })
+      if (restartRun.backgroundTools.some((tool) => tool.toolId === toolId)) return
+      // The list is capped; past it, the prompt still says it is incomplete.
+      if (restartRun.backgroundTools.length >= 32) restartRun.moreToolsRunning = true
+      else restartRun.backgroundTools.push({ toolId: event.toolId, name: event.isSubagent ? `Child agent (${event.subagentType ?? event.toolName})` : event.toolName })
     } else {
       if (event.type === 'tool_result' && event.isAsyncLaunch) return
       const index = restartRun.backgroundTools.findIndex((tool) => tool.toolId === toolId)

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { Snippet } from "svelte";
   import { AlertDialog } from "bits-ui";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -24,6 +25,9 @@
      *  merge lands. */
     details?: Snippet;
   } = $props();
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open });
 </script>
 
 <AlertDialog.Root bind:open>

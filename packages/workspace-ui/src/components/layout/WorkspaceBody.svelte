@@ -1,3 +1,13 @@
+<script module lang="ts">
+  import type CompanionSurfaceStripComponent from "./CompanionSurfaceStrip.svelte";
+
+  // A companion pane's strip loads beside the workspace, not in its first
+  // chunks: the first screen has no companion pane. Kept as state so a pane
+  // that opens later draws its strip at once, without an await frame.
+  let CompanionSurfaceStrip = $state<typeof CompanionSurfaceStripComponent | null>(null);
+  void import("./CompanionSurfaceStrip.svelte").then((module) => (CompanionSurfaceStrip = module.default));
+</script>
+
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
   import {
@@ -8,7 +18,6 @@
   } from "../../contexts";
   import { afterPaint } from "../../lib/after-paint";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import SessionSidebarSkeleton from "../session/SessionSidebarSkeleton.svelte";
   import SidePanel from "./SidePanel.svelte";
   import SettingsDialog from "../settings/SettingsDialog.svelte";
@@ -25,7 +34,6 @@
   import { activeSurface } from "../../contexts/workspace/routing/location";
   import { ROUTES, surfaceKey } from "../../contexts/workspace/routing/route-registry";
   import { CompanionPanes } from "./lib/companion-panes.svelte";
-  import CompanionSurfaceStrip from "./CompanionSurfaceStrip.svelte";
   import { useArtifactsAutoOpen } from "../session/artifacts/lib/artifacts-auto-open.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
@@ -695,7 +703,7 @@
       class={`-translate-x-[4.5px] ${!sidebarOpen ? "pointer-events-none opacity-0" : ""}`}
     />
 
-    <Resizable.Pane order={2} class="min-w-0">
+    <Resizable.Pane order={2} class="min-w-0" data-history-swipe-area>
       <!-- Conversation view | secondary. The conversation view owns the
            breadcrumb band AND the project rail, so the band spans exactly what
            it belongs to and its right edge tracks the secondary divider in this
@@ -886,7 +894,11 @@
                   class:secondary-pane-content--continuous={IMMEDIATE_COMPANIONS.has(ref?.name ?? "")}
                   onfocusin={() => router.focusPane(pane.id)}
                 >
-                  <CompanionSurfaceStrip {pane} />
+                  {#if CompanionSurfaceStrip}
+                    <CompanionSurfaceStrip {pane} />
+                  {:else}
+                    <div class="h-(--solus-chrome-row-h,2.5rem) shrink-0 pointer-coarse:h-12"></div>
+                  {/if}
                   <!-- Only the active surface is mounted, except a keep-alive
                        one (a conversation), which stays mounted and hidden so
                        moving between tabs keeps its scroll and open cards. -->
@@ -917,12 +929,16 @@
 </div>
 
 {#if homeSessionMenu}
-  <SessionContextMenu
-    x={homeSessionMenu.x}
-    y={homeSessionMenu.y}
-    tabId={homeSessionMenu.tabId}
-    onClose={() => (homeSessionMenu = null)}
-  />
+  {@const menu = homeSessionMenu}
+  <!-- The menu loads when it first opens; the first screen does not draw it. -->
+  {#await import("../session/SessionContextMenu.svelte") then { default: SessionContextMenu }}
+    <SessionContextMenu
+      x={menu.x}
+      y={menu.y}
+      tabId={menu.tabId}
+      onClose={() => (homeSessionMenu = null)}
+    />
+  {/await}
 {/if}
 
 {#if active && router.at("settings")}

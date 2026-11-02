@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { chmodSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { solusDir } from '../platform/paths'
@@ -13,6 +13,8 @@ import { assertTestDatabase } from './test-safety'
  */
 let db: DatabaseSync | null = null
 let transactionOpen = false
+/** Set by the host's shutdown. A late writer must fail, not reopen the file. */
+let isClosedForShutdown = false
 
 const STATEMENT_CACHE_SIZE = 500
 
@@ -38,13 +40,18 @@ export function cacheStatements(openedDb: DatabaseSync): void {
 
 export function getDb(): DatabaseSync {
   if (db) return db
+  if (isClosedForShutdown) throw new Error('The database is closed because the host shut down')
 
   const dataDir = solusDir()
   assertTestDatabase({ kind: 'sqlite', path: join(dataDir, 'solus.db') })
-  mkdirSync(dataDir, { recursive: true })
+  // The data folder holds the database, keys, and transcripts: this user's
+  // alone. An older host made it with the default mode, so tighten it too.
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+  chmodSync(dataDir, 0o700)
 
   const openedDb = new DatabaseSync(join(dataDir, 'solus.db'))
   try {
+    chmodSync(join(dataDir, 'solus.db'), 0o600)
     openedDb.exec('PRAGMA journal_mode = WAL')
     openedDb.exec('PRAGMA foreign_keys = ON')
     openedDb.exec('PRAGMA busy_timeout = 5000')
@@ -74,6 +81,12 @@ export function closeDb(): void {
   db = null
   transactionOpen = false
   openedDb.close()
+}
+
+/** Close the file for good: the host is shutting down, and nothing may reopen it. */
+export function closeDbForShutdown(): void {
+  isClosedForShutdown = true
+  closeDb()
 }
 
 /**

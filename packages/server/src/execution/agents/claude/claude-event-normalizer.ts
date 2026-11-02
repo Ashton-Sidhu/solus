@@ -1,4 +1,4 @@
-import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type NormalizedEvent, type PermissionMode, type UsageData } from '@solus/contracts/types'
+import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type NormalizedEvent, type PartialTurnUsage, type PermissionMode, type UsageData } from '@solus/contracts/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { isRateLimitMessage, normalizeResetNumber } from '../../rate-limits'
@@ -134,6 +134,18 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // its status back to null. The status carries no state of its own, so
   // remember that a compaction runs to know what that null ends.
   private isCompacting = false
+  // The advisor's tokens of each main-thread API call, keyed by message id.
+  // Claude repeats a message once per content block, so the latest copy of a
+  // message replaces the one before it. The result adds them to its usage.
+  private readonly advisorUsage = new Map<string, UsageData>()
+  // The tokens of each main-thread API call since the turn last reported its
+  // spend, keyed by message id like the advisor's. A success result reports
+  // the turn itself; a turn that is stopped or fails reports these instead.
+  private readonly messageUsage = new Map<string, UsageData>()
+  // What the segments before an abort seam spent. Claude starts each segment
+  // after a seam as a new turn with its usage at zero, so the final result
+  // reports only the last segment, and this is added to it.
+  private earlierSegmentsUsage: UsageData = {}
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -154,12 +166,32 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     }
 
+    if (raw.type === 'assistant') {
+      // SAFETY: ClaudeEvent.type is the provider discriminant for assistant events.
+      const { message, parent_tool_use_id } = raw as AssistantEvent
+      if (!parent_tool_use_id && message?.id) {
+        this.advisorUsage.set(message.id, advisorUsageFrom(message.usage))
+        this.messageUsage.set(message.id, normalizeClaudeUsage(message.usage))
+      }
+    }
+
     const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
+    // SAFETY: ClaudeEvent.type is the provider discriminant for result events.
+    const failedTurnUsage = raw.type === 'result' ? this.failedTurnUsage(raw as ResultEvent) : null
+    if (failedTurnUsage) normalized.push(failedTurnUsage)
     if (this.isCompacting && isBareIdleStatus(raw)) {
       // A failed stop removes the running divider and draws none.
       normalized.push({ type: 'context_compaction', state: 'stop', trigger: 'auto', failed: true })
     }
     for (const event of normalized) {
+      if (event.type === 'task_complete') {
+        for (const advisor of this.advisorUsage.values()) event.usage = addUsage(event.usage, advisor)
+        this.advisorUsage.clear()
+        event.usage = addUsage(event.usage, this.earlierSegmentsUsage)
+        this.earlierSegmentsUsage = {}
+        // The success result is the segment's own report; the calls must not count twice.
+        this.messageUsage.clear()
+      }
       if (event.type === 'context_compaction') this.isCompacting = event.state === 'start'
       if (event.type === 'tool_call' && event.toolId) {
         if (event.isSubagent) this.subagentToolIds.add(event.toolId)
@@ -184,6 +216,50 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
 
   interrupt(): void {
     this.interrupted = true
+  }
+
+  /** The partial usage of a result that ends the turn without success. A seam
+   *  is inside the turn: its segment's spend waits for the turn's end. A
+   *  continuation after a background task was never counted as a turn. */
+  private failedTurnUsage(result: ResultEvent): NormalizedEvent | null {
+    if (isAbortSeamResult(result)) {
+      this.earlierSegmentsUsage = addUsage(this.earlierSegmentsUsage, this.takeSegmentUsage(result))
+      return null
+    }
+    if (!result.is_error && result.subtype === 'success') {
+      if (isTaskNotificationResult(result)) this.messageUsage.clear()
+      return null
+    }
+    return this.takeUnreportedUsage(result)
+  }
+
+  /** The spend of the turn's calls that no result reported yet, as a partial
+   *  usage event, or null when there is none. The stream calls it when the turn
+   *  ends without a result. An error result passes itself: its own usage and
+   *  cost are authoritative when it reports tokens. Takes the spend, so no
+   *  later report counts it again. */
+  takeUnreportedUsage(result?: ResultEvent): NormalizedEvent | null {
+    let usage = addUsage(this.earlierSegmentsUsage, this.takeSegmentUsage(result))
+    for (const advisor of this.advisorUsage.values()) usage = addUsage(usage, advisor)
+    this.advisorUsage.clear()
+    this.earlierSegmentsUsage = {}
+    if (usageTokens(usage) === 0) return null
+
+    const partialTurn: PartialTurnUsage = { usage }
+    if (result?.total_cost_usd) partialTurn.costUsd = result.total_cost_usd
+    if (result?.duration_ms) partialTurn.durationMs = result.duration_ms
+    return { type: 'usage', partialTurn }
+  }
+
+  /** The spend of the current segment: the result's own usage when it reports
+   *  tokens, else the calls measured since the last report. */
+  private takeSegmentUsage(result?: ResultEvent): UsageData {
+    const reported = result ? normalizeClaudeUsage(result.usage) : {}
+    let usage: UsageData = {}
+    if (usageTokens(reported) > 0) usage = reported
+    else for (const call of this.messageUsage.values()) usage = addUsage(usage, call)
+    this.messageUsage.clear()
+    return usage
   }
 
   private emit(events: NormalizedEvent[]): NormalizedEvent[] {
@@ -639,6 +715,29 @@ function normalizeClaudeUsage(usage: ClaudeUsageData | undefined): UsageData {
     cacheCreationTokens: usage.cache_creation_input_tokens,
     reasoningTokens: usage.reasoning_output_tokens,
   }
+}
+
+/** The tokens of the call's advisor steps. The advisor runs on the server
+ *  inside the call, and the call's top-level usage leaves it out. */
+function advisorUsageFrom(usage: ClaudeUsageData | undefined): UsageData {
+  let advisor: UsageData = {}
+  for (const iteration of usage?.iterations ?? []) {
+    if (iteration.type !== 'advisor_message') continue
+    advisor = addUsage(advisor, normalizeClaudeUsage(iteration))
+  }
+  return advisor
+}
+
+function usageTokens(usage: UsageData): number {
+  return (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) + (usage.cacheReadTokens ?? 0) + (usage.cacheCreationTokens ?? 0)
+}
+
+function addUsage(total: UsageData, extra: UsageData): UsageData {
+  const sum = { ...total }
+  for (const key of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens', 'reasoningTokens'] as const) {
+    if (extra[key] !== undefined) sum[key] = (sum[key] ?? 0) + extra[key]
+  }
+  return sum
 }
 
 /** Claude names its windows; the store keys them by duration, which is the one

@@ -2,6 +2,7 @@
 // apps/mobile/src/lib/threadActivity.ts (MIT, see UPSTREAM.md).
 import { z } from 'zod'
 import { hostPathBaseName } from '@solus/contracts/host-path'
+import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -162,8 +163,16 @@ export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 
     case 'agent':
       return parsed?.description ? compact(parsed.description) : running ? 'Delegating' : 'Delegated'
     case 'other':
-      return tool.toolName
+      return pullRequestBatchSummary(tool, running) ?? tool.toolName
   }
+}
+
+/** A batch link or unlink reads as its count, not as its tool name. */
+function pullRequestBatchSummary(tool: Pick<ToolTranscriptItem, 'toolName' | 'input'>, running: boolean): string | null {
+  const batch = pullRequestBatchOf(tool.toolName, tool.input)
+  if (batch?.action === 'link') return `${running ? 'Linking' : 'Linked'} ${batch.count} pull ${batch.count === 1 ? 'request' : 'requests'}`
+  if (batch) return `${running ? 'Unlinking' : 'Unlinked'} ${batch.states.join(' and ')} pull requests`
+  return null
 }
 
 function actionLabel(action: ToolGroupAction, count: number): string {

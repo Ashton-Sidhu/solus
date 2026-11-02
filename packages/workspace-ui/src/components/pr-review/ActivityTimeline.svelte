@@ -446,7 +446,7 @@
           <!-- 13px, a step under the page's body: a timeline holds many
                comments, and a long bot report should not read as a page. -->
           <div class="mt-1 [&_.prose]:[--prose-size:calc(0.8125rem*var(--solus-font-scale,1))]">
-            <CommentMarkdown source={event.comment.body} />
+            <CommentMarkdown source={event.comment.body} lineBreaks />
           </div>
         {/if}
         <!-- The review's inline threads, nested as the host nests them: each

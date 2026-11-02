@@ -5,7 +5,8 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
 import { solusIconSubset } from '../../scripts/vite-icon-collections'
 import { devServeRoots } from '../../scripts/vite-fs-allow'
-import { workspaceStartupPreloads } from '../../scripts/vite-workspace-preloads'
+import { workspaceStartupChunk, workspaceStartupPreloads } from '../../scripts/vite-workspace-preloads'
+import { bootSplash, nonBlockingStylesheets } from '../../scripts/vite-boot-splash'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -41,7 +42,7 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
-  plugins: [solusIconSubset(), tailwindcss(), svelte(), workspaceStartupPreloads(['/apps/client/src/App.svelte'])],
+  plugins: [solusIconSubset(), tailwindcss(), svelte(), workspaceStartupPreloads(['/apps/client/src/App.svelte']), bootSplash(), nonBlockingStylesheets()],
   server: {
     host: '0.0.0.0',
     port: 5174,
@@ -65,6 +66,12 @@ export default defineConfig({
     // those boundaries instead of forcing shared dependencies into manual
     // vendor chunks, which creates circular static edges back to the entry.
     chunkSizeWarningLimit: 13000,
+    rollupOptions: {
+      output: {
+        manualChunks: workspaceStartupChunk(['/apps/client/src/App.svelte']),
+        onlyExplicitManualChunks: true,
+      },
+    },
     // Skip the gzip pass Vite runs over every chunk just to print a size
     // column. Measure transfer size with a dedicated tool when it matters.
     reportCompressedSize: false,

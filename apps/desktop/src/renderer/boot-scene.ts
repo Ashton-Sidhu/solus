@@ -4,26 +4,16 @@
  * value is a literal — kept in sync with the `--solus-edge-bg` / accent tokens
  * by hand.
  *
- * The shell already paints a centred 4.5rem mark on the edge background. This
- * module re-renders that same mark, at the same size and centre, and hangs
- * detail beneath it — so a boot failure reads as the splash gaining
- * information rather than a second screen replacing the first.
+ * The boot splash (`@solus/workspace-ui/lib/boot-splash`) paints a centred mark
+ * on the edge background. This module re-renders that same mark, at the same
+ * size and centre, and hangs detail beneath it — so a boot failure reads as the
+ * splash gaining information rather than a second screen replacing the first.
  */
 
 import { describeConnectionFailure } from '@solus/client-core/connection-display'
+import { BOOT_SPLASH_MARK, BOOT_SPLASH_MARK_SIZE } from '@solus/workspace-ui/lib/boot-splash'
 
 const STYLE_ID = 'solus-boot-styles'
-
-const MARK = `
-  <svg class="solus-boot-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" aria-hidden="true">
-    <circle cx="512" cy="512" r="180" fill="#B45A3C" />
-    <g fill="none" stroke="#D97757" stroke-width="60" stroke-linecap="round">
-      <path d="M512,212 A300,300 0 0 1 812,512" />
-      <path d="M764,716 A300,300 0 0 1 416,800" />
-      <path d="M260,716 A300,300 0 0 1 212,416" />
-    </g>
-  </svg>
-`
 
 function ensureBootStyles(): void {
   if (document.getElementById(STYLE_ID)) return
@@ -66,7 +56,7 @@ function ensureBootStyles(): void {
       transform: translateY(calc(var(--solus-boot-lift, 0px) * -1));
       transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
     }
-    .solus-boot-mark { display: block; width: 5.25rem; height: 5.25rem; opacity: 0.34; }
+    .solus-boot-anchor > svg { display: block; width: ${BOOT_SPLASH_MARK_SIZE}; height: ${BOOT_SPLASH_MARK_SIZE}; opacity: 0.34; }
 
     /* Wide enough for a stack trace to breathe. Prose and stages stay at a
        readable measure inside it; only the trace uses the full width. */
@@ -223,7 +213,7 @@ function mountScene(root: HTMLElement, content: string): HTMLElement {
     root.innerHTML = `
       <div class="solus-boot">
         <div class="solus-boot-anchor">
-          ${MARK}
+          ${BOOT_SPLASH_MARK}
           <div class="solus-boot-detail"></div>
         </div>
       </div>

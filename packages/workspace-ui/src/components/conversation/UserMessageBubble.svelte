@@ -17,6 +17,7 @@
   import { parseAnnotationAttachmentId } from "../browser/lib/annotation-attachment";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import {
+    Download as DownloadIcon,
     Image as ImageIcon,
     Zap as LightningIcon,
   } from "@lucide/svelte";
@@ -32,6 +33,14 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatWaited } from "./lib/queued-prompts";
   import { shouldCollapseUserMessage } from "./lib/user-message";
+  import { collageCell, fileCardDetail, userMessageLayout } from "./lib/user-message-layout";
+  import type { UserBurst } from "./lib/user-burst";
+  import { attachmentLabel } from "../../lib/attachment-label";
+  import { clipboardAttachmentRefs } from "@solus/client-core/attachment-clipboard";
+  import { writeAttachmentClipboard } from "../../lib/attachment-clipboard";
+  import { attachmentDownloadName, downloadHostFile } from "./lib/attachment-download";
+  import { resolveHostMediaUrl } from "../../lib/host-media-url.svelte";
+  import { toasts } from "../../lib/toasts";
   import type { Message, OutboundPromptState } from "@solus/contracts/types";
   import type { User } from "@solus/contracts/user";
   import type { Snippet } from "svelte";
@@ -57,8 +66,10 @@
     /** Who wrote a held prompt, as the host named them. A sent message carries
      *  its author on the message itself. */
     author?: User;
+    /** A sent prompt's place in a burst of one person's messages. */
+    burst?: UserBurst;
   }
-  let { message, content, attachments, deliveryState = 'sent', onEditSubmit, actions, skipMotion = false, tabId, author }: Props = $props();
+  let { message, content, attachments, deliveryState = 'sent', onEditSubmit, actions, skipMotion = false, tabId, author, burst }: Props = $props();
 
   // A transcript read as a cloud record (the console) has no workspace: its
   // attachments stay on the runner, and the routes below have nowhere to open.
@@ -188,6 +199,12 @@
         && !videoAttachments.includes(a),
     ) ?? [],
   );
+  const layout = $derived(userMessageLayout({
+    hasText: !!text,
+    imageCount: imageAttachments.length,
+    videoCount: videoAttachments.length,
+    fileCount: fileAttachments.length,
+  }));
   const imageServerId = $derived(
     runHost(session?.sessionFor(attachmentTabId)?.run) ?? LOCAL_SERVER_ID,
   );
@@ -214,6 +231,48 @@
     const state = hostImageSources.stateFor(imageHost(attachment), attachment.hostPath);
     return state.status === 'ready' ? state.url : null;
   }
+  /** A file the host holds can be downloaded; one only this client holds cannot. */
+  function canDownload(attachment: NonNullable<Message['attachments']>[number]): boolean {
+    return !isPending && !!session && !!videoAttachmentPath(attachment);
+  }
+  async function download(attachment: NonNullable<Message['attachments']>[number]) {
+    const fileName = attachmentDownloadName(attachment);
+    try {
+      await downloadHostFile(
+        { serverId: imageHost(attachment), path: videoAttachmentPath(attachment)!, ctx: session?.ctxFor(attachmentTabId) },
+        fileName,
+      );
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : `Couldn't download ${fileName}`);
+    }
+  }
+
+  // Sent without words, a message's media is what there is to copy: the
+  // composer attaches the same host files again from the copy.
+  const copyRefs = $derived(
+    !text && !isPending && allAttachments
+      ? clipboardAttachmentRefs(allAttachments, videoAttachmentPath, imageHost, (serverId) => serverConnections.diagnosticsFor(serverId).installationId)
+      : [],
+  );
+  async function copyMedia() {
+    const lone = imageAttachments.length === 1 && copyRefs.length === 1 ? imageAttachments[0] : null;
+    const imageUrl = lone?.dataUrl
+      ? Promise.resolve(lone.dataUrl)
+      : lone?.hostPath
+        ? resolveHostMediaUrl({ serverId: imageHost(lone), path: lone.hostPath, ctx: session?.ctxFor(attachmentTabId) })
+        : null;
+    try {
+      await writeAttachmentClipboard({
+        refs: copyRefs,
+        label: allAttachments?.filter((a) => a.type !== 'design-selection').map(attachmentLabel).join(", ") ?? "",
+        imageUrl,
+      });
+    } catch (error) {
+      toasts.error("Couldn't copy the attachments");
+      throw error;
+    }
+  }
+
   let browserSrc = $state<string | null>(null);
   function videoRequest(attachment: NonNullable<Message['attachments']>[number]) {
     const path = videoAttachmentPath(attachment);
@@ -266,34 +325,49 @@
   {/if}
 
   {#if imageAttachments.length > 0}
-    <div class="flex gap-1.5 flex-wrap justify-end" style="max-width:85%">
+    <!-- Pictures are a shape of their own above the words: one keeps its own
+         aspect ratio at a fixed height, so the row does not grow when it
+         loads; several share one rounded collage split by hairlines. -->
+    <div
+      class="grid max-w-[85%] {layout.images === 'collage'
+ ? `w-80 gap-px overflow-hidden rounded-2xl bg-black/9 outline-[0.5px] -outline-offset-1 outline-black/20 dark:bg-white/12 dark:outline-white/20 ${imageAttachments.length === 2 ? 'auto-rows-[12rem] grid-cols-2' : imageAttachments.length === 3 ? 'auto-rows-[calc(6rem-0.5px)] grid-cols-[3fr_2fr]' : 'auto-rows-[6rem] grid-cols-2'}`
+ : ''}"
+    >
       {#each imageAttachments as a, i (i)}
         {@const src = imageSrc(a)}
-        {#if src}
-          <button
-            onclick={() => (browserSrc = src)}
-            style="padding:0;border:none;background:none;cursor:zoom-in;border-radius:0.5rem"
-          >
-            <img
-              src={src}
-              alt={a.name}
-              class="border border-(--solus-surface-secondary)"
-              style="width:4rem;height:4rem;border-radius:0.5rem;object-fit:cover"
-            />
-          </button>
-        {:else}
-          <!-- The host holds these bytes; until its URL is minted (or if it
-               cannot be) the frame says so instead of showing a broken image. -->
-          {@const failed = !!a.hostPath
-            && hostImageSources.stateFor(imageHost(a), a.hostPath).status === 'failed'}
-          <div
-            title={failed ? `${a.name || 'Image'} is no longer available on this host` : a.name}
-            class="flex items-center justify-center border border-(--solus-surface-secondary) bg-(--solus-surface-primary) text-(--solus-text-tertiary)"
-            style="width:4rem;height:4rem;border-radius:0.5rem"
-          >
-            <ImageIcon size={16} opacity={failed ? 0.5 : 0.3} />
-          </div>
-        {/if}
+        {@const cell = collageCell(imageAttachments.length, i)}
+        <div
+          class="overflow-hidden bg-(--solus-surface-primary) {cell.spansRows ? 'row-span-2' : ''} {cell.spansColumns ? 'col-span-2' : ''} {layout.images === 'lone'
+ ? 'rounded-2xl outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20'
+ : ''}"
+        >
+          {#if src}
+            <button
+              type="button"
+              aria-label="Open {attachmentLabel(a) || 'image'}"
+              onclick={() => (browserSrc = src)}
+              class="block size-full cursor-zoom-in"
+            >
+              <img
+                {src}
+                alt={a.name}
+                decoding="async"
+                class="block object-cover {layout.images === 'lone' ? 'h-48 w-auto min-w-24 max-w-full' : 'size-full'}"
+              />
+            </button>
+          {:else}
+            <!-- The host holds these bytes; until its URL is minted (or if it
+                 cannot be) the frame says so instead of showing a broken image. -->
+            {@const failed = !!a.hostPath
+              && hostImageSources.stateFor(imageHost(a), a.hostPath).status === 'failed'}
+            <div
+              title={failed ? `${a.name || 'Image'} is no longer available on this host` : a.name}
+              class="flex items-center justify-center text-(--solus-text-tertiary) {layout.images === 'lone' ? 'h-48 w-64 max-w-full' : 'size-full'}"
+            >
+              <ImageIcon size={16} opacity={failed ? 0.5 : 0.3} />
+            </div>
+          {/if}
+        </div>
       {/each}
     </div>
   {/if}
@@ -301,16 +375,15 @@
   {#if videoAttachments.length > 0}
     <div class="flex w-full flex-col items-end gap-1.5">
       {#each videoAttachments as a (a.id)}
-        <HostVideoPlayer
-          request={videoRequest(a)}
-          label={a.name}
-          class="w-[min(24rem,85%)]"
-        />
+        <!-- The same corners and inner edge as a picture. -->
+        <div class="w-80 max-w-[85%] overflow-hidden rounded-2xl outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20">
+          <HostVideoPlayer request={videoRequest(a)} label={a.name} class="w-full" />
+        </div>
       {/each}
     </div>
   {/if}
 
-  {#if fileAttachments.length > 0}
+  {#if layout.files === 'chips'}
     <div class="flex gap-1.5 flex-wrap justify-end" style="max-width:85%">
       {#each fileAttachments as a, i (i)}
         <button
@@ -326,9 +399,48 @@
             <FileIcon path={a.name} size={13} />
           </span>
           <span class="text-xs font-medium truncate text-(--solus-text-secondary)" style="min-width:0">
-            {a.name}
+            {attachmentLabel(a)}
           </span>
         </button>
+      {/each}
+    </div>
+  {:else if layout.files === 'cards'}
+    <!-- Sent without words, a file is the message: a card, not a bubble
+         around its name. The click opens the same preview a chip does. -->
+    <div class="flex w-full flex-col items-end gap-1.5">
+      {#each fileAttachments as a, i (i)}
+        <div
+          class="flex w-72 max-w-[85%] min-w-0 items-center gap-1 overflow-hidden rounded-2xl border border-(--solus-surface-secondary) bg-card pr-1.5"
+        >
+          <button
+            type="button"
+            aria-label="Open {attachmentLabel(a)}"
+            onclick={() => requestFilePreview({
+              path: a.path,
+              tabId: session?.focusedChatTabId ?? session?.activeTabId ?? "",
+            })}
+            class="flex min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden rounded-[0.9375rem] p-2.5 text-left transition-colors duration-100 hover:bg-(--solus-surface-primary) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)"
+          >
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-primary) text-(--solus-text-tertiary)">
+              <FileIcon path={a.name} size={20} />
+            </span>
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="truncate text-sm font-medium text-(--solus-text-primary)">{attachmentLabel(a)}</span>
+              <span class="truncate text-xs text-(--solus-text-tertiary)">{fileCardDetail(a, deliveryState)}</span>
+            </span>
+          </button>
+          {#if canDownload(a)}
+            <button
+              type="button"
+              aria-label="Download {attachmentDownloadName(a)}"
+              title="Download"
+              onclick={() => download(a)}
+              class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-primary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-11"
+            >
+              <DownloadIcon size={16} aria-hidden="true" />
+            </button>
+          {/if}
+        </div>
       {/each}
     </div>
   {/if}
@@ -349,14 +461,15 @@
         tabindex={hasControls ? 0 : undefined}
         class="group/bubble relative max-w-[41.25rem] overflow-hidden outline-none {isEditing ? 'w-full' : ''} {hasControls
  ? actions ? 'min-w-[10rem]' : 'min-w-[8.5rem]'
- : 'min-w-0'} {isPending
+ : 'min-w-0'} {layout.bubbleMeetsMedia ? 'rounded-tr-md' : ''} {isPending
  ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3'
  : isHostSent
  ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
  : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] px-3 pt-2.5 pb-2.5 dark:bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
       >
-        {#if !isHostSent}
-          <!-- Another person's prompt carries their name, held or sent; the reader's own do not. -->
+        {#if !isHostSent && !burst?.continuesBurst}
+          <!-- Another person's prompt carries their name, held or sent; the
+               reader's own do not. A burst names its author once. -->
           <TurnAuthorLabel author={author ?? message?.author} serverId={imageServerId} />
         {/if}
         {#if isHostSent}
@@ -514,7 +627,12 @@
   <!-- A held message has nothing worth copying yet and states its own time in
        the caption, so it gets no rail. -->
   {#if runtime.hasKeyboardPointer && !isPending}
-    <MessageHoverRail timestamp={message?.timestamp} text={text} side="right" />
+    <MessageHoverRail
+      timestamp={message?.timestamp}
+      {text}
+      side="right"
+      onCopy={copyRefs.length > 0 ? copyMedia : undefined}
+    />
   {/if}
   <!-- Held prompts stack as one block at 6px, not as separate messages: the
        queue is a single object in the transcript, and its group caption has to
@@ -522,7 +640,7 @@
   <div
     class="user-cv-body flex flex-col items-end gap-1.5 {isPending
  ? 'py-[0.1875rem]'
- : 'pt-4 pb-1.5'}"
+ : burst?.continuesBurst ? 'pb-1.5' : 'pt-4 pb-1.5'}"
   >
     {@render bubbleBody()}
   </div>

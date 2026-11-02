@@ -3,6 +3,7 @@
   import { getWorkspaceContext, getPlanStore, runtime } from "../../contexts";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import type { GroupedItem } from "./lib/turns";
+  import type { UserBurst } from "./lib/user-burst";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import ThoughtRow from "./ThoughtRow.svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -37,7 +38,8 @@
   import AssistantAlert from "./AssistantAlert.svelte";
   import FootnoteRef from "./FootnoteRef.svelte";
   import FootnoteSection from "./FootnoteSection.svelte";
-  import { ALERT_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN } from "./lib/markdown-extensions";
+  import FileChipGroup from "./FileChipGroup.svelte";
+  import { ALERT_TOKEN, FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN, FILE_CHIP_GROUP_TOKEN } from "./lib/markdown-extensions";
   import { RAW_HTML_TOKEN } from "./lib/raw-html";
   import FencedBlock from "./FencedBlock.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
@@ -53,9 +55,11 @@
   import { untrack } from "svelte";
   measureMount("TranscriptItem");
 
-  let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
+  let { item, skipMotion, burst, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
     navigateToSourceSession }: {
-    item: GroupedItem; skipMotion: boolean; tabId: string; linkContext: TaskLinkContext;
+    item: GroupedItem; skipMotion: boolean;
+    /** A prompt's place in a burst of one person's messages. */
+    burst?: UserBurst; tabId: string; linkContext: TaskLinkContext;
     activeHandoffDivider?: Message; activeHandoffTargetModel: string | null;
     navigateToSourceSession: (sessionId: string) => Promise<void>;
   } = $props();
@@ -79,6 +83,7 @@
     [ALERT_TOKEN]: AssistantAlert,
     [FOOTNOTE_REF_TOKEN]: FootnoteRef,
     [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
+    [FILE_CHIP_GROUP_TOKEN]: FileChipGroup,
   };
   /** The store is the truth for a work's title and type; the message's
    *  own ref is the fallback that keeps a historical row named. */
@@ -146,7 +151,7 @@
   {:else if notice === "background-command"}
     <BackgroundCommandRow message={item.message} {skipMotion} />
   {:else}
-    <UserMessageBubble message={item.message} {skipMotion} {tabId} />
+    <UserMessageBubble message={item.message} {skipMotion} {burst} {tabId} />
   {/if}
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}

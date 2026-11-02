@@ -1,7 +1,8 @@
 import { createLogger } from '../../../logger'
 import { z } from 'zod'
-import type { CanUseTool, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
+import type { CanUseTool, ElicitationResult, OnElicitation, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
 import type { NormalizedEvent, PermissionOption, PermissionToolInput } from '@solus/contracts/types'
+import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../codex/codex-permissions'
 
 const log = createLogger('Permissions', 'permissions.ts')
 
@@ -46,6 +47,13 @@ const ALLOW_ONCE: PermissionOption = { id: 'allow', label: 'Allow Once', kind: '
 const ALLOW_SESSION: PermissionOption = { id: 'allow-session', label: 'Allow for Session', kind: 'allow' }
 const DENY: PermissionOption = { id: 'deny', label: 'Deny', kind: 'deny' }
 
+/** An MCP elicitation the card answers: `params` is the request in the shape the Codex helpers read. */
+interface PendingElicitation {
+  resolve: (result: ElicitationResult) => void
+  params: Parameters<typeof mcpElicitationResponse>[0]
+  sessionId: string | null
+}
+
 interface PendingPermission {
   resolve: (result: PermissionResult) => void
   input: Record<string, unknown>
@@ -64,6 +72,7 @@ interface PendingPermission {
 export class PermissionManager {
   private pendingPermissions = new Map<string, PendingPermission>()
   private pendingQuestions = new Map<string, { resolve: (result: PermissionResult) => void; input: any; sessionId: string | null }>()
+  private pendingElicitations = new Map<string, PendingElicitation>()
   /**
    * Fallback sessionId for permissions created before session_init arrived
    * (first prompt of a new tab). SessionRuntime pushes the real id in here.
@@ -175,6 +184,32 @@ export class PermissionManager {
     }
   }
 
+  /** Build an onElicitation callback bound to a specific run. An MCP server's
+   * request shows the same question card as a Codex elicitation; without this
+   * the SDK declines every request. */
+  createOnElicitation(sessionRef: { current: string | null }, unattended = false): OnElicitation {
+    return async (request, { signal }) => {
+      if (unattended) return { action: 'decline' }
+      const params = { ...request, mode: request.mode ?? 'form' }
+      const normalized = normalizeMcpElicitationRequest(params)
+      if (!normalized) return { action: 'decline' }
+      const questionId = `elicitation-${crypto.randomUUID()}`
+      const sessionId = sessionRef.current ?? this.currentSessionId
+      log.info('mcp_elicitation_request', { questionId, kind: normalized.request.kind, serverName: request.serverName })
+      return new Promise((resolve) => {
+        if (signal.aborted) { resolve({ action: 'cancel' }); return }
+        this.pendingElicitations.set(questionId, { resolve, params, sessionId })
+        // The server or the SDK gave up on the request: take the card down.
+        signal.addEventListener('abort', () => {
+          if (!this.pendingElicitations.delete(questionId)) return
+          resolve({ action: 'cancel' })
+          this.onPermissionEvent?.(sessionId, { type: 'permission_resolved', questionId })
+        }, { once: true })
+        this.onPermissionEvent?.(sessionId, { type: 'question_request', questionId, questions: normalized.questions, ...normalized.request })
+      })
+    }
+  }
+
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined {
     const p = this.pendingPermissions.get(questionId)
     return p ? { toolName: p.toolName, sessionId: p.sessionId } : undefined
@@ -214,6 +249,12 @@ export class PermissionManager {
   }
 
   respondToQuestion(questionId: string, answers: Record<string, string>): boolean {
+    const elicitation = this.pendingElicitations.get(questionId)
+    if (elicitation) {
+      this.pendingElicitations.delete(questionId)
+      elicitation.resolve(mcpElicitResult(mcpElicitationResponse(elicitation.params, answers)))
+      return true
+    }
     const pending = this.pendingQuestions.get(questionId)
     if (!pending) {
       log.info('question_response_no_pending', { questionId })
@@ -228,7 +269,7 @@ export class PermissionManager {
   }
 
   /**
-   * Deny all pending permissions/questions for a session when it exits.
+   * Deny all pending permissions/questions, and cancel its elicitations, for a session when it exits.
    */
   clearPendingForSession(sessionId: string): void {
     for (const [id, pending] of this.pendingPermissions) {
@@ -242,6 +283,12 @@ export class PermissionManager {
       if (pendingSession !== sessionId) continue
       pending.resolve({ behavior: 'deny', message: 'Run cancelled' })
       this.pendingQuestions.delete(id)
+    }
+    for (const [id, pending] of this.pendingElicitations) {
+      const pendingSession = pending.sessionId ?? this.currentSessionId
+      if (pendingSession !== sessionId) continue
+      pending.resolve({ action: 'cancel' })
+      this.pendingElicitations.delete(id)
     }
   }
 }

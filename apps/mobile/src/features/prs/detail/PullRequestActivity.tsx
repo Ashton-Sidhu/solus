@@ -131,7 +131,7 @@ function TimelineComment({ item, threads, now, onOpenThread, deletion }: {
         // review's threads are cards, as the desktop and web timeline shows them.
         <View className="gap-1 overflow-hidden">
           <View style={long && !expanded ? { maxHeight: 240, overflow: 'hidden' } : undefined}>
-            <PullRequestMarkdown markdown={long && !expanded ? item.body.slice(0, 1200) : item.body} />
+            <PullRequestMarkdown markdown={long && !expanded ? item.body.slice(0, 1200) : item.body} lineBreaks />
           </View>
           {long ? (
             <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} hitSlop={8} className="flex-row items-center gap-1 self-start py-2 active:opacity-70">

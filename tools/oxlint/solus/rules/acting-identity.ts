@@ -55,6 +55,7 @@ const hostNameFiles = new Map([
   ['packages/server/src/code-intel/tool-installer.ts', 'installs host tools'],
   ['packages/server/src/transport/handlers/setup-commands.ts', 'probes and installs host tools'],
   ['packages/server/src/updates/provider-versions.ts', 'reads the host’s CLI versions'],
+  ['packages/server/src/updates/release-sources.ts', 'reads the latest CLI versions through the host’s npm'],
 ])
 
 /** The file that defines the launch point builds launch options from an identity's environment. */

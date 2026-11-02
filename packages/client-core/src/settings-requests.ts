@@ -12,7 +12,7 @@ import {
 import type { AccountSettingsResult, NativeSolusAPI, OrganizationSettingsResult, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { z } from 'zod'
-import type { OAuthSession } from './oauth-session'
+import type { WebTokenSession } from './web-token-session'
 
 export type { AccountSettingsResult, OrganizationSettingsResult, SettingsRequestFailure }
 
@@ -127,9 +127,15 @@ function refusal(status: number, parsed: z.ZodSafeParseResult<z.infer<typeof upl
 /**
  * The web client served at the account origin: the page's sign-in gives an
  * account-plane access token for each call (docs/adr/0001-standard-authentication.md
- * §2.2); the website's cookie is not sent.
+ * §2.2); the website's cookie is not sent. The first read takes the settings the page's
+ * HTML carried (`takeShellSettings`), with no request.
  */
-export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 'accessToken' | 'takeStartupSettings'>, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
+export function webSettingsRequests(
+  origin: string,
+  session: Pick<WebTokenSession, 'accessToken'>,
+  fetchImpl: typeof fetch = fetch,
+  takeShellSettings?: () => Promise<AccountSettingsResponse | null>,
+): SettingsCloudRequests {
   return settingsCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'
@@ -147,5 +153,5 @@ export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 
     } catch {
       return null
     }
-  }, () => session.takeStartupSettings())
+  }, takeShellSettings)
 }

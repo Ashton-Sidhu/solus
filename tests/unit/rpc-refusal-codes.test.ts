@@ -1,8 +1,7 @@
 import { afterAll, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { createServer } from 'node:http'
-import { randomUUID } from 'node:crypto'
-import { io } from 'socket.io-client'
+import { dialHostSocket } from '@solus/client-core/host-socket'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -29,14 +28,12 @@ test('a share rule\'s refusal reaches the client with its code', async () => {
     throw new ShareAccessError('FORBIDDEN', 'Only the owner can change the link')
   })
   // The server is credential-free (`requireAuth: false`), so the handshake carries no credential.
-  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: {} })
+  const dialed = await dialHostSocket(url, {})
+  if (!dialed.ok) throw new Error(dialed.message)
   try {
-    await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject) })
-    const envelope = await new Promise<{ error?: { message: string; code?: string } }>((resolve) => {
-      socket.emit('rpc', randomUUID(), 'shareSetLink', [{ resource: { kind: 'work', id: 'w1' }, link: null }], resolve)
-    })
+    const envelope = await dialed.socket.call('shareSetLink', [{ resource: { kind: 'work', id: 'w1' }, link: null }])
     expect(envelope.error).toEqual({ message: 'Only the owner can change the link', code: 'FORBIDDEN' })
   } finally {
-    socket.close()
+    dialed.socket.close()
   }
 })

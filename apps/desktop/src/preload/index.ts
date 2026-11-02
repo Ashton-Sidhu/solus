@@ -48,6 +48,7 @@ const subscribeOpenRoute = channelFanOut<[route: string]>('solus:open-route')
 const subscribeThemeChange = channelFanOut<[isDark: boolean]>('solus:theme-changed')
 const subscribeWindowShown = channelFanOut<[]>('solus:window-shown')
 const subscribeWindowHidden = channelFanOut<[]>('solus:window-hidden')
+const subscribeTrackpadScroll = channelFanOut<[phase: 'begin' | 'end']>('solus:trackpad-scroll')
 const subscribeGuestShortcut = channelFanOut<[shortcut: GuestShortcut]>('solus:guest-shortcut')
 const subscribeAccountStateChange = channelFanOut<[state: AccountState]>('solus:account-state-changed')
 const subscribeUpdateStatusChange = channelFanOut<[status: DesktopUpdateStatus]>('solus:update-status-changed')
@@ -85,6 +86,7 @@ const nativeApi: NativeSolusAPI = {
   onThemeChange: subscribeThemeChange,
   onWindowShown: subscribeWindowShown,
   onWindowHidden: subscribeWindowHidden,
+  onTrackpadScroll: subscribeTrackpadScroll,
   setGuestShortcuts: (shortcuts: GuestShortcut[]) =>
     ipcRenderer.send('solus:set-guest-shortcuts', shortcuts),
   onGuestShortcut: subscribeGuestShortcut,

@@ -154,6 +154,8 @@ a task link. There is one agent tool for links, `link` (it was `link_task`):
 a separate tool for the session case would be a second name for one question.
 An agent removes a session link with `unlink` with `kind=pr` (by number or URL), as a person does in the list; the row stays a tombstone, so PR sync does not link it again (2026-10-27).
 
+Several pull requests are one call (2026-11-01). `link` with `kind=pr` takes `target_ids`, a list of numbers or URLs such as the layers of a stack; it links each one the session does not show yet and returns them by repository as linked, already linked, or invalid, and an invalid name does not stop the others. `unlink` with `kind=pr` takes `states` (`open`, `closed`, `merged`) instead of `target_id`; it removes every link whose state, as PR sync last saw it on the link row, is one of them. A draft is open. A link that PR sync has not answered for, or that the code host says is gone, has no known state and stays. The transcript names such a call by its count ("Link 6 pull requests").
+
 Every session that has the `link` tool gets a "Pull request linking" block in
 its runtime instructions (`execution/agents/runtime-instructions.ts`), for Claude
 and Codex alike. The block tells the agent to link each pull request that it

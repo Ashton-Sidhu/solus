@@ -345,6 +345,14 @@ export interface UsageData {
   contextWindowTokens?: number
 }
 
+/** The spend of a turn that ended without a success result. `costUsd` and
+ *  `durationMs` are present only when the provider reported them. */
+export interface PartialTurnUsage {
+  usage: UsageData
+  costUsd?: number
+  durationMs?: number
+}
+
 /**
  * What occupies the model's context window right now — the provider's latest
  * context snapshot, not a running total. Providers report cumulative spend for
@@ -2007,7 +2015,10 @@ export type NormalizedEvent =
    *  nearly every turn, which is what keeps the usage store current enough to
    *  answer the moment a limit lands. */
   | { type: 'usage_limits'; windows: UsageWindowUpdate[] }
-  | { type: 'usage'; context?: ContextUsage; run?: UsageData }
+  /** `partialTurn`: what a turn spent when it ended without a success result
+   *  (stopped or failed), so insights and goals still count it. Clients
+   *  ignore it: the context meter does not read it. */
+  | { type: 'usage'; context?: ContextUsage; run?: UsageData; partialTurn?: PartialTurnUsage }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User; guestTurn?: true; supportsFeedback?: true }
@@ -2673,6 +2684,10 @@ export interface SessionRecord {
   listed?: boolean
   /** The pull requests the session works on, with what PR sync last saw. */
   pullRequests?: SessionPullRequestLink[]
+  /** A question that does not block the turn waits for the person, as the
+   *  host read it with the record. A client that has no live status since it
+   *  connected reads it here. Absent when none waits. */
+  hasPendingQuestion?: true
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
   /** Who shared another person's session with the reader directly — a person or team share — as a person key; absent otherwise (docs/plans/shared-with-you.md). */

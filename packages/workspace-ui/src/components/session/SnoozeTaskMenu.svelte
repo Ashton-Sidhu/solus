@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     CalendarClock as CalendarClockIcon,
     Clock as ClockIcon,
@@ -69,6 +70,9 @@
       focusRow(event.key === "ArrowDown" ? 1 : -1, event.target);
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open && (customTime || isCustomOpen) });
 </script>
 
 {#if customTime || isCustomOpen}

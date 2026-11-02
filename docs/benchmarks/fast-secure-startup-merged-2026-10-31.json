@@ -1,0 +1,207 @@
+{
+  "date": "2026-10-31",
+  "measures": "scripts/bench-web-load.ts, 7 runs each, same session. baseline = deployed web client before 2026-10-30 fixes 1-4; deployed = live on 2026-10-30 (fixes 1-4, palette and barrel cuts, early dial); merged = branch solus/fast-secure-startup at 4e5466382 (steps 1-4 and 6).",
+  "startupJs": {
+    "deployed": {
+      "files": 142,
+      "rawMb": 3.14,
+      "gzipMb": 1.01
+    },
+    "merged": {
+      "files": 66,
+      "rawMb": 2.31,
+      "gzipMb": 0.7
+    }
+  },
+  "profiles": {
+    "slow": {
+      "network": {
+        "roundTripMs": 300,
+        "megabitsPerSecond": 1.5,
+        "cpuSlowdown": 4
+      },
+      "results": [
+        {
+          "build": "baseline",
+          "engine": "chromium",
+          "medianMs": 8394,
+          "minMs": 8385,
+          "maxMs": 8514,
+          "requests": 186,
+          "transferredKb": 1223
+        },
+        {
+          "build": "deployed",
+          "engine": "chromium",
+          "medianMs": 6112,
+          "minMs": 6110,
+          "maxMs": 6114,
+          "requests": 154,
+          "transferredKb": 1013
+        },
+        {
+          "build": "merged",
+          "engine": "chromium",
+          "medianMs": 4472,
+          "minMs": 4470,
+          "maxMs": 4473,
+          "requests": 72,
+          "transferredKb": 702
+        },
+        {
+          "build": "baseline",
+          "engine": "webkit",
+          "medianMs": 7913,
+          "minMs": 7901,
+          "maxMs": 7940,
+          "requests": 186,
+          "transferredKb": 1224
+        },
+        {
+          "build": "deployed",
+          "engine": "webkit",
+          "medianMs": 6109,
+          "minMs": 6097,
+          "maxMs": 6110,
+          "requests": 154,
+          "transferredKb": 1013
+        },
+        {
+          "build": "merged",
+          "engine": "webkit",
+          "medianMs": 4416,
+          "minMs": 4414,
+          "maxMs": 4420,
+          "requests": 72,
+          "transferredKb": 701
+        }
+      ]
+    },
+    "fast": {
+      "network": {
+        "roundTripMs": 40,
+        "megabitsPerSecond": 20,
+        "cpuSlowdown": 1
+      },
+      "results": [
+        {
+          "build": "baseline",
+          "engine": "chromium",
+          "medianMs": 808,
+          "minMs": 806,
+          "maxMs": 828,
+          "requests": 186,
+          "transferredKb": 1223
+        },
+        {
+          "build": "deployed",
+          "engine": "chromium",
+          "medianMs": 518,
+          "minMs": 515,
+          "maxMs": 520,
+          "requests": 154,
+          "transferredKb": 1013
+        },
+        {
+          "build": "merged",
+          "engine": "chromium",
+          "medianMs": 404,
+          "minMs": 399,
+          "maxMs": 407,
+          "requests": 72,
+          "transferredKb": 702
+        },
+        {
+          "build": "baseline",
+          "engine": "webkit",
+          "medianMs": 810,
+          "minMs": 802,
+          "maxMs": 821,
+          "requests": 186,
+          "transferredKb": 1224
+        },
+        {
+          "build": "deployed",
+          "engine": "webkit",
+          "medianMs": 571,
+          "minMs": 569,
+          "maxMs": 577,
+          "requests": 154,
+          "transferredKb": 1013
+        },
+        {
+          "build": "merged",
+          "engine": "webkit",
+          "medianMs": 422,
+          "minMs": 419,
+          "maxMs": 425,
+          "requests": 73,
+          "transferredKb": 708
+        }
+      ]
+    },
+    "local": {
+      "network": {
+        "roundTripMs": 0,
+        "megabitsPerSecond": 100000,
+        "cpuSlowdown": 1
+      },
+      "results": [
+        {
+          "build": "baseline",
+          "engine": "chromium",
+          "medianMs": 213,
+          "minMs": 208,
+          "maxMs": 230,
+          "requests": 187,
+          "transferredKb": 1223
+        },
+        {
+          "build": "deployed",
+          "engine": "chromium",
+          "medianMs": 157,
+          "minMs": 154,
+          "maxMs": 158,
+          "requests": 155,
+          "transferredKb": 1013
+        },
+        {
+          "build": "merged",
+          "engine": "chromium",
+          "medianMs": 143,
+          "minMs": 140,
+          "maxMs": 147,
+          "requests": 74,
+          "transferredKb": 702
+        },
+        {
+          "build": "baseline",
+          "engine": "webkit",
+          "medianMs": 248,
+          "minMs": 245,
+          "maxMs": 252,
+          "requests": 186,
+          "transferredKb": 1224
+        },
+        {
+          "build": "deployed",
+          "engine": "webkit",
+          "medianMs": 222,
+          "minMs": 217,
+          "maxMs": 227,
+          "requests": 156,
+          "transferredKb": 1027
+        },
+        {
+          "build": "merged",
+          "engine": "webkit",
+          "medianMs": 133,
+          "minMs": 132,
+          "maxMs": 135,
+          "requests": 77,
+          "transferredKb": 731
+        }
+      ]
+    }
+  }
+}

@@ -34,6 +34,7 @@
     SIDEBAR_COMPLETED_RETENTION_CHECK_MS,
   } from "../../lib/completed-task-retention";
   import SidePanel from "../layout/SidePanel.svelte";
+  import HistoryNavButtons from "../layout/HistoryNavButtons.svelte";
   import {
     SIDEBAR_MAX_WIDTH,
     SIDEBAR_MIN_WIDTH,
@@ -886,6 +887,9 @@
   actionAriaLabel="Collapse sidebar"
   background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
 >
+  {#snippet headerActions()}
+    <HistoryNavButtons />
+  {/snippet}
   <!-- The one filled control in the column, kept compact so it leads without
       overpowering the navigation below it. -->
 
