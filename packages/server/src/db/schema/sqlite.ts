@@ -45,6 +45,7 @@ export const session_views = sessionsSchema.sessionViews.sqlite
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite
 export const insight_spans = insightSchema.insightSpans.sqlite
+export const insight_span_texts = insightSchema.insightSpanTexts.sqlite
 export const insight_log_events = insightSchema.insightLogEvents.sqlite
 export const workspace_projects = projectsSchema.workspaceProjects.sqlite
 export const activity = activitySchema.activity.sqlite

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "580722e1-d5f7-48b9-9cb3-c925cc87f236",
+  "id": "6f0cd3b7-a496-48c4-9a49-8864547ceb71",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -590,6 +590,62 @@
             "event_id"
           ],
           "name": "insight_log_events_organization_id_host_id_event_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "insight_span_texts": {
+      "name": "insight_span_texts",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'local'"
+        },
+        "host_id": {
+          "name": "host_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "span_id": {
+          "name": "span_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "insight_span_texts_organization_id_host_id_span_id_name_pk": {
+          "columns": [
+            "organization_id",
+            "host_id",
+            "span_id",
+            "name"
+          ],
+          "name": "insight_span_texts_organization_id_host_id_span_id_name_pk"
         }
       },
       "uniqueConstraints": {},

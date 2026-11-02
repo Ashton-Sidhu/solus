@@ -49,6 +49,20 @@ export const insightSpans = defineTable('insight_spans', {
   ],
 })
 
+/** One long text of a mirrored span, by name — a turn's `prompt`, `systemPrompt`,
+ *  `response`, a thinking span's `thought` — as `span_texts` holds it on the
+ *  host (plans/029 §6). `insight_spans.attrs` never carries them; the tree read
+ *  joins them back. Pruned with the spans by `pruneMirroredInsights`. */
+export const insightSpanTexts = defineTable('insight_span_texts', {
+  organization_id: ORGANIZATION,
+  host_id: text({ notNull: true }),
+  span_id: text({ notNull: true }),
+  name: text({ notNull: true }),
+  text: text({ notNull: true }),
+}, {
+  primaryKey: ['organization_id', 'host_id', 'span_id', 'name'],
+})
+
 /** A structured log event a mirrored span owns. */
 export const insightLogEvents = defineTable('insight_log_events', {
   organization_id: ORGANIZATION,

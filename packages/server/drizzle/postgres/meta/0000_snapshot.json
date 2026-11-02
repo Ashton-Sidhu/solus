@@ -1,5 +1,5 @@
 {
-  "id": "0109644a-9df0-4b50-b282-c0c419d49faf",
+  "id": "d6cc136e-3767-481b-aa42-c587d8127b80",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -703,6 +703,60 @@
             "organization_id",
             "host_id",
             "event_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.insight_span_texts": {
+      "name": "insight_span_texts",
+      "schema": "",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'local'"
+        },
+        "host_id": {
+          "name": "host_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "span_id": {
+          "name": "span_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "insight_span_texts_organization_id_host_id_span_id_name_pk": {
+          "name": "insight_span_texts_organization_id_host_id_span_id_name_pk",
+          "columns": [
+            "organization_id",
+            "host_id",
+            "span_id",
+            "name"
           ]
         }
       },
