@@ -1,10 +1,21 @@
 # 029 Fresh database baseline — the one data model plan
 
-Status: PLAN, 2026-11-01; §4.2 merger validation complete (PASS / CONDITIONAL adopted / FAIL for the index sibling). Reaffirmed 2026-11-01: no backwards compatibility anywhere, host or cloud; all data is deleted. Supersedes plans 022–028 and the data model section of
+Status: IMPLEMENTED in the worktree branch `solus/fresh-database-baseline`
+(2026-11-02; not merged to main, not deployed). Every section below is built:
+one `0000_baseline.sql` per database (`solus.db`, Postgres, `metrics.db`), the
+consolidations of §3, the one `session` row of §4, `resource_links` and
+`pull_request_observations` and `comment_threads` of §5, the Insights tables of
+§6, the lifetimes of §7, the query and write-path changes of §8, the two
+person columns of decision 2 (and the removal of `shareTransfer`), and the
+tests that enforce the table set (`tests/unit/data-model-baseline.test.ts`)
+and the identity rule (`tests/unit/data-model-identity.test.ts`). Result:
+60 tables in `solus.db` plus 3 in `metrics.db` (74 before, with `span_texts`
+and `insight_span_texts` new). Open: PostgreSQL concurrency gates (no endpoint
+was available), the live runtime, and the client surfaces, which kept their
+RPC contracts. Supersedes plans 022–028 and the data model section of
 `plans/README.md`; their content is absorbed here. Those files stay as history
 and are not to be executed on their own. Planned against `c4c64aff2` plus the
-working tree. No source, schema, or database has changed under this plan.
-
+working tree.
 ## 1. Decisions that shape everything below
 
 User decisions, 2026-11-01:
