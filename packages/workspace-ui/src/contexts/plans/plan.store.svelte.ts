@@ -39,6 +39,10 @@ export class PlanStore {
   previewDescriptor = $state<PlanDescriptor | null>(null)
 
   private _saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** The `updatedAt` each plan's annotations were last read at, by plan id: what a
+   *  save sends back, so the host reconciles the threads against the state this
+   *  client saw and deletes nothing it never showed. */
+  private _annotationsReadAt = new Map<string, number>()
   private upstreamWatches = new PresenceWatch()
   readonly upstreamCheckTimes = this.upstreamWatches.timings
   /** Which host owns each loaded or listed plan. */
@@ -187,6 +191,7 @@ export class PlanStore {
       api.loadPlanContent(opts.sessionId, opts.projectPath, opts.planToolUseId, opts.ctx, opts.provider ?? undefined),
       api.loadPlanAnnotations(opts.sessionId, opts.planToolUseId),
     ])
+    this.rememberAnnotationsReadAt(id, ann)
 
     const next = {
       sessionId: opts.sessionId,
@@ -249,6 +254,7 @@ export class PlanStore {
       const current = this.plans[planId]
       if (!current) return
       current.comments.splice(0, current.comments.length, ...(ann.comments ?? []))
+      this.rememberAnnotationsReadAt(planId, ann)
       current.status = ann.status ?? current.status
       current.bookmarked = ann.bookmarked
       current.bookmarkedAt = ann.bookmarkedAt
@@ -648,6 +654,11 @@ export class PlanStore {
 
   // ─── Persistence ───
 
+  /** The state a plan's annotations were just read at; a plan with none reads as never loaded. */
+  private rememberAnnotationsReadAt(planId: string, ann: PlanAnnotations | null): void {
+    this._annotationsReadAt.set(planId, ann?.updatedAt ?? 0)
+  }
+
   scheduleSave(planId: string): void {
     const existing = this._saveTimers.get(planId)
     if (existing) clearTimeout(existing)
@@ -683,7 +694,8 @@ export class PlanStore {
       bookmarked: plan.bookmarked,
       bookmarkedAt: plan.bookmarkedAt,
       mirroredDoc: plan.mirroredDoc,
-      updatedAt: Date.now(),
+      // The state this copy was read at, not the clock: the host deletes only threads this client saw.
+      updatedAt: this._annotationsReadAt.get(planId) ?? 0,
     }
     await this.apiForPlan(planId).savePlanAnnotations($state.snapshot(payload))
   }

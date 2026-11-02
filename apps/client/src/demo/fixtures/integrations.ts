@@ -100,7 +100,6 @@ export const DEMO_INTEGRATIONS: Integration[] = INSTALLED.map((server) => ({
     ? { kind: 'none' }
     : { kind: 'oauth', discover: `${new URL(server.url).origin}/.well-known/oauth-protected-resource`, registration: 'dynamic' },
   disabledTools: [],
-  createdBy: 'demo',
   createdAt: AT,
   updatedAt: AT,
   role: 'owner',

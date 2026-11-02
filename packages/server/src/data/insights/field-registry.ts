@@ -6,12 +6,8 @@ import type {
   MetricsViewDescriptor,
 } from '@solus/contracts/observability-types'
 import { SPAN_KINDS, type SpanKind } from './registries'
-import {
-  effectiveDurationSql,
-  effectiveStartedAtSql,
-  providerWaitSql,
-  thinkingTimeSql,
-} from './trace-timing'
+import type { SpanTextName } from './span-table'
+import { effectiveDurationSql, effectiveStartedAtSql } from './trace-timing'
 
 // ─── Field registry ───
 //
@@ -34,6 +30,10 @@ export type FieldStorage =
    *  one size-capped string, which truncation can leave malformed — the
    *  generated SQL guards with json_valid so queries never abort). */
   | { source: 'inputAttr'; path: string }
+  /** One of the span's long texts, a `span_texts` row read by primary key
+   *  (`span-table.ts`). Selected only when a query names the column, so a
+   *  list or aggregate over the view never reads a body. */
+  | { source: 'text'; name: SpanTextName }
   /** A raw SQL expression over `spans` columns; `spans` names the outer row. */
   | { source: 'expression'; sql: string }
 
@@ -53,17 +53,14 @@ const attr = (name: string, path: string, type: MetricsFieldType, description: s
   ({ name, type, description, group: 'detail', storage: { source: 'attr', path } })
 const inputAttr = (name: string, path: string, type: MetricsFieldType, description: string): RegisteredField =>
   ({ name, type, description, group: 'detail', storage: { source: 'inputAttr', path } })
+const text = (name: string, textName: SpanTextName, description: string): RegisteredField =>
+  ({ name, type: 'string', description, group: 'detail', storage: { source: 'text', name: textName } })
 
 /** Assigns one query role to a block of fields, so the declaration reads as the
  *  grouping the schema panel renders. */
 const withGroup = (group: MetricsFieldGroup, fields: RegisteredField[]): RegisteredField[] =>
   fields.map((field) => ({ ...field, group }))
 
-/** The summed duration of one child kind across the turn's trace — the
- *  pre-computed correlation that lets "tool time by model" run as a plain
- *  GROUP BY on `turns`. A duration total: overlapping children (parallel
- *  tools) sum past wall-clock by design; the waterfall's interval union stays
- *  the wall-clock truth. */
 /** A fact recorded on the trace's root turn, surfaced on every event in the
  *  trace — the turns⇄events join pre-done in the other direction, so slicing
  *  events by their turn's automation, task, or branch needs no join either. */
@@ -79,29 +76,19 @@ const rootAttr = (name: string, path: string, type: MetricsFieldType, descriptio
   },
 })
 
-const childTime = (name: string, kind: SpanKind, description: string): RegisteredField => ({
-  name,
-  type: 'duration',
-  description,
-  group: 'child_time',
-  storage: {
-    source: 'expression',
-    sql: `(SELECT SUM(child.duration_ms) FROM spans AS child`
-      + ` WHERE child.trace_id = spans.trace_id AND child.kind = '${kind}')`,
-  },
-})
-
-const durationExpression = (
-  name: string,
-  sql: string,
-  description: string,
-  group: MetricsFieldGroup,
-): RegisteredField => ({
+/** A measure stored on the turn's root when it ended (`turn-measures.ts`): the
+ *  summed duration of one child kind across the trace — the pre-computed
+ *  correlation that lets "tool time by model" run as a plain GROUP BY on
+ *  `turns` — or the provider wait and Thinking time of `trace-timing.ts`. A
+ *  per-kind sum is a duration total: overlapping children (parallel tools) sum
+ *  past wall-clock by design; the waterfall's interval union stays the
+ *  wall-clock truth. The view column and the `spans` column share a name. */
+const storedMeasure = (name: string, group: MetricsFieldGroup, description: string): RegisteredField => ({
   name,
   type: 'duration',
   description,
   group,
-  storage: { source: 'expression', sql },
+  storage: { source: 'column', column: name },
 })
 
 /** Dimensions and timing shared by every kind's view. */
@@ -143,7 +130,7 @@ const BASE_TABLE_FIELDS: RegisteredField[] = [
     column('name', 'name', 'string', 'Kind-specific name: the tool, the RPC method, the operation'),
   ]),
   ...BASE_FIELDS,
-  column('attrs', 'attrs', 'string', 'JSON object of the kind-specific fields; read with json_extract'),
+  column('attrs', 'attrs', 'string', 'JSON object of the kind-specific fields except the long texts; read with json_extract'),
 ]
 
 /** The facts a query author needs before any column list makes sense. Served
@@ -156,6 +143,9 @@ export const SCHEMA_RELATIONSHIPS: string[] = [
   'turns already carries provider_wait_ms and each per-kind child time sum (tool_time_ms, thinking_time_ms, '
   + 'streaming_time_ms, setup_time_ms, permission_wait_ms, question_wait_ms, compaction_time_ms, queue_wait_ms, '
   + 'rate_limit_wait_ms, settlement_time_ms), so "… by model, project, or session" needs no join.',
+  "A span's long texts are not in attrs: a turn's prompt, system prompt, and response and a thinking span's "
+  + 'thought are rows of span_texts (span_id, name, text), and turns already selects them as prompt, '
+  + 'system_prompt, and response.',
   'An event inside a turn shares its trace_id (a turn root has span_id = trace_id); join '
   + 'events to turns on trace_id only when an event breakdown needs a turn column that is '
   + 'not already summed on turns.',
@@ -196,27 +186,17 @@ export const KIND_REGISTRY = {
         attr('time_to_last_provider_event_ms', 'timeToLastProviderEventMs', 'duration', 'Turn start to the last normalized provider event received by Solus'),
         attr('time_to_provider_complete_ms', 'timeToProviderCompleteMs', 'duration', 'Turn start to the provider task-complete event received by Solus'),
       ]),
-      childTime('tool_time_ms', SPAN_KINDS.toolCall, 'Total tool-call time inside the turn, pre-summed so no join is needed'),
-      durationExpression(
-        'thinking_time_ms',
-        thinkingTimeSql('spans'),
-        'Total Thinking time, including the uncovered lead-in before each reported thinking span',
-        'child_time',
-      ),
-      childTime('streaming_time_ms', SPAN_KINDS.responseStream, 'Total response-streaming time inside the turn'),
-      childTime('setup_time_ms', SPAN_KINDS.setup, 'Pre-agent setup time inside the turn: git state, worktree, task prep'),
-      childTime('permission_wait_ms', SPAN_KINDS.permissionWait, 'Time the turn spent waiting on the user for tool permissions'),
-      childTime('question_wait_ms', SPAN_KINDS.questionWait, 'Time the turn spent waiting on the user for an answer'),
-      childTime('compaction_time_ms', SPAN_KINDS.contextCompaction, 'Provider-reported time spent compacting context'),
-      childTime('queue_wait_ms', SPAN_KINDS.queueWait, 'Time the prompt waited in the queue before the turn started'),
-      childTime('rate_limit_wait_ms', SPAN_KINDS.rateLimitWait, 'Time the turn spent waiting on provider rate limits'),
-      childTime('settlement_time_ms', SPAN_KINDS.turnSettlement, 'Solus processing after provider completion before authoritative turn settlement'),
-      durationExpression(
-        'provider_wait_ms',
-        providerWaitSql('spans'),
-        'Turn wall-clock time outside recorded blocking activity after Thinking absorbs its lead-ins',
-        'measure',
-      ),
+      storedMeasure('tool_time_ms', 'child_time', 'Total tool-call time inside the turn, pre-summed so no join is needed'),
+      storedMeasure('thinking_time_ms', 'child_time', 'Total Thinking time, including the uncovered lead-in before each reported thinking span'),
+      storedMeasure('streaming_time_ms', 'child_time', 'Total response-streaming time inside the turn'),
+      storedMeasure('setup_time_ms', 'child_time', 'Pre-agent setup time inside the turn: git state, worktree, task prep'),
+      storedMeasure('permission_wait_ms', 'child_time', 'Time the turn spent waiting on the user for tool permissions'),
+      storedMeasure('question_wait_ms', 'child_time', 'Time the turn spent waiting on the user for an answer'),
+      storedMeasure('compaction_time_ms', 'child_time', 'Provider-reported time spent compacting context'),
+      storedMeasure('queue_wait_ms', 'child_time', 'Time the prompt waited in the queue before the turn started'),
+      storedMeasure('rate_limit_wait_ms', 'child_time', 'Time the turn spent waiting on provider rate limits'),
+      storedMeasure('settlement_time_ms', 'child_time', 'Solus processing after provider completion before authoritative turn settlement'),
+      storedMeasure('provider_wait_ms', 'measure', 'Turn wall-clock time outside recorded blocking activity after Thinking absorbs its lead-ins'),
       ...withGroup('dimension', [
         attr('automation', 'automationName', 'string', 'Automation that dispatched the turn, by name'),
         attr('task', 'taskTitle', 'string', 'Task the turn ran under, by title'),
@@ -236,13 +216,13 @@ export const KIND_REGISTRY = {
         attr('automation_id', 'automationId', 'string', 'Id of the automation that dispatched the turn — `automation` is its name'),
       ]),
       ...withGroup('detail', [
-        attr('prompt', 'prompt', 'string', 'Prompt text, capped at 4 KB (see prompt_truncated)'),
+        text('prompt', 'prompt', 'Prompt text, capped at 4 KB (see prompt_truncated)'),
         attr('prompt_chars', 'promptChars', 'number', 'Full prompt length in characters before capping'),
         attr('prompt_truncated', 'promptTruncated', 'boolean', 'True when the stored prompt text was capped'),
-        attr('system_prompt', 'systemPrompt', 'string', 'Composed system prompt the turn ran under, capped at 16 KB (see system_prompt_truncated)'),
+        text('system_prompt', 'systemPrompt', 'Composed system prompt the turn ran under, capped at 16 KB (see system_prompt_truncated)'),
         attr('system_prompt_chars', 'systemPromptChars', 'number', 'Full system-prompt length in characters before capping'),
         attr('system_prompt_truncated', 'systemPromptTruncated', 'boolean', 'True when the stored system prompt was capped'),
-        attr('response', 'response', 'string', "The agent's answer text, capped at 8 KB (see response_truncated)"),
+        text('response', 'response', "The agent's answer text, capped at 8 KB (see response_truncated)"),
         attr('response_chars', 'responseChars', 'number', 'Full response length in characters before capping'),
         attr('response_truncated', 'responseTruncated', 'boolean', 'True when the stored response text was capped'),
       ]),
@@ -255,7 +235,7 @@ export const KIND_REGISTRY = {
   [SPAN_KINDS.thinking]: {
     description: 'model thinking, including the uncovered lead-in before its provider-reported interval',
     fields: [
-      attr('thought', 'thought', 'string', "The thought's full text as the provider sent it: Claude's thinking or Codex's reasoning summary. Null for redacted or encrypted reasoning"),
+      text('thought', 'thought', "The thought's full text as the provider sent it: Claude's thinking or Codex's reasoning summary. Null for redacted or encrypted reasoning"),
     ],
   },
   [SPAN_KINDS.responseStream]: {
@@ -578,6 +558,9 @@ export function fieldExpression(field: RegisteredField): string {
     case 'inputAttr':
       return `CASE WHEN json_valid(json_extract(attrs, '$.input')) `
         + `THEN json_extract(json_extract(attrs, '$.input'), '$.${field.storage.path}') END`
+    case 'text':
+      return `(SELECT span_texts.text FROM span_texts`
+        + ` WHERE span_texts.span_id = spans.span_id AND span_texts.name = '${field.storage.name}')`
     case 'expression':
       return field.storage.sql
   }

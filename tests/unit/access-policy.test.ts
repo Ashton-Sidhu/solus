@@ -162,18 +162,11 @@ describe('resource calls', () => {
     }
   })
 
-  test('transferring a work takes the owner; an editor cannot', async () => {
-    const table = resources({ 'work:w1': 'editor', 'work:w2': 'owner' })
-    await expect(assertRpcAccess('shareTransfer', MEMBER, [{ resource: { kind: 'work', id: 'w1' }, toUserId: 'x' }], table)).rejects.toThrow(RpcAccessError)
-    await expect(assertRpcAccess('shareTransfer', MEMBER, [{ resource: { kind: 'work', id: 'w2' }, toUserId: 'x' }], table)).resolves.toBeUndefined()
-  })
-
   test('the host owner holds the role `roleOf` gives them, and passes only before the share manager exists', async () => {
     // WHY (docs/plans/access-model.md §2.5): the host owner is an administrator, an
     // editor of what is not theirs. The gate asks for their role like anyone's; it no
     // longer lets them through every resource check. This changes the earlier rule.
     await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}], resources({ 'session:s1': 'editor' }))).resolves.toBeUndefined()
-    await expect(assertRpcAccess('shareTransfer', OWNER, [{ resource: { kind: 'work', id: 'w1' }, toUserId: 'x' }], resources({ 'work:w1': 'editor' }))).resolves.toBeUndefined()
     await expect(assertRpcAccess('workExportForCloud', OWNER, ['w1'], resources({ 'work:w1': 'editor' }), false)).rejects.toThrow(RpcAccessError)
     await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}], resources({}))).rejects.toThrow(/not shared/)
     // The desktop's in-process path, before the share manager exists, serves only its local owner.
@@ -209,7 +202,7 @@ describe('custom roles (docs/plans/custom-roles.md)', () => {
     const defaultGuest: Principal = { ...GUEST, share: { ...GUEST.share, role: 'custom', actions: [...DEFAULT_LINK_ACTIONS] } }
     for (const method of sessionMethods) {
       const action = RESOURCE_ACTION_OF_METHOD[method]
-      const args = method === 'shareSet' || method === 'shareSetLink' || method === 'shareGet' || method === 'shareTransfer'
+      const args = method === 'shareSet' || method === 'shareSetLink' || method === 'shareGet'
         ? [{ resource: { kind: 'session', id: 's1' } }]
         : [ctx('s1'), 's1']
       const located = RESOURCE_LOCATORS[method](args)

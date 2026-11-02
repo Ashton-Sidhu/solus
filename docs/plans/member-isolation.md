@@ -324,8 +324,10 @@ with `gid=solus`, and command lines are not where credentials are.
 
 Built on every host.
 
-- **Rows.** `browser_profiles` and `browser_profile_defaults` have
-  `owner_key NOT NULL` in their primary keys (host migration slot after the
+- **Rows.** `browser_profiles` has `created_by NOT NULL` (the person whose jar
+  it is) in its primary key, and the chosen default is its `is_default` flag,
+  one per person and project (plans/029 §3.2; `browser_profile_defaults` is
+  gone). Historically (host migration slot after the
   automation owners). The slot drops the old tables: a row with no owner is not
   kept, and the jars of the old project-wide partitions are not read again (no
   migration). The built-in default has no row; it is the person's own jar.

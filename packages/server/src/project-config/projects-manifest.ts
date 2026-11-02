@@ -131,12 +131,10 @@ export function recordProjectUse(cwd: string): void {
  *  per-project data stay; adding the folder again lists it again. */
 export async function untrackProject(projectPath: string): Promise<void> {
   if (!projectPath) return
-  const root = resolveProjectRoot(projectPath)
   let removed = 0
   withTx(() => {
     const db = getDb()
     removed = Number(db.prepare('DELETE FROM projects WHERE path = ? OR key = ?').run(projectPath, resolveProjectKey(projectPath)).changes)
-    db.prepare('DELETE FROM recent_projects WHERE path IN (?, ?)').run(projectPath, root)
   })
   if (removed > 0) emitChanged()
 }
@@ -168,11 +166,12 @@ export async function deleteProject(projectPath: string): Promise<void> {
   withTx(() => {
     const db = getDb()
     if (entry) {
+      // A task's edges go with it (plans/029 §5.1): no foreign key reaches a polymorphic endpoint.
+      db.prepare(`DELETE FROM resource_links WHERE (source_kind = 'task' AND source_id IN (SELECT id FROM tasks WHERE project_key = ?))
+        OR (target_kind = 'task' AND target_key IN (SELECT id FROM tasks WHERE project_key = ?))`).run(entry.key, entry.key)
       db.prepare('DELETE FROM tasks WHERE project_key = ?').run(entry.key)
-      db.prepare('DELETE FROM task_session_links WHERE project_key = ?').run(entry.key)
       db.prepare('DELETE FROM task_cache WHERE project_key = ?').run(entry.key)
     }
-    db.prepare('DELETE FROM recent_projects WHERE path = ?').run(projectPath)
     db.prepare('DELETE FROM projects WHERE path = ?').run(projectPath)
   })
   emitChanged()

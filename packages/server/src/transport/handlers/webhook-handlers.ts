@@ -45,7 +45,7 @@ export function registerWebhookHandlers(server: SolusServer, deps: WebhookHandle
   }
 
   server.register('webhookList', async (_args, ctx) =>
-    webhooks.list(visibleTo(ctx.actor, 'webhook', { id: sql`id`, organization: sql`organization_id`, owner: sql`owner_key` })))
+    webhooks.list(visibleTo(ctx.actor, 'webhook', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` })))
 
   server.register('webhookRead', async ([id], ctx) => {
     const webhook = await webhooks.read(id)

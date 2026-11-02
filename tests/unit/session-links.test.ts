@@ -32,7 +32,7 @@ beforeAll(async () => {
   operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(new ShareManager({ db: getDatabase() }))
   const { installWorkspaceToolOperations } = await import('@solus/server/data/workspace/tool-context')
   stopTools = installWorkspaceToolOperations(operations, 'host-1')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, cwd, status, created_at, last_activity_at) VALUES ('session-1', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, cwd, status, created_at, last_activity_at, started_at) VALUES ('session-1', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2, 1)`)
 })
 afterAll(async () => {
   stopTools()
@@ -42,12 +42,19 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previous
 })
 
+/** A session's file and automation edges, as the link input spells their targets. */
 async function storedLinks(sessionId: string) {
   const { getDatabase } = await import('@solus/server/db/database')
-  const rows = z.array(z.object({ link_id: z.string(), target: z.string(), title: z.string(), organization_id: z.string(), linked_at: z.number() })).parse(
-    await getDatabase().all(sql`SELECT link_id, target, title, organization_id, linked_at FROM session_links WHERE session_id = ${sessionId}`),
+  const rows = z.array(z.object({ target_kind: z.enum(['file', 'automation']), target_scope: z.string(), target_key: z.string(), title: z.string(), organization_id: z.string(), linked_at: z.number() })).parse(
+    await getDatabase().all(sql`SELECT target_kind, target_scope, target_key, title, organization_id, created_at AS linked_at FROM resource_links
+      WHERE source_kind = 'session' AND source_id = ${sessionId} AND target_kind IN ('file', 'automation')`),
   )
-  return rows.map(row => ({ ...row, target: sessionLinkInputSchema.shape.target.parse(JSON.parse(row.target)) }))
+  return rows.map(({ target_kind, target_scope, target_key, ...row }) => ({
+    ...row,
+    target: sessionLinkInputSchema.shape.target.parse(target_kind === 'file'
+      ? { kind: 'file', path: target_key, hostId: target_scope }
+      : { kind: 'automation', targetId: target_key, hostId: target_scope }),
+  }))
 }
 
 test('the existing link tool stores a project plan as a host file and resolves equivalent relative paths once', async () => {
@@ -59,7 +66,6 @@ test('the existing link tool stores a project plan as a host file and resolves e
   const links = (await storedLinks('session-1')).filter(link => link.target.kind === 'file')
   expect(links).toHaveLength(1)
   expect(links[0]).toMatchObject({ target: { kind: 'file', path, hostId: 'host-1' }, title: 'plan.md', organization_id: 'local' })
-  expect(links[0].link_id.length).toBeLessThan(100)
 })
 
 test('works use their existing session membership; a repeated link changes nothing', async () => {
@@ -107,7 +113,7 @@ test('a caller cannot link items to a session it cannot edit', async () => {
 
 test("the link route stores a session's file reference once, on its execution host, and removes it", async () => {
   const { getDatabase } = await import('@solus/server/db/database')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, runner_host_id, status, created_at, last_activity_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, runner_host_id, status, created_at, last_activity_at, started_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2, 1)`)
   const inA: WorkspaceRequestContext = { ...context, home: { kind: 'organization', organizationId: 'organization-A', serviceId: 'api' } }
   const link = { from: { kind: 'session' as const, id: 'remote-session' }, to: { kind: 'file' as const, path: 'C:\\runner\\plan.md', hostId: 'runner-A' }, title: 'Runner plan' }
   await operations.putLink(inA, link)
@@ -181,7 +187,7 @@ test('unlink and list_links reject invalid inputs and unauthorized sessions', as
 
 async function batchSession(sessionId: string): Promise<AgentToolContext> {
   const { getDatabase } = await import('@solus/server/db/database')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, cwd, status, created_at, last_activity_at) VALUES (${sessionId}, 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, cwd, status, created_at, last_activity_at, started_at) VALUES (${sessionId}, 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2, 1)`)
   return { ...tools, sessionId: () => sessionId }
 }
 

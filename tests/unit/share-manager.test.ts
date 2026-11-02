@@ -17,7 +17,7 @@ const LINK_EXPIRES_AT = 1_000 + DEFAULT_LINK_LIFETIME_MS
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §2.2–§2.3 and multiplayer-sharing.md §3.4–§3.5: a
-// resource's owner is its own row's `owner_key`; the ACL entries hold only what
+// resource's owner is its own row's `created_by`; the ACL entries hold only what
 // the owner gave others — a person, their team, the organization, or the link
 // (scope, decision 2026-09-16); a resource made in an organization's space starts
 // with the organization's editor entry; an administrator is an editor of what is
@@ -170,20 +170,6 @@ describe('ownership', () => {
     expect(await shares.roleFor(OWNER, work)).toBe('editor')
     expect(await shares.roleFor(member('admin', [], 'owner', 'managed'), work)).toBe('editor')
     expect(await shares.roleFor(member('admin', [], 'owner', 'personal'), work)).toBe('none')
-  })
-
-  test('only the owner transfers; the owner key moves and the previous owner is named as removed', async () => {
-    const { shares, changes } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    await seed('work', 'w1', 'bob', 'org1')
-    await shares.shareWithOrganization(work, member('bob'))
-    await expect(shares.transfer({ resource: work, toUserId: 'cara' }, member('cara'))).rejects.toThrow(ShareAccessError)
-    const list = await shares.transfer({ resource: work, toUserId: 'cara' }, member('bob'))
-    expect(list.ownerKey).toBe('cara')
-    expect(await database.getDatabase().all(sql`SELECT owner_key FROM works WHERE id = 'w1'`)).toEqual([{ owner_key: 'cara' }])
-    // The organization entry still admits bob, as an editor now.
-    expect(await shares.roleFor(member('bob'), work)).toBe('editor')
-    expect(changes.at(-1)?.removedUserIds).toEqual(['bob'])
   })
 
   test('a resource of one organization is nothing to a member of another', async () => {
@@ -353,17 +339,6 @@ describe('one decision per check', () => {
     expect(subjects).toEqual([{ subject_id: 'bob' }])
   })
 
-  test('a transfer to a person with a named entry makes them owner and drops that entry', async () => {
-    const { shares } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    await seed('work', 'w1', 'alice', 'org1')
-    await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
-    const list = await shares.transfer({ resource: work, toUserId: 'bob' }, member('alice'))
-    expect(list.ownerKey).toBe('bob')
-    expect(list.entries.some((grant) => grant.subject.kind === 'user' && grant.subject.id === 'bob')).toBe(false)
-    expect(await shares.roleFor(member('bob'), work)).toBe('owner')
-    expect((await shares.homeOf(work))?.ownerKey).toBe('bob')
-  })
 })
 
 describe('tasks', () => {
@@ -400,9 +375,16 @@ describe('tasks', () => {
 })
 
 describe('works of a session', () => {
-  const link = (workId: string, sessionId: string | null, linked: string[] = []) => database.getDatabase().run(sql`
-    UPDATE works SET session_id = ${sessionId}, meta = ${JSON.stringify({ sessionIds: linked })} WHERE id = ${workId}
-  `)
+  // The origin stays on the row; a later member is a session→work edge (plans/029 §5.1).
+  const link = async (workId: string, sessionId: string | null, linked: string[] = []) => {
+    await database.getDatabase().run(sql`UPDATE works SET session_id = ${sessionId} WHERE id = ${workId}`)
+    for (const member of linked) {
+      await database.getDatabase().run(sql`
+        INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
+        VALUES ('org1', 'session', ${member}, 'work', '', ${workId}, 'member', 'manual', 'active', '{"kind":"system"}', 'alice', 1)
+      `)
+    }
+  }
 
   test('who may open a session holds the same role on the works it made or links', async () => {
     // WHY (decision 2026-10-30): an artifact the agent made in a shared session is
@@ -489,7 +471,7 @@ describe('the link and guests', () => {
     const { shares } = manager()
     const session = { kind: 'session', id: 's1' } as const
     await seed('session', 's1', 'alice', 'org1')
-    await database.getDatabase().run(sql`UPDATE session_records SET runner_host_id = 'host-a' WHERE session_id = 's1'`)
+    await database.getDatabase().run(sql`UPDATE session SET runner_host_id = 'host-a' WHERE session_id = 's1'`)
     await shares.setEntries({ resource: session, entries: [{ subject: { kind: 'team', id: 'web' }, role: 'editor' }, { subject: { kind: 'user', id: 'carol' }, role: 'viewer' }] }, member('alice'))
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     const opened = (await shares.openLink(link.secret))!
@@ -714,7 +696,7 @@ describe('sharing a Local record with an organization', () => {
         if (!home) return null
         if (home.organizationId !== 'local') return home.organizationId
         assigned.push([resource.id, organizationId])
-        await database.getDatabase().run(sql`UPDATE session_records SET organization_id = ${organizationId} WHERE session_id = ${resource.id}`)
+        await database.getDatabase().run(sql`UPDATE session SET organization_id = ${organizationId} WHERE session_id = ${resource.id}`)
         return organizationId
       },
     })

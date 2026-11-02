@@ -20,14 +20,9 @@ const log = createLogger('main', 'member-folders')
  * `member_folder` the first time it is known and kept through a rename, so a
  * running process never loses its directory. A member who already had a folder
  * under their account id before folders were named keeps it: nothing is moved.
+ *
+ * `member_folder` is declared with the other host tables (`db/host-tables.ts`).
  */
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS member_folder (
-  user_id TEXT PRIMARY KEY,
-  folder TEXT NOT NULL UNIQUE
-);
-`
 
 /** A Better Auth user id or a folder name; nothing that could walk the filesystem. */
 export const memberFolderSegmentSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
@@ -63,9 +58,7 @@ export class MemberFolders {
   private readonly folders = new Map<string, string>()
   private readonly userIds = new Map<string, string>()
 
-  constructor(private readonly deps: MemberFoldersDeps) {
-    deps.db.exec(SCHEMA)
-  }
+  constructor(private readonly deps: MemberFoldersDeps) {}
 
   /**
    * The member's folder. Without a name and with none recorded, the account id:

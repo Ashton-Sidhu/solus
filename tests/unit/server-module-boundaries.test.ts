@@ -42,6 +42,11 @@ const exceptions: ReadonlySet<string> = new Set([
   'data/works/work-applier.ts -> sync/outbox/outbox-store.ts',
   'data/tasks/foreign-tasks.ts -> sync/outbox/outbox-store.ts',
   'data/tasks/linked-content.ts -> execution/agents/tools/session-tools.ts',
+  // The host user link rewrites comment thread authors through the thread
+  // reducers (plans/029 §5.2): the author and the replies live in JSON that raw
+  // SQL cannot rewrite the same way on both engines.
+  'host/host-user-rows.ts -> data/comments/comment-threads.ts',
+  'host/host-user-rows.ts -> data/comments/schema.ts',
 ])
 
 const specifierPattern = /(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"\n]+)['"]/g
@@ -100,7 +105,7 @@ describe('server module boundaries', () => {
     const names = PORTED_TABLES.map((table) => table.name)
     const transcripts = names.indexOf('session_transcripts')
     // WHY: generated migrations and the runner cursors depend on the table order staying put.
-    expect(names.slice(transcripts, transcripts + 3)).toEqual(['session_transcripts', 'insight_spans', 'insight_log_events'])
+    expect(names.slice(transcripts, transcripts + 4)).toEqual(['session_transcripts', 'insight_spans', 'insight_span_texts', 'insight_log_events'])
     expect(names[transcripts - 1]).toBe('runner_delivery_cursors')
   })
 })

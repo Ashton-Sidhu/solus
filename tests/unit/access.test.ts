@@ -160,7 +160,7 @@ describe('visibleTo agrees with roleOf', () => {
     for (const row of ROWS) await seedResource(db, row.kind, row.id, row.owner, row.organizationId)
     for (const [index, entry] of ENTRY_ROWS.entries()) {
       await db.run(sql`
-        INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+        INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, created_by, created_at, organization_id)
         VALUES (${`e${index}`}, ${entry.kind}, ${entry.id}, ${entry.subjectKind}, ${entry.subjectId}, ${entry.role}, ${entry.hash}, 'alice', 1, ${entry.organizationId})
       `)
     }
@@ -188,20 +188,20 @@ describe('visibleTo agrees with roleOf', () => {
     getDb()
     for (const [id, owner, organizationId] of [['i-alice', 'alice', 'org1'], ['i-bob', 'bob', 'org1'], ['i-eve', 'alice', 'org2']] as const) {
       await db.run(sql`
-        INSERT INTO integration (id, organization_id, owner_key, kind, slug, name, url, auth, created_by, created_at, updated_at)
-        VALUES (${id}, ${organizationId}, ${owner}, 'mcp', ${id}, ${id}, 'https://example.com/mcp', '{"kind":"none"}', ${owner}, '', '')
+        INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, created_at, updated_at)
+        VALUES (${id}, ${organizationId}, ${owner}, 'mcp', ${id}, ${id}, 'https://example.com/mcp', '{"kind":"none"}', '', '')
       `)
     }
-    const rows = await db.all<{ id: string; organization_id: string; owner_key: string }>(sql`SELECT id, organization_id, owner_key FROM integration`)
+    const rows = await db.all<{ id: string; organization_id: string; created_by: string }>(sql`SELECT id, organization_id, created_by FROM integration`)
     for (const principal of Object.values(PEOPLE)) {
       const actor = actors.actorFor(principal)
-      const predicate = access.visibleTo(actor, 'integration', { id: sql`id`, organization: sql`organization_id`, owner: sql`owner_key` })
+      const predicate = access.visibleTo(actor, 'integration', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` })
       const listed = (await db.all<{ id: string }>(sql`SELECT id FROM integration WHERE ${predicate}`)).map((row) => row.id).sort()
-      const opened = rows.filter((row) => access.roleOf(actor, { kind: 'integration', id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key, acl: [] }) !== 'none').map((row) => row.id).sort()
+      const opened = rows.filter((row) => access.roleOf(actor, { kind: 'integration', id: row.id, organizationId: row.organization_id, ownerKey: row.created_by, acl: [] }) !== 'none').map((row) => row.id).sort()
       expect(listed).toEqual(opened)
     }
     // Alice reaches her own in her organization, and an administrator reaches none of hers.
-    expect(rows.filter((row) => access.roleOf(actors.actorFor(PEOPLE.owner), { kind: 'integration', id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key, acl: [] }) === 'owner').map((row) => row.id)).toEqual(['i-alice'])
+    expect(rows.filter((row) => access.roleOf(actors.actorFor(PEOPLE.owner), { kind: 'integration', id: row.id, organizationId: row.organization_id, ownerKey: row.created_by, acl: [] }) === 'owner').map((row) => row.id)).toEqual(['i-alice'])
   })
 
   test('on automation, project, and notification rows, a list holds exactly what the gate opens', async () => {
@@ -212,14 +212,14 @@ describe('visibleTo agrees with roleOf', () => {
     const { getDb } = await import('@solus/server/db')
     const store = await import('@solus/server/data/automations/automations-store')
     for (const [id, owner, organizationId] of [['a-alice', 'alice', 'org1'], ['a-bob', 'bob', 'org1'], ['a-eve', 'eve', 'org2'], ['a-old', '', 'org1']] as const) {
-      getDb().prepare(`INSERT INTO automations (id, organization_id, owner_key, name, enabled, action, trigger_config, last_run, created_at, updated_at)
+      getDb().prepare(`INSERT INTO automations (id, organization_id, created_by, name, enabled, action, trigger_config, last_run, created_at, updated_at)
         VALUES (?, ?, ?, ?, 0, ?, '{"type":"manual"}', '{}', 1, 1)`).run(id, organizationId, owner, id, JSON.stringify({ prompt: 'p', agentProvider: 'claude-code', modelId: null, reasoningEffort: 'medium', cwd: '/tmp' }))
       await db.run(sql`
-        INSERT INTO workspace_projects (id, organization_id, repository_key, display_name, owner_key, created_by, created_at)
-        VALUES (${`p-${id}`}, ${organizationId}, ${`github.com/acme/${id}`}, ${id}, ${owner}, ${owner}, 1)
+        INSERT INTO workspace_projects (id, organization_id, repository_key, display_name, created_by, created_at)
+        VALUES (${`p-${id}`}, ${organizationId}, ${`github.com/acme/${id}`}, ${id}, ${owner}, 1)
       `)
       await db.run(sql`
-        INSERT INTO notifications (id, organization_id, recipient_key, event_id, kind, resource_key, facts, resource, by, summary, created_at)
+        INSERT INTO notifications (id, organization_id, user_id, event_id, kind, resource_key, facts, resource, by, summary, created_at)
         VALUES (${`n-${id}`}, ${organizationId}, ${owner}, ${id}, 'automation.finished', ${`automation:${id}`}, '{}', '{}', '{}', '{}', 1)
       `)
     }
@@ -230,8 +230,8 @@ describe('visibleTo agrees with roleOf', () => {
       const actor = actors.actorFor(principal)
       const listed = {
         automation: (await store.listAutomations(actor)).map((automation) => automation.id).sort(),
-        project: (await db.all<{ id: string }>(sql`SELECT id FROM workspace_projects WHERE ${access.visibleTo(actor, 'project', { id: sql`id`, organization: sql`organization_id`, owner: sql`owner_key` })}`)).map((row) => row.id).sort(),
-        notification: (await db.all<{ id: string }>(sql`SELECT id FROM notifications WHERE ${access.visibleTo(actor, 'notification', { id: sql`id`, organization: sql`organization_id`, owner: sql`recipient_key` })}`)).map((row) => row.id).sort(),
+        project: (await db.all<{ id: string }>(sql`SELECT id FROM workspace_projects WHERE ${access.visibleTo(actor, 'project', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` })}`)).map((row) => row.id).sort(),
+        notification: (await db.all<{ id: string }>(sql`SELECT id FROM notifications WHERE ${access.visibleTo(actor, 'notification', { id: sql`id`, organization: sql`organization_id`, owner: sql`user_id` })}`)).map((row) => row.id).sort(),
       }
       const opened = { automation: [] as string[], project: [] as string[], notification: [] as string[] }
       for (const id of ids) {

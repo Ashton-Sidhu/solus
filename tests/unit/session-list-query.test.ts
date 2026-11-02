@@ -42,7 +42,7 @@ async function recorded(sessionId: string, lastActivityAt: number, fields: { own
 
 let grants = 0
 async function granted(sessionId: string, subjectKind: 'user' | 'team' | 'organization', subjectId: string, grantedAt: number, expiresAt: number | null = null) {
-  await database.getDatabase().run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, granted_at, expires_at, organization_id)
+  await database.getDatabase().run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, created_by, created_at, granted_at, expires_at, organization_id)
     VALUES (${`grant-${++grants}`}, 'session', ${sessionId}, ${subjectKind}, ${subjectId}, 'viewer', ${BOB}, ${grantedAt}, ${grantedAt}, ${expiresAt}, 'local')`)
 }
 
@@ -132,7 +132,7 @@ async function allPages(read: (where: SQL, limit: number, time: Time) => Promise
   const pages: unknown[][] = []
   let after: import('@solus/server/data/workspace/page').PageCursor | undefined
   for (;;) {
-    const rows = await read(sql`${filter} AND ${page.seekClause(sql`session_records.${sql.identifier(time)}`, sql`session_records.session_id`, after)}`, limit + 1, time) as Array<{ sessionId: string; createdAt: number; lastActivityAt: number }>
+    const rows = await read(sql`${filter} AND ${page.seekClause(sql`session.${sql.identifier(time)}`, sql`session.session_id`, after)}`, limit + 1, time) as Array<{ sessionId: string; createdAt: number; lastActivityAt: number }>
     const result = page.pageOf(rows, limit, (item) => ({ time: time === 'created_at' ? item.createdAt : item.lastActivityAt, id: item.sessionId }))
     pages.push(result.items)
     if (!result.nextCursor) return pages
@@ -150,7 +150,7 @@ describe('the session list reads only the sessions that can be in it', () => {
     for (const time of ['last_activity_at', 'created_at'] as const) {
       test(`${reader.name}, by ${time}: the same pages as the scan of every record`, async () => {
         const pageReader = { personKey: reader.personKey, teamIds: reader.teamIds, now }
-        for (const filter of [sql`session_records.parent_session_id IS NULL`, sql`1 = 1`]) {
+        for (const filter of [sql`session.parent_session_id IS NULL`, sql`1 = 1`]) {
           const before = await allPages((where, limit, order) => records.readSessionMetadataPage(sql`${where} AND ${records.sessionListedClause(pageReader)}`, limit, order, pageReader), filter, 7, time)
           const after = await allPages((where, limit, order) => records.readSessionListPage(where, limit, order, pageReader), filter, 7, time)
           expect(after).toEqual(before)
@@ -162,7 +162,7 @@ describe('the session list reads only the sessions that can be in it', () => {
   test('the fixture covers every way into and out of the list', async () => {
     // WHY: an equal answer on a fixture with nothing in it proves nothing.
     const reader = { personKey: ALICE, teamIds: [TEAM], now }
-    const listed = new Set((await records.readSessionListPage(sql`session_records.parent_session_id IS NULL`, 1000, 'last_activity_at', reader)).map((record) => record.sessionId))
+    const listed = new Set((await records.readSessionListPage(sql`session.parent_session_id IS NULL`, 1000, 'last_activity_at', reader)).map((record) => record.sessionId))
     for (const sessionId of ['recent-00', 'recent-59', 'old-snoozed', 'old-open-pr', 'old-unsynced-pr', 'bobs-prompted', 'shared-old', 'shared-with-team', 'archived-then-shared', 'shared-recent-archived-then-shared']) {
       expect([sessionId, listed.has(sessionId)]).toEqual([sessionId, true])
     }

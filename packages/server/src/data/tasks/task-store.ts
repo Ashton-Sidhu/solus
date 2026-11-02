@@ -4,10 +4,13 @@ import { z } from 'zod'
 import { getDatabase, type Db } from '../../db/database'
 import { createLogger } from '../../logger'
 import { ulid } from '@solus/contracts/ulid'
-import { assertTaskAssignee, legacyTaskActor, notifyTaskAssignment, taskChanged } from './task-activity'
+import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
+import { assertTaskAssignee, notifyTaskAssignment, taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
-import { agentAttribution, hostAttribution, parseStoredAttribution } from '../stored-attribution'
-import { taskComments, taskCounters, taskExternalLinks, tasks } from './schema'
+import { agentAttribution, hostAttribution } from '../stored-attribution'
+import { readThreads, type ThreadRecord } from '../comments/comment-threads'
+import { taskCounters, taskExternalLinks, tasks } from './schema'
+import { resourceLinks } from '../links/schema'
 import { scopeClause } from '../scope'
 import { recordTaskChange } from './task-revisions'
 import { hostUserKey } from '../../host/host-user'
@@ -17,8 +20,8 @@ import type {
   TaskComment,
   TaskCreateInput,
   TaskListFilter,
-  TaskListResult,
   TaskSource,
+  TaskSummary,
   TaskStatus,
   TaskTitleSource,
 } from '@solus/contracts/task-types'
@@ -50,7 +53,8 @@ const taskRowSchema = z.object({
   due_date: z.string().nullable(),
   priority: taskPrioritySchema.nullable(),
   labels: z.string(),
-  pr: z.string().nullable(),
+  /** The URL of the task's newest pull request link (`TASK_PR_URL`); null with none. */
+  pr_url: z.string().nullable(),
   epic: z.string().nullable(),
   source: taskSourceSchema,
   origin_session_id: z.string().nullable(),
@@ -68,18 +72,6 @@ const taskRowSchema = z.object({
   external_id: z.string().nullable(),
   external_url: z.string().nullable(),
 })
-const taskCommentRowSchema = z.object({
-  id: z.string(),
-  task_id: z.string(),
-  author: z.string().nullable(),
-  source: z.enum(['local', 'external']),
-  external_id: z.string().nullable(),
-  origin_session_id: z.string().nullable(),
-  body: z.string(),
-  created_at: z.number(),
-  dirty: z.number(),
-})
-export const taskPrSchema = z.object({ url: z.string(), number: z.number() })
 export const taskEpicSchema = z.object({
   provider: z.enum(['github', 'jira']),
   externalId: z.string(),
@@ -89,9 +81,11 @@ export const taskEpicSchema = z.object({
 })
 const labelListSchema = z.array(z.string())
 const nextShortIdRowSchema = z.object({ next_id: z.number() })
+/** A task row without its body and epic: what the board list reads (plans/029 §8). */
+const taskSummaryRowSchema = taskRowSchema.omit({ body: true, epic: true })
 
 export type TaskRow = z.infer<typeof taskRowSchema>
-type TaskCommentRow = z.infer<typeof taskCommentRowSchema>
+type TaskSummaryRow = z.infer<typeof taskSummaryRowSchema>
 
 type TasksChangedListener = (taskId?: string) => void
 const changedListeners = new Set<TasksChangedListener>()
@@ -133,14 +127,20 @@ export function jsonValue<T>(value: string | null, schema: z.ZodType<T>): T | un
 }
 
 export function taskFromRow(row: TaskRow): Task {
-  const task: Task = {
+  const task: Task = { ...taskSummaryFromRow(row), body: row.body }
+  const epic = jsonValue(row.epic, taskEpicSchema)
+  if (epic) task.epic = epic
+  return task
+}
+
+function taskSummaryFromRow(row: TaskSummaryRow): TaskSummary {
+  const task: TaskSummary = {
     id: row.id,
     providerId: 'local',
     organizationId: row.organization_id,
     projectKey: row.project_key,
     title: row.title,
     titleSource: row.title_source,
-    body: row.body,
     status: row.status,
     url: null,
     labels: jsonValue(row.labels, labelListSchema) ?? [],
@@ -161,10 +161,7 @@ export function taskFromRow(row: TaskRow): Task {
   if (row.assignee_user_id !== null) task.assigneeUserId = row.assignee_user_id
   if (row.due_date !== null) task.dueDate = row.due_date
   if (row.priority !== null) task.priority = row.priority
-  const pr = jsonValue(row.pr, taskPrSchema)
-  if (pr) task.pr = pr
-  const epic = jsonValue(row.epic, taskEpicSchema)
-  if (epic) task.epic = epic
+  if (row.pr_url !== null) task.pr = { url: row.pr_url, number: parseGitHubPullRequestUrl(row.pr_url)?.number ?? 0 }
   if (row.origin_session_id !== null) task.originSessionId = row.origin_session_id
   if (row.origin_automation_id !== null) task.originAutomationId = row.origin_automation_id
   if (row.triaged_at !== null) task.triagedAt = row.triaged_at
@@ -174,23 +171,23 @@ export function taskFromRow(row: TaskRow): Task {
 }
 
 /**
- * A local comment's author is a stored attribution; an older row holds a label
- * (`'You'`, `'agent'`), read as `legacyTaskActor` reads it. An upstream comment's
- * author is the other system's name for them.
+ * A task's comment, from its thread row. A local comment's author is the
+ * attribution the host stamped; an upstream comment's author is the other
+ * system's name for them, never a local user.
  */
-function commentFromRow(row: TaskCommentRow): TaskComment {
+export function taskCommentOf(taskId: string, thread: ThreadRecord): TaskComment {
   const comment: TaskComment = {
-    id: row.id,
-    taskId: row.task_id,
-    source: row.source,
-    body: row.body,
-    createdAt: row.created_at,
+    id: thread.threadId,
+    taskId,
+    source: thread.source,
+    body: thread.body,
+    createdAt: thread.createdAt,
   }
-  if (row.source === 'external') comment.externalAuthor = row.author
-  else comment.author = parseStoredAttribution(row.author) ?? (row.author ? legacyTaskActor(row.author, row.origin_session_id) : hostAttribution())
-  if (row.external_id !== null) comment.externalId = row.external_id
-  if (row.origin_session_id !== null) comment.originSessionId = row.origin_session_id
-  if (row.dirty === 1) comment.syncPending = true
+  if (thread.author.kind === 'external') comment.externalAuthor = thread.author.name
+  else comment.author = thread.author
+  if (thread.external) comment.externalId = thread.external.id
+  if (thread.originSessionId !== null) comment.originSessionId = thread.originSessionId
+  if (thread.deliveryState === 'pending') comment.syncPending = true
   return comment
 }
 
@@ -228,15 +225,27 @@ export async function taskLocation(scope: RecordScope, id: string, db: Db = data
  * provider everywhere it is listed — not only on the detail page, which is the
  * one surface that separately reads the full sync state.
  */
-const TASK_SELECT = sql`
-  SELECT
-    tasks.*,
+const TASK_EXTERNAL_LINK_COLUMNS = sql`
     task_external_links.provider AS external_provider,
     task_external_links.external_id AS external_id,
     task_external_links.url AS external_url
   FROM ${tasks}
   LEFT JOIN ${taskExternalLinks} ON task_external_links.task_id = tasks.id
 `
+/** The task's compact pull request (`Task.pr`): the URL of its newest own pull request link, one index seek per row. */
+const TASK_PR_URL = sql`(SELECT resource_links.url FROM ${resourceLinks}
+    WHERE resource_links.source_kind = 'task' AND resource_links.source_id = tasks.id AND resource_links.target_kind = 'pr' AND resource_links.url IS NOT NULL
+    ORDER BY resource_links.created_at DESC LIMIT 1) AS pr_url`
+const TASK_SELECT = sql`SELECT tasks.*, ${TASK_PR_URL}, ${TASK_EXTERNAL_LINK_COLUMNS}`
+
+/** The board list never shows a body or an epic, so the list statement selects
+ *  neither; the detail read (`taskRow`) still selects every column. */
+const TASK_SUMMARY_SELECT = sql`SELECT ${sql.join(
+  tasks.columnNames()
+    .filter((name) => name !== 'body' && name !== 'epic')
+    .map((name) => sql`${sql.identifier('tasks')}.${sql.identifier(name)}`),
+  sql`, `,
+)}, ${TASK_PR_URL}, ${TASK_EXTERNAL_LINK_COLUMNS}`
 
 /**
  * Every read names the scope the caller may see (organization-scope §3): one
@@ -271,7 +280,7 @@ export async function readTaskMetadataPage(where: SQL, limit: number): Promise<T
     ? sql`'' AS body`
     : sql`${sql.identifier('tasks')}.${sql.identifier(name)}`)
   const rows = taskRowSchema.array().parse(await database().all(sql`
-    SELECT ${sql.join(columns, sql`, `)}, task_external_links.provider AS external_provider,
+    SELECT ${sql.join(columns, sql`, `)}, ${TASK_PR_URL}, task_external_links.provider AS external_provider,
       task_external_links.external_id AS external_id, task_external_links.url AS external_url
     FROM ${tasks} LEFT JOIN ${taskExternalLinks} ON task_external_links.task_id = tasks.id
     WHERE ${where} ORDER BY tasks.created_at DESC, tasks.id DESC LIMIT ${limit}
@@ -347,7 +356,7 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
       id, short_id, project_key, title, title_source, body, status,
       assignee, assignee_user_id, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
-      triaged_at, done_at, organization_id, owner_key
+      triaged_at, done_at, organization_id, created_by
     ) VALUES (
       ${id}, ${await nextShortId(db)}, ${projectKey}, ${title}, ${input.titleSource},
       ${input.body ?? ''}, ${input.status},
@@ -368,7 +377,7 @@ export async function listTasks(
   scope: RecordScope,
   filter: TaskListFilter = {},
   taskIds?: readonly string[],
-): Promise<TaskListResult> {
+): Promise<{ tasks: TaskSummary[] }> {
   const clauses: SQL[] = [scopeClause(scope, sql`tasks.organization_id`), TASK_HERE]
   if (taskIds) {
     if (!taskIds.length) return { tasks: [] }
@@ -392,12 +401,12 @@ export async function listTasks(
   if (filter.scope === 'project') clauses.push(sql`project_key IS NOT NULL`)
   if (filter.scope === 'up_next') clauses.push(sql`status IN ('todo', 'in_progress', 'in_review')`)
 
-  const rows = taskRowSchema.array().parse(await database().all(sql`
-    ${TASK_SELECT}
+  const rows = taskSummaryRowSchema.array().parse(await database().all(sql`
+    ${TASK_SUMMARY_SELECT}
     WHERE ${sql.join(clauses, sql` AND `)}
     ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
   `))
-  return { tasks: rows.map(taskFromRow) }
+  return { tasks: rows.map(taskSummaryFromRow) }
 }
 
 const unfinishedTaskRowSchema = z.object({ id: z.string(), project_key: z.string().nullable() })
@@ -411,13 +420,10 @@ export async function unfinishedTaskProjects(scope: RecordScope): Promise<Map<st
   return new Map(rows.map((row) => [row.id, row.project_key]))
 }
 
-export async function commentsForTask(taskId: string, db: Db): Promise<TaskComment[]> {
-  const rows = taskCommentRowSchema.array().parse(await db.all(sql`
-    SELECT * FROM ${taskComments}
-    WHERE task_id = ${taskId}
-    ORDER BY created_at, id
-  `))
-  return rows.map(commentFromRow)
+/** The task's comments, oldest first; two written in one millisecond keep their id order. */
+export async function commentsForTask(organizationId: string, taskId: string, db: Db): Promise<TaskComment[]> {
+  const threads = await readThreads(db, { organizationId, kind: 'task', id: taskId })
+  return threads.map((thread) => taskCommentOf(taskId, thread))
 }
 
 /**

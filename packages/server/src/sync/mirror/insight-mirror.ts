@@ -1,4 +1,4 @@
-import type { LogEventRow, SpanRow } from '../../data/insights/span-table'
+import { splitSpanTexts, type LogEventRow, type SpanRow } from '../../data/insights/span-table'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { isOrganizationAttached } from '../../host/organization-attachment'
 import { appendDelivery } from '../delivery-queue'
@@ -67,6 +67,20 @@ function sendTurn(traceId: string): number {
   return appendDelivery({ organizationId: turn.organizationId, actorUserId: turn.actorUserId }, 'insights', [{ key: traceId, payload: { spans: turn.spans } }]).count
 }
 
+type WireSpan = TurnSpans[number]['span']
+
+/**
+ * The span as the mirror carries it: its long texts (a turn's prompt, system
+ * prompt, and response; a thought) as `texts`, beside an `attrs` without them —
+ * the split the host's own table makes (plans/029 §6), so the service stores
+ * them as `insight_span_texts` and the cross-host trace view shows every one.
+ */
+function mirroredSpan(span: SpanRow): WireSpan {
+  const stored = splitSpanTexts(span.attrs)
+  if (stored.texts.length === 0) return span
+  return { ...span, attrs: stored.attrs, texts: Object.fromEntries(stored.texts.map(({ name, text }) => [name, text])) }
+}
+
 /**
  * Route from the session organization captured at turn admission. Setup spans
  * can finish before the session record exists; later assignment must not
@@ -76,7 +90,10 @@ function sendTurn(traceId: string): number {
 export async function mirrorInsightSpan(span: SpanRow, events: LogEventRow[], eventIds: number[]): Promise<number> {
   const organizationId = span.organizationId
   if (!span.sessionId || !organizationId || !insightsEligible(organizationId)) return 0
-  const entry = { span, events: events.map((event, index) => ({ ...event, eventId: eventIds[index] })) }
+  const entry = {
+    span: mirroredSpan(span),
+    events: events.map((event, index) => ({ ...event, eventId: eventIds[index] })),
+  }
   const turn = openTurns.get(span.traceId) ?? { organizationId, actorUserId: span.userId ?? '', spans: [] }
   turn.spans.push(entry)
   openTurns.set(span.traceId, turn)

@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import type { ExternalCommentCommand, WorkExternalComments } from '@solus/contracts/work-comments'
 import { docProviderAdapter } from '../../docs/registry'
-import { DocCommentRequestError } from '../../docs/types'
+import { DocCommentRequestError, type DocCommentsAdapter } from '../../docs/types'
+import type { WorkExternalLink } from '@solus/contracts/docs'
 import type { RecordScope } from '../../admission/principal'
 import { loadWork } from './works'
-import { loadWorkAnnotations, saveExternalComments } from './work-annotations'
+import { readExternalComments, saveExternalComments } from './work-annotations'
 import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 
 const text = z.string().trim().min(1).max(10000)
@@ -26,27 +27,36 @@ async function locked<T>(workId: string, action: () => Promise<T>): Promise<T> {
   try { return await next } finally { if (locks.get(workId) === next) locks.delete(workId) }
 }
 
-async function context(scope: RecordScope, workId: string) {
+/** The external state a flow holds, and the version it must name to write it back. */
+interface ExternalCommentContext {
+  ref: WorkExternalLink
+  comments: DocCommentsAdapter
+  state: WorkExternalComments
+  version: number
+}
+
+async function context(scope: RecordScope, workId: string): Promise<ExternalCommentContext> {
   const work = await loadWork(scope, workId)
   if (work?.type !== 'doc' || !work.mirroredDoc) throw new Error('This work is not linked to an external document.')
   const documentId = work.mirroredDoc.externalId
   const { provider, externalKey } = work.mirroredDoc
-  const annotations = await loadWorkAnnotations(scope, workId)
-  const stored = annotations?.externalComments
-  const legacy = provider === 'gdrive' && annotations?.googleComments?.documentId === documentId ? annotations.googleComments : undefined
+  const { state: stored, version } = await readExternalComments(scope, workId)
+  // Only the state of the document the work is linked to now: a relinked work starts over.
   const state: WorkExternalComments = stored?.documentId === documentId && stored.provider === provider && stored.externalKey === externalKey
-    ? stored : { ...(legacy ?? { documentId, threads: [], operations: [] }), provider, externalKey }
+    ? stored : { documentId, threads: [], operations: [], provider, externalKey }
   const comments = docProviderAdapter(work.mirroredDoc.provider).comments
   if (!comments) throw new Error('This document provider does not support comments.')
   state.capabilities = { actions: comments.actions, limitations: comments.limitations }
-  return { ref: work.mirroredDoc, comments, state }
+  return { ref: work.mirroredDoc, comments, state, version }
 }
 
-async function persist(scope: RecordScope, workId: string, state: WorkExternalComments): Promise<void> {
+/** Write the flow's state back at the version it holds, and hold the new one for its next write. */
+async function persist(scope: RecordScope, workId: string, context: ExternalCommentContext): Promise<void> {
   // A work may be unlinked or linked elsewhere while the request is in flight.
   const work = await loadWork(scope, workId)
+  const { state } = context
   if (work?.mirroredDoc?.provider !== state.provider || work.mirroredDoc.externalId !== state.documentId || work.mirroredDoc.externalKey !== state.externalKey) throw new Error('The external document link changed. Refresh this work.')
-  await saveExternalComments(scope, workId, state)
+  context.version = await saveExternalComments(scope, workId, state, context.version)
   notifyAnnotationsChanged({ kind: 'work', targetId: workId })
 }
 
@@ -56,13 +66,14 @@ export async function readWorkExternalComments(scope: RecordScope, workId: strin
 
 export async function refreshWorkExternalComments(scope: RecordScope, workId: string): Promise<WorkExternalComments> {
   return locked(workId, async () => {
-    const { ref, comments, state } = await context(scope, workId)
+    const held = await context(scope, workId)
+    const { ref, comments, state } = held
     try {
       state.threads = await comments.list(ref)
       state.checkedAt = Date.now()
       delete state.error
     } catch (error) { state.error = error instanceof Error ? error.message : String(error) }
-    await persist(scope, workId, state)
+    await persist(scope, workId, held)
     return state
   })
 }
@@ -86,7 +97,8 @@ function requireThreadAction(command: ExternalCommentCommand, state: WorkExterna
 export async function sendWorkExternalComment(scope: RecordScope, workId: string, input: ExternalCommentCommand): Promise<WorkExternalComments> {
   const command = commandSchema.parse(input)
   return locked(workId, async () => {
-    const { ref, comments, state } = await context(scope, workId)
+    const held = await context(scope, workId)
+    const { ref, comments, state } = held
     validateCommandTarget(command, state)
     const existing = state.operations.find(operation => operation.requestId === command.requestId)
     if (existing) {
@@ -104,7 +116,7 @@ export async function sendWorkExternalComment(scope: RecordScope, workId: string
     operation.status = 'sending'
     delete operation.error
     if (!existing) state.operations.push(operation)
-    await persist(scope, workId, state)
+    await persist(scope, workId, held)
     try {
       operation.result = await comments.mutate(ref, command.kind === 'share'
         ? { action: 'create', text: command.text, quote: command.quote }
@@ -117,13 +129,13 @@ export async function sendWorkExternalComment(scope: RecordScope, workId: string
       operation.error = error instanceof Error ? error.message : String(error)
     }
     // Persist acknowledgement BEFORE read-back; failed refresh must never cause reposting.
-    await persist(scope, workId, state)
+    await persist(scope, workId, held)
     try {
       state.threads = await comments.list(ref)
       state.checkedAt = Date.now()
       delete state.error
     } catch (error) { state.error = error instanceof Error ? error.message : String(error) }
-    await persist(scope, workId, state)
+    await persist(scope, workId, held)
     return state
   })
 }

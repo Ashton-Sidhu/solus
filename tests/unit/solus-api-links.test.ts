@@ -64,9 +64,9 @@ test('a link put twice is one row, and the route answers 204', async () => {
   const link = { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: work.id } }
   expect((await call('PUT', '/links', link)).status).toBe(204)
   expect((await call('PUT', '/links', link)).status).toBe(204)
-  expect(await count(sql`SELECT COUNT(*) AS n FROM task_links WHERE task_id = ${task.id}`)).toBe(1)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(1)
   expect((await call('DELETE', '/links', link)).status).toBe(204)
-  expect(await count(sql`SELECT COUNT(*) AS n FROM task_links WHERE task_id = ${task.id}`)).toBe(0)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
 })
 
 test('a caller who is not an editor of `from` is refused, and nothing is written', async () => {
@@ -74,7 +74,7 @@ test('a caller who is not an editor of `from` is refused, and nothing is written
   const work = await operations.createWork(bob, { title: "Bob's doc", type: 'doc', content: '# Doc' }, key())
   await expect(operations.putLink(bob, { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: work.id } })).rejects.toMatchObject({ status: 404 })
   await expect(operations.putLink(bob, { from: { kind: 'session', id: 's1' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/1' } })).rejects.toMatchObject({ status: 404 })
-  expect(await count(sql`SELECT COUNT(*) AS n FROM task_links WHERE task_id = ${task.id}`)).toBe(0)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
   // A pair that is not a link is refused before anything is read.
   await expect(operations.putLink(alice, { from: { kind: 'task', id: task.id }, to: { kind: 'file', path: '/plan.md', hostId: 'runner-A' } })).rejects.toThrow('cannot link a file')
 })
@@ -88,24 +88,25 @@ test('a link that crosses organizations is refused', async () => {
   // Even a caller that may read both ends cannot join two organizations.
   const system: WorkspaceRequestContext = { ...alice, principal: { kind: 'system' } }
   await expect(operations.putLink(system, link)).rejects.toThrow('one organization')
-  expect(await count(sql`SELECT COUNT(*) AS n FROM task_links WHERE task_id = ${task.id}`)).toBe(0)
+  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
 })
 
-test('each (from, to) pair writes its own table, and a delete by the same key removes it', async () => {
+test('each (from, to) pair writes its own edge, and a delete by the same key removes it', async () => {
   const task = await operations.createTask(alice, { title: 'Every pair' }, key())
   const work = await operations.createWork(alice, { title: 'Doc', type: 'doc', content: '# Doc' }, key())
   const fromTask = { kind: 'task' as const, id: task.id }
   const fromSession = { kind: 'session' as const, id: 's1' }
-  const taskLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM task_links WHERE task_id = ${task.id} AND kind = ${kind}`)
-  const sessionLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM session_links WHERE session_id = 's1' AND link_id LIKE ${kind + ':%'}`)
-  const workSessions = async () => z.object({ meta: z.string() }).parse(await database.getDatabase().get(sql`SELECT meta FROM works WHERE id = ${work.id}`)).meta
-  const sessionPrs = () => count(sql`SELECT COUNT(*) AS n FROM session_pull_requests WHERE session_id = 's1' AND source <> 'dismissed'`)
+  const taskLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id} AND target_kind = ${kind}`)
+  const sessionLinks = (kind: string) => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'session' AND source_id = 's1' AND target_kind = ${kind}`)
+  const workSessions = async () => z.object({ source_id: z.string() }).array().parse(await database.getDatabase().all(sql`
+    SELECT source_id FROM resource_links WHERE source_kind = 'session' AND target_kind = 'work' AND target_key = ${work.id} AND relation = 'member'`)).map((row) => row.source_id)
+  const sessionPrs = () => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'session' AND source_id = 's1' AND target_kind = 'pr' AND status <> 'dismissed'`)
   const pairs: Array<[WorkspaceLink, () => Promise<unknown>]> = [
     [{ from: fromTask, to: { kind: 'work', id: work.id } }, () => taskLinks('work')],
     [{ from: fromTask, to: { kind: 'plan', sessionId: 's1', planId: 'toolu_plan' } }, () => taskLinks('plan')],
     [{ from: fromTask, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/3' } }, () => taskLinks('pr')],
     [{ from: fromTask, to: { kind: 'automation', id: 'auto-1', hostId: 'runner-A' } }, () => taskLinks('automation')],
-    [{ from: fromTask, to: { kind: 'session', id: 's1' }, role: 'referenced' }, () => count(sql`SELECT COUNT(*) AS n FROM task_session_links WHERE task_id = ${task.id} AND session_id = 's1'`)],
+    [{ from: fromTask, to: { kind: 'session', id: 's1' }, role: 'referenced' }, () => taskLinks('session')],
     [{ from: fromSession, to: { kind: 'file', path: '/repo/plan.md', hostId: 'runner-A' } }, () => sessionLinks('file')],
     [{ from: fromSession, to: { kind: 'automation', id: 'auto-1', hostId: 'runner-A' } }, () => sessionLinks('automation')],
     [{ from: fromSession, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/4' } }, sessionPrs],
@@ -116,11 +117,11 @@ test('each (from, to) pair writes its own table, and a delete by the same key re
     await operations.deleteLink(alice, { from: link.from, to: link.to })
     expect([link.to.kind, await rows()]).toEqual([link.to.kind, 0])
   }
-  // A session's work is the work's own membership.
+  // A session's work is the session's membership of the work.
   await operations.putLink(alice, { from: fromSession, to: { kind: 'work', id: work.id } })
-  expect(JSON.parse(await workSessions()).sessionIds).toEqual(['s1'])
+  expect(await workSessions()).toEqual(['s1'])
   await operations.deleteLink(alice, { from: fromSession, to: { kind: 'work', id: work.id } })
-  expect(JSON.parse(await workSessions()).sessionIds).toEqual([])
+  expect(await workSessions()).toEqual([])
   // A session's file is its execution host's.
   await expect(operations.putLink(alice, { from: fromSession, to: { kind: 'file', path: '/repo/plan.md', hostId: 'runner-B' } })).rejects.toThrow('execution host')
 })

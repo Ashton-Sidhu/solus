@@ -1,17 +1,18 @@
 import { readOwnSessionArtifacts } from './session-artifacts'
+import { session as sessionTable } from './schema'
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
 import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { SearchQuery } from '@solus/contracts/search-query'
-import { runnerPrincipalFor, type RecordScope } from '../../admission/principal'
+import { isAnyOrganization, runnerPrincipalFor, type RecordScope } from '../../admission/principal'
 import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, worktreeProjectRoot, type SessionRecord } from '@solus/contracts/types'
 import { workspaceSessionAdmissionRequestSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
 import type { WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceSessionLinkList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
-import { getDatabase } from '../../db/database'
+import { getDatabase, type Db } from '../../db/database'
 import { searchIndexFor } from '../../db/search-index'
 import { sessionMessagesRebuilding } from '../../db/session-indexer'
-import { searchSessionIndex } from '../../db/session-search'
+import { matchSessionIndex, pageSessionMatches } from '../../db/session-search'
 import { isApiMode } from '../../host/api-mode'
 import { SolusApiError } from '../../admission/workspace-error'
 import type { ShareManager } from '../../sharing/share-manager'
@@ -21,11 +22,11 @@ import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
 import { getSessionRecord, readSessionListPage, readSessionMetadataPage, sessionRecordsIndexing, upsertSessionRecord, type SessionPageReader } from './session-records'
 import { readApiTranscript } from './api-transcript'
-import { admitSessionRecord, SessionAdmissionConflict, type SessionAdmission } from './session-admissions'
-import { resolveSessionLineageById } from './session-lineage'
-import { readSessionPullRequests } from './session-pull-requests'
+import { admitSession, SessionAdmissionConflict, type SessionAdmission } from './session-identity'
+import { onSessionPullRequestsChanged, readSessionPullRequests } from './session-pull-requests'
 import { sessionsWithPendingAsyncQuestion } from './async-questions'
 import { SessionShelf, SessionViewer } from './session-states'
+import { personalResourceState } from '../personal-state/schema'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { authorize } from '../../admission/access-policy'
@@ -33,18 +34,30 @@ import type { WorkspaceRequestContext } from '../../admission/workspace-credenti
 
 /**
  * The words each session is also known by: the number and title of each pull
- * request linked to it, keyed by every provider thread of the session, since
- * the transcript index names a session by its thread.
+ * request linked to it, by session id (the search names a thread's session
+ * before it asks). Every link in scope is read once, and the answer is kept
+ * until a link changes: a search runs on each keystroke, a link changes rarely.
  */
-async function pullRequestNames(scope: RecordScope): Promise<Map<string, string>> {
-  const names = new Map<string, string>()
-  for (const [sessionId, links] of Object.entries(await readSessionPullRequests(scope))) {
-    const text = links.map(link => `#${link.number} ${link.title}`).join('\n')
-    const threads = resolveSessionLineageById(sessionId)?.members.flatMap(member => member.providerSessionId ? [member.providerSessionId] : []) ?? []
-    for (const id of [sessionId, ...threads]) names.set(id, text)
+let pullRequestNamesByScope = new WeakMap<Db, Map<string, Promise<Map<string, string>>>>()
+onSessionPullRequestsChanged(() => { pullRequestNamesByScope = new WeakMap() })
+
+function pullRequestNames(scope: RecordScope): Promise<Map<string, string>> {
+  const db = getDatabase()
+  let byScope = pullRequestNamesByScope.get(db)
+  if (!byScope) pullRequestNamesByScope.set(db, byScope = new Map())
+  const key = isAnyOrganization(scope) ? '' : scope
+  let names = byScope.get(key)
+  if (!names) {
+    names = readSessionPullRequests(scope).then((bySession) =>
+      new Map(Object.entries(bySession).map(([sessionId, links]) => [sessionId, links.map(link => `#${link.number} ${link.title}`).join('\n')])))
+    byScope.set(key, names)
+    names.catch(() => byScope.delete(key))
   }
   return names
 }
+
+/** The records of ten thousand sessions are asked for in lists of this many. */
+const READABLE_CHUNK = 500
 
 type SearchRequest = ReturnType<typeof workspaceSessionSearchQuerySchema.parse>
 type SearchHit = WorkspaceSessionSearchResult['items'][number]['additionalMatches'][number]
@@ -112,7 +125,7 @@ export class SessionApiOperations {
 
   /** One record with the caller's view, or 404. */
   private async readOne(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession> {
-    const [record] = await readSessionMetadataPage(sql.join([...this.visible(context), sql`session_records.session_id = ${sessionId}`], sql` AND `), 1, 'created_at', this.reader(context))
+    const [record] = await readSessionMetadataPage(sql.join([...this.visible(context), sql`session.session_id = ${sessionId}`], sql` AND `), 1, 'created_at', this.reader(context))
     if (!record) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
     return (await this.records(context, [record]))[0]
   }
@@ -189,8 +202,8 @@ export class SessionApiOperations {
 
   /** The records a caller may read: its scope, then what sharing and parentage let it see. */
   private visible(context: WorkspaceRequestContext): SQL[] {
-    return [scopeClause(apiScope(context), sql`session_records.organization_id`),
-      workspaceResourceVisibility(context.principal, 'session', { id: sql`session_records.session_id`, organization: sql`session_records.organization_id`, owner: sql`session_records.owner_key` })]
+    return [scopeClause(apiScope(context), sql`session.organization_id`),
+      workspaceResourceVisibility(context.principal, 'session', { id: sql`session.session_id`, organization: sql`session.organization_id`, owner: sql`session.created_by` })]
   }
 
   /**
@@ -206,7 +219,7 @@ export class SessionApiOperations {
       throw new SolusApiError(403, 'FORBIDDEN', 'Only a host acting for a person admits a session.')
     }
     try {
-      const admission = await admitSessionRecord({ organizationId: context.home.organizationId, admissionId: input.sessionId, hostId: delegation.hostId, ownerKey: context.principal.userId })
+      const admission = await admitSession({ organizationId: context.home.organizationId, admissionId: input.sessionId, hostId: delegation.hostId, ownerKey: context.principal.userId })
       if (input.record) await this.writeAdmittedRecord(admission, input.record)
       return { sessionId: admission.admissionId, organizationId: admission.organizationId, ownerKey: admission.ownerKey, hostId: admission.hostId, admittedAt: new Date(admission.createdAt).toISOString() }
     } catch (error) {
@@ -216,17 +229,18 @@ export class SessionApiOperations {
   }
 
   /**
-   * The session record is written where the session is admitted
-   * (docs/plans/simplify-auth-and-sync.md §4.5): an agent's first write that names
-   * the session finds it here. Later facts arrive in the host's delivery. A record
-   * that exists is left as it is, so asking again changes nothing.
+   * The session's first facts are written where the session is admitted
+   * (docs/plans/simplify-auth-and-sync.md §4.5): the admission made the row, and
+   * this starts it, so an agent's first write that names the session finds its
+   * record here. Later facts arrive in the host's delivery. A record that exists
+   * is left as it is, so asking again changes nothing.
    */
   private async writeAdmittedRecord(admission: SessionAdmission, record: NonNullable<WorkspaceSessionAdmissionRequest['record']>): Promise<void> {
     const { organizationId, admissionId: sessionId, hostId, ownerKey } = admission
     if (await getSessionRecord(organizationId, sessionId)) return
     await upsertSessionRecord(organizationId, {
       sessionId, provider: record.provider, projectPath: record.projectPath, cwd: record.cwd, projectRoot: record.cwd ? worktreeProjectRoot(record.cwd) : null, lastActivityAt: admission.createdAt, runnerHostId: hostId, status: 'running',
-    }, { organizationId, published: true, ownerKey })
+    })
     // A new session is the organization's to open; a chat is its owner's alone until they share it (plan 004 D14).
     if (!record.privateToOwner) await this.shares.shareRunnerWrite({ kind: 'session', id: sessionId }, runnerPrincipalFor({ hostId, organizationId, ownerUserId: ownerKey, expiresAt: Date.now() }), ownerKey)
   }
@@ -243,7 +257,7 @@ export class SessionApiOperations {
     const byActivity = query.order === 'activity'
     const time = byActivity ? 'last_activity_at' : 'created_at'
     const filters = [...this.visible(context),
-      seekClause(sql`session_records.${sql.identifier(time)}`, sql`session_records.session_id`, readCursor(query.cursor))]
+      seekClause(sql`session.${sql.identifier(time)}`, sql`session.session_id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`project_remote = ${await projectKeyForId(context, query.projectId)}`)
     if (query.repositoryKey) filters.push(sql`project_remote = ${query.repositoryKey}`)
     if (query.projectPath !== undefined) {
@@ -253,12 +267,12 @@ export class SessionApiOperations {
         ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`
         : sql`project_path = ${encoded}`)
     }
-    if (query.chats === 'true') filters.push(sql`session_records.place = 'chat'`)
+    if (query.chats === 'true') filters.push(sql`session.place = 'chat'`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
     // Top-level sessions, or the ones one session started; the caller's session list
     // unless they ask for every session they may read (docs/plans/session-archive.md).
     const reader = this.reader(context)
-    filters.push(query.parentSessionId ? sql`session_records.parent_session_id = ${query.parentSessionId}` : sql`session_records.parent_session_id IS NULL`)
+    filters.push(query.parentSessionId ? sql`session.parent_session_id = ${query.parentSessionId}` : sql`session.parent_session_id IS NULL`)
     const where = sql.join(filters, sql` AND `)
     const records = query.scope === 'list' && !query.parentSessionId
       ? await readSessionListPage(where, query.limit + 1, time, reader)
@@ -284,7 +298,7 @@ export class SessionApiOperations {
     if (hits.length === 0) return { items: [], total, indexing }
     const ids = [...new Set(hits.map(hit => hit.sessionId))]
     const records = await readSessionMetadataPage(sql.join([...this.visible(context),
-      sql`session_records.session_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`], sql` AND `), ids.length, 'created_at', this.reader(context))
+      sql`session.session_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`], sql` AND `), ids.length, 'created_at', this.reader(context))
     const sessions = new Map((await this.records(context, records)).map(session => [session.id, session]))
     const items: WorkspaceSessionSearchResult['items'] = []
     for (const hit of hits) {
@@ -298,26 +312,44 @@ export class SessionApiOperations {
     return { items, total, indexing }
   }
 
+  /**
+   * Of the named sessions, the ones the caller may read, each with when the
+   * caller last read it (a sign of use that reorders message matches), or null.
+   * One primary-key read per session named, in lists of `READABLE_CHUNK`.
+   */
+  private async readableViews(context: WorkspaceRequestContext, sessionIds: readonly string[]): Promise<Map<string, number | null>> {
+    const { personKey } = this.reader(context)
+    const views = new Map<string, number | null>()
+    for (let start = 0; start < sessionIds.length; start += READABLE_CHUNK) {
+      const chunk = sessionIds.slice(start, start + READABLE_CHUNK)
+      const rows = await getDatabase().all<{ session_id: string; viewed_at: number | null }>(sql`
+        SELECT session.session_id, reader_view.viewed_at FROM ${sessionTable}
+        LEFT JOIN ${personalResourceState} AS reader_view
+          ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session.session_id
+          AND reader_view.organization_id = session.organization_id AND reader_view.created_by = ${personKey ?? ''}
+        WHERE ${sql.join(this.visible(context), sql` AND `)} AND session.started_at IS NOT NULL
+          AND session.session_id IN (${sql.join(chunk.map(id => sql`${id}`), sql`, `)})`)
+      for (const row of rows) views.set(row.session_id, row.viewed_at)
+    }
+    return views
+  }
+
   private async indexedHits(context: WorkspaceRequestContext, query: SearchRequest): Promise<HitsPage> {
     // A machine's index knows its checkouts, not their repositories: it is searched by `projectRoot`.
     if (query.repositoryKey) throw new SolusApiError(400, 'INVALID_REQUEST', 'A machine searches one project by projectRoot; repositoryKey is answered by the workspace service.')
-    // When each was last read is a sign of use that reorders message matches.
-    const readable = await getDatabase().all<{ session_id: string; viewed_at: number | string | null }>(sql`
-      SELECT session_records.session_id, session_states.viewed_at FROM session_records
-      LEFT JOIN session_states ON session_states.session_id = session_records.session_id
-      WHERE ${sql.join(this.visible(context), sql` AND `)}`)
-    const page = searchSessionIndex(query.q, {
-      sessionIds: new Set(readable.map(row => row.session_id)),
-      viewedAt: new Map(readable.flatMap(row => row.viewed_at === null ? [] : [[row.session_id, Number(row.viewed_at)] as const])),
+    const match = matchSessionIndex(query.q, {
       projectRoot: query.projectRoot,
       chats: query.chats === 'true',
       providers: query.provider ? [query.provider] : undefined,
       namesOnly: query.namesOnly === 'true',
       activeSince: query.activeSince,
       metadata: await pullRequestNames(apiScope(context)),
-      limit: query.limit,
-      offset: query.offset,
     })
+    // The records are read for the matched sessions alone, never for the whole store.
+    const views = await this.readableViews(context, match.matched.map(({ candidate }) => candidate.sessionId))
+    const viewedAt = new Map<string, number>()
+    for (const [sessionId, at] of views) if (at !== null) viewedAt.set(sessionId, at)
+    const page = pageSessionMatches(match, { sessionIds: new Set(views.keys()), viewedAt, limit: query.limit, offset: query.offset })
     return {
       total: page.total,
       hits: page.results.map(result => ({
@@ -332,11 +364,12 @@ export class SessionApiOperations {
 
   private async mirroredHits(context: WorkspaceRequestContext, query: SearchRequest): Promise<HitsPage> {
     const records = [...this.visible(context)]
-    if (query.projectRoot) records.push(sql`session_records.project_root = ${query.projectRoot}`)
-    if (query.repositoryKey) records.push(sql`session_records.project_remote = ${query.repositoryKey}`)
-    if (query.chats === 'true') records.push(sql`session_records.place = 'chat'`)
-    if (query.provider) records.push(sql`session_records.provider = ${query.provider}`)
-    if (query.activeSince !== undefined) records.push(sql`session_records.last_activity_at >= ${query.activeSince}`)
+    if (query.projectRoot) records.push(sql`session.project_root = ${query.projectRoot}`)
+    if (query.repositoryKey) records.push(sql`session.project_remote = ${query.repositoryKey}`)
+    if (query.chats === 'true') records.push(sql`session.place = 'chat'`)
+    if (query.provider) records.push(sql`session.provider = ${query.provider}`)
+    if (query.activeSince !== undefined) records.push(sql`session.last_activity_at >= ${query.activeSince}`)
+    records.push(sql`session.started_at IS NOT NULL`)
     const db = getDatabase()
     const search = new SearchQuery(query.q)
     const page = await searchIndexFor(db.engine).searchSessions(db, {

@@ -17,8 +17,9 @@ fingerprint.
 
 ## Vocabulary
 
-- **watch** — a session watching one pull request that it links. One row of
-  `session_pull_request_watches`. A watch has a `watchId`, new at each start.
+- **watch** — a session watching one pull request that it links: the watch
+  fields of the session's pull request edge in `resource_links`
+  (plans/029 §3.5). A watch has a `watchId`, new at each start.
 - **watcher** — `PrWatcher` (`prs/pr-watcher.ts`), the host service that reads
   watched pull requests and wakes sessions.
 - **fingerprint** — a short summary of a pull request that changes when
@@ -137,7 +138,7 @@ belongs to a session, not to a task.
     through that reader so the two cannot drift.
 13. **A watch acts for a person** (`docs/plans/019-acting-identity.md` when
     present; `vault/acting-scope.ts`). Starting a watch stores the acting
-    person's user key (`acting_user_key`; null is the host). The watcher reads
+    person's user key (`watch_user_id`; null is the host). The watcher reads
     each person's watches inside `withUserScope`, with that person's GitHub
     account, and keeps its read state per person and pull request. A wake runs
     as that person through `unattendedActorFor`, as an automation runs as its
@@ -149,10 +150,12 @@ belongs to a session, not to a task.
 
 ## Data
 
-`data/sessions/schema.ts`: `session_pull_request_watches` (`session_id`,
-`repository`, `number`, `watch_id`, `started_at`, `state` JSON,
-`organization_id`), primary key `(session_id, repository, number)`.
-Migrations generated with `bun run db:generate`.
+`data/links/schema.ts`: the watch fields of a session's pull request edge in
+`resource_links` (`watch_id`, `watch_started_at`, `watch_user_id`,
+`watch_state` JSON), all set or all null, with the partial unique index
+`resource_links_watch ON (watch_id) WHERE watch_id IS NOT NULL`. A dismissed
+edge holds no watch; unlinking and a branch replacement clear the watch in
+the same transaction. Baselines generated with `bun run db:generate`.
 
 `state` is `PullRequestWatchState`: the head it last saw, the failed checks
 reported on that head, whether the pass was reported and the required checks it

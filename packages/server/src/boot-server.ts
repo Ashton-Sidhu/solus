@@ -36,7 +36,8 @@ import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhoo
 import { registerWebhookHandlers } from './transport/handlers/webhook-handlers'
 import { setWebhookToolServices } from './execution/agents/tools/webhook-tools'
 import { takeSecretRef } from './execution/sessions/secret-requests'
-import { readDelivery, sweepSeenKeys } from './data/webhooks/webhook-store'
+import { readDelivery } from './data/webhooks/webhook-store'
+import { sweepExpiredReceipts } from './data/receipts/operation-receipts'
 import { mirrorWebhook, mirrorWebhookDelivery } from './sync/mirror/webhook-mirror'
 import { RunnerDelivery } from './sync/runner-delivery'
 import { unattendedOrganizationRefusal, type TurnOrganizationDeps } from './execution/sessions/turn-organization'
@@ -46,7 +47,7 @@ import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
-import { hasLeftOrganization, removeDepartedMembers } from './host/departed-members'
+import { removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
 import { LiveActivityRelay } from './host/live-activity-relay'
 import { activityLeases } from './execution/activity-leases'
@@ -433,7 +434,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         case 'task': return taskOrganizationId(resource.id)
       }
     },
-    hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(hostOrganizations.current(), organizationId, userId),
     // A member reaches this host with a host access token, which needs the registration (host-sharing.md §4.3), never the link.
     membersReachable: () => apiMode || registrar.current() !== null,
   })
@@ -603,7 +603,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
-    onSessionReadStateChanged((sessionId, viewedAt) => events.broadcast('session.readStateChanged', { sessionId, viewedAt })),
+    // A read boundary is the reader's own: only their connections hear it move.
+    onSessionReadStateChanged((change) => {
+      const recipients = personConnections.of(change.personKey, change.organizationId)
+      if (recipients.length) void events.publish(recipients, 'session.readStateChanged', { sessionId: change.sessionId, viewedAt: change.viewedAt })
+    }),
     // A link carries whether it is watched (docs/plans/pr-watch.md).
     onPullRequestWatchesChanged((sessionId) => {
       events.broadcast('session.pullRequestsChanged', { sessionId })
@@ -1470,9 +1474,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     for (const id of new Set([...paused, ...pausedWebhooks])) if (paused.has(id) !== pausedWebhooks.has(id)) void webhookService.announce(id)
     pausedWebhooks = paused
   })
-  // The one sweeper of expired replay keys and delivery IDs.
+  // The one sweeper of expired operation receipts: API retry keys, replay keys, and delivery IDs, one bounded batch an hour.
   setInterval(() => {
-    sweepSeenKeys(Date.now()).catch((err) => log.warn('webhook_seen_keys_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
+    sweepExpiredReceipts(Date.now()).catch((err) => log.warn('operation_receipts_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 60 * 60 * 1000).unref()
 
   const { server: http, requestListener, solusApiRouter, doors } = buildHttpServer({

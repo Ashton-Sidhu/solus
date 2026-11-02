@@ -1,14 +1,14 @@
 import type { WorkTransfer } from '@solus/contracts/work-transfer'
-import { loadWorkAnnotations } from './work-annotations'
+import { importWorkAnnotations, loadWorkAnnotations } from './work-annotations'
 import { createHash, randomUUID } from 'node:crypto'
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { createLogger } from '../../logger'
-import { afterDatabaseCommit, getDatabase } from '../../db/database'
+import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import type { AgentId, Work, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
 import { attributionSchema, type Attribution } from '@solus/contracts/user'
 import { documentContentHash } from '../../docs/content-hash'
-import { workAnnotations, workRevisions, works } from './schema'
+import { workRevisions, works } from './schema'
 import { type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { Work as WorkEntity, validateWorkContent } from './work'
@@ -16,12 +16,17 @@ import { workLiveBridge } from './work-live-bridge'
 import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { recordNewMentions } from '../activity/mentions'
-import { hostAttribution } from '../stored-attribution'
+import { agentAttribution, hostAttribution } from '../stored-attribution'
 import { hostUserKey } from '../../host/host-user'
+import { resourceLinks } from '../links/schema'
+import { sessionOwner } from '../links/resource-links'
+import { ensureSessionRow } from '../sessions/session-identity'
 import {
   REVISION_COLUMNS,
-  WORK_COLUMNS,
+  authorJson,
   copyRevision,
+  memberSessionIdsColumn,
+  workMetaColumns,
   epochMs,
   insertBaseline,
   insertWorkRow,
@@ -31,6 +36,7 @@ import {
   revisionSummaryFromRow,
   revisionReasonSchema,
   workFromRow,
+  workMetaRowSchema,
   workRow,
   workRowSchema,
   type WorkBody,
@@ -60,11 +66,28 @@ const workRefRowSchema = z.object({
 
 const database = getDatabase
 
-/** A new work row and its baseline checkpoint, in one transaction. */
+/**
+ * A session that makes a work is its first member (docs/plans/session-artifacts.md):
+ * the edge every artifacts list reads, beside the origin the row keeps for access.
+ * Written by the work's owner, in the work's transaction.
+ */
+async function insertOriginMembership(db: Db, organizationId: string, workId: string, sessionId: string, ownerKey: string, author: Attribution | null, now: number): Promise<void> {
+  await ensureSessionRow(sessionId, db)
+  const createdBy = await sessionOwner(db, sessionId) ?? ownerKey
+  await db.run(sql`
+    INSERT INTO ${resourceLinks}(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
+    VALUES (${organizationId}, 'session', ${sessionId}, 'work', '', ${workId}, 'member', ${author?.kind === 'user' ? 'manual' : 'agent'}, 'active',
+      ${authorJson(author ?? agentAttribution(sessionId))}, ${createdBy}, ${now})
+    ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
+  `)
+}
+
+/** A new work row, its baseline checkpoint, and its origin's membership, in one transaction. */
 async function insertNewWork(organizationId: string, ownerKey: string, id: string, meta: WorkMeta, content: string, author: Attribution | null): Promise<Work> {
   const body: WorkBody = { content, contentVersion: 1, contentHash: documentContentHash(content), contentAuthor: author }
   await database().transaction(async (db) => {
     await insertWorkRow(db, organizationId, ownerKey, id, meta, body)
+    if (meta.sessionId) await insertOriginMembership(db, organizationId, id, meta.sessionId, ownerKey, author, epochMs(meta.createdAt))
     await insertBaseline(db, organizationId, id, body, epochMs(meta.updatedAt))
     await recordNewMentions(db, organizationId, { kind: 'work', id, title: meta.title }, author ?? hostAttribution(), '', content)
     emitWorkChanged({ workId: id, version: meta.updatedAt, contentVersion: body.contentVersion })
@@ -133,12 +156,13 @@ export async function duplicateWork(scope: RecordScope, id: string, ownerKey: st
 /**
  * `dirty` cannot be stored, only derived: a work's content changes without the
  * link being touched. Every state the provider owns — conflict, error, upstream
- * change — is stored and left alone here.
+ * change — is stored and left alone here. `contentHash` is the row's stored
+ * hash of its body, so a list derives the state without reading a body.
  */
-function withDerivedSyncState<T extends WorkMeta>(meta: T, content: string): T {
+function withDerivedSyncState<T extends WorkMeta>(meta: T, contentHash: string): T {
   const link = meta.mirroredDoc
   if (!link || link.syncState !== 'ok' && link.syncState !== 'dirty') return meta
-  const dirty = link.lastPushedContentHash !== documentContentHash(content)
+  const dirty = link.lastPushedContentHash !== contentHash
   if ((link.syncState === 'dirty') === dirty) return meta
   return { ...meta, mirroredDoc: { ...link, syncState: dirty ? 'dirty' : 'ok' } }
 }
@@ -158,7 +182,7 @@ export async function loadWork(scope: RecordScope, id: string): Promise<Work | n
     const row = await workRow(database(), scope, id)
     if (!row) return null
     const work = workFromRow(row)
-    return withDerivedSyncState(work, work.content)
+    return withDerivedSyncState(work, work.contentHash)
   } catch (err: any) {
     log.error('work_load_failed', { workId: id, error: err instanceof Error ? err.message : String(err) })
     return null
@@ -167,15 +191,15 @@ export async function loadWork(scope: RecordScope, id: string): Promise<Work | n
 
 export async function listWorks(scope: RecordScope): Promise<(WorkMeta & { id: string })[]> {
   try {
-    const rows = workRowSchema.array().parse(await database().all(sql`
-      SELECT ${WORK_COLUMNS}
+    const rows = workMetaRowSchema.array().parse(await database().all(sql`
+      SELECT ${workMetaColumns(database().engine)}
       FROM ${works}
       WHERE ${scopeClause(scope)} AND location IS NULL
       ORDER BY updated_at DESC, id
     `))
     return rows.map((row) => ({
       id: row.id,
-      ...withDerivedSyncState(metaFromRow(row), row.content ?? ''),
+      ...withDerivedSyncState(metaFromRow(row), row.content_hash),
     }))
   } catch (err: any) {
     log.error('works_list_failed', { error: err instanceof Error ? err.message : String(err) })
@@ -189,7 +213,7 @@ export async function readWorkMetadataPage(where: SQL, limit: number): Promise<(
     ? sql`NULL AS content`
     : sql`${sql.identifier('works')}.${sql.identifier(name)}`)
   const rows = workRowSchema.array().parse(await database().all(sql`
-    SELECT ${sql.join(columns, sql`, `)} FROM ${works}
+    SELECT ${sql.join(columns, sql`, `)}, ${memberSessionIdsColumn(database().engine)} FROM ${works}
     WHERE ${where} AND location IS NULL ORDER BY created_at DESC, id DESC LIMIT ${limit}
   `))
   return rows.map(row => ({ id: row.id, ...metaFromRow(row) }))
@@ -258,17 +282,18 @@ type WorkSnapshot = Omit<WorkTransfer, 'fingerprint'>
  * The fingerprint names the content, not the home: the same work in `local`
  * and in the organization it was published to hashes the same, so the
  * destination can tell a retry from a different version. It covers the body,
- * every revision, the previous-version reference, and the comments. Both
- * sides assemble these records with the same row readers, so their keys come
- * in the same order.
+ * every revision, the previous-version reference, and the comments; not the
+ * comments' `updatedAt`, which is each host's own clock. Both sides assemble
+ * these records with the same row readers, so their keys come in the same order.
  */
 export function workTransferFingerprint(snapshot: WorkSnapshot): string {
   const { organizationId: _organizationId, ...work } = snapshot.work
+  const annotations = snapshot.annotations && { comments: snapshot.annotations.comments, externalComments: snapshot.annotations.externalComments }
   return createHash('sha256').update(JSON.stringify({
     work,
     previousRevisionId: snapshot.previousRevisionId,
     revisions: snapshot.revisions,
-    annotations: snapshot.annotations,
+    annotations,
   })).digest('hex')
 }
 
@@ -323,8 +348,10 @@ export async function importWorkFromHost(organizationId: string, transfer: WorkT
       return imported
     }
     await insertWorkRow(db, organizationId, ownerKey, work.id, imported, imported, previousRevisionId)
+    // Membership travels with the work: the same edges here make a retried upload fingerprint the same.
+    for (const sessionId of imported.sessionIds ?? []) await insertOriginMembership(db, organizationId, work.id, sessionId, ownerKey, null, epochMs(work.createdAt))
     for (const revision of revisions) await copyRevision(db, organizationId, revision)
-    if (annotations) await db.run(sql`INSERT INTO ${workAnnotations} (work_id, data, updated_at, organization_id) VALUES (${work.id}, ${JSON.stringify(annotations)}, ${annotations.updatedAt}, ${organizationId})`)
+    if (annotations) await importWorkAnnotations(db, organizationId, work.id, annotations)
     emitWorkChanged({ workId: work.id, version: work.updatedAt, contentVersion: work.contentVersion })
     return imported
   })

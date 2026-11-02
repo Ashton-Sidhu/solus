@@ -1,23 +1,22 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { isImagePath, type SessionArtifact, type SessionArtifacts } from '@solus/contracts/session-artifacts'
-import { sessionLinkInputSchema } from '@solus/contracts/session-links'
 import { getDatabase } from '../../db/database'
 import { ANY_ORGANIZATION, type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
+import { resourceLinks } from '../links/schema'
 import { works } from '../works/schema'
 import { workTypeSchema } from '../works/work-rows'
-import { sessionLinks } from './schema'
 import { readSessionPullRequests } from './session-pull-requests'
 import { getSessionRecord, readSessionMetadataPage } from './session-records'
 import type { SessionRecord } from '@solus/contracts/types'
 
 /**
  * What a session produced or linked (docs/plans/session-artifacts.md): its
- * pull requests, the works linked to it, and its file and automation links,
- * read together. Nothing is stored here; each item comes from the record that
- * holds it. A lead also reads the artifacts of every session below it in its
- * delegation tree: the sessions it started, the ones they started, and so on.
+ * pull requests, the works it is a member of, and its file and automation
+ * links, read together from the session's edges in `resource_links`. Nothing
+ * is stored here. A lead also reads the artifacts of every session below it in
+ * its delegation tree: the sessions it started, the ones they started, and so on.
  */
 
 /** A lead starts few sessions; this only bounds a runaway read. */
@@ -46,18 +45,18 @@ export async function emitSessionArtifactsChanged(sessionId: string): Promise<vo
 }
 
 const workRowSchema = z.object({
+  session_id: z.string(),
+  linked_at: z.number(),
   id: z.string(),
   title: z.string().nullable(),
   type: workTypeSchema.nullable(),
-  session_id: z.string().nullable(),
-  meta: z.string().nullable(),
-  created_at: z.number(),
 })
-const workSessionsSchema = z.object({ sessionIds: z.array(z.string()).optional() })
 
 const linkRowSchema = z.object({
   session_id: z.string(),
-  target: z.string(),
+  target_kind: z.enum(['file', 'automation']),
+  host_id: z.string(),
+  target_key: z.string(),
   title: z.string(),
   linked_at: z.number(),
 })
@@ -66,42 +65,36 @@ function inList(ids: readonly string[]): SQL {
   return sql.join(ids.map((id) => sql`${id}`), sql`, `)
 }
 
-/** The works each session is a member of. `sessionIds` names the members; a
- *  work written before it existed has only its origin `session_id`. */
+/** The works each session is a member of, with when it was linked. */
 async function readWorkArtifacts(scope: RecordScope, sessionIds: readonly string[], into: Map<string, SessionArtifact[]>): Promise<void> {
-  const db = getDatabase()
-  const inMeta = db.engine === 'postgres'
-    ? sql.join(sessionIds.map((id) => sql`(meta::jsonb->'sessionIds') ? ${id}`), sql` OR `)
-    : sql`EXISTS (SELECT 1 FROM json_each(meta, '$.sessionIds') WHERE value IN (${inList(sessionIds)}))`
-  const rows = workRowSchema.array().parse(await db.all(sql`
-    SELECT id, title, type, session_id, meta, created_at FROM ${works}
-    WHERE ${scopeClause(scope)} AND location IS NULL
-      AND (session_id IN (${inList(sessionIds)}) OR ${inMeta})
+  const rows = workRowSchema.array().parse(await getDatabase().all(sql`
+    SELECT resource_links.source_id AS session_id, resource_links.created_at AS linked_at, works.id, works.title, works.type
+    FROM ${resourceLinks}
+    JOIN ${works} ON works.id = resource_links.target_key AND works.organization_id = resource_links.organization_id
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND resource_links.source_kind = 'session' AND resource_links.target_kind = 'work'
+      AND resource_links.relation = 'member' AND resource_links.status = 'active' AND works.location IS NULL
+      AND resource_links.source_id IN (${inList(sessionIds)})
   `))
   for (const row of rows) {
-    const members = (row.meta ? workSessionsSchema.parse(JSON.parse(row.meta)).sessionIds : undefined)
-      ?? (row.session_id ? [row.session_id] : [])
-    for (const sessionId of members) {
-      // The work has no time of each link; the time it was made stands for it.
-      into.get(sessionId)?.push({ kind: 'work', workId: row.id, title: row.title ?? '', workType: row.type ?? 'doc', linkedAt: row.created_at })
-    }
+    into.get(row.session_id)?.push({ kind: 'work', workId: row.id, title: row.title ?? '', workType: row.type ?? 'doc', linkedAt: row.linked_at })
   }
 }
 
 async function readLinkArtifacts(scope: RecordScope, sessionIds: readonly string[], into: Map<string, SessionArtifact[]>): Promise<void> {
   const rows = linkRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT session_id, target, title, linked_at FROM ${sessionLinks}
-    WHERE ${scopeClause(scope)} AND session_id IN (${inList(sessionIds)})
+    SELECT resource_links.source_id AS session_id, resource_links.target_kind, resource_links.target_scope AS host_id, resource_links.target_key,
+      resource_links.title, resource_links.created_at AS linked_at
+    FROM ${resourceLinks}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND resource_links.source_kind = 'session'
+      AND resource_links.target_kind IN ('file', 'automation') AND resource_links.source_id IN (${inList(sessionIds)})
   `))
   for (const row of rows) {
-    const target = sessionLinkInputSchema.shape.target.parse(JSON.parse(row.target))
     const items = into.get(row.session_id)
     if (!items) continue
-    // Work links are held by the work (`readWorkArtifacts`), never in this table.
-    if (target.kind === 'file') {
-      items.push({ kind: isImagePath(target.path) ? 'image' : 'file', hostId: target.hostId, path: target.path, title: row.title, linkedAt: row.linked_at })
-    } else if (target.kind === 'automation') {
-      items.push({ kind: 'automation', hostId: target.hostId, automationId: target.targetId, title: row.title, linkedAt: row.linked_at })
+    if (row.target_kind === 'file') {
+      items.push({ kind: isImagePath(row.target_key) ? 'image' : 'file', hostId: row.host_id, path: row.target_key, title: row.title, linkedAt: row.linked_at })
+    } else {
+      items.push({ kind: 'automation', hostId: row.host_id, automationId: row.target_key, title: row.title, linkedAt: row.linked_at })
     }
   }
 }
@@ -133,7 +126,7 @@ async function readDelegatedSessions(scope: RecordScope, sessionId: string): Pro
   let level = [sessionId]
   while (level.length > 0 && found.length < MAX_DELEGATED_SESSIONS) {
     const children = (await readSessionMetadataPage(
-      sql`${scopeClause(scope, sql`session_records.organization_id`)} AND session_records.parent_session_id IN (${inList(level)})`,
+      sql`${scopeClause(scope, sql`session.organization_id`)} AND session.parent_session_id IN (${inList(level)})`,
       MAX_DELEGATED_SESSIONS - found.length,
     )).reverse().filter((child) => !seen.has(child.sessionId))
     for (const child of children) seen.add(child.sessionId)

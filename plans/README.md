@@ -18,7 +18,7 @@ organization-scope rules, and the eight structural principles. Section 4.2 of
 | --- | --- |
 | [022](022-remove-unused-saved-prompts.md) – [027](027-operation-receipts.md) | ABSORBED into 029 §3; kept as history, not executed on their own |
 | [028 Query and storage findings](028-query-and-storage-findings.md) | ABSORBED into 029 §6–§8; its tables remain the evidence record (file:line, plans, timings) |
-| [029 Fresh database baseline](029-fresh-database-baseline.md) | PLAN — complete, including §4.2: one `session` row (records + states + leads + admissions, PASS), `transcript_index` stays a sibling (keyed by provider thread id); 74 → 62 tables |
+| [029 Fresh database baseline](029-fresh-database-baseline.md) | IMPLEMENTED on `main` (2026-11-02; not deployed; local databases must be deleted before the next start): one `0000_baseline.sql` per database, 74 → 60 tables in `solus.db` plus 3 in `metrics.db`; PostgreSQL concurrency gates and the live runtime not exercised |
 
 Validation record: `data-model-validation/README.md` (58 thread and 74
 relationship checks passed in SQLite fixtures; application integration and

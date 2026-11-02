@@ -406,7 +406,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   tasksRecordActivity: 'read', tasksComment: 'edit', tasksDeleteComment: 'edit', tasksPublishComments: 'edit', tasksPublish: 'edit',
   tasksSyncNow: 'edit', tasksLink: 'edit', tasksUnlink: 'edit', tasksAttachArtifact: 'edit',
   // Owner only: transfer, and taking the record off its host (docs/plans/cloud-sharing.md)
-  shareTransfer: 'own', workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
+  workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
   // Automations (access-model.md §4 D4): the owner, or an administrator as an editor, reads,
   // changes, runs, and deletes one. Listing and creating are host-wide; a list is filtered.
   automationRead: 'read', automationListRuns: 'read', automationReadRun: 'read',

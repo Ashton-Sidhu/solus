@@ -54,7 +54,7 @@ describe('the record of a new session', () => {
     expect(await recordOf('chat-1')).toMatchObject({ place: 'chat', startedBy: { kind: 'automation', automationId: 'automation-1', runId: 'run-1' } })
     expect(await recordOf('project-1')).toMatchObject({ place: 'project', startedBy: { kind: 'webhook', webhookId: 'webhook-1', deliveryId: 'delivery-1' } })
     // The machine index reads the same facts.
-    expect(indexer.getIndexedSession('chat-1')).toMatchObject({ place: 'chat', startedBy: { kind: 'automation' } })
+    expect(indexer.getIndexedSession('chat-1')).toMatchObject({ place: 'chat' })
   })
 
   test('keeps its first place and starter: a later report never changes them', async () => {

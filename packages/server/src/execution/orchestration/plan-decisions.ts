@@ -38,10 +38,11 @@ export async function recordPlanDecision(
     status,
     comments: [...(existing?.comments ?? []), ...thread],
     bookmarked: existing?.bookmarked ?? false,
-    updatedAt: Date.now(),
+    // The state this copy was read at: the threads it carries are the plan's as of then, plus the note.
+    updatedAt: existing?.updatedAt ?? 0,
   }
   if (existing?.bookmarkedAt !== undefined) annotations.bookmarkedAt = existing.bookmarkedAt
-  await saveAnnotations(ANY_ORGANIZATION, annotations)
+  await saveAnnotations(ANY_ORGANIZATION, annotations, by)
   notifyAnnotationsChanged({ kind: 'plan', targetId: `${sessionId}__${plan.planToolUseId}` })
   return true
 }

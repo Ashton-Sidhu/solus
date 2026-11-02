@@ -206,6 +206,36 @@ describe('a session rename', () => {
   })
 })
 
+describe('who an activity names', () => {
+  test('created_by is the signed-in person the actor acts for: an agent its session owner, an automation its creator, the system the host user', async () => {
+    // WHY (plans/029 decision 2): every activity row names a person, so a person's
+    // rows are found without parsing the attribution; `by_kind` keeps who acted.
+    const { seedResource } = await import('./helpers/resource-rows')
+    const { getDatabase } = await import('@solus/server/db/database')
+    const { sql } = await import('drizzle-orm')
+    await seedResource(getDatabase(), 'session', 's-agent', 'bob', 'local')
+    db.getDb().prepare("INSERT INTO automations (id, created_by, organization_id) VALUES ('a1', 'cara', 'local')").run()
+    const subject = { kind: 'task' as const, id: 't-who' }
+    const change = { kind: 'task_changed' as const, change: 'created' as const }
+    const rows = [
+      activityModule.newActivity(subject, { kind: 'user', user: BOB }, change, 1),
+      activityModule.newActivity(subject, { kind: 'agent', sessionId: 's-agent' }, change, 2),
+      activityModule.newActivity(subject, { kind: 'agent', sessionId: 's-agent', for: { id: { kind: 'account', accountId: 'dana' }, displayName: 'Dana' } }, change, 3),
+      activityModule.newActivity(subject, { kind: 'automation', automationId: 'a1' }, change, 4),
+      activityModule.newActivity(subject, { kind: 'system' }, change, 5),
+    ]
+    for (const row of rows) await activityModule.appendActivity('local', row)
+    const stored = await getDatabase().all<{ by_kind: string; created_by: string }>(sql`SELECT by_kind, created_by FROM activity WHERE subject_id = 't-who' ORDER BY at`)
+    expect(stored).toEqual([
+      { by_kind: 'user', created_by: 'bob' },
+      { by_kind: 'agent', created_by: 'bob' },
+      { by_kind: 'agent', created_by: 'dana' },
+      { by_kind: 'automation', created_by: 'cara' },
+      { by_kind: 'system', created_by: hostUser.hostUserKey() },
+    ])
+  })
+})
+
 describe('task changes on the activity record', () => {
   test('a new task change is a `task_changed` activity with its doer, and goes with its task', async () => {
     const by = { kind: 'user' as const, user: BOB }

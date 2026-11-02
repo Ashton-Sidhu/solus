@@ -410,7 +410,7 @@ export function makeCodexPlan(opts: {
     excerpt: extractCodexPlanExcerpt(opts.content),
     planContent: opts.content,
     derivedStatus: status,
-    commentCount: ann?.comments?.length ?? 0,
+    commentCount: ann?.commentCount ?? 0,
     bookmarked: !!ann?.bookmarked,
     bookmarkedAt: ann?.bookmarkedAt,
   }

@@ -5,7 +5,6 @@ import { createLogger } from '../logger'
 import { PermanentApplyError } from './outbox/outbox-store'
 import { runnerDeliveryCursors } from './outbox/schema'
 import { getSessionRecord, upsertSessionRecord } from '../data/sessions/session-records'
-import { readSessionAdmission } from '../data/sessions/session-admissions'
 import { applyMirrorItem } from './mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from '../admission/principal'
@@ -54,36 +53,35 @@ const cursorRowSchema = z.object({ last_seq: z.number() })
 async function readCursor(db: Db, runner: RunnerPrincipal): Promise<number> {
   const row = cursorRowSchema.nullish().parse(await db.get(sql`
     SELECT last_seq FROM ${runnerDeliveryCursors}
-    WHERE organization_id = ${runner.organizationId} AND host_id = ${runner.hostId} AND actor_user_id = ${runner.ownerUserId}
+    WHERE organization_id = ${runner.organizationId} AND host_id = ${runner.hostId} AND user_id = ${runner.ownerUserId}
   `))
   return row?.last_seq ?? 0
 }
 
 async function writeCursor(db: Db, runner: RunnerPrincipal, seq: number): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${runnerDeliveryCursors} (organization_id, host_id, actor_user_id, last_seq, updated_at)
+    INSERT INTO ${runnerDeliveryCursors} (organization_id, host_id, user_id, last_seq, updated_at)
     VALUES (${runner.organizationId}, ${runner.hostId}, ${runner.ownerUserId}, ${seq}, ${Date.now()})
-    ON CONFLICT (organization_id, host_id, actor_user_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at = excluded.updated_at
+    ON CONFLICT (organization_id, host_id, user_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at = excluded.updated_at
   `)
 }
 
 /**
  * A session's facts as the host holds them. The owner is established once, from
- * verified authority (organization-vms §4): the person whose admission created the
- * record at the API, or, for a session no admission names, the person delivering.
- * Facts never name or change the owner, and a replay restores nothing.
+ * verified authority (organization-vms §4): the person whose admission made the
+ * session's row at the API, or, for a session no admission made, the person
+ * delivering. Facts never name or change the owner, and a replay restores nothing.
  */
 async function applySessionFacts(runner: RunnerPrincipal, upsert: SessionRecordUpsert, shares: ShareManager | undefined): Promise<void> {
-  const { admissionId, privateToOwner, ...facts } = upsert
+  const { admissionId: _admissionId, privateToOwner, ...facts } = upsert
   const existing = await getSessionRecord(runner.organizationId, facts.sessionId)
-  const admission = !existing && admissionId ? await readSessionAdmission(runner.organizationId, admissionId) : null
-  const owner = admission && admission.hostId === runner.hostId ? admission.ownerKey : runner.ownerUserId
   const record: SessionRecordUpsert = { ...facts, runnerHostId: runner.hostId }
-  // A host sends only published sessions, so the record it creates is published, owned by `owner`.
-  await upsertSessionRecord(runner.organizationId, record, { organizationId: runner.organizationId, published: true, ownerKey: owner })
+  // A host sends only published sessions, so a row the report makes is published, owned by the
+  // person delivering; a row the admission made keeps the person it named.
+  const stored = await upsertSessionRecord(runner.organizationId, record, { organizationId: runner.organizationId, published: true, ownerKey: runner.ownerUserId })
   // A new session is the organization's to open, like anything else the host writes here;
   // a chat is its owner's alone until they share it (plan 004 D14).
-  if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: facts.sessionId }, runner, owner)
+  if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: facts.sessionId }, runner, stored.ownerKey)
 }
 
 async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem & { kind: DeliveryKind }, deps: RunnerIntakeDeps): Promise<void> {

@@ -3,8 +3,9 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { solusDir } from '../../platform/paths'
 import { cacheStatements } from '../../db'
+import { runSqliteSchemaMigrations } from '../../db/sqlite-migrations'
 import { createMetricsViews } from './field-registry'
-import { runMetricsMigrations } from './migrations'
+import { storeTurnMeasures } from './turn-measures'
 
 let metricsDb: DatabaseSync | null = null
 let readOnlyMetricsDb: DatabaseSync | null = null
@@ -15,21 +16,26 @@ let abandonedTurnsClosed = false
  * A turn's row is open only while the process that started it runs, so before
  * this process writes its first span every open row belongs to a turn the host
  * stopped under. Left open, Insights would list it as running for ever. It ends
- * where its last recorded child ended, and is marked interrupted.
+ * where its last recorded child ended, is marked interrupted, and gets its
+ * measures as a turn that ended normally does.
  */
 export function closeAbandonedTurns(db: DatabaseSync): number {
   const lastChildEnd = `MAX(started_at, COALESCE((
     SELECT MAX(child.ended_at) FROM spans AS child
     WHERE child.trace_id = spans.trace_id AND child.span_id != spans.span_id
   ), started_at))`
-  const result = db.prepare(`
+  const rawRows: unknown = db.prepare(`
     UPDATE spans SET
       status = 'interrupted',
       ended_at = ${lastChildEnd},
       duration_ms = ${lastChildEnd} - started_at
     WHERE kind = 'turn' AND ended_at IS NULL
-  `).run()
-  return Number(result.changes)
+    RETURNING trace_id
+  `).all()
+  // SAFETY: RETURNING names the one column.
+  const closed = rawRows as Array<{ trace_id: string }>
+  for (const { trace_id } of closed) storeTurnMeasures(db, trace_id)
+  return closed.length
 }
 
 export function metricsDbPath(): string {
@@ -72,7 +78,7 @@ export function getMetricsDb(): DatabaseSync {
     openedDb.exec('PRAGMA foreign_keys = ON')
     openedDb.exec('PRAGMA busy_timeout = 5000')
     openedDb.exec('PRAGMA synchronous = NORMAL')
-    runMetricsMigrations(openedDb)
+    runSqliteSchemaMigrations(openedDb, 'metrics', 'metrics.db')
     createMetricsViews(openedDb)
     // Once per process: a reopen later in the same process would find this
     // process's own running turns open, and they are not abandoned.

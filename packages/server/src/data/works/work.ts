@@ -16,23 +16,29 @@ import { parseDiagram } from '@solus/contracts/diagram-types'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
 import { type RecordScope } from '../../admission/principal'
-import { workAnnotations, workRevisions, works, workLiveDocs } from './schema'
+import { workRevisions, works, workLiveDocs } from './schema'
+import { resourceLinks } from '../links/schema'
+import { creatorOf, deleteEdgesOf, edgeClause, provenanceOf, sessionOwner } from '../links/resource-links'
+import { claimSessionOwner, sessionIdentityOf } from '../sessions/session-identity'
+import { hostUserKey } from '../../host/host-user'
+import { deleteThreadsOf } from '../comments/comment-threads'
 import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { workLiveBridge } from './work-live-bridge'
 import { storageForWork } from './work-storage'
+import { deleteActivityFor } from '../activity/activity'
 import { recordNewMentions } from '../activity/mentions'
 import { removeNotificationsFor } from '../notifications/store'
 import { hostAttribution } from '../stored-attribution'
 import {
-  REVISION_COLUMNS,
+  REVISION_SUMMARY_COLUMNS,
   authorJson,
   insertRevision,
   isoTime,
   metaFromRow,
   metaJson,
   revisionRow,
-  revisionRowSchema,
+  revisionSummaryRowSchema,
   revisionSummaryFromRow,
   workFromRow,
   workLocation,
@@ -450,10 +456,10 @@ export class Work implements WorkRecord {
     return this.revision(revisionId)
   }
 
-  /** Every checkpoint, oldest first, without bodies. */
+  /** Every checkpoint, oldest first, without bodies: the statement selects none. */
   async revisions(): Promise<WorkRevisionSummary[]> {
-    const rows = revisionRowSchema.array().parse(await getDatabase().all(sql`
-      SELECT ${REVISION_COLUMNS} FROM ${workRevisions} WHERE work_id = ${this.id} ORDER BY rev
+    const rows = revisionSummaryRowSchema.array().parse(await getDatabase().all(sql`
+      SELECT ${REVISION_SUMMARY_COLUMNS} FROM ${workRevisions} WHERE work_id = ${this.id} ORDER BY rev
     `))
     return rows.map(revisionSummaryFromRow)
   }
@@ -496,15 +502,27 @@ export class Work implements WorkRecord {
     })
   }
 
-  /** A session's artifacts list its works, so each membership change is the session's too. */
-  async linkSession(sessionId: string): Promise<this> {
+  /**
+   * Make the session a member of the work: a session→work `member` edge of
+   * `resource_links` (plans/029 §5.1), which the session's artifacts list. The
+   * record moves, so every client's copy of the work learns its new member.
+   * `by` is who linked it; the edge is the session's, so with nobody named it
+   * is the session owner's.
+   */
+  async linkSession(sessionId: string, by: Attribution | null = null): Promise<this> {
     await this.mutate(async (db, row) => {
-      const meta = metaFromRow(row)
-      const sessionIds = meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])
-      if (!sessionIds.includes(sessionId)) sessionIds.push(sessionId)
-      meta.sessionIds = sessionIds
-      if (!meta.sessionId) meta.sessionId = sessionId
-      await writeMeta(db, row.id, meta)
+      // The edge is the session's; a session nobody recorded yet gets its row in the work's organization, as the host's.
+      await claimSessionOwner(sessionId, { ownerKey: hostUserKey(), organizationId: row.organization_id }, {}, db)
+      const sessionHome = await sessionIdentityOf(sessionId, db)
+      if (sessionHome && sessionHome.organizationId !== row.organization_id) throw new Error('A work and the session it belongs to are in one organization.')
+      const createdBy = await creatorOf(by ?? { kind: 'system' }, () => sessionOwner(db, sessionId))
+      const added = (await db.run(sql`
+        INSERT INTO ${resourceLinks}(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
+        VALUES (${row.organization_id}, 'session', ${sessionId}, 'work', '', ${row.id}, 'member', ${by ? provenanceOf(by) : 'system'}, 'active',
+          ${authorJson(by)}, ${createdBy}, ${Date.now()})
+        ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
+      `)).changes > 0
+      if (added) await db.run(sql`UPDATE ${works} SET updated_at = ${nextUpdatedAt(row)} WHERE id = ${row.id}`)
     })
     await afterDatabaseCommit(async () => emitSessionArtifactsChanged(sessionId))
     return this
@@ -513,9 +531,10 @@ export class Work implements WorkRecord {
   /** The reverse of `linkSession`. The session that made the work stays its origin. */
   async unlinkSession(sessionId: string): Promise<this> {
     await this.mutate(async (db, row) => {
-      const meta = metaFromRow(row)
-      meta.sessionIds = (meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])).filter(id => id !== sessionId)
-      await writeMeta(db, row.id, meta)
+      const removed = (await db.run(sql`
+        DELETE FROM ${resourceLinks} WHERE ${edgeClause({ sourceKind: 'session', sourceId: sessionId, targetKind: 'work', targetScope: '', targetKey: row.id })}
+      `)).changes > 0
+      if (removed) await db.run(sql`UPDATE ${works} SET updated_at = ${nextUpdatedAt(row)} WHERE id = ${row.id}`)
     })
     await afterDatabaseCommit(async () => emitSessionArtifactsChanged(sessionId))
     return this
@@ -537,13 +556,16 @@ export class Work implements WorkRecord {
     })
   }
 
-  /** Permanently remove the work, its revisions (by cascade), and its annotations. */
+  /** Permanently remove the work, its revisions (by cascade), its comment threads, its edges, and its activity. */
   async delete(): Promise<void> {
     await getDatabase().transaction(async (db) => {
       const row = await workRow(db, this.#organizationId, this.id, true)
       if (!row) throw new Error(`Work not found: ${this.id}`)
       await (await storageForWork(db, this.#organizationId, this.id)).remove(db, this.#organizationId, this.id)
-      await db.run(sql`DELETE FROM ${workAnnotations} WHERE work_id = ${this.id}`)
+      // Threads and edges have no foreign key to cascade: their subject is polymorphic (plans/029 §5).
+      await deleteThreadsOf(db, { organizationId: row.organization_id, kind: 'work', id: this.id })
+      await deleteEdgesOf(db, 'work', this.id)
+      await deleteActivityFor({ kind: 'work', id: this.id }, db)
       await db.run(sql`DELETE FROM ${works} WHERE id = ${this.id}`)
       await removeNotificationsFor(db, row.organization_id, { kind: 'work', workId: this.id })
     })

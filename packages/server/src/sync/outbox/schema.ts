@@ -11,11 +11,12 @@ import { bigint, defineTable, text } from '../../db/schema/define-table'
 export const runnerDeliveryCursors = defineTable('runner_delivery_cursors', {
   organization_id: text({ notNull: true }),
   host_id: text({ notNull: true }),
-  actor_user_id: text({ notNull: true, default: '' }),
+  /** The person whose token delivers; '' is the person who linked the host. */
+  user_id: text({ notNull: true, default: '' }),
   last_seq: bigint({ notNull: true, default: 0 }),
   updated_at: bigint({ notNull: true }),
 }, {
-  primaryKey: ['organization_id', 'host_id', 'actor_user_id'],
+  primaryKey: ['organization_id', 'host_id', 'user_id'],
 })
 
 export const OUTBOX_TABLES = [runnerDeliveryCursors]
