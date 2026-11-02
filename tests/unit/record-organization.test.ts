@@ -56,7 +56,8 @@ describe('a record\'s organization', () => {
     // WHY: a record's organization is the boundary every scoped read trusts; a
     // second assignment would move rows between organizations behind their backs.
     expect(await own('s1')).toMatchObject({ organizationId: 'local', publication: 'local' })
-    expect(await records.assignSessionOrganization('s1', 'A')).toMatchObject({ sessionId: 's1', organizationId: 'A' })
+    // The answer is the session's home (plans/029 §4.2): the call named the session.
+    expect(await records.assignSessionOrganization('s1', 'A')).toMatchObject({ organizationId: 'A' })
     // Asking again for the same organization answers the record as it stands.
     expect(await records.assignSessionOrganization('s1', 'A')).toMatchObject({ organizationId: 'A' })
     // Another organization gets nothing, and the record stays where it is.
