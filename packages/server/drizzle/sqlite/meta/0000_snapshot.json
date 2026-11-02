@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "44a7277a-a19f-4887-a736-85b27a0db778",
+  "id": "48872a99-3bff-4e21-95df-6629eb3547a1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -214,7 +214,7 @@
           "name": "created_by",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "user_id": {

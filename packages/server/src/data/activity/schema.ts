@@ -6,9 +6,10 @@ import { bigint, defineTable, json, text } from '../../db/schema/define-table'
  * that table is rebuilt from provider files and would lose these rows.
  *
  * `data` is the whole `ActivityKind`, with `kind` beside it for queries; `by` is
- * the attribution as JSON, with `by_kind` and `created_by` (the acting person's
- * user id; null when no person acted) beside it so a read can find one person's
- * rows without parsing JSON; `user_id` does the same for the person a row is
+ * the attribution as JSON, with `by_kind` (user, agent, automation, upstream,
+ * system) and `created_by` (the signed-in person the actor acts for, never null:
+ * `actingPersonKey`) beside it so a read can find one person's rows without
+ * parsing JSON; `user_id` does the same for the person a row is
  * aimed at (a mention, a share).
  */
 export const activity = defineTable('activity', {
@@ -20,7 +21,7 @@ export const activity = defineTable('activity', {
   turn_id: text(),
   kind: text({ notNull: true }),
   by_kind: text({ notNull: true }),
-  created_by: text(),
+  created_by: text({ notNull: true }),
   /** The person the row is aimed at: who was mentioned, or shared with. */
   user_id: text(),
   by: json({ notNull: true }),

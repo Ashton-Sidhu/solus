@@ -103,7 +103,6 @@ const RESHAPING_ELSEWHERE = new Set<string>([])
  * default, a user id). Each is a decision the plan did not settle, kept visible here.
  */
 const CREATED_BY_DEVIATIONS: Record<string, string> = {
-  activity: 'nullable: an agent, automation, or system row has no acting person today',
 }
 
 /** An FTS5 virtual table's shadow tables, which SQLite makes and nothing declares. */

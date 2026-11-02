@@ -25,7 +25,7 @@ CREATE TABLE "activity" (
 	"turn_id" text,
 	"kind" text NOT NULL,
 	"by_kind" text NOT NULL,
-	"created_by" text,
+	"created_by" text NOT NULL,
 	"user_id" text,
 	"by" text NOT NULL,
 	"data" text DEFAULT '{}' NOT NULL

@@ -1,6 +1,11 @@
 import type { AgentId } from '@solus/contracts/types'
-import { attributionSchema, parseUserKey, type Attribution, type User } from '@solus/contracts/user'
-import { currentHostUser, hostUser, isHostUserKey } from '../host/host-user'
+import { attributionSchema, parseUserKey, userKey, type Attribution, type User } from '@solus/contracts/user'
+import { sql } from 'drizzle-orm'
+import { z } from 'zod'
+import { getDb } from '../db'
+import type { Db } from '../db/database'
+import { currentHostUser, hostUser, hostUserKey, isHostUserKey } from '../host/host-user'
+import { sessionOwner } from './links/resource-links'
 
 /**
  * Who did something, as a row stores it (plans/012-user-actor-and-activity.md §2):
@@ -63,4 +68,24 @@ export function agentAttribution(sessionId: string | null | undefined, provider?
   const agent: Attribution = { kind: 'agent', sessionId: sessionId ?? '' }
   if (provider) agent.provider = provider
   return agent
+}
+
+const creatorRowSchema = z.object({ created_by: z.string() })
+
+/**
+ * The signed-in person an attribution acts for (plans/029 decision 2): the user
+ * themselves; the person an agent or automation names with `for`; else an
+ * agent's session owner or an automation's creator; else the host's user, on
+ * whose behalf the host acts. Never null: every row names a person.
+ */
+export async function actingPersonKey(by: Attribution, db: Db): Promise<string> {
+  if (by.kind === 'user') return userKey(by.user.id)
+  if ((by.kind === 'agent' || by.kind === 'automation') && by.for) return userKey(by.for.id)
+  if (by.kind === 'agent') return (await sessionOwner(db, by.sessionId)) ?? hostUserKey()
+  if (by.kind === 'automation') {
+    // SAFETY: the statement selects one text column of the host table.
+    const row = creatorRowSchema.nullish().parse(getDb().prepare('SELECT created_by FROM automations WHERE id = ?').get(by.automationId))
+    return row?.created_by ?? hostUserKey()
+  }
+  return hostUserKey()
 }

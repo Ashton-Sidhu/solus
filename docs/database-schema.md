@@ -216,7 +216,9 @@ checks every table of both baselines).
   never transfers, so it is also the owner: `visibleTo` and `roleOf` read it
   on `tasks`, `works`, `webhooks`, `automations`, `integration`,
   `workspace_projects`, and `browser_profiles`; on `acl_entry` it is who made
-  the grant; on `activity` it is the acting person, null when no person acted.
+  the grant; on `activity` it is the signed-in person the actor acts for (an
+  agent's session owner, an automation's creator, else the host's user), with
+  `by_kind` naming the actor's kind.
 - `user_id`: the person a row is *for*, only where that can differ from the
   creator: `notifications` (the recipient), `activity` (who was mentioned or
   shared with), `delivery_queue` and `runner_delivery_cursors` (whose token

@@ -7,7 +7,7 @@ import { userKey, type Attribution, type UserId } from '@solus/contracts/user'
 import { getDatabase, type Db } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
-import { attributionJson, hostAttribution, parseStoredAttribution } from '../stored-attribution'
+import { actingPersonKey, attributionJson, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { activity as activityTable } from './schema'
 
 /**
@@ -48,7 +48,7 @@ async function insertActivity(organizationId: string, activity: Activity, db: Db
     INSERT INTO ${activityTable} (id, organization_id, subject_kind, subject_id, at, turn_id, kind, by_kind, created_by, user_id, by, data)
     VALUES (
       ${id}, ${organizationId}, ${subject.kind}, ${subject.id}, ${at}, ${turnId ?? null}, ${kind.kind},
-      ${by.kind}, ${by.kind === 'user' ? userKey(by.user.id) : null}, ${target ? userKey(target) : null},
+      ${by.kind}, ${await actingPersonKey(by, db)}, ${target ? userKey(target) : null},
       ${attributionJson(by)}, ${JSON.stringify(kind)}
     )
     ${onConflict}
