@@ -4,12 +4,6 @@ CREATE TABLE `activity_mirror_rows` (
 	PRIMARY KEY(`session_id`, `activity_id`)
 );
 --> statement-breakpoint
-CREATE TABLE `applied_ops` (
-	`op_id` text PRIMARY KEY NOT NULL,
-	`resource_id` text NOT NULL,
-	`applied_at` integer NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE `async_questions` (
 	`question_id` text PRIMARY KEY NOT NULL,
 	`session_id` text NOT NULL,

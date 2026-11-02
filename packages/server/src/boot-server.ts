@@ -36,7 +36,8 @@ import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhoo
 import { registerWebhookHandlers } from './transport/handlers/webhook-handlers'
 import { setWebhookToolServices } from './execution/agents/tools/webhook-tools'
 import { takeSecretRef } from './execution/sessions/secret-requests'
-import { readDelivery, sweepSeenKeys } from './data/webhooks/webhook-store'
+import { readDelivery } from './data/webhooks/webhook-store'
+import { sweepExpiredReceipts } from './data/receipts/operation-receipts'
 import { mirrorWebhook, mirrorWebhookDelivery } from './sync/mirror/webhook-mirror'
 import { RunnerDelivery } from './sync/runner-delivery'
 import { unattendedOrganizationRefusal, type TurnOrganizationDeps } from './execution/sessions/turn-organization'
@@ -1465,9 +1466,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     for (const id of new Set([...paused, ...pausedWebhooks])) if (paused.has(id) !== pausedWebhooks.has(id)) void webhookService.announce(id)
     pausedWebhooks = paused
   })
-  // The one sweeper of expired replay keys and delivery IDs.
+  // The one sweeper of expired operation receipts: API retry keys, replay keys, and delivery IDs, one bounded batch an hour.
   setInterval(() => {
-    sweepSeenKeys(Date.now()).catch((err) => log.warn('webhook_seen_keys_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
+    sweepExpiredReceipts(Date.now()).catch((err) => log.warn('operation_receipts_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 60 * 60 * 1000).unref()
 
   const { server: http, requestListener, solusApiRouter, doors } = buildHttpServer({

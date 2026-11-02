@@ -67,6 +67,30 @@ There is no additive migration. While the product has no deployed data this is
 the whole story; when it does, the first additive migration is a new decision
 and a new section here.
 
+## Operation receipts
+
+`operation_receipts` is the one ported table for a write that must happen once
+(plans/029-fresh-database-baseline.md §3.6). A row claims `(scope, namespace,
+key)` before the write it protects, in the same `Db` transaction, so the two
+commit or roll back together, and a concurrent claimer of the same identity
+waits on the primary key for that outcome. The receipt lives in the records
+engine with the records it protects; no host-file guard sits beside a records
+write. The namespaces and their policies are declared in
+`packages/server/src/data/receipts/operation-receipts.ts`; a caller never
+supplies a TTL.
+
+| Namespace | Scope | Key | Expiry | Duplicate |
+|---|---|---|---|---|
+| `api-create-task`, `api-create-work`, `api-create-comment` | the request authority | the retry key | 24 hours | same fingerprint: the stored result id, read again under current authorization; another fingerprint is a 409 |
+| `applied-operation` | `courier-owner` | the outbox op id | none | the op is applied; the applier does not run |
+| `webhook-delivery`, `webhook-replay` | the webhook id | the proven delivery id, the rendered replay key | 25 hours, 7 days | a duplicate delivery; an expired key is taken again |
+
+A row whose expiry has passed is replaced by the next claim of its identity. The
+hourly sweep (`sweepExpiredReceipts`) deletes at most 1000 expired rows a call,
+oldest expiry first, through the partial index `operation_receipts_expiry`; a
+row with no expiry is never swept. A webhook's receipts are deleted with it, by
+scope.
+
 ## Index rules
 
 - Every index has a reader. Before you add an index, name the query that uses

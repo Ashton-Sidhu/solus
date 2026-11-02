@@ -116,6 +116,16 @@ CREATE TABLE "notifications" (
 	"archived_at" bigint
 );
 --> statement-breakpoint
+CREATE TABLE "operation_receipts" (
+	"scope" text NOT NULL,
+	"namespace" text NOT NULL,
+	"key" text NOT NULL,
+	"request_hash" text,
+	"result_id" text,
+	"expires_at" bigint,
+	CONSTRAINT "operation_receipts_scope_namespace_key_pk" PRIMARY KEY("scope","namespace","key")
+);
+--> statement-breakpoint
 CREATE TABLE "plan_annotations" (
 	"session_id" text NOT NULL,
 	"plan_tool_use_id" text NOT NULL,
@@ -397,13 +407,6 @@ CREATE TABLE "webhook_deliveries" (
 	"actions" text DEFAULT '[]' NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "webhook_seen_keys" (
-	"kind" text NOT NULL,
-	"key" text NOT NULL,
-	"expires_at" bigint NOT NULL,
-	CONSTRAINT "webhook_seen_keys_kind_key_pk" PRIMARY KEY("kind","key")
-);
---> statement-breakpoint
 CREATE TABLE "webhooks" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text DEFAULT 'local' NOT NULL,
@@ -519,14 +522,6 @@ CREATE TABLE "works" (
 	"owner_key" text NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "workspace_api_receipts" (
-	"key" text PRIMARY KEY NOT NULL,
-	"request_hash" text NOT NULL,
-	"resource_kind" text NOT NULL,
-	"resource_id" text,
-	"expires_at" bigint NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "workspace_projects" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text DEFAULT 'local' NOT NULL,
@@ -568,6 +563,7 @@ CREATE INDEX "insight_spans_time_idx" ON "insight_spans" USING btree ("started_a
 CREATE UNIQUE INDEX "notifications_event" ON "notifications" USING btree ("organization_id","recipient_key","event_id");--> statement-breakpoint
 CREATE INDEX "notifications_for_recipient" ON "notifications" USING btree ("recipient_key","created_at","id");--> statement-breakpoint
 CREATE INDEX "notifications_by_resource" ON "notifications" USING btree ("organization_id","resource_key");--> statement-breakpoint
+CREATE INDEX "operation_receipts_expiry" ON "operation_receipts" USING btree ("expires_at","scope","namespace","key") WHERE expires_at IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "session_pull_requests_by_pull_request" ON "session_pull_requests" USING btree ("repository","number");--> statement-breakpoint
 CREATE INDEX "session_pull_requests_open" ON "session_pull_requests" USING btree ("session_id") WHERE source <> 'dismissed' AND (pr_state IS NULL OR pr_state NOT IN ('merged', 'closed', 'missing'));--> statement-breakpoint
 CREATE INDEX "sessions_api_page" ON "session_records" USING btree ("organization_id","created_at" desc,"session_id" desc);--> statement-breakpoint
@@ -590,7 +586,6 @@ CREATE INDEX "tasks_api_page" ON "tasks" USING btree ("organization_id","created
 CREATE INDEX "tasks_api_project_page" ON "tasks" USING btree ("organization_id","project_key","created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "tasks_api_status_page" ON "tasks" USING btree ("organization_id","status","created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "webhook_deliveries_by_webhook" ON "webhook_deliveries" USING btree ("webhook_id","arrived_at","id");--> statement-breakpoint
-CREATE INDEX "webhook_seen_keys_by_expiry" ON "webhook_seen_keys" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "webhooks_by_owner" ON "webhooks" USING btree ("organization_id","owner_key");--> statement-breakpoint
 CREATE INDEX "webhooks_by_project" ON "webhooks" USING btree ("project");--> statement-breakpoint
 CREATE INDEX "work_reviewers_reviewer" ON "work_reviewers" USING btree ("reviewer_id","requested_at" desc);--> statement-breakpoint
@@ -598,7 +593,6 @@ CREATE INDEX "work_storage_due" ON "work_storage" USING btree ("provider","due_a
 CREATE INDEX "works_api_page" ON "works" USING btree ("organization_id","created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "works_api_type_page" ON "works" USING btree ("organization_id","type","created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "works_by_session" ON "works" USING btree ("session_id") WHERE session_id IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "workspace_api_receipts_expiry" ON "workspace_api_receipts" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "workspace_projects_by_repository" ON "workspace_projects" USING btree ("organization_id","repository_key");
 --> statement-breakpoint
 -- The works search index on Postgres (packages/server/src/db/search-index.ts):

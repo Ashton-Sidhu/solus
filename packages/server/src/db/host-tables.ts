@@ -174,12 +174,6 @@ export const outboxOps = defineTable('outbox_ops', {
   ],
 })
 
-export const appliedOps = defineTable('applied_ops', {
-  op_id: text({ primaryKey: true }),
-  resource_id: text({ notNull: true }),
-  applied_at: bigint({ notNull: true }),
-})
-
 export const deliveryQueue = defineTable('delivery_queue', {
   seq: integer({ primaryKey: true }),
   kind: text({ notNull: true }),
@@ -337,7 +331,7 @@ export const turnFlags = defineTable('turn_flags', {
 export const HOST_TABLES = [
   sessions, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
   runs, runQueue, runExchanges, asyncQuestions,
-  outboxOps, appliedOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
+  outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, recentProjects, savedPrompts, automations, automationRuns, browserProfiles, browserProfileDefaults,
   integration, integrationConnection, notificationPrObservations, savedMetricsQueries, turnFlags,
 ] as const

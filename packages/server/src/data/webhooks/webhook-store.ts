@@ -19,7 +19,8 @@ import {
 import type { Attribution } from '@solus/contracts/user'
 import { getDatabase, type Db } from '../../db/database'
 import { attributionJson, parseStoredAttribution, hostAttribution } from '../stored-attribution'
-import { webhookDeliveries, webhooks, webhookSeenKeys } from './schema'
+import { deleteWebhookReceipts } from '../receipts/operation-receipts'
+import { webhookDeliveries, webhooks } from './schema'
 
 /**
  * The webhook records and their deliveries log (docs/plans/webhooks.md §3.3, §5).
@@ -137,7 +138,7 @@ export async function listWebhooks(where: SQL = sql`1 = 1`, db: Db = getDatabase
 export async function deleteWebhook(id: string, db: Db = getDatabase()): Promise<boolean> {
   return db.transaction(async (tx) => {
     await tx.run(sql`DELETE FROM ${webhookDeliveries} WHERE webhook_id = ${id}`)
-    await tx.run(sql`DELETE FROM ${webhookSeenKeys} WHERE key LIKE ${`${id}:%`}`)
+    await deleteWebhookReceipts(tx, id)
     const result = await tx.run(sql`DELETE FROM ${webhooks} WHERE id = ${id}`)
     return result.changes > 0
   })
@@ -147,28 +148,6 @@ export async function deleteWebhook(id: string, db: Db = getDatabase()): Promise
 export async function addLostRequests(id: string, count: number, at: number, db: Db = getDatabase()): Promise<boolean> {
   const result = await db.run(sql`UPDATE ${webhooks} SET lost_count = lost_count + ${count}, lost_at = ${at} WHERE id = ${id}`)
   return result.changes > 0
-}
-
-// ─── Seen keys (plan §2.5, §3.4) ───
-
-export type SeenKeyKind = 'delivery' | 'replay'
-
-/**
- * Records a key for `ttlMs`. True when it is new; false when the same key is
- * still unexpired. An expired key is taken again.
- */
-export async function claimSeenKey(kind: SeenKeyKind, webhookId: string, key: string, ttlMs: number, now: number, db: Db = getDatabase()): Promise<boolean> {
-  const result = await db.run(sql`
-    INSERT INTO ${webhookSeenKeys} (kind, key, expires_at) VALUES (${kind}, ${`${webhookId}:${key}`}, ${now + ttlMs})
-    ON CONFLICT (kind, key) DO UPDATE SET expires_at = excluded.expires_at
-    WHERE ${webhookSeenKeys}.expires_at <= ${now}
-  `)
-  return result.changes > 0
-}
-
-/** The one sweeper of expired seen keys. */
-export async function sweepSeenKeys(now: number, db: Db = getDatabase()): Promise<number> {
-  return (await db.run(sql`DELETE FROM ${webhookSeenKeys} WHERE expires_at <= ${now}`)).changes
 }
 
 // ─── Deliveries ───
