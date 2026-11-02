@@ -33,16 +33,6 @@
   <SettingsRow label="Display name">
     {#snippet control()}<Input aria-label="Provider display name" bind:value={draft.displayName} maxlength={120} />{/snippet}
   </SettingsRow>
-  <SettingsRow label="Accent color">
-    {#snippet control()}
-      <div class="flex items-center gap-2">
-        {#if draft.accentColor}<Button variant="ghost" size="sm" onclick={() => (draft.accentColor = null)}>Reset</Button>{:else}<span class="text-sm text-muted-foreground">None</span>{/if}
-        <label class="relative size-6 shrink-0 cursor-pointer rounded-full has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-ring {draft.accentColor ? 'ring-1 ring-black/10 ring-inset dark:ring-white/15' : 'border border-dashed border-muted-foreground/50'}" style:background-color={draft.accentColor}>
-          <input type="color" aria-label="Provider accent color" value={draft.accentColor ?? "#808080"} oninput={(event) => (draft.accentColor = event.currentTarget.value)} class="absolute inset-0 size-full cursor-pointer opacity-0" />
-        </label>
-      </div>
-    {/snippet}
-  </SettingsRow>
   <SettingsRow label="Enabled" description="A disabled instance refuses new turns. Running turns can finish.">
     {#snippet control()}<Switch checked={draft.enabled} onCheckedChange={(value) => (draft.enabled = value)} aria-label="Enable provider instance" />{/snippet}
   </SettingsRow>
@@ -108,4 +98,4 @@
   {/if}
 </div>
 {/if}
-<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Provider model default" description="Your personal default for this provider across projects and hosts. Changes save at once." />
+<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />

@@ -335,6 +335,39 @@ describe('agent pick on a session with a provider thread', () => {
   })
 })
 
+describe('opening a recorded session', () => {
+  // The focused tab runs Claude. Opening a Codex session from history used to
+  // keep that tab's Claude model beside the Codex provider.
+  test('runs on the model and effort the host recorded, not the focused tab’s', async () => {
+    const controller = await makeController(makeSettings({ 'claude-code': 'claude-opus-5-5' }))
+
+    const run = controller.threadRunFor({ provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'high' })
+
+    expect(run.provider).toBe('codex')
+    expect(run.modelConfig.modelId).toBe('gpt-6.1-sol')
+    expect(run.modelConfig.reasoningEffort).toBe('high')
+    expect(run.sessionSkills).toEqual([])
+  })
+
+  test('falls back to the provider’s default when the record names a model it does not run', async () => {
+    // WHY: a record from before a handoff can name the old provider's model;
+    // sending it to Codex would fail or substitute a model silently.
+    const controller = await makeController(makeSettings({}))
+
+    const run = controller.threadRunFor({ provider: 'codex', model: 'claude-opus-5-5' })
+
+    expect(run.modelConfig.modelId).toBe('gpt-6-astra')
+  })
+
+  test('never opens a thread on Auto', async () => {
+    // WHY: Auto only routes a first prompt; this session already has a thread.
+    const controller = await makeController(makeSettings({ codex: 'auto' }))
+
+    expect(controller.threadRunFor({ provider: 'codex' }).modelConfig.modelId).toBe('gpt-6-astra')
+    expect(controller.threadRunFor({ provider: 'codex', model: 'auto' }).modelConfig.modelId).toBe('gpt-6-astra')
+  })
+})
+
 describe('settings written against a draft composer', () => {
   test('change the draft, not the defaults every other composer reads', async () => {
     // WHY: a draft is the only composer a phone has before Send, so a write

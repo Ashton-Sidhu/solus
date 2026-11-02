@@ -37,7 +37,7 @@ const toast = Object.assign(
 
 mock.module("svelte-sonner", () => ({ toast }))
 
-const { toasts } = await import("@solus/workspace-ui/lib/toasts")
+const { toasts, isLongToastMessage } = await import("@solus/workspace-ui/lib/toasts")
 
 describe("toast service", () => {
   beforeEach(() => {
@@ -67,7 +67,7 @@ describe("toast service", () => {
     expect(calls[0]).toMatchObject({
       kind: "error",
       message: "Couldn't save",
-      options: { description: "Permission denied" },
+      options: { componentProps: { text: "Permission denied" } },
     })
   })
 
@@ -77,7 +77,7 @@ describe("toast service", () => {
     expect(calls[0]).toMatchObject({
       kind: "info",
       message: "Host found: laptop",
-      options: { description: "Ready to connect" },
+      options: { componentProps: { text: "Ready to connect" } },
     })
   })
 
@@ -177,7 +177,7 @@ describe("toast service", () => {
     expect(calls[2]).toMatchObject({
       kind: "success",
       message: "Committed and pushed",
-      options: { id: slotId, description: "feat: ship it", closeButton: true },
+      options: { id: slotId, componentProps: { text: "feat: ship it" }, closeButton: true },
     })
     // The spinner must not survive into the success toast.
     expect(calls[2].options?.class).toBeUndefined()
@@ -191,7 +191,60 @@ describe("toast service", () => {
     expect(calls[1]).toMatchObject({
       kind: "error",
       message: "Git action failed",
-      options: { description: "gh: not authenticated", closeButton: true },
+      options: { componentProps: { text: "gh: not authenticated" }, closeButton: true },
     })
+  })
+
+  test("opening a cut-off description shows it whole and keeps the toast until closed", () => {
+    let committed = 0
+    const slotId = toasts.show({
+      message: "Search incomplete",
+      description: "4 hosts did not answer: sidhu, omarchy, studio, lab",
+      variant: "error",
+      class: "caller-class",
+      onDismiss: () => committed++,
+    })
+
+    ;(calls[0].options?.componentProps as { onExpand: () => void }).onExpand()
+
+    // Same slot and tone, so Sonner updates the toast in place instead of stacking a second one.
+    expect(calls[1]).toMatchObject({
+      kind: "error",
+      message: "Search incomplete",
+      options: {
+        id: slotId,
+        description: "4 hosts did not answer: sidhu, omarchy, studio, lab",
+        duration: Number.POSITIVE_INFINITY,
+      },
+    })
+    expect(calls[1].options?.class).toBe("caller-class solus-toast-expanded")
+    // Reading the detail is not a dismissal: the deferred commit still waits.
+    expect(committed).toBe(0)
+    expect(toasts.isActive(slotId)).toBe(true)
+  })
+
+  test("a toast that already went away does not come back when its description is opened", () => {
+    const id = toasts.error("Couldn't save", { description: "Permission denied" })
+    const expand = (calls[0].options?.componentProps as { onExpand: () => void }).onExpand
+    toasts.dismiss(id)
+
+    expand()
+
+    expect(calls).toHaveLength(1)
+  })
+
+  test("a message that wraps past three lines opens in the dialog, not in the narrow toast", () => {
+    // One line of a command or a list of host names reads fine in the toast.
+    expect(isLongToastMessage("4 hosts did not answer: sidhu, omarchy, studio-mini, build-box")).toBe(false)
+    // A hook's output is many lines; a command with its paths is one very long line.
+    expect(isLongToastMessage("husky - pre-commit hook exited with code 1\n\n> oxlint\n  a.ts:1 error")).toBe(true)
+    expect(isLongToastMessage(`Command failed: git commit -- ${"packages/workspace-ui/src/lib/toasts.ts ".repeat(4)}`)).toBe(true)
+  })
+
+  test("a long description is marked to open in the dialog, with the title it belongs to", () => {
+    const output = "husky - pre-commit hook exited with code 1\n\n> oxlint apps packages scripts\n  toasts.ts:12 error"
+    toasts.error("Git action failed", { description: output })
+
+    expect(calls[0].options?.componentProps).toMatchObject({ title: "Git action failed", text: output, opensDialog: true })
   })
 })

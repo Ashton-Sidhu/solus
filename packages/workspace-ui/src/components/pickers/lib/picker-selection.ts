@@ -1,7 +1,7 @@
 import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
 import { modelProfileForAgent } from '@solus/contracts/provider-instance-models'
 import { MODEL_PROFILES, isLegacyModel } from "@solus/contracts/types";
-import type { AgentId, AgentMetadata, ReasoningEffort } from "@solus/contracts/types";
+import type { AgentId, AgentMetadata, ModelProfile, ReasoningEffort } from "@solus/contracts/types";
 
 /**
  * A local agent/model/effort choice a detached SessionChip reads and mutates in
@@ -103,11 +103,12 @@ export const LEGACY_SECTION_VALUE = "solus:legacy-models";
 export function splitLegacyModels(
   provider: AgentId,
   models: readonly ModelOption[],
+  profiles?: Record<string, ModelProfile>,
 ): { current: ModelOption[]; legacy: ModelOption[] } {
   const current: ModelOption[] = [];
   const legacy: ModelOption[] = [];
   for (const model of models) {
-    (isLegacyModel(provider, model.id) ? legacy : current).push(model);
+    (isLegacyModel(provider, model.id, profiles) ? legacy : current).push(model);
   }
   return { current, legacy };
 }

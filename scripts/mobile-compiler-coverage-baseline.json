@@ -1795,6 +1795,7 @@
     "apps/mobile/src/features/threads/ThreadArtifact.tsx": {
       "compiled": [
         "ArtifactFullScreen",
+        "ArtifactPage",
         "ArtifactPendingFullScreen",
         "ArtifactWebView",
         "ThreadArtifact",

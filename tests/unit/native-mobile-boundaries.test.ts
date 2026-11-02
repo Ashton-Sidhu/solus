@@ -45,7 +45,7 @@ function resolveSpecifier(from: string, specifier: string): { file: string } | {
     if (!file) throw new Error(`unresolved ${specifier} from ${fromRoot(from)}`)
     return { file }
   }
-  const workspace = /^@solus\/(contracts|client-core)\/(.+)$/.exec(specifier)
+  const workspace = /^@solus\/(contracts|client-core|document-model)\/(.+)$/.exec(specifier)
   if (workspace) {
     const file = resolveFile(join(root, 'packages', workspace[1]!, 'src', workspace[2]!.replace(/\.json$/, '.json')))
     if (!file) throw new Error(`unresolved ${specifier} from ${fromRoot(from)}`)

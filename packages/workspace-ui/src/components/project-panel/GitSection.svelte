@@ -337,7 +337,8 @@
         run: resolveWithAgent,
       });
     }
-    return defs;
+    // Hide unavailable actions, but keep progress and results visible.
+    return defs.filter((def) => !def.disabled || def.phase !== "idle");
   });
 
   // A row's menu is anchored to that row, like the branch picker.

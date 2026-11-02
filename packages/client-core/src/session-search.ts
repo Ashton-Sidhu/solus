@@ -18,6 +18,12 @@ interface HostPage extends SessionSearchHome { next: number; total: number }
 const empty = (): SessionSearchState => ({ query: '', hits: [], total: 0, remaining: 0, indexing: false, loading: false, loadingMore: false, errors: [] })
 export const SESSION_SEARCH_PAGE_SIZE = 30
 
+/** One line for every host a search could not read: "Studio did not answer",
+ *  or "3 hosts did not answer: Studio, Laptop, Workspace". */
+export function searchFailureSummary(hostLabels: readonly string[]): string {
+  return hostLabels.length === 1 ? `${hostLabels[0]} did not answer` : `${hostLabels.length} hosts did not answer: ${hostLabels.join(', ')}`
+}
+
 /** Paged search across homes. A slow or failed home never hides another home's reply. */
 export class SessionSearch {
   state = empty()
@@ -88,7 +94,10 @@ export class SessionSearch {
     } catch (error) {
       if (generation !== this.generation) return
       page.next = page.total
-      this.state.errors.push({ serverId: page.serverId, message: error instanceof Error ? error.message : String(error) })
+      // A host asked for two homes (a project and its chats) did not answer once, not twice.
+      if (!this.state.errors.some(failure => failure.serverId === page.serverId)) {
+        this.state.errors.push({ serverId: page.serverId, message: error instanceof Error ? error.message : String(error) })
+      }
     }
     this.state.total = this.pages.reduce((sum, home) => sum + home.total, 0)
     this.state.remaining = this.pages.reduce((sum, home) => sum + Math.max(0, home.total - home.next), 0)

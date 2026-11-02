@@ -1,7 +1,7 @@
 <script lang="ts">
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS, type AgentId, type ModelProfile } from "@solus/contracts/types";
   import type { ModelOptions } from "@solus/contracts/settings";
-  import { providerDefaultModel, providerModelChoices, providerModelOptions } from "@solus/contracts/provider-model-settings";
+  import { providerDefaultModel, providerModelOptions } from "@solus/contracts/provider-model-settings";
   import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
@@ -49,11 +49,6 @@
 </script>
 
 <SettingsSection {label} {description}>
-  <SettingsRow label="Default model" description="Model for new sessions with this provider. Existing sessions keep their model.">
-    {#snippet control()}
-      <SettingsSelect options={providerModelChoices(provider, savedModel, profiles)} value={savedModel} onSelect={(value) => workspace.config.setDefaultModel(provider, value)} ariaLabel="{label} default model" />
-    {/snippet}
-  </SettingsRow>
   {#if savedModel && savedModel !== "auto" && !profiles[savedModel]}
     <SettingsRow label="Saved model unavailable" description="Your choice stays saved. New sessions use the built-in default until you choose an available model." />
   {/if}
@@ -77,7 +72,7 @@
     {/if}
     <SettingsRow label="Model instructions" description="Added whenever this model runs, including existing sessions.">
       {#snippet body()}
-        <SettingsTextField label="{label} model instructions" value={settings.modelInstructions[modelId] ?? ""} onValueChange={setInstructions} placeholder="Instructions for this model…" />
+        <SettingsTextField label="{label} model instructions" value={settings.modelInstructions[modelId] ?? ""} onValueChange={setInstructions} placeholder="Run the tests before you finish. Keep each change small and explain the risk." class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]" />
         {#if instructionError}<p role="alert" class="mt-2 text-sm text-destructive">These instructions could not be saved. The settings size limit was reached.</p>{/if}
       {/snippet}
     </SettingsRow>

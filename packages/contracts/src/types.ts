@@ -628,9 +628,11 @@ export function modelLabelFor(
 export function isLegacyModel(
   provider: AgentId | null | undefined,
   modelId: string | null | undefined,
+  /** The run host's catalog, when known: a provider instance can move a model between the groups. */
+  profiles?: Record<string, ModelProfile>,
 ): boolean {
   if (!provider || !modelId) return false
-  return MODEL_PROFILES[provider]?.[modelId]?.isLegacy === true
+  return (profiles ?? MODEL_PROFILES[provider])?.[modelId]?.isLegacy === true
 }
 
 /**

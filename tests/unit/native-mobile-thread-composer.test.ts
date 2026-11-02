@@ -116,11 +116,19 @@ describe('native thread settings sheet', () => {
 
   test('a host agent with no published profiles (the dev replay provider) offers the models the host lists', () => {
     const replay = { id: 'replay' as const, label: 'Replay (dev)', models: [{ id: 'showcase', label: 'Showcase' }, { id: 'subagent', label: 'Background sub-agent' }], defaultModel: 'showcase', available: true }
-    const groups = buildProviderGroups({ currentProvider: 'claude-code', currentModel: null, canSwitchProvider: true, agents: [replay] })
+    const groups = buildProviderGroups({ isDevelopment: true, currentProvider: 'claude-code', currentModel: null, canSwitchProvider: true, agents: [replay] })
     const group = groups.find((candidate) => candidate.providerKey === 'replay')
     expect(group?.providerLabel).toBe('Replay (dev)')
     expect(group?.unavailableReason).toBeNull()
     expect(group?.models.map((model) => [model.model, model.label, model.isDefault])).toEqual([['showcase', 'Showcase', true], ['subagent', 'Background sub-agent', false]])
+  })
+
+  test('a production mobile picker hides Replay from a development host, including the current session provider', () => {
+    const replay = { id: 'replay' as const, label: 'Replay (dev)', models: [{ id: 'showcase', label: 'Showcase' }], defaultModel: 'showcase', available: true }
+    for (const currentProvider of ['claude-code', 'replay'] as const) {
+      const groups = buildProviderGroups({ isDevelopment: false, currentProvider, currentModel: 'showcase', canSwitchProvider: true, agents: [replay] })
+      expect(groups.map((group) => group.providerKey)).toEqual(['claude-code', 'codex'])
+    }
   })
 
   test('the session\'s own legacy model is not hidden behind the legacy filter', () => {

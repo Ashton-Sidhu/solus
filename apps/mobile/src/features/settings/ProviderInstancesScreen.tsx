@@ -94,7 +94,6 @@ function InstanceEditor({ instance, revision, client, saving }: { instance: Prov
     {stale ? <SettingsNote>Settings changed on another client. Your draft is kept. Reload before saving.</SettingsNote> : null}
     <SettingsSection title="Instance">
       <Field label="Display name" value={draft.displayName} onChange={(displayName) => patch({ displayName })} />
-      <Field label="Accent color" value={draft.accentColor ?? ""} placeholder="#3366ff" onChange={(accentColor) => patch({ accentColor: accentColor || null })} />
       <SettingsSwitchRow label="Enabled" value={draft.enabled} onValueChange={(enabled) => patch({ enabled })} />
     </SettingsSection>
     <SettingsSection title="Runtime">

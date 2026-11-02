@@ -907,6 +907,7 @@ function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; 
   const providerGroups = useMemo(
     () =>
       buildProviderGroups({
+        isDevelopment: __DEV__,
         currentProvider: meta.run.provider,
         currentModel: meta.run.model,
         canSwitchProvider: meta.run.provider !== "opencode",

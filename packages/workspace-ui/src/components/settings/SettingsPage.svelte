@@ -13,7 +13,8 @@
     Keyboard as KeyboardIcon,
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
-    Bot as ProvidersIcon,
+    Cpu as ProvidersIcon,
+    MessagesSquare as SessionsIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
@@ -171,7 +172,7 @@
       id: "sessions",
       label: "Sessions",
       description: "New-session defaults, model routing, and agent behavior.",
-      icon: ProvidersIcon,
+      icon: SessionsIcon,
       group: "Agents",
     },
     {

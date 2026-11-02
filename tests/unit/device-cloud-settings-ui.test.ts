@@ -20,17 +20,15 @@ test('cloud source forms open with empty credentials, validate drafts, and keep 
   try {
     const button = component('<script>let { children, ...props } = $props();</script><button {...props}>{@render children?.()}</button>', 'button')
     const input = component('<script>let { value = $bindable(), ...props } = $props();</script><input {...props} bind:value />', 'input')
-    const icon = component('<script>let props = $props();</script><span {...props}></span>', 'icon')
     const section = component('<script>let { children, action } = $props();</script>{@render action?.()}{@render children()}', 'section')
     const store = join(dir, 'store.mjs')
-    writeFileSync(store, `export const saved=[]; export const checked=[]; export let refuse=true; export function accept(){refuse=false;} export const devicesStore={async saveHost(host,config){saved.push({host,config});if(refuse)throw new Error('Source save refused.');},async testHost(host,config){checked.push({host,config});return {ok:true,isLocal:false,apps:config.kind==='eas'?[{id:'1dbd623d-8794-4dfc-8a1b-6af10341fced',fullName:'@test/app'}]:undefined,checks:[{name:config.kind,ok:true,detail:'Connection checked.'}]};}}; export const deviceErrorMessage=(error)=>error.message;`)
+    writeFileSync(store, `export const saved=[]; export const checked=[]; export let refuse=true; export function accept(){refuse=false;} export const devicesStore={async saveHost(host,config){saved.push({host,config});if(refuse)throw new Error('Source save refused.');},async testHost(host,config){checked.push({host,config});return {ok:true,isLocal:false,checks:[{name:config.kind,ok:true,detail:'Connection checked.'}]};}}; export const deviceErrorMessage=(error)=>error.message;`)
     const source = readFileSync(new URL('packages/workspace-ui/src/components/devices/CloudDeviceHosts.svelte', root), 'utf8')
       .replace(/^  import .*?;\n/gm, '')
       .replace('<script lang="ts">', `<script lang="ts">
         import { cloudDeviceHostConfigSchema, DEVICE_SECRET_SAVED } from ${JSON.stringify(new URL('packages/contracts/src/device-types.ts', root).href)};
         import { newCloudDeviceHost, cloudDeviceHostLimits } from ${JSON.stringify(new URL('packages/client-core/src/device-host-draft.ts', root).href)};
         import { devicesStore, deviceErrorMessage } from ${JSON.stringify(store)};
-        import ChevronDown from ${JSON.stringify(icon)};
         import Button from ${JSON.stringify(button)};
         import Input from ${JSON.stringify(input)};
         import SettingsSection from ${JSON.stringify(section)};
@@ -63,12 +61,7 @@ test('cloud source forms open with empty credentials, validate drafts, and keep 
       assert.ok(document.querySelector('form'));assert.match(document.querySelector('[role="alert"]').textContent,/Source save refused/);
       accept();button('Save source').click();await settle();
       assert.equal(document.querySelector('form'),null);assert.equal(saved.at(-1).config.maxLeaseMinutes,60);
-      button('Add EAS Simulator').click();await settle();
-      assert.ok(document.querySelector('[aria-label="Expo project ID"]'));assert.equal(button('Save source').disabled,true);
-      button('Check connection').click();await settle();
-      const project=document.querySelector('[aria-label="Expo project"]');assert.ok(project);
-      project.value='1dbd623d-8794-4dfc-8a1b-6af10341fced';project.dispatchEvent(new Event('change',{bubbles:true}));await settle();assert.equal(button('Save source').disabled,false);
-      button('Cancel').click();await settle();assert.equal(document.querySelector('form'),null);
+      assert.equal(button('Add EAS Simulator'),undefined);
       await unmount(app);dom.window.close();
     `)
     const child = Bun.spawn([process.execPath, runner], { stdout: 'pipe', stderr: 'pipe' })

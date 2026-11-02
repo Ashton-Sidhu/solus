@@ -1,8 +1,17 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { SessionRecord, SessionRecordList, SessionRecordListFilter, SessionRecordSearch, SessionRecordSearchQuery } from '@solus/contracts/types'
 import type { TaskCommentHit, TaskCommentSearchQuery } from '@solus/contracts/task-types'
 import { solusApiId } from '@solus/contracts/uplink'
-import { SessionSearch } from '@solus/client-core/session-search'
+import { SessionSearch, searchFailureSummary } from '@solus/client-core/session-search'
+
+const toastErrors: Array<{ message: string; description?: string }> = []
+mock.module('@solus/workspace-ui/lib/toasts', () => ({
+  toasts: { error: (message: string, opts?: { description?: string }) => toastErrors.push({ message, description: opts?.description }) },
+}))
+
+mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
+  serversStore: { hostFor: (serverId: string) => ({ id: serverId, label: `${serverId[0]!.toUpperCase()}${serverId.slice(1)}` }) },
+}))
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 type ConversationSearchModule = typeof import(
@@ -86,6 +95,39 @@ test('fast homes display before slow ones, late replies keep rows in place, and 
   await when(() => !search.state.loading)
   expect(search.state.hits[0]!.result.record.sessionId).toBe('first')
   expect(search.state.errors).toEqual([{ serverId: 'slow', message: 'host disconnected' }])
+  search.reset()
+})
+
+test('a host that does not answer is one failure, however many of its homes were asked', async () => {
+  // WHY: a project search asks each host for the project and for its chats.
+  // One host that is down must read as one host, not as two failures.
+  const search = new SessionSearch(() => ({ sessionRecordSearch: () => Promise.reject(new Error('The host is unreachable')) }), () => {}, 0)
+  search.search('pelican', [{ serverId: 'down', scope: { projectRoot: '/repo' } }, { serverId: 'down', scope: { chats: true } }, { serverId: 'off', scope: { chats: true } }])
+  while (search.state.loading) await settle()
+  expect(search.state.errors.map(error => error.serverId)).toEqual(['down', 'off'])
+  expect(searchFailureSummary(['Studio', 'Workspace'])).toBe('2 hosts did not answer: Studio, Workspace')
+  expect(searchFailureSummary(['Studio'])).toBe('Studio did not answer')
+})
+
+test('hosts that do not answer share one toast, raised again only for a new host', async () => {
+  // WHY: each keystroke searches again. A host that is down must not raise a
+  // toast per keystroke, and several hosts must not raise one toast each.
+  toastErrors.length = 0
+  const down = new Set(['studio', 'laptop'])
+  const search = new ConversationSearch({
+    ...homes({ studio: async () => found([]), laptop: async () => found([]), mini: async () => found([]) }),
+    apiFor: (serverId: string) => ({ sessionRecordSearch: async () => { if (down.has(serverId)) throw new Error('unreachable'); return found([]) } }),
+  }, 0, () => null)
+  const typed = async (query: string) => { search.search(query, null); while (search.loading || !search.total && !search.errors.length) await settle() }
+  await typed('pel')
+  expect(search.errors.map(error => error.serverId)).toEqual(['studio', 'laptop'])
+  expect(toastErrors.at(-1)).toEqual({ message: 'Search incomplete', description: '2 hosts did not answer: Studio, Laptop' })
+  const raised = toastErrors.length
+  await typed('peli')
+  expect(toastErrors.length).toBe(raised)
+  down.add('mini')
+  await typed('pelic')
+  expect(toastErrors.at(-1)).toEqual({ message: 'Search incomplete', description: '3 hosts did not answer: Studio, Laptop, Mini' })
   search.reset()
 })
 

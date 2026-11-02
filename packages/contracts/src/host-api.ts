@@ -1113,7 +1113,7 @@ export interface SolusAPI {
   /** Settings and foreground app as read from the device. */
   deviceDetail(target: DeviceTarget): Promise<DeviceDetail>
   deviceConfigure(request: DeviceConfigureRequest): Promise<DeviceState>
-  /** Add or replace one SSH, EAS, or Simlock device source on this Solus host. */
+  /** Add or replace one SSH or Simlock device source on this Solus host. */
   deviceHostSave(config: DeviceHostConfig): Promise<DeviceState>
   deviceHostRemove(deviceHostId: string): Promise<DeviceState>
   /** Read-only source check: SSH tools, Expo account, or Simlock identity. Starts no devices. */

@@ -31,6 +31,7 @@ import type { DesktopDialogs } from "./desktop-dialogs.svelte";
 import { runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
 interface DesktopKeyboardActions {
   startOpenProject(options?: { sourceId?: string }): void;
+  openCommandPalette(initialPage?: { id: string; title: string }): void;
   handleScreenshot(tabId?: string): Promise<void>;
   handleAttachFile(tabId?: string): Promise<void>;
 }
@@ -329,10 +330,7 @@ export function installDesktopKeybindings(
   );
   useKeybinding(
     "global.command-palette",
-    () => {
-      ui.paletteGitTarget = null;
-      ui.commandPaletteOpen = true;
-    },
+    () => actions.openCommandPalette(),
     {
       enabled: () => true,
     },
@@ -367,13 +365,6 @@ export function installDesktopKeybindings(
   // everything above; the manifest simply gives them no default combo, so the
   // handler waits until a user assigns one in Settings → Keybindings.
 
-  /** Open the palette drilled straight into one parent command's sub-page. */
-  function openPalettePage(id: string, title: string) {
-    ui.paletteGitTarget = null;
-    ui.paletteInitialPage = { id, title };
-    ui.commandPaletteOpen = true;
-  }
-
   const paletteAvailable = true;
   // The git sub-pages only exist while a session sits in a repository, matching
   // the condition that builds those commands.
@@ -401,7 +392,7 @@ export function installDesktopKeybindings(
   );
   useKeybinding(
     "global.new-session-in",
-    () => openPalettePage("new-session-in", "New session in"),
+    () => actions.openCommandPalette({ id: "new-session-in", title: "New session in" }),
     { enabled: () => paletteAvailable && hasGitContext },
   );
   useKeybinding(
@@ -429,26 +420,26 @@ export function installDesktopKeybindings(
   );
   useKeybinding(
     "global.open-plan",
-    () => openPalettePage("open-plan", "Open plan"),
+    () => actions.openCommandPalette({ id: "open-plan", title: "Open plan" }),
     {
       enabled: () => paletteAvailable,
     },
   );
   useKeybinding(
     "global.open-document",
-    () => openPalettePage("open-work", "Open document"),
+    () => actions.openCommandPalette({ id: "open-work", title: "Open document" }),
     {
       enabled: () => paletteAvailable,
     },
   );
   useKeybinding(
     "global.open-automation",
-    () => openPalettePage("open-automation", "Open automation"),
+    () => actions.openCommandPalette({ id: "open-automation", title: "Open automation" }),
     { enabled: () => paletteAvailable },
   );
   useKeybinding(
     "global.open-task",
-    () => openPalettePage("go-to-task", "Open task"),
+    () => actions.openCommandPalette({ id: "go-to-task", title: "Open task" }),
     {
       // The sub-page is only built for the project the tasks store is scoped to.
       enabled: () => paletteAvailable && !!session.tasksProjectCwd,
@@ -456,7 +447,7 @@ export function installDesktopKeybindings(
   );
   useKeybinding(
     "global.create-task-in",
-    () => openPalettePage("create-task-in", "Create task in"),
+    () => actions.openCommandPalette({ id: "create-task-in", title: "Create task in" }),
     { enabled: () => paletteAvailable },
   );
   useKeybinding("global.permission-menu", () => {
@@ -469,7 +460,7 @@ export function installDesktopKeybindings(
   useKeybinding("global.add-server", () => serversStore.openAddServer());
   useKeybinding(
     "global.switch-organization",
-    () => openPalettePage("switch-organization", "Switch organization"),
+    () => actions.openCommandPalette({ id: "switch-organization", title: "Switch organization" }),
     {
       enabled: () => paletteAvailable && serversStore.organizations.length > 0,
     },

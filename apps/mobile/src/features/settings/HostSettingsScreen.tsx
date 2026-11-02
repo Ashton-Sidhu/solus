@@ -116,7 +116,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
             ) : null}
 
             <SettingsSection title="Devices">
-              <SettingsRow icon="desktopcomputer" label="Devices" value="Simulators, EAS, and Simlock" onPress={() => navigation.navigate("DeviceSettings", { hostId })} />
+              <SettingsRow icon="desktopcomputer" label="Devices" value="Simulators and Simlock" onPress={() => navigation.navigate("DeviceSettings", { hostId })} />
             </SettingsSection>
 
             <SettingsSection title="MCP">

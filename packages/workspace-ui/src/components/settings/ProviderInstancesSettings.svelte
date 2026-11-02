@@ -70,7 +70,6 @@
         <button type="button" aria-current={!showShared && selected?.id === instance.id ? "page" : undefined} onclick={() => { selectedId = instance.id; showShared = false; }}
           class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-2.5 text-workspace-chrome whitespace-nowrap focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring {!showShared && selected?.id === instance.id ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}">
           <ProviderLogo provider={instance.provider === "codex" ? "codex" : "claude"} />
-          {#if instance.accentColor}<span class="size-2 shrink-0 rounded-full" style:background-color={instance.accentColor} aria-hidden="true"></span>{/if}
           {instance.displayName}
           {#if view.snapshot.selected[instance.provider] === instance.id && view.snapshot.instances.filter((item) => item.provider === instance.provider).length > 1}<span class="rounded-full border border-border px-1.5 text-xs text-muted-foreground">Default</span>{/if}
           {#if !instance.enabled}<span class="rounded-full border border-border px-1.5 text-xs text-muted-foreground">Off</span>{/if}

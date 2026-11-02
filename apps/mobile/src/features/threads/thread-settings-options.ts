@@ -2,6 +2,7 @@
 // thread-settings-sheet-state.ts (MIT, see UPSTREAM.md).
 import { MODEL_PROFILES, isLegacyModel, providerModelsFor, type AgentId, type AgentMetadata, type PermissionMode } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { isModelPickerAgentVisible } from '@solus/client-core/model-picker-agents'
 import { PERMISSION_MODE_TEXT, permissionModesFor, PROVIDERS, type AgentCapabilities } from '../conversation/lib/run-settings'
 
 /**
@@ -78,6 +79,7 @@ export function autoModelOption(provider: AgentId): ModelOption {
  * agents keeps its own group only. The session's own legacy model stays listed.
  */
 export function buildProviderGroups(input: {
+  readonly isDevelopment?: boolean
   readonly currentProvider: AgentId
   readonly currentModel: string | null
   readonly canSwitchProvider: boolean
@@ -88,6 +90,7 @@ export function buildProviderGroups(input: {
   // development replay provider) offers the models the host reports, as on desktop.
   const hostOnly = (input.agents ?? []).filter((agent) => !PROVIDERS.some((provider) => provider.id === agent.id) && !MODEL_PROFILES[agent.id])
   return [...PROVIDERS, ...hostOnly.map((agent) => ({ id: agent.id, label: agent.label }))]
+    .filter((provider) => isModelPickerAgentVisible(provider.id, input.isDevelopment === true))
     .filter((provider) => input.canSwitchProvider || provider.id === input.currentProvider)
     .map((provider) => {
       const hostAgent = hostOnly.find((agent) => agent.id === provider.id)
@@ -106,7 +109,7 @@ export function buildProviderGroups(input: {
           model,
           label,
           isDefault: model === defaultModel,
-          isLegacy: isLegacyModel(provider.id, model) && !(provider.id === input.currentProvider && model === input.currentModel),
+          isLegacy: isLegacyModel(provider.id, model, hostAgent?.modelProfiles) && !(provider.id === input.currentProvider && model === input.currentModel),
         })),
       }
     })

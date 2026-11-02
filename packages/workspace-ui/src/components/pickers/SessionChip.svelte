@@ -1,6 +1,7 @@
 <script lang="ts">
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { agentForProject } from "@solus/contracts/provider-instance-models";
+  import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import { tick, untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
@@ -135,7 +136,7 @@
     metadata[activeAgent] ?? (detached ? null : agentContext.activeMetadata),
   );
   const models = $derived(
-    modelOnly && modelMeta?.available === false
+    !isModelPickerAgentVisible(activeAgent, Boolean(import.meta.env.DEV)) || (modelOnly && modelMeta?.available === false)
       ? []
       : detached
         ? modelOptionsFor(activeAgent, metadata)
@@ -143,7 +144,7 @@
   );
   // Superseded models stay selectable but sit behind a disclosure, so the column
   // reads as the generation we expect people to pick.
-  const modelSections = $derived(splitLegacyModels(activeAgent, models));
+  const modelSections = $derived(splitLegacyModels(activeAgent, models, modelMeta?.modelProfiles));
   let legacyExpanded = $state(false);
   const canRoute = $derived(!modelOnly && isPrimary && !sess?.agentSessionId && !sess?.forked);
   // A model-only picker hides the reasoning column Auto normally sits in, so its
@@ -182,7 +183,7 @@
   // flyout blank whenever a binary probe came back empty, with nothing on screen
   // to say why there was nothing to pick.
   const agentRows = $derived(
-    buildAgentAvailabilityRows(agents ?? agentContext.agents, metadata),
+    buildAgentAvailabilityRows(agents ?? agentContext.agents, metadata, Boolean(import.meta.env.DEV)),
   );
   const agentName = $derived(agentLabel(activeAgent, metadata));
 
@@ -316,7 +317,7 @@
   function selectAgent(id: AgentId) {
     // The menu stays up across the switch, so the disclosure has to follow the
     // model the new agent lands on rather than keep the old agent's answer.
-    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn));
+    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn), metadata[id]?.modelProfiles);
     if (selection && !draftId) {
       const modelId = defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn);
       selection.provider = id;
@@ -458,7 +459,7 @@
     hoveredLevel = null;
     // Open on the section holding the current choice: a session already running
     // a superseded model must not have to go looking for what it is running.
-    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId);
+    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId, modelMeta?.modelProfiles);
   }}
 >
   <DropdownMenu.Trigger {disabled} bind:ref={triggerEl}>

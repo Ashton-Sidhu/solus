@@ -6,7 +6,6 @@ import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
 import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
-import { untrack } from "svelte";
 import {
   Plus as PlusIcon,
   GitCompareArrows as GitDiffIcon,
@@ -135,10 +134,9 @@ export function createDesktopPalette(
   );
   const worktrees = $derived(paletteGitRefs.worktrees);
   const paletteBranches = $derived(paletteGitRefs.branches.map((branch) => branch.name));
-  // Open PRs for the "Review PR…" sub-page, loaded lazily alongside the git refs.
+  // Open PRs for the "Review PR…" sub-page, loaded with the git refs when the palette opens.
   let palettePrs = $state<PullRequest[]>([]);
-  $effect(() => {
-    if (!ui.commandPaletteOpen) return;
+  function loadGitPages() {
     const projectRoot = paletteGitProjectRoot;
     if (!projectRoot) {
       palettePrs = [];
@@ -147,10 +145,10 @@ export function createDesktopPalette(
     void sessionEnvironmentStore.refreshRefs(
       paletteGitServerId,
       projectRoot,
-      untrack(() => session.ctxForDirectory(projectRoot)),
+      session.ctxForDirectory(projectRoot),
       { force: true },
     );
-    const context = untrack(() => ui.paletteGitTarget?.ctx ?? session.ctx);
+    const context = ui.paletteGitTarget?.ctx ?? session.ctx;
     const api = session.apiForContext(context);
     pullRequests.projects
       .get(api, serverConnections.serverIdForApi(api), context)
@@ -161,7 +159,7 @@ export function createDesktopPalette(
       .catch(() => {
         palettePrs = [];
       });
-  });
+  }
 
   // Plans, works, and automations for the "Open …" sub-pages, loaded lazily when
   // the palette opens so they mirror what currently exists. Plans live in local
@@ -173,10 +171,9 @@ export function createDesktopPalette(
   let paletteProjects = $state<ProjectEntry[]>([]);
   // The host those projects were listed from: a task filed in one lands there.
   let paletteProjectsServerId = $state<string | null>(null);
-  $effect(() => {
-    if (!ui.commandPaletteOpen) return;
+  function loadOpenPages() {
     const taskCwd = session.tasksProjectCwd;
-    const ctx = untrack(() => session.ctx);
+    const ctx = session.ctx;
     session.planStore
       .getDescriptors(undefined, true, ctx)
       .then((ds) => {
@@ -203,7 +200,7 @@ export function createDesktopPalette(
       .catch(() => {
         paletteProjects = [];
       });
-  });
+  }
 
   // Seed command set for the editor command palette. Intentionally a small,
   // obviously-correct starter list — the UI is the deliverable here; richer,
@@ -847,6 +844,11 @@ export function createDesktopPalette(
   return {
     get commands() {
       return paletteCommands;
+    },
+    /** Refreshes what the sub-pages list. Call it each time the palette opens. */
+    load() {
+      loadGitPages();
+      loadOpenPages();
     },
   };
 }

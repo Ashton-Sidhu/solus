@@ -21,7 +21,7 @@ import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 120;
 
-/** The last height each render reported, so a row the list mounts again keeps its size. */
+/** The last height each page reported, so a row the list mounts again keeps its size. */
 const reportedHeights = new Map<string, number>();
 
 /**
@@ -141,6 +141,45 @@ function ArtifactFullScreen(props: { readonly html: string; readonly title: stri
 }
 
 /**
+ * A page in the feed. It grows to the height it reports and opens full
+ * screen. `heightKey` names the page across mounts, so a row the list mounts
+ * again keeps its size.
+ */
+export function ArtifactPage(props: { readonly html: string; readonly title: string; readonly heightKey: string }) {
+  const [height, setHeight] = useState(() => reportedHeights.get(props.heightKey) ?? INITIAL_HEIGHT);
+  const [fullScreen, setFullScreen] = useState(false);
+  const onHeight = (next: number) => {
+    reportedHeights.set(props.heightKey, next);
+    setHeight(next);
+  };
+
+  return (
+    <>
+      <View style={{ height }}>
+        <ArtifactWebView html={props.html} title={props.title} scrollable={false} onHeight={onHeight} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${props.title} full screen`}
+          hitSlop={8}
+          onPress={() => setFullScreen(true)}
+          className="absolute right-1.5 top-1.5 h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+        >
+          <SymbolView
+            name="arrow.up.left.and.arrow.down.right"
+            size={13}
+            tintColorClassName="accent-icon-muted"
+            type="monochrome"
+          />
+        </Pressable>
+      </View>
+      {fullScreen ? (
+        <ArtifactFullScreen html={props.html} title={props.title} onClose={() => setFullScreen(false)} />
+      ) : null}
+    </>
+  );
+}
+
+/**
  * An HTML render in the feed. The latest revision of a work shows the page;
  * an earlier revision is one line that opens it in place.
  */
@@ -150,9 +189,7 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
   readonly superseded: boolean;
 }) {
   const item = useTranscriptItem(props.store, props.id);
-  const [height, setHeight] = useState(() => reportedHeights.get(props.id) ?? INITIAL_HEIGHT);
   const [earlierOpen, setEarlierOpen] = useState(false);
-  const [fullScreen, setFullScreen] = useState(false);
   const showsPage = !props.superseded || earlierOpen;
   // An `html_path` render holds the saved version; its HTML is read when the page shows.
   const awaitsSavedHtml = item?.kind === "artifact" && !item.html && !!item.contentVersion;
@@ -161,10 +198,6 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
     if (showsPage && needsRead) void props.store.controller.ensureArtifact(props.id);
   }, [props.store, props.id, showsPage, needsRead]);
   if (item?.kind !== "artifact") return null;
-  const onHeight = (next: number) => {
-    reportedHeights.set(props.id, next);
-    setHeight(next);
-  };
 
   return (
     <View className="mb-2 px-1">
@@ -208,26 +241,7 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
           )}
         </View>
       ) : showsPage ? (
-        <View style={{ height }}>
-          <ArtifactWebView html={item.html} title={item.title} scrollable={false} onHeight={onHeight} />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${item.title} full screen`}
-            hitSlop={8}
-            onPress={() => setFullScreen(true)}
-            className="absolute right-1.5 top-1.5 h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
-          >
-            <SymbolView
-              name="arrow.up.left.and.arrow.down.right"
-              size={13}
-              tintColorClassName="accent-icon-muted"
-              type="monochrome"
-            />
-          </Pressable>
-        </View>
-      ) : null}
-      {fullScreen ? (
-        <ArtifactFullScreen html={item.html} title={item.title} onClose={() => setFullScreen(false)} />
+        <ArtifactPage html={item.html} title={item.title} heightKey={props.id} />
       ) : null}
     </View>
   );

@@ -72,7 +72,7 @@ export function agentDeviceTargetArgs(device: DeviceSummary): string[] {
 const shellWord = (value: string) => (/^[a-zA-Z0-9_./:@-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`)
 
 /** The just-in-time guide `device_open` returns. Only sessions that open a device pay for it. */
-export function agentDeviceQuickStart(device: DeviceSummary, command: string, args: string[], hostLabel: string, sourceKind?: 'local' | 'ssh' | 'eas' | 'simlock'): string {
+export function agentDeviceQuickStart(device: DeviceSummary, command: string, args: string[], hostLabel: string, sourceKind?: 'local' | 'ssh' | 'simlock'): string {
   const exe = shellWord(command)
   const target = args.map(shellWord).join(' ')
   return [
@@ -91,7 +91,7 @@ export function agentDeviceQuickStart(device: DeviceSummary, command: string, ar
       ? 'First use builds an XCTest runner and can take a couple of minutes.'
       : 'The Android snapshot helper installs itself on first use.',
     'If the user takes control, device commands fail with a paused message: stop driving the device and wait, or open another available simulator.',
-    sourceKind === 'eas' || sourceKind === 'simlock'
+    sourceKind === 'simlock'
       ? 'This is a cloud device. Build the app for its platform, then install with this bound agent-device CLI. Make Metro reachable from the device worker; its localhost is not this host. Host shell commands are unavailable through the preview.'
       : 'For a remote device host, build and install the app there yourself, and make Metro reachable from that machine; Solus does not rewrite localhost.',
   ].join('\n')
@@ -150,7 +150,7 @@ export const deviceOpenAgentTool = deviceTool({
     const { manager, toolchain } = domain
     const state = await manager.list()
     const hostKind = state.hosts.find((host) => host.deviceHostId === (input.deviceHostId ?? LOCAL_DEVICE_HOST_ID))?.kind
-    const target = pickDevice(state.devices, input, hostKind === 'eas' || hostKind === 'simlock')
+    const target = pickDevice(state.devices, input, hostKind === 'simlock')
     // Agent tools must be running before the device is booted or bound.
     await manager.agentReadiness(target.deviceHostId)
     // The CLI runs on this Solus host even when the device is on an SSH host.
@@ -210,7 +210,7 @@ export const deviceScreenshotAgentTool = deviceTool({
 
 export const deviceCloseAgentTool = deviceTool({
   name: 'device_close',
-  description: 'Remove a device from this session\'s Devices pane. Closing the last cloud preview stops its EAS session or returns its Simlock lease. Pass shutdown=true to also power it off, which is refused while another session uses it.',
+  description: 'Remove a device from this session\'s Devices pane. Closing the last cloud preview returns its Simlock lease. Pass shutdown=true to also power it off, which is refused while another session uses it.',
   inputFields: {
     deviceId: z.string().max(256).optional().describe('Omit to close every device in this session.'),
     deviceHostId: z.string().max(128).optional(),
@@ -231,14 +231,14 @@ export const deviceCloseAgentTool = deviceTool({
     for (const preview of closing) {
       const kind = snapshot.hosts.find((host) => host.deviceHostId === preview.deviceHostId)?.kind
       const shared = snapshot.previews.some((other) => other.sessionId !== sessionId && other.deviceHostId === preview.deviceHostId && other.deviceId === preview.deviceId)
-      if ((kind === 'eas' || kind === 'simlock') && !shared) manager.control.acquireForAgent(preview, holder)
+      if (kind === 'simlock' && !shared) manager.control.acquireForAgent(preview, holder)
     }
     await manager.close({ sessionId, deviceHostId: input.deviceHostId, deviceId: input.deviceId })
     for (const preview of closing) await removeAgentDeviceConfig(agentDeviceConfigPath(domain.agentConfigDir, agentSessionName(sessionId, preview.deviceHostId, preview.deviceId)))
-    if (!input.shutdown) return { ok: true, text: `Closed ${closing.length} device${closing.length === 1 ? '' : 's'}. Local and SSH devices keep running; unused cloud sessions and leases end.` }
+    if (!input.shutdown) return { ok: true, text: `Closed ${closing.length} device${closing.length === 1 ? '' : 's'}. Local and SSH devices keep running; unused Simlock leases end.` }
     for (const preview of closing) {
       const kind = manager.state().hosts.find((host) => host.deviceHostId === preview.deviceHostId)?.kind
-      if (kind === 'eas' || kind === 'simlock') continue
+      if (kind === 'simlock') continue
       manager.control.acquireForAgent(preview, holder)
       await manager.shutdown(preview)
     }
