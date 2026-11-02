@@ -178,11 +178,11 @@ describe('database calls per typed turn', () => {
       // a no-op index upsert, a record upsert, repeated lineage, seat and goal
       // reads. The turn ledger's two writes had no reader and were removed.
       expect(counted.statements.map((statement) => statement.split(' ').slice(0, 3).join(' '))).toEqual([
-        'UPDATE "session" SET',
+        'UPDATE "session_records" SET',
         'SELECT resource_links.source_id AS',
         'SELECT tasks.*, (SELECT',
         'SELECT session_id, provider,',
-        'UPDATE "session" SET',
+        'UPDATE "session_records" SET',
       ])
       expect({ calls: counted.calls, writes: counted.writes, commits: counted.commits }).toEqual({ calls: 5, writes: 2, commits: 2 })
     } finally {

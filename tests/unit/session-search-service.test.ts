@@ -21,14 +21,14 @@ afterAll(async () => { await database.closeDatabase(); hostDb.closeDb(); rmSync(
 
 async function seed(sessionId: string, title: string, texts: string[], organizationId = 'org1') {
   const db = database.getDatabase()
-  await db.run(sql`INSERT INTO session (session_id, organization_id, created_by, provider, project_path, custom_title, created_at, last_activity_at, started_at)
+  await db.run(sql`INSERT INTO session_records (session_id, organization_id, created_by, provider, project_path, custom_title, created_at, last_activity_at, started_at)
     VALUES (${sessionId}, ${organizationId}, 'alice', 'codex', '/repo', ${title}, 1, 1, 1)`)
   for (const [position, content] of texts.entries()) await db.run(sql`INSERT INTO session_transcripts (session_id, organization_id, position, runner_host_id, message, search_text, updated_at)
     VALUES (${sessionId}, ${organizationId}, ${position}, 'runner', ${JSON.stringify({ messageId: `${sessionId}-${position}`, role: 'user', content, timestamp: 100 })}, ${searchText(content)}, 1)`)
 }
 const find = (query: string, offset = 0, limit = 30) => {
   const db = database.getDatabase()
-  return search.searchIndexFor(db.engine).searchSessions(db, { query: new SearchQuery(query), namesOnly: false, records: sql`session.organization_id = 'org1'`, offset, limit })
+  return search.searchIndexFor(db.engine).searchSessions(db, { query: new SearchQuery(query), namesOnly: false, records: sql`session_records.organization_id = 'org1'`, offset, limit })
 }
 
 test('service search has the host word rule, cross-message matches and portable targets', async () => {

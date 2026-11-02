@@ -36,7 +36,7 @@ type MoveScope = 'all' | 'local'
  * forgotten on link and unlink.
  */
 const OWNED_RESOURCES = [
-  { table: 'session', kind: 'session', id: 'session_id', owner: 'created_by' },
+  { table: 'session_records', kind: 'session', id: 'session_id', owner: 'created_by' },
   { table: 'works', kind: 'work', id: 'id', owner: 'created_by' },
   { table: 'tasks', kind: 'task', id: 'id', owner: 'created_by' },
   { table: 'automations', kind: 'automation', id: 'id', owner: 'created_by' },

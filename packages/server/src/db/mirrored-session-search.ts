@@ -13,7 +13,7 @@ export async function searchMirroredSessions(db: Db, request: SessionMatchQuery)
   const { query } = request
   if (query.isEmpty) return { sessions: [], total: 0 }
   const candidates = candidateSchema.array().parse(await db.all(sql`
-    SELECT session_id, custom_title, branch, last_activity_at FROM session WHERE ${request.records}
+    SELECT session_id, custom_title, branch, last_activity_at FROM session_records WHERE ${request.records}
   `))
   if (!candidates.length) return { sessions: [], total: 0 }
   const field = (name: string): SQL => db.engine === 'postgres' ? sql`t.message::jsonb->>${name}` : sql`json_extract(t.message, ${'$.' + name})`
@@ -21,7 +21,7 @@ export async function searchMirroredSessions(db: Db, request: SessionMatchQuery)
   const inWord = (word: string): SQL => db.engine === 'postgres'
     ? sql`t.search @@ to_tsquery('simple', ${word + (/^\d+$/.test(word) ? '' : ':*')})`
     : sql`t.rowid IN (SELECT rowid FROM session_transcripts_fts WHERE session_transcripts_fts MATCH ${`"${word}"${/^\d+$/.test(word) ? '' : '*'}`})`
-  const visible = sql`t.session_id = session.session_id AND t.organization_id = session.organization_id`
+  const visible = sql`t.session_id = session_records.session_id AND t.organization_id = session_records.organization_id`
   // An optional filler word is in nearly every message and decides nothing;
   // only the phrase still holds it.
   const { required, words } = query
@@ -29,7 +29,7 @@ export async function searchMirroredSessions(db: Db, request: SessionMatchQuery)
   const phrase = sql`(' ' || t.search_text || ' ') LIKE ${`% ${words.join(' ')}${/^\d+$/.test(words.at(-1)!) ? ' ' : ''}%`}`
   const readCounts = async (match: SQL) => new Map(countSchema.array().parse(await db.all(sql`
     SELECT t.session_id, COUNT(*) AS count FROM session_transcripts t
-    JOIN session ON ${visible}
+    JOIN session_records ON ${visible}
     WHERE ${request.records} AND ${written} AND ${match} GROUP BY t.session_id
   `)).map(row => [row.session_id, row.count]))
   const perWord = request.namesOnly ? [] : await Promise.all(required.map(word => readCounts(inWord(word))))
@@ -50,7 +50,7 @@ export async function searchMirroredSessions(db: Db, request: SessionMatchQuery)
         COALESCE(${field('content')}, '') AS content, ${field('messageId')} AS message_id, ${field('role')} AS role,
         COALESCE(${field('sourceSessionId')}, t.session_id) AS source_session_id,
         ROW_NUMBER() OVER (PARTITION BY t.session_id ORDER BY CASE WHEN ${phrase} THEN 2 WHEN ${all} THEN 1 ELSE 0 END DESC, t.position DESC) AS n
-      FROM session_transcripts t JOIN session ON ${visible}
+      FROM session_transcripts t JOIN session_records ON ${visible}
       WHERE ${request.records} AND ${written}
         AND t.session_id IN (${sql.join(page.map(row => sql`${row.sessionId}`), sql`, `)})
         AND (${sql.join(required.map(inWord), sql` OR `)})

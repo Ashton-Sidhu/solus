@@ -254,7 +254,7 @@ describe("a person's session list", () => {
       const listed = new Set<string>()
       let before = Number.MAX_SAFE_INTEGER
       for (;;) {
-        const page = await records.readSessionMetadataPage(sql`session.parent_session_id IS NULL AND ${records.sessionListedClause({ personKey, now })} AND session.last_activity_at < ${before}`, 200, 'last_activity_at', { personKey, now })
+        const page = await records.readSessionMetadataPage(sql`session_records.parent_session_id IS NULL AND ${records.sessionListedClause({ personKey, now })} AND session_records.last_activity_at < ${before}`, 200, 'last_activity_at', { personKey, now })
         for (const record of page) listed.add(record.sessionId)
         if (page.length < 200) return listed
         before = page[page.length - 1]!.lastActivityAt
@@ -278,7 +278,7 @@ describe("a person's session list", () => {
     // person's list holds the ones they own or worked in, not everyone's.
     const now = Date.now()
     await recorded('alices', now, null, ALICE)
-    const listed = async (personKey: string) => (await records.readSessionMetadataPage(sql`session.session_id = 'alices'`, 1, 'created_at', { personKey, now }))[0]?.listed
+    const listed = async (personKey: string) => (await records.readSessionMetadataPage(sql`session_records.session_id = 'alices'`, 1, 'created_at', { personKey, now }))[0]?.listed
     expect(await listed(ALICE)).toBe(true)
     expect(await listed(BOB)).toBe(false)
     await shelf('alices').recordPrompt(BOB)

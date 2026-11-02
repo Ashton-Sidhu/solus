@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fb54011b-3120-41d1-a1e1-79fbae2c9423",
+  "id": "cfc12850-48a3-42ff-a669-0e1cc4651dcb",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -1929,8 +1929,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "session": {
-      "name": "session",
+    "session_records": {
+      "name": "session_records",
       "columns": {
         "session_id": {
           "name": "session_id",

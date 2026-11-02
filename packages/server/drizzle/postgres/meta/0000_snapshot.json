@@ -1,5 +1,5 @@
 {
-  "id": "4d673b14-f06d-4e8b-b6ee-b43a3a39eefa",
+  "id": "bca7680b-ba49-4a4f-9945-3299b8b923c1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2441,8 +2441,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.session": {
-      "name": "session",
+    "public.session_records": {
+      "name": "session_records",
       "schema": "",
       "columns": {
         "session_id": {

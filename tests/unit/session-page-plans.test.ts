@@ -41,7 +41,7 @@ beforeAll(async () => {
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
   operations = new SessionApiOperations(new ShareManager({ db: database.getDatabase() }))
 
-  const record = db.prepare(`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, cwd, status, title, parent_session_id, created_at, last_activity_at, started_at)
+  const record = db.prepare(`INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, cwd, status, title, parent_session_id, created_at, last_activity_at, started_at)
     VALUES (?, 'local', 'owner', 'codex', '-repo', '/repo', 'idle', ?, ?, ?, ?, ?)`)
   db.exec('BEGIN')
   for (let i = 0; i < SESSIONS; i++) {
@@ -61,7 +61,7 @@ afterAll(async () => {
 
 /** The plans of the request's ordered reads of the `session` table (the pages, not the per-id reads that follow), one string each. */
 function sessionPlans(): string[] {
-  const pages = log.of('SELECT', 'session').filter(({ text }) => /ORDER BY/.test(text))
+  const pages = log.of('SELECT', 'session_records').filter(({ text }) => /ORDER BY/.test(text))
   expect(pages.length).toBeGreaterThan(0)
   return pages.map(({ text }) =>
     (getDb().prepare(`EXPLAIN QUERY PLAN ${text}`).all() as Array<{ detail: string }>).map((row) => row.detail).join(' | '))
@@ -69,8 +69,8 @@ function sessionPlans(): string[] {
 
 function expectIndexed(plan: string, index: string): void {
   expect(plan).not.toMatch(/TEMP B-TREE/)
-  expect(plan).not.toMatch(/SCAN "?session"?(?! USING)/)
-  expect(plan).toMatch(new RegExp(`"?session"? USING (COVERING )?INDEX ${index}`))
+  expect(plan).not.toMatch(/SCAN "?session_records"?(?! USING)/)
+  expect(plan).toMatch(new RegExp(`"?session_records"? USING (COVERING )?INDEX ${index}`))
 }
 
 test('the created-order page and its next page walk session_by_parent for the top-level sessions', async () => {

@@ -242,7 +242,7 @@ CREATE TABLE "runner_delivery_cursors" (
 	CONSTRAINT "runner_delivery_cursors_organization_id_host_id_user_id_pk" PRIMARY KEY("organization_id","host_id","user_id")
 );
 --> statement-breakpoint
-CREATE TABLE "session" (
+CREATE TABLE "session_records" (
 	"session_id" text PRIMARY KEY NOT NULL,
 	"organization_id" text DEFAULT 'local' NOT NULL,
 	"created_by" text NOT NULL,
@@ -531,14 +531,14 @@ CREATE UNIQUE INDEX "resource_links_working_owner" ON "resource_links" USING btr
 CREATE INDEX "resource_links_open_session" ON "resource_links" USING btree ("source_id","organization_id") WHERE keeps_session = 1;--> statement-breakpoint
 CREATE UNIQUE INDEX "resource_links_watch" ON "resource_links" USING btree ("watch_id") WHERE watch_id IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "resource_links_by_pull_request" ON "resource_links" USING btree ("repository","number") WHERE repository IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "session_api_page" ON "session" USING btree ("organization_id","created_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_api_provider_page" ON "session" USING btree ("organization_id","provider","created_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_api_activity_page" ON "session" USING btree ("organization_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_by_activity" ON "session" USING btree ("last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_by_parent" ON "session" USING btree ("parent_session_id","created_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_by_parent_activity" ON "session" USING btree ("parent_session_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX "session_by_project_path" ON "session" USING btree ("project_path","last_activity_at");--> statement-breakpoint
-CREATE INDEX "session_by_place" ON "session" USING btree ("place","last_activity_at");--> statement-breakpoint
+CREATE INDEX "session_api_page" ON "session_records" USING btree ("organization_id","created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_api_provider_page" ON "session_records" USING btree ("organization_id","provider","created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_api_activity_page" ON "session_records" USING btree ("organization_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_by_activity" ON "session_records" USING btree ("last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_by_parent" ON "session_records" USING btree ("parent_session_id","created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_by_parent_activity" ON "session_records" USING btree ("parent_session_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX "session_by_project_path" ON "session_records" USING btree ("project_path","last_activity_at");--> statement-breakpoint
+CREATE INDEX "session_by_place" ON "session_records" USING btree ("place","last_activity_at");--> statement-breakpoint
 CREATE INDEX "session_transcripts_search_pending" ON "session_transcripts" USING btree ("session_id") WHERE search_text = '';--> statement-breakpoint
 CREATE UNIQUE INDEX "task_external_links_external" ON "task_external_links" USING btree ("provider","external_key","external_id");--> statement-breakpoint
 CREATE INDEX "tasks_api_page" ON "tasks" USING btree ("organization_id","created_at" desc,"id" desc);--> statement-breakpoint

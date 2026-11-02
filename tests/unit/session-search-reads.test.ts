@@ -52,7 +52,7 @@ beforeAll(async () => {
   const key = db.prepare('INSERT INTO session_keys(number, session_id) VALUES (?, ?)')
   const message = db.prepare('INSERT INTO session_messages(id, session_id, uuid, role, ts, text) VALUES (?, ?, NULL, ?, ?, ?)')
   const fts = db.prepare('INSERT INTO session_fts(rowid, text) VALUES (?, ?)')
-  const record = db.prepare(`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, project_root, cwd, status, title, created_at, last_activity_at, started_at)
+  const record = db.prepare(`INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, project_root, cwd, status, title, created_at, last_activity_at, started_at)
     VALUES (?, 'local', ?, 'codex', '-repo', '/repo', '/repo', 'idle', ?, ?, ?, ?)`)
   db.exec('BEGIN')
   for (let i = 0; i < SESSIONS; i++) {
@@ -94,13 +94,13 @@ test('a search reads the records and views of the sessions it matched, not of ev
   // The pull request name ranks first; the person's recent read of s-0050 orders it first among the message hits.
   expect(page.items[1]!.session.id).toBe('s-0050')
 
-  const sessionReads = log.of('SELECT', 'session')
+  const sessionReads = log.of('SELECT', 'session_records')
   // Every record read names the sessions it is about; none reads the table whole.
   for (const read of sessionReads) {
     expect(read.text).toMatch(/session_id IN \(/)
     expect(read.params).toBeLessThanOrEqual(page.total + 4)
-    expect(explain(read)).toMatch(/SEARCH "?session"? USING/)
-    expect(explain(read)).not.toMatch(/SCAN "?session"?\b/)
+    expect(explain(read)).toMatch(/SEARCH "?session_records"? USING/)
+    expect(explain(read)).not.toMatch(/SCAN "?session_records"?\b/)
   }
   expect(sessionReads.length).toBeGreaterThan(0)
   // `viewed_at` is read for the matched sessions alone.

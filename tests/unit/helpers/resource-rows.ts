@@ -11,7 +11,7 @@ export async function seedResource(db: Db, kind: 'session' | 'work' | 'task', id
   switch (kind) {
     case 'session':
       await db.run(sql`
-        INSERT INTO session (session_id, organization_id, created_by, provider, project_path, created_at, last_activity_at, started_at)
+        INSERT INTO session_records (session_id, organization_id, created_by, provider, project_path, created_at, last_activity_at, started_at)
         VALUES (${id}, ${organizationId}, ${ownerKey}, 'claude-code', '-tmp-project', 1, 1, 1)
       `)
       return

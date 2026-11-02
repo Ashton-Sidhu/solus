@@ -23,7 +23,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = directory
   const { getDatabase } = await import('@solus/server/db/database')
   await getDatabase().run(sql`
-    INSERT INTO session(session_id, organization_id, created_by, provider, project_path, cwd, status, title, custom_title, parent_session_id, created_at, last_activity_at, started_at)
+    INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, cwd, status, title, custom_title, parent_session_id, created_at, last_activity_at, started_at)
     VALUES
       ('lead', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Lead', NULL, NULL, 1, 9, 1),
       ('child-b', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Generated B', 'Second helper', 'lead', 3, 3, 1),

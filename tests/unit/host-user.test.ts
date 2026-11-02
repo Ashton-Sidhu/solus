@@ -115,7 +115,7 @@ describe('the host user rows', () => {
     const row = await database.getDatabase().get<{ owner: string }>(sql`
       SELECT created_by AS owner FROM works WHERE id = ${resourceId}
       UNION ALL SELECT created_by FROM tasks WHERE id = ${resourceId}
-      UNION ALL SELECT created_by FROM session WHERE session_id = ${resourceId}`)
+      UNION ALL SELECT created_by FROM session_records WHERE session_id = ${resourceId}`)
     return row?.owner
   }
 

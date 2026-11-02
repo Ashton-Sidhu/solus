@@ -230,7 +230,7 @@ describe('a work and its sessions', () => {
 
   test('a membership edge is the session owner\'s when nobody is named, and the person\'s when one is', async () => {
     const made = await works.createWork('local', 'Doc', 'doc', '', '', undefined, 'codex')
-    await database.getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, created_at) VALUES ('owned', 'local', 'owner-key', 1)`)
+    await database.getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, created_at) VALUES ('owned', 'local', 'owner-key', 1)`)
     await (await work.Work.find('local', made.id))!.linkSession('owned')
     await sessionLinks.linkSessionItem('other', { target: { kind: 'work', targetId: made.id } }, PERSON)
     expect((await edges(sql`target_kind = 'work'`)).map((edge) => [edge.source_id, edge.created_by])).toEqual([['owned', 'owner-key'], ['other', 'user-1']])
@@ -309,7 +309,7 @@ describe('who made an edge', () => {
   test('created_by is the person acting, else the owner of the record the edge starts from', async () => {
     // WHY (plans/029 decision 2): `created_by` is a user id set from the acting
     // identity, never a client value; an agent or Solus itself records the owner.
-    await database.getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, created_at) VALUES ('owned', 'local', 'owner-key', 1)`)
+    await database.getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, created_at) VALUES ('owned', 'local', 'owner-key', 1)`)
     await sessionPrs.linkSessionPullRequest('owned', { url: url(1), source: 'branch', by: SYSTEM })
     await sessionPrs.linkSessionPullRequest('owned', { url: url(2), source: 'manual', by: OTHER_PERSON })
     await sessionLinks.linkSessionItem('owned', { target: { kind: 'file', path: '/tmp/a.md', hostId: 'host-1' } }, { kind: 'agent', sessionId: 'owned', for: PERSON.user })

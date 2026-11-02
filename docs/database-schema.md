@@ -35,9 +35,11 @@ records are read through `getDatabase()`, which points at Postgres.
 
 ## The session row
 
-One `session` row holds everything that was `session_records`,
+One `session_records` row holds everything that was `session_records`,
 `session_states`, `session_leads`, and `session_admissions`
-(plans/029-fresh-database-baseline.md §4.2). The row is the session's birth: a
+(plans/029-fresh-database-baseline.md §4.2). The table is not named `session`:
+Solus Cloud keeps Better Auth's account tables in the same Postgres schema, and
+Better Auth owns `session` (`data-model-baseline.test.ts` guards those names). The row is the session's birth: a
 turn's admission or a claim makes it with its owner (`created_by`, never
 changed) and organization (`local` until assigned once) before the provider
 starts; `started_at` is set by the first report of provider facts and never

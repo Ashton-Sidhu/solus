@@ -56,14 +56,14 @@ test('a status change is one UPDATE that returns the record the listeners hear',
 })
 
 test('a row admitted before its provider started takes the status and is not announced', async () => {
-  await run(sql`INSERT INTO session(session_id, organization_id, created_by, created_at, status) VALUES ('admitted', 'local', 'owner', 5, 'idle')`)
+  await run(sql`INSERT INTO session_records(session_id, organization_id, created_by, created_at, status) VALUES ('admitted', 'local', 'owner', 5, 'idle')`)
   const heard: SessionRecord[] = []
   const stop = records.onSessionRecordChanged((record) => { heard.push(record) })
   await records.setSessionRecordStatus(ANY_ORGANIZATION, 'admitted', 'running')
   stop()
   expect(heard).toEqual([])
   const { getDatabase } = await import('@solus/server/db/database')
-  expect(await getDatabase().get(sql`SELECT status FROM session WHERE session_id = 'admitted'`)).toEqual({ status: 'running' })
+  expect(await getDatabase().get(sql`SELECT status FROM session_records WHERE session_id = 'admitted'`)).toEqual({ status: 'running' })
 })
 
 test('a later report keeps the first created_at', async () => {

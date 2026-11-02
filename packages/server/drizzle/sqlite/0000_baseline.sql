@@ -275,7 +275,7 @@ CREATE TABLE `runner_delivery_cursors` (
 	PRIMARY KEY(`organization_id`, `host_id`, `user_id`)
 );
 --> statement-breakpoint
-CREATE TABLE `session` (
+CREATE TABLE `session_records` (
 	`session_id` text PRIMARY KEY NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`created_by` text NOT NULL,
@@ -316,14 +316,14 @@ CREATE TABLE `session` (
 	`lead_started_at` integer
 );
 --> statement-breakpoint
-CREATE INDEX `session_api_page` ON `session` (`organization_id`,"created_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX `session_api_provider_page` ON `session` (`organization_id`,`provider`,"created_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX `session_api_activity_page` ON `session` (`organization_id`,"last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX `session_by_activity` ON `session` ("last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX `session_by_parent` ON `session` (`parent_session_id`,"created_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX `session_by_parent_activity` ON `session` (`parent_session_id`,"last_activity_at" desc,"session_id" desc);--> statement-breakpoint
-CREATE INDEX `session_by_project_path` ON `session` (`project_path`,`last_activity_at`);--> statement-breakpoint
-CREATE INDEX `session_by_place` ON `session` (`place`,`last_activity_at`);--> statement-breakpoint
+CREATE INDEX `session_api_page` ON `session_records` (`organization_id`,"created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_api_provider_page` ON `session_records` (`organization_id`,`provider`,"created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_api_activity_page` ON `session_records` (`organization_id`,"last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_by_activity` ON `session_records` ("last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_by_parent` ON `session_records` (`parent_session_id`,"created_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_by_parent_activity` ON `session_records` (`parent_session_id`,"last_activity_at" desc,"session_id" desc);--> statement-breakpoint
+CREATE INDEX `session_by_project_path` ON `session_records` (`project_path`,`last_activity_at`);--> statement-breakpoint
+CREATE INDEX `session_by_place` ON `session_records` (`place`,`last_activity_at`);--> statement-breakpoint
 CREATE TABLE `session_transcripts` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`session_id` text NOT NULL,

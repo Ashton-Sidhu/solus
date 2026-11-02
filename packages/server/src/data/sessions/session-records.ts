@@ -92,19 +92,19 @@ const RECORD_COLUMN_NAMES = [
   'place', 'started_by',
 ]
 /** The lead mark (docs/plans/lead-session.md decision 4): every record read answers it, so the list can mark a Coordinator mode session. */
-const LEAD_COLUMN = '(session.lead_started_at IS NOT NULL) AS is_lead'
-const RECORD_COLUMNS = sql.raw([...RECORD_COLUMN_NAMES.map((name) => `session.${name}`), LEAD_COLUMN].join(', '))
+const LEAD_COLUMN = '(session_records.lead_started_at IS NOT NULL) AS is_lead'
+const RECORD_COLUMNS = sql.raw([...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`), LEAD_COLUMN].join(', '))
 /** The record's columns, its shared state, and the reader's view, for a read
  *  that joins the reader's `personal_resource_state` row as `reader_view`. */
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
-  ...RECORD_COLUMN_NAMES.map((name) => `session.${name}`),
+  ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
   LEAD_COLUMN,
-  'session.settled_at', 'session.settled_by',
+  'session_records.settled_at', 'session_records.settled_by',
   'reader_view.settled_at AS view_settled_at', 'reader_view.archived_at', 'reader_view.snoozed_until', 'reader_view.snooze_note',
 ].join(', '))
 
 /** A row is a record once its provider started; a row only an admission or a claim made is not listed. */
-const STARTED = sql.raw('session.started_at IS NOT NULL')
+const STARTED = sql.raw('session_records.started_at IS NOT NULL')
 
 const recordWithStateRowSchema = recordRowSchema.extend({
   settled_at: z.number().nullable(),
@@ -130,7 +130,7 @@ function directShare(reader: SessionPageReader, column: SQL): SQL {
   const subjects = [sql`(acl.subject_kind = 'user' AND acl.subject_id = ${personKey})`]
   if (teamIds.length) subjects.push(sql`(acl.subject_kind = 'team' AND acl.subject_id IN (${sql.join(teamIds.map((teamId) => sql`${teamId}`), sql`, `)}))`)
   return sql`(SELECT ${column} FROM ${aclEntry} AS acl
-    WHERE acl.resource_kind = 'session' AND acl.resource_id = session.session_id
+    WHERE acl.resource_kind = 'session' AND acl.resource_id = session_records.session_id
       AND (${sql.join(subjects, sql` OR `)}) AND (acl.expires_at IS NULL OR acl.expires_at > ${now})
     ORDER BY COALESCE(acl.granted_at, acl.created_at) DESC LIMIT 1)`
 }
@@ -148,8 +148,8 @@ const OPEN_PULL_REQUEST = sql.raw('resource_links.keeps_session = 1')
 /** The reader's own `personal_resource_state` row for the session, joined as `reader_view`. */
 function readerViewJoin(reader: SessionPageReader): SQL {
   return sql`LEFT JOIN ${personalResourceState} AS reader_view
-    ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session.session_id
-    AND reader_view.organization_id = session.organization_id AND reader_view.created_by = ${reader.personKey ?? ''}`
+    ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session_records.session_id
+    AND reader_view.organization_id = session_records.organization_id AND reader_view.created_by = ${reader.personKey ?? ''}`
 }
 
 /**
@@ -168,15 +168,15 @@ export function sessionListedClause(reader: SessionPageReader): SQL {
   const since = now - SESSION_LIST_IDLE_MS
   const grantedAt = directShare(reader, GRANTED_AT)
   const active = sql`(
-    session.last_activity_at >= ${since}
+    session_records.last_activity_at >= ${since}
     OR reader_view.snoozed_until IS NOT NULL
     OR EXISTS (
       SELECT 1 FROM ${resourceLinks}
-      WHERE resource_links.source_id = session.session_id AND resource_links.organization_id = session.organization_id AND ${OPEN_PULL_REQUEST}
+      WHERE resource_links.source_id = session_records.session_id AND resource_links.organization_id = session_records.organization_id AND ${OPEN_PULL_REQUEST}
     )
   )`
   return sql`((reader_view.archived_at IS NULL
-  AND (session.created_by = ${personKey ?? ''} OR reader_view.created_by IS NOT NULL)
+  AND (session_records.created_by = ${personKey ?? ''} OR reader_view.created_by IS NOT NULL)
   AND ${active})
   OR (${grantedAt} > COALESCE(reader_view.archived_at, -1)
   AND (${active} OR ${grantedAt} >= ${since})))`
@@ -315,14 +315,14 @@ function listCandidates(where: SQL, reader: SessionPageReader): SQL {
  * itself. Every row is listed.
  */
 export async function readSessionListPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at', reader: SessionPageReader): Promise<SessionRecord[]> {
-  const order = sql`ORDER BY session.${sql.identifier(time)} DESC, session.session_id DESC`
+  const order = sql`ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC`
   // CROSS JOIN keeps the left side the outer loop on SQLite, so each record is one primary key read.
-  const ids = sql`SELECT session.session_id FROM (${listCandidates(where, reader)}) AS list_candidates
+  const ids = sql`SELECT session_records.session_id FROM (${listCandidates(where, reader)}) AS list_candidates
     CROSS JOIN ${session}
     ${readerViewJoin(reader)}
-    WHERE session.session_id = list_candidates.session_id AND ${where} AND ${STARTED} AND ${sessionListedClause(reader)}
+    WHERE session_records.session_id = list_candidates.session_id AND ${where} AND ${STARTED} AND ${sessionListedClause(reader)}
     ${order} LIMIT ${limit}`
-  return readPage(sql`FROM (${ids}) AS list_page CROSS JOIN ${session}`, sql`session.session_id = list_page.session_id`, sql`1`, limit, time, reader)
+  return readPage(sql`FROM (${ids}) AS list_page CROSS JOIN ${session}`, sql`session_records.session_id = list_page.session_id`, sql`1`, limit, time, reader)
 }
 
 async function readPage(from: SQL, where: SQL, listed: SQL, limit: number, time: 'created_at' | 'last_activity_at', reader: SessionPageReader): Promise<SessionRecord[]> {
@@ -332,7 +332,7 @@ async function readPage(from: SQL, where: SQL, listed: SQL, limit: number, time:
       ${listed} AS listed
     ${from}
     ${readerViewJoin(reader)}
-    WHERE ${where} ORDER BY session.${sql.identifier(time)} DESC, session.session_id DESC LIMIT ${limit}
+    WHERE ${where} ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC LIMIT ${limit}
   `))
   return rows.map((row) => {
     const record: SessionRecord = { ...recordFromRow(row), state: stateFromColumns(row), view: viewFromColumns(row), listed: row.listed === 1 }
@@ -504,7 +504,7 @@ export function upsertOwnSessionRecord(input: SessionRecordUpsert): Promise<Sess
  */
 async function readStoredRecord(db: Db, scope: RecordScope, input: SessionRecordUpsert): Promise<{ record: SessionRecord; startedAt: number | null } | null> {
   const row = storedRowSchema.nullish().parse(await db.get(sql`
-    SELECT ${RECORD_COLUMNS}, session.started_at FROM ${session}
+    SELECT ${RECORD_COLUMNS}, session_records.started_at FROM ${session}
     WHERE ${scopeClause(scope)} AND session_id = ${input.sessionId}
   `))
   if (!row) return null
@@ -536,7 +536,7 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         ${merged.place}, ${merged.startedBy ? JSON.stringify(merged.startedBy) : null}
       )
       ON CONFLICT(session_id) DO UPDATE SET
-        started_at = COALESCE(session.started_at, excluded.started_at),
+        started_at = COALESCE(session_records.started_at, excluded.started_at),
         provider = excluded.provider,
         project_path = excluded.project_path,
         project_remote = excluded.project_remote,
@@ -559,9 +559,9 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         delegation_depth = excluded.delegation_depth,
         delegation_intent = excluded.delegation_intent,
         delegation_created_at = excluded.delegation_created_at,
-        place = COALESCE(session.place, excluded.place),
-        started_by = COALESCE(session.started_by, excluded.started_by)
-      WHERE session.organization_id = excluded.organization_id
+        place = COALESCE(session_records.place, excluded.place),
+        started_by = COALESCE(session_records.started_by, excluded.started_by)
+      WHERE session_records.organization_id = excluded.organization_id
     `)
     return merged
   })
@@ -662,7 +662,7 @@ export function setSessionRecordStatus(scope: RecordScope, sessionId: string, st
     const rows = storedRowSchema.array().parse(await getDatabase().all(sql`
       UPDATE ${session} SET status = ${status}, last_activity_at = ${Date.now()}
       WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
-      RETURNING ${RECORD_COLUMNS}, session.started_at
+      RETURNING ${RECORD_COLUMNS}, session_records.started_at
     `))
     const row = rows[0]
     if (row && row.started_at !== null) emitChanged(recordFromRow(recordRowSchema.parse(row)))

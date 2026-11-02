@@ -134,11 +134,11 @@ describe('one session row (plans/029 §4.2)', () => {
   test('started_at is set once by the first report; before it the provider facts are null and list reads do not show the row', async () => {
     await identity.claimSessionOwner('unstarted', { ownerKey: ALICE, organizationId: 'local' })
     const before = await database.getDatabase().get<{ started_at: number | null; provider: string | null; project_path: string | null }>(sql`
-      SELECT started_at, provider, project_path FROM session WHERE session_id = 'unstarted'
+      SELECT started_at, provider, project_path FROM session_records WHERE session_id = 'unstarted'
     `)
     expect(before).toEqual({ started_at: null, provider: null, project_path: null })
     expect(await records.getSessionRecord('local', 'unstarted')).toBeNull()
-    expect((await records.readSessionMetadataPage(sql`session.session_id = 'unstarted'`, 10)).map((record) => record.sessionId)).toEqual([])
+    expect((await records.readSessionMetadataPage(sql`session_records.session_id = 'unstarted'`, 10)).map((record) => record.sessionId)).toEqual([])
     expect(await records.ownPublishedSessionIds()).not.toContain('unstarted')
 
     await records.upsertOwnSessionRecord(facts('unstarted', 20))
@@ -147,19 +147,19 @@ describe('one session row (plans/029 §4.2)', () => {
     await new Promise((resolve) => setTimeout(resolve, 2))
     await records.upsertOwnSessionRecord(facts('unstarted', 30))
     expect((await identity.sessionIdentityOf('unstarted'))?.startedAt).toBe(startedAt!)
-    expect((await records.readSessionMetadataPage(sql`session.session_id = 'unstarted'`, 10)).map((record) => record.sessionId)).toEqual(['unstarted'])
+    expect((await records.readSessionMetadataPage(sql`session_records.session_id = 'unstarted'`, 10)).map((record) => record.sessionId)).toEqual(['unstarted'])
   })
 
   test('the lead mark keeps its first value under repeated marks and every state writer', async () => {
     await leads.markSessionLead('lead')
-    const first = await database.getDatabase().get<{ lead_started_at: number }>(sql`SELECT lead_started_at FROM session WHERE session_id = 'lead'`)
+    const first = await database.getDatabase().get<{ lead_started_at: number }>(sql`SELECT lead_started_at FROM session_records WHERE session_id = 'lead'`)
     await new Promise((resolve) => setTimeout(resolve, 2))
     await leads.markSessionLead('lead', 'A')
     await new states.SessionShelf('lead').recordPrompt(ALICE)
     await new states.SessionShelf('lead').settle('task')
     await new states.SessionShelf('lead').unsettle()
     await records.upsertOwnSessionRecord(facts('lead'))
-    expect(await database.getDatabase().get(sql`SELECT lead_started_at, organization_id FROM session WHERE session_id = 'lead'`)).toEqual({ lead_started_at: first!.lead_started_at, organization_id: 'local' })
+    expect(await database.getDatabase().get(sql`SELECT lead_started_at, organization_id FROM session_records WHERE session_id = 'lead'`)).toEqual({ lead_started_at: first!.lead_started_at, organization_id: 'local' })
     expect((await records.getSessionRecord('local', 'lead'))?.isLead).toBe(true)
   })
 
@@ -168,7 +168,7 @@ describe('one session row (plans/029 §4.2)', () => {
     expect(await shelf.settle('task', 100)).toEqual({ settledAt: 100, settledBy: 'task' })
     expect(await shelf.settle('pull-request', 200)).toBeNull()
     // The CHECK `(settled_at IS NULL) = (settled_by IS NULL)`, kept by the write commands.
-    const settledPairs = await database.getDatabase().all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM session WHERE (settled_at IS NULL) <> (settled_by IS NULL)`)
+    const settledPairs = await database.getDatabase().all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM session_records WHERE (settled_at IS NULL) <> (settled_by IS NULL)`)
     expect(Number(settledPairs[0]?.n)).toBe(0)
     expect((await identity.sessionIdentityOf('settled'))?.startedAt).toBeNull()
     const statements: string[] = []
@@ -180,9 +180,9 @@ describe('one session row (plans/029 §4.2)', () => {
     } finally {
       connection.prepare = prepare
     }
-    expect(statements.filter((statement) => !statement.startsWith('SELECT'))).toEqual(['UPDATE "session"'])
+    expect(statements.filter((statement) => !statement.startsWith('SELECT'))).toEqual(['UPDATE "session_records"'])
     expect(await shelf.state()).toEqual({ settledAt: null, settledBy: null })
-    expect(Number((await database.getDatabase().all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM session WHERE (settled_at IS NULL) <> (settled_by IS NULL)`))[0]?.n)).toBe(0)
+    expect(Number((await database.getDatabase().all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM session_records WHERE (settled_at IS NULL) <> (settled_by IS NULL)`))[0]?.n)).toBe(0)
   })
 
   test('deleting the session removes its state, its lead and admission facts, its children, and its personal state', async () => {

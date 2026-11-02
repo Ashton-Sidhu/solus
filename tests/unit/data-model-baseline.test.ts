@@ -22,7 +22,7 @@ const SOLUS_TABLES = [
   'notification_pr_observations', 'notifications', 'operation_receipts', 'outbox_ops', 'personal_resource_state',
   'pinned_sessions', 'plan_annotations', 'plan_index_providers', 'projects', 'pull_request_observations',
   'resource_links', 'run_exchanges', 'run_queue', 'runner_delivery_cursors', 'runs', 'saved_metrics_queries',
-  'session', 'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages',
+  'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages', 'session_records',
   'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'task_counters', 'task_external_links',
   'tasks', 'transcript_index', 'transcript_mirror_rows', 'turn_flags', 'upstream_task_cache', 'webhook_deliveries',
   'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions', 'work_storage', 'work_storage_bodies', 'works',
@@ -62,9 +62,9 @@ const POSTGRES_TABLES = [
   'acl_entry', 'activity', 'asset_publications', 'comment_threads', 'indexed_plans', 'insight_log_events',
   'insight_span_texts', 'insight_spans', 'notifications', 'operation_receipts', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'pull_request_observations', 'resource_links',
-  'runner_delivery_cursors', 'session', 'session_transcripts', 'task_counters', 'task_external_links', 'tasks',
-  'upstream_task_cache', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions',
-  'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
+  'runner_delivery_cursors', 'session_records', 'session_transcripts', 'task_counters', 'task_external_links',
+  'tasks', 'upstream_task_cache', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers',
+  'work_revisions', 'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
 ]
 
 const METRICS_TABLES = ['log_events', 'span_texts', 'spans']
@@ -112,6 +112,14 @@ describe('the data model is one baseline per database', () => {
     const text = readFileSync(join(drizzle, 'postgres', '0000_baseline.sql'), 'utf8')
     const tables = [...text.matchAll(/^CREATE TABLE "([a-z_]+)"/gm)].map((match) => match[1]).sort()
     expect(tables).toEqual(POSTGRES_TABLES)
+  })
+
+  test('no record table takes a name of the cloud account tables', () => {
+    // WHY: Solus Cloud keeps Better Auth's account tables and these records in one
+    // Postgres schema (solus-cloud docs/deploy-cloudflare.md). A record table named
+    // like an account table fails the cloud's boot migration; \`session\` did once.
+    const ACCOUNT_TABLES = ['account', 'invitation', 'jwks', 'member', 'organization', 'session', 'team', 'team_member', 'user', 'verification']
+    expect(POSTGRES_TABLES.filter((table) => ACCOUNT_TABLES.includes(table))).toEqual([])
   })
 
   test('nothing that only lived in a migration history remains: no legacy slot runner, no second baseline', () => {

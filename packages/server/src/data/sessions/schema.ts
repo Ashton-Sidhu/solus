@@ -14,7 +14,7 @@ import { bigint, defineTable, integer, json, text } from '../../db/schema/define
  * `started_at IS NULL OR (provider IS NOT NULL AND project_path IS NOT NULL)`
  * and `(settled_at IS NULL) = (settled_by IS NULL)`.
  */
-export const session = defineTable('session', {
+export const session = defineTable('session_records', {
   session_id: text({ primaryKey: true }),
   /** `local` while unassigned, else an organization id assigned once (organization-scope §3, R10). */
   organization_id: text({ notNull: true, default: 'local' }),

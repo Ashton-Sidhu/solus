@@ -76,7 +76,7 @@ async function stored(number: number) {
 }
 
 async function sessionIn(sessionId: string, organizationId: string): Promise<void> {
-  await database.getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, created_at) VALUES (${sessionId}, ${organizationId}, 'owner', 1)`)
+  await database.getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, created_at) VALUES (${sessionId}, ${organizationId}, 'owner', 1)`)
 }
 
 describe('an observation and its links change together', () => {

@@ -112,7 +112,7 @@ export class SessionShelf {
       INSERT INTO ${session} (session_id, organization_id, created_by, created_at, settled_at, settled_by)
       VALUES (${this.sessionId}, ${home.organizationId}, ${home.ownerKey}, ${at}, ${at}, ${by})
       ON CONFLICT(session_id) DO UPDATE SET settled_at = excluded.settled_at, settled_by = excluded.settled_by
-      WHERE session.settled_at IS NULL
+      WHERE session_records.settled_at IS NULL
       RETURNING ${COLUMNS}
     `))
     const state = row && stateFromColumns(row)
@@ -370,13 +370,13 @@ export async function settleSessionsWithEndedPullRequests(isSessionBusy: (sessio
     SELECT resource_links.source_id AS session_id,
       SUM(resource_links.keeps_session) AS open_links,
       MAX(o.updated_at) AS ended_at,
-      MAX(session.unsettled_at) AS unsettled_at,
-      MAX(session.last_prompt_at) AS last_prompt_at
+      MAX(session_records.unsettled_at) AS unsettled_at,
+      MAX(session_records.last_prompt_at) AS last_prompt_at
     FROM ${resourceLinks}
-    JOIN ${session} ON session.session_id = resource_links.source_id
+    JOIN ${session} ON session_records.session_id = resource_links.source_id
     ${OBSERVATION_JOIN}
     WHERE resource_links.source_kind = 'session' AND resource_links.target_kind = 'pr' AND resource_links.relation = 'pull-request'
-      AND resource_links.status = 'active' AND session.settled_at IS NULL
+      AND resource_links.status = 'active' AND session_records.settled_at IS NULL
     GROUP BY resource_links.source_id
   `))
   const settled: string[] = []

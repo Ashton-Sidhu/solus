@@ -135,10 +135,10 @@ export async function danglingEdgeCount(db: Db): Promise<number> {
   const row = z.object({ n: z.coerce.number() }).parse(await db.get(sql`
     SELECT COUNT(*) AS n FROM ${resourceLinks}
     WHERE (resource_links.source_kind = 'task' AND NOT EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = resource_links.source_id))
-      OR (resource_links.source_kind = 'session' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session.session_id = resource_links.source_id))
+      OR (resource_links.source_kind = 'session' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session_records.session_id = resource_links.source_id))
       OR (resource_links.target_kind = 'work' AND NOT EXISTS (SELECT 1 FROM ${works} WHERE works.id = resource_links.target_key))
       OR (resource_links.target_kind = 'task' AND NOT EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = resource_links.target_key))
-      OR (resource_links.target_kind = 'plan' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session.session_id = resource_links.target_scope))
+      OR (resource_links.target_kind = 'plan' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session_records.session_id = resource_links.target_scope))
   `))
   return row.n
 }

@@ -44,7 +44,7 @@ beforeAll(async () => {
   ;({ closeDb } = await import('@solus/server/db'))
   const { getDatabase } = await import('@solus/server/db/database')
   for (const sessionId of ['calling-session-id', 'other-session-id', 'unlinked-session-id', 'unlinking-session-id', 'keeping-session-id', 'never-linked-session-id']) {
-    await getDatabase().run(sql`INSERT INTO session(session_id, organization_id, created_by, provider, project_path, status, created_at, last_activity_at, started_at) VALUES (${sessionId}, 'local', 'owner', 'codex', ${process.cwd()}, 'idle', 1, 2, 1)`)
+    await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, status, created_at, last_activity_at, started_at) VALUES (${sessionId}, 'local', 'owner', 'codex', ${process.cwd()}, 'idle', 1, 2, 1)`)
   }
 })
 

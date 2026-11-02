@@ -22,7 +22,7 @@ export async function markSessionLead(sessionId: string, organizationId = 'local
   await getDatabase().run(sql`
     INSERT INTO ${session} (session_id, organization_id, created_by, created_at, lead_started_at)
     VALUES (${sessionId}, ${organizationId}, ${machineSessionHome().ownerKey}, ${now}, ${now})
-    ON CONFLICT(session_id) DO UPDATE SET lead_started_at = COALESCE(session.lead_started_at, excluded.lead_started_at)
+    ON CONFLICT(session_id) DO UPDATE SET lead_started_at = COALESCE(session_records.lead_started_at, excluded.lead_started_at)
   `)
   leads.set(sessionId, true)
 }

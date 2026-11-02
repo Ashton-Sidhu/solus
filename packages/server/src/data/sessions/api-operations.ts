@@ -125,7 +125,7 @@ export class SessionApiOperations {
 
   /** One record with the caller's view, or 404. */
   private async readOne(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession> {
-    const [record] = await readSessionMetadataPage(sql.join([...this.visible(context), sql`session.session_id = ${sessionId}`], sql` AND `), 1, 'created_at', this.reader(context))
+    const [record] = await readSessionMetadataPage(sql.join([...this.visible(context), sql`session_records.session_id = ${sessionId}`], sql` AND `), 1, 'created_at', this.reader(context))
     if (!record) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
     return (await this.records(context, [record]))[0]
   }
@@ -202,8 +202,8 @@ export class SessionApiOperations {
 
   /** The records a caller may read: its scope, then what sharing and parentage let it see. */
   private visible(context: WorkspaceRequestContext): SQL[] {
-    return [scopeClause(apiScope(context), sql`session.organization_id`),
-      workspaceResourceVisibility(context.principal, 'session', { id: sql`session.session_id`, organization: sql`session.organization_id`, owner: sql`session.created_by` })]
+    return [scopeClause(apiScope(context), sql`session_records.organization_id`),
+      workspaceResourceVisibility(context.principal, 'session', { id: sql`session_records.session_id`, organization: sql`session_records.organization_id`, owner: sql`session_records.created_by` })]
   }
 
   /**
@@ -257,7 +257,7 @@ export class SessionApiOperations {
     const byActivity = query.order === 'activity'
     const time = byActivity ? 'last_activity_at' : 'created_at'
     const filters = [...this.visible(context),
-      seekClause(sql`session.${sql.identifier(time)}`, sql`session.session_id`, readCursor(query.cursor))]
+      seekClause(sql`session_records.${sql.identifier(time)}`, sql`session_records.session_id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`project_remote = ${await projectKeyForId(context, query.projectId)}`)
     if (query.repositoryKey) filters.push(sql`project_remote = ${query.repositoryKey}`)
     if (query.projectPath !== undefined) {
@@ -267,12 +267,12 @@ export class SessionApiOperations {
         ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`
         : sql`project_path = ${encoded}`)
     }
-    if (query.chats === 'true') filters.push(sql`session.place = 'chat'`)
+    if (query.chats === 'true') filters.push(sql`session_records.place = 'chat'`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
     // Top-level sessions, or the ones one session started; the caller's session list
     // unless they ask for every session they may read (docs/plans/session-archive.md).
     const reader = this.reader(context)
-    filters.push(query.parentSessionId ? sql`session.parent_session_id = ${query.parentSessionId}` : sql`session.parent_session_id IS NULL`)
+    filters.push(query.parentSessionId ? sql`session_records.parent_session_id = ${query.parentSessionId}` : sql`session_records.parent_session_id IS NULL`)
     const where = sql.join(filters, sql` AND `)
     const records = query.scope === 'list' && !query.parentSessionId
       ? await readSessionListPage(where, query.limit + 1, time, reader)
@@ -298,7 +298,7 @@ export class SessionApiOperations {
     if (hits.length === 0) return { items: [], total, indexing }
     const ids = [...new Set(hits.map(hit => hit.sessionId))]
     const records = await readSessionMetadataPage(sql.join([...this.visible(context),
-      sql`session.session_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`], sql` AND `), ids.length, 'created_at', this.reader(context))
+      sql`session_records.session_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`], sql` AND `), ids.length, 'created_at', this.reader(context))
     const sessions = new Map((await this.records(context, records)).map(session => [session.id, session]))
     const items: WorkspaceSessionSearchResult['items'] = []
     for (const hit of hits) {
@@ -323,12 +323,12 @@ export class SessionApiOperations {
     for (let start = 0; start < sessionIds.length; start += READABLE_CHUNK) {
       const chunk = sessionIds.slice(start, start + READABLE_CHUNK)
       const rows = await getDatabase().all<{ session_id: string; viewed_at: number | null }>(sql`
-        SELECT session.session_id, reader_view.viewed_at FROM ${sessionTable}
+        SELECT session_records.session_id, reader_view.viewed_at FROM ${sessionTable}
         LEFT JOIN ${personalResourceState} AS reader_view
-          ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session.session_id
-          AND reader_view.organization_id = session.organization_id AND reader_view.created_by = ${personKey ?? ''}
-        WHERE ${sql.join(this.visible(context), sql` AND `)} AND session.started_at IS NOT NULL
-          AND session.session_id IN (${sql.join(chunk.map(id => sql`${id}`), sql`, `)})`)
+          ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session_records.session_id
+          AND reader_view.organization_id = session_records.organization_id AND reader_view.created_by = ${personKey ?? ''}
+        WHERE ${sql.join(this.visible(context), sql` AND `)} AND session_records.started_at IS NOT NULL
+          AND session_records.session_id IN (${sql.join(chunk.map(id => sql`${id}`), sql`, `)})`)
       for (const row of rows) views.set(row.session_id, row.viewed_at)
     }
     return views
@@ -364,12 +364,12 @@ export class SessionApiOperations {
 
   private async mirroredHits(context: WorkspaceRequestContext, query: SearchRequest): Promise<HitsPage> {
     const records = [...this.visible(context)]
-    if (query.projectRoot) records.push(sql`session.project_root = ${query.projectRoot}`)
-    if (query.repositoryKey) records.push(sql`session.project_remote = ${query.repositoryKey}`)
-    if (query.chats === 'true') records.push(sql`session.place = 'chat'`)
-    if (query.provider) records.push(sql`session.provider = ${query.provider}`)
-    if (query.activeSince !== undefined) records.push(sql`session.last_activity_at >= ${query.activeSince}`)
-    records.push(sql`session.started_at IS NOT NULL`)
+    if (query.projectRoot) records.push(sql`session_records.project_root = ${query.projectRoot}`)
+    if (query.repositoryKey) records.push(sql`session_records.project_remote = ${query.repositoryKey}`)
+    if (query.chats === 'true') records.push(sql`session_records.place = 'chat'`)
+    if (query.provider) records.push(sql`session_records.provider = ${query.provider}`)
+    if (query.activeSince !== undefined) records.push(sql`session_records.last_activity_at >= ${query.activeSince}`)
+    records.push(sql`session_records.started_at IS NOT NULL`)
     const db = getDatabase()
     const search = new SearchQuery(query.q)
     const page = await searchIndexFor(db.engine).searchSessions(db, {

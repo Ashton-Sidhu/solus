@@ -3,7 +3,7 @@
 Status: IMPLEMENTED in the worktree branch `solus/fresh-database-baseline`
 (2026-11-02; not merged to main, not deployed). Every section below is built:
 one `0000_baseline.sql` per database (`solus.db`, Postgres, `metrics.db`), the
-consolidations of §3, the one `session` row of §4, `resource_links` and
+consolidations of §3, the one `session_records` row of §4, `resource_links` and
 `pull_request_observations` and `comment_threads` of §5, the Insights tables of
 §6, the lifetimes of §7, the query and write-path changes of §8, the two
 person columns of decision 2 (and the removal of `shareTransfer`), and the
@@ -80,7 +80,7 @@ causes; the table sections below carry the detail.
 | P5 | **Parent-child integrity is declared.** Every child of a session, task, or work has a foreign key with `ON DELETE CASCADE`. | Ten session child tables gain the key (§4). `resource_links` and `comment_threads` state their deletion rules explicitly because their parents are polymorphic (§5). |
 | P6 | **JSON is a payload, never a predicate.** A field the app filters, sorts, or groups on is a column. | Promoted columns on spans; `started_by`, `trigger_config`, `attrs` stay JSON TEXT on both engines because nothing filters them in SQL. `json` remains TEXT in the schema DSL; no `jsonb`. |
 | P7 | **One schema system.** Every table is a `defineTable`; one generated baseline per engine; nothing is created at runtime. | The legacy `CREATE TABLE` strings in `db/migrations.ts` and the history under `packages/server/drizzle/` are replaced by one baseline. `member_folder` becomes a `defineTable`. `session_fts` is created contentless once; the first-open rebuild in `db/index.ts:69` is deleted (§3.7). |
-| P8 | **Owner scope is uniform.** Two person columns (decision 2); `organization_id` wherever a filter needs it; enforced by the baseline test, not by review. | `turn_flags` and `saved_metrics_queries` gain `created_by` and filter on it. `owner_key` → `created_by` on `session`, `tasks`, `works`, `webhooks`, `automations`, `integration`, `browser_profiles`, `workspace_projects`; `recipient_key` → `user_id` on `notifications`; `person_key` → `created_by` on preferences; `granted_by_user_id` → `created_by` and `target_user_key` → `user_id`. `task_counters` loses its meaningless `organization_id`. |
+| P8 | **Owner scope is uniform.** Two person columns (decision 2); `organization_id` wherever a filter needs it; enforced by the baseline test, not by review. | `turn_flags` and `saved_metrics_queries` gain `created_by` and filter on it. `owner_key` → `created_by` on `session_records`, `tasks`, `works`, `webhooks`, `automations`, `integration`, `browser_profiles`, `workspace_projects`; `recipient_key` → `user_id` on `notifications`; `person_key` → `created_by` on preferences; `granted_by_user_id` → `created_by` and `target_user_key` → `user_id`. `task_counters` loses its meaningless `organization_id`. |
 
 ## 3. Table consolidations (absorbed from plans 022–027)
 
@@ -222,7 +222,7 @@ resulting baseline.
   `session` via explicit delete, `resource_links` via explicit delete) declares
   `session_id REFERENCES <session table>(session_id) ON DELETE CASCADE` where
   the parent is a real table, so a record delete removes everything (P5).
-- Admission facts live on the `session` row (§4.2); a row that never started is swept by `retained_until` logic on `admitted_at` with `started_at IS NULL` (P4).
+- Admission facts live on the `session_records` row (§4.2); a row that never started is swept by `retained_until` logic on `admitted_at` with `started_at IS NULL` (P4).
 
 ### 4.2 Merger validation (records + states + leads; + admissions; + transcript_index)
 
@@ -238,7 +238,7 @@ runtime, `defineTable` generation, the `viewed_at` move.
 | (b) + admissions | **CONDITIONAL → adopted** | The admission id *is* the Solus session id (`api-operations.ts:209`, `turn-organization.ts:137`), so `(organization_id, admission_id)` collapses to `session_id`. The row must be creatable before the provider starts, and `admit` needs a same-owner `DO UPDATE` arm for a report that arrives first. Both are specified below. |
 | (c) + `transcript_index` | **FAIL — sibling stays** | The index row is keyed by the **provider thread id**, not the Solus session id (`migrations.ts:86`, `session-indexer.ts:264,305`, `session-lineage.ts:113-119`); one session has N threads after handoffs, and `last_offset` is per file (`session_files`). 1:N and runner-local facts cannot share the 1:1 row. |
 
-**Baseline: one `session` row** (records + states + leads + admissions) and a
+**Baseline: one `session_records` row** (records + states + leads + admissions) and a
 sibling `transcript_index` keyed by provider thread id.
 
 Columns: `session_id PK`, `organization_id NN default 'local'`, `owner_key NN`,
@@ -506,7 +506,7 @@ ordering problem. The cloud session owns the regeneration and the deploy.
 Solus host records and index, after this plan:
 
 - Removed: `saved_prompts`, `browser_profile_defaults`, `session_leads`,
-  `session_states`, `session_admissions` (both merged into `session`, §4.2),
+  `session_states`, `session_admissions` (both merged into `session_records`, §4.2),
   `session_views`, `task_snoozes`, `session_pull_request_watches`,
   `workspace_api_receipts`, `applied_ops`, `webhook_seen_keys`,
   `recent_projects`, `task_links`, `task_session_links`, `session_links`,
@@ -515,7 +515,7 @@ Solus host records and index, after this plan:
 - Added: `personal_resource_state`, `operation_receipts`, `resource_links`,
   `pull_request_observations`, `comment_threads`, `transcript_index`,
   `span_texts` (metrics), `member_folder` (now declared).
-- Count: 74 → 62 (`session_records` continues as `session`). The count is a
+- Count: 74 → 62 (`session_records` absorbs the other three; it keeps its name because Better Auth owns `session` in the cloud's shared Postgres schema). The count is a
   consequence, not a target.
 
 ## 11. Order of work

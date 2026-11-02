@@ -471,7 +471,7 @@ describe('the link and guests', () => {
     const { shares } = manager()
     const session = { kind: 'session', id: 's1' } as const
     await seed('session', 's1', 'alice', 'org1')
-    await database.getDatabase().run(sql`UPDATE session SET runner_host_id = 'host-a' WHERE session_id = 's1'`)
+    await database.getDatabase().run(sql`UPDATE session_records SET runner_host_id = 'host-a' WHERE session_id = 's1'`)
     await shares.setEntries({ resource: session, entries: [{ subject: { kind: 'team', id: 'web' }, role: 'editor' }, { subject: { kind: 'user', id: 'carol' }, role: 'viewer' }] }, member('alice'))
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     const opened = (await shares.openLink(link.secret))!
@@ -696,7 +696,7 @@ describe('sharing a Local record with an organization', () => {
         if (!home) return null
         if (home.organizationId !== 'local') return home.organizationId
         assigned.push([resource.id, organizationId])
-        await database.getDatabase().run(sql`UPDATE session SET organization_id = ${organizationId} WHERE session_id = ${resource.id}`)
+        await database.getDatabase().run(sql`UPDATE session_records SET organization_id = ${organizationId} WHERE session_id = ${resource.id}`)
         return organizationId
       },
     })

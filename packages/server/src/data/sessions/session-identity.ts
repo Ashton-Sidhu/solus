@@ -134,9 +134,9 @@ export async function admitSession(admission: Omit<SessionAdmission, 'createdAt'
     INSERT INTO ${session} (session_id, organization_id, created_by, publication, admitted_host_id, admitted_at, created_at)
     VALUES (${admission.admissionId}, ${admission.organizationId}, ${admission.ownerKey}, 'published', ${admission.hostId}, ${now}, ${now})
     ON CONFLICT (session_id) DO UPDATE SET
-      admitted_at = COALESCE(session.admitted_at, excluded.admitted_at),
-      admitted_host_id = COALESCE(session.admitted_host_id, excluded.admitted_host_id)
-    WHERE session.created_by = excluded.created_by
+      admitted_at = COALESCE(session_records.admitted_at, excluded.admitted_at),
+      admitted_host_id = COALESCE(session_records.admitted_host_id, excluded.admitted_host_id)
+    WHERE session_records.created_by = excluded.created_by
   `)
   const row = admissionRowSchema.nullish().parse(await getDatabase().get(sql`
     SELECT created_by, admitted_host_id, admitted_at FROM ${session}
