@@ -39,6 +39,18 @@ describe('claudeEnv', () => {
     expect(env.ANTHROPIC_API_KEY).toBe('host-key')
     expect(env.CLAUDE_CONFIG_DIR).toBe('/host/.claude')
   })
+
+  // An inherited entrypoint (Solus started from a Claude Code session) must not label Solus's turns.
+  test('the CLI names Solus as its entrypoint, unless the provider instance sets one', () => {
+    process.env.CLAUDE_CODE_ENTRYPOINT = 'claude-desktop'
+    try {
+      expect(claudeEnv().CLAUDE_CODE_ENTRYPOINT).toBe('solus')
+      expect(claudeEnv({ home: '/seats/claude/bob' }).CLAUDE_CODE_ENTRYPOINT).toBe('solus')
+      expect(claudeEnv({ home: '/seats/claude/bob', environmentOverrides: { CLAUDE_CODE_ENTRYPOINT: 'custom' } }).CLAUDE_CODE_ENTRYPOINT).toBe('custom')
+    } finally {
+      delete process.env.CLAUDE_CODE_ENTRYPOINT
+    }
+  })
 })
 
 // The `/` menu lists the skills of the folder the caller's CLI reads, not the host's.
