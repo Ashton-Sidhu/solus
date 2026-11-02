@@ -18,12 +18,12 @@ On the Postgres engine `solus.db` still carries the record tables, empty:
 records are read through `getDatabase()`, which points at Postgres.
 
 - **Host tables** exist on every machine, whatever its records engine: the
-  index of the transcripts on the machine's own disk (`sessions`,
+  index of the transcripts on the machine's own disk (`transcript_index`,
   `session_messages`, `session_fts`), the execution ledger, the delivery
   queues, and host-local settings. They are read synchronously through
   `getDb()`.
 - **Ported records** are the durable, replicated records, such as tasks, works,
-  and `session_records`. They are written once in `defineTable` and generated
+  and `session`. They are written once in `defineTable` and generated
   for both engines; a read goes through `getDatabase()`.
 - **Metrics** holds this host's spans and log events. Rollover deletes rows
   older than the retention setting and gives the freed pages back to the file
@@ -33,11 +33,39 @@ records are read through `getDatabase()`, which points at Postgres.
   the per-kind sums) are columns written when the root ends, and the `turns`
   view selects them (plans/029 §6).
 
-`sessions` and `session_records` hold similar facts, but they are different
-things. `sessions` is this host's local, synchronous index of provider threads
-(one session has several after a handoff). `session_records` is the replicated
-record, and on the Postgres engine it lives in Postgres. Plan 029 §4 narrows
-`sessions` to indexer state; it does not merge the two.
+## The session row
+
+One `session` row holds everything that was `session_records`,
+`session_states`, `session_leads`, and `session_admissions`
+(plans/029-fresh-database-baseline.md §4.2). The row is the session's birth: a
+turn's admission or a claim makes it with its owner (`created_by`, never
+changed) and organization (`local` until assigned once) before the provider
+starts; `started_at` is set by the first report of provider facts and never
+moves. Every list read adds `started_at IS NOT NULL`, so a row only an
+admission made is not shown. The two invariants `defineTable` cannot declare
+as CHECKs are kept by the write commands: `started_at IS NULL OR (provider IS
+NOT NULL AND project_path IS NOT NULL)` and `(settled_at IS NULL) =
+(settled_by IS NULL)`.
+
+A person's own view of a session or a task — settle, archive, snooze, and the
+read boundary `viewed_at` — is a `resource_preferences` row keyed by
+`(organization_id, resource_kind, resource_id, created_by)`, where
+`created_by` is the person whose preference it is. The parent is polymorphic,
+so a session or task delete removes its rows explicitly; the session's other
+children (`session_links`, `session_pull_requests`,
+`session_pull_request_watches`) cascade from the row, and the host tables that
+name a session (`runs`, `run_queue`, `run_exchanges`, `async_questions`,
+`transcript_mirror_rows`, `activity_mirror_rows`) are deleted by
+`deleteSessionRecord`, because a host table cannot reference a ported one.
+
+`transcript_index` and `session` hold similar facts, but they are different
+things. `transcript_index` is this host's local, synchronous index of provider
+threads (one session has several after a handoff): the indexer's state, the
+per-thread facts (provider, model, folder), and the copies of `custom_title`
+and `branch` the host's synchronous readers (`getIndexedSession`, the
+transcript search, the task and PR readers) project from. `session` is the
+replicated record, and on the Postgres engine it lives in Postgres. The two
+are not merged (plan 029 §4.2: the index is keyed by provider thread).
 
 ## How a baseline is applied
 

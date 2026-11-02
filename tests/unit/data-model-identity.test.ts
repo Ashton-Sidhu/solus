@@ -49,6 +49,20 @@ const NO_CREATOR: Record<string, string> = {
   runner_delivery_cursors: 'delivery cursor per host and delivering person (`user_id`)',
   transcript_mirror_rows: 'mirror rows of a session transcript',
   activity_mirror_rows: 'mirror rows of a session activity',
+  transcript_index: "this host's index of its transcript files, one row per provider thread; the session row owns the facts",
+  session_messages: 'indexed messages of a transcript file',
+  session_files: 'how far the indexer read each transcript file',
+  session_keys: 'a short number per session for the keyboard',
+  session_lineage_members: 'the provider threads a session ran as',
+  session_thread_aliases: 'a provider thread id that names a session',
+  pinned_sessions: 'a pin on this host, keyed by session and server; personal ownership is a deferred decision (plan 029)',
+  runs: 'the execution ledger of a session; the session row owns it',
+  run_queue: 'queued prompts of a session; the session row owns them',
+  run_exchanges: 'exchanges between two sessions; the session rows own them',
+  async_questions: 'questions a session asked; the session row owns them',
+  session_transcripts: 'mirrored transcript rows; the session row names the owner',
+  insight_spans: 'mirrored spans of a turn; `user_id` names who ran it',
+  insight_log_events: 'mirrored log events of a span',
   insight_span_texts: 'mirrored span texts; the span row names the host and organization',
   operation_receipts: 'receipts of writes that happen once',
   notifications: 'written by the hub for its recipient (`user_id`); no person makes a row',
@@ -84,13 +98,8 @@ const NO_CREATOR: Record<string, string> = {
  * lands, and this list ends empty.
  */
 const RESHAPING_ELSEWHERE = new Set([
-  // Session identity (§4) and the session owners.
-  'sessions', 'session_messages', 'session_files', 'session_keys', 'session_lineage_members', 'session_thread_aliases',
-  'pinned_sessions', 'runs', 'run_queue', 'run_exchanges', 'async_questions',
-  'session_records', 'session_states', 'session_views', 'session_leads', 'session_admissions', 'session_links',
-  'session_pull_requests', 'session_pull_request_watches', 'session_transcripts', 'task_snoozes',
-  // Insights, and the host tables gaining `created_by` (§3.7).
-  'insight_spans', 'insight_log_events', 'saved_metrics_queries', 'turn_flags',
+  // Relationships (plan 029 §5.1): these fold into `resource_links`, whose `created_by` is a user id.
+  'session_links', 'session_pull_requests', 'session_pull_request_watches', 'task_session_links',
 ])
 
 /**

@@ -604,7 +604,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
-    onSessionReadStateChanged((sessionId, viewedAt) => events.broadcast('session.readStateChanged', { sessionId, viewedAt })),
+    // A read boundary is the reader's own: only their connections hear it move.
+    onSessionReadStateChanged((change) => {
+      const recipients = personConnections.of(change.personKey, change.organizationId)
+      if (recipients.length) void events.publish(recipients, 'session.readStateChanged', { sessionId: change.sessionId, viewedAt: change.viewedAt })
+    }),
     // A link carries whether it is watched (docs/plans/pr-watch.md).
     onPullRequestWatchesChanged((sessionId) => {
       events.broadcast('session.pullRequestsChanged', { sessionId })

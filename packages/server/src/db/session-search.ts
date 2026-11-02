@@ -156,7 +156,7 @@ function sessionsInScope(db: ReturnType<typeof getDb>, options: SessionSearchOpt
   if (options.activeSince !== undefined) { scope.push('s.last_timestamp >= ?'); params.push(options.activeSince) }
   return nameRowSchema.array().parse(db.prepare(`
     SELECT s.session_id, k.number, s.custom_title, s.branch, s.last_timestamp
-    FROM sessions s LEFT JOIN session_keys k ON k.session_id = s.session_id
+    FROM transcript_index s LEFT JOIN session_keys k ON k.session_id = s.session_id
     ${scope.length ? `WHERE ${scope.join(' AND ')}` : ''}
   `).all(...params))
 }
@@ -207,7 +207,7 @@ function pageResults(
       session_id, provider, cwd, project_path, is_worktree, slug, first_message, custom_title,
       last_timestamp, size, model, reasoning_effort, project_root, branch, parent_session_id, root_session_id,
       delegation_exchange_id, delegation_depth, delegation_intent, delegation_created_at
-    FROM sessions
+    FROM transcript_index
     WHERE session_id IN (${sessionIds.map(() => '?').join(', ')})
   `).all(...sessionIds)).map((row) => [row.session_id, row]))
   const passageIds = page.flatMap(({ passageIds }) => passageIds)

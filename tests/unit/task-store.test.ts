@@ -84,7 +84,7 @@ describe('native task migration', () => {
     ).all().map((row) => (row as { name: string }).name)
     expect(tables()).toEqual([
       'asset_publications', 'task_comments', 'task_counters', 'task_external_links',
-      'task_links', 'task_session_links', 'task_snoozes', 'tasks', 'upstream_task_cache',
+      'task_links', 'task_session_links', 'tasks', 'upstream_task_cache',
     ])
     const generated = readdirSync(migrationsFolder('sqlite')).filter((file) => file.endsWith('.sql')).length
     expect(fresh.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({ count: generated })
@@ -577,7 +577,7 @@ describe('session binding and durable links', () => {
     // needs their persisted display and model metadata on the durable task link.
     const task = await taskWithSession('session-with-metadata', 'Raw session prompt')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp, model)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp, model)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       'session-with-metadata',
@@ -637,7 +637,7 @@ describe('session binding and durable links', () => {
     // session left by name, and stay silent when there is nothing to remove.
     const task = await taskWithSession('session-to-unlink', 'Attempt that gets detached')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
     `).run('session-to-unlink', 'claude-code', 'First message', 'Detached session', 1_725_000_000_000)
 
@@ -680,7 +680,7 @@ describe('session binding and durable links', () => {
   ])('task attempts normalize stored %s metadata through the stable lineage id', async (storedProvider, provider) => {
     const task = await taskWithSession('stable-session', 'A task with a stable session id')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
     `).run('provider-session', storedProvider, 'First provider message', 'Provider session title', 1_725_000_000_000)
     db.getDb().prepare(`
@@ -727,7 +727,7 @@ describe('session binding and durable links', () => {
     const task = await taskWithSession('first-session', 'Shared task title')
     await (await tasks.Task.byId('local', task!.id)).linkSession('second-session', 'working')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
     `).run(
       'first-session', 'codex', 'First prompt', 'First session name', 1,
@@ -770,7 +770,7 @@ describe('session binding and durable links', () => {
     })
     const bag = await tasks.Task.byId('local', task.id)
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
       VALUES (?, 'codex', 0, ?, 0, ?)
     `).run('bound-session', Date.now(), 'feature/bound')
     await bag.linkSession('bound-session', 'working', {
@@ -804,11 +804,11 @@ describe('session binding and durable links', () => {
     const shared = await taskStore.createTask('local', { title: 'Shared clone attempt' })
     const isolated = await taskStore.createTask('local', { title: 'Worktree attempt' })
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
       VALUES (?, 'claude', ?, ?, 0, ?)
     `).run('clone-session', 0, Date.now(), 'feature/shared')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
       VALUES (?, 'claude', ?, ?, 0, ?)
     `).run('worktree-session', 1, Date.now(), 'feature/isolated')
     await (await tasks.Task.byId('local', shared.id)).linkSession('clone-session', 'working', {})

@@ -46,7 +46,7 @@ describe('pinned session manifest', () => {
       pinnedAt: 42,
     }
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, model)
+      INSERT INTO transcript_index(session_id, provider, model)
       VALUES (?, ?, ?)
     `).run(pin.sessionId, pin.provider, 'gpt-5.6-sol')
     const indexedPin = { ...pin, model: 'gpt-5.6-sol' }

@@ -7,6 +7,7 @@ import * as notificationsSchema from '../../data/notifications/schema'
 import * as insightSchema from '../../data/insights/insight-schema'
 import * as outboxSchema from '../../sync/outbox/schema'
 import * as plansSchema from '../../plans/schema'
+import * as preferencesSchema from '../../data/preferences/schema'
 import * as projectsSchema from '../../projects/schema'
 import * as receiptsSchema from '../../data/receipts/schema'
 import * as sessionsSchema from '../../data/sessions/schema'
@@ -17,7 +18,6 @@ import * as webhooksSchema from '../../data/webhooks/schema'
 
 export const tasks = tasksSchema.tasks.pg
 export const task_counters = tasksSchema.taskCounters.pg
-export const task_snoozes = tasksSchema.taskSnoozes.pg
 export const task_session_links = tasksSchema.taskSessionLinks.pg
 export const task_comments = tasksSchema.taskComments.pg
 export const task_links = tasksSchema.taskLinks.pg
@@ -35,14 +35,11 @@ export const plan_annotations = plansSchema.planAnnotations.pg
 export const indexed_plans = plansSchema.indexedPlans.pg
 export const plan_index_providers = plansSchema.planIndexProviders.pg
 export const acl_entry = sharingSchema.aclEntry.pg
-export const session_leads = sessionsSchema.sessionLeads.pg
+export const session = sessionsSchema.session.pg
 export const session_links = sessionsSchema.sessionLinks.pg
-export const session_records = sessionsSchema.sessionRecords.pg
-export const session_admissions = sessionsSchema.sessionAdmissions.pg
 export const session_pull_requests = sessionsSchema.sessionPullRequests.pg
 export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.pg
-export const session_states = sessionsSchema.sessionStates.pg
-export const session_views = sessionsSchema.sessionViews.pg
+export const resource_preferences = preferencesSchema.resourcePreferences.pg
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.pg
 export const session_transcripts = transcriptSchema.sessionTranscripts.pg
 export const insight_spans = insightSchema.insightSpans.pg

@@ -12,7 +12,7 @@ import { getSessionRecord } from '../../data/sessions/session-records'
 import type { SharesMirrorPayload, ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
 import type { Activity } from '@solus/contracts/activity'
 import { activityFor } from '../../data/activity/activity'
-import { sessionRecords } from '../../data/sessions/schema'
+import { session } from '../../data/sessions/schema'
 import { appendDelivery, deliveryActorOf, type DeliveryDestination } from '../delivery-queue'
 
 const log = createLogger('main', 'transcript-mirror')
@@ -207,8 +207,8 @@ export interface InterruptedSession extends TranscriptSource {
  */
 export async function listOwnInterruptedSessions(): Promise<InterruptedSession[]> {
   const rows = interruptedRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT session_id, provider, project_path FROM ${sessionRecords}
-    WHERE publication = 'published' AND status = 'interrupted' AND runner_host_id IS NULL
+    SELECT session_id, provider, project_path FROM ${session}
+    WHERE publication = 'published' AND status = 'interrupted' AND runner_host_id IS NULL AND started_at IS NOT NULL
   `))
   return rows.map((row) => ({ sessionId: row.session_id, provider: row.provider, projectPath: row.project_path }))
 }

@@ -56,10 +56,10 @@ test(`one list page over ${SESSIONS} sessions`, async () => {
   for (let index = 0; index < SESSIONS; index++) {
     const recent = index % RECENT_EVERY === 0
     const time = recent ? now - index * 1000 : since - DAY - index * 60_000
-    await insert(sql`INSERT INTO session_records (session_id, organization_id, owner_key, provider, project_path, status, created_at, last_activity_at)
-      VALUES (${`s-${index}`}, 'local', ${ALICE}, 'codex', '-repo', 'idle', ${time}, ${time})`)
-    await insert(sql`INSERT INTO session_views (session_id, person_key, organization_id, snoozed_until, archived_at)
-      VALUES (${`s-${index}`}, ${ALICE}, 'local', ${index % 150 === 7 ? now + DAY : null}, ${index % 9 === 0 ? now - DAY : null})`)
+    await insert(sql`INSERT INTO session (session_id, organization_id, created_by, provider, project_path, status, created_at, last_activity_at, started_at)
+      VALUES (${`s-${index}`}, 'local', ${ALICE}, 'codex', '-repo', 'idle', ${time}, ${time}, ${time})`)
+    await insert(sql`INSERT INTO resource_preferences (resource_kind, resource_id, created_by, organization_id, snoozed_until, archived_at)
+      VALUES ('session', ${`s-${index}`}, ${ALICE}, 'local', ${index % 150 === 7 ? now + DAY : null}, ${index % 9 === 0 ? now - DAY : null})`)
     if (index % 10 === 3) {
       await insert(sql`INSERT INTO session_pull_requests (session_id, repository, number, url, source, created_by, linked_at, pr_state, organization_id)
         VALUES (${`s-${index}`}, 'github.com/acme/solus', ${index}, 'https://github.com/acme/solus/pull/1', 'branch', 'host', ${time}, ${index % 100 === 3 ? 'open' : 'merged'}, 'local')`)
@@ -69,7 +69,7 @@ test(`one list page over ${SESSIONS} sessions`, async () => {
   }
 
   const reader = { personKey: ALICE, teamIds: [], now }
-  const where = sql`session_records.parent_session_id IS NULL`
+  const where = sql`session.parent_session_id IS NULL`
   // Every page, as the client reads the list: 200 at a time, by the activity cursor.
   const allPages = async (read: (where: SQL) => Promise<Array<{ sessionId: string; lastActivityAt: number }>>) => {
     const ids: string[] = []
@@ -79,7 +79,7 @@ test(`one list page over ${SESSIONS} sessions`, async () => {
       ids.push(...page.slice(0, 200).map((record) => record.sessionId))
       if (page.length <= 200) return ids
       const last = page[199]!
-      seek = sql`(session_records.last_activity_at, session_records.session_id) < (${last.lastActivityAt}, ${last.sessionId})`
+      seek = sql`(session.last_activity_at, session.session_id) < (${last.lastActivityAt}, ${last.sessionId})`
     }
   }
   const before = () => allPages((filter) => records.readSessionMetadataPage(sql`${filter} AND ${records.sessionListedClause(reader)}`, 201, 'last_activity_at', reader))
@@ -96,13 +96,13 @@ test(`one list page over ${SESSIONS} sessions`, async () => {
     return median(runs)
   }
   const plan = async (statement: SQL) => (await db.all<{ detail: string }>(sql`EXPLAIN QUERY PLAN ${statement}`)).map((row) => row.detail)
-  const candidates = await plan(sql`SELECT session_records.session_id FROM (
-      SELECT session_id FROM session_records WHERE last_activity_at >= ${since}
-      UNION SELECT session_id FROM session_views WHERE person_key = ${ALICE} AND snoozed_until IS NOT NULL
+  const candidates = await plan(sql`SELECT session.session_id FROM (
+      SELECT session_id FROM session WHERE last_activity_at >= ${since}
+      UNION SELECT resource_id AS session_id FROM resource_preferences WHERE created_by = ${ALICE} AND resource_kind = 'session' AND snoozed_until IS NOT NULL
       UNION SELECT session_id FROM session_pull_requests WHERE session_pull_requests.source <> 'dismissed'
         AND (session_pull_requests.pr_state IS NULL OR session_pull_requests.pr_state NOT IN ('merged', 'closed', 'missing'))
       UNION SELECT resource_id FROM acl_entry WHERE resource_kind = 'session' AND subject_kind = 'user' AND subject_id = ${ALICE}
-    ) AS list_candidates CROSS JOIN session_records WHERE session_records.session_id = list_candidates.session_id`)
+    ) AS list_candidates CROSS JOIN session WHERE session.session_id = list_candidates.session_id`)
   const listed = (await before()).length
   const beforeMs = await time(before)
   const afterMs = await time(after)

@@ -18,7 +18,7 @@ import { ResponseTextBuffer } from './sessions/response-text-buffer'
 import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { organizationOfSession } from '../data/sessions/session-records'
-import { inheritSessionOrganization, pendingOrganizationFor } from './sessions/turn-organization'
+import { inheritSessionOrganization } from './sessions/turn-organization'
 import { getIndexedSession } from '../db/session-indexer'
 import { cancelProvisionalSessionHandoff, resolveSessionLineageById, sessionIdOfThread } from '../data/sessions/session-lineage'
 import { type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
@@ -272,12 +272,11 @@ export class SessionRuntime extends EventEmitter {
     return this.activeSessions.get(sessionId)?.agentSessionId ?? undefined
   }
 
-  /** The organization the session's spans carry (organization-scope §6.1); undefined for Local work. */
+  /** The organization the session's spans carry (organization-scope §6.1); undefined for Local work.
+   *  The row says it from the turn's admission on, before the provider starts. */
   async turnOrganization(sessionId: string): Promise<string | undefined> {
     const organizationId = await organizationOfSession(sessionId)
-    if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
-    // A new session has no record yet; the admission already decided its organization.
-    return pendingOrganizationFor(sessionId) ?? undefined
+    return organizationId !== LOCAL_ORGANIZATION_ID ? organizationId : undefined
   }
 
   /**

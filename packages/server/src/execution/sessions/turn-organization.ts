@@ -2,12 +2,13 @@ import { encodePathAsFolder, type AgentId, type SessionCtx } from '@solus/contra
 import type { WorkspaceSessionAdmissionRequest } from '@solus/contracts/solus-api'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admission/principal'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { assignSessionOrganization, claimSessionOwner, getSessionRecord, isOrganizationWork, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
+import { assignSessionOrganization, getSessionRecord, isOrganizationWork } from '../../data/sessions/session-records'
+import { claimSessionOwner, sessionIdentityOf, type SessionBirthOptions } from '../../data/sessions/session-identity'
 import { isOrganizationAttached } from '../../host/organization-attachment'
 import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
 import { parseUserKey } from '@solus/contracts/user'
-import { isHostUserKey } from '../../host/host-user'
+import { hostUserKey, isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
 import { hostCategory } from '../../host/host-category'
 import type { HostCategory } from '@solus/contracts/uplink'
@@ -21,8 +22,11 @@ import { TurnRefusedError } from './turn-refusal'
  * (organization-scope §3, §3.1, §6.1, R9–R11; organization-vms §1, §4):
  *
  * 1. **New root or continuation.** A turn of a session that already has a
- *    record continues it under that record's saved home and organization. A
- *    brand-new session is a new root; a fork follows its source.
+ *    record (a row whose provider started) continues it under that record's
+ *    saved home and organization. A brand-new session is a new root; a fork
+ *    follows its source. The admission births the session's row
+ *    (`session-identity.ts`): there is no in-memory record of a session that
+ *    is not written yet, and a restart finds the same answer in the row.
  * 2. **Attached machine.** On a machine attached for organization work, a new
  *    root needs an organization — the member's, or the one the owner's window
  *    selected — and the Solus API must accept the session before its provider
@@ -86,28 +90,55 @@ export async function admitTurnOrganization(ctx: TurnAdmissionContext, actor: Ac
   // A fork follows the record of the session it branches from; a child, its parent's.
   const forkSource = ctx.session.forked && ctx.session.agentSessionId ? sessionIdOfThread(ctx.session.agentSessionId) : null
   const record = await getSessionRecord(ANY_ORGANIZATION, forkSource ?? ctx.parentSessionId ?? ctx.session.sessionId)
-  const organizationId = isOrganizationAttached()
+  const admitted = isOrganizationAttached()
     ? await admitOnAttachedMachine(ctx, principal, deps, record)
     : await admitOnPersonalMachine(ctx, principal, deps, record)
   // A new session belongs to the person its first turn is for (docs/plans/access-model.md §2.2):
-  // a child session, an automation's run, and a client's new session alike. A guest starts none.
-  const ownerKey = ownerKeyOf(actor)
-  if (ownerKey && principal.kind !== 'guest' && ctx.session.sessionId) await claimSessionOwner(ctx.session.sessionId, { ownerKey, organizationId })
-  return organizationId
+  // a child session, an automation's run, and a client's new session alike; a turn nobody is
+  // behind — a webhook's, an automation's — is the host's own. A guest starts none. The row is
+  // born here, in the organization admission decided; a row that exists keeps its owner, and a
+  // Local one born before its home was decided takes the home now.
+  // A continuation of a started session has its row and its owner: nothing to claim.
+  const continuing = !forkSource && ctx.parentSessionId === undefined && record !== null
+  if (principal.kind !== 'guest' && ctx.session.sessionId) {
+    await bornSession(ctx.session.sessionId, admitted, continuing, admitted.birth?.ownerKey ?? ownerKeyOf(actor) ?? hostUserKey())
+  }
+  return admitted.organizationId
+}
+
+/**
+ * The row the turn's session is born with, in the organization admission decided
+ * (`session-identity.ts`). A row born before this turn decided its home — Local,
+ * by a claim or a start — takes the home once (R10). The owner never changes.
+ */
+async function bornSession(sessionId: string, admitted: TurnAdmission, continuing: boolean, ownerKey: string): Promise<void> {
+  const claimed = continuing ? false : await claimSessionOwner(sessionId, { ownerKey, organizationId: admitted.organizationId }, admitted.birth)
+  if (!claimed && admitted.decided && admitted.organizationId !== LOCAL_ORGANIZATION_ID) {
+    await assignSessionOrganization(sessionId, admitted.organizationId, { published: admitted.birth?.published, admittedAt: admitted.birth?.admittedAt })
+  }
 }
 
 type StoredRecord = Awaited<ReturnType<typeof getSessionRecord>>
+
+/**
+ * What admission decided for the turn's session: its organization; whether this
+ * turn decided it (a new root), rather than read it from the row; and for a new
+ * root the API admitted, how it is born.
+ */
+interface TurnAdmission {
+  organizationId: string
+  decided: boolean
+  birth?: SessionBirthOptions & { ownerKey: string }
+}
 
 /**
  * An attached machine (organization-vms §1): an existing session continues where
  * it lives; a new root starts in an organization on the Solus API, or not at all.
  * A fork or a child is new work that follows the session it comes from.
  */
-async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
+async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<TurnAdmission> {
   const sessionId = ctx.session.sessionId
   const forked = ctx.session.forked === true || ctx.parentSessionId !== undefined
-  const pending = pendingAssignments.get(sessionId)
-  if (pending) return pending.organizationId
   if (record && !forked) {
     // A continuation keeps its saved home. An organization session on the Solus API
     // is the host acting for the person, and every token the host asks for checks them again,
@@ -115,12 +146,15 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
     if (isOrganizationWork(record)) {
       await actForPerson(principal, deps, { sessionId, organizationId: record.organizationId, admit: false })
     }
-    return record.organizationId
+    return { organizationId: record.organizationId, decided: false }
   }
+  // A session the API admitted whose provider has not started: the row holds the admission, so a later prompt asks nothing more.
+  const admitted = forked ? null : await sessionIdentityOf(sessionId)
+  if (admitted?.admittedAt !== null && admitted?.admittedAt !== undefined) return { organizationId: admitted.organizationId, decided: false }
   // A fork follows its source: a personal session forks into personal work, which
   // uploads nothing; an organization session forks into a new organization session.
   // A child follows its parent the same way, for its parent's person.
-  if (forked && record?.organizationId === LOCAL_ORGANIZATION_ID) return LOCAL_ORGANIZATION_ID
+  if (forked && record?.organizationId === LOCAL_ORGANIZATION_ID) return { organizationId: LOCAL_ORGANIZATION_ID, decided: true }
   const organizationId = forked && record ? record.organizationId : windowOrganization(ctx, principal)
   if (!organizationId) {
     throw new TurnRefusedError('ORGANIZATION_REQUIRED', 'This machine runs new work for an organization. Choose an organization in Solus, then send again.')
@@ -134,10 +168,8 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
     : undefined
   const userId = await actForPerson(principal, deps, { sessionId, organizationId, admit: true, record: firstFacts })
   await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isPrivate })
-  const birth: SessionBirth = { organizationId, published: true, ownerKey: userId, admissionId: sessionId }
-  pendingAssignments.set(sessionId, birth)
-  rememberSessionBirth(sessionId, birth)
-  return organizationId
+  // Born published, owned by the verified person, with the admission the API accepted (its id is the session's).
+  return { organizationId, decided: true, birth: { ownerKey: userId, published: true, admittedAt: Date.now() } }
 }
 
 /** The organization a new root starts in on an attached machine: the member's own, or the owner's window selection. */
@@ -185,23 +217,18 @@ async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, in
   return userId
 }
 
-/** A person's own machine, and a server not attached: a new session takes the organization of the person who starts it. */
-async function admitOnPersonalMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
+/**
+ * A person's own machine, and a server not attached: a new session takes the
+ * organization of the person who starts it. A row that is Local — started or
+ * born by a claim before this turn — is assigned it once (R10); a session with
+ * no row yet is born in it by the claim that follows.
+ */
+async function admitOnPersonalMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<TurnAdmission> {
   const sessionId = ctx.session.sessionId
-  let organizationId = record?.organizationId ?? pendingAssignments.get(sessionId)?.organizationId ?? LOCAL_ORGANIZATION_ID
-  if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
+  const organizationId = record?.organizationId ?? (await sessionIdentityOf(sessionId))?.organizationId ?? LOCAL_ORGANIZATION_ID
+  if (organizationId !== LOCAL_ORGANIZATION_ID) return { organizationId, decided: false }
   const wanted = wantedOrganization(ctx, principal, deps)
-  if (wanted && record) {
-    const assigned = await assignSessionOrganization(sessionId, wanted)
-    organizationId = assigned?.organizationId ?? organizationId
-  } else if (wanted) {
-    // No record yet (a brand-new session): the record is born in it, and the
-    // runtime applies it at session_init (`applyPendingAssignment`).
-    pendingAssignments.set(sessionId, { organizationId: wanted })
-    rememberSessionBirth(sessionId, { organizationId: wanted })
-    organizationId = wanted
-  }
-  return organizationId
+  return wanted ? { organizationId: wanted, decided: true } : { organizationId: LOCAL_ORGANIZATION_ID, decided: false }
 }
 
 /**
@@ -235,37 +262,14 @@ function wantedOrganization(ctx: TurnAdmissionContext, principal: Principal, dep
 }
 
 /**
- * Sessions admitted for an organization before their record existed. The
- * runtime calls `applyPendingAssignment` at session_init.
- */
-const pendingAssignments = new Map<string, SessionBirth>()
-
-/** The organization a session was admitted for before its record existed, if any. */
-export function pendingOrganizationFor(sessionId: string): string | null {
-  return pendingAssignments.get(sessionId)?.organizationId ?? null
-}
-
-/**
  * A child or a fork works for the organization of the session it came from
- * (plans/018 §6). Its own record takes that organization once (R10), so a
- * restart finds it there and not in memory. An admission already pending for
- * the session is left as it is.
+ * (plans/018 §6). Its own row takes that organization once (R10), so a
+ * restart finds it there: a row not born yet is born in it, as the host's own,
+ * and a Local one is assigned it. A row already in an organization keeps it.
  */
 export async function inheritSessionOrganization(sessionId: string, organizationId: string): Promise<void> {
-  if (pendingAssignments.has(sessionId)) return
-  // Whichever comes first: a record not written yet is born in it, a Local one is assigned it.
-  rememberSessionBirth(sessionId, { organizationId })
-  await assignSessionOrganization(sessionId, organizationId)
-}
-
-/** At session_init: the record now exists, so an admission that waited for it is applied. */
-export function applyPendingAssignment(sessionId: string): void {
-  const birth = pendingAssignments.get(sessionId)
-  if (!birth) return
-  pendingAssignments.delete(sessionId)
-  // Whichever write comes first wins the same way: a record born now starts in
-  // its home, a record the indexer already wrote as Local is assigned it.
-  void assignSessionOrganization(sessionId, birth.organizationId, birth)
+  const born = await claimSessionOwner(sessionId, { ownerKey: hostUserKey(), organizationId })
+  if (!born) await assignSessionOrganization(sessionId, organizationId)
 }
 
 /** Why unattended organization work may not start from this host, for the person who set it up. */

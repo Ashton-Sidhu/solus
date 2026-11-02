@@ -133,7 +133,7 @@ async function readDelegatedSessions(scope: RecordScope, sessionId: string): Pro
   let level = [sessionId]
   while (level.length > 0 && found.length < MAX_DELEGATED_SESSIONS) {
     const children = (await readSessionMetadataPage(
-      sql`${scopeClause(scope, sql`session_records.organization_id`)} AND session_records.parent_session_id IN (${inList(level)})`,
+      sql`${scopeClause(scope, sql`session.organization_id`)} AND session.parent_session_id IN (${inList(level)})`,
       MAX_DELEGATED_SESSIONS - found.length,
     )).reverse().filter((child) => !seen.has(child.sessionId))
     for (const child of children) seen.add(child.sessionId)

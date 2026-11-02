@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Db } from '../../db/database'
 import { visibleTo } from '../../admission/access'
 import type { Actor } from '../../admission/actor'
-import { sessionRecords } from '../sessions/schema'
+import { session } from '../sessions/schema'
 import { works } from './schema'
 
 /**
@@ -31,7 +31,7 @@ export async function sessionIdsOfWorks(db: Db, workIds: readonly string[]): Pro
   const sessionIds = [...new Set([...named.values()].flat())]
   if (!sessionIds.length) return new Map()
   const sessionOrganizations = new Map(sessionRowSchema.array().parse(await db.all(sql`
-    SELECT session_id, organization_id FROM ${sessionRecords} WHERE session_id IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})
+    SELECT session_id, organization_id FROM ${session} WHERE session_id IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})
   `)).map((row) => [row.session_id, row.organization_id]))
   const sessions = new Map<string, string[]>()
   for (const row of rows) {
@@ -52,9 +52,9 @@ export function visibleThroughSession(db: Db, actor: Actor, workId: SQL): SQL {
   const sessionVisible = visibleTo(actor, 'session', {
     id: sql`owner_session.session_id`,
     organization: sql`owner_session.organization_id`,
-    owner: sql`owner_session.owner_key`,
+    owner: sql`owner_session.created_by`,
   })
-  return sql`EXISTS (SELECT 1 FROM ${works} AS linked_work JOIN ${sessionRecords} AS owner_session
+  return sql`EXISTS (SELECT 1 FROM ${works} AS linked_work JOIN ${session} AS owner_session
       ON owner_session.organization_id = linked_work.organization_id AND ${linked}
     WHERE linked_work.id = ${workId} AND ${sessionVisible})`
 }

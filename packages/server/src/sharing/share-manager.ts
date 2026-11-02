@@ -32,8 +32,8 @@ import { roleOf, roleThroughSession, standingOf, visibleTo, type AccessResource,
 import { aclEntry } from './schema'
 import { hostUserKey } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
-import { sessionRecords } from '../data/sessions/schema'
-import { claimSessionOwner, machineSessionHome, pendingSessionHome, type SessionHome } from '../data/sessions/session-records'
+import { session } from '../data/sessions/schema'
+import { claimSessionOwner, machineSessionHome, type SessionHome } from '../data/sessions/session-identity'
 import { works } from '../data/works/schema'
 import { sessionIdsOfWorks, visibleThroughSession } from '../data/works/session-access'
 import { tasks } from '../data/tasks/schema'
@@ -52,19 +52,16 @@ const log = createLogger('main', 'share-manager')
  * (docs/plans/access-model.md §2.2; docs/plans/cloud-sharing.md §4c). This file
  * owns every `acl_entry` row: what a resource's owner gave to a person, a team,
  * the organization, or everyone with the link. The owner itself is the
- * resource's `created_by`, and `roleOf` (admission/access.ts) decides every role
- * from the two; nothing here decides one. The table is in the ported schema
- * (`./schema.ts`), so the same code answers on a host's SQLite and in the
- * Solus API's Postgres (docs/plans/cloud-service-model.md).
+ * resource's `created_by` (plans/029 decision 2), and `roleOf`
+ * (admission/access.ts) decides every role from the two; nothing here decides
+ * one. The table is in the ported schema (`./schema.ts`), so the same code
+ * answers on a host's SQLite and in the Solus API's Postgres
+ * (docs/plans/cloud-service-model.md).
  */
 
-/**
- * Each shareable kind's table, the column that holds its id, and the column that
- * holds its owner: `created_by` (plans/029 decision 2). The session record still
- * says `owner_key` until its own reshaping lands.
- */
+/** Each shareable kind's table, the column that holds its id, and its `created_by` owner column. */
 const RESOURCE_TABLES = {
-  session: { table: sessionRecords, id: sql`session_id`, owner: sql`owner_key` },
+  session: { table: session, id: sql`session_id`, owner: sql`created_by` },
   work: { table: works, id: sql`id`, owner: sql`created_by` },
   task: { table: tasks, id: sql`id`, owner: sql`created_by` },
 } as const satisfies Record<ShareResourceKind, { table: unknown; id: SQL; owner: SQL }>
@@ -331,11 +328,11 @@ export class ShareManager {
     return this.homeFrom(resource, row ?? null)
   }
 
-  /** The home a resource's own row gives, or, for a session with none, the one it is being started with. */
+  /** The home a resource's own row gives, or, for a session on this disk with no row yet, the machine's own. */
   private homeFrom(resource: ShareResource, row: z.infer<typeof homeRowSchema> | null): SessionHome | null {
     if (row) return { ownerKey: row.owner, organizationId: row.organization_id }
     if (resource.kind !== 'session') return null
-    return pendingSessionHome(resource.id) ?? (this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null)
+    return this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null
   }
 
   /**
@@ -913,12 +910,12 @@ export class ShareManager {
     const hash = hashLinkSecret(secret)
     const rows = openedLinkRowSchema.array().parse(await this.deps.db.all(sql`
       SELECT e.*,
-        COALESCE(s.owner_key, w.created_by) AS home_owner,
+        COALESCE(s.created_by, w.created_by) AS home_owner,
         COALESCE(s.organization_id, w.organization_id) AS home_organization_id,
         s.runner_host_id AS runner_host_id
       FROM ${aclEntry} l
       JOIN ${aclEntry} e ON e.resource_kind = l.resource_kind AND e.resource_id = l.resource_id
-      LEFT JOIN ${sessionRecords} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
+      LEFT JOIN ${session} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
       LEFT JOIN ${works} w ON l.resource_kind = 'work' AND w.id = l.resource_id
       WHERE l.subject_kind = 'everyone' AND l.link_secret_hash = ${hash}
       ORDER BY e.created_at, e.id
@@ -1042,7 +1039,7 @@ export class ShareManager {
    */
   private async recordSessionUnshared(db: Db, organizationId: string, sessionId: string, recipients: string[], principal: Principal): Promise<void> {
     const record = z.object({ title: z.string().nullable(), custom_title: z.string().nullable() }).nullish().parse(await db.get(sql`
-      SELECT title, custom_title FROM ${sessionRecords} WHERE session_id = ${sessionId}
+      SELECT title, custom_title FROM ${session} WHERE session_id = ${sessionId}
     `))
     const user = actorFor(principal).user
     await recordNotification(db, {

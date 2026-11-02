@@ -5,6 +5,7 @@ import { sameUser, type Attribution } from '@solus/contracts/user'
 import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
 import { removeNotificationsFor } from '../notifications/store'
+import { deleteTaskPreferences } from './task-snoozes'
 import { agentAttribution, attributionJson, parseStoredAttribution } from '../stored-attribution'
 import { claimSessionOutputLink, deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink, type TaskLinkWrite } from './task-links'
 import { readSessionOutputs } from './session-outputs'
@@ -775,8 +776,9 @@ export class Task implements TaskRecord {
       const removed = (await db.run(sql`
         DELETE FROM ${tasks} WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
       `)).changes > 0
-      // The task's history goes with it, as `task_events` did by its foreign key.
+      // The task's history goes with it, as `task_events` did by its foreign key; so does everyone's snooze of it.
       if (removed) await deleteActivityFor({ kind: 'task', id: this.id }, db)
+      if (removed) await deleteTaskPreferences(db, this.#organizationId, this.id)
       if (removed) await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
       return removed
     })

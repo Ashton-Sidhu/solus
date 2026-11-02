@@ -4,7 +4,7 @@
 // `../host-tables.ts`.
 import * as host from '../host-tables'
 
-export const sessions = host.sessions.sqlite
+export const transcript_index = host.transcriptIndex.sqlite
 export const session_messages = host.sessionMessages.sqlite
 export const session_files = host.sessionFiles.sqlite
 export const session_keys = host.sessionKeys.sqlite

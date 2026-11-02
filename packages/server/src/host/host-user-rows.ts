@@ -29,13 +29,12 @@ type MoveScope = 'all' | 'local'
 
 /**
  * The resource tables whose rows have an owner (docs/plans/access-model.md §2.2),
- * with the kind their ACL entries name, their id column, and their owner column:
- * `created_by` (plans/029 decision 2); the session record still says `owner_key`
- * until its own reshaping lands. One list, so a new resource cannot be forgotten
- * on link and unlink.
+ * with the kind their ACL entries name, their id column, and their owner column
+ * `created_by` (plans/029 decision 2). One list, so a new resource cannot be
+ * forgotten on link and unlink.
  */
 const OWNED_RESOURCES = [
-  { table: 'session_records', kind: 'session', id: 'session_id', owner: 'owner_key' },
+  { table: 'session', kind: 'session', id: 'session_id', owner: 'created_by' },
   { table: 'works', kind: 'work', id: 'id', owner: 'created_by' },
   { table: 'tasks', kind: 'task', id: 'id', owner: 'created_by' },
   { table: 'automations', kind: 'automation', id: 'id', owner: 'created_by' },
@@ -50,9 +49,10 @@ const OWNED_RESOURCES = [
  * with their jars if the key returns.
  */
 
-/** Other columns that hold a person key and move as they are. */
+/** Other columns that hold a person key and move as they are. A person's
+ *  preferences follow them: the row is theirs, whatever key names them. */
 const PERSON_COLUMNS = [
-  { table: 'session_admissions', column: 'owner_key' },
+  { table: 'resource_preferences', column: 'created_by' },
   { table: 'acl_entry', column: 'created_by' },
 ] as const
 
@@ -67,11 +67,12 @@ async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveS
   const inScope = (column: SQL): SQL => (scope === 'local' ? sql` AND ${column} = ${LOCAL_ORGANIZATION_ID}` : sql``)
   let moved = 0
   for (const { table, kind, id, owner } of OWNED_RESOURCES) {
-    moved += (await db.run(sql`UPDATE ${sql.identifier(table)} SET ${sql.identifier(owner)} = ${toKey} WHERE ${sql.identifier(owner)} = ${fromKey}${inScope(sql`organization_id`)}`)).changes
+    const ownerColumn = sql.identifier(owner)
+    moved += (await db.run(sql`UPDATE ${sql.identifier(table)} SET ${ownerColumn} = ${toKey} WHERE ${ownerColumn} = ${fromKey}${inScope(sql`organization_id`)}`)).changes
     moved += (await db.run(sql`
       DELETE FROM acl_entry
       WHERE resource_kind = ${kind} AND subject_kind = 'user' AND subject_id IN (${fromKey}, ${toKey})${inScope(sql`organization_id`)}
-        AND resource_id IN (SELECT ${sql.identifier(id)} FROM ${sql.identifier(table)} WHERE ${sql.identifier(owner)} = ${toKey})
+        AND resource_id IN (SELECT ${sql.identifier(id)} FROM ${sql.identifier(table)} WHERE ${ownerColumn} = ${toKey})
     `)).changes
   }
   moved += (await db.run(sql`

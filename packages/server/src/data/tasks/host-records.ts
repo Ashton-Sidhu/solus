@@ -46,20 +46,20 @@ export function sessionRecordsFor(sessionIds: Iterable<string>): Map<string, Ses
   const rows = sessionRecordRowSchema.array().parse(getDb().prepare(`
     SELECT
       ids.session_id,
-      sessions.session_id AS agent_session_id,
-      COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
-      sessions.provider AS session_provider,
-      sessions.model AS session_model,
-      sessions.server_id AS session_server_id,
-      sessions.branch AS branch,
-      sessions.cwd AS checkout_path,
-      sessions.is_worktree AS session_is_worktree,
+      transcript_index.session_id AS agent_session_id,
+      COALESCE(transcript_index.custom_title, transcript_index.first_message) AS session_title,
+      transcript_index.provider AS session_provider,
+      transcript_index.model AS session_model,
+      transcript_index.server_id AS session_server_id,
+      transcript_index.branch AS branch,
+      transcript_index.cwd AS checkout_path,
+      transcript_index.is_worktree AS session_is_worktree,
       (
         SELECT MIN(started_at)
         FROM session_lineage_members
         WHERE session_id = ids.session_id
       ) AS session_started_at,
-      sessions.last_timestamp AS last_activity_at
+      transcript_index.last_timestamp AS last_activity_at
     FROM (SELECT value AS session_id FROM json_each(?)) AS ids
     LEFT JOIN session_lineage_members AS active_lineage
       ON active_lineage.session_id = ids.session_id
@@ -68,8 +68,8 @@ export function sessionRecordsFor(sessionIds: Iterable<string>): Map<string, Ses
         FROM session_lineage_members
         WHERE session_id = ids.session_id
       )
-    LEFT JOIN sessions
-      ON sessions.session_id = COALESCE(active_lineage.provider_session_id, ids.session_id)
+    LEFT JOIN transcript_index
+      ON transcript_index.session_id = COALESCE(active_lineage.provider_session_id, ids.session_id)
   `).all(JSON.stringify(ids)))
   for (const row of rows) records.set(row.session_id, row)
   return records
@@ -91,7 +91,7 @@ const indexedCheckoutRowSchema = z.object({
 export function recentBranchSessions(since: number): Array<{ sessionId: string; branch: string; projectScope: string }> {
   const rows = indexedCheckoutRowSchema.array().parse(getDb().prepare(`
     SELECT session_id, branch, COALESCE(project_root, cwd) AS project_scope
-    FROM sessions
+    FROM transcript_index
     WHERE branch IS NOT NULL AND branch <> ''
       AND COALESCE(project_root, cwd) IS NOT NULL AND last_timestamp >= ?
   `).all(since))
@@ -101,7 +101,7 @@ export function recentBranchSessions(since: number): Array<{ sessionId: string; 
 /** The name a session shows, or null when it was never indexed. */
 export function sessionTitleFor(sessionId: string): string | null {
   const row = z.object({ title: z.string().nullable() }).nullish().parse(getDb().prepare(
-    'SELECT COALESCE(custom_title, first_message) AS title FROM sessions WHERE session_id = ?',
+    'SELECT COALESCE(custom_title, first_message) AS title FROM transcript_index WHERE session_id = ?',
   ).get(activeThreadOf(sessionId) ?? sessionId))
   return row?.title ?? null
 }

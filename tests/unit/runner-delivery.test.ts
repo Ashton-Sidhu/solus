@@ -83,7 +83,7 @@ async function installOrganizationSession(sessionId: string, organizationId: str
   const { createWorkspaceOperations } = await import('@solus/server/data/workspace/service')
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
   const { getDatabase } = await import('@solus/server/db/database')
-  records.rememberSessionBirth(sessionId, { organizationId, published: true, ownerKey: 'user-alice', admissionId: sessionId })
+  await (await import('@solus/server/data/sessions/session-identity')).claimSessionOwner(sessionId, { ownerKey: 'user-alice', organizationId }, { published: true, admittedAt: Date.now() })
   await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
   useOrganizationAttachment(() => 1)
   const unreachable = new Proxy(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), {
@@ -352,7 +352,7 @@ describe('runner delivery', () => {
     const prepare = connection.prepare.bind(connection)
     let readBacks = 0
     connection.prepare = (text: string) => {
-      if (/^\s*select[\s\S]*from "session_records"/i.test(text)) readBacks++
+      if (/^\s*select[\s\S]*from "session"/i.test(text)) readBacks++
       return prepare(text)
     }
     try {

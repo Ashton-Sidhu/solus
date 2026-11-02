@@ -14,6 +14,7 @@ import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionPullRequests } from './schema'
+import { ensureSessionRow } from './session-identity'
 import { organizationOfSession } from './session-records'
 import { readPullRequestWatches, stopPullRequestWatch } from './pull-request-watches'
 
@@ -130,6 +131,8 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
       `)))
       if (replaced.length) await db.run(sql`DELETE FROM ${sessionPullRequests} WHERE ${ended}`)
     }
+    // The link belongs to its session's row (it cascades from it); a session nobody recorded yet gets one, as this machine's own.
+    await ensureSessionRow(sessionId, db)
     await db.run(sql`
       INSERT INTO ${sessionPullRequests}(
         session_id, repository, number, url, title, source, created_by, linked_at, organization_id
