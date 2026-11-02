@@ -121,8 +121,9 @@ Speed first. Each step lands with a measurement.
      a page reached from another site (the return from Google) paints first at
      `DOMContentLoaded`, and a deferred module script holds that until it has loaded and
      run: the splash painted about 300 ms after the HTML arrived
-     (`docs/benchmarks/fresh-login-profile-2026-11-01.json`). `apps/client/src/main.ts`
-     waits for the parse before it reads the page. Not measured yet.
+     (`docs/benchmarks/fresh-login-profile-2026-11-01.json`). The entry moves to the end
+     of the body, so the page it reads is parsed before it runs, and a `modulepreload`
+     in the head starts its download. Not measured yet.
    - Measured (`docs/benchmarks/README.md`, 5 runs, medians): FCP on the slow profile
      goes from 1100 ms to 352 ms in Chromium and from 4412 ms to 336 ms in WebKit; on
      the fast profile from 224 ms to 56 ms and from 400 ms to 55 ms. The stylesheet's

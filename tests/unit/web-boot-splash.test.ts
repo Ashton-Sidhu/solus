@@ -128,24 +128,21 @@ describe('the web stylesheet does not hold the first paint', () => {
 })
 
 describe('the web entry script does not hold the first paint', () => {
-  test('only the web loads its entry async, and the entry reads the page only after the parse', () => {
+  test('only the web loads its entry async, after the page it reads, and fetches it from the head', () => {
     // WHY: Safari painted a fresh login's splash only when the entry had loaded and
-    // run (docs/benchmarks/fresh-login-profile-2026-11-01.json). With `async` the parse
-    // ends, and the splash paints, while the entry still loads, so the entry must not
-    // read `#root`, the shell's data blocks, or the stylesheet links before the parse ends.
+    // run (docs/benchmarks/fresh-login-profile-2026-11-01.json). An `async` entry does
+    // not hold the parse's end. It must come after `#root` and the shell's data blocks,
+    // which it reads when it runs, and its download must still start from the head.
     expect(htmlHook(clients.desktop.plugins, 'solus-async-entry-script')).toBeNull()
     const asyncEntry = htmlHook(clients.web.plugins, 'solus-async-entry-script')
     if (!asyncEntry) throw new Error('The web client must load its entry script async')
-    expect(asyncEntry('<head><script type="module" crossorigin src="/assets/index.js"></script></head>'))
-      .toBe('<head><script type="module" async crossorigin src="/assets/index.js"></script></head>')
-
-    const path = 'apps/client/src/main.ts'
-    const source = ts.createSourceFile(path, read(path), ts.ScriptTarget.Latest, true)
-    const statements = source.statements.map((statement) => statement.getText(source))
-    const parseWait = statements.findIndex((text) => text.includes("addEventListener('DOMContentLoaded'"))
-    const firstPageRead = statements.findIndex((text) => !text.startsWith('import ') && /document\.(getElementById|querySelector)|\(document\)/.test(text))
-    expect(parseWait).toBeGreaterThan(-1)
-    expect(firstPageRead).toBeGreaterThan(parseWait)
+    const built = '<head><script type="module" crossorigin src="/assets/index.js"></script><link rel="stylesheet" href="/assets/index.css"></head>'
+      + '<body><div id="root"></div></body>'
+    const out = asyncEntry(built)
+    expect(out).toBe('<head><link rel="modulepreload" crossorigin href="/assets/index.js"><link rel="stylesheet" href="/assets/index.css"></head>'
+      + '<body><div id="root"></div><script type="module" async crossorigin src="/assets/index.js"></script></body>')
+    // Solus Cloud adds the shell's data blocks before `</head>`: still before the entry.
+    expect(out.indexOf('</head>')).toBeLessThan(out.indexOf('<script type="module" async'))
   })
 })
 
