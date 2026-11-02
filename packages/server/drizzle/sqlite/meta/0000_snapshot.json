@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8d1d4c1c-7206-4657-9a43-cdd4f957581d",
+  "id": "ee7dd570-040c-4277-aa1c-1321ca8e96b9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -1695,14 +1695,6 @@
           ],
           "isUnique": false
         },
-        "session_any_page": {
-          "name": "session_any_page",
-          "columns": [
-            "\"created_at\" desc",
-            "\"session_id\" desc"
-          ],
-          "isUnique": false
-        },
         "session_by_activity": {
           "name": "session_by_activity",
           "columns": [
@@ -1716,6 +1708,15 @@
           "columns": [
             "parent_session_id",
             "\"created_at\" desc",
+            "\"session_id\" desc"
+          ],
+          "isUnique": false
+        },
+        "session_by_parent_activity": {
+          "name": "session_by_parent_activity",
+          "columns": [
+            "parent_session_id",
+            "\"last_activity_at\" desc",
             "\"session_id\" desc"
           ],
           "isUnique": false
@@ -5846,16 +5847,6 @@
           }
         }
       },
-      "session_any_page": {
-        "columns": {
-          "\"created_at\" desc": {
-            "isExpression": true
-          },
-          "\"session_id\" desc": {
-            "isExpression": true
-          }
-        }
-      },
       "session_by_activity": {
         "columns": {
           "\"last_activity_at\" desc": {
@@ -5869,6 +5860,16 @@
       "session_by_parent": {
         "columns": {
           "\"created_at\" desc": {
+            "isExpression": true
+          },
+          "\"session_id\" desc": {
+            "isExpression": true
+          }
+        }
+      },
+      "session_by_parent_activity": {
+        "columns": {
+          "\"last_activity_at\" desc": {
             "isExpression": true
           },
           "\"session_id\" desc": {

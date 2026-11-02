@@ -639,14 +639,21 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
   })
 }
 
-/** The record's status as the runtime reports it: one UPDATE, which also lands on a row admitted before its start. */
+/**
+ * The record's status as the runtime reports it: one UPDATE, which also lands
+ * on a row admitted before its start. The row comes back with the write, so
+ * the listeners hear the stored record without a second read; a row whose
+ * provider has not started is no record yet, and is not announced.
+ */
 export function setSessionRecordStatus(scope: RecordScope, sessionId: string, status: SessionRecordStatus): Promise<void> {
   return serialized(sessionId, async () => {
-    const result = await getDatabase().run(sql`
+    const rows = storedRowSchema.array().parse(await getDatabase().all(sql`
       UPDATE ${session} SET status = ${status}, last_activity_at = ${Date.now()}
       WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
-    `)
-    if (result.changes > 0) await emitStored(sessionId)
+      RETURNING ${RECORD_COLUMNS}, session.started_at
+    `))
+    const row = rows[0]
+    if (row && row.started_at !== null) emitChanged(recordFromRow(recordRowSchema.parse(row)))
   })
 }
 

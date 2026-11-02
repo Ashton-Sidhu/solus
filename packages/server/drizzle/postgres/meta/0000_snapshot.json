@@ -1,5 +1,5 @@
 {
-  "id": "1520895b-b407-4bd5-8df8-99aa30365302",
+  "id": "05ebb870-f7bd-4dff-9fff-b8bae19fa3a2",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2047,27 +2047,6 @@
           "method": "btree",
           "with": {}
         },
-        "session_any_page": {
-          "name": "session_any_page",
-          "columns": [
-            {
-              "expression": "\"created_at\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"session_id\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "session_by_activity": {
           "name": "session_by_activity",
           "columns": [
@@ -2100,6 +2079,33 @@
             },
             {
               "expression": "\"created_at\" desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "\"session_id\" desc",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "session_by_parent_activity": {
+          "name": "session_by_parent_activity",
+          "columns": [
+            {
+              "expression": "parent_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "\"last_activity_at\" desc",
               "asc": true,
               "isExpression": true,
               "nulls": "last"
