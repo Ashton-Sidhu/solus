@@ -53,6 +53,9 @@ export const workRowSchema = z.object({
   previous_revision_id: z.number().nullable(),
 })
 export type WorkRow = z.infer<typeof workRowSchema>
+/** A work row without its body: what a list reads (plan 029 P2). */
+export const workMetaRowSchema = workRowSchema.omit({ content: true })
+export type WorkMetaRow = z.infer<typeof workMetaRowSchema>
 
 export const revisionRowSchema = z.object({
   work_id: z.string(),
@@ -65,9 +68,14 @@ export const revisionRowSchema = z.object({
   content_hash: z.string(),
 })
 export type RevisionRow = z.infer<typeof revisionRowSchema>
+/** A revision row without its body: what the history list reads. */
+export const revisionSummaryRowSchema = revisionRowSchema.omit({ content: true })
+export type RevisionSummaryRow = z.infer<typeof revisionSummaryRowSchema>
 
-export const WORK_COLUMNS = sql`id, organization_id, title, preview, type, session_id, agent_provider, cwd, pinned, content, created_at, updated_at, meta, content_version, content_hash, content_author, previous_revision_id`
-export const REVISION_COLUMNS = sql`work_id, rev, content, updated_at, source_content_version, author, reason, content_hash`
+export const WORK_META_COLUMNS = sql`id, organization_id, title, preview, type, session_id, agent_provider, cwd, pinned, created_at, updated_at, meta, content_version, content_hash, content_author, previous_revision_id`
+export const WORK_COLUMNS = sql`${WORK_META_COLUMNS}, content`
+export const REVISION_SUMMARY_COLUMNS = sql`work_id, rev, updated_at, source_content_version, author, reason, content_hash`
+export const REVISION_COLUMNS = sql`${REVISION_SUMMARY_COLUMNS}, content`
 
 export function epochMs(value: string): number {
   const timestamp = Date.parse(value)
@@ -108,7 +116,7 @@ export function metaJson(meta: WorkMeta): string {
   return JSON.stringify(extra)
 }
 
-export function metaFromRow(row: WorkRow): WorkMeta {
+export function metaFromRow(row: WorkMetaRow): WorkMeta {
   const extra = row.meta ? workExtraSchema.parse(JSON.parse(row.meta)) : {}
   return {
     ...extra,
@@ -228,7 +236,7 @@ export async function copyRevision(db: Db, organizationId: string, revision: Wor
   await (await storageForWork(db, organizationId, revision.workId)).capture(db, { organizationId, workId: revision.workId, contentHash: revision.contentHash, revisionId: revision.revisionId }, revision.content)
 }
 
-export function revisionSummaryFromRow(row: RevisionRow): WorkRevisionSummary {
+export function revisionSummaryFromRow(row: RevisionSummaryRow): WorkRevisionSummary {
   return {
     workId: row.work_id,
     revisionId: row.rev,

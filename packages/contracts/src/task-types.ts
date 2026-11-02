@@ -510,8 +510,12 @@ export interface TaskSnapshot {
   linked?: TaskLinkedItemSnapshot[]
 }
 
+/** A task as a list shows it: every field of `Task` but the body and the epic,
+ *  which only the detail read carries (plans/029 §8). */
+export type TaskSummary = Omit<Task, 'body' | 'epic'>
+
 export interface TaskSidebarSnapshot {
-  tasks: Task[]
+  tasks: TaskSummary[]
   sessionsByTask: Record<string, TaskSessionLink[]>
   /** Every durable PR edge, newest first. The first entry is the newest link. */
   prLinkListsByTask?: Record<string, TaskSidebarPrLink[]>

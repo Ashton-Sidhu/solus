@@ -41,7 +41,7 @@ const OWNED_RESOURCES = [
 ] as const
 
 /*
- * Not moved: `browser_profiles` and `browser_profile_defaults`. A profile's jar
+ * Not moved: `browser_profiles` (the default is a flag on its row). A profile's jar
  * is named by its person key (docs/plans/member-isolation.md §6) and the jar
  * cannot move, so a moved row would name an empty jar. After a link or an
  * unlink the host's user starts with no named profiles; the old ones come back
