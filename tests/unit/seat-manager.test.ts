@@ -9,6 +9,7 @@ import { actorFor, seatFor } from '@solus/server/admission/actor'
 import type { Principal } from '@solus/server/admission/principal'
 import { hostUserKey, useHostUser } from '@solus/server/host/host-user'
 import { MemberFolders, useMemberFolders } from '@solus/server/host/member-folders'
+import { runSqliteSchemaMigrations } from '@solus/server/db/sqlite-migrations'
 import { HOST_LOGIN_SEAT, type Seat, type SeatChangedEvent } from '@solus/contracts/seats'
 import { installTestIdentities } from './helpers/acting-identities'
 
@@ -44,6 +45,8 @@ function manager(now = () => 1_000_000, hostLoginConnected = async () => true, m
   roots.push(root)
   // bun has no node:sqlite; its own Database speaks the same prepare/get/all/run/exec surface.
   const db = new Database(':memory:') as unknown as DatabaseSync
+  // `member_folder` is a declared host table (db/host-tables.ts), so the baseline makes it.
+  runSqliteSchemaMigrations(db, 'sqlite', 'seat-manager-test.db')
   const events: SeatChangedEvent[] = []
   const seats = new SeatManager({
     db,

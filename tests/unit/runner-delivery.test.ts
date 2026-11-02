@@ -341,8 +341,10 @@ describe('runner delivery', () => {
   })
 
   test('session records are followed only while a link exists, so an unlinked host pays nothing per record write', async () => {
-    // WHY: following records makes every record write read the row back, several
-    // times per turn. An unlinked host would drop the facts anyway.
+    // WHY: following records queues every record write for delivery, several
+    // times per turn. An unlinked host would drop the facts anyway, so it must
+    // not read the row back for them; a status write returns its own row in
+    // the same statement (`UPDATE ... RETURNING`), so a linked host reads nothing extra either.
     const api = new FakeApi()
     await api.start()
     api.online = false
@@ -365,7 +367,7 @@ describe('runner delivery', () => {
       linked = true
       runner.registrationChanged()
       await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-follow', 'idle')
-      expect(readBacks).toBe(1)
+      expect(readBacks).toBe(0)
       expect(queue.listDelivery(linkerIn('org1'), 10).filter((item) => item.kind === 'session')).toHaveLength(1)
 
       linked = false
