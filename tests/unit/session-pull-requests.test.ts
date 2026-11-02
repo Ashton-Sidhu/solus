@@ -140,7 +140,7 @@ describe('a session and its pull requests', () => {
     }
     expect(changed.sort()).toEqual(['session-1', 'session-2'])
     expect((await linksOf('session-1'))[0]?.snapshot).toMatchObject({ state: 'merged', title: 'Ship it' })
-    expect(await sessionPrs.sessionPullRequestIsMerged(REPOSITORY, 7)).toBe(true)
+    expect(await taskLinks.linkedPullRequestIsMerged({ projectScope: REPOSITORY, number: 7 })).toBe(true)
   })
 })
 

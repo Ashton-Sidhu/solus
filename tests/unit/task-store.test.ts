@@ -84,7 +84,7 @@ describe('native task migration', () => {
     ).all().map((row) => (row as { name: string }).name)
     expect(tables()).toEqual([
       'asset_publications', 'task_comments', 'task_counters', 'task_external_links',
-      'task_links', 'task_session_links', 'tasks', 'upstream_task_cache',
+      'tasks', 'upstream_task_cache',
     ])
     const generated = readdirSync(migrationsFolder('sqlite')).filter((file) => file.endsWith('.sql')).length
     expect(fresh.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({ count: generated })
@@ -405,9 +405,9 @@ describe('session binding and durable links', () => {
     // Simulate a pre-canonical-URL snapshot. Rediscovery must repair the durable
     // edge itself, not only the task's compact capture.
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskLinks}
+      UPDATE ${(await import('@solus/server/data/links/schema')).resourceLinks}
       SET url = NULL, title = '#321', origin_session_id = NULL
-      WHERE task_id = ${task!.id} AND kind = 'pr'
+      WHERE source_kind = 'task' AND source_id = ${task!.id} AND target_kind = 'pr'
     `)
     await taskInstance!.linkPullRequest({
       ...pullRequest,
@@ -428,10 +428,6 @@ describe('session binding and durable links', () => {
       }),
     ])
     expect(details.activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'linked')).toHaveLength(1)
-    expect((await taskSessions.taskSessions('local', task!.id))[task!.id][0].pr).toEqual({
-      number: 321,
-      url: pullRequest.url,
-    })
   })
 
   test('folds project-path and repository scopes for the same PR into one link', async () => {
@@ -777,8 +773,8 @@ describe('session binding and durable links', () => {
       originSessionId: 'provider-session',
     })
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskSessionLinks}
-      SET linked_at = 1 WHERE task_id = ${task.id} AND session_id = ${'bound-session'}
+      UPDATE ${(await import('@solus/server/data/links/schema')).resourceLinks}
+      SET created_at = 1 WHERE source_kind = 'task' AND source_id = ${task.id} AND target_kind = 'session' AND target_key = ${'bound-session'}
     `)
     // An explicit idempotent retry does not create new history or move the row.
     await bag.linkSession('bound-session', 'working', {})
@@ -905,7 +901,8 @@ describe('one owning task per session', () => {
     const referrer = await taskStore.createTask('local', { title: 'Referrer' })
     await (await tasks.Task.byId('local', owner.id)).linkSession('shared-session', 'working')
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskSessionLinks} SET linked_at = 1 WHERE task_id = ${owner.id}
+      UPDATE ${(await import('@solus/server/data/links/schema')).resourceLinks} SET created_at = 1
+      WHERE source_kind = 'task' AND source_id = ${owner.id} AND target_kind = 'session'
     `)
 
     await (await tasks.Task.byId('local', referrer.id)).linkSession('shared-session', 'referenced')

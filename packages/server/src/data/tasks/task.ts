@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { ulid } from '@solus/contracts/ulid'
-import { taskComments, taskExternalLinks, taskLinks, taskSessionLinks, tasks } from './schema'
+import { taskComments, taskExternalLinks, tasks } from './schema'
+import { resourceLinks } from '../links/schema'
+import { deleteEdgesOf } from '../links/resource-links'
 import { sameUser, type Attribution } from '@solus/contracts/user'
 import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
@@ -56,7 +58,6 @@ import { z } from 'zod'
 
 const log = createLogger('main', 'task')
 const taskIdRowSchema = z.object({ task_id: z.string() })
-const taskPrRowSchema = z.object({ pr: z.string().nullable() })
 const commentSourceRowSchema = z.object({ source: z.string(), external_id: z.string().nullable(), author: z.string().nullable() })
 const existingPrLinkRowSchema = z.object({
   target_scope: z.string(),
@@ -217,12 +218,13 @@ export class Task implements TaskRecord {
    * operations such as `linkPullRequest`. */
   static async forSession(scope: RecordScope, sessionId: string): Promise<Task | null> {
     const parsed = taskIdRowSchema.safeParse(await database().get(sql`
-      SELECT task_id
-      FROM ${taskSessionLinks}
-      WHERE ${scopeClause(scope, sql`task_session_links.organization_id`)}
-        AND task_session_links.session_id = ${sessionId}
-      ORDER BY CASE task_session_links.role WHEN 'working' THEN 0 ELSE 1 END,
-        task_session_links.linked_at DESC
+      SELECT resource_links.source_id AS task_id
+      FROM ${resourceLinks}
+      WHERE ${scopeClause(scope, sql`resource_links.organization_id`)}
+        AND resource_links.source_kind = 'task' AND resource_links.target_kind = 'session' AND resource_links.status = 'active'
+        AND resource_links.target_key = ${sessionId}
+      ORDER BY CASE resource_links.relation WHEN 'works-on' THEN 0 ELSE 1 END,
+        resource_links.created_at DESC
       LIMIT 1
     `))
     if (!parsed.success) {
@@ -247,12 +249,13 @@ export class Task implements TaskRecord {
     input: Omit<TaskLinkInput, 'automatic' | 'originSessionId'>,
   ): Promise<TaskDetails | null> {
     const owner = z.object({ task_id: z.string(), session_id: z.string() }).nullish().parse(await database().get(sql`
-      SELECT task_id, session_id
-      FROM ${taskSessionLinks}
-      WHERE ${scopeClause(scope, sql`task_session_links.organization_id`)}
-        AND task_session_links.session_id = ${sessionId}
-        AND task_session_links.role <> 'referenced'
-      ORDER BY task_session_links.linked_at DESC
+      SELECT resource_links.source_id AS task_id, resource_links.target_key AS session_id
+      FROM ${resourceLinks}
+      WHERE ${scopeClause(scope, sql`resource_links.organization_id`)}
+        AND resource_links.source_kind = 'task' AND resource_links.target_kind = 'session'
+        AND resource_links.target_key = ${sessionId}
+        AND resource_links.relation = 'works-on' AND resource_links.status = 'active'
+      ORDER BY resource_links.created_at DESC
       LIMIT 1
     `))
     if (!owner) {
@@ -389,9 +392,10 @@ export class Task implements TaskRecord {
     }
     for (const sessionId of working) {
       const heldByLiveTask = z.object({ id: z.string() }).nullish().parse(await database().get(sql`
-        SELECT tasks.id FROM ${taskSessionLinks}
-        JOIN ${tasks} ON tasks.id = task_session_links.task_id
-        WHERE task_session_links.session_id = ${sessionId} AND task_session_links.role <> 'referenced'
+        SELECT tasks.id FROM ${resourceLinks}
+        JOIN ${tasks} ON tasks.id = resource_links.source_id
+        WHERE resource_links.source_kind = 'task' AND resource_links.target_kind = 'session' AND resource_links.target_key = ${sessionId}
+          AND resource_links.relation = 'works-on' AND resource_links.status = 'active'
           AND tasks.id <> ${this.id} AND ${TASK_HERE} AND tasks.status NOT IN ('done', 'dropped')
         LIMIT 1
       `))
@@ -551,9 +555,9 @@ export class Task implements TaskRecord {
         targetKey: input.targetKey,
       }
       const existing = await db.get(sql`
-        SELECT 1 AS present FROM ${taskLinks}
-        WHERE task_id = ${this.id} AND kind = ${target.kind}
-          AND target_scope = ${target.targetScope} AND target_key = ${target.targetKey}
+        SELECT 1 AS present FROM ${resourceLinks}
+        WHERE resource_links.source_kind = 'task' AND resource_links.source_id = ${this.id} AND resource_links.target_kind = ${target.kind}
+          AND resource_links.target_scope = ${target.targetScope} AND resource_links.target_key = ${target.targetKey}
       `)
       // Already linked: the only thing left to say is which artifact the page
       // opens with, and that is a pin, not a second link. A deliberate link
@@ -612,32 +616,17 @@ export class Task implements TaskRecord {
     ].join('/').toLowerCase()
     const targetKey = String(input.number)
     const originSessionId = normalizedOptional(input.originSessionId)
+    // The task's compact pull request (`Task.pr`) is read from this edge; nothing else captures it.
     const changed = await database().transaction(async (db) => {
-      const task = await requireTask(this.#organizationId, this.id, db)
+      await requireTask(this.#organizationId, this.id, db)
       const existingLink = existingPrLinkRowSchema.nullish().parse(await db.get(sql`
-        SELECT target_scope, url, title, origin_session_id
-        FROM ${taskLinks}
-        WHERE task_id = ${this.id} AND kind = 'pr' AND target_key = ${targetKey}
-          AND (LOWER(target_scope) = LOWER(${targetScope}) OR LOWER(url) = LOWER(${url}))
+        SELECT resource_links.target_scope, resource_links.url, resource_links.title, resource_links.origin_session_id
+        FROM ${resourceLinks}
+        WHERE resource_links.source_kind = 'task' AND resource_links.source_id = ${this.id} AND resource_links.target_kind = 'pr'
+          AND resource_links.target_key = ${targetKey}
+          AND (LOWER(resource_links.target_scope) = LOWER(${targetScope}) OR LOWER(resource_links.url) = LOWER(${url}))
         LIMIT 1
       `))
-
-      const captured = JSON.stringify({ number: input.number, url })
-      let needsCapturedPr = task.pr !== captured
-      if (originSessionId) {
-        const parsedAttempt = taskPrRowSchema.safeParse(await db.get(sql`
-          SELECT pr FROM ${taskSessionLinks}
-          WHERE task_id = ${this.id} AND session_id = ${originSessionId}
-        `))
-        if (parsedAttempt.success && parsedAttempt.data.pr !== captured) {
-          needsCapturedPr = true
-          await db.run(sql`
-            UPDATE ${taskSessionLinks} SET pr = ${captured}
-            WHERE task_id = ${this.id} AND session_id = ${originSessionId}
-          `)
-        }
-      }
-      if (task.pr !== captured) await db.run(sql`UPDATE ${tasks} SET pr = ${captured} WHERE id = ${this.id}`)
       if (existingLink) {
         const { title, originSessionId: nextOriginSessionId } = nextPrLinkIdentity(existingLink, {
           title: input.title,
@@ -650,12 +639,14 @@ export class Task implements TaskRecord {
           || existingLink.origin_session_id !== nextOriginSessionId
         if (needsLinkUpdate) {
           await db.run(sql`
-            UPDATE ${taskLinks}
-            SET target_scope = ${targetScope}, url = ${url}, title = ${title}, origin_session_id = ${nextOriginSessionId}
-            WHERE task_id = ${this.id} AND kind = 'pr' AND target_scope = ${existingLink.target_scope} AND target_key = ${targetKey}
+            UPDATE ${resourceLinks}
+            SET target_scope = ${targetScope}, url = ${url}, title = ${title}, origin_session_id = ${nextOriginSessionId},
+              repository = ${targetScope}, number = ${input.number}
+            WHERE resource_links.source_kind = 'task' AND resource_links.source_id = ${this.id} AND resource_links.target_kind = 'pr'
+              AND resource_links.target_scope = ${existingLink.target_scope} AND resource_links.target_key = ${targetKey}
           `)
         }
-        return needsCapturedPr || needsLinkUpdate
+        return needsLinkUpdate
       }
 
       await writeTaskLink(db, this.#organizationId, this.id, {
@@ -776,7 +767,8 @@ export class Task implements TaskRecord {
       const removed = (await db.run(sql`
         DELETE FROM ${tasks} WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
       `)).changes > 0
-      // The task's history goes with it, as `task_events` did by its foreign key; so does everyone's snooze of it.
+      // The task's edges, its history, and everyone's snooze of it go with it: none has a foreign key to the row.
+      if (removed) await deleteEdgesOf(db, 'task', this.id)
       if (removed) await deleteActivityFor({ kind: 'task', id: this.id }, db)
       if (removed) await deleteTaskPreferences(db, this.#organizationId, this.id)
       if (removed) await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })

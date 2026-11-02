@@ -33,6 +33,7 @@ const PERSON_LIKE_NAME = /(^|_)(user_id|user_key|person_key|owner|recipient|acto
 /** Columns that reference a person as a domain fact, not as identity or ownership. */
 const DOMAIN_PERSON_REFERENCES: Record<string, string> = {
   'tasks.assignee_user_id': 'who the task is assigned to; a relationship the creator sets, read beside `assignee`',
+  'resource_links.watch_user_id': 'the person a pull request watch acts for: whose account reads it (plans/029 §3.5); null is the host',
 }
 
 /**
@@ -65,6 +66,7 @@ const NO_CREATOR: Record<string, string> = {
   insight_log_events: 'mirrored log events of a span',
   insight_span_texts: 'mirrored span texts; the span row names the host and organization',
   operation_receipts: 'receipts of writes that happen once',
+  pull_request_observations: 'what PR sync last saw of a pull request, once per organization and authority; a cache no person makes (plans/029 §5.1)',
   notifications: 'written by the hub for its recipient (`user_id`); no person makes a row',
   notification_pr_observations: "cache of a person's pending pull requests (`user_id`)",
   integration_connection: "a person's connection state on an integration (`user_id`); the integration carries the creator",
@@ -72,7 +74,6 @@ const NO_CREATOR: Record<string, string> = {
   automation_runs: 'derived rows of an automation run',
   webhook_deliveries: 'log of requests to a webhook',
   task_counters: 'one global short-id counter',
-  task_session_links: 'child of a task; `started_by` is display attribution',
   task_comments: 'child of a task; `author` is display attribution, external authors included',
   task_external_links: 'sync state of a task with its upstream',
   upstream_task_cache: 'cache of upstream tasks',
@@ -97,10 +98,7 @@ const NO_CREATOR: Record<string, string> = {
  * Each lands with `created_by` or a reason in `NO_CREATOR`: move it there as it
  * lands, and this list ends empty.
  */
-const RESHAPING_ELSEWHERE = new Set([
-  // Relationships (plan 029 §5.1): these fold into `resource_links`, whose `created_by` is a user id.
-  'session_links', 'session_pull_requests', 'session_pull_request_watches', 'task_session_links',
-])
+const RESHAPING_ELSEWHERE = new Set<string>([])
 
 /**
  * Tables whose `created_by` does not yet meet the rule as declared (NOT NULL, no
@@ -108,7 +106,6 @@ const RESHAPING_ELSEWHERE = new Set([
  */
 const CREATED_BY_DEVIATIONS: Record<string, string> = {
   activity: 'nullable: an agent, automation, or system row has no acting person today',
-  task_links: "an `Attribution` JSON with a default, not a user id; shares its shape with `session_pull_requests.created_by`",
 }
 
 /** An FTS5 virtual table's shadow tables, which SQLite makes and nothing declares. */

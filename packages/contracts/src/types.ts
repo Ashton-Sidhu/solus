@@ -990,7 +990,7 @@ export type CloneStart =
  * (docs/plans/task-conversation.md, decision 8).
  *
  * Never reaches the backend: `SessionRunInput` has no task field, because task
- * membership is a `task_session_links` row written once the session exists.
+ * membership is the task's session edge (`resource_links`) written once the session exists.
  */
 export type TaskTarget =
   | { kind: 'existing'; taskId: string }
@@ -1186,8 +1186,8 @@ export interface Session {
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
   /**
-   * Where this session will be filed until a durable `task_session_links` row
-   * exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
+   * Where this session will be filed until a durable task→session edge
+   * (`resource_links`) exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
    * the agent can link an existing task before fallback minting runs.
    *
    * A fork carries `{ kind: 'existing', taskId }` for the source's exact task.

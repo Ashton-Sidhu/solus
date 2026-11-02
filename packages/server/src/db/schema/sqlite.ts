@@ -7,6 +7,7 @@ import * as activitySchema from '../../data/activity/schema'
 import * as folioSchema from '../../data/works/schema'
 import * as notificationsSchema from '../../data/notifications/schema'
 import * as insightSchema from '../../data/insights/insight-schema'
+import * as linksSchema from '../../data/links/schema'
 import * as outboxSchema from '../../sync/outbox/schema'
 import * as plansSchema from '../../plans/schema'
 import * as preferencesSchema from '../../data/preferences/schema'
@@ -20,9 +21,7 @@ import * as webhooksSchema from '../../data/webhooks/schema'
 
 export const tasks = tasksSchema.tasks.sqlite
 export const task_counters = tasksSchema.taskCounters.sqlite
-export const task_session_links = tasksSchema.taskSessionLinks.sqlite
 export const task_comments = tasksSchema.taskComments.sqlite
-export const task_links = tasksSchema.taskLinks.sqlite
 export const task_external_links = tasksSchema.taskExternalLinks.sqlite
 export const upstream_task_cache = tasksSchema.upstreamTaskCache.sqlite
 export const asset_publications = tasksSchema.assetPublications.sqlite
@@ -38,9 +37,8 @@ export const indexed_plans = plansSchema.indexedPlans.sqlite
 export const plan_index_providers = plansSchema.planIndexProviders.sqlite
 export const acl_entry = sharingSchema.aclEntry.sqlite
 export const session = sessionsSchema.session.sqlite
-export const session_links = sessionsSchema.sessionLinks.sqlite
-export const session_pull_requests = sessionsSchema.sessionPullRequests.sqlite
-export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.sqlite
+export const resource_links = linksSchema.resourceLinks.sqlite
+export const pull_request_observations = linksSchema.pullRequestObservations.sqlite
 export const resource_preferences = preferencesSchema.resourcePreferences.sqlite
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite

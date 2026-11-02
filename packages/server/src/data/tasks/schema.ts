@@ -23,7 +23,6 @@ export const tasks = defineTable('tasks', {
   due_date: text(),
   priority: text(),
   labels: json({ notNull: true, default: '[]' }),
-  pr: json(),
   /** Upstream epic snapshot (`TaskEpic`), written only by the sync engine. */
   epic: json(),
   source: text({ notNull: true, default: 'user' }),
@@ -51,22 +50,9 @@ export const tasks = defineTable('tasks', {
 
 const TASK_REFERENCE = { table: tasks, column: 'id', onDelete: 'cascade' } as const
 
-export const taskSessionLinks = defineTable('task_session_links', {
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  session_id: text({ notNull: true }),
-  role: text({ notNull: true, default: 'working' }),
-  /** Legacy capture — populated by earlier versions, read-only today. */
-  pr: json(),
-  injected_at: bigint(),
-  linked_at: bigint({ notNull: true }),
-  /** `Attribution` JSON: who started the session, as the first writer of the
-   *  link knew it. Null when nobody said (an agent's own link, older rows). */
-  started_by: json(),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['task_id', 'session_id'],
-  indexes: [{ name: 'task_session_links_by_session', columns: ['session_id'] }],
-})
+// A task's sessions and its links to works, plans, pull requests, and
+// automations are edges of `resource_links` (data/links/schema.ts); a task
+// delete removes them explicitly (`deleteEdgesOf`), as no foreign key can.
 
 export const taskComments = defineTable('task_comments', {
   id: text({ primaryKey: true }),
@@ -83,39 +69,6 @@ export const taskComments = defineTable('task_comments', {
   indexes: [
     { name: 'task_comments_by_task', columns: ['task_id', 'created_at'] },
     { name: 'task_comments_external', columns: ['task_id', 'external_id'], unique: true, where: 'external_id IS NOT NULL' },
-  ],
-})
-
-export const taskLinks = defineTable('task_links', {
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  kind: text({ notNull: true }),
-  target_scope: text({ notNull: true, default: '' }),
-  target_key: text({ notNull: true }),
-  title: text({ notNull: true, default: '' }),
-  url: text(),
-  created_by: text({ notNull: true, default: 'user' }),
-  origin_session_id: text(),
-  // The session of the task that made the item, when the link is on the task
-  // because that session made it (docs/plans/session-outputs.md). The link
-  // follows the session: it leaves the task when the session does. Null on a
-  // link that a person or an agent made deliberately.
-  output_session_id: text(),
-  linked_at: bigint({ notNull: true }),
-  pinned: integer({ notNull: true, default: 0 }),
-  // A `pr` link's last observation, written by PR sync so a task reads its pull
-  // request without the network (docs/plans/pr-sync.md §3.5). `title` and `url`
-  // above carry the rest. `pr_state` is open, closed, merged, or missing; null
-  // until PR sync first answers.
-  pr_state: text(),
-  pr_draft: integer(),
-  pr_updated_at: text(),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['task_id', 'kind', 'target_scope', 'target_key'],
-  indexes: [
-    // Target key before scope: a work link is found by its key alone.
-    { name: 'task_links_by_target', columns: ['kind', 'target_key', 'target_scope'] },
-    { name: 'task_pr_links_by_url', columns: ['task_id', 'url'], unique: true, where: "kind = 'pr' AND url IS NOT NULL" },
   ],
 })
 
@@ -178,9 +131,7 @@ export const taskCounters = defineTable('task_counters', {
 export const TASK_TABLES = [
   tasks,
   taskCounters,
-  taskSessionLinks,
   taskComments,
-  taskLinks,
   taskExternalLinks,
   upstreamTaskCache,
   assetPublications,

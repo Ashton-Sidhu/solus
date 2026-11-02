@@ -11,8 +11,9 @@ link({ kind: 'file', path: 'docs/plans/example.md' })
 ```
 
 Works use their existing session membership. PRs retain their existing link,
-watch, and settlement behavior. Automations and files use `session_links`, with
-the owning host, target, label, actor, and link time. Repeated calls retain one
+watch, and settlement behavior. Automations and files are `reference` edges of
+`resource_links`, with the owning host as the target scope, the path or id as
+the target key, a label, the actor, and the link time. Repeated calls retain one
 reference. A file link references the current host file; it does not copy its body.
 
 The tool checks session edit access and target access. File paths are resolved

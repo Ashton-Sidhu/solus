@@ -4,7 +4,9 @@ import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionSettledBy, typ
 import { storedExecutionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 import { getDatabase } from '../../db/database'
 import { resourcePreferences } from '../preferences/schema'
-import { session, sessionPullRequests } from './schema'
+import { resourceLinks } from '../links/schema'
+import { OBSERVATION_JOIN } from '../links/pull-request-observations'
+import { session } from './schema'
 import { ensureSessionRow, machineSessionHome } from './session-identity'
 import { organizationOfSession } from './session-records'
 import { stopSessionPullRequestWatches } from './pull-request-watches'
@@ -363,16 +365,19 @@ const linkedSessionRowSchema = z.object({
  * Returns the sessions it settled.
  */
 export async function settleSessionsWithEndedPullRequests(isSessionBusy: (sessionId: string) => boolean): Promise<string[]> {
+  // `keeps_session` is 1 on exactly the links whose pull request is open or unobserved (plans/029 §5.1).
   const rows = linkedSessionRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT session_pull_requests.session_id,
-      SUM(CASE WHEN session_pull_requests.pr_state IN ('merged', 'closed', 'missing') THEN 0 ELSE 1 END) AS open_links,
-      MAX(session_pull_requests.pr_updated_at) AS ended_at,
+    SELECT resource_links.source_id AS session_id,
+      SUM(resource_links.keeps_session) AS open_links,
+      MAX(o.updated_at) AS ended_at,
       MAX(session.unsettled_at) AS unsettled_at,
       MAX(session.last_prompt_at) AS last_prompt_at
-    FROM ${sessionPullRequests}
-    JOIN ${session} ON session.session_id = session_pull_requests.session_id
-    WHERE session_pull_requests.source <> 'dismissed' AND session.settled_at IS NULL
-    GROUP BY session_pull_requests.session_id
+    FROM ${resourceLinks}
+    JOIN ${session} ON session.session_id = resource_links.source_id
+    ${OBSERVATION_JOIN}
+    WHERE resource_links.source_kind = 'session' AND resource_links.target_kind = 'pr' AND resource_links.relation = 'pull-request'
+      AND resource_links.status = 'active' AND session.settled_at IS NULL
+    GROUP BY resource_links.source_id
   `))
   const settled: string[] = []
   for (const row of rows) {

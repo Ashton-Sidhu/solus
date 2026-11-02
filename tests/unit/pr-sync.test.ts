@@ -686,7 +686,7 @@ describe('a session with no task', () => {
     const { sql } = await import('drizzle-orm')
     const { host, pullRequest } = codeHost('solo-watch')
     await sessionPrs.linkSessionPullRequest('pr-sync-watch', { url: 'https://github.com/owner/solo-watch/pull/4', source: 'manual', by: BY })
-    await getDatabase().run(sql`UPDATE session_pull_requests SET linked_at = 1 WHERE session_id = 'pr-sync-watch'`)
+    await getDatabase().run(sql`UPDATE resource_links SET created_at = 1 WHERE source_kind = 'session' AND source_id = 'pr-sync-watch'`)
     host.known.set(4, pullRequest(4))
     let now = Date.now()
 

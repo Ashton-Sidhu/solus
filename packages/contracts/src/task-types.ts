@@ -320,9 +320,9 @@ export interface TaskComment {
 
 /** What a task can be linked to. `work` is the storage noun for what the
  *  picker labels "Docs" (the `works` table, `WorkReference`); the renderer maps
- *  at that one boundary. `session` is deliberately absent: session bindings
- *  keep living in `task_session_links`, which carries role/branch/injection
- *  state a plain link cannot. */
+ *  at that one boundary. `session` is deliberately absent: a session binding is
+ *  the task's `works-on` or `reference` edge, which carries a role a plain link
+ *  cannot (`TaskSessionLink`). */
 export type TaskLinkKind = 'work' | 'plan' | 'pr' | 'automation'
 
 /** An explicit edge from a task to another workspace object.
@@ -701,7 +701,6 @@ export interface TaskSessionLink {
    *  about the session. Only an isolated one may claim a pull request.
    *  Undefined where the session is not indexed yet, which claims nothing. */
   isolatedCheckout?: boolean
-  pr?: TaskPr
   /** Epoch ms the link was recorded; drives "most recent session" ordering. */
   linkedAt: number
   /** Who started the session. Absent when nobody recorded it. */

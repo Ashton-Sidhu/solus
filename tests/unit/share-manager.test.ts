@@ -400,9 +400,16 @@ describe('tasks', () => {
 })
 
 describe('works of a session', () => {
-  const link = (workId: string, sessionId: string | null, linked: string[] = []) => database.getDatabase().run(sql`
-    UPDATE works SET session_id = ${sessionId}, meta = ${JSON.stringify({ sessionIds: linked })} WHERE id = ${workId}
-  `)
+  // The origin stays on the row; a later member is a session→work edge (plans/029 §5.1).
+  const link = async (workId: string, sessionId: string | null, linked: string[] = []) => {
+    await database.getDatabase().run(sql`UPDATE works SET session_id = ${sessionId} WHERE id = ${workId}`)
+    for (const member of linked) {
+      await database.getDatabase().run(sql`
+        INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
+        VALUES ('org1', 'session', ${member}, 'work', '', ${workId}, 'member', 'manual', 'active', '{"kind":"system"}', 'alice', 1)
+      `)
+    }
+  }
 
   test('who may open a session holds the same role on the works it made or links', async () => {
     // WHY (decision 2026-10-30): an artifact the agent made in a shared session is

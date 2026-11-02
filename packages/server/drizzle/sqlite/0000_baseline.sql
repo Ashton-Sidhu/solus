@@ -178,6 +178,53 @@ CREATE TABLE `plan_index_providers` (
 	`organization_id` text DEFAULT 'local' NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `pull_request_observations` (
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`authority_key` text NOT NULL,
+	`repository` text NOT NULL,
+	`number` integer NOT NULL,
+	`state` text NOT NULL,
+	`draft` integer,
+	`title` text DEFAULT '' NOT NULL,
+	`updated_at` text,
+	`observed_at` integer NOT NULL,
+	PRIMARY KEY(`organization_id`, `authority_key`, `repository`, `number`)
+);
+--> statement-breakpoint
+CREATE TABLE `resource_links` (
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`source_kind` text NOT NULL,
+	`source_id` text NOT NULL,
+	`target_kind` text NOT NULL,
+	`target_scope` text DEFAULT '' NOT NULL,
+	`target_key` text NOT NULL,
+	`relation` text NOT NULL,
+	`title` text DEFAULT '' NOT NULL,
+	`url` text,
+	`source` text DEFAULT 'manual' NOT NULL,
+	`status` text DEFAULT 'active' NOT NULL,
+	`pinned` integer DEFAULT 0 NOT NULL,
+	`via_session_id` text,
+	`origin_session_id` text,
+	`authority_key` text,
+	`repository` text,
+	`number` integer,
+	`keeps_session` integer DEFAULT 0 NOT NULL,
+	`watch_id` text,
+	`watch_started_at` integer,
+	`watch_user_id` text,
+	`watch_state` text,
+	`author` text,
+	`created_by` text NOT NULL,
+	`created_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `resource_links_edge` ON `resource_links` (`source_kind`,`source_id`,`target_kind`,`target_scope`,`target_key`);--> statement-breakpoint
+CREATE INDEX `resource_links_by_target` ON `resource_links` (`target_kind`,`target_key`,`target_scope`);--> statement-breakpoint
+CREATE UNIQUE INDEX `resource_links_working_owner` ON `resource_links` (`organization_id`,`target_key`) WHERE source_kind = 'task' AND target_kind = 'session' AND relation = 'works-on' AND status = 'active';--> statement-breakpoint
+CREATE INDEX `resource_links_open_session` ON `resource_links` (`source_id`,`organization_id`) WHERE keeps_session = 1;--> statement-breakpoint
+CREATE UNIQUE INDEX `resource_links_watch` ON `resource_links` (`watch_id`) WHERE watch_id IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `resource_links_by_pull_request` ON `resource_links` (`repository`,`number`) WHERE repository IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `resource_preferences` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`resource_kind` text NOT NULL,
@@ -251,50 +298,6 @@ CREATE INDEX `session_by_activity` ON `session` ("last_activity_at" desc,"sessio
 CREATE INDEX `session_by_parent` ON `session` (`parent_session_id`,"created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX `session_by_project_path` ON `session` (`project_path`,`last_activity_at`);--> statement-breakpoint
 CREATE INDEX `session_by_place` ON `session` (`place`,`last_activity_at`);--> statement-breakpoint
-CREATE TABLE `session_links` (
-	`session_id` text NOT NULL,
-	`link_id` text NOT NULL,
-	`target` text NOT NULL,
-	`title` text NOT NULL,
-	`created_by` text NOT NULL,
-	`linked_at` integer NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`session_id`, `link_id`),
-	FOREIGN KEY (`session_id`) REFERENCES `session`(`session_id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE TABLE `session_pull_request_watches` (
-	`session_id` text NOT NULL,
-	`repository` text NOT NULL,
-	`number` integer NOT NULL,
-	`watch_id` text NOT NULL,
-	`started_at` integer NOT NULL,
-	`state` text NOT NULL,
-	`acting_user_key` text,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`session_id`, `repository`, `number`),
-	FOREIGN KEY (`session_id`) REFERENCES `session`(`session_id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE TABLE `session_pull_requests` (
-	`session_id` text NOT NULL,
-	`repository` text NOT NULL,
-	`number` integer NOT NULL,
-	`url` text NOT NULL,
-	`title` text DEFAULT '' NOT NULL,
-	`source` text NOT NULL,
-	`created_by` text NOT NULL,
-	`linked_at` integer NOT NULL,
-	`pr_state` text,
-	`pr_draft` integer,
-	`pr_updated_at` text,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`session_id`, `repository`, `number`),
-	FOREIGN KEY (`session_id`) REFERENCES `session`(`session_id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `session_pull_requests_by_pull_request` ON `session_pull_requests` (`repository`,`number`);--> statement-breakpoint
-CREATE INDEX `session_pull_requests_open` ON `session_pull_requests` (`session_id`) WHERE source <> 'dismissed' AND (pr_state IS NULL OR pr_state NOT IN ('merged', 'closed', 'missing'));--> statement-breakpoint
 CREATE TABLE `session_transcripts` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`session_id` text NOT NULL,
@@ -347,42 +350,6 @@ CREATE TABLE `task_external_links` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `task_external_links_external` ON `task_external_links` (`provider`,`external_key`,`external_id`);--> statement-breakpoint
-CREATE TABLE `task_links` (
-	`task_id` text NOT NULL,
-	`kind` text NOT NULL,
-	`target_scope` text DEFAULT '' NOT NULL,
-	`target_key` text NOT NULL,
-	`title` text DEFAULT '' NOT NULL,
-	`url` text,
-	`created_by` text DEFAULT 'user' NOT NULL,
-	`origin_session_id` text,
-	`output_session_id` text,
-	`linked_at` integer NOT NULL,
-	`pinned` integer DEFAULT 0 NOT NULL,
-	`pr_state` text,
-	`pr_draft` integer,
-	`pr_updated_at` text,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`task_id`, `kind`, `target_scope`, `target_key`),
-	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `task_links_by_target` ON `task_links` (`kind`,`target_key`,`target_scope`);--> statement-breakpoint
-CREATE UNIQUE INDEX `task_pr_links_by_url` ON `task_links` (`task_id`,`url`) WHERE kind = 'pr' AND url IS NOT NULL;--> statement-breakpoint
-CREATE TABLE `task_session_links` (
-	`task_id` text NOT NULL,
-	`session_id` text NOT NULL,
-	`role` text DEFAULT 'working' NOT NULL,
-	`pr` text,
-	`injected_at` integer,
-	`linked_at` integer NOT NULL,
-	`started_by` text,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`task_id`, `session_id`),
-	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `task_session_links_by_session` ON `task_session_links` (`session_id`);--> statement-breakpoint
 CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`short_id` integer,
@@ -396,7 +363,6 @@ CREATE TABLE `tasks` (
 	`due_date` text,
 	`priority` text,
 	`labels` text DEFAULT '[]' NOT NULL,
-	`pr` text,
 	`epic` text,
 	`source` text DEFAULT 'user' NOT NULL,
 	`origin_session_id` text,

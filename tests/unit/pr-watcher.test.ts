@@ -24,6 +24,7 @@ let REPOSITORY = ''
 let dataDir: string
 let db: typeof import('@solus/server/db')
 let watches: typeof import('@solus/server/data/sessions/pull-request-watches')
+let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests')
 let rules: typeof import('@solus/server/prs/pr-watch-rules')
 let watcherModule: typeof import('@solus/server/prs/pr-watcher')
 let rateLimit: typeof import('@solus/server/providers/github/rate-limit')
@@ -35,6 +36,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
   watches = await import('@solus/server/data/sessions/pull-request-watches')
+  sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
   rules = await import('@solus/server/prs/pr-watch-rules')
   watcherModule = await import('@solus/server/prs/pr-watcher')
   rateLimit = await import('@solus/server/providers/github/rate-limit')
@@ -127,8 +129,14 @@ function setup(host: FakeHost) {
   return { watcher, woke }
 }
 
+/** A session watches only a pull request it links (plans/029 §3.5): the link first, then the watch on it. */
+async function linkAndWatch(sessionId: string, repository: string, startedAt: number, actingUserKey: string | null) {
+  await sessionPrs.linkSessionPullRequest(sessionId, { url: `https://${repository}/pull/7`, source: 'manual', by: { kind: 'system' } })
+  return watches.startPullRequestWatch(sessionId, repository, 7, rules.initialWatchState(startedAt), actingUserKey, startedAt)
+}
+
 async function watch(sessionId: string, startedAt = Date.now() - 60_000, actingUserKey: string | null = null) {
-  return watches.startPullRequestWatch(sessionId, REPOSITORY, 7, rules.initialWatchState(startedAt), actingUserKey, startedAt)
+  return linkAndWatch(sessionId, REPOSITORY, startedAt, actingUserKey)
 }
 
 describe('PR watcher', () => {
@@ -180,10 +188,7 @@ describe('PR watcher', () => {
       inFlight -= 1
       return read(repo, numbers)
     }
-    for (const suffix of ['a', 'b', 'c']) {
-      const startedAt = Date.now() - 60_000
-      await watches.startPullRequestWatch(`session-${suffix}`, `${REPOSITORY}-${suffix}`, 7, rules.initialWatchState(startedAt), null, startedAt)
-    }
+    for (const suffix of ['a', 'b', 'c']) await linkAndWatch(`session-${suffix}`, `${REPOSITORY}-${suffix}`, Date.now() - 60_000, null)
     const { watcher } = setup(host)
     await watcher.start()
     await watcher.sweep()

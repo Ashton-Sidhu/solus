@@ -205,7 +205,7 @@ describe('one session row (plans/029 §4.2)', () => {
     expect(await leads.isLeadSession('gone')).toBe(false)
     expect(await new states.SessionShelf('gone').state()).toEqual({ settledAt: null, settledBy: null })
     expect(await db.all(sql`SELECT * FROM resource_preferences WHERE resource_kind = 'session' AND resource_id = 'gone'`)).toEqual([])
-    expect(await db.all(sql`SELECT * FROM session_pull_requests WHERE session_id = 'gone'`)).toEqual([])
+    expect(await db.all(sql`SELECT * FROM resource_links WHERE source_id = 'gone' OR target_key = 'gone'`)).toEqual([])
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM runs WHERE session_id = 'gone'`).get()).toEqual({ n: 0 })
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM async_questions WHERE session_id = 'gone'`).get()).toEqual({ n: 0 })
     // A delete in another organization's scope removes nothing.

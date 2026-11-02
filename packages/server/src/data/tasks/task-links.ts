@@ -3,13 +3,33 @@ import { z } from 'zod'
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
 import type { Db } from '../../db/database'
 import type { Attribution } from '@solus/contracts/user'
-import { legacyTaskActor, taskChanged } from './task-activity'
+import { taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
 import { attributionJson, parseStoredAttribution } from '../stored-attribution'
 import { linkTargetRecordKey, linkTargetRecordsFor } from './host-records'
-import { taskLinks, taskSessionLinks, tasks } from './schema'
-import { sessionPullRequests } from '../sessions/schema'
-import { recordSessionPullRequestObservation, sessionPullRequestIsMerged } from '../sessions/session-pull-requests'
+import { tasks } from './schema'
+import { resourceLinks } from '../links/schema'
+import {
+  canonicalPullRequest,
+  canonicalTargetScope,
+  creatorOf,
+  edgeClause,
+  provenanceOf,
+  pullRequestStateSchema,
+  sourceClause,
+  taskOwner,
+  type LinkEdge,
+  type LinkRelation,
+} from '../links/resource-links'
+import {
+  latestObservation,
+  OBSERVATION_COLUMNS,
+  OBSERVATION_JOIN,
+  OBSERVATION_ROW_COLUMNS,
+  pullRequestObservedMerged,
+  recordObservation,
+} from '../links/pull-request-observations'
+import { emitSessionPullRequestsChanged } from '../sessions/session-pull-requests'
 import { database, emitChanged, TASK_HERE } from './task-store'
 import { scopeClause } from '../scope'
 import type { RecordScope } from '../../admission/principal'
@@ -23,26 +43,37 @@ import type {
   TaskSidebarPrLink,
 } from '@solus/contracts/task-types'
 
-/** A task's links to docs, plans, PRs and automations.
+/** A task's links to docs, plans, PRs and automations: its edges in
+ * `resource_links` to a work, plan, pr, or automation (data/links/schema.ts).
  *
  * These are in-transaction cores, not a public API: they run inside the
  * caller's transaction and never open their own. The public surface is the
  * `Task` object's `link()` / `unlink()` / `links()`.
  */
 
+const linkKindSchema = z.enum(['work', 'plan', 'pr', 'automation'])
+
+/** A task's link to something other than a session. */
+const TASK_LINK = sql`resource_links.source_kind = 'task' AND resource_links.target_kind IN ('work', 'plan', 'pr', 'automation')`
+const TASK_PR = sql`resource_links.source_kind = 'task' AND resource_links.target_kind = 'pr'`
+/** A session's live pull request edge. */
+const SESSION_PR = sql`resource_links.source_kind = 'session' AND resource_links.target_kind = 'pr'
+  AND resource_links.relation = 'pull-request' AND resource_links.status = 'active'`
+
 const taskLinkRowSchema = z.object({
   task_id: z.string(),
-  kind: z.enum(['work', 'plan', 'pr', 'automation']),
+  kind: linkKindSchema,
   target_scope: z.string(),
   target_key: z.string(),
   title: z.string(),
   url: z.string().nullable(),
-  created_by: z.string(),
+  author: z.string().nullable(),
   origin_session_id: z.string().nullable(),
-  output_session_id: z.string().nullable(),
-  linked_at: z.number(),
+  via_session_id: z.string().nullable(),
+  created_at: z.number(),
   pinned: z.number(),
-  pr_state: z.string().nullable(),
+  pr_state: pullRequestStateSchema.nullable(),
+  pr_title: z.string().nullable(),
 })
 const titleRowSchema = z.object({ title: z.string() })
 const taskPrLinkRowSchema = z.object({
@@ -51,12 +82,10 @@ const taskPrLinkRowSchema = z.object({
   target_key: z.string(),
   title: z.string(),
   url: z.string().nullable(),
-  created_by: z.string(),
+  author: z.string().nullable(),
   origin_session_id: z.string().nullable(),
-  pr_state: z.enum(['open', 'closed', 'merged', 'missing']).nullable(),
-  pr_draft: z.number().nullable(),
-  pr_updated_at: z.string().nullable(),
-  linked_at: z.number(),
+  created_at: z.number(),
+  ...OBSERVATION_ROW_COLUMNS,
 })
 
 /** A pull request that one of a task's sessions owns, joined to the task. */
@@ -67,25 +96,23 @@ const sessionOwnedPrRowSchema = z.object({
   number: z.number(),
   url: z.string(),
   title: z.string(),
-  created_by: z.string(),
-  linked_at: z.number(),
-  pr_state: z.enum(['open', 'closed', 'merged', 'missing']).nullable(),
-  pr_draft: z.number().nullable(),
-  pr_updated_at: z.string().nullable(),
+  author: z.string().nullable(),
+  created_at: z.number(),
+  ...OBSERVATION_ROW_COLUMNS,
 })
 type SessionOwnedPrRow = z.infer<typeof sessionOwnedPrRowSchema>
 
 const prLinkInterestRowSchema = z.object({
   target_scope: z.string(),
   target_key: z.string(),
-  pr_state: z.enum(['open', 'closed', 'merged', 'missing']).nullable(),
+  pr_state: pullRequestStateSchema.nullable(),
   pr_updated_at: z.string().nullable(),
   active: z.coerce.number(),
 })
 
 const linkedTaskRowSchema = z.object({
   task_id: z.string(),
-  kind: z.enum(['work', 'plan', 'pr', 'automation']),
+  kind: linkKindSchema,
   target_scope: z.string(),
   target_key: z.string(),
   title: z.string(),
@@ -124,9 +151,18 @@ interface TaskSidebarPrLinks {
   [taskId: string]: TaskSidebarPrLink[]
 }
 
-/** Who a link row names as its maker; a label from before plan 012 stage 4 reads as `legacyTaskActor` does. */
-function linkCreator(row: { created_by: string; origin_session_id: string | null }): Attribution {
-  return parseStoredAttribution(row.created_by) ?? legacyTaskActor(row.created_by, row.origin_session_id)
+/** Who an edge names as its maker; an edge with nobody recorded is Solus's own. */
+function linkCreator(row: { author: string | null }): Attribution {
+  return parseStoredAttribution(row.author) ?? { kind: 'system' }
+}
+
+/** The title a pull request row shows: the observation's once PR sync answered, else the link's. */
+function titleOf(row: { title: string; pr_title: string | null }): string {
+  return row.pr_title || row.title
+}
+
+function taskEdge(taskId: string, target: TaskLinkTarget): LinkEdge {
+  return { sourceKind: 'task', sourceId: taskId, targetKind: target.kind, targetScope: canonicalTargetScope(target.kind, target.targetScope), targetKey: target.targetKey }
 }
 
 /**
@@ -139,19 +175,18 @@ function linkCreator(row: { created_by: string; origin_session_id: string | null
 async function readSessionOwnedPrRows(db: Db, scope: RecordScope, taskIds?: readonly string[]): Promise<SessionOwnedPrRow[]> {
   if (taskIds && !taskIds.length) return []
   const onlyTasks = taskIds
-    ? sql` AND task_session_links.task_id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})`
+    ? sql` AND works_on.source_id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})`
     : sql``
   return sessionOwnedPrRowSchema.array().parse(await db.all(sql`
-    SELECT task_session_links.task_id, session_pull_requests.session_id, session_pull_requests.repository,
-      session_pull_requests.number, session_pull_requests.url, session_pull_requests.title,
-      session_pull_requests.created_by, session_pull_requests.linked_at, session_pull_requests.pr_state,
-      session_pull_requests.pr_draft, session_pull_requests.pr_updated_at
-    FROM ${sessionPullRequests}
-    JOIN ${taskSessionLinks} ON task_session_links.session_id = session_pull_requests.session_id
-    WHERE ${scopeClause(scope, sql`task_session_links.organization_id`)}
-      AND task_session_links.role <> 'referenced'
-      AND session_pull_requests.source <> 'dismissed'${onlyTasks}
-    ORDER BY session_pull_requests.linked_at DESC, session_pull_requests.repository, session_pull_requests.number DESC
+    SELECT works_on.source_id AS task_id, resource_links.source_id AS session_id, resource_links.repository,
+      resource_links.number, resource_links.url, resource_links.title, resource_links.author, resource_links.created_at, ${OBSERVATION_COLUMNS}
+    FROM ${resourceLinks}
+    JOIN ${resourceLinks} AS works_on ON works_on.source_kind = 'task' AND works_on.target_kind = 'session'
+      AND works_on.relation = 'works-on' AND works_on.status = 'active'
+      AND works_on.target_key = resource_links.source_id AND works_on.organization_id = resource_links.organization_id
+    ${OBSERVATION_JOIN}
+    WHERE ${scopeClause(scope, sql`works_on.organization_id`)} AND ${SESSION_PR}${onlyTasks}
+    ORDER BY resource_links.created_at DESC, resource_links.repository, resource_links.number DESC
   `))
 }
 
@@ -161,7 +196,7 @@ function pullRequestKey(scope: string, number: number | string): string {
 
 /** Live title/status per kind. `work`, `plan` and `automation` all live on this
  * host, so a rename shows up immediately; `pr` state is a GitHub round trip
- * and must not make a task read network-bound, so it stays on the snapshot and
+ * and must not make a task read network-bound, so it stays on the observation and
  * the renderer overlays from its own PR store. */
 function linkFromRow(row: TaskLinkRow, live: Map<string, { title: string | null; status: string | null }>): TaskLink {
   const link: TaskLink = {
@@ -169,16 +204,16 @@ function linkFromRow(row: TaskLinkRow, live: Map<string, { title: string | null;
     kind: row.kind,
     targetScope: row.target_scope,
     targetKey: row.target_key,
-    title: row.title,
+    title: row.kind === 'pr' ? titleOf(row) : row.title,
     createdBy: linkCreator(row),
-    linkedAt: row.linked_at,
+    linkedAt: row.created_at,
   }
   const record = live.get(linkTargetRecordKey({ kind: row.kind, targetScope: row.target_scope, targetKey: row.target_key }))
   if (record?.title !== null && record?.title !== undefined) link.liveTitle = record.title
   if (record?.status !== null && record?.status !== undefined) link.liveStatus = record.status
   if (row.url !== null) link.url = row.url
   if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
-  if (row.output_session_id !== null) link.ownerSessionId = row.output_session_id
+  if (row.via_session_id !== null) link.ownerSessionId = row.via_session_id
   if (row.pinned === 1) link.pinned = true
   if (row.pr_state === 'missing') link.missing = true
   return link
@@ -201,6 +236,25 @@ async function snapshotTitle(organizationId: string, input: TaskLinkInput): Prom
  *  the item, for a link that is there because that session made it. */
 export type TaskLinkWrite = TaskLinkInput & { outputOfSessionId?: string }
 
+/** What a task's edge records of the link it writes: its relation, who made it, and the pull request it names. */
+async function linkFacts(db: Db, organizationId: string, input: TaskLinkWrite, by: Attribution, targetScope: string, targetKey: string) {
+  const url = input.url?.trim() || null
+  const relation: LinkRelation = input.outputOfSessionId ? 'output' : input.kind === 'pr' ? 'pull-request' : 'reference'
+  // A task's pull request edge names its observation at once when the organization holds one.
+  const canonical = input.kind === 'pr' ? canonicalPullRequest(url, targetScope, targetKey) : null
+  const observation = canonical ? await latestObservation(db, organizationId, canonical.repository, canonical.number) : null
+  return {
+    url,
+    relation,
+    source: input.automatic ? 'system' : provenanceOf(by),
+    author: attributionJson(input.automatic ? { kind: 'system' } : by),
+    originSessionId: input.originSessionId?.trim() || null,
+    repository: canonical?.repository ?? null,
+    number: canonical?.number ?? null,
+    authorityKey: observation?.authorityKey ?? null,
+  }
+}
+
 export async function writeTaskLink(
   db: Db,
   organizationId: string,
@@ -212,8 +266,10 @@ export async function writeTaskLink(
 ): Promise<void> {
   const targetKey = input.targetKey.trim()
   if (!targetKey) throw new Error('A task link needs a target.')
-  const targetScope = (input.targetScope ?? '').trim()
+  const targetScope = canonicalTargetScope(input.kind, (input.targetScope ?? '').trim())
   const title = await snapshotTitle(organizationId, { ...input, targetKey, targetScope })
+  const facts = await linkFacts(db, organizationId, input, by, targetScope, targetKey)
+  const createdBy = await creatorOf(by, () => taskOwner(db, taskId))
 
   // A pin is a choice, and `undefined` is the absence of one: a re-link that
   // knows nothing about pinning must leave the existing pin alone. NULL is how
@@ -221,28 +277,28 @@ export async function writeTaskLink(
   const pinned = input.pinned === undefined ? null : input.pinned ? 1 : 0
 
   await db.run(sql`
-    INSERT INTO ${taskLinks}(
-      task_id, kind, target_scope, target_key, title, url, created_by,
-      origin_session_id, output_session_id, linked_at, pinned, organization_id
+    INSERT INTO ${resourceLinks}(
+      organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, title, url, source, status,
+      pinned, via_session_id, origin_session_id, repository, number, authority_key, keeps_session, author, created_by, created_at
     ) VALUES (
-      ${taskId}, ${input.kind}, ${targetScope}, ${targetKey}, ${title}, ${input.url?.trim() || null},
-      ${attributionJson(input.automatic ? { kind: 'system' } : by)}, ${input.originSessionId?.trim() || null},
-      ${input.outputOfSessionId ?? null}, ${now},
-      COALESCE(${pinned}, 0), ${organizationId}
+      ${organizationId}, 'task', ${taskId}, ${input.kind}, ${targetScope}, ${targetKey}, ${facts.relation}, ${title}, ${facts.url},
+      ${facts.source}, 'active',
+      COALESCE(${pinned}, 0), ${input.outputOfSessionId ?? null}, ${facts.originSessionId},
+      ${facts.repository}, ${facts.number}, ${facts.authorityKey}, 0,
+      ${facts.author}, ${createdBy}, ${now}
     )
-    ON CONFLICT(task_id, kind, target_scope, target_key) DO UPDATE SET
+    ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO UPDATE SET
       title = excluded.title,
-      url = COALESCE(excluded.url, task_links.url),
-      linked_at = excluded.linked_at,
-      pinned = COALESCE(${pinned}, task_links.pinned)
+      url = COALESCE(excluded.url, resource_links.url),
+      pinned = COALESCE(${pinned}, resource_links.pinned)
   `)
   // One artifact is open on a task at a time, so pinning one clears the rest in
   // the same transaction rather than leaving two rows claiming the slot.
   if (pinned === 1) {
     await db.run(sql`
-      UPDATE ${taskLinks} SET pinned = 0
-      WHERE task_id = ${taskId} AND pinned = 1
-        AND NOT (kind = ${input.kind} AND target_scope = ${targetScope} AND target_key = ${targetKey})
+      UPDATE ${resourceLinks} SET pinned = 0
+      WHERE ${sourceClause('task', taskId)} AND resource_links.pinned = 1
+        AND NOT (resource_links.target_kind = ${input.kind} AND resource_links.target_scope = ${targetScope} AND resource_links.target_key = ${targetKey})
     `)
   }
   await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
@@ -258,9 +314,8 @@ export async function writeTaskLink(
  */
 export async function claimSessionOutputLink(db: Db, taskId: string, target: TaskLinkTarget): Promise<boolean> {
   return (await db.run(sql`
-    UPDATE ${taskLinks} SET output_session_id = NULL
-    WHERE task_id = ${taskId} AND kind = ${target.kind} AND target_scope = ${target.targetScope}
-      AND target_key = ${target.targetKey} AND output_session_id IS NOT NULL
+    UPDATE ${resourceLinks} SET relation = 'reference', via_session_id = NULL
+    WHERE ${edgeClause(taskEdge(taskId, target))} AND resource_links.relation = 'output'
   `)).changes > 0
 }
 
@@ -268,7 +323,7 @@ export async function claimSessionOutputLink(db: Db, taskId: string, target: Tas
  *  when the task held none. */
 export async function deleteSessionOutputLinks(db: Db, taskId: string, sessionId: string): Promise<boolean> {
   return (await db.run(sql`
-    DELETE FROM ${taskLinks} WHERE task_id = ${taskId} AND output_session_id = ${sessionId}
+    DELETE FROM ${resourceLinks} WHERE ${sourceClause('task', taskId)} AND resource_links.relation = 'output' AND resource_links.via_session_id = ${sessionId}
   `)).changes > 0
 }
 
@@ -288,17 +343,17 @@ export async function setTaskLinkPin(
   now = Date.now(),
 ): Promise<boolean> {
   const flag = pinned ? 1 : 0
+  const edge = taskEdge(taskId, target)
   const changed = await db.run(sql`
-    UPDATE ${taskLinks} SET pinned = ${flag}
-    WHERE task_id = ${taskId} AND kind = ${target.kind} AND target_scope = ${target.targetScope}
-      AND target_key = ${target.targetKey} AND pinned <> ${flag}
+    UPDATE ${resourceLinks} SET pinned = ${flag}
+    WHERE ${edgeClause(edge)} AND resource_links.pinned <> ${flag}
   `)
   if (changed.changes === 0) return false
   if (pinned) {
     await db.run(sql`
-      UPDATE ${taskLinks} SET pinned = 0
-      WHERE task_id = ${taskId} AND pinned = 1
-        AND NOT (kind = ${target.kind} AND target_scope = ${target.targetScope} AND target_key = ${target.targetKey})
+      UPDATE ${resourceLinks} SET pinned = 0
+      WHERE ${sourceClause('task', taskId)} AND resource_links.pinned = 1
+        AND NOT (resource_links.target_kind = ${edge.targetKind} AND resource_links.target_scope = ${edge.targetScope} AND resource_links.target_key = ${edge.targetKey})
     `)
   }
   await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
@@ -317,20 +372,17 @@ export async function deleteTaskLink(
   by: Attribution,
   now = Date.now(),
 ): Promise<boolean> {
+  const edge = taskEdge(taskId, { kind, targetScope, targetKey })
   const existing = titleRowSchema.nullish().parse(await db.get(sql`
-    SELECT title FROM ${taskLinks}
-    WHERE task_id = ${taskId} AND kind = ${kind} AND target_scope = ${targetScope} AND target_key = ${targetKey}
+    SELECT title FROM ${resourceLinks} WHERE ${edgeClause(edge)}
   `))
   if (!existing) return false
 
-  await db.run(sql`
-    DELETE FROM ${taskLinks}
-    WHERE task_id = ${taskId} AND kind = ${kind} AND target_scope = ${targetScope} AND target_key = ${targetKey}
-  `)
+  await db.run(sql`DELETE FROM ${resourceLinks} WHERE ${edgeClause(edge)}`)
   await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   // Carries the title so the feed still reads "unlinked <name>" afterwards.
   await appendActivity(organizationId, taskChanged(taskId, by, 'unlinked', {
-    target: { kind, scope: targetScope, key: targetKey, title: existing.title },
+    target: { kind, scope: edge.targetScope, key: targetKey, title: existing.title },
   }, now), db)
   return true
 }
@@ -339,9 +391,12 @@ export async function deleteTaskLink(
  *  own. A pull request linked both ways is the task's own link. */
 export async function readTaskLinks(db: Db, organizationId: string, taskId: string): Promise<TaskLink[]> {
   const rows = taskLinkRowSchema.array().parse(await db.all(sql`
-    SELECT * FROM ${taskLinks}
-    WHERE task_id = ${taskId}
-    ORDER BY linked_at DESC, kind, target_key
+    SELECT resource_links.source_id AS task_id, resource_links.target_kind AS kind, resource_links.target_scope, resource_links.target_key,
+      resource_links.title, resource_links.url, resource_links.author, resource_links.origin_session_id, resource_links.via_session_id,
+      resource_links.created_at, resource_links.pinned, o.state AS pr_state, o.title AS pr_title
+    FROM ${resourceLinks} ${OBSERVATION_JOIN}
+    WHERE ${TASK_LINK} AND resource_links.source_id = ${taskId}
+    ORDER BY resource_links.created_at DESC, resource_links.target_kind, resource_links.target_key
   `))
   const live = await linkTargetRecordsFor(
     organizationId,
@@ -358,11 +413,11 @@ export async function readTaskLinks(db: Db, organizationId: string, taskId: stri
       kind: 'pr',
       targetScope: row.repository,
       targetKey: String(row.number),
-      title: row.title || `#${row.number}`,
+      title: titleOf(row) || `#${row.number}`,
       url: row.url,
-      createdBy: parseStoredAttribution(row.created_by) ?? { kind: 'system' },
+      createdBy: linkCreator(row),
       ownerSessionId: row.session_id,
-      linkedAt: row.linked_at,
+      linkedAt: row.created_at,
     }
     if (row.pr_state === 'missing') link.missing = true
     links.push(link)
@@ -388,15 +443,15 @@ export async function readTasksLinkingTargets(
   const wanted = targets.slice(0, LINKED_TASKS_TARGET_CAP)
   if (!wanted.length) return []
   const clause = sql.join(wanted.map((target) =>
-    sql`(task_links.kind = ${target.kind} AND task_links.target_scope = ${target.targetScope} AND task_links.target_key = ${target.targetKey})`), sql` OR `)
+    sql`(resource_links.target_kind = ${target.kind} AND resource_links.target_scope = ${canonicalTargetScope(target.kind, target.targetScope)} AND resource_links.target_key = ${target.targetKey})`), sql` OR `)
   const rows = linkedTaskRowSchema.array().parse(await db.all(sql`
     SELECT
-      task_links.task_id, task_links.kind, task_links.target_scope, task_links.target_key,
+      resource_links.source_id AS task_id, resource_links.target_kind AS kind, resource_links.target_scope, resource_links.target_key,
       tasks.title, tasks.status, tasks.short_id, tasks.project_key
-    FROM ${taskLinks}
-    JOIN ${tasks} ON tasks.id = task_links.task_id
-    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE} AND (${clause})
-    ORDER BY task_links.linked_at DESC
+    FROM ${resourceLinks}
+    JOIN ${tasks} ON tasks.id = resource_links.source_id
+    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE} AND ${TASK_LINK} AND (${clause})
+    ORDER BY resource_links.created_at DESC
   `))
   return rows.map((row) => {
     const linked: TaskLinkedTask = {
@@ -422,15 +477,15 @@ export async function readTasksLinkingTargets(
  */
 export async function readPrLinkInterests(db: Db, scope: RecordScope): Promise<PrLinkInterest[]> {
   const rows = prLinkInterestRowSchema.array().parse(await db.all(sql`
-    SELECT task_links.target_scope, task_links.target_key, MAX(task_links.pr_state) AS pr_state,
-      MAX(task_links.pr_updated_at) AS pr_updated_at,
+    SELECT resource_links.target_scope, resource_links.target_key, MAX(o.state) AS pr_state,
+      MAX(o.updated_at) AS pr_updated_at,
       MAX(CASE WHEN tasks.status NOT IN ('done', 'dropped') THEN 1 ELSE 0 END) AS active
-    FROM ${taskLinks}
-    JOIN ${tasks} ON tasks.id = task_links.task_id
+    FROM ${resourceLinks}
+    JOIN ${tasks} ON tasks.id = resource_links.source_id
+    ${OBSERVATION_JOIN}
     WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE}
-      AND task_links.kind = 'pr'
-      AND task_links.target_scope <> ''
-    GROUP BY task_links.target_scope, task_links.target_key
+      AND ${TASK_PR} AND resource_links.target_scope <> ''
+    GROUP BY resource_links.target_scope, resource_links.target_key
   `))
   const interests: PrLinkInterest[] = []
   for (const row of rows) {
@@ -445,62 +500,42 @@ export async function readPrLinkInterests(db: Db, scope: RecordScope): Promise<P
 }
 
 /**
- * Write what PR sync saw for one pull request to every link that names it —
- * the links made on tasks and the links sessions own — and announce the tasks
- * whose own links changed. `scopes` are the link scopes that name its
- * repository: the repository key, and any local path that resolved to it. Null
- * means the code host says that the pull request does not exist.
+ * Write what PR sync saw for one pull request to its observation and bind every
+ * edge that names it — the links made on tasks and the links sessions own —
+ * then announce the sessions and tasks whose links changed. `scopes` are the
+ * link scopes that name its repository: the repository key, and any local path
+ * that resolved to it. Null means the code host says that the pull request
+ * does not exist.
  */
 export async function recordPullRequestObservation(
+  repository: string,
   scopes: readonly string[],
   number: number,
   pullRequest: PullRequest | null,
 ): Promise<void> {
-  if (!scopes.length) return
-  // A session link names the repository key, never a local path. The host
-  // announces each changed session, and the tasks that read its links.
-  for (const scope of scopes) await recordSessionPullRequestObservation(scope, number, pullRequest)
-  const matches = sql`kind = 'pr' AND target_key = ${String(number)}
-    AND target_scope IN (${sql.join(scopes.map((scope) => sql`${scope}`), sql`, `)})`
-  const rows = linkedTaskIdRowSchema.array().parse(await database().all(sql`
-    SELECT DISTINCT task_id FROM ${taskLinks} WHERE ${matches}
-  `))
-  if (!rows.length) return
-  await database().run(pullRequest
-    ? sql`
-      UPDATE ${taskLinks} SET
-        title = ${pullRequest.title}, pr_state = ${pullRequest.state},
-        pr_draft = ${pullRequest.draft ? 1 : 0}, pr_updated_at = ${pullRequest.updatedAt}
-      WHERE ${matches}`
-    : sql`
-      UPDATE ${taskLinks} SET pr_state = 'missing', pr_draft = NULL, pr_updated_at = NULL
-      WHERE ${matches}`)
-  for (const row of rows) emitChanged(row.task_id)
+  const { sessionIds, taskIds } = await recordObservation(database(), { repository, number, scopes, pullRequest })
+  for (const sessionId of sessionIds) emitSessionPullRequestsChanged(sessionId)
+  for (const taskId of taskIds) emitChanged(taskId)
 }
 
 /** Whether PR sync last saw this linked pull request merged. Never a network
  *  read: completion asks about a task's other links, and an unknown one is not
  *  evidence that the work is finished. */
 export async function linkedPullRequestIsMerged({ projectScope, number }: PrLinkTarget): Promise<boolean> {
-  const row = z.object({ pr_state: z.string().nullable() }).nullish().parse(await database().get(sql`
-    SELECT pr_state FROM ${taskLinks}
-    WHERE kind = 'pr' AND target_scope = ${projectScope} AND target_key = ${String(number)} AND pr_state IS NOT NULL
-    LIMIT 1
-  `))
-  return row?.pr_state === 'merged' || await sessionPullRequestIsMerged(projectScope, number)
+  return pullRequestObservedMerged(database(), projectScope, number)
 }
 
 /** The part of a pull request a task card draws, as PR sync last saw it:
  *  display state, never a permission. */
 function linkSnapshotOf(
-  row: Pick<z.infer<typeof taskPrLinkRowSchema>, 'pr_state' | 'pr_draft' | 'pr_updated_at' | 'url' | 'title'>,
+  row: { pr_state: PrLinkState | null; pr_draft: number | null; pr_updated_at: string | null; url: string | null; title: string; pr_title: string | null },
   number: number,
 ): TaskPrSnapshot | null {
   if (!row.pr_state || row.pr_state === 'missing' || row.pr_updated_at === null || row.url === null) return null
   const parsed = parseGitHubPullRequestUrl(row.url)
   if (!parsed) return null
   return {
-    number, url: parsed.url, title: row.title,
+    number, url: parsed.url, title: titleOf(row),
     state: row.pr_state, draft: row.pr_draft === 1, updatedAt: row.pr_updated_at,
     baseRepo: parsed.baseRepo,
   }
@@ -515,14 +550,14 @@ function linkSnapshotOf(
 export async function readTaskPrLinks(db: Db, scope: RecordScope, taskIds?: readonly string[]): Promise<TaskSidebarPrLinks> {
   if (taskIds && !taskIds.length) return {}
   const onlyTasks = taskIds
-    ? sql` AND task_id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})`
+    ? sql` AND resource_links.source_id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})`
     : sql``
   const rows = taskPrLinkRowSchema.array().parse(await db.all(sql`
-    SELECT task_id, target_scope, target_key, title, url, created_by, origin_session_id,
-      pr_state, pr_draft, pr_updated_at, linked_at
-    FROM ${taskLinks}
-    WHERE kind = 'pr' AND ${scopeClause(scope)}${onlyTasks}
-    ORDER BY linked_at DESC, task_id, target_scope, target_key DESC
+    SELECT resource_links.source_id AS task_id, resource_links.target_scope, resource_links.target_key, resource_links.title, resource_links.url,
+      resource_links.author, resource_links.origin_session_id, resource_links.created_at, ${OBSERVATION_COLUMNS}
+    FROM ${resourceLinks} ${OBSERVATION_JOIN}
+    WHERE ${TASK_PR} AND ${scopeClause(scope, sql`resource_links.organization_id`)}${onlyTasks}
+    ORDER BY resource_links.created_at DESC, resource_links.source_id, resource_links.target_scope, resource_links.target_key DESC
   `))
   const dated = new Map<string, Array<{ link: TaskSidebarPrLink; linkedAt: number }>>()
   const held = new Set<string>()
@@ -536,7 +571,7 @@ export async function readTaskPrLinks(db: Db, scope: RecordScope, taskIds?: read
     if (!Number.isSafeInteger(number) || number <= 0) continue
     const link: TaskSidebarPrLink = {
       number,
-      title: row.title,
+      title: titleOf(row),
       targetScope: row.target_scope,
       createdBy: linkCreator(row),
     }
@@ -546,7 +581,7 @@ export async function readTaskPrLinks(db: Db, scope: RecordScope, taskIds?: read
     if (row.url !== null) link.url = row.url
     if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
     held.add(`${row.task_id}\0${pullRequestKey(row.target_scope, number)}`)
-    add(row.task_id, link, row.linked_at)
+    add(row.task_id, link, row.created_at)
   }
   for (const row of await readSessionOwnedPrRows(db, scope, taskIds)) {
     const key = `${row.task_id}\0${pullRequestKey(row.repository, row.number)}`
@@ -554,16 +589,16 @@ export async function readTaskPrLinks(db: Db, scope: RecordScope, taskIds?: read
     held.add(key)
     const link: TaskSidebarPrLink = {
       number: row.number,
-      title: row.title || `#${row.number}`,
+      title: titleOf(row) || `#${row.number}`,
       targetScope: row.repository,
       url: row.url,
-      createdBy: parseStoredAttribution(row.created_by) ?? { kind: 'system' },
+      createdBy: linkCreator(row),
       ownerSessionId: row.session_id,
     }
     const snapshot = linkSnapshotOf(row, row.number)
     if (snapshot) link.snapshot = snapshot
     if (row.pr_state === 'missing') link.missing = true
-    add(row.task_id, link, row.linked_at)
+    add(row.task_id, link, row.created_at)
   }
   const links: TaskSidebarPrLinks = {}
   for (const [taskId, entries] of dated) {
@@ -579,9 +614,9 @@ const linkedTaskIdRowSchema = z.object({ task_id: z.string() })
  * Announce those alone; a pull request no task links changes no task. */
 export async function emitPullRequestTasksChanged(scope: RecordScope, targetScope: string, number: number): Promise<void> {
   const rows = linkedTaskIdRowSchema.array().parse(await database().all(sql`
-    SELECT DISTINCT task_id FROM ${taskLinks}
-    WHERE ${scopeClause(scope)} AND kind = 'pr'
-      AND lower(target_scope) = lower(${targetScope}) AND target_key = ${String(number)}
+    SELECT DISTINCT resource_links.source_id AS task_id FROM ${resourceLinks}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND ${TASK_PR}
+      AND lower(resource_links.target_scope) = lower(${targetScope}) AND resource_links.target_key = ${String(number)}
   `))
   for (const row of rows) emitChanged(row.task_id)
 }

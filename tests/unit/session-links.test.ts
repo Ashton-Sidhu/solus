@@ -42,12 +42,19 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previous
 })
 
+/** A session's file and automation edges, as the link input spells their targets. */
 async function storedLinks(sessionId: string) {
   const { getDatabase } = await import('@solus/server/db/database')
-  const rows = z.array(z.object({ link_id: z.string(), target: z.string(), title: z.string(), organization_id: z.string(), linked_at: z.number() })).parse(
-    await getDatabase().all(sql`SELECT link_id, target, title, organization_id, linked_at FROM session_links WHERE session_id = ${sessionId}`),
+  const rows = z.array(z.object({ target_kind: z.enum(['file', 'automation']), target_scope: z.string(), target_key: z.string(), title: z.string(), organization_id: z.string(), linked_at: z.number() })).parse(
+    await getDatabase().all(sql`SELECT target_kind, target_scope, target_key, title, organization_id, created_at AS linked_at FROM resource_links
+      WHERE source_kind = 'session' AND source_id = ${sessionId} AND target_kind IN ('file', 'automation')`),
   )
-  return rows.map(row => ({ ...row, target: sessionLinkInputSchema.shape.target.parse(JSON.parse(row.target)) }))
+  return rows.map(({ target_kind, target_scope, target_key, ...row }) => ({
+    ...row,
+    target: sessionLinkInputSchema.shape.target.parse(target_kind === 'file'
+      ? { kind: 'file', path: target_key, hostId: target_scope }
+      : { kind: 'automation', targetId: target_key, hostId: target_scope }),
+  }))
 }
 
 test('the existing link tool stores a project plan as a host file and resolves equivalent relative paths once', async () => {
@@ -59,7 +66,6 @@ test('the existing link tool stores a project plan as a host file and resolves e
   const links = (await storedLinks('session-1')).filter(link => link.target.kind === 'file')
   expect(links).toHaveLength(1)
   expect(links[0]).toMatchObject({ target: { kind: 'file', path, hostId: 'host-1' }, title: 'plan.md', organization_id: 'local' })
-  expect(links[0].link_id.length).toBeLessThan(100)
 })
 
 test('works use their existing session membership; a repeated link changes nothing', async () => {

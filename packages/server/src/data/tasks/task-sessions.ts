@@ -7,21 +7,22 @@ import { diffTaskActivity, taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
 import { agentAttribution, attributionJson, parseStoredAttribution } from '../stored-attribution'
 import { sessionRecordsFor, sessionTitleFor, type SessionRecord } from './host-records'
-import { taskSessionLinks, tasks } from './schema'
+import { tasks } from './schema'
+import { resourceLinks } from '../links/schema'
+import { creatorOf, provenanceOf, taskOwner } from '../links/resource-links'
 import { deleteSessionOutputLinks } from './task-links'
 import {
   database,
   emitChanged,
-  jsonValue,
   loadTaskRecord,
   normalizedOptional,
   requireTask,
   TASK_HERE,
-  taskPrSchema,
   taskFromRow,
 } from './task-store'
 import { scopeClause } from '../scope'
 import { sessionIdOfThread } from '../sessions/session-lineage'
+import { sessionIdentityOf } from '../sessions/session-identity'
 import type { RecordScope } from '../../admission/principal'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type {
@@ -32,26 +33,33 @@ import type {
   TaskSessionRole,
 } from '@solus/contracts/task-types'
 
-/** The session↔task binding store: attempt rows in `task_session_links`, the
+/** The session↔task binding store: the task→session edges of `resource_links`
+ * (`works-on`, or `reference` for a session the task only mentions), the
  * first-dispatch bind, and the session-keyed reads the sidebar and breadcrumb
  * hydrate from. */
 
 const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
-const taskSessionRoleSchema = z.enum(['working', 'referenced'])
+const relationSchema = z.enum(['works-on', 'reference'])
 const taskSessionLinkRowSchema = z.object({
   task_id: z.string(),
   session_id: z.string(),
-  role: taskSessionRoleSchema,
-  /** Legacy capture — populated by earlier versions, read-only today. */
-  pr: z.string().nullable(),
-  linked_at: z.number(),
-  started_by: z.string().nullable(),
+  relation: relationSchema,
+  created_at: z.number(),
+  author: z.string().nullable(),
 })
 const taskIdRowSchema = z.object({ task_id: z.string() })
 
 type TaskSessionLinkRow = z.infer<typeof taskSessionLinkRowSchema>
 interface TaskSessionsByTask {
   [taskId: string]: TaskSessionLink[]
+}
+
+/** A task's session edge. */
+const TASK_SESSION = sql`resource_links.source_kind = 'task' AND resource_links.target_kind = 'session'`
+const ROW_COLUMNS = sql`resource_links.source_id AS task_id, resource_links.target_key AS session_id, resource_links.relation, resource_links.created_at, resource_links.author`
+
+function relationOf(role: TaskSessionRole): 'works-on' | 'reference' {
+  return role === 'referenced' ? 'reference' : 'works-on'
 }
 
 /** A link whose session is not indexed yet reads as a session with nothing known about it. */
@@ -85,17 +93,15 @@ function linkFromRow(row: TaskSessionLinkRow, session: SessionRecord = UNINDEXED
     // Execution facts are projected from the session row. The relationship
     // itself owns no host or checkout metadata.
     executionServerId: session.session_server_id,
-    role: row.role,
-    linkedAt: row.linked_at,
+    role: row.relation === 'reference' ? 'referenced' : 'working',
+    linkedAt: row.created_at,
   }
-  const startedBy = parseStoredAttribution(row.started_by)
+  const startedBy = parseStoredAttribution(row.author)
   if (startedBy) link.startedBy = startedBy
   if (session.agent_session_id && session.agent_session_id !== row.session_id) link.agentSessionId = session.agent_session_id
   if (session.branch !== null) link.branch = session.branch
   if (session.checkout_path) link.checkoutPath = session.checkout_path
   if (session.session_is_worktree !== null) link.isolatedCheckout = session.session_is_worktree === 1
-  const pr = jsonValue(row.pr, taskPrSchema)
-  if (pr) link.pr = pr
   return link
 }
 
@@ -117,7 +123,7 @@ export interface SessionLinkDetails {
   startedBy?: Attribution | null
 }
 
-/** Writes the attempt row and task provenance. Runs inside the
+/** Writes the attempt edge and task provenance. Runs inside the
  * caller's transaction. The public write is the `Task` object's `linkSession`. */
 export async function writeSessionLink(
   db: Db,
@@ -129,6 +135,9 @@ export async function writeSessionLink(
   now: number,
 ): Promise<boolean> {
   await requireTask(organizationId, taskId, db)
+  // Both ends in one organization: a session recorded elsewhere is not this task's to link.
+  const sessionHome = await sessionIdentityOf(sessionId, db)
+  if (sessionHome && sessionHome.organizationId !== organizationId) throw new Error('A task links only a session of its own organization.')
   const execution = details.execution ?? null
   const executionServerId = normalizedOptional(execution?.serverId)
   // The session record is what later reads ask, so a machine this host cannot
@@ -146,15 +155,19 @@ export async function writeSessionLink(
   // Re-linking an existing attempt is bookkeeping, not history — only a genuine
   // first binding is a session start.
   const isNewLink = !(await db.get(sql`
-    SELECT 1 AS present FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
+    SELECT 1 AS present FROM ${resourceLinks} WHERE ${TASK_SESSION} AND resource_links.source_id = ${taskId} AND resource_links.target_key = ${sessionId}
   `))
   if (role !== 'referenced') await transferSessionOwnership(db, organizationId, taskId, sessionId, now)
+  const startedBy = details.startedBy ?? null
+  const createdBy = await creatorOf(startedBy ?? { kind: 'system' }, () => taskOwner(db, taskId))
   await db.run(sql`
-    INSERT INTO ${taskSessionLinks}(task_id, session_id, role, linked_at, started_by, organization_id)
-    VALUES (${taskId}, ${sessionId}, ${role}, ${now}, ${details.startedBy ? attributionJson(details.startedBy) : null}, ${organizationId})
-    ON CONFLICT(task_id, session_id) DO UPDATE SET
-      role = excluded.role,
-      started_by = COALESCE(task_session_links.started_by, excluded.started_by)
+    INSERT INTO ${resourceLinks}(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
+    VALUES (${organizationId}, 'task', ${taskId}, 'session', '', ${sessionId}, ${relationOf(role)}, ${startedBy ? provenanceOf(startedBy) : 'system'}, 'active',
+      ${startedBy ? attributionJson(startedBy) : null}, ${createdBy}, ${now})
+    ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO UPDATE SET
+      relation = excluded.relation,
+      status = 'active',
+      author = COALESCE(resource_links.author, excluded.author)
   `)
   await db.run(sql`
     UPDATE ${tasks} SET
@@ -179,7 +192,9 @@ export async function writeSessionLink(
  * sidebar rows, and it lives here so it holds for every writer of the row —
  * the client's first-dispatch bind, the agent's `link` with kind=session,
  * an automation. A `referenced` link is a relationship, not ownership, and is
- * left alone.
+ * left alone. The partial unique index `resource_links_working_owner` holds
+ * what this transfers; a task that moved to its organization keeps its edge as
+ * history (`historical`), no longer the owner.
  */
 async function transferSessionOwnership(
   db: Db,
@@ -188,19 +203,22 @@ async function transferSessionOwnership(
   sessionId: string,
   now: number,
 ): Promise<void> {
+  const owning = sql`${TASK_SESSION} AND resource_links.target_key = ${sessionId} AND resource_links.relation = 'works-on'
+    AND resource_links.status = 'active' AND resource_links.source_id <> ${taskId}`
   const previousOwners = taskIdRowSchema.array().parse(await db.all(sql`
-    SELECT task_session_links.task_id
-    FROM ${taskSessionLinks}
-    JOIN ${tasks} ON tasks.id = task_session_links.task_id
-    WHERE tasks.organization_id = ${organizationId} AND ${TASK_HERE}
-      AND task_session_links.session_id = ${sessionId}
-      AND task_session_links.role <> 'referenced'
-      AND task_session_links.task_id <> ${taskId}
+    SELECT resource_links.source_id AS task_id
+    FROM ${resourceLinks}
+    JOIN ${tasks} ON tasks.id = resource_links.source_id
+    WHERE tasks.organization_id = ${organizationId} AND ${TASK_HERE} AND ${owning}
   `))
   for (const owner of previousOwners) {
     // Solus moves the session; nobody unlinked it by hand.
     await deleteSessionLink(db, organizationId, owner.task_id, sessionId, { kind: 'system' }, now)
   }
+  await db.run(sql`
+    UPDATE ${resourceLinks} SET status = 'historical'
+    WHERE resource_links.organization_id = ${organizationId} AND ${owning}
+  `)
 }
 
 /** Returns false when there was nothing to unlink, so the caller can skip the
@@ -218,7 +236,7 @@ export async function deleteSessionLink(
 ): Promise<boolean> {
   await requireTask(organizationId, taskId, db)
   const removed = (await db.run(sql`
-    DELETE FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
+    DELETE FROM ${resourceLinks} WHERE ${TASK_SESSION} AND resource_links.source_id = ${taskId} AND resource_links.target_key = ${sessionId}
   `)).changes > 0
   if (!removed) return false
   // What the session made leaves the task with it (docs/plans/session-outputs.md).
@@ -235,32 +253,29 @@ export async function deleteSessionLink(
 
 /** A moved task keeps its links as history on this host (cloud-sharing.md §3a);
  *  its sessions are listed by the organization's copy, not here. */
-const ON_A_TASK_HERE = sql`EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = task_session_links.task_id AND ${TASK_HERE})`
+const ON_A_TASK_HERE = sql`EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = resource_links.source_id AND ${TASK_HERE})`
 
 /** Task-keyed attempts for the named tasks, or for the complete global store. */
 export async function taskSessions(scope: RecordScope, taskIds?: string | readonly string[]): Promise<TaskSessionsByTask> {
-  const ids = typeof taskIds === 'string' ? [taskIds] : taskIds
+  const ids = taskIds === undefined || Array.isArray(taskIds) ? taskIds : [taskIds]
   if (ids && !ids.length) return {}
-  const rowValues = ids
-    ? await getDatabase().all(sql`
-        SELECT task_id, session_id, role, pr, linked_at, started_by FROM ${taskSessionLinks}
-        WHERE ${scopeClause(scope)} AND ${ON_A_TASK_HERE} AND task_id IN (${sql.join(ids.map((taskId) => sql`${taskId}`), sql`, `)})
-        ORDER BY linked_at, task_id, session_id
-      `)
-    : await getDatabase().all(sql`
-        SELECT task_id, session_id, role, pr, linked_at, started_by FROM ${taskSessionLinks}
-        WHERE ${scopeClause(scope)} AND ${ON_A_TASK_HERE}
-        ORDER BY linked_at, task_id, session_id
-      `)
+  const onlyTasks = ids
+    ? sql` AND resource_links.source_id IN (${sql.join(ids.map((taskId) => sql`${taskId}`), sql`, `)})`
+    : sql``
+  const rowValues = await getDatabase().all(sql`
+    SELECT ${ROW_COLUMNS} FROM ${resourceLinks}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND ${TASK_SESSION} AND resource_links.status = 'active' AND ${ON_A_TASK_HERE}${onlyTasks}
+    ORDER BY resource_links.created_at, resource_links.source_id, resource_links.target_key
+  `)
   return linksFromRows(taskSessionLinkRowSchema.array().parse(rowValues))
 }
 
 /** The task a session works on: its owner first, a later `referenced` relationship never outranks it. */
 export async function taskIdForSession(scope: RecordScope, sessionId: string): Promise<string | null> {
   const link = taskIdRowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT task_id FROM ${taskSessionLinks}
-    WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
-    ORDER BY CASE role WHEN 'referenced' THEN 1 ELSE 0 END, linked_at DESC
+    SELECT resource_links.source_id AS task_id FROM ${resourceLinks}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND ${TASK_SESSION} AND resource_links.status = 'active' AND resource_links.target_key = ${sessionId}
+    ORDER BY CASE resource_links.relation WHEN 'reference' THEN 1 ELSE 0 END, resource_links.created_at DESC
     LIMIT 1
   `))
   return link?.task_id ?? null
@@ -272,8 +287,9 @@ export async function taskIdsForSessions(scope: RecordScope, sessionIds: readonl
   const ids = [...new Set(sessionIds.flatMap((id) => [id, sessionIdOfThread(id)]))]
   if (!ids.length) return []
   const rows = taskIdRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT DISTINCT task_id FROM ${taskSessionLinks}
-    WHERE ${scopeClause(scope)} AND session_id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+    SELECT DISTINCT resource_links.source_id AS task_id FROM ${resourceLinks}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND ${TASK_SESSION} AND resource_links.status = 'active'
+      AND resource_links.target_key IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
   `))
   return rows.map((row) => row.task_id)
 }
@@ -283,8 +299,8 @@ export async function taskIdsForSessions(scope: RecordScope, sessionIds: readonl
  * task changes no task. */
 export async function emitSessionTasksChanged(scope: RecordScope, sessionId: string): Promise<void> {
   const rows = taskIdRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT DISTINCT task_id FROM ${taskSessionLinks}
-    WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
+    SELECT DISTINCT resource_links.source_id AS task_id FROM ${resourceLinks}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND ${TASK_SESSION} AND resource_links.target_key = ${sessionId}
   `))
   for (const row of rows) emitChanged(row.task_id)
 }
