@@ -4,7 +4,7 @@ import { browserStore } from '../../../contexts/browser/browser.store.svelte'
 
 interface BrowserShell {
   openBrowser(browserPageId?: string, serverId?: string, opts?: { automatic?: boolean }): void
-  router: Pick<RouterStore, 'openSurfaceBesideSession'>
+  router: Pick<RouterStore, 'openSurfaceBesideSession' | 'focusedPaneId' | 'focusPane'>
 }
 
 /**
@@ -14,19 +14,22 @@ interface BrowserShell {
  * conversation's strip, and the conversation the user is reading does not
  * change. The route names the page, so each conversation's browser shows its
  * own page. A request that names no session opens the browser as before.
+ * The agent asked, not the user, so the reveal does not take the keyboard from
+ * the pane the user is in.
  */
 export function revealBrowserSurface(shell: BrowserShell, key: string, sessionId: string | undefined): void {
+  const focusedPaneId = shell.router.focusedPaneId
   if (!sessionId) {
     browserStore.activeKey = key
     shell.openBrowser(undefined, undefined, { automatic: true })
-    return
+  } else {
+    const { serverId, path: browserPageId } = splitHostKey(key)
+    // It never takes the place of a surface the user is reading either.
+    shell.router.openSurfaceBesideSession(
+      sessionId,
+      { name: 'browser', params: { browserPageId, serverId } },
+      { automatic: true },
+    )
   }
-  const { serverId, path: browserPageId } = splitHostKey(key)
-  // The agent asked, not the user, so it never takes the place of a surface
-  // the user is reading.
-  shell.router.openSurfaceBesideSession(
-    sessionId,
-    { name: 'browser', params: { browserPageId, serverId } },
-    { automatic: true },
-  )
+  shell.router.focusPane(focusedPaneId)
 }
