@@ -82,7 +82,7 @@ describe('the host user rows', () => {
     await db.run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, created_by, created_at, organization_id) VALUES
       ('g1', 'work', 'w-local', 'user', 'bob', 'viewer', 'host-owner', 1, 'local')`)
     await seedResource(db, 'session', 's-local', 'host-owner')
-    await db.run(sql`INSERT INTO resource_preferences (organization_id, resource_kind, resource_id, created_by, archived_at) VALUES
+    await db.run(sql`INSERT INTO personal_resource_state (organization_id, resource_kind, resource_id, created_by, archived_at) VALUES
       ('org1', 'session', 's-org', 'host-owner', 1)`)
     // The owner's notifications (plans/015): one Local, one of an organization, one read.
     await db.run(sql`INSERT INTO notifications (id, organization_id, user_id, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at) VALUES
@@ -135,7 +135,7 @@ describe('the host user rows', () => {
     const grant = await database.getDatabase().get<{ subject_id: string; created_by: string }>(sql`SELECT subject_id, created_by FROM acl_entry WHERE id = 'g1'`)
     expect(grant).toEqual({ subject_id: 'bob', created_by: 'local:L1' })
     expect(await ownerOf('s-local')).toBe('local:L1')
-    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM resource_preferences WHERE resource_id = 's-org'`))?.owner_key).toBe('local:L1')
+    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM personal_resource_state WHERE resource_id = 's-org'`))?.owner_key).toBe('local:L1')
 
     // The sentinel read mark moved to the host's user; every author stays who it was.
     const stored = await storedWorkThreads()
@@ -195,7 +195,7 @@ describe('the host user rows', () => {
     expect(await ownerOf('w-local')).toBe('local:L1')
     expect(await ownerOf('s-local')).toBe('local:L1')
     expect(await ownerOf('s-org')).toBe('acc-1')
-    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM resource_preferences WHERE resource_id = 's-org'`))?.owner_key).toBe('acc-1')
+    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM personal_resource_state WHERE resource_id = 's-org'`))?.owner_key).toBe('acc-1')
     expect((await storedWorkThreads())[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
     expect(localOwnerKey()).toBe('local:L1')
     expect(settings.getServerSettings().hostUser?.account).toBeUndefined()

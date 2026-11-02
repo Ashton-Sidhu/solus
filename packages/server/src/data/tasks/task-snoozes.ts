@@ -4,11 +4,11 @@ import type { TaskSnooze } from '@solus/contracts/task-types'
 import { afterDatabaseCommit, type Db } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
-import { resourcePreferences } from '../preferences/schema'
+import { personalResourceState } from '../personal-state/schema'
 import { database, requireTask } from './task-store'
 
 /**
- * A person's snoozes of tasks (docs/task-snooze.md): their `resource_preferences`
+ * A person's snoozes of tasks (docs/task-snooze.md): their `personal_resource_state`
  * rows of kind `task`. A snooze is that person's own view: it hides the task
  * from their task lists until the wake time, and nobody else's. It does not
  * change the task, so it writes no task activity, emits no `tasks.invalidated`,
@@ -60,14 +60,14 @@ export async function snoozeTaskFor(
     organizationId = (await requireTask(scope, taskId, db)).organization_id
     if (until === null) {
       await db.run(sql`
-        DELETE FROM ${resourcePreferences}
+        DELETE FROM ${personalResourceState}
         WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId} AND created_by = ${personKey}
       `)
       return null
     }
     const snoozeNote = note.trim() || null
     await db.run(sql`
-      INSERT INTO ${resourcePreferences} (organization_id, resource_kind, resource_id, created_by, snoozed_until, snooze_note)
+      INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, snoozed_until, snooze_note)
       VALUES (${organizationId}, 'task', ${taskId}, ${personKey}, ${until}, ${snoozeNote})
       ON CONFLICT (organization_id, resource_kind, resource_id, created_by) DO UPDATE SET
         snoozed_until = excluded.snoozed_until, snooze_note = excluded.snooze_note
@@ -86,18 +86,18 @@ export async function snoozeTaskFor(
 /** One person's snoozes of the tasks they can read in `scope`, soonest wake first. */
 export async function readTaskSnoozes(scope: RecordScope, personKey: string): Promise<TaskSnooze[]> {
   const rows = snoozeRowSchema.array().parse(await database().all(sql`
-    SELECT resource_id, snoozed_until, snooze_note FROM ${resourcePreferences}
+    SELECT resource_id, snoozed_until, snooze_note FROM ${personalResourceState}
     WHERE created_by = ${personKey} AND resource_kind = 'task' AND snoozed_until IS NOT NULL
-      AND ${scopeClause(scope, sql`resource_preferences.organization_id`)}
+      AND ${scopeClause(scope, sql`personal_resource_state.organization_id`)}
     ORDER BY snoozed_until, resource_id
   `))
   return rows.map(snoozeFromRow)
 }
 
-/** Everyone's preferences of a task, in the task's delete transaction: the parent is polymorphic, so no key cascades them. */
-export async function deleteTaskPreferences(db: Db, organizationId: string, taskId: string): Promise<void> {
+/** Everyone's personal state of a task, in the task's delete transaction: the parent is polymorphic, so no key cascades them. */
+export async function deleteTaskPersonalState(db: Db, organizationId: string, taskId: string): Promise<void> {
   await db.run(sql`
-    DELETE FROM ${resourcePreferences}
+    DELETE FROM ${personalResourceState}
     WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId}
   `)
 }

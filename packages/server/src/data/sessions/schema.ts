@@ -58,7 +58,7 @@ export const session = defineTable('session', {
   /** What started the session, as JSON (`SessionStarter`), written once as `place` is. */
   started_by: text(),
   // Shared shelf state (docs/plans/session-archive.md): every person sees it. A
-  // person's own settle, archive, and snooze are in `resource_preferences`.
+  // person's own settle, archive, and snooze are in `personal_resource_state`.
   /** When its pull requests or task settled the session. Null while it is active. */
   settled_at: bigint(),
   /** What settled it: `pull-request`, `task`, or `idle`. */

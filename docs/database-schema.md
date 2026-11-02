@@ -48,9 +48,9 @@ NOT NULL AND project_path IS NOT NULL)` and `(settled_at IS NULL) =
 (settled_by IS NULL)`.
 
 A person's own view of a session or a task — settle, archive, snooze, and the
-read boundary `viewed_at` — is a `resource_preferences` row keyed by
+read boundary `viewed_at` — is a `personal_resource_state` row keyed by
 `(organization_id, resource_kind, resource_id, created_by)`, where
-`created_by` is the person whose preference it is. The parent is polymorphic,
+`created_by` is the person whose state it is. The parent is polymorphic,
 so a session or task delete removes its rows explicitly; so are the session's
 edges in `resource_links` (its pull requests with their watches, its file and
 automation links, its work memberships, and the tasks' edges to it), deleted by

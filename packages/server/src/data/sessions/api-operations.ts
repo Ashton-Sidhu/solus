@@ -25,7 +25,7 @@ import { readApiTranscript } from './api-transcript'
 import { admitSession, SessionAdmissionConflict, type SessionAdmission } from './session-identity'
 import { onSessionPullRequestsChanged, readSessionPullRequests } from './session-pull-requests'
 import { SessionShelf, SessionViewer } from './session-states'
-import { resourcePreferences } from '../preferences/schema'
+import { personalResourceState } from '../personal-state/schema'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { authorize } from '../../admission/access-policy'
@@ -320,7 +320,7 @@ export class SessionApiOperations {
       const chunk = sessionIds.slice(start, start + READABLE_CHUNK)
       const rows = await getDatabase().all<{ session_id: string; viewed_at: number | null }>(sql`
         SELECT session.session_id, reader_view.viewed_at FROM ${sessionTable}
-        LEFT JOIN ${resourcePreferences} AS reader_view
+        LEFT JOIN ${personalResourceState} AS reader_view
           ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session.session_id
           AND reader_view.organization_id = session.organization_id AND reader_view.created_by = ${personKey ?? ''}
         WHERE ${sql.join(this.visible(context), sql` AND `)} AND session.started_at IS NOT NULL

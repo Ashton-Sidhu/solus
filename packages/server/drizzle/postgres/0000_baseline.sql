@@ -157,6 +157,19 @@ CREATE TABLE "operation_receipts" (
 	CONSTRAINT "operation_receipts_scope_namespace_key_pk" PRIMARY KEY("scope","namespace","key")
 );
 --> statement-breakpoint
+CREATE TABLE "personal_resource_state" (
+	"organization_id" text DEFAULT 'local' NOT NULL,
+	"resource_kind" text NOT NULL,
+	"resource_id" text NOT NULL,
+	"created_by" text NOT NULL,
+	"settled_at" bigint,
+	"archived_at" bigint,
+	"snoozed_until" bigint,
+	"snooze_note" text,
+	"viewed_at" bigint,
+	CONSTRAINT "personal_resource_state_organization_id_resource_kind_resource_id_created_by_pk" PRIMARY KEY("organization_id","resource_kind","resource_id","created_by")
+);
+--> statement-breakpoint
 CREATE TABLE "plan_annotations" (
 	"session_id" text NOT NULL,
 	"plan_tool_use_id" text NOT NULL,
@@ -218,19 +231,6 @@ CREATE TABLE "resource_links" (
 	"author" text,
 	"created_by" text NOT NULL,
 	"created_at" bigint NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "resource_preferences" (
-	"organization_id" text DEFAULT 'local' NOT NULL,
-	"resource_kind" text NOT NULL,
-	"resource_id" text NOT NULL,
-	"created_by" text NOT NULL,
-	"settled_at" bigint,
-	"archived_at" bigint,
-	"snoozed_until" bigint,
-	"snooze_note" text,
-	"viewed_at" bigint,
-	CONSTRAINT "resource_preferences_organization_id_resource_kind_resource_id_created_by_pk" PRIMARY KEY("organization_id","resource_kind","resource_id","created_by")
 );
 --> statement-breakpoint
 CREATE TABLE "runner_delivery_cursors" (
@@ -523,14 +523,14 @@ CREATE UNIQUE INDEX "notifications_event" ON "notifications" USING btree ("organ
 CREATE INDEX "notifications_for_user" ON "notifications" USING btree ("user_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "notifications_by_resource" ON "notifications" USING btree ("organization_id","resource_key");--> statement-breakpoint
 CREATE INDEX "operation_receipts_expiry" ON "operation_receipts" USING btree ("expires_at","scope","namespace","key") WHERE expires_at IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "personal_resource_state_by_person" ON "personal_resource_state" USING btree ("created_by","resource_kind","resource_id");--> statement-breakpoint
+CREATE INDEX "personal_resource_state_snoozed" ON "personal_resource_state" USING btree ("created_by","resource_kind","snoozed_until") WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "resource_links_edge" ON "resource_links" USING btree ("source_kind","source_id","target_kind","target_scope","target_key");--> statement-breakpoint
 CREATE INDEX "resource_links_by_target" ON "resource_links" USING btree ("target_kind","target_key","target_scope");--> statement-breakpoint
 CREATE UNIQUE INDEX "resource_links_working_owner" ON "resource_links" USING btree ("organization_id","target_key") WHERE source_kind = 'task' AND target_kind = 'session' AND relation = 'works-on' AND status = 'active';--> statement-breakpoint
 CREATE INDEX "resource_links_open_session" ON "resource_links" USING btree ("source_id","organization_id") WHERE keeps_session = 1;--> statement-breakpoint
 CREATE UNIQUE INDEX "resource_links_watch" ON "resource_links" USING btree ("watch_id") WHERE watch_id IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "resource_links_by_pull_request" ON "resource_links" USING btree ("repository","number") WHERE repository IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "resource_preferences_by_person" ON "resource_preferences" USING btree ("created_by","resource_kind","resource_id");--> statement-breakpoint
-CREATE INDEX "resource_preferences_snoozed" ON "resource_preferences" USING btree ("created_by","resource_kind","snoozed_until") WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "session_api_page" ON "session" USING btree ("organization_id","created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_api_provider_page" ON "session" USING btree ("organization_id","provider","created_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_api_activity_page" ON "session" USING btree ("organization_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint

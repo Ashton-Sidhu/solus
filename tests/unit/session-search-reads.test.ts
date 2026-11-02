@@ -71,7 +71,7 @@ beforeAll(async () => {
   db.exec('COMMIT')
   // A session known by its pull request alone, and one the person read recently.
   await linkSessionPullRequest('s-0001', { url: 'https://github.com/acme/solus/pull/77', title: 'Teach the pelican to land', source: 'manual', by: { kind: 'system' } })
-  await getDatabase().run(sql`INSERT INTO resource_preferences(organization_id, resource_kind, resource_id, created_by, viewed_at) VALUES ('local', 'session', 's-0050', ${hostUserKey()}, ${Date.now()})`)
+  await getDatabase().run(sql`INSERT INTO personal_resource_state(organization_id, resource_kind, resource_id, created_by, viewed_at) VALUES ('local', 'session', 's-0050', ${hostUserKey()}, ${Date.now()})`)
   log.clear()
 })
 
@@ -104,7 +104,7 @@ test('a search reads the records and views of the sessions it matched, not of ev
   }
   expect(sessionReads.length).toBeGreaterThan(0)
   // `viewed_at` is read for the matched sessions alone.
-  for (const read of log.of('SELECT', 'resource_preferences')) expect(read.params).toBeLessThanOrEqual(page.total + 4)
+  for (const read of log.of('SELECT', 'personal_resource_state')) expect(read.params).toBeLessThanOrEqual(page.total + 4)
   // The whole store is 2,000 sessions; the request's statements are a handful.
   expect(log.statements.length).toBeLessThan(40)
 })

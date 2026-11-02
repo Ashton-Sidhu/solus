@@ -7,7 +7,7 @@ import { sameUser, type Attribution } from '@solus/contracts/user'
 import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
 import { removeNotificationsFor } from '../notifications/store'
-import { deleteTaskPreferences } from './task-snoozes'
+import { deleteTaskPersonalState } from './task-snoozes'
 import { agentAttribution } from '../stored-attribution'
 import { creatorKeyOf, deleteThread, deleteThreadsOf, insertThread, newestThreadCreatedAt, readThread, type ThreadSubject } from '../comments/comment-threads'
 import { claimSessionOutputLink, deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink, type TaskLinkWrite } from './task-links'
@@ -770,7 +770,7 @@ export class Task implements TaskRecord {
         await deleteThreadsOf(db, this.#threads())
       }
       if (removed) await deleteActivityFor({ kind: 'task', id: this.id }, db)
-      if (removed) await deleteTaskPreferences(db, this.#organizationId, this.id)
+      if (removed) await deleteTaskPersonalState(db, this.#organizationId, this.id)
       if (removed) await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
       return removed
     })

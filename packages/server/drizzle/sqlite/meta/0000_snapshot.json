@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "48872a99-3bff-4e21-95df-6629eb3547a1",
+  "id": "b26ad213-ea55-42a9-b361-9fc8432f0470",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -1300,6 +1300,110 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "personal_resource_state": {
+      "name": "personal_resource_state",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'local'"
+        },
+        "resource_kind": {
+          "name": "resource_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "settled_at": {
+          "name": "settled_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "snoozed_until": {
+          "name": "snoozed_until",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "snooze_note": {
+          "name": "snooze_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "viewed_at": {
+          "name": "viewed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "personal_resource_state_by_person": {
+          "name": "personal_resource_state_by_person",
+          "columns": [
+            "created_by",
+            "resource_kind",
+            "resource_id"
+          ],
+          "isUnique": false
+        },
+        "personal_resource_state_snoozed": {
+          "name": "personal_resource_state_snoozed",
+          "columns": [
+            "created_by",
+            "resource_kind",
+            "snoozed_until"
+          ],
+          "isUnique": false,
+          "where": "snoozed_until IS NOT NULL"
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "personal_resource_state_organization_id_resource_kind_resource_id_created_by_pk": {
+          "columns": [
+            "organization_id",
+            "resource_kind",
+            "resource_id",
+            "created_by"
+          ],
+          "name": "personal_resource_state_organization_id_resource_kind_resource_id_created_by_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "plan_annotations": {
       "name": "plan_annotations",
       "columns": {
@@ -1766,110 +1870,6 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "resource_preferences": {
-      "name": "resource_preferences",
-      "columns": {
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'local'"
-        },
-        "resource_kind": {
-          "name": "resource_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "resource_id": {
-          "name": "resource_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "settled_at": {
-          "name": "settled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "snoozed_until": {
-          "name": "snoozed_until",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "snooze_note": {
-          "name": "snooze_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "viewed_at": {
-          "name": "viewed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "resource_preferences_by_person": {
-          "name": "resource_preferences_by_person",
-          "columns": [
-            "created_by",
-            "resource_kind",
-            "resource_id"
-          ],
-          "isUnique": false
-        },
-        "resource_preferences_snoozed": {
-          "name": "resource_preferences_snoozed",
-          "columns": [
-            "created_by",
-            "resource_kind",
-            "snoozed_until"
-          ],
-          "isUnique": false,
-          "where": "snoozed_until IS NOT NULL"
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "resource_preferences_organization_id_resource_kind_resource_id_created_by_pk": {
-          "columns": [
-            "organization_id",
-            "resource_kind",
-            "resource_id",
-            "created_by"
-          ],
-          "name": "resource_preferences_organization_id_resource_kind_resource_id_created_by_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionSettledBy, type SessionState, type SessionView } from '@solus/contracts/session-state'
 import { storedExecutionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 import { getDatabase } from '../../db/database'
-import { resourcePreferences } from '../preferences/schema'
+import { personalResourceState } from '../personal-state/schema'
 import { resourceLinks } from '../links/schema'
 import { OBSERVATION_JOIN } from '../links/pull-request-observations'
 import { session } from './schema'
@@ -20,7 +20,7 @@ import { stateFromColumns, viewFromColumns } from './session-state-columns'
  * Two things are kept apart. A settle by the session's pull requests or task is
  * shared: every person sees it, and it is on the `session` row (`SessionShelf`).
  * A person's settle, archive, snooze, and read boundary are that person's own
- * (`SessionViewer`, `markSessionViewed`): they are a `resource_preferences`
+ * (`SessionViewer`, `markSessionViewed`): they are a `personal_resource_state`
  * row of kind `session`, and change their list and nobody else's. A session
  * with `settled_at` null is unsettled, and a person with no row did nothing to it.
  */
@@ -176,7 +176,7 @@ export class SessionShelf {
   }
 }
 
-/** The one preferences row of a person and a session, as a predicate. */
+/** The one personal-state row of a person and a session, as a predicate. */
 function personRow(sessionId: string, personKey: string): SQL {
   return sql`resource_kind = 'session' AND resource_id = ${sessionId} AND created_by = ${personKey}`
 }
@@ -192,7 +192,7 @@ export class SessionViewer {
   /** This person's view now; empty when they did nothing to the session. */
   async view(): Promise<SessionView> {
     const row = viewRowSchema.nullish().parse(await getDatabase().get(sql`
-      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note FROM ${resourcePreferences}
+      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note FROM ${personalResourceState}
       WHERE ${personRow(this.sessionId, this.personKey)}
     `))
     return row ? viewFromColumns(row) ?? EMPTY_SESSION_VIEW : EMPTY_SESSION_VIEW
@@ -239,14 +239,14 @@ export class SessionViewer {
     let changed = false
     if (insert) {
       changed = (await database.run(sql`
-        INSERT INTO ${resourcePreferences} (organization_id, resource_kind, resource_id, created_by, settled_at, archived_at, snoozed_until, snooze_note)
+        INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, settled_at, archived_at, snoozed_until, snooze_note)
         VALUES (${organizationId}, 'session', ${this.sessionId}, ${this.personKey}, ${insert.settled_at ?? null}, ${insert.archived_at ?? null}, ${insert.snoozed_until ?? null}, ${insert.snooze_note ?? null})
         ON CONFLICT (organization_id, resource_kind, resource_id, created_by) DO NOTHING
       `)).changes > 0
     }
     if (!changed) {
       changed = (await database.run(sql`
-        UPDATE ${resourcePreferences} SET ${set}
+        UPDATE ${personalResourceState} SET ${set}
         WHERE ${personRow(this.sessionId, this.personKey)}${when ? sql` AND ${when}` : sql``}
       `)).changes > 0
     }
@@ -287,7 +287,7 @@ export async function sessionExecutionPreferences(sessionId: string): Promise<Ex
 /** When this person last read the session, or null when they never have. */
 async function readViewedAt(sessionId: string, personKey: string): Promise<number | null> {
   const row = z.object({ viewed_at: z.number().nullable() }).nullish().parse(await getDatabase().get(sql`
-    SELECT viewed_at FROM ${resourcePreferences} WHERE ${personRow(sessionId, personKey)}
+    SELECT viewed_at FROM ${personalResourceState} WHERE ${personRow(sessionId, personKey)}
   `))
   return row?.viewed_at ?? null
 }
@@ -295,7 +295,7 @@ async function readViewedAt(sessionId: string, personKey: string): Promise<numbe
 async function writeViewedAt(sessionId: string, personKey: string, viewedAt: number | null): Promise<void> {
   const organizationId = await organizationOfSession(sessionId)
   await getDatabase().run(sql`
-    INSERT INTO ${resourcePreferences} (organization_id, resource_kind, resource_id, created_by, viewed_at)
+    INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, viewed_at)
     VALUES (${organizationId}, 'session', ${sessionId}, ${personKey}, ${viewedAt})
     ON CONFLICT (organization_id, resource_kind, resource_id, created_by) DO UPDATE SET viewed_at = excluded.viewed_at
   `)
@@ -332,7 +332,7 @@ export async function markSessionUnread(sessionId: string, personKey: string): P
 export async function viewedAtFor(personKey: string, sessionIds: readonly string[]): Promise<Map<string, number>> {
   if (!sessionIds.length) return new Map()
   const rows = z.object({ resource_id: z.string(), viewed_at: z.number() }).array().parse(await getDatabase().all(sql`
-    SELECT resource_id, viewed_at FROM ${resourcePreferences}
+    SELECT resource_id, viewed_at FROM ${personalResourceState}
     WHERE created_by = ${personKey} AND resource_kind = 'session' AND viewed_at IS NOT NULL
       AND resource_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})
   `))

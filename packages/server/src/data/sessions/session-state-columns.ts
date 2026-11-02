@@ -6,7 +6,7 @@ export interface SessionStateColumns {
   settled_by: SessionSettledBy | null
 }
 
-/** The `resource_preferences` columns of one person's view of a session. */
+/** The `personal_resource_state` columns of one person's view of a session. */
 export interface SessionViewColumns {
   view_settled_at: number | null
   archived_at: number | null

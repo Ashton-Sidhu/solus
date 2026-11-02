@@ -16,16 +16,17 @@ const FTS_SHADOW = /_fts_(data|idx|docsize|config|content)$/
 
 /** The `solus.db` tables: the host's own, and the records when SQLite is the engine. */
 const SOLUS_TABLES = [
-  'acl_entry', 'activity', 'activity_mirror_rows', 'asset_publications', 'async_questions', 'automation_runs', 'automations',
-  'browser_profiles', 'comment_threads', 'delivery_queue', 'indexed_plans', 'insight_log_events', 'insight_span_texts',
-  'insight_spans', 'integration', 'integration_connection', 'kv', 'member_folder', 'notification_pr_observations',
-  'notifications', 'operation_receipts', 'outbox_ops', 'pinned_sessions', 'plan_annotations', 'plan_index_providers',
-  'projects', 'pull_request_observations', 'resource_links', 'resource_preferences', 'run_exchanges', 'run_queue',
-  'runner_delivery_cursors', 'runs', 'saved_metrics_queries', 'session', 'session_files', 'session_fts', 'session_keys',
-  'session_lineage_members', 'session_messages', 'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts',
-  'task_counters', 'task_external_links', 'tasks', 'transcript_index', 'transcript_mirror_rows', 'turn_flags',
-  'upstream_task_cache', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions',
-  'work_storage', 'work_storage_bodies', 'works', 'works_fts', 'works_fts_rows', 'workspace_projects',
+  'acl_entry', 'activity', 'activity_mirror_rows', 'asset_publications', 'async_questions', 'automation_runs',
+  'automations', 'browser_profiles', 'comment_threads', 'delivery_queue', 'indexed_plans', 'insight_log_events',
+  'insight_span_texts', 'insight_spans', 'integration', 'integration_connection', 'kv', 'member_folder',
+  'notification_pr_observations', 'notifications', 'operation_receipts', 'outbox_ops', 'personal_resource_state',
+  'pinned_sessions', 'plan_annotations', 'plan_index_providers', 'projects', 'pull_request_observations',
+  'resource_links', 'run_exchanges', 'run_queue', 'runner_delivery_cursors', 'runs', 'saved_metrics_queries',
+  'session', 'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages',
+  'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'task_counters', 'task_external_links',
+  'tasks', 'transcript_index', 'transcript_mirror_rows', 'turn_flags', 'upstream_task_cache', 'webhook_deliveries',
+  'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions', 'work_storage', 'work_storage_bodies', 'works',
+  'works_fts', 'works_fts_rows', 'workspace_projects',
 ]
 
 const SOLUS_INDEXES = [
@@ -37,16 +38,17 @@ const SOLUS_INDEXES = [
   'insight_spans_trace_idx', 'insight_turns_host_page', 'insight_turns_page', 'insight_turns_provider_page',
   'insight_turns_session_page', 'insight_turns_user_page', 'integration_slug', 'member_folder_folder_unique',
   'notifications_by_resource', 'notifications_event', 'notifications_for_user', 'operation_receipts_expiry',
-  'outbox_ops_by_resource', 'resource_links_by_pull_request', 'resource_links_by_target', 'resource_links_edge',
-  'resource_links_open_session', 'resource_links_watch', 'resource_links_working_owner', 'resource_preferences_by_person',
-  'resource_preferences_snoozed', 'run_queue_by_session', 'runs_by_automation', 'saved_metrics_queries_by_creator',
-  'session_api_activity_page', 'session_api_page', 'session_api_provider_page', 'session_by_activity', 'session_by_parent',
-  'session_by_parent_activity', 'session_by_place', 'session_by_project_path', 'session_keys_session_id_unique',
-  'session_lineage_member_provider_session', 'session_messages_by_session', 'session_transcripts_search_pending',
-  'task_external_links_external', 'tasks_api_page', 'tasks_api_project_page', 'tasks_api_status_page',
-  'tasks_short_id_unique', 'transcript_index_by_project_root', 'transcript_index_recent_branches',
-  'webhook_deliveries_by_webhook', 'webhooks_by_creator', 'webhooks_by_project', 'work_reviewers_reviewer',
-  'work_storage_due', 'works_api_page', 'works_api_type_page', 'works_by_session', 'workspace_projects_by_repository',
+  'outbox_ops_by_resource', 'personal_resource_state_by_person', 'personal_resource_state_snoozed',
+  'resource_links_by_pull_request', 'resource_links_by_target', 'resource_links_edge', 'resource_links_open_session',
+  'resource_links_watch', 'resource_links_working_owner', 'run_queue_by_session', 'runs_by_automation',
+  'saved_metrics_queries_by_creator', 'session_api_activity_page', 'session_api_page', 'session_api_provider_page',
+  'session_by_activity', 'session_by_parent', 'session_by_parent_activity', 'session_by_place',
+  'session_by_project_path', 'session_keys_session_id_unique', 'session_lineage_member_provider_session',
+  'session_messages_by_session', 'session_transcripts_search_pending', 'task_external_links_external',
+  'tasks_api_page', 'tasks_api_project_page', 'tasks_api_status_page', 'tasks_short_id_unique',
+  'transcript_index_by_project_root', 'transcript_index_recent_branches', 'webhook_deliveries_by_webhook',
+  'webhooks_by_creator', 'webhooks_by_project', 'work_reviewers_reviewer', 'work_storage_due', 'works_api_page',
+  'works_api_type_page', 'works_by_session', 'workspace_projects_by_repository',
 ]
 
 /** The search triggers, hand-written in `db/schema/custom/sqlite.sql`. */
@@ -57,11 +59,12 @@ const SOLUS_TRIGGERS = [
 
 /** The records on a Postgres host: every ported table, nothing host-local. */
 const POSTGRES_TABLES = [
-  'acl_entry', 'activity', 'asset_publications', 'comment_threads', 'indexed_plans', 'insight_log_events', 'insight_span_texts',
-  'insight_spans', 'notifications', 'operation_receipts', 'plan_annotations', 'plan_index_providers', 'pull_request_observations',
-  'resource_links', 'resource_preferences', 'runner_delivery_cursors', 'session', 'session_transcripts', 'task_counters',
-  'task_external_links', 'tasks', 'upstream_task_cache', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers',
-  'work_revisions', 'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
+  'acl_entry', 'activity', 'asset_publications', 'comment_threads', 'indexed_plans', 'insight_log_events',
+  'insight_span_texts', 'insight_spans', 'notifications', 'operation_receipts', 'personal_resource_state',
+  'plan_annotations', 'plan_index_providers', 'pull_request_observations', 'resource_links',
+  'runner_delivery_cursors', 'session', 'session_transcripts', 'task_counters', 'task_external_links', 'tasks',
+  'upstream_task_cache', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions',
+  'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
 ]
 
 const METRICS_TABLES = ['log_events', 'span_texts', 'spans']

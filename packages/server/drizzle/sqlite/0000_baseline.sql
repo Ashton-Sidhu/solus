@@ -182,6 +182,21 @@ CREATE TABLE `operation_receipts` (
 );
 --> statement-breakpoint
 CREATE INDEX `operation_receipts_expiry` ON `operation_receipts` (`expires_at`,`scope`,`namespace`,`key`) WHERE expires_at IS NOT NULL;--> statement-breakpoint
+CREATE TABLE `personal_resource_state` (
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`resource_kind` text NOT NULL,
+	`resource_id` text NOT NULL,
+	`created_by` text NOT NULL,
+	`settled_at` integer,
+	`archived_at` integer,
+	`snoozed_until` integer,
+	`snooze_note` text,
+	`viewed_at` integer,
+	PRIMARY KEY(`organization_id`, `resource_kind`, `resource_id`, `created_by`)
+);
+--> statement-breakpoint
+CREATE INDEX `personal_resource_state_by_person` ON `personal_resource_state` (`created_by`,`resource_kind`,`resource_id`);--> statement-breakpoint
+CREATE INDEX `personal_resource_state_snoozed` ON `personal_resource_state` (`created_by`,`resource_kind`,`snoozed_until`) WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `plan_annotations` (
 	`session_id` text NOT NULL,
 	`plan_tool_use_id` text NOT NULL,
@@ -251,21 +266,6 @@ CREATE UNIQUE INDEX `resource_links_working_owner` ON `resource_links` (`organiz
 CREATE INDEX `resource_links_open_session` ON `resource_links` (`source_id`,`organization_id`) WHERE keeps_session = 1;--> statement-breakpoint
 CREATE UNIQUE INDEX `resource_links_watch` ON `resource_links` (`watch_id`) WHERE watch_id IS NOT NULL;--> statement-breakpoint
 CREATE INDEX `resource_links_by_pull_request` ON `resource_links` (`repository`,`number`) WHERE repository IS NOT NULL;--> statement-breakpoint
-CREATE TABLE `resource_preferences` (
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	`resource_kind` text NOT NULL,
-	`resource_id` text NOT NULL,
-	`created_by` text NOT NULL,
-	`settled_at` integer,
-	`archived_at` integer,
-	`snoozed_until` integer,
-	`snooze_note` text,
-	`viewed_at` integer,
-	PRIMARY KEY(`organization_id`, `resource_kind`, `resource_id`, `created_by`)
-);
---> statement-breakpoint
-CREATE INDEX `resource_preferences_by_person` ON `resource_preferences` (`created_by`,`resource_kind`,`resource_id`);--> statement-breakpoint
-CREATE INDEX `resource_preferences_snoozed` ON `resource_preferences` (`created_by`,`resource_kind`,`snoozed_until`) WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `runner_delivery_cursors` (
 	`organization_id` text NOT NULL,
 	`host_id` text NOT NULL,

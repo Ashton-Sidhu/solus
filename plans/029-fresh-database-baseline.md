@@ -116,8 +116,8 @@ Positive cache and recheck-on-miss behaviour in `lead-sessions.ts` stay.
 
 ### 3.4 Personal resource preferences (025)
 
-`session_views` and `task_snoozes` become one `resource_preferences` table in
-`data/preferences/schema.ts`: `organization_id`, `resource_kind`
+`session_views` and `task_snoozes` become one `personal_resource_state` table in
+`data/personal-state/schema.ts`: `organization_id`, `resource_kind`
 (`session` | `task`), `resource_id`, `person_key`, `settled_at`, `archived_at`,
 `snoozed_until`, `snooze_note`; composite PK on the four identity columns; a
 person/kind/resource lookup index and a partial person/kind/wake index where
@@ -218,7 +218,7 @@ resulting baseline.
   list, and `(project_path, last_activity_at)` for the picker.
 - Every session child table (`session_links`, `session_transcripts`,
   `transcript_mirror_rows`, `activity_mirror_rows`, `runs`, `run_queue`,
-  `run_exchanges`, `async_questions`, `resource_preferences` rows of kind
+  `run_exchanges`, `async_questions`, `personal_resource_state` rows of kind
   `session` via explicit delete, `resource_links` via explicit delete) declares
   `session_id REFERENCES <session table>(session_id) ON DELETE CASCADE` where
   the parent is a real table, so a record delete removes everything (P5).
@@ -320,7 +320,7 @@ any-organization, parent and project-path indexes, `(place, last_activity_at)`.
 **Personal fact found on the shared row (product decision):** `viewed_at` is
 one boundary per session, documented as "so every client agrees", but on an
 organization session Alice reading marks it read for Bob. It belongs in
-`resource_preferences` (§3.4) beside `settled_at` and `snoozed_until`, the same
+`personal_resource_state` (§3.4) beside `settled_at` and `snoozed_until`, the same
 move migration 0030 made for `settled_by = 'person'`. Recommended: move it.
 `execution_preferences` is person-derived but intentionally shared per
 plans/018 §6; keep and document.
@@ -512,7 +512,7 @@ Solus host records and index, after this plan:
   `recent_projects`, `task_links`, `task_session_links`, `session_links`,
   `session_pull_requests`, `task_comments`, `work_annotations`, `sessions`
   (renamed and narrowed to `transcript_index`).
-- Added: `resource_preferences`, `operation_receipts`, `resource_links`,
+- Added: `personal_resource_state`, `operation_receipts`, `resource_links`,
   `pull_request_observations`, `comment_threads`, `transcript_index`,
   `span_texts` (metrics), `member_folder` (now declared).
 - Count: 74 → 62 (`session_records` continues as `session`). The count is a

@@ -15,7 +15,7 @@ import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { parseStoredStarter } from '@solus/contracts/session-starter'
 import { aclEntry } from '../../sharing/schema'
 import { deleteActivityFor } from '../activity/activity'
-import { resourcePreferences } from '../preferences/schema'
+import { personalResourceState } from '../personal-state/schema'
 import { forgetLeadSession } from './lead-sessions'
 import { resourceLinks } from '../links/schema'
 import { deleteEdgesOf } from '../links/resource-links'
@@ -94,7 +94,7 @@ const RECORD_COLUMN_NAMES = [
 const LEAD_COLUMN = '(session.lead_started_at IS NOT NULL) AS is_lead'
 const RECORD_COLUMNS = sql.raw([...RECORD_COLUMN_NAMES.map((name) => `session.${name}`), LEAD_COLUMN].join(', '))
 /** The record's columns, its shared state, and the reader's view, for a read
- *  that joins the reader's `resource_preferences` row as `reader_view`. */
+ *  that joins the reader's `personal_resource_state` row as `reader_view`. */
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session.${name}`),
   LEAD_COLUMN,
@@ -144,9 +144,9 @@ const GRANTED_AT = sql`COALESCE(acl.granted_at, acl.created_at)`
  */
 const OPEN_PULL_REQUEST = sql.raw('resource_links.keeps_session = 1')
 
-/** The reader's own `resource_preferences` row for the session, joined as `reader_view`. */
+/** The reader's own `personal_resource_state` row for the session, joined as `reader_view`. */
 function readerViewJoin(reader: SessionPageReader): SQL {
-  return sql`LEFT JOIN ${resourcePreferences} AS reader_view
+  return sql`LEFT JOIN ${personalResourceState} AS reader_view
     ON reader_view.resource_kind = 'session' AND reader_view.resource_id = session.session_id
     AND reader_view.organization_id = session.organization_id AND reader_view.created_by = ${reader.personKey ?? ''}`
 }
@@ -154,7 +154,7 @@ function readerViewJoin(reader: SessionPageReader): SQL {
 /**
  * Whether a session is in the reader's list (docs/plans/session-archive.md):
  * it is the reader's — they own it, or they prompted it (a prompt leaves their
- * preferences row) — they did not archive it, and it was active recently, they snoozed it, or it
+ * personal-state row) — they did not archive it, and it was active recently, they snoozed it, or it
  * waits on an open pull request. Reads the `reader_view` row the page joins for the reader.
  *
  * A direct share lists the session too, until the reader archives it; a grant
@@ -294,7 +294,7 @@ function listCandidates(where: SQL, reader: SessionPageReader): SQL {
   const { personKey, teamIds = [], now } = reader
   const parts = [
     sql`SELECT session_id FROM ${session} WHERE last_activity_at >= ${now - SESSION_LIST_IDLE_MS} AND ${where}`,
-    sql`SELECT resource_id AS session_id FROM ${resourcePreferences} WHERE created_by = ${personKey ?? ''} AND resource_kind = 'session' AND snoozed_until IS NOT NULL`,
+    sql`SELECT resource_id AS session_id FROM ${personalResourceState} WHERE created_by = ${personKey ?? ''} AND resource_kind = 'session' AND snoozed_until IS NOT NULL`,
     sql`SELECT source_id AS session_id FROM ${resourceLinks} WHERE ${OPEN_PULL_REQUEST}`,
   ]
   if (personKey) {
@@ -625,7 +625,7 @@ function deleteHostRowsOfSession(sessionId: string): void {
  * The transcript is gone from the runner and nothing else holds the session:
  * the row goes, and everything of the session with it (plans/029 §4.1). Its
  * edges (`resource_links`: its pull requests with their watches, its links, its
- * memberships, and the tasks' edges to it), the preferences, the activity, and
+ * memberships, and the tasks' edges to it), the personal state, the activity, and
  * the mirrored transcript rows have no foreign key and are deleted here.
  */
 export function deleteSessionRecord(scope: RecordScope, sessionId: string): Promise<void> {
@@ -636,7 +636,7 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
       `)).changes > 0
       if (!removed) return false
       await deleteEdgesOf(db, 'session', sessionId)
-      await db.run(sql`DELETE FROM ${resourcePreferences} WHERE resource_kind = 'session' AND resource_id = ${sessionId}`)
+      await db.run(sql`DELETE FROM ${personalResourceState} WHERE resource_kind = 'session' AND resource_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionTranscripts} WHERE session_id = ${sessionId}`)
       await deleteActivityFor({ kind: 'session', id: sessionId }, db)
       return true

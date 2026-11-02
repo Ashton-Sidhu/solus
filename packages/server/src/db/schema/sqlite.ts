@@ -11,7 +11,7 @@ import * as insightSchema from '../../data/insights/insight-schema'
 import * as linksSchema from '../../data/links/schema'
 import * as outboxSchema from '../../sync/outbox/schema'
 import * as plansSchema from '../../plans/schema'
-import * as preferencesSchema from '../../data/preferences/schema'
+import * as personalStateSchema from '../../data/personal-state/schema'
 import * as projectsSchema from '../../projects/schema'
 import * as receiptsSchema from '../../data/receipts/schema'
 import * as sessionsSchema from '../../data/sessions/schema'
@@ -39,7 +39,7 @@ export const acl_entry = sharingSchema.aclEntry.sqlite
 export const session = sessionsSchema.session.sqlite
 export const resource_links = linksSchema.resourceLinks.sqlite
 export const pull_request_observations = linksSchema.pullRequestObservations.sqlite
-export const resource_preferences = preferencesSchema.resourcePreferences.sqlite
+export const personal_resource_state = personalStateSchema.personalResourceState.sqlite
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite
 export const insight_spans = insightSchema.insightSpans.sqlite

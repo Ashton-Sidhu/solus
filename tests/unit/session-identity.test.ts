@@ -185,7 +185,7 @@ describe('one session row (plans/029 §4.2)', () => {
     expect(Number((await database.getDatabase().all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM session WHERE (settled_at IS NULL) <> (settled_by IS NULL)`))[0]?.n)).toBe(0)
   })
 
-  test('deleting the session removes its state, its lead and admission facts, its children, and its preferences', async () => {
+  test('deleting the session removes its state, its lead and admission facts, its children, and its personal state', async () => {
     const db = database.getDatabase()
     await identity.admitSession({ organizationId: 'A', admissionId: 'gone', hostId: 'vm-1', ownerKey: ALICE })
     await records.upsertSessionRecord('A', facts('gone'))
@@ -204,7 +204,7 @@ describe('one session row (plans/029 §4.2)', () => {
     expect(await identity.readSessionAdmission('A', 'gone')).toBeNull()
     expect(await leads.isLeadSession('gone')).toBe(false)
     expect(await new states.SessionShelf('gone').state()).toEqual({ settledAt: null, settledBy: null })
-    expect(await db.all(sql`SELECT * FROM resource_preferences WHERE resource_kind = 'session' AND resource_id = 'gone'`)).toEqual([])
+    expect(await db.all(sql`SELECT * FROM personal_resource_state WHERE resource_kind = 'session' AND resource_id = 'gone'`)).toEqual([])
     expect(await db.all(sql`SELECT * FROM resource_links WHERE source_id = 'gone' OR target_key = 'gone'`)).toEqual([])
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM runs WHERE session_id = 'gone'`).get()).toEqual({ n: 0 })
     expect(getDb().prepare(`SELECT COUNT(*) AS n FROM async_questions WHERE session_id = 'gone'`).get()).toEqual({ n: 0 })

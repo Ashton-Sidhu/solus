@@ -7,7 +7,7 @@ import { insightLogEvents, insightSpans, insightSpanTexts } from '../../data/ins
 import { LINK_TABLES } from '../../data/links/schema'
 import { OUTBOX_TABLES } from '../../sync/outbox/schema'
 import { PLAN_TABLES } from '../../plans/schema'
-import { PREFERENCE_TABLES } from '../../data/preferences/schema'
+import { PERSONAL_STATE_TABLES } from '../../data/personal-state/schema'
 import { PROJECT_TABLES } from '../../projects/schema'
 import { SESSION_TABLES } from '../../data/sessions/schema'
 import { sessionTranscripts } from '../../data/sessions/transcript-schema'
@@ -21,6 +21,6 @@ const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightSpanTexts, insig
 
 /** Every table a ported domain declares. A domain adds its list here when it is ported. */
 export const PORTED_TABLES: readonly TableDefinition[] = [
-  ...TASK_TABLES, ...WORK_TABLES, ...PLAN_TABLES, ...COMMENT_TABLES, ...SHARING_TABLES, ...SESSION_TABLES, ...LINK_TABLES, ...PREFERENCE_TABLES, ...OUTBOX_TABLES, ...MIRROR_TABLES,
+  ...TASK_TABLES, ...WORK_TABLES, ...PLAN_TABLES, ...COMMENT_TABLES, ...SHARING_TABLES, ...SESSION_TABLES, ...LINK_TABLES, ...PERSONAL_STATE_TABLES, ...OUTBOX_TABLES, ...MIRROR_TABLES,
   ...PROJECT_TABLES, ...ACTIVITY_TABLES, ...NOTIFICATION_TABLES, ...WEBHOOK_TABLES, ...RECEIPT_TABLES,
 ]

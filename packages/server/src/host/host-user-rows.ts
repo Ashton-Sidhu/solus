@@ -52,9 +52,9 @@ const OWNED_RESOURCES = [
  */
 
 /** Other columns that hold a person key and move as they are. A person's
- *  preferences follow them: the row is theirs, whatever key names them. */
+ *  personal state follows them: the row is theirs, whatever key names them. */
 const PERSON_COLUMNS = [
-  { table: 'resource_preferences', column: 'created_by' },
+  { table: 'personal_resource_state', column: 'created_by' },
   { table: 'acl_entry', column: 'created_by' },
   { table: 'comment_threads', column: 'created_by' },
 ] as const

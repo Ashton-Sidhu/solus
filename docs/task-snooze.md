@@ -26,7 +26,7 @@ A snooze is personal. It hides the task only for the person who snoozed it,
 on every client that person uses. Other people who can see a shared task keep
 it in their lists and are not told about the snooze.
 
-- The host keeps snoozes as `resource_preferences` rows of kind `task`
+- The host keeps snoozes as `personal_resource_state` rows of kind `task`
   (plans/029 §3.4), keyed by the task and the person (`created_by`, the user
   key `ownerKeyOf` gives the connection). The task record has no snooze, so
   task lists, task events, activity, sync, and publication never carry one.
@@ -55,5 +55,5 @@ it in their lists and are not told about the snooze.
 
 ## Schema
 
-`resource_preferences` is declared in `packages/server/src/data/preferences/schema.ts`
+`personal_resource_state` is declared in `packages/server/src/data/personal-state/schema.ts`
 and generated into the one baseline of each engine (docs/database-schema.md).
