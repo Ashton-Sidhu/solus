@@ -172,20 +172,6 @@ describe('ownership', () => {
     expect(await shares.roleFor(member('admin', [], 'owner', 'personal'), work)).toBe('none')
   })
 
-  test('only the owner transfers; the owner key moves and the previous owner is named as removed', async () => {
-    const { shares, changes } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    await seed('work', 'w1', 'bob', 'org1')
-    await shares.shareWithOrganization(work, member('bob'))
-    await expect(shares.transfer({ resource: work, toUserId: 'cara' }, member('cara'))).rejects.toThrow(ShareAccessError)
-    const list = await shares.transfer({ resource: work, toUserId: 'cara' }, member('bob'))
-    expect(list.ownerKey).toBe('cara')
-    expect(await database.getDatabase().all(sql`SELECT created_by FROM works WHERE id = 'w1'`)).toEqual([{ created_by: 'cara' }])
-    // The organization entry still admits bob, as an editor now.
-    expect(await shares.roleFor(member('bob'), work)).toBe('editor')
-    expect(changes.at(-1)?.removedUserIds).toEqual(['bob'])
-  })
-
   test('a resource of one organization is nothing to a member of another', async () => {
     // WHY: one Postgres serves every organization (docs/plans/cloud-service-model.md).
     // A member reads the records of the organization their grant names.
@@ -353,17 +339,6 @@ describe('one decision per check', () => {
     expect(subjects).toEqual([{ subject_id: 'bob' }])
   })
 
-  test('a transfer to a person with a named entry makes them owner and drops that entry', async () => {
-    const { shares } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    await seed('work', 'w1', 'alice', 'org1')
-    await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
-    const list = await shares.transfer({ resource: work, toUserId: 'bob' }, member('alice'))
-    expect(list.ownerKey).toBe('bob')
-    expect(list.entries.some((grant) => grant.subject.kind === 'user' && grant.subject.id === 'bob')).toBe(false)
-    expect(await shares.roleFor(member('bob'), work)).toBe('owner')
-    expect((await shares.homeOf(work))?.ownerKey).toBe('bob')
-  })
 })
 
 describe('tasks', () => {

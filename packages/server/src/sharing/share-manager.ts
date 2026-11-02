@@ -19,14 +19,13 @@ import {
   type ShareRole,
   type ShareSetLinkRequest,
   type ShareSetRequest,
-  type ShareTransferRequest,
   type ShareSummary,
 } from '@solus/contracts/sharing'
 import { sessionActionLeafSchema, type ResourceStanding, type SessionActionLeaf } from '@solus/contracts/permissions'
 import { DEFAULT_LINK_ACTIONS, customRoleActions } from '@solus/contracts/shareable-actions'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
-import { isHostAdmin, isHostOwner, isOrganizationSpace, organizationForNew, recordScopeOf, scopeAdmits, type Principal } from '../admission/principal'
+import { isHostOwner, isOrganizationSpace, organizationForNew, type Principal } from '../admission/principal'
 import { actorFor, ownerKeyOf, type Actor } from '../admission/actor'
 import { roleOf, roleThroughSession, standingOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
 import { aclEntry } from './schema'
@@ -281,12 +280,6 @@ export interface ShareManagerDeps {
    */
   assignOrganization?: (resource: ShareResource, organizationId: string) => Promise<string | null>
   /**
-   * Whether `userId` was a member of `organizationId` and has left it, as the host's
-   * organization standing says (plan 004 item 10). A host admin may then transfer
-   * what they owned. Without it only the owner transfers.
-   */
-  hasLeftOrganization?: (organizationId: string, userId: string) => boolean
-  /**
    * Whether a member can reach this host at all (docs/plans/host-sharing.md §4.3):
    * a host linked to Solus cloud, or the Solus API itself. A share with a person,
    * a team, or the organization on a host nobody can reach is refused, so the
@@ -455,41 +448,6 @@ export class ShareManager {
       `)
       if (options.shareWithOrganization) await this.insertOrganizationEntry(db, resource, organizationId, ownerKey)
     })
-  }
-
-  /**
-   * The owner may hand a resource to another person: its owner column changes. A
-   * host admin may also hand on what a member who left the organization owned
-   * (plan 004 item 10). The change is announced to everyone with access.
-   */
-  async transfer(request: ShareTransferRequest, principal: Principal): Promise<ShareList> {
-    return this.deps.db.transaction(async (db) => {
-      const access = withHome(await this.access(request.resource))
-      const { resource, home } = access
-      const previousOwner = home.ownerKey
-      if (this.roleIn(principal, access) !== 'owner' && !this.mayTransferForDeparted(principal, home)) {
-        throw new ShareAccessError('FORBIDDEN', 'Only the owner can transfer ownership')
-      }
-      // The new owner's own entry would repeat the owner.
-      const named = access.entries.find((row) => row.subject_kind === 'user' && row.subject_id === request.toUserId)
-      if (named) {
-        await db.run(sql`DELETE FROM ${aclEntry} WHERE id = ${named.id}`)
-        access.entries = access.entries.filter((row) => row !== named)
-      }
-      const { table, id, owner } = RESOURCE_TABLES[resource.kind]
-      await db.run(sql`UPDATE ${table} SET ${owner} = ${request.toUserId} WHERE ${id} = ${resource.id}`)
-      home.ownerKey = request.toUserId
-      log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
-      await this.announce(home.organizationId, access, principal, previousOwner !== request.toUserId ? [previousOwner] : [], false)
-      return this.listOf(access, this.standingIn(principal, access))
-    })
-  }
-
-  /** A host admin, in the resource's organization, whose owner has left it. */
-  private mayTransferForDeparted(principal: Principal, home: SessionHome): boolean {
-    if (!isHostAdmin(principal) || !this.deps.hasLeftOrganization) return false
-    if (!scopeAdmits(recordScopeOf(principal), home.organizationId)) return false
-    return this.deps.hasLeftOrganization(home.organizationId, home.ownerKey)
   }
 
   // ── Roles ───────────────────────────────────────────────────────────────

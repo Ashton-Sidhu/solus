@@ -31,6 +31,12 @@ User decisions, 2026-11-01:
    The baseline test enforces this: every table has `created_by` or is on the
    internal allowlist, `user_id` is the only other person column, and no other
    column names a person (user decision, 2026-11-01).
+   Consequence (user decision, 2026-11-02): the `shareTransfer` RPC is removed,
+   including the host-admin handover of a departed member's records (plan 004
+   item 10). What a departed member owned keeps its `created_by`; the
+   organization entry keeps it readable to the members who remain. `activity`
+   rows name the signed-in person the actor acts for in `created_by` (NOT
+   NULL) and the actor's kind in `by_kind`; see §8.
 3. **Organization scope is canonical.** Every root record carries one
    `organization_id` (`local` or an organization id, never changed). Child rows
    that organization filters read carry it too. A host shared with several

@@ -47,7 +47,7 @@ import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
-import { hasLeftOrganization, removeDepartedMembers } from './host/departed-members'
+import { removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
 import { LiveActivityRelay } from './host/live-activity-relay'
 import { activityLeases } from './execution/activity-leases'
@@ -434,7 +434,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         case 'task': return taskOrganizationId(resource.id)
       }
     },
-    hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(hostOrganizations.current(), organizationId, userId),
     // A member reaches this host with a host access token, which needs the registration (host-sharing.md §4.3), never the link.
     membersReachable: () => apiMode || registrar.current() !== null,
   })

@@ -237,7 +237,6 @@ export const RPC_PLANES = {
   shareGet: 'collaboration',
   shareSet: 'collaboration',
   shareSetLink: 'collaboration',
-  shareTransfer: 'collaboration',
   shareLinkOrigin: 'collaboration',
 
   // Provider seats belong only to the execution host

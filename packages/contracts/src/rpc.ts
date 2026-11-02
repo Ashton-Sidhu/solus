@@ -296,7 +296,6 @@ export const RPC_INVOKE_METHODS = [
   'shareGet',
   'shareSet',
   'shareSetLink',
-  'shareTransfer',
   // The origin a resource's share link names (docs/plans/host-sharing.md §2)
   'shareLinkOrigin',
   // Provider seats: a member's own Claude or Codex login on this host

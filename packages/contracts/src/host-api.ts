@@ -60,7 +60,7 @@ import type { HostRoute } from './host-routes'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
-import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
+import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest } from './sharing'
 import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
@@ -431,7 +431,6 @@ export interface SolusAPI {
   shareSet(request: ShareSetRequest): Promise<ShareList>
   /** The link as it now stands, with its secret, to the owner and editors: a new secret when it was minted or regenerated, the same secret on a role change; null when the link is off. */
   shareSetLink(request: ShareSetLinkRequest): Promise<ShareLink | null>
-  shareTransfer(request: ShareTransferRequest): Promise<ShareList>
   /** The origin a resource's guest link names (docs/plans/host-sharing.md §2): the account origin for a mirrored session, else this host's tunnel when online, else its first direct address; null when nobody off this machine can reach it. */
   shareLinkOrigin(resource: ShareResource): Promise<{ origin: string | null }>
   /** Provider seats (Step 2 plan §3.2): the caller's own Claude and Codex logins on this host. */
