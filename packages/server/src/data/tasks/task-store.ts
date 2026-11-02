@@ -4,10 +4,12 @@ import { z } from 'zod'
 import { getDatabase, type Db } from '../../db/database'
 import { createLogger } from '../../logger'
 import { ulid } from '@solus/contracts/ulid'
+import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { assertTaskAssignee, legacyTaskActor, notifyTaskAssignment, taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { taskComments, taskCounters, taskExternalLinks, tasks } from './schema'
+import { resourceLinks } from '../links/schema'
 import { scopeClause } from '../scope'
 import { recordTaskChange } from './task-revisions'
 import { hostUserKey } from '../../host/host-user'
@@ -50,7 +52,8 @@ const taskRowSchema = z.object({
   due_date: z.string().nullable(),
   priority: taskPrioritySchema.nullable(),
   labels: z.string(),
-  pr: z.string().nullable(),
+  /** The URL of the task's newest pull request link (`TASK_PR_URL`); null with none. */
+  pr_url: z.string().nullable(),
   epic: z.string().nullable(),
   source: taskSourceSchema,
   origin_session_id: z.string().nullable(),
@@ -79,7 +82,6 @@ const taskCommentRowSchema = z.object({
   created_at: z.number(),
   dirty: z.number(),
 })
-export const taskPrSchema = z.object({ url: z.string(), number: z.number() })
 export const taskEpicSchema = z.object({
   provider: z.enum(['github', 'jira']),
   externalId: z.string(),
@@ -170,8 +172,7 @@ function taskSummaryFromRow(row: TaskSummaryRow): TaskSummary {
   if (row.assignee_user_id !== null) task.assigneeUserId = row.assignee_user_id
   if (row.due_date !== null) task.dueDate = row.due_date
   if (row.priority !== null) task.priority = row.priority
-  const pr = jsonValue(row.pr, taskPrSchema)
-  if (pr) task.pr = pr
+  if (row.pr_url !== null) task.pr = { url: row.pr_url, number: parseGitHubPullRequestUrl(row.pr_url)?.number ?? 0 }
   if (row.origin_session_id !== null) task.originSessionId = row.origin_session_id
   if (row.origin_automation_id !== null) task.originAutomationId = row.origin_automation_id
   if (row.triaged_at !== null) task.triagedAt = row.triaged_at
@@ -242,7 +243,11 @@ const TASK_EXTERNAL_LINK_COLUMNS = sql`
   FROM ${tasks}
   LEFT JOIN ${taskExternalLinks} ON task_external_links.task_id = tasks.id
 `
-const TASK_SELECT = sql`SELECT tasks.*, ${TASK_EXTERNAL_LINK_COLUMNS}`
+/** The task's compact pull request (`Task.pr`): the URL of its newest own pull request link, one index seek per row. */
+const TASK_PR_URL = sql`(SELECT resource_links.url FROM ${resourceLinks}
+    WHERE resource_links.source_kind = 'task' AND resource_links.source_id = tasks.id AND resource_links.target_kind = 'pr' AND resource_links.url IS NOT NULL
+    ORDER BY resource_links.created_at DESC LIMIT 1) AS pr_url`
+const TASK_SELECT = sql`SELECT tasks.*, ${TASK_PR_URL}, ${TASK_EXTERNAL_LINK_COLUMNS}`
 
 /** The board list never shows a body or an epic, so the list statement selects
  *  neither; the detail read (`taskRow`) still selects every column. */
@@ -251,7 +256,7 @@ const TASK_SUMMARY_SELECT = sql`SELECT ${sql.join(
     .filter((name) => name !== 'body' && name !== 'epic')
     .map((name) => sql`${sql.identifier('tasks')}.${sql.identifier(name)}`),
   sql`, `,
-)}, ${TASK_EXTERNAL_LINK_COLUMNS}`
+)}, ${TASK_PR_URL}, ${TASK_EXTERNAL_LINK_COLUMNS}`
 
 /**
  * Every read names the scope the caller may see (organization-scope §3): one
@@ -286,7 +291,7 @@ export async function readTaskMetadataPage(where: SQL, limit: number): Promise<T
     ? sql`'' AS body`
     : sql`${sql.identifier('tasks')}.${sql.identifier(name)}`)
   const rows = taskRowSchema.array().parse(await database().all(sql`
-    SELECT ${sql.join(columns, sql`, `)}, task_external_links.provider AS external_provider,
+    SELECT ${sql.join(columns, sql`, `)}, ${TASK_PR_URL}, task_external_links.provider AS external_provider,
       task_external_links.external_id AS external_id, task_external_links.url AS external_url
     FROM ${tasks} LEFT JOIN ${taskExternalLinks} ON task_external_links.task_id = tasks.id
     WHERE ${where} ORDER BY tasks.created_at DESC, tasks.id DESC LIMIT ${limit}

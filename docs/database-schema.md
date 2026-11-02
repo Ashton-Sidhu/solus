@@ -51,12 +51,59 @@ A person's own view of a session or a task — settle, archive, snooze, and the
 read boundary `viewed_at` — is a `resource_preferences` row keyed by
 `(organization_id, resource_kind, resource_id, created_by)`, where
 `created_by` is the person whose preference it is. The parent is polymorphic,
-so a session or task delete removes its rows explicitly; the session's other
-children (`session_links`, `session_pull_requests`,
-`session_pull_request_watches`) cascade from the row, and the host tables that
-name a session (`runs`, `run_queue`, `run_exchanges`, `async_questions`,
+so a session or task delete removes its rows explicitly; so are the session's
+edges in `resource_links` (its pull requests with their watches, its file and
+automation links, its work memberships, and the tasks' edges to it), deleted by
+`deleteEdgesOf` in the same transaction; and the host tables that name a
+session (`runs`, `run_queue`, `run_exchanges`, `async_questions`,
 `transcript_mirror_rows`, `activity_mirror_rows`) are deleted by
 `deleteSessionRecord`, because a host table cannot reference a ported one.
+
+## Relationships
+
+One table, `resource_links` (`data/links/schema.ts`), holds every edge from a
+task or a session to another record (plans/029-fresh-database-baseline.md
+§5.1): a task's sessions (`works-on`, or `reference` for a session it only
+mentions), its links to works, plans, pull requests, and automations
+(`reference`, `pull-request`, or `output` for an item its working session
+made), a session's pull requests (`pull-request`), its works (`member`), and
+its files and automations (`reference`). The edge identity is
+`(source_kind, source_id, target_kind, target_scope, target_key)`, with one
+spelling per target kind: a session target has an empty scope, a repository is
+lower case. The relation is an attribute of the edge, so a task has one edge to
+a session whatever its role, and a claim turns an `output` into a `reference`.
+
+The endpoints are polymorphic, so no foreign key reaches them: every delete of
+a task, a work, or a session runs `deleteEdgesOf` in its transaction, and
+`danglingEdgeCount` (tests) must stay zero. `defineTable` has no CHECK and no
+composite foreign key; the commands keep the invariants and the tests encode
+them: `keeps_session` is 1 only on an active session→pull-request edge whose
+pull request is open or not yet observed; the four watch fields are set or
+cleared together, never on a dismissed edge, and every end or update of a watch
+names its generation (`watch_id`); a canonical pull request has both
+`repository` and `number` or neither.
+
+`pull_request_observations` holds what PR sync last saw of a pull request, once
+per organization and source authority (`host`, or `person:<user key>`: the
+visibility context of the read, never a token). An edge names the observation
+it reads through `authority_key`, `repository`, and `number`, and a new edge
+binds to the organization's most recent observation of its pull request.
+`recordObservation` writes the observation, resolves raw aliases, and writes
+every dependent `keeps_session` bit in one transaction; a title-only change
+writes no edge. Two raw aliases of one source that resolve to one pull request
+are never silently merged: the second alias is canonicalized only when it agrees
+with the first on its title and its pin; otherwise it stays unresolved and is
+logged (`resource_link_alias_conflict`), and readers dedupe by canonical key.
+
+Indexes, each with its reader: `resource_links_edge` (unique, the forward
+read), `resource_links_by_target` (the reverse read, key before scope),
+`resource_links_working_owner` (one active working task per session),
+`resource_links_open_session ON (source_id, organization_id) WHERE
+keeps_session = 1` (the session list's candidate query; the join-only
+alternative measured 2–11× slower and is rejected), `resource_links_watch`
+(the watch generation guard), and `resource_links_by_pull_request` (an
+observation's fan-out). A work's origin stays on `works.session_id` and is in
+the access union without an edge; its members are edges.
 
 `transcript_index` and `session` hold similar facts, but they are different
 things. `transcript_index` is this host's local, synchronous index of provider
@@ -142,8 +189,10 @@ checks every table of both baselines).
   `member_folder`.
 
 Display attribution is JSON and never a person column: `webhooks.author`,
-`works.content_author`, `work_revisions.author`, `activity.by`,
-`notifications.by`, and `acl_entry.granted_by_name` beside `created_by`.
+`works.content_author`, `work_revisions.author`, `resource_links.author`,
+`activity.by`, `notifications.by`, and `acl_entry.granted_by_name` beside
+`created_by`. `resource_links.watch_user_id` is the one other domain reference:
+the person a pull request watch acts for.
 Internal rows (cursors, mirrors, queues, receipts, caches, derived rows, FTS
 tables) carry no creator and reach ownership through their parent; the test
 lists them by name.

@@ -575,7 +575,7 @@ export class ShareManager {
     const { table, id, owner } = RESOURCE_TABLES[kind]
     const actor = actorFor(principal)
     const own = visibleTo(actor, kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.${owner}` }, this.now())
-    const predicate = kind === 'work' ? sql`(${own} OR ${visibleThroughSession(this.deps.db, actor, sql`${table}.${id}`)})` : own
+    const predicate = kind === 'work' ? sql`(${own} OR ${visibleThroughSession(actor, sql`${table}.${id}`)})` : own
     const visible = new Set<string>()
     for (let start = 0; start < ids.length; start += ID_CHUNK) {
       const chunk = ids.slice(start, start + ID_CHUNK)

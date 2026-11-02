@@ -189,9 +189,10 @@ describe('rows written before stage 4', () => {
       ('01C2', ${task.id}, 'agent', 'local', 'thread-9', 'the agent', 11, 'local')`)
     await raw.run(sql`INSERT INTO task_comments (id, task_id, author, source, external_id, body, created_at, organization_id) VALUES
       ('external:1', ${task.id}, 'octocat', 'external', '1', 'upstream', 12, 'local')`)
-    await raw.run(sql`INSERT INTO task_links (task_id, kind, target_scope, target_key, title, created_by, origin_session_id, linked_at, organization_id) VALUES
-      (${task.id}, 'automation', '', 'a1', 'A', 'migration', NULL, 1, 'local'),
-      (${task.id}, 'automation', '', 'a2', 'B', 'agent', 'thread-9', 2, 'local')`)
+    // A link's maker is its `author` attribution; `created_by` is the user id behind it (plans/029 decision 2).
+    await raw.run(sql`INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, title, source, status, author, origin_session_id, created_by, created_at) VALUES
+      ('local', 'task', ${task.id}, 'automation', '', 'a1', 'reference', 'A', 'system', 'active', '{"kind":"system"}', NULL, 'local:host', 1),
+      ('local', 'task', ${task.id}, 'automation', '', 'a2', 'reference', 'B', 'agent', 'active', '{"kind":"agent","sessionId":"thread-9"}', 'thread-9', 'local:host', 2)`)
 
     const details = await (await tasks.Task.byId('local', task.id)).details()
     const owner: Attribution = { kind: 'user', user: hostUser.hostUser()! }

@@ -166,8 +166,10 @@ export async function deleteProject(projectPath: string): Promise<void> {
   withTx(() => {
     const db = getDb()
     if (entry) {
+      // A task's edges go with it (plans/029 §5.1): no foreign key reaches a polymorphic endpoint.
+      db.prepare(`DELETE FROM resource_links WHERE (source_kind = 'task' AND source_id IN (SELECT id FROM tasks WHERE project_key = ?))
+        OR (target_kind = 'task' AND target_key IN (SELECT id FROM tasks WHERE project_key = ?))`).run(entry.key, entry.key)
       db.prepare('DELETE FROM tasks WHERE project_key = ?').run(entry.key)
-      db.prepare('DELETE FROM task_session_links WHERE project_key = ?').run(entry.key)
       db.prepare('DELETE FROM task_cache WHERE project_key = ?').run(entry.key)
     }
     db.prepare('DELETE FROM projects WHERE path = ?').run(projectPath)
