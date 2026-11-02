@@ -45,7 +45,7 @@ async function insertActivity(organizationId: string, activity: Activity, db: Db
   const { id, subject, at, by, turnId, ...kind } = activity
   const target = targetUserOf(kind)
   await db.run(sql`
-    INSERT INTO ${activityTable} (id, organization_id, subject_kind, subject_id, at, turn_id, kind, by_kind, by_user_key, target_user_key, by, data)
+    INSERT INTO ${activityTable} (id, organization_id, subject_kind, subject_id, at, turn_id, kind, by_kind, created_by, user_id, by, data)
     VALUES (
       ${id}, ${organizationId}, ${subject.kind}, ${subject.id}, ${at}, ${turnId ?? null}, ${kind.kind},
       ${by.kind}, ${by.kind === 'user' ? userKey(by.user.id) : null}, ${target ? userKey(target) : null},
@@ -75,9 +75,9 @@ export async function activityFor(
   options: { limit?: number; db?: Db } = {},
 ): Promise<Activity[]> {
   const where = 'userId' in target
-    ? sql`by_user_key = ${userKey(target.userId)} AND at >= ${target.since}`
+    ? sql`created_by = ${userKey(target.userId)} AND at >= ${target.since}`
     : 'targetUserId' in target
-      ? sql`target_user_key = ${userKey(target.targetUserId)} AND at >= ${target.since}`
+      ? sql`user_id = ${userKey(target.targetUserId)} AND at >= ${target.since}`
       : sql`subject_kind = ${target.kind} AND subject_id = ${target.id}`
   const limit = options.limit ? sql`LIMIT ${options.limit}` : sql``
   const rows = z.array(activityRowSchema).parse(await (options.db ?? getDatabase()).all(sql`

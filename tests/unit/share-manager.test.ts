@@ -17,7 +17,7 @@ const LINK_EXPIRES_AT = 1_000 + DEFAULT_LINK_LIFETIME_MS
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §2.2–§2.3 and multiplayer-sharing.md §3.4–§3.5: a
-// resource's owner is its own row's `owner_key`; the ACL entries hold only what
+// resource's owner is its own row's `created_by`; the ACL entries hold only what
 // the owner gave others — a person, their team, the organization, or the link
 // (scope, decision 2026-09-16); a resource made in an organization's space starts
 // with the organization's editor entry; an administrator is an editor of what is
@@ -180,7 +180,7 @@ describe('ownership', () => {
     await expect(shares.transfer({ resource: work, toUserId: 'cara' }, member('cara'))).rejects.toThrow(ShareAccessError)
     const list = await shares.transfer({ resource: work, toUserId: 'cara' }, member('bob'))
     expect(list.ownerKey).toBe('cara')
-    expect(await database.getDatabase().all(sql`SELECT owner_key FROM works WHERE id = 'w1'`)).toEqual([{ owner_key: 'cara' }])
+    expect(await database.getDatabase().all(sql`SELECT created_by FROM works WHERE id = 'w1'`)).toEqual([{ created_by: 'cara' }])
     // The organization entry still admits bob, as an editor now.
     expect(await shares.roleFor(member('bob'), work)).toBe('editor')
     expect(changes.at(-1)?.removedUserIds).toEqual(['bob'])

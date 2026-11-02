@@ -9,7 +9,7 @@ CREATE TABLE `acl_entry` (
 	`link_secret` text,
 	`actions` text,
 	`expires_at` integer,
-	`granted_by_user_id` text NOT NULL,
+	`created_by` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`granted_at` integer,
 	`granted_by_name` text,
@@ -28,14 +28,14 @@ CREATE TABLE `activity` (
 	`turn_id` text,
 	`kind` text NOT NULL,
 	`by_kind` text NOT NULL,
-	`by_user_key` text,
-	`target_user_key` text,
+	`created_by` text,
+	`user_id` text,
 	`by` text NOT NULL,
 	`data` text DEFAULT '{}' NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `activity_by_subject` ON `activity` (`subject_kind`,`subject_id`,`at`,`id`);--> statement-breakpoint
-CREATE INDEX `activity_for_user` ON `activity` (`target_user_key`,`at`,`id`);--> statement-breakpoint
+CREATE INDEX `activity_for_user` ON `activity` (`user_id`,`at`,`id`);--> statement-breakpoint
 CREATE TABLE `asset_publications` (
 	`asset_id` text NOT NULL,
 	`provider` text NOT NULL,
@@ -119,7 +119,7 @@ CREATE INDEX `insight_spans_time_idx` ON `insight_spans` (`started_at`);--> stat
 CREATE TABLE `notifications` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text NOT NULL,
-	`recipient_key` text NOT NULL,
+	`user_id` text NOT NULL,
 	`event_id` text NOT NULL,
 	`activity_id` text,
 	`kind` text NOT NULL,
@@ -133,8 +133,8 @@ CREATE TABLE `notifications` (
 	`archived_at` integer
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `notifications_event` ON `notifications` (`organization_id`,`recipient_key`,`event_id`);--> statement-breakpoint
-CREATE INDEX `notifications_for_recipient` ON `notifications` (`recipient_key`,`created_at`,`id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `notifications_event` ON `notifications` (`organization_id`,`user_id`,`event_id`);--> statement-breakpoint
+CREATE INDEX `notifications_for_user` ON `notifications` (`user_id`,`created_at`,`id`);--> statement-breakpoint
 CREATE INDEX `notifications_by_resource` ON `notifications` (`organization_id`,`resource_key`);--> statement-breakpoint
 CREATE TABLE `operation_receipts` (
 	`scope` text NOT NULL,
@@ -172,10 +172,10 @@ CREATE TABLE `plan_index_providers` (
 CREATE TABLE `runner_delivery_cursors` (
 	`organization_id` text NOT NULL,
 	`host_id` text NOT NULL,
-	`actor_user_id` text DEFAULT '' NOT NULL,
+	`user_id` text DEFAULT '' NOT NULL,
 	`last_seq` integer DEFAULT 0 NOT NULL,
 	`updated_at` integer NOT NULL,
-	PRIMARY KEY(`organization_id`, `host_id`, `actor_user_id`)
+	PRIMARY KEY(`organization_id`, `host_id`, `user_id`)
 );
 --> statement-breakpoint
 CREATE TABLE `session_admissions` (
@@ -326,8 +326,7 @@ CREATE INDEX `task_comments_by_task` ON `task_comments` (`task_id`,`created_at`)
 CREATE UNIQUE INDEX `task_comments_external` ON `task_comments` (`task_id`,`external_id`) WHERE external_id IS NOT NULL;--> statement-breakpoint
 CREATE TABLE `task_counters` (
 	`name` text PRIMARY KEY NOT NULL,
-	`value` integer NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL
+	`value` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `task_external_links` (
@@ -421,7 +420,7 @@ CREATE TABLE `tasks` (
 	`last_read_at` integer,
 	`location` text,
 	`organization_id` text DEFAULT 'local' NOT NULL,
-	`owner_key` text NOT NULL
+	`created_by` text NOT NULL
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `tasks_short_id_unique` ON `tasks` (`short_id`);--> statement-breakpoint
@@ -459,14 +458,14 @@ CREATE INDEX `webhook_deliveries_by_webhook` ON `webhook_deliveries` (`webhook_i
 CREATE TABLE `webhooks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text DEFAULT 'local' NOT NULL,
-	`owner_key` text NOT NULL,
+	`created_by` text NOT NULL,
 	`name` text NOT NULL,
 	`enabled` integer DEFAULT 1 NOT NULL,
 	`project` text,
 	`verification` text NOT NULL,
 	`replay_key` text,
 	`actions` text NOT NULL,
-	`created_by` text NOT NULL,
+	`author` text NOT NULL,
 	`copied_url_hash` text,
 	`lost_count` integer DEFAULT 0 NOT NULL,
 	`lost_at` integer,
@@ -474,7 +473,7 @@ CREATE TABLE `webhooks` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `webhooks_by_owner` ON `webhooks` (`organization_id`,`owner_key`);--> statement-breakpoint
+CREATE INDEX `webhooks_by_creator` ON `webhooks` (`organization_id`,`created_by`);--> statement-breakpoint
 CREATE INDEX `webhooks_by_project` ON `webhooks` (`project`);--> statement-breakpoint
 CREATE TABLE `work_annotations` (
 	`work_id` text PRIMARY KEY NOT NULL,
@@ -576,7 +575,7 @@ CREATE TABLE `works` (
 	`content_author` text,
 	`previous_revision_id` integer,
 	`location` text,
-	`owner_key` text NOT NULL
+	`created_by` text NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `works_api_page` ON `works` (`organization_id`,"created_at" desc,"id" desc);--> statement-breakpoint
@@ -588,8 +587,7 @@ CREATE TABLE `workspace_projects` (
 	`repository_key` text NOT NULL,
 	`display_name` text NOT NULL,
 	`default_branch` text,
-	`owner_key` text NOT NULL,
-	`created_by` text,
+	`created_by` text NOT NULL,
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
@@ -638,7 +636,7 @@ CREATE TABLE `automations` (
 	`created_at` integer,
 	`updated_at` integer,
 	`organization_id` text DEFAULT 'local' NOT NULL,
-	`owner_key` text DEFAULT '' NOT NULL
+	`created_by` text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `browser_profiles` (
@@ -658,28 +656,27 @@ CREATE TABLE `delivery_queue` (
 	`key` text NOT NULL,
 	`payload` text NOT NULL,
 	`organization_id` text NOT NULL,
-	`actor_user_id` text DEFAULT '' NOT NULL,
+	`user_id` text DEFAULT '' NOT NULL,
 	`error` text
 );
 --> statement-breakpoint
-CREATE INDEX `delivery_queue_by_destination` ON `delivery_queue` (`organization_id`,`actor_user_id`,`seq`);--> statement-breakpoint
+CREATE INDEX `delivery_queue_by_destination` ON `delivery_queue` (`organization_id`,`user_id`,`seq`);--> statement-breakpoint
 CREATE INDEX `delivery_queue_by_key` ON `delivery_queue` (`kind`,`key`);--> statement-breakpoint
 CREATE TABLE `integration` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text NOT NULL,
-	`owner_key` text NOT NULL,
+	`created_by` text NOT NULL,
 	`kind` text NOT NULL,
 	`slug` text NOT NULL,
 	`name` text NOT NULL,
 	`url` text NOT NULL,
 	`auth` text NOT NULL,
 	`disabled_tools` text DEFAULT '[]' NOT NULL,
-	`created_by` text,
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `integration_slug` ON `integration` (`organization_id`,`owner_key`,`slug`);--> statement-breakpoint
+CREATE UNIQUE INDEX `integration_slug` ON `integration` (`organization_id`,`created_by`,`slug`);--> statement-breakpoint
 CREATE TABLE `integration_connection` (
 	`integration_id` text NOT NULL,
 	`user_id` text,
@@ -707,10 +704,10 @@ CREATE UNIQUE INDEX `member_folder_folder_unique` ON `member_folder` (`folder`);
 CREATE TABLE `notification_pr_observations` (
 	`authority` text NOT NULL,
 	`repo` text NOT NULL,
-	`recipient_key` text NOT NULL,
+	`user_id` text NOT NULL,
 	`pending` text NOT NULL,
 	`observed_at` integer NOT NULL,
-	PRIMARY KEY(`authority`, `repo`, `recipient_key`)
+	PRIMARY KEY(`authority`, `repo`, `user_id`)
 );
 --> statement-breakpoint
 CREATE TABLE `outbox_ops` (

@@ -29,15 +29,17 @@ type MoveScope = 'all' | 'local'
 
 /**
  * The resource tables whose rows have an owner (docs/plans/access-model.md §2.2),
- * with the kind their ACL entries name and their id column. One list, so a new
- * resource cannot be forgotten on link and unlink.
+ * with the kind their ACL entries name, their id column, and their owner column:
+ * `created_by` (plans/029 decision 2); the session record still says `owner_key`
+ * until its own reshaping lands. One list, so a new resource cannot be forgotten
+ * on link and unlink.
  */
 const OWNED_RESOURCES = [
-  { table: 'session_records', kind: 'session', id: 'session_id' },
-  { table: 'works', kind: 'work', id: 'id' },
-  { table: 'tasks', kind: 'task', id: 'id' },
-  { table: 'automations', kind: 'automation', id: 'id' },
-  { table: 'workspace_projects', kind: 'project', id: 'id' },
+  { table: 'session_records', kind: 'session', id: 'session_id', owner: 'owner_key' },
+  { table: 'works', kind: 'work', id: 'id', owner: 'created_by' },
+  { table: 'tasks', kind: 'task', id: 'id', owner: 'created_by' },
+  { table: 'automations', kind: 'automation', id: 'id', owner: 'created_by' },
+  { table: 'workspace_projects', kind: 'project', id: 'id', owner: 'created_by' },
 ] as const
 
 /*
@@ -51,7 +53,7 @@ const OWNED_RESOURCES = [
 /** Other columns that hold a person key and move as they are. */
 const PERSON_COLUMNS = [
   { table: 'session_admissions', column: 'owner_key' },
-  { table: 'acl_entry', column: 'granted_by_user_id' },
+  { table: 'acl_entry', column: 'created_by' },
 ] as const
 
 /**
@@ -64,12 +66,12 @@ const PERSON_COLUMNS = [
 async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveScope): Promise<number> {
   const inScope = (column: SQL): SQL => (scope === 'local' ? sql` AND ${column} = ${LOCAL_ORGANIZATION_ID}` : sql``)
   let moved = 0
-  for (const { table, kind, id } of OWNED_RESOURCES) {
-    moved += (await db.run(sql`UPDATE ${sql.identifier(table)} SET owner_key = ${toKey} WHERE owner_key = ${fromKey}${inScope(sql`organization_id`)}`)).changes
+  for (const { table, kind, id, owner } of OWNED_RESOURCES) {
+    moved += (await db.run(sql`UPDATE ${sql.identifier(table)} SET ${sql.identifier(owner)} = ${toKey} WHERE ${sql.identifier(owner)} = ${fromKey}${inScope(sql`organization_id`)}`)).changes
     moved += (await db.run(sql`
       DELETE FROM acl_entry
       WHERE resource_kind = ${kind} AND subject_kind = 'user' AND subject_id IN (${fromKey}, ${toKey})${inScope(sql`organization_id`)}
-        AND resource_id IN (SELECT ${sql.identifier(id)} FROM ${sql.identifier(table)} WHERE owner_key = ${toKey})
+        AND resource_id IN (SELECT ${sql.identifier(id)} FROM ${sql.identifier(table)} WHERE ${sql.identifier(owner)} = ${toKey})
     `)).changes
   }
   moved += (await db.run(sql`
@@ -88,22 +90,21 @@ async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveS
   // The person's notifications and their read state go with them (plans/015-notifications-hub.md);
   // a row the target already has for the same event wins.
   moved += (await db.run(sql`
-    DELETE FROM notifications WHERE recipient_key = ${fromKey}${inScope(sql`organization_id`)} AND EXISTS (
+    DELETE FROM notifications WHERE user_id = ${fromKey}${inScope(sql`organization_id`)} AND EXISTS (
       SELECT 1 FROM notifications AS kept WHERE kept.organization_id = notifications.organization_id
-        AND kept.recipient_key = ${toKey} AND kept.event_id = notifications.event_id
+        AND kept.user_id = ${toKey} AND kept.event_id = notifications.event_id
     )
   `)).changes
-  moved += (await db.run(sql`UPDATE notifications SET recipient_key = ${toKey} WHERE recipient_key = ${fromKey}${inScope(sql`organization_id`)}`)).changes
+  moved += (await db.run(sql`UPDATE notifications SET user_id = ${toKey} WHERE user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   // The person's MCP servers and connections (docs/plans/mcp-integrations.md §4.1). A server
   // the target already has under the same slug, or a connection they already hold, wins.
   moved += (await db.run(sql`
-    UPDATE integration SET owner_key = ${toKey} WHERE owner_key = ${fromKey}${inScope(sql`organization_id`)}
+    UPDATE integration SET created_by = ${toKey} WHERE created_by = ${fromKey}${inScope(sql`organization_id`)}
       AND NOT EXISTS (
         SELECT 1 FROM integration AS kept WHERE kept.organization_id = integration.organization_id
-          AND kept.owner_key = ${toKey} AND kept.slug = integration.slug
+          AND kept.created_by = ${toKey} AND kept.slug = integration.slug
       )
   `)).changes
-  moved += (await db.run(sql`UPDATE integration SET created_by = ${toKey} WHERE created_by = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   const connectionsInScope = scope === 'local' ? sql` AND integration_id IN (SELECT id FROM integration WHERE organization_id = ${LOCAL_ORGANIZATION_ID})` : sql``
   moved += (await db.run(sql`
     DELETE FROM integration_connection WHERE user_id = ${fromKey}${connectionsInScope} AND EXISTS (

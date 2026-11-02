@@ -181,11 +181,12 @@ export const deliveryQueue = defineTable('delivery_queue', {
   key: text({ notNull: true }),
   payload: json({ notNull: true }),
   organization_id: text({ notNull: true }),
-  actor_user_id: text({ notNull: true, default: '' }),
+  /** The person whose delegated token delivers the row; '' is the person who linked the host. */
+  user_id: text({ notNull: true, default: '' }),
   error: text(),
 }, {
   indexes: [
-    { name: 'delivery_queue_by_destination', columns: ['organization_id', 'actor_user_id', 'seq'] },
+    { name: 'delivery_queue_by_destination', columns: ['organization_id', 'user_id', 'seq'] },
     { name: 'delivery_queue_by_key', columns: ['kind', 'key'] },
   ],
 })
@@ -238,7 +239,8 @@ export const automations = defineTable('automations', {
   created_at: bigint(),
   updated_at: bigint(),
   organization_id: text({ notNull: true, default: 'local' }),
-  owner_key: text({ notNull: true, default: '' }),
+  /** The user id of who made the automation (plans/029 decision 2): also its owner. */
+  created_by: text({ notNull: true }),
 })
 
 export const automationRuns = defineTable('automation_runs', {
@@ -272,18 +274,18 @@ export const browserProfiles = defineTable('browser_profiles', {
 export const integration = defineTable('integration', {
   id: text({ primaryKey: true }),
   organization_id: text({ notNull: true }),
-  owner_key: text({ notNull: true }),
+  /** The user id of who made the record (plans/029 decision 2): the one person who reads and changes it. */
+  created_by: text({ notNull: true }),
   kind: text({ notNull: true }),
   slug: text({ notNull: true }),
   name: text({ notNull: true }),
   url: text({ notNull: true }),
   auth: json({ notNull: true }),
   disabled_tools: json({ notNull: true, default: '[]' }),
-  created_by: text(),
   created_at: text({ notNull: true }),
   updated_at: text({ notNull: true }),
 }, {
-  indexes: [{ name: 'integration_slug', columns: ['organization_id', 'owner_key', 'slug'], unique: true }],
+  indexes: [{ name: 'integration_slug', columns: ['organization_id', 'created_by', 'slug'], unique: true }],
 })
 
 export const integrationConnection = defineTable('integration_connection', {
@@ -301,10 +303,11 @@ export const integrationConnection = defineTable('integration_connection', {
 export const notificationPrObservations = defineTable('notification_pr_observations', {
   authority: text({ notNull: true }),
   repo: text({ notNull: true }),
-  recipient_key: text({ notNull: true }),
+  /** The person whose pending reviews and assignments the row remembers. */
+  user_id: text({ notNull: true }),
   pending: json({ notNull: true }),
   observed_at: bigint({ notNull: true }),
-}, { primaryKey: ['authority', 'repo', 'recipient_key'] })
+}, { primaryKey: ['authority', 'repo', 'user_id'] })
 
 export const savedMetricsQueries = defineTable('saved_metrics_queries', {
   id: text({ primaryKey: true }),

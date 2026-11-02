@@ -9,7 +9,7 @@ CREATE TABLE "acl_entry" (
 	"link_secret" text,
 	"actions" text,
 	"expires_at" bigint,
-	"granted_by_user_id" text NOT NULL,
+	"created_by" text NOT NULL,
 	"created_at" bigint NOT NULL,
 	"granted_at" bigint,
 	"granted_by_name" text,
@@ -25,8 +25,8 @@ CREATE TABLE "activity" (
 	"turn_id" text,
 	"kind" text NOT NULL,
 	"by_kind" text NOT NULL,
-	"by_user_key" text,
-	"target_user_key" text,
+	"created_by" text,
+	"user_id" text,
 	"by" text NOT NULL,
 	"data" text DEFAULT '{}' NOT NULL
 );
@@ -102,7 +102,7 @@ CREATE TABLE "insight_spans" (
 CREATE TABLE "notifications" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text NOT NULL,
-	"recipient_key" text NOT NULL,
+	"user_id" text NOT NULL,
 	"event_id" text NOT NULL,
 	"activity_id" text,
 	"kind" text NOT NULL,
@@ -151,10 +151,10 @@ CREATE TABLE "plan_index_providers" (
 CREATE TABLE "runner_delivery_cursors" (
 	"organization_id" text NOT NULL,
 	"host_id" text NOT NULL,
-	"actor_user_id" text DEFAULT '' NOT NULL,
+	"user_id" text DEFAULT '' NOT NULL,
 	"last_seq" bigint DEFAULT 0 NOT NULL,
 	"updated_at" bigint NOT NULL,
-	CONSTRAINT "runner_delivery_cursors_organization_id_host_id_actor_user_id_pk" PRIMARY KEY("organization_id","host_id","actor_user_id")
+	CONSTRAINT "runner_delivery_cursors_organization_id_host_id_user_id_pk" PRIMARY KEY("organization_id","host_id","user_id")
 );
 --> statement-breakpoint
 CREATE TABLE "session_admissions" (
@@ -291,8 +291,7 @@ CREATE TABLE "task_comments" (
 --> statement-breakpoint
 CREATE TABLE "task_counters" (
 	"name" text PRIMARY KEY NOT NULL,
-	"value" integer NOT NULL,
-	"organization_id" text DEFAULT 'local' NOT NULL
+	"value" integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "task_external_links" (
@@ -377,7 +376,7 @@ CREATE TABLE "tasks" (
 	"last_read_at" bigint,
 	"location" text,
 	"organization_id" text DEFAULT 'local' NOT NULL,
-	"owner_key" text NOT NULL,
+	"created_by" text NOT NULL,
 	CONSTRAINT "tasks_short_id_unique" UNIQUE("short_id")
 );
 --> statement-breakpoint
@@ -410,14 +409,14 @@ CREATE TABLE "webhook_deliveries" (
 CREATE TABLE "webhooks" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text DEFAULT 'local' NOT NULL,
-	"owner_key" text NOT NULL,
+	"created_by" text NOT NULL,
 	"name" text NOT NULL,
 	"enabled" boolean DEFAULT true NOT NULL,
 	"project" text,
 	"verification" text NOT NULL,
 	"replay_key" text,
 	"actions" text NOT NULL,
-	"created_by" text NOT NULL,
+	"author" text NOT NULL,
 	"copied_url_hash" text,
 	"lost_count" integer DEFAULT 0 NOT NULL,
 	"lost_at" bigint,
@@ -519,7 +518,7 @@ CREATE TABLE "works" (
 	"content_author" text,
 	"previous_revision_id" integer,
 	"location" text,
-	"owner_key" text NOT NULL
+	"created_by" text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "workspace_projects" (
@@ -528,8 +527,7 @@ CREATE TABLE "workspace_projects" (
 	"repository_key" text NOT NULL,
 	"display_name" text NOT NULL,
 	"default_branch" text,
-	"owner_key" text NOT NULL,
-	"created_by" text,
+	"created_by" text NOT NULL,
 	"created_at" bigint NOT NULL
 );
 --> statement-breakpoint
@@ -547,7 +545,7 @@ CREATE UNIQUE INDEX "acl_entry_subject" ON "acl_entry" USING btree ("resource_ki
 CREATE INDEX "acl_entry_secret_idx" ON "acl_entry" USING btree ("link_secret_hash") WHERE link_secret_hash IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "acl_entry_by_subject" ON "acl_entry" USING btree ("subject_kind","subject_id","resource_kind","resource_id");--> statement-breakpoint
 CREATE INDEX "activity_by_subject" ON "activity" USING btree ("subject_kind","subject_id","at","id");--> statement-breakpoint
-CREATE INDEX "activity_for_user" ON "activity" USING btree ("target_user_key","at","id");--> statement-breakpoint
+CREATE INDEX "activity_for_user" ON "activity" USING btree ("user_id","at","id");--> statement-breakpoint
 CREATE INDEX "indexed_plans_by_project" ON "indexed_plans" USING btree ("provider","project_root","timestamp" desc);--> statement-breakpoint
 CREATE INDEX "indexed_plans_by_session" ON "indexed_plans" USING btree ("session_id");--> statement-breakpoint
 CREATE INDEX "indexed_plans_by_thread" ON "indexed_plans" USING btree ("provider","thread_id");--> statement-breakpoint
@@ -560,8 +558,8 @@ CREATE INDEX "insight_turns_session_page" ON "insight_spans" USING btree ("organ
 CREATE INDEX "insight_turns_provider_page" ON "insight_spans" USING btree ("organization_id","provider","started_at" desc,"host_id" desc,"trace_id" desc) WHERE kind = 'turn' AND span_id = trace_id;--> statement-breakpoint
 CREATE INDEX "insight_spans_trace_idx" ON "insight_spans" USING btree ("organization_id","host_id","trace_id");--> statement-breakpoint
 CREATE INDEX "insight_spans_time_idx" ON "insight_spans" USING btree ("started_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "notifications_event" ON "notifications" USING btree ("organization_id","recipient_key","event_id");--> statement-breakpoint
-CREATE INDEX "notifications_for_recipient" ON "notifications" USING btree ("recipient_key","created_at","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "notifications_event" ON "notifications" USING btree ("organization_id","user_id","event_id");--> statement-breakpoint
+CREATE INDEX "notifications_for_user" ON "notifications" USING btree ("user_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "notifications_by_resource" ON "notifications" USING btree ("organization_id","resource_key");--> statement-breakpoint
 CREATE INDEX "operation_receipts_expiry" ON "operation_receipts" USING btree ("expires_at","scope","namespace","key") WHERE expires_at IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "session_pull_requests_by_pull_request" ON "session_pull_requests" USING btree ("repository","number");--> statement-breakpoint
@@ -586,7 +584,7 @@ CREATE INDEX "tasks_api_page" ON "tasks" USING btree ("organization_id","created
 CREATE INDEX "tasks_api_project_page" ON "tasks" USING btree ("organization_id","project_key","created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "tasks_api_status_page" ON "tasks" USING btree ("organization_id","status","created_at" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "webhook_deliveries_by_webhook" ON "webhook_deliveries" USING btree ("webhook_id","arrived_at","id");--> statement-breakpoint
-CREATE INDEX "webhooks_by_owner" ON "webhooks" USING btree ("organization_id","owner_key");--> statement-breakpoint
+CREATE INDEX "webhooks_by_creator" ON "webhooks" USING btree ("organization_id","created_by");--> statement-breakpoint
 CREATE INDEX "webhooks_by_project" ON "webhooks" USING btree ("project");--> statement-breakpoint
 CREATE INDEX "work_reviewers_reviewer" ON "work_reviewers" USING btree ("reviewer_id","requested_at" desc);--> statement-breakpoint
 CREATE INDEX "work_storage_due" ON "work_storage" USING btree ("provider","due_at") WHERE due_at IS NOT NULL;--> statement-breakpoint

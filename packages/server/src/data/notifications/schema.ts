@@ -9,7 +9,8 @@ import { bigint, defineTable, json, text } from '../../db/schema/define-table'
 export const notifications = defineTable('notifications', {
   id: text({ primaryKey: true }),
   organization_id: text({ notNull: true }),
-  recipient_key: text({ notNull: true }),
+  /** The recipient: the person the row is for (plans/029 decision 2). */
+  user_id: text({ notNull: true }),
   event_id: text({ notNull: true }),
   activity_id: text(),
   kind: text({ notNull: true }),
@@ -24,9 +25,9 @@ export const notifications = defineTable('notifications', {
   archived_at: bigint(),
 }, {
   indexes: [
-    { name: 'notifications_event', columns: ['organization_id', 'recipient_key', 'event_id'], unique: true },
+    { name: 'notifications_event', columns: ['organization_id', 'user_id', 'event_id'], unique: true },
     // Read newest first; both engines scan this index backwards for that order.
-    { name: 'notifications_for_recipient', columns: ['recipient_key', 'created_at', 'id'] },
+    { name: 'notifications_for_user', columns: ['user_id', 'created_at', 'id'] },
     { name: 'notifications_by_resource', columns: ['organization_id', 'resource_key'] },
   ],
 })

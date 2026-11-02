@@ -91,6 +91,31 @@ oldest expiry first, through the partial index `operation_receipts_expiry`; a
 row with no expiry is never swept. A webhook's receipts are deleted with it, by
 scope.
 
+## Person columns
+
+Two columns name a person, and no other column does
+(plans/029-fresh-database-baseline.md decision 2; `tests/unit/data-model-identity.test.ts`
+checks every table of both baselines).
+
+- `created_by TEXT NOT NULL`: the user id of who made the row, set from the
+  verified acting identity (`ownerKeyOf`), never from a client value. Ownership
+  never transfers, so it is also the owner: `visibleTo` and `roleOf` read it
+  on `tasks`, `works`, `webhooks`, `automations`, `integration`,
+  `workspace_projects`, and `browser_profiles`; on `acl_entry` it is who made
+  the grant; on `activity` it is the acting person, null when no person acted.
+- `user_id`: the person a row is *for*, only where that can differ from the
+  creator: `notifications` (the recipient), `activity` (who was mentioned or
+  shared with), `delivery_queue` and `runner_delivery_cursors` (whose token
+  delivers), `notification_pr_observations`, `integration_connection`, and
+  `member_folder`.
+
+Display attribution is JSON and never a person column: `webhooks.author`,
+`works.content_author`, `work_revisions.author`, `activity.by`,
+`notifications.by`, and `acl_entry.granted_by_name` beside `created_by`.
+Internal rows (cursors, mirrors, queues, receipts, caches, derived rows, FTS
+tables) carry no creator and reach ownership through their parent; the test
+lists them by name.
+
 ## Index rules
 
 - Every index has a reader. Before you add an index, name the query that uses

@@ -54,16 +54,16 @@ const cursorRowSchema = z.object({ last_seq: z.number() })
 async function readCursor(db: Db, runner: RunnerPrincipal): Promise<number> {
   const row = cursorRowSchema.nullish().parse(await db.get(sql`
     SELECT last_seq FROM ${runnerDeliveryCursors}
-    WHERE organization_id = ${runner.organizationId} AND host_id = ${runner.hostId} AND actor_user_id = ${runner.ownerUserId}
+    WHERE organization_id = ${runner.organizationId} AND host_id = ${runner.hostId} AND user_id = ${runner.ownerUserId}
   `))
   return row?.last_seq ?? 0
 }
 
 async function writeCursor(db: Db, runner: RunnerPrincipal, seq: number): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${runnerDeliveryCursors} (organization_id, host_id, actor_user_id, last_seq, updated_at)
+    INSERT INTO ${runnerDeliveryCursors} (organization_id, host_id, user_id, last_seq, updated_at)
     VALUES (${runner.organizationId}, ${runner.hostId}, ${runner.ownerUserId}, ${seq}, ${Date.now()})
-    ON CONFLICT (organization_id, host_id, actor_user_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at = excluded.updated_at
+    ON CONFLICT (organization_id, host_id, user_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at = excluded.updated_at
   `)
 }
 

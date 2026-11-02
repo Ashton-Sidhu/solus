@@ -101,7 +101,7 @@ export class WorkApiOperations {
     query = workspaceWorkQuerySchema.parse(query)
     requireScope(context, 'works:read')
     const filters = [scopeClause(apiScope(context), sql`works.organization_id`),
-      workspaceResourceVisibility(context.principal, 'work', { id: sql`works.id`, organization: sql`works.organization_id`, owner: sql`works.owner_key` }),
+      workspaceResourceVisibility(context.principal, 'work', { id: sql`works.id`, organization: sql`works.organization_id`, owner: sql`works.created_by` }),
       seekClause(sql`works.created_at`, sql`works.id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`cwd = ${await projectKeyForId(context, query.projectId)}`)
     if (query.type) filters.push(sql`type = ${query.type}`)

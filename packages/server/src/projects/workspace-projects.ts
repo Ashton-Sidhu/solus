@@ -27,14 +27,13 @@ const projectRowSchema = z.object({
   display_name: z.string(),
   default_branch: z.string().nullable(),
   organization_id: z.string(),
-  owner_key: z.string(),
-  created_by: z.string().nullable(),
+  created_by: z.string(),
   created_at: z.number(),
 })
 
 type ProjectRow = z.infer<typeof projectRowSchema>
 
-const PROJECT_COLUMNS = sql`id, repository_key, display_name, default_branch, organization_id, owner_key, created_by, created_at`
+const PROJECT_COLUMNS = sql`id, repository_key, display_name, default_branch, organization_id, created_by, created_at`
 
 function projectFromRow(row: ProjectRow, reader: Actor): WorkspaceProject {
   return {
@@ -44,7 +43,7 @@ function projectFromRow(row: ProjectRow, reader: Actor): WorkspaceProject {
     defaultBranch: row.default_branch,
     createdBy: row.created_by,
     createdAt: row.created_at,
-    role: roleOf(reader, { kind: 'project', id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key, acl: [] }),
+    role: roleOf(reader, { kind: 'project', id: row.id, organizationId: row.organization_id, ownerKey: row.created_by, acl: [] }),
   }
 }
 
@@ -91,7 +90,6 @@ export async function addWorkspaceProject(
   organizationId: string,
   request: WorkspaceProjectAddRequest,
   adder: Actor,
-  createdBy: string | null,
 ): Promise<WorkspaceProject> {
   const repositoryKey = canonicalRepositoryKey(request.repositoryKey)
   if (!repositoryKey) throw new Error(`"${request.repositoryKey}" does not name a hosted repository.`)
@@ -104,8 +102,8 @@ export async function addWorkspaceProject(
   // A concurrent add of the same repository loses to the unique index and
   // reads back the winner's row.
   await getDatabase().run(sql`
-    INSERT INTO ${workspaceProjects} (id, organization_id, repository_key, display_name, default_branch, owner_key, created_by, created_at)
-    VALUES (${projectId}, ${organizationId}, ${repositoryKey}, ${displayName}, NULL, ${ownerKey}, ${createdBy}, ${now})
+    INSERT INTO ${workspaceProjects} (id, organization_id, repository_key, display_name, default_branch, created_by, created_at)
+    VALUES (${projectId}, ${organizationId}, ${repositoryKey}, ${displayName}, NULL, ${ownerKey}, ${now})
     ON CONFLICT (organization_id, repository_key) DO NOTHING
   `)
   const stored = await findByRepositoryKey(organizationId, repositoryKey, adder)

@@ -64,7 +64,7 @@ export class TaskApiOperations {
     query = workspaceTaskQuerySchema.parse(query)
     requireScope(context, 'tasks:read')
     const filters = [scopeClause(apiScope(context), sql`tasks.organization_id`),
-      workspaceResourceVisibility(context.principal, 'task', { id: sql`tasks.id`, organization: sql`tasks.organization_id`, owner: sql`tasks.owner_key` }),
+      workspaceResourceVisibility(context.principal, 'task', { id: sql`tasks.id`, organization: sql`tasks.organization_id`, owner: sql`tasks.created_by` }),
       seekClause(sql`tasks.created_at`, sql`tasks.id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`tasks.project_key = ${await projectKeyForId(context, query.projectId)}`)
     if (query.projectKey !== undefined) filters.push(sql`tasks.project_key = ${query.projectKey}`)

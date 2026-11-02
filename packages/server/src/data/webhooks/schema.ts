@@ -9,14 +9,16 @@ import { bigint, boolean, defineTable, integer, json, text } from '../../db/sche
 export const webhooks = defineTable('webhooks', {
   id: text({ primaryKey: true }),
   organization_id: text({ notNull: true, default: 'local' }),
-  owner_key: text({ notNull: true }),
+  /** The user id of who made the webhook (plans/029 decision 2): also its owner, who it runs as. */
+  created_by: text({ notNull: true }),
   name: text({ notNull: true }),
   enabled: boolean({ notNull: true, default: true }),
   project: text(),
   verification: json({ notNull: true }),
   replay_key: text(),
   actions: json({ notNull: true }),
-  created_by: json({ notNull: true }),
+  /** `Attribution` JSON of who made it, for display: the agent or automation, and who it acted for. */
+  author: json({ notNull: true }),
   copied_url_hash: text(),
   /** Requests the forwarder lost while the host was offline (plan §2.3), summed over drains. */
   lost_count: integer({ notNull: true, default: 0 }),
@@ -25,7 +27,7 @@ export const webhooks = defineTable('webhooks', {
   updated_at: bigint({ notNull: true }),
 }, {
   indexes: [
-    { name: 'webhooks_by_owner', columns: ['organization_id', 'owner_key'] },
+    { name: 'webhooks_by_creator', columns: ['organization_id', 'created_by'] },
     { name: 'webhooks_by_project', columns: ['project'] },
   ],
 })

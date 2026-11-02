@@ -294,7 +294,7 @@ export async function readSessionListPage(where: SQL, limit: number, time: 'crea
 async function readPage(from: SQL, where: SQL, listed: SQL, limit: number, time: 'created_at' | 'last_activity_at', reader: SessionPageReader): Promise<SessionRecord[]> {
   const rows = recordWithStateRowSchema.array().parse(await getDatabase().all(sql`
     SELECT ${RECORD_WITH_STATE_COLUMNS},
-      ${directShare(reader, sql`acl.granted_by_user_id`)} AS shared_by, ${directShare(reader, GRANTED_AT)} AS granted_at,
+      ${directShare(reader, sql`acl.created_by`)} AS shared_by, ${directShare(reader, GRANTED_AT)} AS granted_at,
       ${listed} AS listed
     ${from}
     LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
