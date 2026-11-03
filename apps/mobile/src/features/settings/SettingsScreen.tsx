@@ -17,7 +17,7 @@ import { APPEARANCE_LABELS, SYNC_STATE_LABELS } from "./lib/settings-labels";
 /**
  * Settings by owner (plans/018 §7), in T3's settings layout: this device's
  * connections; yours, which follow you to every host and, with sync, every
- * device; each organization's; and each host's own. Personal settings need no
+ * device; the policies that lock them; and each host's own. Personal settings need no
  * host.
  */
 export function SettingsScreen(props: ScreenProps<"Settings">) {
@@ -128,17 +128,15 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
           />
         </SettingsSection>
 
-        {account.kind === "signed-in" ? (
-          <SettingsSection title="Organization">
+        {hosts.length > 0 ? (
+          <SettingsSection title="Policy">
             <SettingsRow
-              icon="person.2"
-              label="Organization"
-              value={organizationName}
+              icon="lock"
+              label="Policy"
+              value={organizationName ?? "Personal"}
+              accessibilityHint="What your organization and this host's administrator lock"
               onPress={() =>
-                navigation.navigate(
-                  "OrganizationSettings",
-                  organizationId ? { organizationId } : undefined,
-                )
+                navigation.navigate("Policy", organizationId ? { organizationId } : undefined)
               }
             />
           </SettingsSection>

@@ -1,5 +1,6 @@
 import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStarterFromHost, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
+import type { SessionPolicy } from '@solus/client-core/policy'
 import { setupActivityLabel } from '@solus/contracts/setup-card'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
@@ -45,7 +46,14 @@ export interface ConversationMeta {
   run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode }
   /** What the next prompt may choose: Auto before the host starts the
    *  session, and the permission modes the agent's host reports. */
-  runOptions: { canRoute: boolean; autoNeedsKey: boolean; capabilities: AgentCapabilities; agents: readonly AgentMetadata[] | null }
+  runOptions: {
+    canRoute: boolean
+    autoNeedsKey: boolean
+    capabilities: AgentCapabilities
+    agents: readonly AgentMetadata[] | null
+    /** What the work's policy allows on its host (plans/030 §7): the pickers disable the rest, with the reason. */
+    policy: SessionPolicy
+  }
 }
 
 export class ConversationStore {
@@ -163,6 +171,7 @@ export class ConversationStore {
         autoNeedsKey: this.controller.autoNeedsKey,
         capabilities: this.controller.capabilitiesOf(this.controller.run.provider),
         agents: this.controller.agents,
+        policy: this.controller.policy,
       },
     }
   }

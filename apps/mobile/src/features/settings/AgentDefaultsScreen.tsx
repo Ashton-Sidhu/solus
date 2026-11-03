@@ -18,6 +18,8 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { RATE_LIMIT_CHOICES } from "./lib/settings-labels";
+import { PolicyLockNote } from "../policy/PolicyLockNote";
+import { useManagedSettingLines, usePermissionCeilingLines } from "../policy/use-host-policy";
 
 /**
  * What a new session starts with and how its runs behave. These are the
@@ -34,6 +36,10 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
   const defaultPermissionMode = useListened(changes, () => current().defaultPermissionMode);
   const rateLimitBehavior = useListened(changes, () => current().rateLimitBehavior);
   const autoRenameSessions = useListened(changes, () => current().autoRenameSessions);
+  // A policy locks these on its hosts; new sessions there start at the ceiling (plans/030 §7).
+  const defaultModeLines = useManagedSettingLines("defaultPermissionMode");
+  const ceilingLines = usePermissionCeilingLines();
+  const rateLimitLines = useManagedSettingLines("rateLimitBehavior");
   const update = (patch: PersonalSettingsDocument) => {
     app.personal.set(patch);
   };
@@ -73,6 +79,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
               />
             ))}
           </SettingsSection>
+          <PolicyLockNote lines={[...defaultModeLines, ...ceilingLines]} />
           <SettingsNote>How much a new session may do without asking you.</SettingsNote>
         </View>
 
@@ -88,6 +95,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
               />
             ))}
           </SettingsSection>
+          <PolicyLockNote lines={rateLimitLines} />
           <SettingsNote>What your runs do when they hit a provider rate limit.</SettingsNote>
         </View>
 

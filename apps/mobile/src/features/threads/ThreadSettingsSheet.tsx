@@ -37,6 +37,7 @@ import {
   ChoiceRow,
 } from "./ThreadSettingsRows";
 import type { ConversationStore } from "../conversation/conversation-store";
+import type { SessionPolicy } from "@solus/client-core/policy";
 import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
 import {
   canChoosePermissionMode,
@@ -86,6 +87,8 @@ interface ThreadSettingsSessionProps {
   readonly permissionMode: PermissionMode;
   /** What the session's agent reports it can do; unknown allows every mode. */
   readonly capabilities: AgentCapabilities;
+  /** The work's policy on its host: modes above its ceiling are disabled, with the reason. */
+  readonly policy: SessionPolicy;
   /** Auto is offered only before the host starts the session. */
   readonly canRoute: boolean;
   readonly autoNeedsKey: boolean;
@@ -98,7 +101,7 @@ interface ThreadSettingsSessionProps {
 
 function stagedPickIsOffered(option: ModelOption, props: ThreadSettingsSessionProps): boolean {
   if (option.model === AUTO_MODEL_ID) return props.canRoute && !props.autoNeedsKey;
-  return props.providerGroups.some(
+  return !option.policyDenial && props.providerGroups.some(
     (group) => group.providerKey === option.provider && !group.unavailableReason,
   );
 }
@@ -174,7 +177,7 @@ function ThreadSettingsSessionProvider(
     () => (props.canRoute ? autoModelOption(props.selectedProvider) : null),
     [props.canRoute, props.selectedProvider],
   );
-  const permissionChoices = useMemo(() => permissionModeChoices(props.capabilities), [props.capabilities]);
+  const permissionChoices = useMemo(() => permissionModeChoices(props.capabilities, props.policy), [props.capabilities, props.policy]);
 
   const hasLegacyModels = useMemo(
     () => props.providerGroups.some((group) => group.models.some((model) => model.isLegacy)),
@@ -601,6 +604,7 @@ function ThreadSettingsChoiceContent(props: {
           label: choice.label,
           description: choice.description,
           icon: PERMISSION_MODE_ICON[choice.mode],
+          disabledReason: choice.policyDenial,
           selected: choice.mode === session.permissionMode,
           onPress: () => {
             void Haptics.selectionAsync();
@@ -613,6 +617,7 @@ function ThreadSettingsChoiceContent(props: {
           label: effortLabel(effort),
           description: undefined,
           icon: undefined,
+          disabledReason: null,
           selected: effort === session.displayedEffort,
           onPress: () => {
             void Haptics.selectionAsync();
@@ -645,6 +650,7 @@ function ThreadSettingsChoiceContent(props: {
             icon={row.icon}
             isLast={index === rows.length - 1}
             label={row.label}
+            disabledReason={row.disabledReason}
             selected={row.selected}
             onPress={row.onPress}
           />
@@ -912,8 +918,9 @@ function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; 
         currentModel: meta.run.model,
         canSwitchProvider: meta.run.provider !== "opencode",
         agents: meta.runOptions.agents,
+        policy: meta.runOptions.policy,
       }),
-    [meta.run.model, meta.run.provider, meta.runOptions.agents],
+    [meta.run.model, meta.run.provider, meta.runOptions.agents, meta.runOptions.policy],
   );
   const onSelectModel = useCallback(
     (option: ModelOption, effort: ReasoningEffort | null, fastMode: boolean | null) => {
@@ -936,6 +943,7 @@ function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; 
       fastMode={meta.run.fastMode}
       permissionMode={meta.run.permissionMode}
       capabilities={meta.runOptions.capabilities}
+      policy={meta.runOptions.policy}
       canRoute={meta.runOptions.canRoute}
       autoNeedsKey={meta.runOptions.autoNeedsKey}
       onSelectModel={onSelectModel}

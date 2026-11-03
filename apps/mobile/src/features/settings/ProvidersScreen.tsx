@@ -17,6 +17,8 @@ import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
+import { PolicyLockNote } from "../policy/PolicyLockNote";
+import { useManagedSettingLines } from "../policy/use-host-policy";
 
 export function ProvidersScreen({ navigation }: ScreenProps<"Providers">) {
   const app = useApp();
@@ -117,6 +119,7 @@ function ModelInstructions({ modelId, value }: { modelId: string; value: string 
   const app = useApp();
   const [draft, setDraft] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const managedLines = useManagedSettingLines("modelInstructions");
   function save() {
     if (draft === null) return;
     const next = { ...app.personal.current().modelInstructions };
@@ -131,5 +134,6 @@ function ModelInstructions({ modelId, value }: { modelId: string; value: string 
       multiline maxLength={20000} placeholder="Instructions for this model…" textAlignVertical="top"
       className="min-h-32 px-4 py-3 text-base text-foreground" />
     {failed ? <AppText accessibilityRole="alert" className="px-4 pb-3 text-sm text-danger-foreground">These instructions could not be saved. The settings size limit was reached.</AppText> : null}
+    {managedLines.length > 0 ? <View className="pb-3"><PolicyLockNote lines={managedLines} /></View> : null}
   </SettingsSection>;
 }
