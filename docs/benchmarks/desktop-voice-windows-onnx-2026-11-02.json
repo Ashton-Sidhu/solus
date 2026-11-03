@@ -1,0 +1,135 @@
+{
+  "runtime": "current Parakeet v3 INT8 ONNX worker; model/runtime path overrides and export only",
+  "platform": "win32",
+  "cpu": "Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz",
+  "threads": 4,
+  "load_ms": 4969.867300000001,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "inference_ms": 1433.4530999999997,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 55.3,
+        "encode_ms": 1205.6,
+        "decode_ms": 168.4,
+        "tokenize_ms": 1.6
+      },
+      "resident_mb": 836.15234375,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 1,
+      "inference_ms": 1405.5051000000003,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 32.9,
+        "encode_ms": 1264.9,
+        "decode_ms": 107.3,
+        "tokenize_ms": 0.3
+      },
+      "resident_mb": 913.8828125,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 2,
+      "inference_ms": 981.634,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 25,
+        "encode_ms": 848.4,
+        "decode_ms": 108.1,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 913.796875,
+      "words": 22
+    },
+    {
+      "seconds": 60,
+      "repeat": 0,
+      "inference_ms": 8579.748500000002,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 106.7,
+        "encode_ms": 8029.1,
+        "decode_ms": 443.7,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 1405.71875,
+      "words": 117
+    },
+    {
+      "seconds": 60,
+      "repeat": 1,
+      "inference_ms": 8028.2624,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 143.6,
+        "encode_ms": 7431.1,
+        "decode_ms": 452.9,
+        "tokenize_ms": 0.6
+      },
+      "resident_mb": 1636.19921875,
+      "words": 117
+    },
+    {
+      "seconds": 60,
+      "repeat": 2,
+      "inference_ms": 7326.052200000002,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 125.4,
+        "encode_ms": 6593.3,
+        "decode_ms": 607.2,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 1641.31640625,
+      "words": 117
+    },
+    {
+      "seconds": 120,
+      "repeat": 0,
+      "inference_ms": 21040.822099999998,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 249.5,
+        "encode_ms": 19676,
+        "decode_ms": 1115,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 2083.38671875,
+      "words": 242
+    },
+    {
+      "seconds": 120,
+      "repeat": 1,
+      "inference_ms": 22892.055800000002,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 289.5,
+        "encode_ms": 21710.8,
+        "decode_ms": 891.6,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 2554.296875,
+      "words": 242
+    },
+    {
+      "seconds": 120,
+      "repeat": 2,
+      "inference_ms": 21662.679300000003,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 242.8,
+        "encode_ms": 20488.2,
+        "decode_ms": 931.4,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 2558.83984375,
+      "words": 242
+    }
+  ]
+}

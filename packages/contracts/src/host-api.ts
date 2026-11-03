@@ -1,3 +1,4 @@
+import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest } from './voice-stream'
 import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanceTarget, ProviderInstanceCode, ProviderInstanceStatus } from './provider-instances'
 import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
@@ -200,6 +201,10 @@ export interface SolusAPI {
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
   transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
+  voiceStreamStart(): Promise<{ streamId: string }>
+  voiceStreamFeed(request: VoiceStreamFeedRequest): Promise<VoicePartial>
+  voiceStreamFinish(request: VoiceStreamRequest): Promise<VoiceTranscript>
+  voiceStreamCancel(request: VoiceStreamRequest): Promise<void>
   warmTranscription(ctx?: IpcContext): Promise<void>
   voiceModelStatus(ctx?: IpcContext): Promise<VoiceModelStatus>
   voiceModelRetry(ctx?: IpcContext): Promise<VoiceModelStatus>

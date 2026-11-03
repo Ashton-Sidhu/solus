@@ -1,3 +1,5 @@
+import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
+import { VoiceStreamSession } from './voice-stream'
 import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -35,6 +37,7 @@ type DevVoiceSessionStats = {
 
 type PendingVoiceTranscription = {
   samples: Float32Array
+  host: HostApi
   startedAtIso: string | null
   listeningMs: number | null
 }
@@ -69,6 +72,9 @@ export class VoiceRecorder {
   #cancelled = false
   #capture: PcmCapture | null = null
   #buffer: Float32Array[] = []
+  #recordedSamples = 0
+  #stream: VoiceStreamSession | null = null
+  #recordingHost: HostApi | null = null
   #pendingTranscription: PendingVoiceTranscription | null = null
   #speechDetected = false
   #preRoll: Float32Array = new Float32Array()
@@ -97,6 +103,7 @@ export class VoiceRecorder {
 
   async start(): Promise<void> {
     if (this.#disposed || this.state !== 'idle' || this.starting) return
+    this.#cancelled = false
     if (this.#pendingTranscription) {
       this.#setError(null, null)
       this.#finishing = true
@@ -110,9 +117,10 @@ export class VoiceRecorder {
 
     track('voice_recording_started', {})
 
-    // The ~1s worker fork + ONNX session load overlaps the recording itself
-    // instead of adding to post-stop transcription latency.
-    void transcriptionHostApi()?.warmTranscription?.().catch(() => {})
+    // Pin the transcription device for this capture, independently of where
+    // its agent runs or a later change to Run on.
+    this.#recordingHost = transcriptionHostApi()
+    void this.#recordingHost?.warmTranscription?.().catch(() => {})
 
     let stream: MediaStream
     try {
@@ -156,13 +164,14 @@ export class VoiceRecorder {
 
   cancel(): void {
     this.#cancelled = true
+    this.#stream?.cancel()
     this.#startGeneration++
     if (this.starting) this.starting = false
     if (this.#capture) {
       void this.#finish(true)
       return
     }
-    this.#toIdle(false)
+    if (this.state !== 'transcribing') this.#toIdle(false)
   }
 
   toggle(): void {
@@ -186,6 +195,7 @@ export class VoiceRecorder {
 
   async #startCapture(stream: MediaStream, generation: number): Promise<void> {
     this.#buffer = []
+    this.#recordedSamples = 0
     this.#speechDetected = false
     this.#preRoll = new Float32Array()
     this.#finishing = false
@@ -194,6 +204,9 @@ export class VoiceRecorder {
     let speechMs = 0
     const capture = new PcmCapture(stream, (chunk) => {
       if (this.state !== 'recording' || this.#capture !== capture) return
+      this.#recordedSamples += chunk.samples.length
+      if (this.#recordedSamples > MAX_VOICE_SAMPLES) { this.stop(); return }
+      this.#stream?.feed(chunk.samples)
       const hasSpeech = this.#handleChunk(chunk)
       if (hasSpeech) {
         speechMs += chunk.samples.length / 16
@@ -224,6 +237,8 @@ export class VoiceRecorder {
       return
     }
 
+    if (hosts.transcription?.capabilityRecord?.voiceStreaming && this.#recordingHost)
+      this.#stream = new VoiceStreamSession(this.#recordingHost)
     this.state = 'recording'
     this.starting = false
     this.#recordingStartedAtMs = performance.now()
@@ -261,32 +276,50 @@ export class VoiceRecorder {
     const listeningMs = recordingStartedAtMs === null
       ? null
       : Math.round(performance.now() - recordingStartedAtMs)
-    const hadSpeech = this.#speechDetected
     this.#recordingStartedAtMs = null
     this.#recordingStartedAtIso = null
     // stop() flushes the trailing partial chunk through onChunk (buffering it)
     // and stops the mic tracks before we read the buffer.
     this.#capture.stop()
+    const hadSpeech = this.#speechDetected
     const samples = concatSamples(this.#buffer)
+    const liveStream = this.#stream
     this.#capture = null
 
     if (cancelled || !hadSpeech || samples.length === 0) {
+      liveStream?.cancel()
       this.#cleanup()
       this.#toIdle(!cancelled)
       return
     }
 
-    await this.#transcribe({ samples, startedAtIso: recordingStartedAtIso, listeningMs })
+    const host = this.#recordingHost
+    if (!host) {
+      liveStream?.cancel()
+      this.#setError('No host is connected for transcription', 'transient')
+      this.#cleanup()
+      this.#toIdle(false)
+      return
+    }
+    await this.#transcribe({ samples, host, startedAtIso: recordingStartedAtIso, listeningMs }, liveStream)
   }
 
-  async #transcribe(pending: PendingVoiceTranscription): Promise<void> {
+  async #transcribe(pending: PendingVoiceTranscription, liveStream: VoiceStreamSession | null = null): Promise<void> {
     this.state = 'transcribing'
     const transcribeStartedAt = performance.now()
     let allowAutoRearm = false
     try {
-      const host = transcriptionHostApi()
-      if (!host) throw new Error('No host is connected for transcription')
-      const result = await host.transcribeAudio(pending.samples)
+      let result
+      try {
+        result = liveStream ? await liveStream.finish() : null
+      } catch {
+        // The complete clip remains authoritative if a stream failed or lagged.
+        result = null
+      }
+      if (this.#cancelled) return
+      if (!result || result.error || !result.transcript?.trim())
+        result = await pending.host.transcribeAudio(pending.samples)
+      if (this.#cancelled) return
       this.#logDevTranscriptionSession({
         transcript: result.transcript,
         startedAtIso: pending.startedAtIso,
@@ -308,6 +341,7 @@ export class VoiceRecorder {
         }
       }
     } catch (err: any) {
+      if (this.#cancelled) return
       this.#pendingTranscription = pending
       this.#logDevTranscriptionSession({
         transcript: null,
@@ -326,6 +360,9 @@ export class VoiceRecorder {
   #cleanup(): void {
     this.#capture?.stop()
     this.#capture = null
+    this.#stream?.cancel()
+    this.#stream = null
+    this.#recordingHost = null
     this.#buffer = []
     this.#speechDetected = false
     this.#preRoll = new Float32Array()

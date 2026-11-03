@@ -188,7 +188,6 @@ export async function bundleServerEntry(entry: string, outfile: string): Promise
     '--external:electron',
     '--external:electron-updater',
     '--external:@ff-labs/fff-node',
-    '--external:onnxruntime-node',
     // Optional: the preview host resolves it at runtime, and a server installed
     // without it simply reports that it cannot render a preview page.
     '--external:playwright-core',
@@ -367,9 +366,8 @@ function writeNativeNote(staging: string): void {
   const nativeDir = join(staging, 'libexec', 'native')
   mkdirSync(nativeDir, { recursive: true })
   writeFileSync(join(nativeDir, 'README.txt'), [
-    'onnxruntime-node is intentionally not bundled. Its platform-specific loader',
-    'is not trivially copyable across release targets, and the features that',
-    'depend on it degrade through existing capability checks.',
+    'Voice transcription is supplied by the desktop native helper. The',
+    'standalone server does not advertise voice transcription.',
     '',
     '@ff-labs/fff-node (the file finder) IS shipped, at',
     'libexec/server/node_modules/@ff-labs/fff-node, with the native library for',

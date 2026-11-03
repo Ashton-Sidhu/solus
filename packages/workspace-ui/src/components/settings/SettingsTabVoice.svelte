@@ -108,7 +108,7 @@
 <SettingsSection label="Model">
   <SettingsRow
     label="Voice model"
-    description="Parakeet TDT 0.6B INT8 — {modelStatusLine}"
+    description="Parakeet Unified English 0.6B Q8 — {modelStatusLine}"
     control={modelStatus.state === "error" ? retryDownload : undefined}
     body={downloadInFlight ? downloadProgress : undefined}
   />

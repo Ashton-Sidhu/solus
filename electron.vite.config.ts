@@ -78,8 +78,7 @@ export default defineConfig(({ mode }) => {
           standalone: resolve(__dirname, 'apps/standalone-server/src/index.ts'),
           // The `solus` command that comes with the app runs this through
           // ELECTRON_RUN_AS_NODE (docs/plans/windows.md §5.12).
-          cli: resolve(__dirname, 'apps/cli/src/index.ts'),
-          'transcription-worker': resolve(__dirname, 'packages/server/src/transcription/worker.ts')
+          cli: resolve(__dirname, 'apps/cli/src/index.ts')
         },
         external: [
           'electron',
@@ -88,7 +87,6 @@ export default defineConfig(({ mode }) => {
           '@anthropic-ai/claude-agent-sdk',
           'electron-updater',
           '@homebridge/dbus-native',
-          'onnxruntime-node',
           // Optional, and resolved at runtime by the standalone server only.
           // Following it would pull a browser driver into the desktop bundle
           // and make an absent package a build failure instead of a state.

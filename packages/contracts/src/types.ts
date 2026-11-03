@@ -70,6 +70,8 @@ export interface HostCapabilities {
   skillsSearch?: boolean
   skillsManage?: boolean
   voiceModel?: boolean
+  /** This host accepts incremental 16 kHz PCM and returns partial text. */
+  voiceStreaming?: boolean
   automations?: boolean
   editors?: EditorId[]
   githubProvider?: boolean

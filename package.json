@@ -52,7 +52,8 @@
     "generate:icon": "bun scripts/generate-icon.ts",
     "generate:app-icons": "bun scripts/generate-app-icons.ts",
     "dist:linux": "bun run build:desktop && bun run build:client && electron-builder --linux --x64",
-    "dist:win": "bun run build:desktop && bun run build:client && electron-builder --win --x64"
+    "dist:win": "bun run build:desktop && bun run build:client && electron-builder --win --x64",
+    "voice:build": "bun scripts/build-transcription.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.263",
@@ -76,7 +77,6 @@
     "google-auth-library": "^11.0.2",
     "hono": "^4.13.7",
     "marked": "^18.0.11",
-    "onnxruntime-node": "^1.29.0",
     "pngjs": "^7.0.0",
     "postgres": "^3.4.9",
     "posthog-node": "^5.51.7",
@@ -110,8 +110,7 @@
     ],
     "asarUnpack": [
       "node_modules/@ff-labs/fff-bin-*/**/*",
-      "node_modules/@yuuang/ffi-rs-*/**/*",
-      "node_modules/onnxruntime-node/bin/**/*"
+      "node_modules/@yuuang/ffi-rs-*/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -149,9 +148,7 @@
         "package.json",
         "!**/*.map",
         "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/!(darwin)/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/!(${arch})/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/*/libonnxruntime.*.*.dylib"
+        "!node_modules/onnxruntime-node/**/*"
       ]
     },
     "dmg": {
@@ -180,6 +177,10 @@
       ],
       "extraResources": [
         {
+          "from": "build/transcription/bin",
+          "to": "transcription"
+        },
+        {
           "from": "packaging/windows/path-entry.ps1",
           "to": "path-entry.ps1"
         }
@@ -193,9 +194,8 @@
         "package.json",
         "!**/*.map",
         "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/!(win32)/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/win32/!(${arch})/**/*",
-        "!node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**/*"
+        "!node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**/*",
+        "!node_modules/onnxruntime-node/**/*"
       ]
     },
     "nsis": {
@@ -233,12 +233,18 @@
         "package.json",
         "!**/*.map",
         "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/!(linux)/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/linux/!(${arch})/**/*",
         "!node_modules/@ff-labs/fff-bin-*-musl/**/*",
-        "!node_modules/@yuuang/ffi-rs-*-musl/**/*"
+        "!node_modules/@yuuang/ffi-rs-*-musl/**/*",
+        "!node_modules/onnxruntime-node/**/*"
       ]
-    }
+    },
+    "beforePack": "./scripts/beforePack.js",
+    "extraResources": [
+      {
+        "from": "build/transcription/bin",
+        "to": "transcription"
+      }
+    ]
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",

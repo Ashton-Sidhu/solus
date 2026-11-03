@@ -1,3 +1,4 @@
+import { voiceStreamIdSchema, voiceStreamFeedSchema } from '@solus/contracts/voice-stream'
 import { dialog, shell } from 'electron'
 import { takeDesktopScreenshot } from '../../capture/screenshot'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
@@ -9,7 +10,7 @@ import type { AgentId, DetectedEditor } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
 import { IMAGE_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@solus/contracts/media-types'
-import { transcribeAudio, warmTranscription } from '@solus/desktop-main/transcription'
+import { transcribeAudio, warmTranscription, startVoiceStream, feedVoiceStream, finishVoiceStream, cancelVoiceStream } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '@solus/server/model-downloader'
 import { desktopPlatform } from '@solus/desktop-main/platform/desktop-platform'
@@ -180,6 +181,24 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     return transcribeAudio(readWav(Buffer.from(audio, 'base64')))
   })
 
+  server.register('voiceStreamStart', async (_args, ctx) => {
+    const contents = deps.getWorkspaceWindow()?.webContents
+    const streamId = await startVoiceStream(ctx.clientId, () => {
+      if (contents && !contents.isDestroyed()) contents.setBackgroundThrottling(true)
+    })
+    // An active capture must keep consuming worklet packets while minimized.
+    if (contents && !contents.isDestroyed()) contents.setBackgroundThrottling(false)
+    return { streamId }
+  })
+  server.register('voiceStreamFeed', async ([request], ctx) => {
+    const { streamId, samples } = voiceStreamFeedSchema.parse(request)
+    return feedVoiceStream(ctx.clientId, streamId, Float32Array.from(samples))
+  })
+  server.register('voiceStreamFinish', ([request], ctx) =>
+    finishVoiceStream(ctx.clientId, voiceStreamIdSchema.parse(request).streamId))
+  server.register('voiceStreamCancel', ([request], ctx) => {
+    cancelVoiceStream(ctx.clientId, voiceStreamIdSchema.parse(request).streamId)
+  })
   server.register('warmTranscription', () => warmTranscription())
 
   server.register('voiceModelStatus', () => getVoiceModelStatus())

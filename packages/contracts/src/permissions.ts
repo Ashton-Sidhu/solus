@@ -194,6 +194,7 @@ const PERMISSION_OF_METHOD = {
   // Written out, not a default, so a new method names its action before it compiles.
   saveFileDialog: HOST_USE, openExternal: HOST_USE, openInTerminal: HOST_USE, resolveTerminal: HOST_USE,
   assetUpload: HOST_USE, assetCreateUrl: HOST_USE, assetFindUrl: HOST_USE, transcribeAudio: HOST_USE,
+  voiceStreamStart: HOST_USE, voiceStreamFeed: HOST_USE, voiceStreamFinish: HOST_USE, voiceStreamCancel: HOST_USE,
   warmTranscription: HOST_USE, voiceModelStatus: HOST_USE, voiceModelRetry: HOST_USE,
   logVoiceTranscription: HOST_USE, codeIntelSymbolAt: HOST_USE, codeIntelReferences: HOST_USE,
   codeIntelDocs: HOST_USE, codeIntelStatus: HOST_USE, codeIntelReindex: HOST_USE, workspaceProjectList: HOST_USE,

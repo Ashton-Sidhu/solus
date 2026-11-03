@@ -1,0 +1,75 @@
+{
+  "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+  "machine": "x86_64",
+  "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+  "fixture": "whisper.cpp JFK, repeated for longer clips; artificial repetition is not an accuracy benchmark",
+  "paced": false,
+  "load_ms": 182.37,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "begin_ms": 0.16,
+      "stream_compute_ms": 922.33,
+      "finish_ms": 918.04,
+      "feed_p95_ms": 0.1,
+      "offline_ms": 942.31,
+      "partial_updates": 0,
+      "first_partial_ms": null,
+      "resident_mb": 1062.9,
+      "transcript_words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 1,
+      "begin_ms": 0.16,
+      "stream_compute_ms": 935.99,
+      "finish_ms": 930.33,
+      "feed_p95_ms": 0.19,
+      "offline_ms": 921.14,
+      "partial_updates": 0,
+      "first_partial_ms": null,
+      "resident_mb": 1062.9,
+      "transcript_words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 2,
+      "begin_ms": 0.16,
+      "stream_compute_ms": 1041.84,
+      "finish_ms": 1036.55,
+      "feed_p95_ms": 0.13,
+      "offline_ms": 972.1,
+      "partial_updates": 0,
+      "first_partial_ms": null,
+      "resident_mb": 1062.9,
+      "transcript_words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 3,
+      "begin_ms": 0.11,
+      "stream_compute_ms": 963.28,
+      "finish_ms": 958.98,
+      "feed_p95_ms": 0.1,
+      "offline_ms": 937.88,
+      "partial_updates": 0,
+      "first_partial_ms": null,
+      "resident_mb": 1062.9,
+      "transcript_words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 4,
+      "begin_ms": 0.09,
+      "stream_compute_ms": 908.16,
+      "finish_ms": 903.81,
+      "feed_p95_ms": 0.13,
+      "offline_ms": 974.26,
+      "partial_updates": 0,
+      "first_partial_ms": null,
+      "resident_mb": 1062.9,
+      "transcript_words": 22
+    }
+  ]
+}
