@@ -8,6 +8,7 @@
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsTextField from "./SettingsTextField.svelte";
 
   let { provider, label, description, modelProfiles }: { provider: AgentId; label: string; description?: string; modelProfiles?: Record<string, ModelProfile> } = $props();
@@ -70,7 +71,7 @@
         {/snippet}
       </SettingsRow>
     {/if}
-    <SettingsRow label="Model instructions" description="Added whenever this model runs, including existing sessions.">
+    <SettingsRow label="Model instructions" managed={managedSetting("modelInstructions")} description="Added whenever this model runs, including existing sessions.">
       {#snippet body()}
         <SettingsTextField label="{label} model instructions" value={settings.modelInstructions[modelId] ?? ""} onValueChange={setInstructions} placeholder="Run the tests before you finish. Keep each change small and explain the risk." class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]" />
         {#if instructionError}<p role="alert" class="mt-2 text-sm text-destructive">These instructions could not be saved. The settings size limit was reached.</p>{/if}

@@ -114,7 +114,7 @@ const envNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
 export const providerLaunchPinSchema = z.object({
   environment: z.array(z.object({ name: envNameSchema, value: z.string() }).strict()).optional(),
   binaryPath: z.string().trim().min(1).optional(),
-  launchArgs: z.string().trim().min(1).optional(),
+  launchArgs: z.array(z.string().min(1)).max(100).optional(),
 }).strict()
 export type ProviderLaunchPin = z.infer<typeof providerLaunchPinSchema>
 
@@ -317,10 +317,24 @@ export function policySourceLabel(source: PolicySource): string {
 
 // ── What clients see ────────────────────────────────────────────────────────
 
-/** Launch pins and the update feed can carry tokens; clients get neither. */
+/** The value a client sees in place of a pinned launch field: it says the field is pinned, not what it holds. */
+export const REDACTED_LAUNCH_VALUE = '(managed)'
+
+/** Pins without their values, so an editor can lock exactly the pinned fields. */
+function redactLaunchPin(pin: ProviderLaunchPin): ProviderLaunchPin {
+  return {
+    ...(pin.environment ? { environment: pin.environment.map((variable) => ({ name: variable.name, value: REDACTED_LAUNCH_VALUE })) } : {}),
+    ...(pin.binaryPath ? { binaryPath: REDACTED_LAUNCH_VALUE } : {}),
+    ...(pin.launchArgs ? { launchArgs: [REDACTED_LAUNCH_VALUE] } : {}),
+  }
+}
+
+/** Launch pin values and the update feed can carry tokens; clients get the pinned field names only, and no feed. */
 function summarizeDocument(document: PolicyDocument): PolicyDocument {
   const limits = document.sessions?.limits
-  const providers = limits?.providers ? { ...limits.providers, launch: undefined } : undefined
+  const launch = limits?.providers?.launch
+  const redacted = launch ? Object.fromEntries(Object.entries(launch).map(([provider, pin]) => [provider, pin && redactLaunchPin(pin)])) : undefined
+  const providers = limits?.providers ? { ...limits.providers, launch: redacted } : undefined
   const updates = document.host?.updates ? { mode: document.host.updates.mode } : undefined
   return {
     ...document,

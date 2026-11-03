@@ -95,7 +95,7 @@
       {/if}
       <ProviderInstanceAccount instanceId={selected.id} {client} {view} />
       {#key `${serverId}:${selected.id}`}
-        <ProviderInstanceEditor instance={selected} revision={view.snapshot.revision} {client} saving={view.saving} />
+        <ProviderInstanceEditor {serverId} instance={selected} revision={view.snapshot.revision} {client} saving={view.saving} />
       {/key}
     {/if}
   {/if}

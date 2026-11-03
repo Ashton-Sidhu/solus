@@ -12,6 +12,7 @@
   import SettingsSection from "./SettingsSection.svelte";
   import RetentionSetting from "./RetentionSetting.svelte";
   import WebhookHostSettings from "../webhooks/WebhookHostSettings.svelte";
+  import { hostLock } from "./policy/managed-setting.svelte";
   import { automationRetentionStore, recordingRetentionStore } from "../../contexts/hosts/host-retention.store.svelte";
 
   let { serverId, searchQuery = "" }: { serverId: string; searchQuery?: string } = $props();
@@ -25,6 +26,7 @@
     label="Delete archived automations after"
     description="Days to keep archived automations and their runs. Conversations are kept."
     inputLabel="Archived automation retention in days"
+    managed={hostLock(serverId, "archivedAutomationRetentionDays")}
   />
   <RetentionSetting
     {serverId}
@@ -32,6 +34,7 @@
     label="Delete unfiled recordings after"
     description="Days to keep a browser recording that is not filed on a task or pull request, or sent to an agent."
     inputLabel="Unfiled recording retention in days"
+    managed={hostLock(serverId, "unfiledRecordingRetentionDays")}
   />
 </SettingsSection>
 

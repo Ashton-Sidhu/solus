@@ -82,6 +82,8 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { hostKey } from '@solus/client-core/host-key'
+import { clampedDefaultMode } from '@solus/client-core/policy'
+import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
@@ -1194,7 +1196,8 @@ export class WorkspaceContext implements SurfaceContext {
     return {
       location: folderLocation({ serverId: project.serverId, path: project.directory }),
       modelConfig: defaults.modelConfig,
-      permissionMode: defaults.permissionMode,
+      // New work takes the window's organization; the policy on its host lowers the default (plans/030 §7).
+      permissionMode: clampedDefaultMode(workPolicy(project.serverId), defaults.permissionMode),
       provider: configuredAgent(this.settings.activeAgent),
       sessionSkills: [],
     }
@@ -1535,7 +1538,7 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   async approvePlanWithModel(planId: string, mode: PlanApprovalMode, opts: ApprovePlanOptions = {}): Promise<void> {
-    return approvePlanWithModel(this, planId, mode, opts)
+    return approvePlanWithModel(this, planId, mode, opts, (session) => workPolicy(runHost(session.run), session.organizationId))
   }
 
   async rejectPlan(planId: string, comment?: string): Promise<void> {

@@ -14,6 +14,7 @@
   import { Button } from "../../ui/button";
   import SettingsSection from "../SettingsSection.svelte";
   import SettingsRow from "../SettingsRow.svelte";
+  import { managedSetting } from "../policy/managed-setting.svelte";
   import { modelInstructionGroups } from "./lib/agent-profile-entries";
 
   const theme = getSettingsContext();
@@ -33,7 +34,7 @@
 </script>
 
 <SettingsSection label="Instructions" description="Your own instructions, sent with every prompt on every host. A project's CLAUDE.md or AGENTS.md stays with the project.">
-  <SettingsRow label="Extra instructions" description="Appended to the system prompt for every agent run." testId="agent-profile-extra-instructions">
+  <SettingsRow label="Extra instructions" managed={managedSetting("extraInstructions")} description="Appended to the system prompt for every agent run." testId="agent-profile-extra-instructions">
     {#snippet body()}
       <!-- Both instruction fields match the message composer: accent focus ring
            and a forced 400 weight so typed text never reads bold. The
@@ -48,7 +49,7 @@
       />
     {/snippet}
   </SettingsRow>
-  <SettingsRow label="Per-model instructions" description="Added after the instructions above when this model runs." testId="agent-profile-model-instructions">
+  <SettingsRow label="Per-model instructions" managed={managedSetting("modelInstructions")} description="Added after the instructions above when this model runs." testId="agent-profile-model-instructions">
     {#snippet control()}
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
         <DropdownMenu.Trigger disabled={modelRows.length === 0}>

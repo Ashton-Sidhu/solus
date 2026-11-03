@@ -1,3 +1,4 @@
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { writeFile } from 'fs/promises'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { IpcContext, GitCheckoutBranchResult } from '@solus/contracts/types'
@@ -93,6 +94,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   ) => {
     if (!writer) throw new Error('No Claude or Codex login on this host can write the commit message. Connect one, or write the message yourself.')
     return textGenerator.generate({
+      organizationId: writer.organizationId,
       provider: writer.provider,
       model: writer.model,
       seat: writer.seat,
@@ -170,6 +172,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const writerBackend = await writingBackendFor(
       resolveSourceControlWriterModel(preferences),
       (provider) => sessionRuntime.seatForTurn(handlerCtx.actor, provider),
+      ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
     )
     const pullRequestRequested = request.action === 'create_pull_request'
       || request.action === 'commit_push_pull_request'

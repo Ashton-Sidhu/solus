@@ -1,5 +1,7 @@
-import type { HostCategory, HostOrganization } from '@solus/contracts/uplink'
+import type { HostCategory } from '@solus/contracts/uplink'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
+import type { PolicySet } from '@solus/contracts/policy'
+import { sessionPolicy, syncsAllInsights } from './policy'
 
 /**
  * The Organizations section's view model (docs/plans/organization-scope.md
@@ -28,15 +30,16 @@ export interface OrganizationRow {
   personalHostsNotAllowed: boolean
 }
 
-export function organizationRows(status: HostOrganizationsStatus): OrganizationRow[] {
-  return status.organizations.map((organization: HostOrganization) => ({
+/** `policy`: the host's policy summary; null until it is read, when no row is managed by it. */
+export function organizationRows(status: HostOrganizationsStatus, policy: PolicySet | null): OrganizationRow[] {
+  return status.organizations.map((organization) => ({
     organizationId: organization.organizationId,
     name: organization.name,
     shared: organization.shared,
     // A machine attached for an organization's work always sends that organization's Insights (organization-vms §2).
-    insightsManaged: organization.policy.syncAllInsights || (status.attachedAt !== null && organization.shared),
+    insightsManaged: (policy !== null && syncsAllInsights(sessionPolicy(policy, organization.organizationId))) || (status.attachedAt !== null && organization.shared),
     insightsOptedIn: status.insightsOptIn.includes(organization.organizationId),
-    personalHostsNotAllowed: !organization.policy.allowsPersonalHosts && status.category === 'personal',
+    personalHostsNotAllowed: !organization.hostRules.allowsPersonalHosts && status.category === 'personal',
   }))
 }
 

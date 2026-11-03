@@ -94,7 +94,7 @@ function switchOrganizationCommands(): Command[] {
       icon: OrganizationIcon,
       hint: organization.isActive
         ? "Active"
-        : organization.policy.allowsPersonalHosts
+        : organization.hostRules.allowsPersonalHosts
           ? undefined
           : "Personal computers not allowed",
       keywords: ["organization", "org", organization.organizationId],

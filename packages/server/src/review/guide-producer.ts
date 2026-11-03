@@ -1,3 +1,5 @@
+import { lockedReviewSettings } from './guide-warmer'
+import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import type { IpcContext, AgentId } from '@solus/contracts/types'
 import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
 import { getDiff, getEpisodeDiff, getSessionSnapshotRange } from '../git/session-snapshots'
@@ -212,6 +214,7 @@ async function produceGuide(
   if (patch) emit('analyzing')
   const draft = patch
     ? await runReviewAgent(dispatcher, {
+      organizationId: ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
       workTree,
       base,
       head: target.head,
@@ -221,7 +224,7 @@ async function produceGuide(
       // The guide runs on the requester's own provider login, as their turns do.
       seat: await seatFor?.(agent) ?? undefined,
       reasoningEffort: opts.reasoningEffort ?? null,
-      reviewGuideInstructions: ctx.settings.reviewGuideInstructions,
+      reviewGuideInstructions: lockedReviewSettings(ctx).reviewGuideInstructions,
       executionPreferences: contextPreferences(ctx),
       requestInstructions: opts.instructions,
       inlineDiff,

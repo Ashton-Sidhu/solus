@@ -11,7 +11,7 @@ import { parseUserKey } from '@solus/contracts/user'
 import { hostUserKey, isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
 import { hostCategory } from '../../host/host-category'
-import type { HostCategory } from '@solus/contracts/uplink'
+import type { HostCategory, HostOrganization } from '@solus/contracts/uplink'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
 import { z } from 'zod'
@@ -282,23 +282,23 @@ export interface UnattendedWorkRefusal {
  * Why work that starts with no person at the keyboard — the actions of a webhook —
  * may not start in `organizationId` from this host; null when it may
  * (docs/plans/webhooks.md §2.7, §3.7). A webhook is checked when it is saved, so the
- * person who sets it up hears the refusal then, not on a delivery later. It reads the
- * policy where admission reads the host's organizations: `HostOrganizations.policyFor`.
- * Local work has no policy.
+ * person who sets it up hears the refusal then; the receiver checks it again on each
+ * delivery, so a rule changed after the save still holds. The personal-host rule is
+ * one of the organization's host rules; the unverified rule comes from the policy
+ * gate (plans/030 §6.9), which an MDM policy also sets for Local webhooks.
  */
 export function unattendedOrganizationRefusal(
   organizationId: string,
-  organizations: Pick<HostOrganizations, 'policyFor'>,
+  rules: { organization: (organizationId: string) => Pick<HostOrganization, 'hostRules'> | null; allowsUnverifiedWebhooks: (organizationId: string) => boolean },
   work: { unverified: boolean },
   category: HostCategory = hostCategory(),
 ): UnattendedWorkRefusal | null {
-  const policy = organizations.policyFor(organizationId)
-  if (!policy) return null
-  if (category === 'personal' && !policy.allowsPersonalHosts) {
+  const hostRules = organizationId === LOCAL_ORGANIZATION_ID ? null : rules.organization(organizationId)?.hostRules ?? null
+  if (hostRules && category === 'personal' && !hostRules.allowsPersonalHosts) {
     return { code: 'PERSONAL_HOSTS_NOT_ALLOWED', message: 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud or self-hosted machine of the organization.' }
   }
-  if (work.unverified && policy.allowsUnverifiedWebhooks !== true) {
-    return { code: 'ORGANIZATION_NOT_ALLOWED', message: 'This organization does not allow unverified webhooks. Choose a verification scheme.' }
+  if (work.unverified && !rules.allowsUnverifiedWebhooks(organizationId)) {
+    return { code: 'ORGANIZATION_NOT_ALLOWED', message: 'A policy does not allow unverified webhooks here. Choose a verification scheme.' }
   }
   return null
 }

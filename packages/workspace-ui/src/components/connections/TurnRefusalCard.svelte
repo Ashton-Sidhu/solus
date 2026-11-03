@@ -7,13 +7,20 @@
    * aside for the send. Only the refused person sees it, like the seat card.
    */
   import { Building2 as OrganizationIcon, X as XIcon } from "@lucide/svelte";
+  import { getWorkspaceContext } from "../../contexts";
+  import { workPolicy } from "../../contexts/policy/work-policy.svelte";
+  import { runHost } from "../../contexts/workspace/run-location";
   import { accountStore } from "../../contexts/account/account.store.svelte";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { turnRefusalStore } from "../../contexts/connections/turn-refusal.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import AttentionCard from "../conversation/AttentionCard.svelte";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
-  import { turnRefusalCopy } from "./lib/turn-refusal-copy";
+  import { loweredPermissionMode, turnRefusalCopy } from "./lib/turn-refusal-copy";
+
+  /** The conversation the refused turn belongs to. */
+  let { tabId }: { tabId: string } = $props();
+  const workspace = getWorkspaceContext();
 
   const refused = $derived(turnRefusalStore.refused);
   const copy = $derived(refused
@@ -21,6 +28,11 @@
     : null);
   // Sign-in runs in the client shell; a browser has none, so it keeps the hint alone.
   const canSignIn = $derived(copy?.action === "sign-in" && accountStore.isAvailable);
+  const session = $derived(workspace.sessionFor(tabId));
+  // A policy refusal of the mode: offer the highest mode the work's policy allows.
+  const loweredMode = $derived(copy?.action === "lower-mode" && session
+    ? loweredPermissionMode(workPolicy(runHost(session.run), session.organizationId), session.run.permissionMode)
+    : null);
   const organizations = $derived(copy?.action === "choose-organization" ? serversStore.organizations.filter((organization) => !organization.isActive) : []);
 
   let cardEl = $state<HTMLDivElement | null>(null);
@@ -32,6 +44,12 @@
 
   function workIn(organizationId: string) {
     serversStore.selectOrganization(organizationId);
+    dismiss();
+  }
+
+  function lowerMode() {
+    if (!loweredMode) return;
+    workspace.setPermissionMode(loweredMode, tabId);
     dismiss();
   }
 
@@ -56,6 +74,9 @@
       {#snippet icon()}<OrganizationIcon />{/snippet}
 
       {#snippet actions()}
+        {#if loweredMode}
+          <TranscriptCardAction kind="filled" data-testid="turn-refusal-lower-mode" onclick={lowerMode}>Lower the mode</TranscriptCardAction>
+        {/if}
         {#if canSignIn}
           <TranscriptCardAction kind="filled" onclick={signIn}>Sign in</TranscriptCardAction>
         {/if}
@@ -64,7 +85,7 @@
         </TranscriptCardAction>
       {/snippet}
 
-      <p class="m-0 text-(--muted-foreground)">{refused.message} {copy.hint}</p>
+      <p class="m-0 text-(--muted-foreground)">{refused.message}{copy.hint ? ` ${copy.hint}` : ""}</p>
       {#if organizations.length > 0}
         <div class="flex flex-wrap gap-1.5">
           {#each organizations.slice(0, 3) as organization (organization.organizationId)}

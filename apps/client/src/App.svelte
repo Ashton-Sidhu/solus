@@ -57,8 +57,11 @@
     identifyInstallation,
     initAnalytics,
     registerSuperProps,
+    setAnalyticsBlockedByPolicy,
+  setAnalyticsEnabled,
     track,
   } from "@solus/workspace-ui/lib/analytics";
+  import { resolveHostKey } from "@solus/contracts/policy";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteModules = afterPaint().then(() => Promise.all([
@@ -103,21 +106,38 @@
   });
   const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
 
-  initAnalytics({
-    // Undecided consent stays off until the person chooses (plans/018 §3.1).
-    enabled: settings.clientAnalyticsEnabled === true,
-    platform: "web-desktop",
-    viewMode: "wide",
+  // Analytics starts only once the policy of the host that served this client is
+  // read: a policy that turns analytics off wins over the person's consent
+  // (plans/030 §5.4). A remote host's policy does not change this choice.
+  let analyticsStarted = $state(false);
+  $effect(() => {
+    const fact = hosts.get(serverConnections.defaultServerId())?.policy;
+    if (fact?.state !== "ready") return;
+    const managedOff = resolveHostKey(fact.value, "analyticsEnabled")?.value === false;
+    setAnalyticsBlockedByPolicy(managedOff);
+    untrack(() => {
+      // Undecided consent stays off until the person chooses (plans/018 §3.1).
+      const consented = settings.clientAnalyticsEnabled === true;
+      if (analyticsStarted) {
+        setAnalyticsEnabled(consented && !managedOff);
+        return;
+      }
+      if (managedOff) return;
+      analyticsStarted = true;
+      initAnalytics({ enabled: consented, platform: "web-desktop", viewMode: "wide" });
+      track("app_opened", {});
+    });
   });
-  track("app_opened", {});
 
   $effect(() => {
+    if (!analyticsStarted) return;
     // The version of the host that served this client: the window's primary.
     const appVersion = hosts.get(serverConnections.defaultServerId())?.capabilityRecord?.version;
     if (appVersion) registerSuperProps({ app_version: appVersion });
   });
 
   $effect(() => {
+    if (!analyticsStarted) return;
     const installationId = serversStore.activeTarget?.installationId;
     if (installationId) identifyInstallation(installationId);
   });

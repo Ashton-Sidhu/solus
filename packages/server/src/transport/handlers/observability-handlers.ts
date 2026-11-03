@@ -1,3 +1,4 @@
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { TextGenerator } from '../../execution/agents/text-generator'
 import { contextPreferences } from '../../execution/agents/run-input'
 import type { SessionRuntime } from '../../execution/session-runtime'
@@ -91,6 +92,7 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
     const seat = await deps.sessionRuntime.seatForTurn(handlerCtx.actor, provider) ?? undefined
     return compileNlToSql(question, {
       generate: (prompt) => textGenerator.generate({
+        organizationId: ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
         provider,
         model: ctx.statusBar.model,
         seat,

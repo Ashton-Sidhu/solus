@@ -25,6 +25,7 @@
   import { Input } from "../ui/input";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
 
@@ -84,6 +85,7 @@
 >
   <SettingsRow
     label="Task lifecycle control"
+    managed={managedSetting("agentTaskLifecyclePolicy")}
     description="None: no changes. Moderate: Done is yours. Autonomous: full control."
     visible={isVisible("task-lifecycle")}
   >

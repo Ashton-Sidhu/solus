@@ -1,3 +1,5 @@
+import { configureOtel } from './otel'
+import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
@@ -47,6 +49,8 @@ import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
+import { PolicyGate, PolicyRefusedError, usePolicyGate } from './host/policy/policy-gate'
+import { loadMachinePolicy } from './host/policy/mdm-policy'
 import { removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
 import { LiveActivityRelay } from './host/live-activity-relay'
@@ -112,7 +116,9 @@ import { LOCAL_ORGANIZATION_ID } from './admission/principal'
 import { resolveRoles, type SolusRole } from './host/roles'
 import { hostOperatingSystem } from './platform/host-operating-system'
 import { hostDisplayName } from './platform/host-display-name'
-import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './host/settings'
+import { effectiveRemoteAccess, effectiveTrustLocalNetwork, getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './host/settings'
+import { capabilityDeniedMessage } from '@solus/contracts/policy'
+import type { HostStanding } from './host/organizations'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-policy'
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
 import { readHostLinkEnv } from './host/host-link-env'
@@ -410,8 +416,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const hostKind = resolveHostKind(apiMode)
   // A managed host and the workspace service demand a credential on every listener, whatever the bind policy says.
   const credentialAlwaysRequired = hostKind !== 'personal'
-  const settings = getServerSettings()
-  const initial = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess: settings.remoteAccess })
+  // The machine's MDM policy is read before anything listens; one this host cannot enforce stops the boot (plans/030 §5.1).
+  let standingSource: () => HostStanding | null = () => null
+  const gate = new PolicyGate({ mdm: await loadMachinePolicy(), standing: () => standingSource() })
+  usePolicyGate(gate)
+  const remoteBindOptions = () => {
+    const rule = gate.hostKey('remoteAccess')
+    return rule?.value === false
+      ? { remoteAllowed: false, refusal: capabilityDeniedMessage(rule.source, 'remote access').replace(/\.$/, '') }
+      : {}
+  }
+  const initial = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess: effectiveRemoteAccess(), ...remoteBindOptions() })
   let host = initial.host
   let requireAuth = initial.requireAuth || credentialAlwaysRequired
   const port = opts.port ?? WEB_UI_PORT
@@ -449,18 +464,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let remoteToolOperations: RemoteToolOperations | undefined
   const stopWorkspaceToolOperations = installWorkspaceToolOperations(workspaceOperations, apiSettings.serviceId, (run) => remoteToolOperations?.(run) ?? null)
   // This host's standing in its organizations (organization-scope §3.1, §6.1): the
-  // control plane's answer, asked for once the link is known below, and the one
-  // place a policy is held against — by the Insights producer, the turn
-  // admission, and the clients.
+  // control plane's answer, asked for once the link is known below. Its policies and
+  // the machine's MDM policy are read only through the policy gate (plans/030 §6.1).
   useSessionIndexState(sessionIndexComplete)
   const hostOrganizationsDeps: { registration: () => HostRegistration | null; credential: () => HostCredential | null; registrationRefused: () => void } = { registration: () => null, credential: () => null, registrationRefused: () => {} }
   const hostOrganizations = new HostOrganizations({
     registration: () => hostOrganizationsDeps.registration(),
     credential: () => hostOrganizationsDeps.credential(),
     onRegistrationRefused: () => hostOrganizationsDeps.registrationRefused(),
+    cachePath: join(solusDir(), 'organization-standing.json'),
   })
+  standingSource = () => hostOrganizations.current()
+  gate.standingChanged()
+  hostOrganizations.onChanged(() => gate.standingChanged())
   useInsightsPolicy({
-    syncAllInsights: (organizationId) => hostOrganizations.organization(organizationId)?.policy.syncAllInsights ?? null,
+    syncAllInsights: (organizationId) => gate.syncAllInsights(organizationId),
     optedIn: (organizationId) => getInsightsOptIn().includes(organizationId),
     attached: (organizationId) => hostOrganizations.organization(organizationId)?.shared === true,
   })
@@ -848,8 +866,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
   setAutomationBackgroundSessionDispatcher(({ automationId, automationName, runId, ...o }) => opts.sessionRuntime.dispatch.startUnattendedSession({ ...o, startedBy: { kind: 'automation', automationId, runId }, automationName }))
-  setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences) => (
-    opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences)
+  setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences, organizationId) => (
+    opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences, organizationId)
   ))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
@@ -1062,10 +1080,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   orchestrator.recover()
   if (interruptedSessions) orchestrator.reportChildrenInterruptedByRestart(interruptedSessions)
   startAutomationScheduler()
-  server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
+  // A policy with `updates.mode: off` manages this host's updates (plans/030 §6.8).
+  const assertUpdatesAllowed = () => {
+    const rule = gate.hostKey('updates')
+    if (rule?.value.mode === 'off') throw new PolicyRefusedError('UPDATES_MANAGED', `${rule.source.document.organization.name} manages Solus updates.`)
+  }
+  server.register('hostInstallUpdate', () => { assertUpdatesAllowed(); remoteUpdates.install(); return structuredClone(hostUpdates.status) })
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
-  server.register('hostCheckForUpdates', () => hostUpdates.check())
+  server.register('hostCheckForUpdates', () => { assertUpdatesAllowed(); return hostUpdates.check() })
   hostUpdates.start()
   const modelProfiles = new ModelProfilesService({
     cachePath: join(solusDir(), 'model-profiles.json'),
@@ -1397,6 +1420,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     : presentedTokens ? async (token: string) => presentedTokens.keep(token) : undefined
   registerOrganizationHandlers(server, {
     hostOrganizations,
+    policyGate: gate,
     forgetResource: (resource) => shares.forget(resource),
     events,
     registeredHostId: () => registrar.current()?.hostId ?? null,
@@ -1410,7 +1434,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     hostId: () => registrar.current()?.hostId ?? null,
     forwarderSecret: () => uplinkManager?.forwarderSecret() ?? null,
     isPausedByAdmin: (webhookId: string) => hostOrganizations.isWebhookPausedByAdmin(webhookId),
-    allowsUnverifiedWebhooks: (organizationId: string) => hostOrganizations.allowsUnverifiedWebhooks(organizationId),
+    organizationRefusal: (organizationId: string, work: { unverified: boolean }) => unattendedOrganizationRefusal(organizationId, { organization: (id) => hostOrganizations.organization(id), allowsUnverifiedWebhooks: (id) => gate.allowsUnverifiedWebhooks(id) }, work)?.message ?? null,
   }
   const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
   const webhookService = createWebhookService({
@@ -1425,7 +1449,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
     },
     takeSecretRef: (secretRef, sessionId) => takeSecretRef(secretRef, sessionId),
-    organizationRefusal: (organizationId, work) => unattendedOrganizationRefusal(organizationId, hostOrganizations, work)?.message ?? null,
     onDeleted: (webhook) => mirrorWebhook(webhook, { deleted: true, registered: registrar.current() !== null }),
   })
   // Organization webhooks and their delivery summaries go to the organization's Solus API for its admins (plan §2.7).
@@ -1712,7 +1735,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
   if (!apiMode) {
     tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
-    void registrar.resumeUntilAnswered((remote, isRetrying) => uplinkManager.resume(remote, isRetrying)).catch((err) => {
+    // A policy that turns the tunnel off keeps a stored link from resuming (plans/030 §6.7).
+    void registrar.resumeUntilAnswered((remote, isRetrying) => gate.hostKey('cloudTunnel')?.value === false ? Promise.resolve() : uplinkManager.resume(remote, isRetrying)).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -1726,7 +1750,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     close: async () => {},
   }
   let lanDiscovery: LanDiscoveryService
-  if (isLanDiscoveryDisabled()) {
+  if (isLanDiscoveryDisabled() || gate.hostKey('remoteAccess')?.value === false) {
     log.info('lan_discovery_skipped')
     lanDiscovery = noLanDiscovery
   } else {
@@ -1744,7 +1768,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   async function rebind(remoteAccess: boolean): Promise<void> {
-    const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess })
+    const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess, ...remoteBindOptions() })
     const nextRequireAuth = next.requireAuth || credentialAlwaysRequired
     if (next.host === host && nextRequireAuth === requireAuth) return
     host = next.host
@@ -1785,6 +1809,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (!lock) log.warn('lock_acquisition_failed_after_rebind')
     log.info('server_rebound', { host, port: actualPort, requireAuth })
   }
+  // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
+  gate.onChanged(() => {
+    void rebind(effectiveRemoteAccess()).catch((error) => log.warn('policy_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
+    if (gate.hostKey('cloudTunnel')?.value === false && uplinkManager.status().linked) {
+      void uplinkManager.unlink().catch((error) => log.warn('policy_tunnel_close_failed', { error: error instanceof Error ? error.message : String(error) }))
+    }
+    void configureOtel(getHostConfig().config.otel, gate.hostKey('otel') !== null).catch((error) => log.warn('policy_otel_configure_failed', { error: error instanceof Error ? error.message : String(error) }))
+  })
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
   registerAuthHandlers(server, establishPresented ? { verify: verifyHostAccessToken, establish: establishPresented } : null)
@@ -1794,9 +1826,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       host,
       port: actualPort,
       allowLan: !isLoopbackHost(host),
-      remoteAccess: getServerSettings().remoteAccess,
+      remoteAccess: effectiveRemoteAccess(),
       requireAuth,
-      trustLocalNetwork: getServerSettings().trustLocalNetwork,
+      trustLocalNetwork: effectiveTrustLocalNetwork(),
       hostKind,
       roles: [...roles],
     }),

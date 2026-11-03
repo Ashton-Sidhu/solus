@@ -183,7 +183,7 @@
                 <OrganizationIcon />
                 <span class="flex min-w-0 flex-1 flex-col leading-tight">
                   <span class="truncate">{organization.name}</span>
-                  {#if !organization.policy.allowsPersonalHosts}
+                  {#if !organization.hostRules.allowsPersonalHosts}
                     <span class="truncate text-xs text-muted-foreground">Personal computers not allowed</span>
                   {/if}
                 </span>

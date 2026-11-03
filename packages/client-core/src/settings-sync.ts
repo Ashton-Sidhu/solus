@@ -2,15 +2,13 @@ import { z } from 'zod'
 import {
   MAX_PERSONAL_SETTINGS_BYTES,
   PERSONAL_SETTING_KEYS,
-  organizationSettingsPatchRequestSchema,
   personalSettingsByteLength,
   personalSettingsDocumentSchema,
   type AccountSettingsResponse,
-  type OrganizationSettings,
   type PersonalSettingKey,
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
-import type { AccountSettingsResult, OrganizationSettingsResult, SettingsCloudRequests } from './settings-requests'
+import type { AccountSettingsResult, SettingsCloudRequests } from './settings-requests'
 import {
   DocumentSync,
   type ClearOutcome as DocumentClearOutcome,
@@ -82,30 +80,5 @@ export function settingsDocumentRequests(requests: SettingsSyncPorts['requests']
 export class SettingsSync extends DocumentSync<PersonalSettingsDocument, PersonalSettingKey> {
   constructor(ports: SettingsSyncPorts) {
     super({ ...ports, requests: settingsDocumentRequests(ports.requests) }, PERSONAL_SETTINGS_CONTRACT)
-  }
-}
-
-// ─── Organization settings ───
-
-export type OrganizationSettingsWriteResult = OrganizationSettingsResult | { kind: 'invalid'; message: string }
-
-/**
- * The organization settings (today only Sync all Insights), read and saved over
- * the same request port. Writes are never queued: an owner saves a draft against
- * the revision they read, online, and sees a conflict at once. A write is checked
- * against the strict write schema here so a bad draft is refused before it
- * leaves the client.
- */
-export class OrganizationSettingsClient {
-  constructor(private readonly requests: Pick<SettingsCloudRequests, 'organizationSettingsGet' | 'organizationSettingsPatch'>) {}
-
-  read(organizationId: string): Promise<OrganizationSettingsResult> {
-    return this.requests.organizationSettingsGet(organizationId)
-  }
-
-  async save(organizationId: string, expectedRevision: number, settings: Partial<OrganizationSettings>): Promise<OrganizationSettingsWriteResult> {
-    const request = organizationSettingsPatchRequestSchema.safeParse({ expectedRevision, settings })
-    if (!request.success) return { kind: 'invalid', message: z.prettifyError(request.error) }
-    return this.requests.organizationSettingsPatch(organizationId, request.data)
   }
 }

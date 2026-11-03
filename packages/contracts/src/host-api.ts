@@ -136,6 +136,12 @@ export interface ConnectionsServerInfo {
   hostKind: HostKind
   /** The planes this host serves (cloud-service-model.md §1). A host without `execution` runs no agent: a client keeps it out of its execution targets. */
   roles: RpcPlane[]
+  /** What this host loaded (plans/030): the MDM policy's source and fingerprint, and each cloud policy's revision, so `solus policy show` can compare. */
+  policy?: {
+    mdmSource: string | null
+    mdmFingerprint: string | null
+    cloud: Array<{ organizationId: string; kind: 'organization' | 'host'; revision: number | null }>
+  }
   /** How this client was admitted; only a `local-owner` may change how the host is reached. */
   principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
   /** The user key of the caller: the account behind a grant-admitted client, or the host's user on a local connection (plans/012 §1). */

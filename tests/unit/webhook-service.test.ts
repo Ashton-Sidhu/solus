@@ -49,12 +49,16 @@ const github: WebhookCreateInput = {
   actions: [{ id: 'a1', type: 'send_to_session', sessionId: 's1', enabled: true, filters: [], template: 'Hi {{body.x}}' }],
 }
 
-type Policy = import('@solus/contracts/uplink').OrganizationPolicy
-const OPEN: Policy = { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false }
+/** An organization's host rule and the policy gate's answer for unverified webhooks (plans/030 §6.9). */
+interface Policy { allowsPersonalHosts: boolean; allowsUnverifiedWebhooks?: boolean }
+const OPEN: Policy = { allowsPersonalHosts: true }
 
 /** A service whose save check is the real one of `turn-organization.ts`, over these policies and host category. */
 function service(state: { cloud: boolean; publicUrl: string | null; origin?: string }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}, policies: { [organizationId: string]: Policy } = {}, category: 'personal' | 'self-hosted' | 'managed' = 'personal') {
-  const organizations = { policyFor: (id: string) => id === 'local' ? null : policies[id] ?? OPEN }
+  const organizations = {
+    organization: (id: string) => ({ hostRules: { allowsCloudHosts: true, allowsPersonalHosts: (policies[id] ?? OPEN).allowsPersonalHosts } }),
+    allowsUnverifiedWebhooks: (id: string) => id === 'local' || (policies[id] ?? OPEN).allowsUnverifiedWebhooks === true,
+  }
   return serviceModule.createWebhookService({
     urls: { cloudHost: () => ({ hostId: 'host-1', origin: state.origin ?? 'https://app.example.test' }), cloudReady: () => state.cloud, publicUrl: () => state.publicUrl },
     isPausedByAdmin: () => false,

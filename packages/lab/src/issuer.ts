@@ -10,7 +10,7 @@ import {
   accessTokenClaimsSchema,
   hostClientId,
   hostCredentialRequestSchema,
-  DEFAULT_ORGANIZATION_POLICY,
+  DEFAULT_HOST_RULES,
   hostAudience,
   type HostOrganizationsResponse,
   TOKEN_EXCHANGE_GRANT_TYPE,
@@ -26,6 +26,7 @@ import {
   type HostLinkResponse,
   type HostRegistration,
 } from '@solus/contracts/uplink'
+import { organizationPolicyTemplate } from '@solus/contracts/policy'
 import { PERSONAS, type Persona } from './personas'
 
 /** A persona that signs in: a guest holds no token, only a share link's secret. */
@@ -340,7 +341,10 @@ export class LabIssuer {
       const organizationId = this.hostOrganizations.get(hostId)
       sendJson(response, 200, {
         hostId, category: 'self-hosted', owner: { userId: PERSONAS.alice.userId, name: PERSONAS.alice.displayName },
-        organizations: organizationId ? [{ organizationId, name: 'Lab', shared: true, policy: DEFAULT_ORGANIZATION_POLICY }] : [],
+        organizations: organizationId
+          ? [{ organizationId, name: 'Lab', shared: true, hostRules: DEFAULT_HOST_RULES, policy: organizationPolicyTemplate('Lab'), hostPolicy: null }]
+          : [],
+        hostOwnerOrganizationId: null,
       })
       return
     }

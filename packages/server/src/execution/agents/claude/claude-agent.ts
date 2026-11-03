@@ -246,7 +246,7 @@ export interface ClaudeRunOptions {
   reasoningEffort?: ReasoningEffort
   disableReasoning?: boolean
   fastMode?: boolean
-  permissionMode?: PermissionMode
+  permissionMode: PermissionMode
   additionalDirectories?: string[]
   allowedTools?: string[]
   mcpServers?: Options['mcpServers']
@@ -312,7 +312,7 @@ function usageQueryOptions(executable: string, seat: ClaudeSeat | undefined, abo
 export class ClaudeAgent {
   run(opts: ClaudeRunOptions): ClaudeRunExecution {
     const abortController = opts.abortController ?? new AbortController()
-    const sdkPermissionMode = UI_TO_SDK_PERMISSION_MODE[opts.permissionMode ?? 'full-access']
+    const sdkPermissionMode = UI_TO_SDK_PERMISSION_MODE[opts.permissionMode]
 
     const systemPrompt: Options['systemPrompt'] = {
       type: 'preset',

@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { Input } from "../ui/input";
   import SettingsRow from "./SettingsRow.svelte";
+  import type { ManagedSettingNote } from "./policy/lib/managed-setting-note";
   import type { HostRetentionStore } from "../../contexts/hosts/host-retention.store.svelte";
 
   let {
@@ -11,6 +12,7 @@
     description,
     inputLabel,
     visible = true,
+    managed,
   }: {
     serverId: string;
     store: HostRetentionStore;
@@ -18,6 +20,8 @@
     description: string;
     inputLabel: string;
     visible?: boolean;
+    /** The host policy's lock on this retention, when it has one. */
+    managed?: ManagedSettingNote;
   } = $props();
   const state = $derived(store.states.get(serverId));
   $effect(() => {
@@ -27,7 +31,7 @@
   });
 </script>
 
-<SettingsRow {label} {description} {visible}>
+<SettingsRow {label} {description} {visible} {managed}>
   {#snippet control()}
     <div class="flex items-center gap-2 text-workspace-chrome text-muted-foreground">
       <Input

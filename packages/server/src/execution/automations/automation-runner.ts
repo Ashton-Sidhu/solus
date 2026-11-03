@@ -19,6 +19,8 @@ const log = createLogger('automations', 'automation-runner.ts')
  *  tracking the same backend run. */
 export type AutomationBackgroundSessionDispatcher = (opts: {
   prompt: string
+  /** The automation's organization; its policies govern the session (plans/030). */
+  organizationId: string
   automationId: string
   automationName: string
   /** The run that starts the session, which the session's record names (session-starter.md). */
@@ -39,7 +41,7 @@ export function setAutomationBackgroundSessionDispatcher(dispatcher: AutomationB
   backgroundSessionDispatcher = dispatcher
 }
 
-export type AutomationWorktreeCreator = (prompt: string, cwd: string, signal: AbortSignal, preferences: ExecutionPreferences) => Promise<GitCheckout>
+export type AutomationWorktreeCreator = (prompt: string, cwd: string, signal: AbortSignal, preferences: ExecutionPreferences, organizationId: string) => Promise<GitCheckout>
 let worktreeCreator: AutomationWorktreeCreator | null = null
 export function setAutomationWorktreeCreator(creator: AutomationWorktreeCreator): void {
   worktreeCreator = creator
@@ -217,7 +219,7 @@ async function executeRunAs(automation: Automation, run: AutomationRun, entry: A
     let gitContext: GitCheckout | null = null
     if (action.useWorktree) {
       if (!worktreeCreator) throw new Error('The checkout service is not available')
-      gitContext = await worktreeCreator(action.prompt, cwd, entry.abort.signal, preferences)
+      gitContext = await worktreeCreator(action.prompt, cwd, entry.abort.signal, preferences, automation.organizationId ?? LOCAL_ORGANIZATION_ID)
       if (!gitContext.branch) throw new Error('Created automation worktree has no branch')
       branch = gitContext.branch
     }
@@ -231,6 +233,7 @@ async function executeRunAs(automation: Automation, run: AutomationRun, entry: A
     }
     const session = await backgroundSessionDispatcher({
       prompt,
+      organizationId: automation.organizationId ?? LOCAL_ORGANIZATION_ID,
       automationId: automation.id,
       automationName: automation.name,
       runId,

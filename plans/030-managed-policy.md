@@ -730,3 +730,32 @@ All tests are in `tests/unit/`. Each one names the rule it protects.
 - **O1. Mobile is read-only for policy.** Editing and export are desktop and web
   tasks. Mobile shows the effective policy and every lock. This is a platform
   exception and needs approval.
+
+## 12. Implementation notes (2026-11-03)
+
+Decisions made while building, which change or refine the sections above:
+
+- **Text generation is clamped, not moved to a narrower mode** (§6.3). It runs at
+  its old mode (`plan` for Codex, `full-access` for Claude), lowered to the
+  ceiling. The run is unattended, so a tool that would ask is declined. Without a
+  ceiling, nothing changes.
+- **Provider instance writes are not refused** (§6.4). The person's launch fields
+  are stored, but `governedInstance` (`execution/seats/provider-runtime.ts`) drops
+  them at launch while a ceiling is set. The UI shows the fields as locked. This
+  keeps the person's values for when the policy goes, with no second store.
+- **Launch pins apply to runs that have an acting person.** A run without one (the
+  host's own login) launches with the host's environment, which the machine's
+  administrator controls. The `launchArgs` of a pin is an array, like an instance's.
+- **The model allowlist is checked at the backstop.** Auto routing skips providers
+  that are not allowed. A routed model that is not allowed is refused at the
+  backstop; routing does not choose another model.
+- **Pickers mark disallowed providers and models from the client resolver.** The
+  server does not mark `AgentMetadata`, because one host serves several
+  organizations, and the mark depends on the work's organization.
+- **The MDM policy is read once per process** (`loadMachinePolicy`), in
+  `boot-core.ts` before telemetry starts, and reused by `bootServer`.
+- **A steer is checked against the active run's mode**, and a reported Claude mode
+  change above the ceiling aborts the run.
+- **The policy refusal is its own error** (`PolicyRefusedError` in
+  `host/policy/policy-gate.ts`), sent with its code like a turn refusal. The host
+  area may not import the execution area (`server-module-boundaries.test.ts`).

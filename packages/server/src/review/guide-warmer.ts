@@ -1,3 +1,5 @@
+import { policyGate } from '../host/policy/policy-gate'
+import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'
@@ -77,8 +79,8 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): voi
       ctx: request.ctx,
       opts: {
         target: { kind: 'pr', ...request.repo, number },
-        agent: request.ctx.settings.reviewAgent ?? request.ctx.settings.activeAgent,
-        model: request.ctx.settings.reviewModel,
+        agent: lockedReviewSettings(request.ctx).reviewAgent ?? request.ctx.settings.activeAgent,
+        model: lockedReviewSettings(request.ctx).reviewModel,
         reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
       },
     })
@@ -191,8 +193,8 @@ async function warmGuideAs(input: GuideWarmerInput, number: number, headSha: str
     ctx: input.ctx,
     opts: {
       target,
-      agent: input.ctx.settings.reviewAgent ?? input.ctx.settings.activeAgent,
-      model: input.ctx.settings.reviewModel,
+      agent: lockedReviewSettings(input.ctx).reviewAgent ?? input.ctx.settings.activeAgent,
+      model: lockedReviewSettings(input.ctx).reviewModel,
       reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',
     },
   })
@@ -238,4 +240,9 @@ function scheduleRetry(repoRoot: string, number: number, headSha: string): void 
 
 function errorMessage(err: Parameters<typeof String>[0]): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/** The review settings a request carries, with what its organization's policies lock (plans/030 §6.6). */
+export function lockedReviewSettings(ctx: Pick<IpcContext, 'settings' | 'session'>): IpcContext['settings'] {
+  return policyGate().applyReviewSettings(ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID, ctx.settings)
 }

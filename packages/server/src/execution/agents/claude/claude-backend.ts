@@ -1,3 +1,5 @@
+import { isPermissionModeAbove } from '@solus/contracts/policy'
+import { policyGate } from '../../../host/policy/policy-gate'
 import { privateProviderInstances } from '../../seats/provider-instances'
 import { providerHistoryInstanceId } from '../../seats/provider-runtime'
 import { captureActingScope } from '../../../vault/acting-scope'
@@ -226,7 +228,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const sessionId = conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null
     const uiMode = request.permissionMode
     const sessionRef = { current: conversation.kind === 'resume' ? sessionId : null }
-    const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended)
+    const ceiling = policyGate().ceiling(request.organizationId)?.value ?? null
+    const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended, ceiling)
     const onElicitation = this.permissions.createOnElicitation(sessionRef, request.unattended)
 
     let _resolveRun!: () => void
@@ -340,6 +343,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     cwd: string,
     request: AgentRunRequest,
   ): Promise<void> {
+    // Checked at start by `AgentRunner.run`; the same ceiling bounds any mode the run switches to.
+    const ceiling = policyGate().ceiling(request.organizationId)?.value ?? null
     try {
       for await (const evt of events) {
         if (evt.type === 'session_init') {
@@ -356,6 +361,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
             }
           }
           sessionRef.current = evt.sessionId
+        }
+        // A mode the run switched to above the policy's ceiling ends the run (plans/030 §6.3).
+        if (evt.type === 'permission_mode_changed' && isPermissionModeAbove(evt.permissionMode, ceiling)) {
+          log.warn('permission_mode_above_ceiling', { sessionId: handle.agentSessionId, permissionMode: evt.permissionMode, ceiling })
+          handle.abortController.abort()
         }
 
         this.emit('normalized', handle.agentSessionId, evt)

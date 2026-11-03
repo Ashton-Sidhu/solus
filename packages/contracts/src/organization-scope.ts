@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { hostCategorySchema, hostOrganizationSchema, hostOwnerIdentitySchema } from './uplink'
+import { POLICY_REFUSAL_CODES } from './policy'
 
 /**
  * Organization scope on a host (docs/plans/organization-scope.md §3, §6.1, §7):
@@ -26,6 +27,8 @@ export const turnRefusalSchema = z.enum([
   'ORGANIZATION_AUTHORITY_MISSING',
   /** The host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1). */
   'WORKSPACE_PREPARING',
+  /** A host or organization policy refused the work (plans/030 §6.1); the message names the policy. */
+  ...POLICY_REFUSAL_CODES,
 ])
 export type TurnRefusal = z.infer<typeof turnRefusalSchema>
 

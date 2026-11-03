@@ -12,7 +12,8 @@ import { stampComments } from '../../annotations/stored-comments'
 import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
-import { getSessionRecord, upsertSessionRecord } from '../../data/sessions/session-records'
+import { getSessionRecord, organizationOfSession, upsertSessionRecord } from '../../data/sessions/session-records'
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { readTranscript, readTranscriptPage, readTranscriptMessageWindow } from '../../data/sessions/transcript-reads'
 import { isApiMode } from '../../host/api-mode'
 import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
@@ -243,10 +244,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('generateSessionMetadata', (args, ctx) => {
+  server.register('generateSessionMetadata', async (args, ctx) => {
     const [promptText, cwd, context] = args
     // The run uses the caller's own provider login, as their turns do.
-    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider))
+    const organizationId = context?.sessionId ? await organizationOfSession(context.sessionId) : LOCAL_ORGANIZATION_ID
+    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider), organizationId)
   })
 
   server.register('ensureBackgroundSessionTitle', async (args, ctx) => {

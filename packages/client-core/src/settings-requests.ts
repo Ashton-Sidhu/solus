@@ -2,19 +2,30 @@ import {
   ACCOUNT_SETTINGS_PATH,
   accountSettingsConflictBodySchema,
   accountSettingsResponseSchema,
-  organizationSettingsConflictBodySchema,
-  organizationSettingsPath,
-  organizationSettingsResponseSchema,
   type AccountSettingsPatchRequest,
   type AccountSettingsResponse,
-  type OrganizationSettingsPatchRequest,
 } from '@solus/contracts/settings'
-import type { AccountSettingsResult, NativeSolusAPI, OrganizationSettingsResult, SettingsRequestFailure } from '@solus/contracts/host-api'
+import {
+  hostPoliciesPath,
+  hostPoliciesResponseSchema,
+  hostPolicyAssignmentPath,
+  hostPolicyPath,
+  hostPolicySummarySchema,
+  organizationPolicyPath,
+  organizationPolicyResponseSchema,
+  policyConflictBodySchema,
+  policyHostSchema,
+  policyRejectedBodySchema,
+  type HostPolicyAssignRequest,
+  type HostPolicyCreateRequest,
+  type PolicyWriteRequest,
+} from '@solus/contracts/policy-api'
+import type { AccountSettingsResult, NativeSolusAPI, PolicyApiResult, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { WebTokenSession } from './web-token-session'
 
-export type { AccountSettingsResult, OrganizationSettingsResult, SettingsRequestFailure }
+export type { AccountSettingsResult, PolicyApiResult, SettingsRequestFailure }
 
 /**
  * The account-plane settings calls (plans/018 §4), one typed method each. Every
@@ -24,27 +35,38 @@ export type { AccountSettingsResult, OrganizationSettingsResult, SettingsRequest
  * contract schemas here, so a status means the same thing on every client.
  */
 
+/** The policy API calls (plans/030 §5.2), on behalf of the signed-in account. */
+export const POLICY_REQUEST_METHODS = [
+  'organizationPolicyGet',
+  'organizationPolicyPut',
+  'hostPoliciesGet',
+  'hostPolicyCreate',
+  'hostPolicyPut',
+  'hostPolicyDelete',
+  'hostPolicyAssign',
+  'hostPolicyUnassign',
+] as const satisfies readonly (keyof NativeSolusAPI)[]
+export type PolicyCloudRequests = Pick<NativeSolusAPI, (typeof POLICY_REQUEST_METHODS)[number]>
+
 /**
- * The five calls. The desktop preload bridge (`localApi` on desktop) has exactly
- * these methods; `accountSettingsDelete` clears the synced document and advances
- * its generation.
+ * The account settings calls and the policy calls. The desktop preload bridge
+ * (`localApi` on desktop) has exactly these methods; `accountSettingsDelete`
+ * clears the synced document and advances its generation.
  */
 export type SettingsCloudRequests = Pick<NativeSolusAPI,
   | 'accountSettingsGet'
   | 'accountSettingsPatch'
-  | 'accountSettingsDelete'
-  | 'organizationSettingsGet'
-  | 'organizationSettingsPatch'>
+  | 'accountSettingsDelete'> & PolicyCloudRequests
 
-/** One request as an adapter sends it. The path is always one of the settings paths. */
+/** One request as an adapter sends it. The path is always one of the settings or policy paths. */
 export interface SettingsHttpRequest {
-  method: 'GET' | 'PATCH' | 'DELETE'
+  method: 'GET' | 'PATCH' | 'PUT' | 'POST' | 'DELETE'
   path: string
-  body?: AccountSettingsPatchRequest | OrganizationSettingsPatchRequest
+  body?: AccountSettingsPatchRequest | PolicyWriteRequest | HostPolicyCreateRequest | HostPolicyAssignRequest
 }
 
 /**
- * Builds the five calls over one authenticated `send`. `send` returns null when the
+ * Builds the calls over one authenticated `send`. `send` returns null when the
  * website did not answer and 'signed-out' when there is no session to send with.
  */
 export function settingsCloudRequests(
@@ -62,11 +84,11 @@ export function settingsCloudRequests(
     }
     return result
   }
-  const organization = async (request: SettingsHttpRequest): Promise<OrganizationSettingsResult> => {
+  const policy = async <Value>(request: SettingsHttpRequest, schema: z.ZodType<Value>): Promise<PolicyApiResult<Value>> => {
     const response = await send(request)
     if (response === 'signed-out') return { kind: 'signed-out' }
     if (!response) return { kind: 'offline' }
-    return organizationSettingsResult(response)
+    return policyApiResult(response, schema)
   }
   return {
     accountSettingsGet: async () => {
@@ -86,8 +108,14 @@ export function settingsCloudRequests(
       await takeStartupSettings?.().catch(() => null)
       return account({ method: 'DELETE', path: ACCOUNT_SETTINGS_PATH })
     },
-    organizationSettingsGet: (organizationId) => organization({ method: 'GET', path: organizationSettingsPath(organizationId) }),
-    organizationSettingsPatch: (organizationId, body) => organization({ method: 'PATCH', path: organizationSettingsPath(organizationId), body }),
+    organizationPolicyGet: (organizationId) => policy({ method: 'GET', path: organizationPolicyPath(organizationId) }, organizationPolicyResponseSchema),
+    organizationPolicyPut: (organizationId, body) => policy({ method: 'PUT', path: organizationPolicyPath(organizationId), body }, organizationPolicyResponseSchema),
+    hostPoliciesGet: (organizationId) => policy({ method: 'GET', path: hostPoliciesPath(organizationId) }, hostPoliciesResponseSchema),
+    hostPolicyCreate: (organizationId, body) => policy({ method: 'POST', path: hostPoliciesPath(organizationId), body }, hostPolicySummarySchema),
+    hostPolicyPut: (organizationId, policyId, body) => policy({ method: 'PUT', path: hostPolicyPath(organizationId, policyId), body }, hostPolicySummarySchema),
+    hostPolicyDelete: (organizationId, policyId) => policy({ method: 'DELETE', path: hostPolicyPath(organizationId, policyId) }, noBodySchema),
+    hostPolicyAssign: (organizationId, hostId, body) => policy({ method: 'PUT', path: hostPolicyAssignmentPath(organizationId, hostId), body }, policyHostSchema),
+    hostPolicyUnassign: (organizationId, hostId) => policy({ method: 'DELETE', path: hostPolicyAssignmentPath(organizationId, hostId) }, policyHostSchema),
   }
 }
 
@@ -105,17 +133,32 @@ export async function accountSettingsResult(response: Response): Promise<Account
   return parsed.success ? { kind: 'ok', settings: parsed.data } : { kind: 'error', code: 'invalid_response', message: null }
 }
 
-export async function organizationSettingsResult(response: Response): Promise<OrganizationSettingsResult> {
-  const body: unknown = await response.json().catch(() => null)
+/** A delete answers 204 or a body it does not need. */
+const noBodySchema = z.unknown().transform(() => null)
+
+/**
+ * One policy API answer, the same on every client: 409 is a conflict with what
+ * the other owner saved, 422 a refusal with its issues, 403 and 404 forbidden.
+ */
+export async function policyApiResult<Value>(response: Response, schema: z.ZodType<Value>): Promise<PolicyApiResult<Value>> {
+  const body: unknown = response.status === 204 ? null : await response.json().catch(() => null)
   if (response.status === 401) return { kind: 'signed-out' }
   if (response.status === 403 || response.status === 404) return { kind: 'forbidden' }
   if (response.status === 409) {
-    const conflict = organizationSettingsConflictBodySchema.safeParse(body)
-    return conflict.success ? { kind: 'conflict', current: conflict.data.current } : refusal(response.status, uplinkErrorBodySchema.safeParse(body))
+    const conflict = policyConflictBodySchema.safeParse(body)
+    return conflict.success
+      ? { kind: 'conflict', revision: conflict.data.revision, document: conflict.data.document }
+      : refusal(response.status, uplinkErrorBodySchema.safeParse(body))
+  }
+  if (response.status === 422) {
+    const rejected = policyRejectedBodySchema.safeParse(body)
+    return rejected.success
+      ? { kind: 'rejected', reason: rejected.data.error, issues: rejected.data.issues }
+      : refusal(response.status, uplinkErrorBodySchema.safeParse(body))
   }
   if (!response.ok) return refusal(response.status, uplinkErrorBodySchema.safeParse(body))
-  const parsed = organizationSettingsResponseSchema.safeParse(body)
-  return parsed.success ? { kind: 'ok', settings: parsed.data } : { kind: 'error', code: 'invalid_response', message: null }
+  const parsed = schema.safeParse(body)
+  return parsed.success ? { kind: 'ok', value: parsed.data } : { kind: 'error', code: 'invalid_response', message: null }
 }
 
 function refusal(status: number, parsed: z.ZodSafeParseResult<z.infer<typeof uplinkErrorBodySchema>>): SettingsRequestFailure {

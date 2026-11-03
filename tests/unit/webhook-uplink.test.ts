@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { UplinkLinkManager } from '@solus/server/transport/uplink/link'
 import { HostOrganizations } from '@solus/server/host/organizations'
-import { hostOrganizationsResponseSchema, organizationPolicySchema } from '@solus/contracts/uplink'
+import { hostOrganizationsResponseSchema } from '@solus/contracts/uplink'
+import { PolicyGate } from '@solus/server/host/policy/policy-gate'
 
 // docs/plans/webhooks.md §2.3–§2.5, §2.7: the link answer gives the host a
 // forwarder secret that proves forwarded deliveries, the hold switch lives in
@@ -120,18 +121,15 @@ describe('webhook forwarder on the link', () => {
 })
 
 describe('organization facts for webhooks', () => {
-  test('a policy from an older control plane does not allow unverified webhooks', () => {
-    expect(organizationPolicySchema.parse({ allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false }).allowsUnverifiedWebhooks).toBeUndefined()
-  })
-
   test('the facts read gives the paused webhook IDs and the unverified policy', async () => {
     const answer = hostOrganizationsResponseSchema.parse({
       hostId: HOST_ID, category: 'personal', owner: null,
       organizations: [
-        { organizationId: 'org-1', name: 'Acme', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false, allowsUnverifiedWebhooks: true } },
-        { organizationId: 'org-2', name: 'Beta', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false, allowsUnverifiedWebhooks: false } },
+        { organizationId: 'org-1', name: 'Acme', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Acme' }, sessions: { limits: { webhooks: { allowUnverified: true } } } }, hostPolicy: null },
+        { organizationId: 'org-2', name: 'Beta', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Beta' } }, hostPolicy: null },
       ],
       pausedWebhookIds: ['wh-paused'],
+      hostOwnerOrganizationId: null,
     })
     const organizations = new HostOrganizations({
       registration: () => registration,
@@ -143,7 +141,9 @@ describe('organization facts for webhooks', () => {
     await organizations.refresh()
     expect(organizations.isWebhookPausedByAdmin('wh-paused')).toBe(true)
     expect(organizations.isWebhookPausedByAdmin('wh-other')).toBe(false)
-    expect(organizations.allowsUnverifiedWebhooks('org-1')).toBe(true)
-    expect(organizations.allowsUnverifiedWebhooks('org-2')).toBe(false)
+    // The unverified rule is the organization's policy, read through the gate; a policy that says nothing does not allow it.
+    const gate = new PolicyGate({ mdm: null, standing: () => organizations.current() })
+    expect(gate.allowsUnverifiedWebhooks('org-1')).toBe(true)
+    expect(gate.allowsUnverifiedWebhooks('org-2')).toBe(false)
   })
 })

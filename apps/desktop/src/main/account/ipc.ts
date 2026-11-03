@@ -5,10 +5,8 @@ import type { AccountState } from '@solus/contracts/account-types'
 import type { SettingsRequestFailure } from '@solus/contracts/host-api'
 import { accountAgentProfilePatchRequestSchema } from '@solus/contracts/agent-profile'
 import { vaultSaveKeyRequestSchema, vaultConnectRequestSchema, vaultDisconnectRequestSchema } from '@solus/contracts/vault'
-import {
-  accountSettingsPatchRequestSchema,
-  organizationSettingsPatchRequestSchema,
-} from '@solus/contracts/settings'
+import { accountSettingsPatchRequestSchema } from '@solus/contracts/settings'
+import { hostPolicyAssignRequestSchema, hostPolicyCreateRequestSchema, policyWriteRequestSchema } from '@solus/contracts/policy-api'
 import { desktopAgentProfileRequests } from './agent-profile-client'
 import { secureStorage } from '../secure-storage'
 import { AccountStore } from './account-store'
@@ -40,8 +38,14 @@ export const ACCOUNT_CHANNELS = {
   accountVaultConnect: 'solus:account-vault-connect',
   accountVaultSaveKey: 'solus:account-vault-save-key',
   accountVaultDisconnect: 'solus:account-vault-disconnect',
-  organizationSettingsGet: 'solus:organization-settings-get',
-  organizationSettingsPatch: 'solus:organization-settings-patch',
+  organizationPolicyGet: 'solus:organization-policy-get',
+  organizationPolicyPut: 'solus:organization-policy-put',
+  hostPoliciesGet: 'solus:host-policies-get',
+  hostPolicyCreate: 'solus:host-policy-create',
+  hostPolicyPut: 'solus:host-policy-put',
+  hostPolicyDelete: 'solus:host-policy-delete',
+  hostPolicyAssign: 'solus:host-policy-assign',
+  hostPolicyUnassign: 'solus:host-policy-unassign',
 } as const
 
 /** A renderer request that fails its schema never reaches the website. */
@@ -49,6 +53,7 @@ const INVALID_REQUEST: SettingsRequestFailure = { kind: 'error', code: 'invalid_
 
 const hostIdSchema = z.string().min(1).max(64)
 const organizationIdSchema = z.string().min(1).max(128)
+const policyIdSchema = z.string().min(1).max(128)
 /** What a renderer may get a token for: one host or the Solus API, never the account plane. */
 const connectionTokenResourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('host'), hostId: hostIdSchema }).strict(),
@@ -111,7 +116,7 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     return organizationId.success ? loadOrganizationDirectory(session, organizationId.data) : null
   })
 
-  // Settings sync and organization settings: typed calls only, decoded here.
+  // Settings sync and the policy API: typed calls only, decoded here.
   const settings = desktopSettingsRequests(session)
   ipcMain.handle(ACCOUNT_CHANNELS.accountSettingsGet, () => settings.accountSettingsGet())
   ipcMain.handle(ACCOUNT_CHANNELS.accountSettingsPatch, (_event, rawRequest) => {
@@ -140,14 +145,50 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     const request = vaultDisconnectRequestSchema.safeParse(rawRequest)
     return request.success ? agentProfile.accountVaultDisconnect(request.data) : INVALID_REQUEST
   })
-  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsGet, (_event, rawOrganizationId) => {
+  // The policy API (plans/030 §5.2): owners' reads and writes, each id and body decoded here.
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationPolicyGet, (_event, rawOrganizationId) => {
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
-    return organizationId.success ? settings.organizationSettingsGet(organizationId.data) : INVALID_REQUEST
+    return organizationId.success ? settings.organizationPolicyGet(organizationId.data) : INVALID_REQUEST
   })
-  ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsPatch, (_event, rawOrganizationId, rawRequest) => {
+  ipcMain.handle(ACCOUNT_CHANNELS.organizationPolicyPut, (_event, rawOrganizationId, rawRequest) => {
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
-    const request = organizationSettingsPatchRequestSchema.safeParse(rawRequest)
-    return organizationId.success && request.success ? settings.organizationSettingsPatch(organizationId.data, request.data) : INVALID_REQUEST
+    const request = policyWriteRequestSchema.safeParse(rawRequest)
+    return organizationId.success && request.success ? settings.organizationPolicyPut(organizationId.data, request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.hostPoliciesGet, (_event, rawOrganizationId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    return organizationId.success ? settings.hostPoliciesGet(organizationId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.hostPolicyCreate, (_event, rawOrganizationId, rawRequest) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const request = hostPolicyCreateRequestSchema.safeParse(rawRequest)
+    return organizationId.success && request.success ? settings.hostPolicyCreate(organizationId.data, request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.hostPolicyPut, (_event, rawOrganizationId, rawPolicyId, rawRequest) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const policyId = policyIdSchema.safeParse(rawPolicyId)
+    const request = policyWriteRequestSchema.safeParse(rawRequest)
+    return organizationId.success && policyId.success && request.success
+      ? settings.hostPolicyPut(organizationId.data, policyId.data, request.data)
+      : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.hostPolicyDelete, (_event, rawOrganizationId, rawPolicyId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const policyId = policyIdSchema.safeParse(rawPolicyId)
+    return organizationId.success && policyId.success ? settings.hostPolicyDelete(organizationId.data, policyId.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.hostPolicyAssign, (_event, rawOrganizationId, rawHostId, rawRequest) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    const request = hostPolicyAssignRequestSchema.safeParse(rawRequest)
+    return organizationId.success && hostId.success && request.success
+      ? settings.hostPolicyAssign(organizationId.data, hostId.data, request.data)
+      : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.hostPolicyUnassign, (_event, rawOrganizationId, rawHostId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return organizationId.success && hostId.success ? settings.hostPolicyUnassign(organizationId.data, hostId.data) : INVALID_REQUEST
   })
 
   // The keychain is not reliably readable before `ready`, and this module is

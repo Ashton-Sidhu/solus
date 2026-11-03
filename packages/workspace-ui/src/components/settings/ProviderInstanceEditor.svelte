@@ -12,8 +12,14 @@
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import ProviderModelSettings from "./ProviderModelSettings.svelte";
+  import { launchFieldsManaged } from "@solus/client-core/policy";
+  import { workPolicy } from "../../contexts/policy/work-policy.svelte";
 
-  let { instance, revision, client, saving }: { instance: ProviderInstance; revision: number; client: ProviderInstancesClient; saving: boolean } = $props();
+  let { serverId, instance, revision, client, saving }: { serverId: string; instance: ProviderInstance; revision: number; client: ProviderInstancesClient; saving: boolean } = $props();
+  // Under a permission ceiling the host drops the launch fields for the window's organization's work (plans/030 §6.4).
+  const launchManaged = $derived(launchFieldsManaged(workPolicy(serverId)));
+  const launchNote = $derived(launchManaged ? { lockedEverywhere: true, lines: [launchManaged.message] } : undefined);
+  const launchLock = $derived(launchManaged ? { lockedEverywhere: true, lines: [] } : undefined);
   let draft = $state(untrack(() => structuredClone(instance)));
   let expectedRevision = $state(untrack(() => revision));
   async function save() {
@@ -38,14 +44,14 @@
   </SettingsRow>
 </SettingsSection>
 <SettingsSection label="Runtime">
-  <SettingsRow label="Binary path" description="Executable name or absolute path on this host. Leave empty to use the installed CLI.">
+  <SettingsRow label="Binary path" description="Executable name or absolute path on this host. Leave empty to use the installed CLI." managed={launchNote}>
     {#snippet control()}<Input aria-label="Provider binary path" bind:value={draft.binaryPath} placeholder={draft.provider === "codex" ? "codex" : "claude"} />{/snippet}
   </SettingsRow>
-  <SettingsRow label={draft.provider === "codex" ? "CODEX_HOME path" : "CLAUDE_CONFIG_DIR path"} description="Custom provider home and config directory on this host. Leave empty to use your seat.">
+  <SettingsRow label={draft.provider === "codex" ? "CODEX_HOME path" : "CLAUDE_CONFIG_DIR path"} description="Custom provider home and config directory on this host. Leave empty to use your seat." managed={launchLock}>
     {#snippet control()}<Input aria-label="Provider home path" bind:value={draft.homePath} placeholder={draft.provider === "codex" ? "~/.codex" : "~/.claude"} />{/snippet}
   </SettingsRow>
   {#if draft.provider === "codex"}
-    <SettingsRow label="Shadow home path" description="Separate auth.json while sharing configuration, sessions, and skills from CODEX_HOME.">
+    <SettingsRow label="Shadow home path" description="Separate auth.json while sharing configuration, sessions, and skills from CODEX_HOME." managed={launchLock}>
       {#snippet control()}<Input aria-label="Codex shadow home path" bind:value={draft.shadowHomePath} placeholder="~/.codex-solus/work" />{/snippet}
     </SettingsRow>
   {:else}
@@ -56,7 +62,7 @@
       {#snippet control()}<Input type="number" aria-label="Claude auto-compaction token threshold" min={100000} max={1000000} value={draft.autoCompactWindow ?? ""} onchange={(event) => (draft.autoCompactWindow = event.currentTarget.value ? Number(event.currentTarget.value) : null)} />{/snippet}
     </SettingsRow>
   {/if}
-  <SettingsRow label="Launch arguments" description="One literal CLI argument per row. Arguments are passed directly, without a shell.">
+  <SettingsRow label="Launch arguments" description="One literal CLI argument per row. Arguments are passed directly, without a shell." managed={launchLock}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={() => draft.launchArgs.push("")}>Add argument</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-2">
@@ -68,7 +74,7 @@
   </SettingsRow>
 </SettingsSection>
 <SettingsSection label="Environment">
-  <SettingsRow label="Variables" description="Private CLI settings, API keys, and base URLs. Saved sensitive values are never returned to clients.">
+  <SettingsRow label="Variables" description="Private CLI settings, API keys, and base URLs. Saved sensitive values are never returned to clients." managed={launchLock}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={addVariable}>Add variable</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-3">

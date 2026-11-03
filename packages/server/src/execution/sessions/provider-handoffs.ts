@@ -1,3 +1,5 @@
+import { organizationOfSession } from '../../data/sessions/session-records'
+import { policyGate } from '../../host/policy/policy-gate'
 import { HandoffCarryStore } from '../../data/sessions/handoff-carry-store'
 import { buildHandoff } from '../agents/session-handoff'
 import { getIndexedSession } from '../../db/session-indexer'
@@ -123,6 +125,8 @@ export class ProviderHandoffs {
    *  past the queue, and on a rate-limited session it abandons the parked prompt. */
   async switchSessionProvider(sessionId: string, newProvider: AgentId, knownAgentSessionId: string | null | undefined, actor: Actor,
     options: { atSend?: boolean; model?: string } = {}): Promise<SessionProviderSwitchResult> {
+    // A switch, a plan accepted on another provider, or a prompt on another provider: the policies must allow it (plans/030 §6.5).
+    policyGate().assertProviderAllowed(await organizationOfSession(sessionId), newProvider, options.model)
     const session = this.rt.activeSessions.get(sessionId)
 
     const pendingHandoff = this.pendingHandoffFor(sessionId)
