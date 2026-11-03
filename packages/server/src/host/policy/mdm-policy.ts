@@ -29,11 +29,11 @@ export class MdmPolicyError extends Error {
   }
 }
 
-export const MDM_POLICY_FILES: Partial<Record<NodeJS.Platform, string>> = {
+export const MDM_POLICY_FILES = {
   darwin: '/Library/Application Support/Solus/policy.json',
   win32: 'C:\\ProgramData\\Solus\\policy.json',
   linux: '/etc/solus/policy.json',
-}
+} satisfies Partial<Record<NodeJS.Platform, string>>
 export const MDM_PROFILE_PLIST = '/Library/Managed Preferences/com.solus.app.plist'
 export const MDM_REGISTRY_KEY = 'HKLM\\SOFTWARE\\Policies\\Solus'
 
@@ -82,7 +82,7 @@ export async function readMdmPolicy(environment: MdmPolicyEnvironment = systemMd
     return decodeMdmPolicy(environment.devOverridePath, environment.readFile(environment.devOverridePath))
   }
   const found: Array<{ source: string; text: () => Promise<string> }> = []
-  const file = MDM_POLICY_FILES[environment.platform]
+  const file = environment.platform === 'darwin' || environment.platform === 'win32' || environment.platform === 'linux' ? MDM_POLICY_FILES[environment.platform] : null
   if (file && environment.exists(file)) found.push({ source: file, text: async () => environment.readFile(file) })
   if (environment.platform === 'darwin' && environment.exists(MDM_PROFILE_PLIST)) {
     found.push({ source: `configuration profile com.solus.app`, text: async () => withoutProfileKeys(await environment.run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', MDM_PROFILE_PLIST])) })

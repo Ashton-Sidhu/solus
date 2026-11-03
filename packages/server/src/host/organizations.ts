@@ -163,19 +163,8 @@ export class HostOrganizations {
         this.deps.onRegistrationRefused?.()
         return
       }
-      const headers: Record<string, string> = { authorization: `Bearer ${token}`, accept: 'application/json' }
-      if (this.etag && this.standing) headers['if-none-match'] = this.etag
-      const response = await (this.deps.fetchImpl ?? fetch)(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations`, {
-        headers,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      })
-      if (response.status === 304 && this.standing) {
-        // Nothing changed since the last answer.
-        this.standing.refreshedAt = Date.now()
-        for (const listener of this.refreshedListeners) listener()
-        this.schedule(REFRESH_MS)
-        return
-      }
+      const response = await this.requestStanding(registration, token)
+      if (response.status === 304 && this.keepUnchanged()) return
       if (response.ok) {
         const parsed = hostOrganizationsResponseSchema.safeParse(await response.json().catch(() => null))
         if (parsed.success) {
@@ -216,6 +205,25 @@ export class HostOrganizations {
     const clearTimeoutFn = this.deps.clearTimeoutFn ?? clearTimeout
     clearTimeoutFn(this.timer)
     this.timer = null
+  }
+
+  /** One read of the standing, conditional on the last answer's ETag. */
+  private requestStanding(registration: HostRegistration, token: string): Promise<Response> {
+    const headers = new Headers({ authorization: `Bearer ${token}`, accept: 'application/json' })
+    if (this.etag && this.standing) headers.set('if-none-match', this.etag)
+    return (this.deps.fetchImpl ?? fetch)(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations`, {
+      headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  }
+
+  /** A 304: nothing changed since the last answer. False when there is no answer to keep. */
+  private keepUnchanged(): boolean {
+    if (!this.standing) return false
+    this.standing.refreshedAt = Date.now()
+    for (const listener of this.refreshedListeners) listener()
+    this.schedule(REFRESH_MS)
+    return true
   }
 
   /** The registration is gone: no standing, and no cached copy to load at the next start. */

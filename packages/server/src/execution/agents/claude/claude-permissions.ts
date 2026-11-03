@@ -41,10 +41,15 @@ export function maskSensitiveFields(input: PermissionToolInput): PermissionToolI
  * above a policy's ceiling is dropped (plans/030 §6.3).
  */
 export function sessionPermissionUpdates(toolName: string, suggestions: PermissionUpdate[] | undefined, ceiling: PermissionMode | null = null): PermissionUpdate[] | null {
-  const allowed = suggestions?.filter((update) => !(update.type === 'setMode' && isPermissionModeAbove(SDK_TO_UI_PERMISSION_MODE[update.mode as keyof typeof SDK_TO_UI_PERMISSION_MODE] ?? 'full-access', ceiling)))
+  const allowed = suggestions?.filter((update) => !(update.type === 'setMode' && isPermissionModeAbove(uiModeOf(update.mode), ceiling)))
   if (allowed?.length) return allowed.map((update) => ({ ...update, destination: 'session' }))
   if (toolName === 'Bash') return null
   return [{ type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination: 'session' }]
+}
+
+/** The Solus mode of an SDK mode; an unknown one counts as the broadest, so a ceiling never lets it through. */
+function uiModeOf(sdkMode: string): PermissionMode {
+  return Object.entries(SDK_TO_UI_PERMISSION_MODE).find(([mode]) => mode === sdkMode)?.[1] ?? 'full-access'
 }
 
 const ALLOW_ONCE: PermissionOption = { id: 'allow', label: 'Allow Once', kind: 'allow' }

@@ -14,13 +14,13 @@ export const POLICY_PROVIDER_IDS = ['claude-code', 'codex', 'opencode', 'replay'
 const providerIdSchema = z.enum(POLICY_PROVIDER_IDS)
 
 /** Narrowest first. `plan` cannot change anything, `full-access` asks for nothing. */
-const PERMISSION_MODE_RANK: Record<PermissionMode, number> = {
+const PERMISSION_MODE_RANK = {
   plan: 0,
   supervised: 1,
   'accept-edits': 2,
   auto: 3,
   'full-access': 4,
-}
+} satisfies Record<PermissionMode, number>
 
 /** Whether `mode` lets the agent do more than `ceiling`; no ceiling allows every mode. */
 export function isPermissionModeAbove(mode: PermissionMode, ceiling: PermissionMode | null | undefined): boolean {
@@ -107,7 +107,7 @@ export const managedHostSettingsSchema = z.object({
 }).partial().strict()
 export type ManagedHostSettings = z.output<typeof managedHostSettingsSchema>
 export type ManagedHostKey = keyof ManagedHostSettings
-export const MANAGED_HOST_KEYS = Object.keys(managedHostSettingsSchema.shape) as ManagedHostKey[]
+export const MANAGED_HOST_KEYS: ManagedHostKey[] = managedHostSettingsSchema.keyof().options
 
 const envNameSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
 
@@ -133,7 +133,7 @@ export type SessionLimits = z.infer<typeof sessionLimitsSchema>
 
 // ── The document ────────────────────────────────────────────────────────────
 
-const policyDocumentShape = z.object({
+const policyDocumentFields = z.object({
   schemaVersion: z.literal(1),
   organization: z.object({ name: z.string().trim().min(1) }).strict(),
   name: z.string().trim().min(1).optional(),
@@ -160,32 +160,37 @@ function lockedModels(settings: ManagedSessionSettings | undefined): { key: stri
   return out
 }
 
+interface PolicyIssue { path: string[]; message: string }
+
+/** The locked model settings must name allowed providers and models. */
+function lockedModelIssues(document: z.output<typeof policyDocumentFields>): PolicyIssue[] {
+  const limits = document.sessions?.limits
+  const issues: PolicyIssue[] = []
+  for (const locked of lockedModels(document.sessions?.settings)) {
+    const allowed = limits?.models?.[locked.provider]
+    if (allowed && !allowed.includes(locked.model)) issues.push({ path: ['sessions', 'settings', locked.key], message: `${locked.model} is not in sessions.limits.models.${locked.provider}.` })
+    if (limits?.providers?.allowed && !limits.providers.allowed.includes(locked.provider)) issues.push({ path: ['sessions', 'settings', locked.key], message: `${locked.provider} is not in sessions.limits.providers.allowed.` })
+  }
+  return issues
+}
+
+/** The rules that cross keys (plans/030 §4.2). */
+function crossKeyIssues(document: z.output<typeof policyDocumentFields>, kind: PolicyKind): PolicyIssue[] {
+  const issues: PolicyIssue[] = []
+  if (kind === 'organization' && document.host) issues.push({ path: ['host'], message: 'An organization policy cannot hold host settings. Put them in a host policy.' })
+  const mode = document.sessions?.settings?.defaultPermissionMode
+  if (mode && isPermissionModeAbove(mode, document.sessions?.limits?.maxPermissionMode)) issues.push({ path: ['sessions', 'settings', 'defaultPermissionMode'], message: 'The default mode cannot be above maxPermissionMode.' })
+  if (document.host?.remoteAccess === false && document.host.trustLocalNetwork === true) issues.push({ path: ['host', 'trustLocalNetwork'], message: 'trustLocalNetwork cannot be true when remoteAccess is false.' })
+  return [...issues, ...lockedModelIssues(document)]
+}
+
 export function policyDocumentSchema(kind: PolicyKind) {
-  return policyDocumentShape.superRefine((document, ctx) => {
-    if (kind === 'organization' && document.host) {
-      ctx.addIssue({ code: 'custom', path: ['host'], message: 'An organization policy cannot hold host settings. Put them in a host policy.' })
-    }
-    const settings = document.sessions?.settings
-    const limits = document.sessions?.limits
-    if (settings?.defaultPermissionMode && isPermissionModeAbove(settings.defaultPermissionMode, limits?.maxPermissionMode)) {
-      ctx.addIssue({ code: 'custom', path: ['sessions', 'settings', 'defaultPermissionMode'], message: 'The default mode cannot be above maxPermissionMode.' })
-    }
-    for (const locked of lockedModels(settings)) {
-      const allowed = limits?.models?.[locked.provider]
-      if (allowed && !allowed.includes(locked.model)) {
-        ctx.addIssue({ code: 'custom', path: ['sessions', 'settings', locked.key], message: `${locked.model} is not in sessions.limits.models.${locked.provider}.` })
-      }
-      if (limits?.providers?.allowed && !limits.providers.allowed.includes(locked.provider)) {
-        ctx.addIssue({ code: 'custom', path: ['sessions', 'settings', locked.key], message: `${locked.provider} is not in sessions.limits.providers.allowed.` })
-      }
-    }
-    if (document.host?.remoteAccess === false && document.host.trustLocalNetwork === true) {
-      ctx.addIssue({ code: 'custom', path: ['host', 'trustLocalNetwork'], message: 'trustLocalNetwork cannot be true when remoteAccess is false.' })
-    }
+  return policyDocumentFields.superRefine((document, ctx) => {
+    for (const issue of crossKeyIssues(document, kind)) ctx.addIssue({ code: 'custom', ...issue })
   })
 }
 
-export type PolicyDocument = z.output<typeof policyDocumentShape>
+export type PolicyDocument = z.output<typeof policyDocumentFields>
 
 export type PolicyValidation = { ok: true; document: PolicyDocument } | { ok: false; issues: string[] }
 
@@ -279,7 +284,10 @@ export interface ResolvedRule<Value> {
 export function resolveSessionSetting<K extends ManagedSessionSettingKey>(sources: PolicySource[], key: K): ResolvedRule<Exclude<ManagedSessionSettings[K], undefined>> | null {
   for (const source of sources) {
     const value = source.document.sessions?.settings?.[key]
-    if (value !== undefined) return { value: value as Exclude<ManagedSessionSettings[K], undefined>, source }
+    if (value !== undefined) {
+      // SAFETY: `value` is `settings[key]` with `undefined` excluded by the check above; TypeScript loses the key's narrowing through the optional chain.
+      return { value: value as Exclude<ManagedSessionSettings[K], undefined>, source }
+    }
   }
   return null
 }
@@ -287,7 +295,10 @@ export function resolveSessionSetting<K extends ManagedSessionSettingKey>(source
 export function resolveSessionLimit<K extends keyof SessionLimits>(sources: PolicySource[], key: K): ResolvedRule<NonNullable<SessionLimits[K]>> | null {
   for (const source of sources) {
     const value = source.document.sessions?.limits?.[key]
-    if (value !== undefined) return { value: value as NonNullable<SessionLimits[K]>, source }
+    if (value !== undefined) {
+      // SAFETY: `value` is `limits[key]`, checked not undefined above, and limit values are never null.
+      return { value: value as NonNullable<SessionLimits[K]>, source }
+    }
   }
   return null
 }
@@ -302,7 +313,10 @@ export function resolveHostKey<K extends ManagedHostKey>(set: PolicySet, key: K)
   }
   for (const source of candidates) {
     const value = source.document.host?.[key]
-    if (value !== undefined) return { value: value as NonNullable<ManagedHostSettings[K]>, source }
+    if (value !== undefined) {
+      // SAFETY: `value` is `host[key]`, checked not undefined above, and host values are never null.
+      return { value: value as NonNullable<ManagedHostSettings[K]>, source }
+    }
   }
   return null
 }
@@ -322,11 +336,11 @@ export const REDACTED_LAUNCH_VALUE = '(managed)'
 
 /** Pins without their values, so an editor can lock exactly the pinned fields. */
 function redactLaunchPin(pin: ProviderLaunchPin): ProviderLaunchPin {
-  return {
-    ...(pin.environment ? { environment: pin.environment.map((variable) => ({ name: variable.name, value: REDACTED_LAUNCH_VALUE })) } : {}),
-    ...(pin.binaryPath ? { binaryPath: REDACTED_LAUNCH_VALUE } : {}),
-    ...(pin.launchArgs ? { launchArgs: [REDACTED_LAUNCH_VALUE] } : {}),
-  }
+  const redacted: ProviderLaunchPin = {}
+  if (pin.environment) redacted.environment = pin.environment.map((variable) => ({ name: variable.name, value: REDACTED_LAUNCH_VALUE }))
+  if (pin.binaryPath) redacted.binaryPath = REDACTED_LAUNCH_VALUE
+  if (pin.launchArgs) redacted.launchArgs = [REDACTED_LAUNCH_VALUE]
+  return redacted
 }
 
 /** Launch pin values and the update feed can carry tokens; clients get the pinned field names only, and no feed. */
@@ -373,18 +387,18 @@ export const POLICY_REFUSAL_CODES = [
 export type PolicyRefusalCode = (typeof POLICY_REFUSAL_CODES)[number]
 
 export function isPolicyRefusalCode(code: string): code is PolicyRefusalCode {
-  return (POLICY_REFUSAL_CODES as readonly string[]).includes(code)
+  return POLICY_REFUSAL_CODES.some((known) => known === code)
 }
 
-const MODE_LABELS: Record<PermissionMode, string> = {
+const MODE_LABELS = {
   plan: 'Plan',
   supervised: 'Supervised',
   'accept-edits': 'Accept edits',
   auto: 'Auto',
   'full-access': 'Full access',
-}
+} satisfies Record<PermissionMode, string>
 
-const PROVIDER_LABELS: Record<AgentId, string> = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' }
+const PROVIDER_LABELS = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay' } satisfies Record<AgentId, string>
 
 export function permissionCeilingMessage(source: PolicySource, ceiling: PermissionMode): string {
   return `${capitalize(policySourceLabel(source))} limits sessions to ${MODE_LABELS[ceiling]}.`

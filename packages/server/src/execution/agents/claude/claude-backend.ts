@@ -1,3 +1,4 @@
+import type { PermissionMode } from '@solus/contracts/types'
 import { isPermissionModeAbove } from '@solus/contracts/policy'
 import { policyGate } from '../../../host/policy/policy-gate'
 import { privateProviderInstances } from '../../seats/provider-instances'
@@ -362,11 +363,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
           }
           sessionRef.current = evt.sessionId
         }
-        // A mode the run switched to above the policy's ceiling ends the run (plans/030 §6.3).
-        if (evt.type === 'permission_mode_changed' && isPermissionModeAbove(evt.permissionMode, ceiling)) {
-          log.warn('permission_mode_above_ceiling', { sessionId: handle.agentSessionId, permissionMode: evt.permissionMode, ceiling })
-          handle.abortController.abort()
-        }
+        stopAboveCeiling(evt, ceiling, handle)
 
         this.emit('normalized', handle.agentSessionId, evt)
       }
@@ -744,4 +741,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       stale: false,
     }
   }
+}
+
+/** A mode the run switched to above the policy's ceiling ends the run (plans/030 §6.3). */
+function stopAboveCeiling(event: NormalizedEvent, ceiling: PermissionMode | null, handle: ClaudeRunHandle): void {
+  if (event.type !== 'permission_mode_changed' || !isPermissionModeAbove(event.permissionMode, ceiling)) return
+  log.warn('permission_mode_above_ceiling', { sessionId: handle.agentSessionId, permissionMode: event.permissionMode, ceiling })
+  handle.abortController.abort()
 }

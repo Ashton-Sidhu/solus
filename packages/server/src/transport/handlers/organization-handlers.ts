@@ -9,6 +9,7 @@ import { hostCategory } from '../../host/host-category'
 import { organizationAttachedAt } from '../../host/organization-attachment'
 import type { HostOrganizations } from '../../host/organizations'
 import type { PolicyGate } from '../../host/policy/policy-gate'
+import { summarizePolicySet } from '@solus/contracts/policy'
 import { getInsightsOptIn, setInsightsOptIn } from '../../host/settings'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
@@ -54,9 +55,9 @@ export function hostOrganizationsStatus(deps: Pick<OrganizationHandlerDeps, 'hos
 export function registerOrganizationHandlers(server: SolusServer, deps: OrganizationHandlerDeps): void {
   const status = () => hostOrganizationsStatus(deps)
   deps.hostOrganizations.onChanged(() => deps.events.broadcast('host.organizationsChanged', status()))
-  deps.policyGate.onChanged(() => deps.events.broadcast('host.policyChanged', deps.policyGate.summary()))
+  deps.policyGate.onChanged(() => deps.events.broadcast('host.policyChanged', summarizePolicySet(deps.policyGate.policySet())))
 
-  server.register('hostPolicy', () => deps.policyGate.summary())
+  server.register('hostPolicy', () => summarizePolicySet(deps.policyGate.policySet()))
 
   server.register('hostOrganizations', async () => {
     // A read older than half a minute asks the control plane again first, so a

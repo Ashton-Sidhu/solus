@@ -15,7 +15,6 @@ import {
 } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigKey, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
 import type { ManagedHostKey } from '@solus/contracts/policy'
-import type { OtelSettings } from '@solus/contracts/types'
 import { policyGate } from './policy/policy-gate'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
@@ -177,16 +176,17 @@ const LOCKABLE_HOST_CONFIG: ReadonlyArray<readonly [ManagedHostKey & HostConfigK
 /** The policies' locked host keys laid over the owner's config; the stored file never holds them. */
 function withHostLocks(config: HostConfig): HostConfig {
   const gate = policyGate()
-  let next: HostConfig | null = null
-  for (const [key] of LOCKABLE_HOST_CONFIG) {
-    const rule = gate.hostKey(key)
-    if (!rule) continue
-    next ??= { ...config }
-    if (key === 'otel') next.otel = normalizeOtelSettings({ ...config.otel, ...(rule.value as Partial<OtelSettings>) })
-    else if (key === 'solusTools') next.solusTools = { ...config.solusTools, ...(rule.value as HostConfig['solusTools']) }
-    else Object.assign(next, { [key]: rule.value })
-  }
-  return next ?? config
+  if (!LOCKABLE_HOST_CONFIG.some(([key]) => gate.hostKey(key))) return config
+  const next: HostConfig = { ...config }
+  const otel = gate.hostKey('otel')
+  if (otel) next.otel = normalizeOtelSettings({ ...config.otel, ...otel.value })
+  const solusTools = gate.hostKey('solusTools')
+  if (solusTools) next.solusTools = { ...config.solusTools, ...solusTools.value }
+  next.continueSessionsAfterHostRestart = gate.hostKey('continueSessionsAfterHostRestart')?.value ?? config.continueSessionsAfterHostRestart
+  next.archivedAutomationRetentionDays = gate.hostKey('archivedAutomationRetentionDays')?.value ?? config.archivedAutomationRetentionDays
+  next.unfiledRecordingRetentionDays = gate.hostKey('unfiledRecordingRetentionDays')?.value ?? config.unfiledRecordingRetentionDays
+  next.analyticsEnabled = gate.hostKey('analyticsEnabled')?.value ?? config.analyticsEnabled
+  return next
 }
 
 /** Remote access as the policies allow it: a locked value wins over the owner's (plans/030 §6.7). */

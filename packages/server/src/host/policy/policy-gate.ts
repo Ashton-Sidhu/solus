@@ -11,7 +11,6 @@ import {
   resolveSessionSetting,
   sessionSourcesFor,
   settingManagedMessage,
-  summarizePolicySet,
   validatePolicyDocument,
   MANAGED_SESSION_SETTING_KEYS,
   type ManagedHostKey,
@@ -48,6 +47,12 @@ export interface ReviewSettings {
 
 const REVIEW_KEYS = ['reviewAgent', 'reviewModel', 'reviewGuideInstructions'] as const
 
+/** Whether the policies own a provider's launch (a ceiling is set), and the pin laid over it. */
+export interface LaunchPolicy {
+  ownsLaunch: boolean
+  pin: ProviderLaunchPin | null
+}
+
 /**
  * The one module that reads a policy document on the host (plans/030 §6.1). It
  * builds the `PolicySet` from the MDM policy and the standing, and answers every
@@ -72,11 +77,6 @@ export class PolicyGate {
     const set = buildPolicySet(this.deps.mdm, standing)
     this.cached = { standing, set }
     return set
-  }
-
-  /** What clients see: no launch pins, no update feed. */
-  summary(): PolicySet {
-    return summarizePolicySet(this.policySet())
   }
 
   /** The standing changed: forget the built set and tell the listeners. */
@@ -176,7 +176,7 @@ export class PolicyGate {
   }
 
   /** The launch pin of `provider` and whether the policy owns the whole launch config (a ceiling is set). */
-  launchPolicy(organizationId: string | null | undefined, provider: AgentId): { ownsLaunch: boolean; pin: ProviderLaunchPin | null } {
+  launchPolicy(organizationId: string | null | undefined, provider: AgentId): LaunchPolicy {
     const sources = this.sources(organizationId)
     const ownsLaunch = resolveSessionLimit(sources, 'maxPermissionMode') !== null
     for (const source of sources) {
@@ -191,7 +191,7 @@ export class PolicyGate {
     const sources = this.sources(organizationId)
     let next: ExecutionPreferences | null = null
     for (const key of MANAGED_SESSION_SETTING_KEYS) {
-      if ((REVIEW_KEYS as readonly string[]).includes(key)) continue
+      if (REVIEW_KEYS.some((reviewKey) => reviewKey === key)) continue
       const rule = resolveSessionSetting(sources, key)
       if (!rule) continue
       next ??= { ...preferences }

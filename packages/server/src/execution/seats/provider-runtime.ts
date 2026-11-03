@@ -1,5 +1,4 @@
-import type { ProviderLaunchPin } from '@solus/contracts/policy'
-import { policyGate } from '../../host/policy/policy-gate'
+import { policyGate, type LaunchPolicy } from '../../host/policy/policy-gate'
 import { resolveProjectRoot } from '../../project-config/project-config'
 import { instanceModelCatalog } from '@solus/contracts/provider-instance-models'
 import type { ModelProfile } from '@solus/contracts/types'
@@ -85,7 +84,7 @@ export function instanceRuntime(instance: ProviderInstance, seatLaunch?: LaunchO
  * provider's approvals off. A launch pin is laid over what remains. The stored
  * instance is not changed.
  */
-export function governedInstance(instance: ProviderInstance, policy: { ownsLaunch: boolean; pin: ProviderLaunchPin | null }): ProviderInstance {
+export function governedInstance(instance: ProviderInstance, policy: LaunchPolicy): ProviderInstance {
   const { ownsLaunch, pin } = policy
   if (!ownsLaunch && !pin) return instance
   const governed: ProviderInstance = ownsLaunch

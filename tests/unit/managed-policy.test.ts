@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { canonicalPolicyJson, validatePolicyDocument, type PolicyDocument } from '@solus/contracts/policy'
+import { canonicalPolicyJson, REDACTED_LAUNCH_VALUE, summarizePolicySet, validatePolicyDocument, type PolicyDocument } from '@solus/contracts/policy'
 import { PolicyGate, PolicyRefusedError } from '@solus/server/host/policy/policy-gate'
 import type { HostStanding } from '@solus/server/host/organizations'
 import type { MdmPolicy } from '@solus/server/host/policy/mdm-policy'
@@ -167,11 +167,13 @@ describe('limits', () => {
     expect(gate(doc('IT', { sessions: { limits: { webhooks: { allowUnverified: false } } } }), allowing).allowsUnverifiedWebhooks('local')).toBe(false)
   })
 
-  test('clients get no launch pins and no update feed: they can carry tokens', () => {
+  test('clients get no launch pin values and no update feed: they can carry tokens', () => {
     const secret = doc('IT', { host: { updates: { mode: 'auto', feedUrl: 'https://token@updates.example.com/' } }, sessions: { limits: { providers: { launch: { 'claude-code': { environment: [{ name: 'API_KEY', value: 'secret' }] } } } } } })
-    const summary = gate(secret, null).summary()
+    const summary = summarizePolicySet(gate(secret, null).policySet())
     expect(JSON.stringify(summary)).not.toContain('secret')
     expect(JSON.stringify(summary)).not.toContain('token@')
     expect(summary.mdm?.document.host?.updates?.mode).toBe('auto')
+    // The pinned field's name stays, so an editor can lock exactly that field.
+    expect(summary.mdm?.document.sessions?.limits?.providers?.launch?.['claude-code']?.environment).toEqual([{ name: 'API_KEY', value: REDACTED_LAUNCH_VALUE }])
   })
 })
