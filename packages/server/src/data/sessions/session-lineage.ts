@@ -27,6 +27,7 @@ const sessionLineageMemberRowSchema = z.object({
 })
 
 const lineageIdRowSchema = z.object({ session_id: z.string() })
+const threadBindingRowSchema = z.object({ provider_session_id: z.string(), session_id: z.string() })
 
 export interface BeginSessionHandoffInput {
   sessionId: string
@@ -68,14 +69,16 @@ function resolutionFromRows(rows: SessionLineageMemberRow[]): SessionLineageReso
  */
 interface LineageReads {
   byId: Map<string, SessionLineageResolution | null>
+  /** Thread id → its session; holds every bound thread once `everyThread` is set. */
   byThread: Map<string, string>
+  everyThread: boolean
 }
 const lineageReads = new WeakMap<DatabaseSync, LineageReads>()
 
 function readsFor(db: DatabaseSync): LineageReads {
   let reads = lineageReads.get(db)
   if (!reads) {
-    reads = { byId: new Map(), byThread: new Map() }
+    reads = { byId: new Map(), byThread: new Map(), everyThread: false }
     lineageReads.set(db, reads)
   }
   return reads
@@ -121,20 +124,20 @@ export function sessionIdOfThread(
   db: DatabaseSync = getDb(),
 ): string {
   const reads = readsFor(db)
-  const known = reads.byThread.get(threadId)
-  if (known) return known
-  const parsed = lineageIdRowSchema.safeParse(db.prepare(`
-    SELECT session_id
-    FROM session_lineage_members
-    WHERE provider_session_id = ?
-    UNION ALL
-    SELECT session_id FROM session_thread_aliases WHERE provider_session_id = ?
-    LIMIT 1
-  `).get(threadId, threadId))
-  // A miss is not remembered: the thread may be bound to a session later.
-  if (!parsed.success) return threadId
-  reads.byThread.set(threadId, parsed.data.session_id)
-  return parsed.data.session_id
+  if (!reads.everyThread) {
+    // Every binding at once: a search asks about every indexed thread, most of
+    // which never ran in Solus and have none. One read of these small tables
+    // answers them all, misses included, until a write below forgets it.
+    for (const row of threadBindingRowSchema.array().parse(db.prepare(`
+      SELECT provider_session_id, session_id FROM session_lineage_members WHERE provider_session_id IS NOT NULL
+      UNION ALL
+      SELECT provider_session_id, session_id FROM session_thread_aliases
+    `).all())) {
+      if (!reads.byThread.has(row.provider_session_id)) reads.byThread.set(row.provider_session_id, row.session_id)
+    }
+    reads.everyThread = true
+  }
+  return reads.byThread.get(threadId) ?? threadId
 }
 
 /** The thread a session runs on now: its lineage's active thread, else the

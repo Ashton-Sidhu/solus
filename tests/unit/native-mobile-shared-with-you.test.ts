@@ -3,7 +3,7 @@ import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE } from '@solus/contracts/se
 import type { HubNotification } from '@solus/contracts/notification-hub'
 import type { SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import { nativeDestination } from '../../apps/mobile/src/features/notifications/lib/native-destinations'
-import { ShareArrivals, sharedNoticeMessage } from '../../apps/mobile/src/features/threads/shared-with-you'
+import { isSharedWithReader, ShareArrivals, sharedNoticeMessage } from '../../apps/mobile/src/features/threads/shared-with-you'
 import { ThreadDirectory, threadKey, type SolusThreadShell } from '../../apps/mobile/src/features/threads/thread-directory'
 import { buildThreadListV2Items, buildThreadListV2ListItems, type ThreadListV2Facts } from '../../apps/mobile/src/features/threads/threadListV2'
 
@@ -95,6 +95,12 @@ describe('Shared with you group', () => {
 
   test('a session the reader owns, or one from a host that names no role, has no Shared with you group', () => {
     expect(layout([shell('a', record('a')), shell('b', record('b', { role: undefined }))])).toEqual(['a', 'b'])
+  })
+
+  test('a session the reader has no access to is not "shared", the same rule as desktop and web', () => {
+    // WHY (plans/031 §5.E): `none` is no access, not a share; the phone counted it as shared.
+    expect(isSharedWithReader({ role: 'none' })).toBe(false)
+    expect(isSharedWithReader({ role: 'viewer' })).toBe(true)
   })
 
   test('an archived shared session leaves the group, as the reader\'s own session leaves the list', () => {

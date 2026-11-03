@@ -168,7 +168,7 @@
       </SettingsRow>
     </SettingsSection>
 
-    <CloudDeviceHosts {serverId} hosts={deviceState.hosts.filter((host) => host.kind === "eas" || host.kind === "simlock")} statuses={deviceState.hostStatuses} />
+    <CloudDeviceHosts {serverId} hosts={deviceState.hosts.filter((host) => host.kind === "simlock")} statuses={deviceState.hostStatuses} />
 
     <SettingsSection
       label="Device hosts"

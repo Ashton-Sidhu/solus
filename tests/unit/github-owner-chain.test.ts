@@ -37,7 +37,8 @@ interface Person {
 const PEOPLE: Person[] = [
   { name: 'the host\'s own work', hostUser: null, personKey: null, every: ['delegated', 'host', 'gh-cli'] },
   { name: 'the machine owner, signed out', hostUser: { localId: 'mac' }, personKey: 'local:mac', every: ['delegated', 'host', 'gh-cli'] },
-  { name: 'the machine owner, signed in', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'alice', every: ['delegated', 'account', 'gh-cli'] },
+  // Signed in, the owner keeps the host user's key (plans/031 D1); their logins are the account's.
+  { name: 'the machine owner, signed in', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'local:mac', every: ['delegated', 'account', 'gh-cli'] },
   { name: 'a member', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'bob', every: ['account'] },
   { name: 'a guest', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'guest:visitor', every: [] },
 ]
@@ -63,7 +64,7 @@ describe('the GitHub chain of a signed-in person', () => {
   test('the machine owner gets their account, then their machine\'s gh', async () => {
     useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
     const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, checkoutOwner: null })
-    expect(await withUserScope('alice', () => credentials.chain('github.com'))).toEqual([
+    expect(await withUserScope('local:mac', () => credentials.chain('github.com'))).toEqual([
       { source: 'account', token: 'alice-account' },
       { source: 'gh-cli', token: 'gh-token' },
     ])
@@ -73,7 +74,7 @@ describe('the GitHub chain of a signed-in person', () => {
     // WHY: an account that is down or not deployed must not take the owner's pull requests away.
     useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
     const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, checkoutOwner: null, account: () => new Response('unavailable', { status: 503 }) })
-    expect(await withUserScope('alice', () => credentials.chain('github.com'))).toEqual([
+    expect(await withUserScope('local:mac', () => credentials.chain('github.com'))).toEqual([
       { source: 'gh-cli', token: 'gh-token' },
     ])
   })

@@ -3,9 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { loadWork } from '../data/works/works'
-import { loadWorkAnnotations, saveWorkAnnotations } from '../data/works/work-annotations'
+import { applyWorkComment, loadWorkAnnotations } from '../data/works/work-annotations'
 import { ANY_ORGANIZATION } from '../admission/principal'
-import { loadAnnotations, saveAnnotations } from '../plans/annotations'
+import { applyPlanComment, loadAnnotations } from '../plans/annotations'
+import { getDatabase } from '../db/database'
+import type { WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { extractPlanTitle } from '../execution/agents/plan-text'
 import { findSession, getSessionController, type SessionToolCtx } from '../execution/agents/tools/session-tools'
 import { foreignLinkedItemsFor } from '../data/tasks/foreign-tasks'
@@ -45,7 +47,8 @@ interface TargetThreads {
    *  answers one of these through a private local thread linked to it. */
   externalThreads: DocCommentThread[]
   externalLabel: string
-  save: (comments: PlanComment[]) => Promise<void>
+  /** One command on the target's threads, by `by`: the agent's add, reply, or resolve. */
+  apply: (command: WorkCommentCommand, by: Attribution) => Promise<void>
 }
 
 /** Resolves a target's threads AND the text a quote must anchor into. Both are
@@ -69,9 +72,9 @@ async function resolveTarget(targetId: string): Promise<(TargetThreads & { conte
     comments: existing?.comments ?? [],
     externalThreads: linked ? snapshot.threads.filter((thread) => !thread.deleted) : [],
     externalLabel: link?.provider === 'confluence' ? 'Confluence' : 'Google Docs',
-    save: async (comments) => {
-      await saveWorkAnnotations(ANY_ORGANIZATION, { version: 1, workId: targetId, comments, updatedAt: Date.now() })
-      notifyAnnotationsChanged({ kind: 'work', targetId })
+    // An agent moderates nothing: it adds, replies, and resolves, which every author may.
+    apply: async (command, by) => {
+      await applyWorkComment(ANY_ORGANIZATION, targetId, command, { by, canModerate: false, now: Date.now() })
     },
   }
 }
@@ -108,8 +111,9 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
     comments: base.comments ?? [],
     externalThreads: [],
     externalLabel: '',
-    save: async (comments) => {
-      await saveAnnotations(ANY_ORGANIZATION, { ...base, comments, updatedAt: Date.now() })
+    apply: async (command, by) => {
+      const { comments: _comments, ...metadata } = base
+      await applyPlanComment(ANY_ORGANIZATION, sessionId, planToolUseId, command, { by, canModerate: false, now: Date.now() }, metadata)
       controller.invalidatePlanCaches(sessionId)
       notifyAnnotationsChanged({ kind: 'plan', targetId })
     },
@@ -373,7 +377,7 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
   }
 
   const author = await callerAgent(deps.ctx)
-  const created: PlanComment[] = []
+  const created: WorkCommentCommand[] = []
   for (const raw of requested) {
     const quote = String(raw.quote ?? '').trim()
     const comment = String(raw.comment ?? '').trim()
@@ -396,20 +400,17 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
       textOffset = anchor.textOffset
     }
 
-    const createdComment: PlanComment = {
-      id: randomUUID(),
-      selectedText: quote,
-      comment,
-      author,
-      createdAt: Date.now(),
-    }
+    const createdComment: Extract<WorkCommentCommand, { kind: 'add' }>['comment'] = { id: randomUUID(), selectedText: quote, comment }
     if (textOffset !== undefined) createdComment.textOffset = textOffset
     if (nodeId) createdComment.nodeId = nodeId
     if (edgeId) createdComment.edgeId = edgeId
-    created.push(createdComment)
+    created.push({ kind: 'add', comment: createdComment })
   }
 
-  await target.save([...target.comments, ...created])
+  // Every quote anchored, so the review lands whole: one transaction, one thread per note.
+  await getDatabase().transaction(async () => {
+    for (const command of created) await target.apply(command, author)
+  })
   log.info('agent_comments_written', { targetId, count: created.length })
   return { ok: true, text: `Left ${created.length} comment${created.length === 1 ? '' : 's'} on ${target.label}.` }
 }
@@ -424,17 +425,11 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
   const target = await resolveTarget(targetId)
   if (!target) return { ok: false, text: `No plan or work found with id "${targetId}".` }
   const author = await callerAgent(deps.ctx)
-  const reply: NonNullable<PlanComment['replies']>[number] = {
-    id: randomUUID(),
-    author,
-    text,
-    createdAt: Date.now(),
-  }
+  const reply = { id: randomUUID(), text }
 
   const thread = target.comments.find((c) => c.id === commentId)
   if (thread) {
-    const replies = [...(thread.replies ?? []), reply]
-    await target.save(target.comments.map((c) => (c.id === commentId ? { ...c, replies } : c)))
+    await target.apply({ kind: 'reply', commentId, reply }, author)
     return { ok: true, text: `Replied in thread "${thread.selectedText}" on ${target.label}.` }
   }
 
@@ -449,23 +444,20 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
   const outcome = `It stays private in Solus until the user publishes it from the comments rail, which posts it as a reply in that ${target.externalLabel} thread. Nothing was sent to ${target.externalLabel}.`
   const linked = target.comments.find((c) => c.externalThreadId === commentId)
   if (linked) {
-    const replies = [...(linked.replies ?? []), reply]
-    await target.save(target.comments.map((c) => (c.id === linked.id ? { ...c, replies } : c)))
+    await target.apply({ kind: 'reply', commentId: linked.id, reply }, author)
     return { ok: true, text: `Replied privately to the ${target.externalLabel} thread ${where} on ${target.label}. ${outcome}` }
   }
-  const created: PlanComment = {
+  const created: Extract<WorkCommentCommand, { kind: 'add' }>['comment'] = {
     id: randomUUID(),
     externalThreadId: commentId,
-    selectedText: external.quote,
+    selectedText: external.quote ?? '',
     comment: text,
-    author,
-    createdAt: Date.now(),
   }
   if (external.quote && target.content !== null) {
     const anchor = anchorQuote(target.content, external.quote)
     if (anchor.ok) created.textOffset = anchor.textOffset
   }
-  await target.save([...target.comments, created])
+  await target.apply({ kind: 'add', comment: created }, author)
   return { ok: true, text: `Replied privately to the ${target.externalLabel} thread ${where} on ${target.label}. ${outcome}` }
 }
 
@@ -481,10 +473,7 @@ async function resolveComment(args: CommentToolArgs, deps: CommentToolDeps): Pro
   if (thread.resolvedAt) return { ok: true, text: `Thread "${thread.selectedText}" was already resolved.` }
 
   const resolvedBy = await callerAgent(deps.ctx)
-  await target.save(target.comments.map((comment) => {
-    if (comment.id !== commentId) return comment
-    return { ...comment, resolvedAt: Date.now(), resolvedBy }
-  }))
+  await target.apply({ kind: 'resolve', commentId, resolved: true }, resolvedBy)
   return { ok: true, text: `Resolved thread "${thread.selectedText}" on ${target.label}.` }
 }
 

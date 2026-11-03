@@ -27,6 +27,7 @@
   import SettingsTextField from "./SettingsTextField.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import SavedLensesSetting from "./SavedLensesSetting.svelte";
   import { hostSettingsStore } from "../../contexts/app/host-settings.store.svelte";
 
@@ -161,6 +162,7 @@
 >
   <SettingsRow
     label="Review companion agent"
+    managed={managedSetting("reviewAgent")}
     description="Agent that reviews the diff."
     visible={isVisible("review-agent")}
   >
@@ -187,6 +189,7 @@
 
   <SettingsRow
     label="Review companion model"
+    managed={managedSetting("reviewModel")}
     description="Model the review agent uses."
     visible={isVisible("review-model")}
   >
@@ -241,6 +244,7 @@
 <SettingsSection label="Customization" visible={isVisible("review-instructions")}>
   <SettingsRow
     label="Review guide instructions"
+    managed={managedSetting("reviewGuideInstructions")}
     description="Added to every review guide, with any skill instructions."
     visible={isVisible("review-instructions")}
   >

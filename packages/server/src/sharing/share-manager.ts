@@ -19,21 +19,20 @@ import {
   type ShareRole,
   type ShareSetLinkRequest,
   type ShareSetRequest,
-  type ShareTransferRequest,
   type ShareSummary,
 } from '@solus/contracts/sharing'
 import { sessionActionLeafSchema, type ResourceStanding, type SessionActionLeaf } from '@solus/contracts/permissions'
 import { DEFAULT_LINK_ACTIONS, customRoleActions } from '@solus/contracts/shareable-actions'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
-import { isHostAdmin, isHostOwner, isOrganizationSpace, organizationForNew, recordScopeOf, scopeAdmits, type Principal } from '../admission/principal'
+import { isHostOwner, isOrganizationSpace, organizationForNew, type Principal } from '../admission/principal'
 import { actorFor, ownerKeyOf, type Actor } from '../admission/actor'
 import { roleOf, roleThroughSession, standingOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
 import { aclEntry } from './schema'
 import { hostUserKey } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
-import { sessionRecords } from '../data/sessions/schema'
-import { claimSessionOwner, machineSessionHome, pendingSessionHome, type SessionHome } from '../data/sessions/session-records'
+import { session } from '../data/sessions/schema'
+import { claimSessionOwner, machineSessionHome, type SessionHome } from '../data/sessions/session-identity'
 import { works } from '../data/works/schema'
 import { sessionIdsOfWorks, visibleThroughSession } from '../data/works/session-access'
 import { tasks } from '../data/tasks/schema'
@@ -52,18 +51,19 @@ const log = createLogger('main', 'share-manager')
  * (docs/plans/access-model.md §2.2; docs/plans/cloud-sharing.md §4c). This file
  * owns every `acl_entry` row: what a resource's owner gave to a person, a team,
  * the organization, or everyone with the link. The owner itself is the
- * resource's `owner_key`, and `roleOf` (admission/access.ts) decides every role
- * from the two; nothing here decides one. The table is in the ported schema
- * (`./schema.ts`), so the same code answers on a host's SQLite and in the
- * Solus API's Postgres (docs/plans/cloud-service-model.md).
+ * resource's `created_by` (plans/029 decision 2), and `roleOf`
+ * (admission/access.ts) decides every role from the two; nothing here decides
+ * one. The table is in the ported schema (`./schema.ts`), so the same code
+ * answers on a host's SQLite and in the Solus API's Postgres
+ * (docs/plans/cloud-service-model.md).
  */
 
-/** Each shareable kind's table, and the column that holds its id. */
+/** Each shareable kind's table, the column that holds its id, and its `created_by` owner column. */
 const RESOURCE_TABLES = {
-  session: { table: sessionRecords, id: sql`session_id` },
-  work: { table: works, id: sql`id` },
-  task: { table: tasks, id: sql`id` },
-} as const satisfies Record<ShareResourceKind, { table: unknown; id: SQL }>
+  session: { table: session, id: sql`session_id`, owner: sql`created_by` },
+  work: { table: works, id: sql`id`, owner: sql`created_by` },
+  task: { table: tasks, id: sql`id`, owner: sql`created_by` },
+} as const satisfies Record<ShareResourceKind, { table: unknown; id: SQL; owner: SQL }>
 
 const entryRowSchema = z.object({
   id: z.string(),
@@ -79,7 +79,7 @@ const entryRowSchema = z.object({
   /** A custom row's leaves as JSON; read with `actionsOf`. */
   actions: z.string().nullable(),
   expires_at: z.number().nullable(),
-  granted_by_user_id: z.string(),
+  created_by: z.string(),
   created_at: z.number(),
   /** When the row last gave access or a higher role; null on a row made before the column existed. */
   granted_at: z.number().nullable(),
@@ -118,9 +118,9 @@ function newlyGrantedPeople(before: ReadonlyMap<string, Pick<EntryRow, 'granted_
  * who raised it: it returns the session to a list its subject archived
  * (docs/plans/shared-with-you.md §2). A lower or equal role keeps the grant.
  */
-async function changeRole(db: Db, row: EntryRow, next: Pick<EntryRow, 'role' | 'actions'>, grant: Pick<EntryRow, 'granted_at' | 'granted_by_user_id' | 'granted_by_name'>): Promise<EntryRow> {
+async function changeRole(db: Db, row: EntryRow, next: Pick<EntryRow, 'role' | 'actions'>, grant: Pick<EntryRow, 'granted_at' | 'created_by' | 'granted_by_name'>): Promise<EntryRow> {
   if (!resourceRoleAtLeast(row.role, next.role)) {
-    await db.run(sql`UPDATE ${aclEntry} SET role = ${next.role}, actions = ${next.actions}, granted_at = ${grant.granted_at}, granted_by_user_id = ${grant.granted_by_user_id}, granted_by_name = ${grant.granted_by_name} WHERE id = ${row.id}`)
+    await db.run(sql`UPDATE ${aclEntry} SET role = ${next.role}, actions = ${next.actions}, granted_at = ${grant.granted_at}, created_by = ${grant.created_by}, granted_by_name = ${grant.granted_by_name} WHERE id = ${row.id}`)
     return { ...row, ...next, ...grant }
   }
   if (row.role !== next.role || row.actions !== next.actions) await db.run(sql`UPDATE ${aclEntry} SET role = ${next.role}, actions = ${next.actions} WHERE id = ${row.id}`)
@@ -156,14 +156,14 @@ function presetCovering(role: ShareRole, actions: readonly SessionActionLeaf[] |
   return actions?.some((leaf) => leaf.startsWith('drive.')) ? 'editor' : 'viewer'
 }
 
-const homeRowSchema = z.object({ owner_key: z.string(), organization_id: z.string() })
+const homeRowSchema = z.object({ owner: z.string(), organization_id: z.string() })
 /** One ACL entry of a link's resource, with that resource's own row and runner beside it. */
 const openedLinkRowSchema = entryRowSchema.extend({
-  home_owner_key: z.string().nullable(),
+  home_owner: z.string().nullable(),
   home_organization_id: z.string().nullable(),
   runner_host_id: z.string().nullable(),
 })
-const accessRowSchema = z.object({ id: z.string(), owner_key: z.string(), organization_id: z.string() })
+const accessRowSchema = z.object({ id: z.string(), owner: z.string(), organization_id: z.string() })
 const idRowSchema = z.object({ id: z.string() })
 
 /** What `roleOf` reads of one stored ACL entry. */
@@ -280,12 +280,6 @@ export interface ShareManagerDeps {
    */
   assignOrganization?: (resource: ShareResource, organizationId: string) => Promise<string | null>
   /**
-   * Whether `userId` was a member of `organizationId` and has left it, as the host's
-   * organization standing says (plan 004 item 10). A host admin may then transfer
-   * what they owned. Without it only the owner transfers.
-   */
-  hasLeftOrganization?: (organizationId: string, userId: string) => boolean
-  /**
    * Whether a member can reach this host at all (docs/plans/host-sharing.md §4.3):
    * a host linked to Solus cloud, or the Solus API itself. A share with a person,
    * a team, or the organization on a host nobody can reach is refused, so the
@@ -320,18 +314,18 @@ export class ShareManager {
 
   /** The resource's owner and organization, from its own row; null when there is no such resource. */
   async homeOf(resource: ShareResource): Promise<SessionHome | null> {
-    const { table, id } = RESOURCE_TABLES[resource.kind]
+    const { table, id, owner } = RESOURCE_TABLES[resource.kind]
     const row = homeRowSchema.nullish().parse(await this.deps.db.get(sql`
-      SELECT owner_key, organization_id FROM ${table} WHERE ${id} = ${resource.id}
+      SELECT ${owner} AS owner, organization_id FROM ${table} WHERE ${id} = ${resource.id}
     `))
     return this.homeFrom(resource, row ?? null)
   }
 
-  /** The home a resource's own row gives, or, for a session with none, the one it is being started with. */
+  /** The home a resource's own row gives, or, for a session on this disk with no row yet, the machine's own. */
   private homeFrom(resource: ShareResource, row: z.infer<typeof homeRowSchema> | null): SessionHome | null {
-    if (row) return { ownerKey: row.owner_key, organizationId: row.organization_id }
+    if (row) return { ownerKey: row.owner, organizationId: row.organization_id }
     if (resource.kind !== 'session') return null
-    return pendingSessionHome(resource.id) ?? (this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null)
+    return this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null
   }
 
   /**
@@ -342,11 +336,11 @@ export class ShareManager {
   async accessOf(principal: Principal, kind: ShareResourceKind, ids: readonly string[]): Promise<Map<string, { ownerKey: string; share: ShareSummary } & ResourceStanding>> {
     if (ids.length === 0) return new Map()
     if (ids.length > 201) throw new Error('Role reads require a bounded resource page.')
-    const { table, id } = RESOURCE_TABLES[kind]
+    const { table, id, owner } = RESOURCE_TABLES[kind]
     const listed = sql.join(ids.map((value) => sql`${value}`), sql`, `)
     const [rows, entries] = await Promise.all([
       accessRowSchema.array().parse(await this.deps.db.all(sql`
-        SELECT ${id} AS id, owner_key, organization_id FROM ${table} WHERE ${id} IN (${listed})
+        SELECT ${id} AS id, ${owner} AS owner, organization_id FROM ${table} WHERE ${id} IN (${listed})
       `)),
       entryRowSchema.array().parse(await this.deps.db.all(sql`
         SELECT * FROM ${aclEntry} WHERE resource_kind = ${kind} AND resource_id IN (${listed})
@@ -356,9 +350,9 @@ export class ShareManager {
     const standings = new Map(rows.map((row) => {
       const own = entries.filter((entry) => entry.resource_id === row.id)
       return [row.id, {
-        ownerKey: row.owner_key,
+        ownerKey: row.owner,
         ...standingFields(standingOf(actor, {
-          kind, id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key,
+          kind, id: row.id, organizationId: row.organization_id, ownerKey: row.owner,
           acl: own.map(aclEntryOf),
         })),
         share: this.summaryOf(own),
@@ -389,7 +383,7 @@ export class ShareManager {
    */
   private async insertOrganizationEntry(db: Db, resource: ShareResource, organizationId: string, grantedBy: string): Promise<void> {
     await db.run(sql`
-      INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+      INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, created_by, created_at, organization_id)
       VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, 'organization', ${organizationId}, 'editor', NULL, ${grantedBy}, ${this.now()}, ${organizationId})
       ON CONFLICT DO NOTHING
     `)
@@ -456,41 +450,6 @@ export class ShareManager {
     })
   }
 
-  /**
-   * The owner may hand a resource to another person: its `owner_key` changes. A
-   * host admin may also hand on what a member who left the organization owned
-   * (plan 004 item 10). The change is announced to everyone with access.
-   */
-  async transfer(request: ShareTransferRequest, principal: Principal): Promise<ShareList> {
-    return this.deps.db.transaction(async (db) => {
-      const access = withHome(await this.access(request.resource))
-      const { resource, home } = access
-      const previousOwner = home.ownerKey
-      if (this.roleIn(principal, access) !== 'owner' && !this.mayTransferForDeparted(principal, home)) {
-        throw new ShareAccessError('FORBIDDEN', 'Only the owner can transfer ownership')
-      }
-      // The new owner's own entry would repeat the owner.
-      const named = access.entries.find((row) => row.subject_kind === 'user' && row.subject_id === request.toUserId)
-      if (named) {
-        await db.run(sql`DELETE FROM ${aclEntry} WHERE id = ${named.id}`)
-        access.entries = access.entries.filter((row) => row !== named)
-      }
-      const { table, id } = RESOURCE_TABLES[resource.kind]
-      await db.run(sql`UPDATE ${table} SET owner_key = ${request.toUserId} WHERE ${id} = ${resource.id}`)
-      home.ownerKey = request.toUserId
-      log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
-      await this.announce(home.organizationId, access, principal, previousOwner !== request.toUserId ? [previousOwner] : [], false)
-      return this.listOf(access, this.standingIn(principal, access))
-    })
-  }
-
-  /** A host admin, in the resource's organization, whose owner has left it. */
-  private mayTransferForDeparted(principal: Principal, home: SessionHome): boolean {
-    if (!isHostAdmin(principal) || !this.deps.hasLeftOrganization) return false
-    if (!scopeAdmits(recordScopeOf(principal), home.organizationId)) return false
-    return this.deps.hasLeftOrganization(home.organizationId, home.ownerKey)
-  }
-
   // ── Roles ───────────────────────────────────────────────────────────────
 
   /**
@@ -555,15 +514,15 @@ export class ShareManager {
       case 'automation':
         return automationHomeOf(resource.id)
       case 'webhook': {
-        const row = homeRowSchema.nullish().parse(await this.deps.db.get(sql`SELECT owner_key, organization_id FROM ${webhooks} WHERE id = ${resource.id}`))
-        return row ? { ownerKey: row.owner_key, organizationId: row.organization_id } : null
+        const row = homeRowSchema.nullish().parse(await this.deps.db.get(sql`SELECT created_by AS owner, organization_id FROM ${webhooks} WHERE id = ${resource.id}`))
+        return row ? { ownerKey: row.owner, organizationId: row.organization_id } : null
       }
       case 'project':
       case 'notification': {
         const row = homeRowSchema.nullish().parse(await this.deps.db.get(resource.kind === 'project'
-          ? sql`SELECT owner_key, organization_id FROM ${workspaceProjects} WHERE id = ${resource.id}`
-          : sql`SELECT recipient_key AS owner_key, organization_id FROM ${notifications} WHERE id = ${resource.id}`))
-        return row ? { ownerKey: row.owner_key, organizationId: row.organization_id } : null
+          ? sql`SELECT created_by AS owner, organization_id FROM ${workspaceProjects} WHERE id = ${resource.id}`
+          : sql`SELECT user_id AS owner, organization_id FROM ${notifications} WHERE id = ${resource.id}`))
+        return row ? { ownerKey: row.owner, organizationId: row.organization_id } : null
       }
       default:
         // An integration and an insight are not named by a call: their handlers ask `roleOf` with the row in hand.
@@ -613,10 +572,10 @@ export class ShareManager {
   async filterVisible<T>(principal: Principal, kind: ShareResourceKind, items: T[], idOf: (item: T) => string): Promise<T[]> {
     if (principal.kind === 'system') return items
     const ids = [...new Set(items.map(idOf))]
-    const { table, id } = RESOURCE_TABLES[kind]
+    const { table, id, owner } = RESOURCE_TABLES[kind]
     const actor = actorFor(principal)
-    const own = visibleTo(actor, kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.owner_key` }, this.now())
-    const predicate = kind === 'work' ? sql`(${own} OR ${visibleThroughSession(this.deps.db, actor, sql`${table}.${id}`)})` : own
+    const own = visibleTo(actor, kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.${owner}` }, this.now())
+    const predicate = kind === 'work' ? sql`(${own} OR ${visibleThroughSession(actor, sql`${table}.${id}`)})` : own
     const visible = new Set<string>()
     for (let start = 0; start < ids.length; start += ID_CHUNK) {
       const chunk = ids.slice(start, start + ID_CHUNK)
@@ -651,7 +610,7 @@ export class ShareManager {
               ? { kind: 'team', id: row.subject_id }
               : { kind: 'organization', id: row.subject_id },
           role: row.role,
-          grantedByUserId: row.granted_by_user_id,
+          grantedByUserId: row.created_by,
           createdAt: row.created_at,
         }
         const actions = actionsOf(row)
@@ -703,15 +662,15 @@ export class ShareManager {
       for (const [key, { subject, role, actions }] of next) {
         const existing = before.get(key)
         if (!existing) {
-          added.push({ id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: subject.kind, subject_id: subject.id, role, link_secret_hash: null, link_secret: null, actions, expires_at: null, granted_by_user_id: grantedBy, created_at: now, granted_at: now, granted_by_name: grantedByName })
+          added.push({ id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: subject.kind, subject_id: subject.id, role, link_secret_hash: null, link_secret: null, actions, expires_at: null, created_by: grantedBy, created_at: now, granted_at: now, granted_by_name: grantedByName })
           continue
         }
-        kept.push(await changeRole(db, existing, { role, actions }, { granted_at: now, granted_by_user_id: grantedBy, granted_by_name: grantedByName }))
+        kept.push(await changeRole(db, existing, { role, actions }, { granted_at: now, created_by: grantedBy, granted_by_name: grantedByName }))
       }
       if (added.length) {
         await db.run(sql`
-          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, link_secret_hash, granted_by_user_id, created_at, granted_at, granted_by_name, organization_id)
-          VALUES ${sql.join(added.map((row) => sql`(${row.id}, ${row.resource_kind}, ${row.resource_id}, ${row.subject_kind}, ${row.subject_id}, ${row.role}, ${row.actions}, NULL, ${row.granted_by_user_id}, ${row.created_at}, ${row.granted_at}, ${row.granted_by_name}, ${row.organization_id})`), sql`, `)}
+          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, link_secret_hash, created_by, created_at, granted_at, granted_by_name, organization_id)
+          VALUES ${sql.join(added.map((row) => sql`(${row.id}, ${row.resource_kind}, ${row.resource_id}, ${row.subject_kind}, ${row.subject_id}, ${row.role}, ${row.actions}, NULL, ${row.created_by}, ${row.created_at}, ${row.granted_at}, ${row.granted_by_name}, ${row.organization_id})`), sql`, `)}
         `)
       }
       const linkRow = linkRowOf(access)
@@ -813,9 +772,9 @@ export class ShareManager {
       log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role, added: false })
       return 'raised'
     }
-    const row: EntryRow = { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'organization', subject_id: organizationId, role: linkRole, link_secret_hash: null, link_secret: null, actions: null, expires_at: null, granted_by_user_id: grantedBy, created_at: this.now(), granted_at: null, granted_by_name: null }
+    const row: EntryRow = { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'organization', subject_id: organizationId, role: linkRole, link_secret_hash: null, link_secret: null, actions: null, expires_at: null, created_by: grantedBy, created_at: this.now(), granted_at: null, granted_by_name: null }
     await db.run(sql`
-      INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+      INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, created_by, created_at, organization_id)
       VALUES (${row.id}, ${row.resource_kind}, ${row.resource_id}, 'organization', ${organizationId}, ${row.role}, NULL, ${grantedBy}, ${row.created_at}, ${organizationId})
     `)
     access.entries = [...access.entries, row].sort(byCreation)
@@ -873,12 +832,12 @@ export class ShareManager {
     }
     const secret = randomBytes(32).toString('base64url')
     const row: EntryRow = existing
-      ? { ...existing, role, actions, expires_at: expiresAt, link_secret_hash: hashLinkSecret(secret), link_secret: secret, granted_by_user_id: grantedBy }
-      : { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'everyone', subject_id: '', role, actions, expires_at: expiresAt, link_secret_hash: hashLinkSecret(secret), link_secret: secret, granted_by_user_id: grantedBy, created_at: now, granted_at: null, granted_by_name: null }
+      ? { ...existing, role, actions, expires_at: expiresAt, link_secret_hash: hashLinkSecret(secret), link_secret: secret, created_by: grantedBy }
+      : { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'everyone', subject_id: '', role, actions, expires_at: expiresAt, link_secret_hash: hashLinkSecret(secret), link_secret: secret, created_by: grantedBy, created_at: now, granted_at: null, granted_by_name: null }
     await db.run(existing
-      ? sql`UPDATE ${aclEntry} SET role = ${role}, actions = ${actions}, expires_at = ${expiresAt}, link_secret_hash = ${row.link_secret_hash}, link_secret = ${secret}, granted_by_user_id = ${grantedBy} WHERE id = ${existing.id}`
+      ? sql`UPDATE ${aclEntry} SET role = ${role}, actions = ${actions}, expires_at = ${expiresAt}, link_secret_hash = ${row.link_secret_hash}, link_secret = ${secret}, created_by = ${grantedBy} WHERE id = ${existing.id}`
       : sql`
-        INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, expires_at, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
+        INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, expires_at, link_secret_hash, link_secret, created_by, created_at, organization_id)
         VALUES (${row.id}, ${row.resource_kind}, ${row.resource_id}, 'everyone', '', ${role}, ${actions}, ${expiresAt}, ${row.link_secret_hash}, ${secret}, ${grantedBy}, ${row.created_at}, ${row.organization_id})
       `)
     access.entries = [...access.entries.filter((entry) => entry !== existing), row].sort(byCreation)
@@ -909,12 +868,12 @@ export class ShareManager {
     const hash = hashLinkSecret(secret)
     const rows = openedLinkRowSchema.array().parse(await this.deps.db.all(sql`
       SELECT e.*,
-        COALESCE(s.owner_key, w.owner_key) AS home_owner_key,
+        COALESCE(s.created_by, w.created_by) AS home_owner,
         COALESCE(s.organization_id, w.organization_id) AS home_organization_id,
         s.runner_host_id AS runner_host_id
       FROM ${aclEntry} l
       JOIN ${aclEntry} e ON e.resource_kind = l.resource_kind AND e.resource_id = l.resource_id
-      LEFT JOIN ${sessionRecords} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
+      LEFT JOIN ${session} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
       LEFT JOIN ${works} w ON l.resource_kind = 'work' AND w.id = l.resource_id
       WHERE l.subject_kind = 'everyone' AND l.link_secret_hash = ${hash}
       ORDER BY e.created_at, e.id
@@ -923,8 +882,8 @@ export class ShareManager {
     // A task link made before tasks stopped being shared opens nothing; nor does an expired one.
     if (!link || link.resource_kind === 'task' || this.expired(link)) return null
     const resource: ShareResource = { kind: link.resource_kind, id: link.resource_id }
-    const homeRow = link.home_owner_key !== null && link.home_organization_id !== null
-      ? { owner_key: link.home_owner_key, organization_id: link.home_organization_id }
+    const homeRow = link.home_owner !== null && link.home_organization_id !== null
+      ? { owner: link.home_owner, organization_id: link.home_organization_id }
       : null
     const access: ResourceAccess = { resource, home: this.homeFrom(resource, homeRow), entries: rows }
     return {
@@ -945,7 +904,7 @@ export class ShareManager {
       resource: { kind: row.resource_kind, id: row.resource_id },
       role: row.role,
       expiresAt: row.expires_at,
-      sharedByUserId: row.granted_by_user_id,
+      sharedByUserId: row.created_by,
       linkSecretHash: hash,
     }
     const actions = actionsOf(row)
@@ -966,7 +925,7 @@ export class ShareManager {
       subjectId: row.subject_id,
       role: row.role,
       linkSecretHash: row.link_secret_hash,
-      grantedByUserId: row.granted_by_user_id,
+      grantedByUserId: row.created_by,
       createdAt: row.created_at,
       actions: actionsOf(row),
       expiresAt: row.expires_at,
@@ -992,7 +951,7 @@ export class ShareManager {
       for (const row of rows) {
         const actions = row.role === 'custom' ? JSON.stringify(leavesOf(row.actions ?? [], { resourceId: resource.id })) : null
         await db.run(sql`
-          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, expires_at, link_secret_hash, link_secret, granted_by_user_id, created_at, granted_at, granted_by_name, organization_id)
+          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, expires_at, link_secret_hash, link_secret, created_by, created_at, granted_at, granted_by_name, organization_id)
           VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, ${row.subjectKind}, ${row.subjectId}, ${row.role}, ${actions}, ${row.expiresAt ?? null}, ${row.linkSecretHash}, NULL, ${row.grantedByUserId}, ${row.createdAt}, ${row.grantedAt ?? null}, ${row.grantedByName ?? null}, ${organizationId})
           ON CONFLICT DO NOTHING
         `)
@@ -1038,7 +997,7 @@ export class ShareManager {
    */
   private async recordSessionUnshared(db: Db, organizationId: string, sessionId: string, recipients: string[], principal: Principal): Promise<void> {
     const record = z.object({ title: z.string().nullable(), custom_title: z.string().nullable() }).nullish().parse(await db.get(sql`
-      SELECT title, custom_title FROM ${sessionRecords} WHERE session_id = ${sessionId}
+      SELECT title, custom_title FROM ${session} WHERE session_id = ${sessionId}
     `))
     const user = actorFor(principal).user
     await recordNotification(db, {

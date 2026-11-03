@@ -6,8 +6,11 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { updateCommandFor, updateStatusLine } from "./lib/update-status-text";
   import { Button } from "../ui/button";
+  import { deviceUpdatesLock } from "./policy/managed-setting.svelte";
 
   let pending = $state(false);
+  // The device's policy turns updates off: the organization installs them.
+  const managedMessage = $derived(deviceUpdatesLock()?.lines[0] ?? null);
   const state = $derived(updatesStore.state);
   const command = $derived(updateCommandFor(state));
   // The desktop app's own update keeps its place; host updates take the button otherwise.
@@ -33,11 +36,13 @@
   class="h-6.5 rounded-full px-2.5 text-workspace-chrome font-normal {updatesStore.isReady
     ? ''
     : 'bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] dark:hover:bg-[var(--wash-1)]'}"
-  disabled={pending || hostUpdater.isRunning || (updatesStore.isAvailable && !command)}
-  title={updatesStore.isAvailable ? updateStatusLine(state) : "Check connected hosts for updates"}
+  disabled={managedMessage !== null || pending || hostUpdater.isRunning || (updatesStore.isAvailable && !command)}
+  title={managedMessage ?? (updatesStore.isAvailable ? updateStatusLine(state) : "Check connected hosts for updates")}
   onclick={runCommand}
 >
-  {#if updatesStore.isAvailable && state.kind === "downloading"}
+  {#if managedMessage}
+    Updates managed
+  {:else if updatesStore.isAvailable && state.kind === "downloading"}
     Downloading Solus… {Math.round(state.percent)}%
   {:else if pending || (updatesStore.isAvailable && state.kind === "checking")}
     Checking…

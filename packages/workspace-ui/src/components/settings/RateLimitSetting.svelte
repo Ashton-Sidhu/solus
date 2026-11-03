@@ -4,6 +4,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { getSettingsContext } from "../../contexts";
 
@@ -19,6 +20,7 @@
 
 <SettingsRow
   label="Rate limit behavior"
+    managed={managedSetting("rateLimitBehavior")}
   description="What your runs do when they hit a provider rate limit, on every host."
   {visible}
 >

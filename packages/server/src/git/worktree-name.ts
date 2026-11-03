@@ -42,14 +42,16 @@ export async function generateWorktreeName(
   dispatcher: AgentDispatcher,
   promptText: string,
   cwd: string,
-  abortSignal?: AbortSignal,
-  seatFor?: SeatResolver,
+  abortSignal: AbortSignal | undefined,
+  seatFor: SeatResolver | undefined,
   /** The person's preferences: their writing model names the worktree. */
-  preferences?: ExecutionPreferences,
+  preferences: ExecutionPreferences | undefined,
+  /** The organization the worktree's work is for; its policies govern the run. */
+  organizationId: string,
 ): Promise<string | null> {
   const prompt = promptText.trim()
   if (!prompt) return null
-  const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor)
+  const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor, organizationId)
   if (!backend) return null
   return generateWorktreeNameWith(dispatcher, prompt, cwd, backend, abortSignal)
 }
@@ -58,12 +60,13 @@ export async function generateWorktreeNameWith(
   dispatcher: AgentDispatcher,
   prompt: string,
   cwd: string,
-  selection: { provider: AgentId; model: string; seat?: TurnSeat },
+  selection: { provider: AgentId; model: string; seat?: TurnSeat; organizationId: string },
   abortSignal?: AbortSignal,
 ): Promise<string | null> {
   const submitted: SubmittedWorktreeName = { name: null }
   try {
     await new TextGenerator(dispatcher).generate({
+      organizationId: selection.organizationId,
       provider: selection.provider,
       model: selection.model,
       seat: selection.seat,

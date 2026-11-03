@@ -10,7 +10,7 @@ export const PROVIDERS = [
 /** Keep a saved model visible even after the catalog retires it. */
 export function providerModelChoices(provider: AgentId, savedModel?: string, profiles = MODEL_PROFILES[provider] ?? {}) {
   const models = Object.entries(profiles)
-    .filter(([id]) => !isLegacyModel(provider, id) || id === savedModel)
+    .filter(([id]) => !isLegacyModel(provider, id, profiles) || id === savedModel)
     .map(([value, profile]) => ({ value, label: profile.label }))
   if (savedModel && savedModel !== AUTO_MODEL_ID && !models.some((model) => model.value === savedModel)) {
     models.push({ value: savedModel, label: `${savedModel} (unavailable)` })

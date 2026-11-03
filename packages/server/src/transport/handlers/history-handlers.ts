@@ -9,9 +9,11 @@ import type { HandlerCtx, SolusServer } from '../server'
 import { organizationForNew, recordScopeOf } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { stampComments } from '../../annotations/stored-comments'
+import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
-import { getSessionRecord, upsertSessionRecord } from '../../data/sessions/session-records'
+import { getSessionRecord, organizationOfSession, upsertSessionRecord } from '../../data/sessions/session-records'
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { readTranscript, readTranscriptPage, readTranscriptMessageWindow } from '../../data/sessions/transcript-reads'
 import { isApiMode } from '../../host/api-mode'
 import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
@@ -25,7 +27,7 @@ import { projectSessionHistory, serializedBytes, withExchangeProgress } from '..
 import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
-import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
+import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 
 const log = createLogger('main', 'history-handlers')
 
@@ -50,9 +52,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     isApiMode()
       ? readTranscript(recordScopeOf(handlerCtx.principal), sessionId, limit)
       : projectSessionHistory(storePromptImages(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit)))
-  /** A session's activity for a history read (plans/012 §5). */
-  const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string) =>
-    activityFor(recordScopeOf(handlerCtx.principal), { kind: 'session', id: sessionId })
+  /** A session's activity for a history read (plans/012 §5), inside the window the read covers. */
+  const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string, window: ActivityWindow) =>
+    activityFor(recordScopeOf(handlerCtx.principal), { kind: 'session', id: sessionId }, { window })
   /** A host's metadata with its record's organization, which tells a client
    *  where the session's record lives once this machine is gone
    *  (docs/plans/workspace-and-machines.md §6). The workspace service has only the record. */
@@ -105,7 +107,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     log.info('rpc_load_session', { sessionId, projectPath, limit })
     try {
       const history = await historyOf(handlerCtx, agentId, sessionId, projectPath, limit)
-      const messages = mergeWindowActivity(history, await sessionActivityOf(handlerCtx, sessionId), !!limit)
+      const messages = mergeWindowActivity(history, await sessionActivityOf(handlerCtx, sessionId, historyWindow(history, !!limit)), !!limit)
       if (isDebugEnabled()) {
         // Serialize each message once and sum for the total, instead of
         // stringifying the whole multi-MB transcript a second time.
@@ -146,7 +148,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const page: SessionHistoryPage = isApiMode()
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
       : await sessionRuntime.history.loadSessionPage(pageRequest).then((loaded) => ({ messages: projectSessionHistory(storePromptImages(loaded.messages)), before: loaded.before }))
-    const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId), cursor.at)
+    const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
       sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,
@@ -242,10 +244,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('generateSessionMetadata', (args, ctx) => {
+  server.register('generateSessionMetadata', async (args, ctx) => {
     const [promptText, cwd, context] = args
     // The run uses the caller's own provider login, as their turns do.
-    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider))
+    const organizationId = context?.sessionId ? await organizationOfSession(context.sessionId) : LOCAL_ORGANIZATION_ID
+    return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider), organizationId)
   })
 
   server.register('ensureBackgroundSessionTitle', async (args, ctx) => {
@@ -347,8 +350,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [annotations] = args
     try {
       // The client sends the whole plan; whatever it wrote and the host has not stamped yet is the caller's.
-      await saveAnnotations(recordScopeOf(ctx.principal), { ...annotations, comments: stampComments(annotations.comments, attributionOf(ctx.actor)) })
+      const by = attributionOf(ctx.actor)
+      await saveAnnotations(recordScopeOf(ctx.principal), { ...annotations, comments: stampComments(annotations.comments, by) }, by)
       sessionRuntime.history.invalidatePlanCaches(annotations.sessionId)
+      // Every open copy of the plan, the sender's included, re-reads the threads the host now holds.
+      notifyAnnotationsChanged({ kind: 'plan', targetId: `${annotations.sessionId}__${annotations.planToolUseId}` })
       return { ok: true }
     } catch (err) {
       log.error('save_plan_annotations_failed', { error: String(err), sessionId: annotations.sessionId })

@@ -100,7 +100,7 @@ describe('server module boundaries', () => {
     const names = PORTED_TABLES.map((table) => table.name)
     const transcripts = names.indexOf('session_transcripts')
     // WHY: generated migrations and the runner cursors depend on the table order staying put.
-    expect(names.slice(transcripts, transcripts + 3)).toEqual(['session_transcripts', 'insight_spans', 'insight_log_events'])
+    expect(names.slice(transcripts, transcripts + 4)).toEqual(['session_transcripts', 'insight_spans', 'insight_span_texts', 'insight_log_events'])
     expect(names[transcripts - 1]).toBe('runner_delivery_cursors')
   })
 })

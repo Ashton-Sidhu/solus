@@ -1,3 +1,5 @@
+import { organizationOfSession } from '../../data/sessions/session-records'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import type { RunLedger } from '../../data/sessions/run-ledger'
 import { SessionRequestQueue, type QueuedRequest } from './session-request-queue'
 import { sessionQueueMutationSchema, type SessionQueueMutation, type SessionQueueSnapshot } from '@solus/contracts/session-queue'
@@ -254,6 +256,7 @@ export class RunScheduler {
    *  provider starts. Kept for one release for clients that still queue a switch. */
   private async queueProviderSwitch(sessionId: string, sourceInput: SessionRunInput, mutation: Extract<SessionQueueMutation, { kind: 'switch' }>, actor: Actor): Promise<void> {
     this.rt.assertNewWorkAllowed()
+    enforce(hostPolicies().forWork(await organizationOfSession(sessionId)).selectionDenial(mutation.provider, mutation.modelConfig.modelId))
     const backend = this.rt.backendFor(mutation.provider)
     if (backend.metadata.available === false) throw new Error(backend.metadata.unavailableReason ?? 'This provider is unavailable on the host.')
     if (mutation.modelConfig.modelId === AUTO_MODEL_ID) throw new Error('Choose a specific model for a provider switch.')

@@ -14,6 +14,7 @@ import { WorkMovedError } from '../data/works/work'
 import { ShareAccessError } from '../sharing/share-manager'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
+import { PolicyRefusedError } from '../host/policy/host-policy-store'
 import { WorkspacePreparingError } from '../host/member-users'
 import { CREDENTIAL_FREE_PRINCIPAL, principalExpiresAt, principalSchema, renewalExpiry, type Principal } from '../admission/principal'
 import type { Doors } from '../admission/doors'
@@ -614,7 +615,7 @@ function getCachedResponse(
       // A member the host has not made a user for yet: the client shows that it is setting up (member-isolation §8.1).
       if (err instanceof WorkspacePreparingError) return { error: { message: err.message, code: err.code } }
       // A turn the organization model refused: the client keeps the draft and says why (organization-vms §4).
-      if (err instanceof TurnRefusedError) return { error: { message: err.message, code: err.code } }
+      if (err instanceof TurnRefusedError || err instanceof PolicyRefusedError) return { error: { message: err.message, code: err.code } }
       // A plane this host does not serve: the client asks the host that does.
       if (err instanceof PlaneDisabledError) return { error: { message: err.message, code: err.code } }
       // No GitHub on the account: the client offers its Connections page.

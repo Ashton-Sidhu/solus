@@ -49,7 +49,7 @@ import { SessionOpening } from './session-opening'
 import { SessionDrafts } from './session-drafts.svelte'
 import { PromptDispatch } from './prompt-dispatch'
 import type { SessionRecords } from './session-records.svelte'
-import { SessionConfigController } from './session-config.svelte'
+import { SessionConfigController, type SessionThread } from './session-config.svelte'
 import { WorkspaceLifecycleStore } from './workspace-lifecycle.store.svelte'
 import { SessionEventReducer } from './session-event-reducer.svelte'
 import { type SettingsContext } from '../app/settings.context.svelte'
@@ -82,6 +82,7 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { hostKey } from '@solus/client-core/host-key'
+import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
@@ -173,6 +174,9 @@ export interface CreateTabOptions {
   /** The tab or draft the gesture came from. The new run inherits this focused
    *  source, not whichever hidden tab happens to be active. */
   sourceId?: string
+  /** The recorded session this tab opens. Its provider and model are the
+   *  session's own, so they never come from the source. */
+  thread?: SessionThread
   via?: Via
 }
 
@@ -1066,6 +1070,7 @@ export class WorkspaceContext implements SurfaceContext {
       gitContext: options.gitContext,
       serverId: options.serverId,
     }, this.settings.modelOptionsByProvider)
+    if (options.thread) Object.assign(run, this.config.threadRunFor(options.thread, run))
     // Isolation belongs to one piece of work, so a fresh tab only branches a
     // worktree when the gesture that opened it asked for one.
     const worktreeRequested = options.worktreeRequested ?? false
@@ -1190,7 +1195,8 @@ export class WorkspaceContext implements SurfaceContext {
     return {
       location: folderLocation({ serverId: project.serverId, path: project.directory }),
       modelConfig: defaults.modelConfig,
-      permissionMode: defaults.permissionMode,
+      // New work takes the window's organization; the policy on its host lowers the default (plans/030 §7).
+      permissionMode: workPolicy(project.serverId).defaultMode(defaults.permissionMode),
       provider: configuredAgent(this.settings.activeAgent),
       sessionSkills: [],
     }
@@ -1531,7 +1537,7 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   async approvePlanWithModel(planId: string, mode: PlanApprovalMode, opts: ApprovePlanOptions = {}): Promise<void> {
-    return approvePlanWithModel(this, planId, mode, opts)
+    return approvePlanWithModel(this, planId, mode, opts, (session) => workPolicy(runHost(session.run), session.organizationId))
   }
 
   async rejectPlan(planId: string, comment?: string): Promise<void> {

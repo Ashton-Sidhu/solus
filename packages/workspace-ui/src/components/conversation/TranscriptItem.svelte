@@ -156,8 +156,8 @@
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}
   {#if displayContent.trim()}
-    <!-- The rail hangs in the column's left margin; its copy
-         control aligns with the first line of assistant prose. -->
+    <!-- The rail hangs in the column's left margin, at the
+         bottom of the assistant message. -->
     <div
       class="py-0.5 relative cv-rail-host {skipMotion
         ? ''

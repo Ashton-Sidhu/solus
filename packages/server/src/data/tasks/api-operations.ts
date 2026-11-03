@@ -15,7 +15,8 @@ import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { canonicalRequest, createWithReceipt } from '../workspace/receipts'
 import { createTask, loadTaskRecord, readTaskMetadataPage } from './task-store'
 import { Task } from './task'
-import { tasks, taskSessionLinks } from './schema'
+import { tasks } from './schema'
+import { resourceLinks } from '../links/schema'
 import { workspaceResourceVisibility } from './resource-visibility'
 import { getSessionRecord } from '../sessions/session-records'
 
@@ -64,7 +65,7 @@ export class TaskApiOperations {
     query = workspaceTaskQuerySchema.parse(query)
     requireScope(context, 'tasks:read')
     const filters = [scopeClause(apiScope(context), sql`tasks.organization_id`),
-      workspaceResourceVisibility(context.principal, 'task', { id: sql`tasks.id`, organization: sql`tasks.organization_id`, owner: sql`tasks.owner_key` }),
+      workspaceResourceVisibility(context.principal, 'task', { id: sql`tasks.id`, organization: sql`tasks.organization_id`, owner: sql`tasks.created_by` }),
       seekClause(sql`tasks.created_at`, sql`tasks.id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`tasks.project_key = ${await projectKeyForId(context, query.projectId)}`)
     if (query.projectKey !== undefined) filters.push(sql`tasks.project_key = ${query.projectKey}`)
@@ -74,7 +75,7 @@ export class TaskApiOperations {
     if (query.status) filters.push(sql`tasks.status = ${query.status}`)
     if (query.sessionId) {
       await requireResource(this.shares, context, { kind: 'session', id: query.sessionId }, 'read')
-      filters.push(sql`EXISTS(SELECT 1 FROM ${taskSessionLinks} WHERE task_id = tasks.id AND session_id = ${query.sessionId})`)
+      filters.push(sql`EXISTS(SELECT 1 FROM ${resourceLinks} WHERE source_kind = 'task' AND source_id = tasks.id AND target_kind = 'session' AND target_key = ${query.sessionId})`)
     }
     const records = await readTaskMetadataPage(sql.join(filters, sql` AND `), query.limit + 1)
     const summaries = (await this.records(context, records)).map(({ body: _body, ...summary }) => summary)

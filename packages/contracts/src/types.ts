@@ -630,9 +630,11 @@ export function modelLabelFor(
 export function isLegacyModel(
   provider: AgentId | null | undefined,
   modelId: string | null | undefined,
+  /** The run host's catalog, when known: a provider instance can move a model between the groups. */
+  profiles?: Record<string, ModelProfile>,
 ): boolean {
   if (!provider || !modelId) return false
-  return MODEL_PROFILES[provider]?.[modelId]?.isLegacy === true
+  return (profiles ?? MODEL_PROFILES[provider])?.[modelId]?.isLegacy === true
 }
 
 /**
@@ -1000,7 +1002,7 @@ export type CloneStart =
  * (docs/plans/task-conversation.md, decision 8).
  *
  * Never reaches the backend: `SessionRunInput` has no task field, because task
- * membership is a `task_session_links` row written once the session exists.
+ * membership is the task's session edge (`resource_links`) written once the session exists.
  */
 export type TaskTarget =
   | { kind: 'existing'; taskId: string }
@@ -1196,8 +1198,8 @@ export interface Session {
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
   /**
-   * Where this session will be filed until a durable `task_session_links` row
-   * exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
+   * Where this session will be filed until a durable task→session edge
+   * (`resource_links`) exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
    * the agent can link an existing task before fallback minting runs.
    *
    * A fork carries `{ kind: 'existing', taskId }` for the source's exact task.
@@ -1714,11 +1716,15 @@ export interface PlanAnnotations {
   bookmarkedAt?: number
   /** The provider document this plan revision mirrors. */
   mirroredDoc?: WorkExternalLink
+  /** Epoch ms on the host's clock of the newest change to the plan's metadata
+   *  or threads. A client that saves the plan whole sends back the value it
+   *  loaded: the host reconciles the threads against that state, so a copy
+   *  that never saw a thread cannot delete it. */
   updatedAt: number
 }
 
-/** An agent wrote to a plan's or a work's comment threads. Broadcast so the open
- *  document's rail refreshes without being reopened. */
+/** A plan's or a work's comment threads changed on the host. Broadcast so every
+ *  open copy of the document re-reads its rail without being reopened. */
 export interface AnnotationsChanged {
   kind: 'plan' | 'work'
   /** `sessionId__planToolUseId` for a plan, the work id for a work. */

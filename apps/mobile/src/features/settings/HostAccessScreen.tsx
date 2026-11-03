@@ -16,6 +16,7 @@ import {
   HostPairingSection,
 } from "./HostAccessSections";
 import { useHostAccess } from "./use-host-access";
+import { useHostPolicy } from "../policy/use-host-policy";
 
 /**
  * How one host is reached and who reaches it: its Solus Cloud link, its
@@ -28,6 +29,7 @@ export function HostAccessScreen({ navigation, route }: ScreenProps<"HostAccess"
   const insets = useSafeAreaInsets();
   const host = useListened(app.registry.changes, () => app.registry.host(hostId));
   const access = useHostAccess(hostId);
+  const policy = useHostPolicy(hostId);
   const { state } = access;
 
   return (
@@ -42,16 +44,17 @@ export function HostAccessScreen({ navigation, route }: ScreenProps<"HostAccess"
 
         {state.kind === "loaded" ? (
           <>
-            <HostOrganizationsSection access={state} onInsightsOptIn={access.setInsightsOptIn} />
+            <HostOrganizationsSection access={state} policy={policy} onInsightsOptIn={access.setInsightsOptIn} />
             {hasPairing(state.info) ? (
               <HostNetworkSection
                 access={state}
+                policy={policy}
                 onRemoteAccess={access.setRemoteAccess}
                 onTrustLocalNetwork={access.setTrustLocalNetwork}
               />
             ) : null}
             {hasPairing(state.info) && canChangeAccess(state.info) ? (
-              <HostPairingSection access={state} onGenerate={access.generatePairCode} />
+              <HostPairingSection access={state} policy={policy} onGenerate={access.generatePairCode} />
             ) : null}
             <HostDevicesSection access={state} onRevoke={access.revokeDevice} />
           </>

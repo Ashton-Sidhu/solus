@@ -275,7 +275,7 @@ export const rotateWebhookAgentTool = webhookTool('rotate_webhook', ROTATE_DESC,
 })
 
 export const listWebhooksAgentTool = webhookTool('list_webhooks', LIST_DESC, {}, false, async () => {
-  const visible = await bound().webhooks.list(visibleTo(toolActor(), 'webhook', { id: sql`id`, organization: sql`organization_id`, owner: sql`owner_key` }))
+  const visible = await bound().webhooks.list(visibleTo(toolActor(), 'webhook', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` }))
   if (!visible.length) return { ok: true, text: 'No webhooks exist on this host yet.' }
   return { ok: true, text: `Webhooks:\n${visible.map(describeWebhook).join('\n')}` }
 })

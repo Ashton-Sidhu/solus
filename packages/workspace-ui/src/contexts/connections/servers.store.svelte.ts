@@ -14,6 +14,7 @@ import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
+import { hostListAccountSource, hostListHostSource, HostListSync, type HostListSource } from '@solus/client-core/host-list-sync'
 import { takeStartupDirectoryRead, uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
@@ -36,11 +37,12 @@ import {
   type SavedServerUplink,
 } from '@solus/client-core/server-registry'
 import type { HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
-import { isSolusApiId, solusApiId, type OrganizationPolicy } from '@solus/contracts/uplink'
+import { isSolusApiId, solusApiId, type HostRules } from '@solus/contracts/uplink'
 import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
+import { accountHostListRequests } from '../account/account-sync.store.svelte'
 import {
   compareNearbyHosts,
   filterUnsavedDiscoveredServers,
@@ -85,7 +87,7 @@ export interface UnknownRemoteHost {
 export interface OrganizationChoice {
   organizationId: string
   name: string
-  policy: OrganizationPolicy
+  hostRules: HostRules
   /** The organization this window works in. */
   isActive: boolean
 }
@@ -117,6 +119,9 @@ class ServersStore {
   /** What the account's host directory last said about being signed in: null until asked. */
   directorySignedIn = $state<boolean | null>(null)
   private directoryRefreshInFlight = false
+  /** The person's host list (plans/031 D7): this client's registry follows it. */
+  private readonly hostList = new HostListSync()
+  private hostListEventsFor: string | null = null
   private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
   private lastDirectoryReadAt = 0
   /** Bumps on every readiness change: `readinessFor` reads the connections through it. */
@@ -241,12 +246,12 @@ class ServersStore {
       : null
   }
 
-  /** The organizations the account belongs to, with each one's policy, the window's marked. */
+  /** The organizations the account belongs to, with each one's host rules, the window's marked. */
   get organizations(): OrganizationChoice[] {
     return this.workspaces.map((workspace) => ({
       organizationId: workspace.organizationId,
       name: workspace.label,
-      policy: workspace.policy,
+      hostRules: workspace.hostRules,
       isActive: workspace.organizationId === this.activeOrganizationId,
     }))
   }
@@ -391,16 +396,25 @@ class ServersStore {
     // and has no other subscriber until a sign-in surface lands, so it starts here.
     accountStore.start()
     void this.refreshDirectory()
-    onWakeSignal(() => void this.refreshDirectory())
+    void this.refreshHostList()
+    onWakeSignal(() => {
+      void this.refreshDirectory()
+      void this.refreshHostList()
+    })
     localApi.onAccountStateChange?.((state) => {
       // A host refused while the account held no sign-in waits for the next one.
       if (state.kind === 'signed-in') serverConnections.dialHostsBlockedOnSignIn()
       void this.refreshDirectory()
+      // Signed in, the list is the account's; signed out, the device host's (plans/031 D7).
+      void this.refreshHostList()
     })
     // A host added on the account site in a browser is found when the person
     // comes back to this window, which on desktop is a focus and not a wake.
     window.addEventListener('focus', () => {
-      if (Date.now() - this.lastDirectoryReadAt >= DIRECTORY_FOCUS_GAP_MS) void this.refreshDirectory()
+      if (Date.now() - this.lastDirectoryReadAt >= DIRECTORY_FOCUS_GAP_MS) {
+        void this.refreshDirectory()
+        void this.refreshHostList()
+      }
     })
   }
 
@@ -536,6 +550,39 @@ class ServersStore {
 
   refreshServers(): void {
     this.remotes = loadServers()
+  }
+
+  /**
+   * Reads the person's host list from its source and folds it into this client's
+   * saved hosts (plans/031 D7): the account's document while signed in, the
+   * device host's list while signed out. A phone and the account origin have no
+   * device host, so signed out they keep their own saved hosts as they are.
+   */
+  async refreshHostList(): Promise<void> {
+    const source = this.hostListSource()
+    this.hostList.use(source)
+    this.followDeviceHostList(source)
+    if (!(await this.hostList.pull())) return
+    this.refreshServers()
+    serverConnections.startCatalogSupervisors()
+  }
+
+  private hostListSource(): HostListSource | null {
+    const account = accountStore.state
+    if (account.kind === 'signed-in') {
+      const requests = accountHostListRequests()
+      return requests ? hostListAccountSource(`${account.consoleUrl}|${account.identity.sub}`, requests) : null
+    }
+    const deviceHostId = serverConnections.deviceHostId()
+    return deviceHostId ? hostListHostSource(deviceHostId, serverConnections.apiFor(deviceHostId)) : null
+  }
+
+  /** Another client of the device host changed the list: read it again. */
+  private followDeviceHostList(source: HostListSource | null): void {
+    const deviceHostId = source?.key.startsWith('host:') ? serverConnections.deviceHostId() : null
+    if (!deviceHostId || this.hostListEventsFor === deviceHostId) return
+    this.hostListEventsFor = deviceHostId
+    serverConnections.eventsFor(deviceHostId).subscribe('host.listChanged', () => void this.refreshHostList())
   }
 
   savePairedServer(server: SavedServer): void {

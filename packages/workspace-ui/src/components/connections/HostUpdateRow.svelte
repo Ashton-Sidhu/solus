@@ -10,6 +10,7 @@
   import { hostUpdateLine } from './lib/host-update-rows';
   import { updateCommandFor, updateStatusLine } from '../settings/lib/update-status-text';
   import SettingsRow from '../settings/SettingsRow.svelte';
+  import { updatesLock } from '../settings/policy/managed-setting.svelte';
   import { Button } from '../ui/button';
   let { host }: { host: ServerItem } = $props();
   const status = $derived(hostUpdatesStore.hostUpdateFor(host.id));
@@ -17,6 +18,8 @@
   const updating = $derived(isServerUpdateActive(operation) || hostUpdater.isUpdating(host.id, 'solus'));
   const desktop = $derived(host.local && updatesStore.isAvailable);
   const command = $derived(desktop ? updateCommandFor(updatesStore.state) : null);
+  // A policy with `updates.mode: "off"` on this host: its organization installs updates (plans/030 §6.8).
+  const updatesManaged = $derived(updatesLock(host.id));
   const skew = $derived(serversStore.versionSkewNoticeFor(host.id));
   async function checkHost() {
     await Promise.allSettled([hostUpdatesStore.check(host.id), ...(desktop ? [updatesStore.check()] : [])]);
@@ -28,7 +31,7 @@
   }
 </script>
 
-<SettingsRow label="Solus version" description={hostUpdateLine(status)} bodyVisible>
+<SettingsRow label="Solus version" description={hostUpdateLine(status)} bodyVisible managed={updatesManaged}>
   {#snippet control()}
     <div class="flex flex-col items-end gap-2">
     {#if desktop && command && command.command !== 'check'}

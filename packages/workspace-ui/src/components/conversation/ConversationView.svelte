@@ -866,7 +866,7 @@
           <!-- The organization model refused this reader's turn: which
                organization it needs, and the control that fixes it. -->
           {#if turnRefusalStore.visibleFor(runHost(sess.run), sess.id)}
-            <TurnRefusalCard />
+            <TurnRefusalCard tabId={tab.id} />
           {/if}
           {#if seatsStore.visibleFor(runHost(sess.run), sess.id)}
             <SeatConnectCard />

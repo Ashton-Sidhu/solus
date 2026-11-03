@@ -13,6 +13,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsTextField from "./SettingsTextField.svelte";
   import {
     leadModelAgents,
@@ -90,6 +91,7 @@
 >
   <SettingsRow
     label="Coordinator mode model"
+    managed={managedSetting("leadModel")}
     description="What a session in Coordinator mode starts on. Off uses the default for new sessions."
     visible={isVisible("lead-model")}
   >
@@ -118,6 +120,7 @@
 
   <SettingsRow
     label="Default worker model"
+    managed={managedSetting("workerModel")}
     description="What a Coordinator mode session starts its workers on when its instructions name none. Off lets it choose."
     visible={isVisible("worker-model")}
   >
@@ -146,6 +149,7 @@
 
   <SettingsRow
     label="Coordinator mode instructions"
+    managed={managedSetting("leadInstructions")}
     description="Added after the built-in rules a Coordinator mode session follows."
     visible={isVisible("lead-instructions")}
   >

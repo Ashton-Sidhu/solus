@@ -5,12 +5,12 @@ import {
   CLIENT_DEVICE_LAYOUT_KEYS,
   DEFAULT_DEVICE_SETTINGS,
   DEFAULT_PERSONAL_SETTINGS,
-  organizationSettingsPatchRequestSchema,
   PERSONAL_SETTING_KEYS,
   personalSettingsDocumentSchema,
   personalSettingsSchema,
   personalSettingsWithDefaults,
 } from '@solus/contracts/settings'
+import { MANAGED_SESSION_SETTING_KEYS, validatePolicyDocument } from '@solus/contracts/policy'
 
 describe('ownership', () => {
   // A setting has one owner. A key in two tables would be written in two
@@ -68,18 +68,17 @@ describe('personal sync payloads', () => {
   })
 })
 
-describe('organization settings', () => {
-  // An organization's owners decide only what has an enforcement point. Today that
-  // is Sync all Insights; a personal choice such as the permission mode or a font is
-  // never something an organization can set from a client.
-  test('only Sync all Insights can be written', () => {
-    expect(organizationSettingsPatchRequestSchema.safeParse({ expectedRevision: 0, settings: { syncAllInsights: false } }).success).toBe(true)
-    for (const key of ['permissionMode', 'defaultPermissionMode', 'agentTaskLifecyclePolicy', 'disabledSolusTools', 'fontFamily', 'allowPersonalHosts', 'defaultSetupScript']) {
-      expect(organizationSettingsPatchRequestSchema.safeParse({ expectedRevision: 0, settings: { [key]: true } }).success).toBe(false)
+describe('managed settings (plans/030)', () => {
+  // A policy locks only settings the host enforces. A comfort setting such as a
+  // font is never manageable: only the client applies it, so a lock would be a request.
+  test('only host-enforced personal settings can be locked', () => {
+    for (const key of MANAGED_SESSION_SETTING_KEYS) expect(PERSONAL_SETTING_KEYS).toContain(key)
+    for (const key of ['fontFamily', 'themeMode', 'showToolCalls', 'responseStreamingMode', 'activeAgent']) {
+      expect(validatePolicyDocument({ schemaVersion: 1, organization: { name: 'A' }, sessions: { settings: { [key]: DEFAULT_PERSONAL_SETTINGS[key as keyof typeof DEFAULT_PERSONAL_SETTINGS] } } }, 'organization').ok).toBe(false)
     }
   })
 
-  test('a value is refused rather than healed', () => {
-    expect(organizationSettingsPatchRequestSchema.safeParse({ expectedRevision: 0, settings: { syncAllInsights: 'yes' } }).success).toBe(false)
+  test('a locked value is refused rather than healed', () => {
+    expect(validatePolicyDocument({ schemaVersion: 1, organization: { name: 'A' }, sessions: { settings: { defaultPermissionMode: 'yes' } } }, 'organization').ok).toBe(false)
   })
 })

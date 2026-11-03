@@ -8,8 +8,13 @@
     Toaster as Sonner,
     type ToasterProps as SonnerProps,
   } from "svelte-sonner";
+  import ToastMessageDialog from "./toast-message-dialog.svelte";
   let { ...restProps }: SonnerProps = $props();
 </script>
+
+<!-- Every shell mounts the Toaster, so the dialog for a long toast message lives
+     beside it (hostless and pairing pages included). -->
+<ToastMessageDialog />
 
 <Sonner
   theme="system"
@@ -45,8 +50,8 @@
 
      A backend error can contain a full command and hundreds of paths, so the
      content also carries the height cap that keeps the card inside the
-     viewport; the description below truncates while the Copy action still
-     exposes the complete message. The cap sits here and not on the card,
+     viewport; the description below truncates until the reader opens it, and
+     the Copy action still exposes the complete message. The cap sits here and not on the card,
      because the card must not clip its own overhanging close button. */
   :global(.toaster [data-sonner-toast][data-styled="true"] [data-content]) {
     flex: 1 1 0%;
@@ -66,6 +71,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* The reader opened the description (toast-detail.svelte): show it all, with
+     its own line breaks, and scroll inside it past a third of the window. */
+  :global(.toaster [data-sonner-toast].solus-toast-expanded [data-description]) {
+    max-height: 33dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    white-space: pre-wrap;
   }
 
   /* Sonner only spins its loader on "loading" toasts, and those lose the close

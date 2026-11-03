@@ -74,16 +74,17 @@ describe('native task migration', () => {
 
   // The file is the store only on SQLite; on Postgres these tables are not in it.
   test.skipIf(process.env.SOLUS_DB === 'postgres')('a new file is made from the baselines; a file from before them is refused, not half-read', async () => {
-    // WHY: the schema was reset to one baseline per engine. A file an older
-    // build made has none of the steps between, so opening it must stop with
-    // a message that names the fix instead of running queries on a wrong shape.
+    // WHY: every schema is one generated baseline with no history. A file an
+    // older build made (its slots counted in `user_version`) cannot be brought
+    // forward, so opening it must stop with a message that names the fix
+    // instead of running queries on a wrong shape.
     const fresh = db.getDb()
     const tables = () => db.getDb().prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%task%' OR name = 'asset_publications' ORDER BY name",
     ).all().map((row) => (row as { name: string }).name)
     expect(tables()).toEqual([
-      'asset_publications', 'task_comments', 'task_counters', 'task_external_links',
-      'task_links', 'task_session_links', 'task_snoozes', 'tasks', 'upstream_task_cache',
+      'asset_publications', 'task_counters', 'task_external_links',
+      'tasks', 'upstream_task_cache',
     ])
     const generated = readdirSync(migrationsFolder('sqlite')).filter((file) => file.endsWith('.sql')).length
     expect(fresh.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({ count: generated })
@@ -93,7 +94,7 @@ describe('native task migration', () => {
     const legacy = new Database(join(dataDir, 'solus.db'))
     legacy.exec('PRAGMA user_version = 50')
     legacy.close()
-    expect(() => db.getDb()).toThrow('predates the current schema')
+    expect(() => db.getDb()).toThrow('was made by another version of the schema')
     for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
   })
 })
@@ -404,9 +405,9 @@ describe('session binding and durable links', () => {
     // Simulate a pre-canonical-URL snapshot. Rediscovery must repair the durable
     // edge itself, not only the task's compact capture.
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskLinks}
+      UPDATE ${(await import('@solus/server/data/links/schema')).resourceLinks}
       SET url = NULL, title = '#321', origin_session_id = NULL
-      WHERE task_id = ${task!.id} AND kind = 'pr'
+      WHERE source_kind = 'task' AND source_id = ${task!.id} AND target_kind = 'pr'
     `)
     await taskInstance!.linkPullRequest({
       ...pullRequest,
@@ -427,10 +428,6 @@ describe('session binding and durable links', () => {
       }),
     ])
     expect(details.activity.filter((entry) => entry.kind === 'task_changed' && entry.change === 'linked')).toHaveLength(1)
-    expect((await taskSessions.taskSessions('local', task!.id))[task!.id][0].pr).toEqual({
-      number: 321,
-      url: pullRequest.url,
-    })
   })
 
   test('folds project-path and repository scopes for the same PR into one link', async () => {
@@ -576,7 +573,7 @@ describe('session binding and durable links', () => {
     // needs their persisted display and model metadata on the durable task link.
     const task = await taskWithSession('session-with-metadata', 'Raw session prompt')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp, model)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp, model)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       'session-with-metadata',
@@ -636,7 +633,7 @@ describe('session binding and durable links', () => {
     // session left by name, and stay silent when there is nothing to remove.
     const task = await taskWithSession('session-to-unlink', 'Attempt that gets detached')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
     `).run('session-to-unlink', 'claude-code', 'First message', 'Detached session', 1_725_000_000_000)
 
@@ -679,7 +676,7 @@ describe('session binding and durable links', () => {
   ])('task attempts normalize stored %s metadata through the stable lineage id', async (storedProvider, provider) => {
     const task = await taskWithSession('stable-session', 'A task with a stable session id')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
     `).run('provider-session', storedProvider, 'First provider message', 'Provider session title', 1_725_000_000_000)
     db.getDb().prepare(`
@@ -726,7 +723,7 @@ describe('session binding and durable links', () => {
     const task = await taskWithSession('first-session', 'Shared task title')
     await (await tasks.Task.byId('local', task!.id)).linkSession('second-session', 'working')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
+      INSERT INTO transcript_index(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
     `).run(
       'first-session', 'codex', 'First prompt', 'First session name', 1,
@@ -769,15 +766,15 @@ describe('session binding and durable links', () => {
     })
     const bag = await tasks.Task.byId('local', task.id)
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
       VALUES (?, 'codex', 0, ?, 0, ?)
     `).run('bound-session', Date.now(), 'feature/bound')
     await bag.linkSession('bound-session', 'working', {
       originSessionId: 'provider-session',
     })
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskSessionLinks}
-      SET linked_at = 1 WHERE task_id = ${task.id} AND session_id = ${'bound-session'}
+      UPDATE ${(await import('@solus/server/data/links/schema')).resourceLinks}
+      SET created_at = 1 WHERE source_kind = 'task' AND source_id = ${task.id} AND target_kind = 'session' AND target_key = ${'bound-session'}
     `)
     // An explicit idempotent retry does not create new history or move the row.
     await bag.linkSession('bound-session', 'working', {})
@@ -803,11 +800,11 @@ describe('session binding and durable links', () => {
     const shared = await taskStore.createTask('local', { title: 'Shared clone attempt' })
     const isolated = await taskStore.createTask('local', { title: 'Worktree attempt' })
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
       VALUES (?, 'claude', ?, ?, 0, ?)
     `).run('clone-session', 0, Date.now(), 'feature/shared')
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
       VALUES (?, 'claude', ?, ?, 0, ?)
     `).run('worktree-session', 1, Date.now(), 'feature/isolated')
     await (await tasks.Task.byId('local', shared.id)).linkSession('clone-session', 'working', {})
@@ -904,7 +901,8 @@ describe('one owning task per session', () => {
     const referrer = await taskStore.createTask('local', { title: 'Referrer' })
     await (await tasks.Task.byId('local', owner.id)).linkSession('shared-session', 'working')
     await taskStore.database().run(sql`
-      UPDATE ${(await import('@solus/server/data/tasks/schema')).taskSessionLinks} SET linked_at = 1 WHERE task_id = ${owner.id}
+      UPDATE ${(await import('@solus/server/data/links/schema')).resourceLinks} SET created_at = 1
+      WHERE source_kind = 'task' AND source_id = ${owner.id} AND target_kind = 'session'
     `)
 
     await (await tasks.Task.byId('local', referrer.id)).linkSession('shared-session', 'referenced')
@@ -922,4 +920,44 @@ describe('one owning task per session', () => {
     expect((await tasks.Task.forSession('local', 'shared-session'))?.id).toBe(owner.id)
   })
 
+  test('the board list selects no body or epic; the detail read carries both', async () => {
+    // WHY: the sidebar renders neither, and a body is the one unbounded column
+    // of a task. The list statement must not read it, and its rows must not
+    // pretend to: a blank body on a list row would overwrite the one a detail
+    // read filled in (plans/029 §8).
+    const { writeTaskEpic } = await import('@solus/server/data/tasks/task-sync-store')
+    const epic = { provider: 'jira' as const, externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: 'Ship it.' }
+    const task = await taskStore.createTask('local', { title: 'Listed', body: 'A long description', projectKey: '/workspace/solus' })
+    await taskStore.database().transaction((db) => writeTaskEpic(db, task.id, epic))
+
+    // The connection carries `prepare` as its own property, so the capture wraps the instance.
+    const connection = db.getDb()
+    const prepare = connection.prepare
+    const prepared: string[] = []
+    connection.prepare = ((text: string) => {
+      prepared.push(text)
+      return prepare.call(connection, text)
+    }) as typeof connection.prepare
+    let listed: Awaited<ReturnType<typeof taskStore.listTasks>>['tasks']
+    try {
+      listed = (await taskStore.listTasks('local')).tasks
+    } finally {
+      connection.prepare = prepare
+    }
+    const statements = prepared.filter((text) => /\bFROM\s+"?tasks"?\b/i.test(text))
+    expect(statements.length).toBeGreaterThan(0)
+    for (const statement of statements) {
+      const selected = statement.split(/\bFROM\b/i)[0] ?? ''
+      expect(selected).not.toMatch(/"body"|"epic"|tasks\.\*/)
+    }
+
+    const row = listed.find((candidate) => candidate.id === task.id)
+    expect(row?.title).toBe('Listed')
+    expect(row && 'body' in row).toBe(false)
+    expect(row && 'epic' in row).toBe(false)
+
+    const detail = await taskStore.loadTaskRecord('local', task.id)
+    expect(detail?.body).toBe('A long description')
+    expect(detail?.epic).toEqual(epic)
+  })
 })

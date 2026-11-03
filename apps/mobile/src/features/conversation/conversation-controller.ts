@@ -8,6 +8,8 @@ import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
 import { isSessionBusyStatus, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
+import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
 import { resourceAllows } from '@solus/contracts/permissions'
 import type { HostConnection } from '../hosts/host-connections'
 import {
@@ -38,6 +40,7 @@ import { AgentAuthFlow } from './agent-auth-flow'
 import type { IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
+import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -64,7 +67,7 @@ export interface ConversationTarget {
   hostId: string
   /** A saved session to open, or a new one to start in `workingDirectory`.
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
-  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'>
+  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'> & Partial<Pick<SessionRecord, 'organizationId'>>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string }
 }
 
@@ -124,6 +127,8 @@ export class ConversationController {
   private modelPicked = false
   /** The host reported no TypeSafe key for this person, so Auto cannot route a first prompt. */
   autoNeedsKey = false
+  /** Prompts the host refused by policy (plans/030 §6.1), by client prompt id: the bubble offers the one fix. */
+  private readonly policyRefusals = new Map<string, PolicyRefusalCode>()
   /** Settles when the host has answered what its agents offer; history does not wait on it. */
   runOptionsLoaded: Promise<void> = Promise.resolve()
   /** True once the host knows the session; before that uploads name a draft. */
@@ -244,6 +249,13 @@ export class ConversationController {
       this.settleRun()
       this.flush(true)
     }))
+    // The policy follows `host.policyChanged`: work that has not started takes the new ceiling at once.
+    connection.facts.ensure('policy')
+    this.cleanups.push(connection.facts.subscribe((key) => {
+      if (key !== 'policy') return
+      if (!this.started) this.run.permissionMode = this.policy.clampMode(this.run.permissionMode)
+      this.flush(true)
+    }))
     this.cleanups.push(connection.events.subscribe('config.changed', () => {
       void this.loadKeyStatus()
     }))
@@ -280,6 +292,24 @@ export class ConversationController {
   /** Auto can pick this session's model: nothing has started it yet. */
   get canRoute(): boolean {
     return canRouteAuto({ started: this.started, agentSessionId: this.run.agentSessionId })
+  }
+
+  /** What governs this work on its host (plans/030 §7). A saved session keeps its record's organization; new work takes the device's. Nothing is locked until the host answers. */
+  get policy(): WorkPolicy {
+    return workPolicy(this.deps.connection.facts.value('policy'), this.target.record?.organizationId ?? this.run.organizationId)
+  }
+
+  /** The mode "Lower the mode" sets on a prompt the host refused for its mode; null when the refusal was another one. */
+  lowerModeFor(clientPromptId: string): PermissionMode | null {
+    return this.policyRefusals.get(clientPromptId) === 'PERMISSION_MODE_ABOVE_LIMIT' ? loweredPermissionMode(this.policy, this.run.permissionMode) : null
+  }
+
+  /** Lowers the mode to the policy's ceiling and sends the refused prompt again. */
+  async lowerModeAndRetry(clientPromptId: string): Promise<void> {
+    const mode = this.lowerModeFor(clientPromptId)
+    if (!mode) return
+    this.updateRun({ permissionMode: mode })
+    await this.retry(clientPromptId)
   }
 
   capabilitiesOf(provider: AgentId): AgentCapabilities {
@@ -335,7 +365,8 @@ export class ConversationController {
   private async applyRunSettingsOnce(): Promise<void> {
     if (this.settings) return
     this.settings = await this.deps.runSettings()
-    this.run.permissionMode = this.settings.defaultPermissionMode
+    // New work starts at the default, lowered to the policy's ceiling; a locked default wins.
+    this.run.permissionMode = this.started ? this.settings.defaultPermissionMode : this.policy.defaultMode(this.settings.defaultPermissionMode)
     if (!this.target.record) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents?.find((agent) => agent.id === this.run.provider)))
     else if (!this.run.preferredModel) Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider), this.agents?.find((agent) => agent.id === this.run.provider), false))
     else this.run.fastMode = rememberedFastMode(this.run.provider, this.run.preferredModel, this.settings)
@@ -580,6 +611,7 @@ export class ConversationController {
 
   /** The `remove` decision on a failed or waiting prompt. */
   discard(clientPromptId: string): void {
+    this.policyRefusals.delete(clientPromptId)
     this.deps.outbox.remove(this.outboxKey, clientPromptId)
     this.model.markDelivery(clientPromptId, 'failed', 'Not sent.')
     this.flush()
@@ -589,6 +621,9 @@ export class ConversationController {
    * The run settings for the next prompt. The current turn keeps its options.
    */
   updateRun(change: { model?: string; reasoningEffort?: ReasoningEffort; permissionMode?: PermissionMode; fastMode?: boolean }): boolean {
+    // The pickers disable what the policy refuses; the host refuses it too. Lowering is always allowed.
+    if (change.permissionMode !== undefined && isPermissionModeAbove(change.permissionMode, this.policy.ceiling()?.value)) return false
+    if (change.model !== undefined && change.model !== AUTO_MODEL_ID && this.policy.modelDenial(this.run.provider, change.model)) return false
     if (change.model !== undefined) this.modelPicked = true
     if (change.model !== undefined) Object.assign(this.run, selectModel(this.run.provider, change.model, this.settings, this.agents?.find((agent) => agent.id === this.run.provider)))
     if (change.reasoningEffort !== undefined) this.run.reasoningEffort = change.reasoningEffort
@@ -629,7 +664,7 @@ export class ConversationController {
    * prompt and its card stay.
    */
   pickProvider(provider: Exclude<AgentId, 'opencode'>): void {
-    if (provider === this.run.provider) return
+    if (provider === this.run.provider || this.policy.providerDenial(provider)) return
     this.run.provider = provider
     Object.assign(this.run, newSessionModel(provider, this.defaultsWithoutAuto(provider), this.agents?.find((agent) => agent.id === provider), false))
     this.settleRun()
@@ -738,7 +773,8 @@ export class ConversationController {
     this.model.setStatus('idle')
     this.run.agentSessionId = null
     this.flush()
-    await this.send(implementPlanPrompt({ ...plan, sessionId }, note), { permissionMode: implementationMode(settings.defaultPermissionMode) })
+    const mode = this.policy.clampMode(implementationMode(this.policy.defaultMode(settings.defaultPermissionMode)))
+    await this.send(implementPlanPrompt({ ...plan, sessionId }, note), { permissionMode: mode })
     return true
   }
 
@@ -916,6 +952,7 @@ export class ConversationController {
         this.flush()
         if (!this.watching) this.watchBeside()
         const ctx = this.context()
+        this.policyRefusals.delete(record.clientPromptId)
         const result = await this.deps.connection.api.prompt(ctx, {
           prompt: record.payload?.prompt ?? record.text,
           displayPrompt: record.payload?.displayPrompt ?? record.text,
@@ -925,6 +962,11 @@ export class ConversationController {
           imageAttachmentRefs: record.payload?.imageAttachmentRefs,
           queueAttachments: record.payload?.queueAttachments,
           queueAttachmentContext: record.payload?.queueAttachmentContext, isLead: this.run.lead && !this.started ? true : undefined,
+        }).catch((error: unknown) => {
+          // The bubble shows the host's words; a policy refusal also keeps its code for the one fix it offers.
+          const code = error instanceof Error ? rpcErrorCode(error) : null
+          if (code && isPolicyRefusalCode(code)) this.policyRefusals.set(record.clientPromptId, code)
+          throw error
         })
         this.started = true
         // The first prompt starts the thread on the provider it carried.

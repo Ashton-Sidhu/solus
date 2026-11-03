@@ -240,21 +240,48 @@ describe('outbox', () => {
     outbox.ackOutboxOps([op.id])
   })
 
-  test('an apply whose receipt cannot be written leaves no write behind, so the retry is not refused', async () => {
-    // WHY: the receipt used to land after the applier's commit. A crash between
-    // them re-ran the update on redelivery, against its own version advance.
-    const { getDb } = await import('@solus/server/db')
+  test('an applier that writes and then fails leaves no write and no receipt behind, so the retry runs it again', async () => {
+    // WHY: the receipt is claimed before the applier, in the applier's own
+    // transaction. A failure after the applier's writes rolls back both, so a
+    // redelivery is neither answered as applied nor refused against a version advance.
     const work = await works.createWork('local', 'Doc', 'doc', 'v1', '', undefined, 'claude-code')
     const op = updateOp(work.id, { content: 'v2', expectedContentVersion: 1 })
-    // The applier runs and writes; then the receipt insert fails.
-    getDb().exec("CREATE TEMP TRIGGER receipt_unavailable BEFORE INSERT ON applied_ops BEGIN SELECT RAISE(ABORT, 'receipt unavailable'); END")
-    const failed = await outbox.applyOutboxOps([op]).finally(() => getDb().exec('DROP TRIGGER receipt_unavailable'))
-    expect(failed.failed[0]).toMatchObject({ id: op.id, permanent: false, error: expect.stringContaining('receipt unavailable') })
-    expect((await works.loadWork('local', work.id))?.contentVersion).toBe(1)
+    outbox.registerOutboxApplier('works', async () => {
+      await personEdit('local', work.id, 'v2')
+      throw new Error('applier failed after writing')
+    })
+    try {
+      const failed = await outbox.applyOutboxOps([op])
+      expect(failed.failed[0]).toMatchObject({ id: op.id, permanent: false, error: 'applier failed after writing' })
+    } finally {
+      ;(await import('@solus/server/data/works/work-applier')).registerWorkOutboxApplier()
+    }
+    const unchanged = await workModule.Work.byId('local', work.id)
+    expect(unchanged.contentVersion).toBe(1)
+    expect((await unchanged.revisions()).map(revision => revision.reason)).toEqual(['baseline'])
 
     expect((await outbox.applyOutboxOps([op])).applied).toEqual([op.id])
     const saved = await workModule.Work.byId('local', work.id)
     expect(saved).toMatchObject({ content: 'v2', contentVersion: 2 })
+    expect((await saved.revisions()).map(revision => revision.reason)).toEqual(['baseline', 'agent'])
+    outbox.ackOutboxOps([op.id])
+  })
+
+  test('a redelivery under a changed host user is still answered by the committed receipt', async () => {
+    // WHY: the receipt's scope is a literal, not the signed-in person. The host's
+    // user can change between an apply and its retry; the op id alone is the identity.
+    const { useHostUser } = await import('@solus/server/host/host-user')
+    const work = await works.createWork('local', 'Doc', 'doc', 'v1', '', undefined, 'claude-code')
+    const op = updateOp(work.id, { content: 'v2', expectedContentVersion: 1 })
+    expect((await outbox.applyOutboxOps([op])).applied).toEqual([op.id])
+    useHostUser({ localId: 'another-host-user', account: { accountId: 'bob' } })
+    try {
+      expect(await outbox.applyOutboxOps([op])).toEqual({ applied: [op.id], failed: [] })
+    } finally {
+      useHostUser(null)
+    }
+    const saved = await workModule.Work.byId('local', work.id)
+    expect(saved.contentVersion).toBe(2)
     expect((await saved.revisions()).map(revision => revision.reason)).toEqual(['baseline', 'agent'])
     outbox.ackOutboxOps([op.id])
   })

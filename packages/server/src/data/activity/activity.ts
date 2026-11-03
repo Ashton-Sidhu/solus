@@ -7,7 +7,7 @@ import { userKey, type Attribution, type UserId } from '@solus/contracts/user'
 import { getDatabase, type Db } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
-import { attributionJson, hostAttribution, parseStoredAttribution } from '../stored-attribution'
+import { actingPersonKey, attributionJson, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { activity as activityTable } from './schema'
 
 /**
@@ -45,10 +45,10 @@ async function insertActivity(organizationId: string, activity: Activity, db: Db
   const { id, subject, at, by, turnId, ...kind } = activity
   const target = targetUserOf(kind)
   await db.run(sql`
-    INSERT INTO ${activityTable} (id, organization_id, subject_kind, subject_id, at, turn_id, kind, by_kind, by_user_key, target_user_key, by, data)
+    INSERT INTO ${activityTable} (id, organization_id, subject_kind, subject_id, at, turn_id, kind, by_kind, created_by, user_id, by, data)
     VALUES (
       ${id}, ${organizationId}, ${subject.kind}, ${subject.id}, ${at}, ${turnId ?? null}, ${kind.kind},
-      ${by.kind}, ${by.kind === 'user' ? userKey(by.user.id) : null}, ${target ? userKey(target) : null},
+      ${by.kind}, ${await actingPersonKey(by, db)}, ${target ? userKey(target) : null},
       ${attributionJson(by)}, ${JSON.stringify(kind)}
     )
     ${onConflict}
@@ -65,24 +65,35 @@ function targetUserOf(kind: ActivityKind): UserId | null {
 /** Who an activity read is about: what they did (`userId`), or what was aimed at them (`targetUserId`: a mention of them, a share with them). */
 export type ActivityUserQuery = { userId: UserId; since: number } | { targetUserId: UserId; since: number }
 
-/** A subject's activity, oldest first. With `limit`, the newest `limit` rows. */
-export function activityFor(scope: RecordScope, subject: ActivitySubject, options?: { limit?: number; db?: Db }): Promise<Activity[]>
+/** The time a history read covers: from `from` (inclusive) up to `until` (exclusive); either end open when absent. */
+export interface ActivityWindow {
+  from?: number
+  until?: number
+}
+
+/** A subject's activity, oldest first. With `limit`, the newest `limit` rows; with `window`, only the rows inside it. */
+export function activityFor(scope: RecordScope, subject: ActivitySubject, options?: { limit?: number; window?: ActivityWindow; db?: Db }): Promise<Activity[]>
 /** What one user did, or what was aimed at them, since `since`, oldest first (the notifications hub, D15). */
 export function activityFor(scope: RecordScope, query: ActivityUserQuery, options?: { limit?: number; db?: Db }): Promise<Activity[]>
 export async function activityFor(
   scope: RecordScope,
   target: ActivitySubject | ActivityUserQuery,
-  options: { limit?: number; db?: Db } = {},
+  options: { limit?: number; window?: ActivityWindow; db?: Db } = {},
 ): Promise<Activity[]> {
   const where = 'userId' in target
-    ? sql`by_user_key = ${userKey(target.userId)} AND at >= ${target.since}`
+    ? sql`created_by = ${userKey(target.userId)} AND at >= ${target.since}`
     : 'targetUserId' in target
-      ? sql`target_user_key = ${userKey(target.targetUserId)} AND at >= ${target.since}`
+      ? sql`user_id = ${userKey(target.targetUserId)} AND at >= ${target.since}`
       : sql`subject_kind = ${target.kind} AND subject_id = ${target.id}`
+  // A history window or page reads only the activity inside it (plans/029 §8); the index on `(subject, at)` serves the range.
+  const inWindow = [
+    ...(options.window?.from !== undefined && Number.isFinite(options.window.from) ? [sql`at >= ${options.window.from}`] : []),
+    ...(options.window?.until !== undefined && Number.isFinite(options.window.until) ? [sql`at < ${options.window.until}`] : []),
+  ]
   const limit = options.limit ? sql`LIMIT ${options.limit}` : sql``
   const rows = z.array(activityRowSchema).parse(await (options.db ?? getDatabase()).all(sql`
     SELECT id, subject_kind, subject_id, at, turn_id, by, data FROM ${activityTable}
-    WHERE ${where} AND ${scopeClause(scope)}
+    WHERE ${sql.join([where, scopeClause(scope), ...inWindow], sql` AND `)}
     ORDER BY at DESC, id DESC
     ${limit}
   `))
@@ -169,12 +180,14 @@ export function mergeSessionActivity(messages: WireSessionLoadMessage[], activit
   return merged
 }
 
-/**
- * A history window with its activity (§5): a window cut to its newest rows
- * holds the activity from its first message on; a whole history holds all of it.
- */
+/** The activity a history window covers: from its first message on when it is cut to its newest rows; all of it for a whole history. */
+export function historyWindow(history: WireSessionLoadMessage[], isCut: boolean): ActivityWindow {
+  return isCut && history.length ? { from: history[0].timestamp } : {}
+}
+
+/** A history window with its activity (§5), the activity read inside `historyWindow`. */
 export function mergeWindowActivity(history: WireSessionLoadMessage[], activity: Activity[], isCut: boolean): WireSessionLoadMessage[] {
-  const from = isCut && history.length ? history[0].timestamp : -Infinity
+  const from = historyWindow(history, isCut).from ?? -Infinity
   return mergeSessionActivity(history, activity.filter((entry) => entry.at >= from))
 }
 
@@ -193,14 +206,21 @@ export function readActivityPageCursor(before: string | undefined): ActivityPage
   return activityPageCursorSchema.parse(JSON.parse(before))
 }
 
+/** The activity a history page covers: from its first message (from the start when it is the oldest) up to where the newer page began. */
+export function pageWindow(page: SessionHistoryPage, newerPageAt: number): ActivityWindow {
+  const window: ActivityWindow = {}
+  if (page.before !== null && page.messages.length) window.from = page.messages[0].timestamp
+  if (Number.isFinite(newerPageAt)) window.until = newerPageAt
+  return window
+}
+
 /**
- * A history page with its activity (§5). A page holds the activity from its first
- * message (from the start when it is the oldest) up to where the newer page began
- * (`newerPageAt`), so each activity lands in exactly one page; the cursor it
- * answers carries where this page began.
+ * A history page with its activity (§5), the activity read inside `pageWindow`:
+ * each activity lands in exactly one page, and the cursor the page answers
+ * carries where this page began.
  */
 export function mergePageActivity(page: SessionHistoryPage, activity: Activity[], newerPageAt: number): SessionHistoryPage {
-  const from = page.before !== null && page.messages.length ? page.messages[0].timestamp : -Infinity
+  const from = pageWindow(page, newerPageAt).from ?? -Infinity
   return {
     messages: mergeSessionActivity(page.messages, activity.filter((entry) => entry.at >= from && entry.at < newerPageAt)),
     before: page.before === null ? null : JSON.stringify({ before: page.before, at: Number.isFinite(from) ? from : 0 }),

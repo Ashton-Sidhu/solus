@@ -1,3 +1,6 @@
+import type { PermissionMode } from '@solus/contracts/types'
+import { isPermissionModeAbove } from '@solus/contracts/policy'
+import { hostPolicies } from '../../../host/policy/host-policy-store'
 import { privateProviderInstances } from '../../seats/provider-instances'
 import { providerHistoryInstanceId } from '../../seats/provider-runtime'
 import { captureActingScope } from '../../../vault/acting-scope'
@@ -226,7 +229,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const sessionId = conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null
     const uiMode = request.permissionMode
     const sessionRef = { current: conversation.kind === 'resume' ? sessionId : null }
-    const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended)
+    const ceiling = hostPolicies().forWork(request.organizationId).ceiling()?.value ?? null
+    const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended, ceiling)
     const onElicitation = this.permissions.createOnElicitation(sessionRef, request.unattended)
 
     let _resolveRun!: () => void
@@ -340,6 +344,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     cwd: string,
     request: AgentRunRequest,
   ): Promise<void> {
+    // Checked at start by `AgentRunner.run`; the same ceiling bounds any mode the run switches to.
+    const ceiling = hostPolicies().forWork(request.organizationId).ceiling()?.value ?? null
     try {
       for await (const evt of events) {
         if (evt.type === 'session_init') {
@@ -357,6 +363,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
           }
           sessionRef.current = evt.sessionId
         }
+        stopAboveCeiling(evt, ceiling, handle)
 
         this.emit('normalized', handle.agentSessionId, evt)
       }
@@ -734,4 +741,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       stale: false,
     }
   }
+}
+
+/** A mode the run switched to above the policy's ceiling ends the run (plans/030 §6.3). */
+function stopAboveCeiling(event: NormalizedEvent, ceiling: PermissionMode | null, handle: ClaudeRunHandle): void {
+  if (event.type !== 'permission_mode_changed' || !isPermissionModeAbove(event.permissionMode, ceiling)) return
+  log.warn('permission_mode_above_ceiling', { sessionId: handle.agentSessionId, permissionMode: event.permissionMode, ceiling })
+  handle.abortController.abort()
 }

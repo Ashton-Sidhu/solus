@@ -20,6 +20,7 @@
   import { hostWebsiteUrl } from "../../contexts/connections/host-routes";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
+  import { hostLock } from "../settings/policy/managed-setting.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
 
@@ -36,6 +37,8 @@
   const canChange = $derived(hostControl === "manage" && uplinkStore.accountAvailable);
   const uplink = $derived(uplinkStore.statusFor(serverId));
   const busy = $derived(uplinkStore.busyServerId === serverId);
+  // `cloudTunnel: false` stops the link; registration still works (plans/030 §6.7).
+  const cloudTunnelLock = $derived(hostLock(serverId, "cloudTunnel"));
   const account = $derived(accountStore.state);
   const registration = $derived(uplink?.registration);
   const isRegistered = $derived(registration?.registered === true);
@@ -128,7 +131,7 @@
         {/if}
       {/snippet}
     </SettingsRow>
-    <SettingsRow label="Reachable from the internet" description={linkText} visible={isRegistered || isLinked}>
+    <SettingsRow label="Reachable from the internet" description={linkText} visible={isRegistered || isLinked} managed={cloudTunnelLock}>
       {#snippet control()}
         <Switch
           checked={isLinked}

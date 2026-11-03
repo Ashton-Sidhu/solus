@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { Database } from 'bun:sqlite'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
 import type { Principal } from '@solus/server/admission/principal'
 
-// bun has no node:sqlite; the handlers' import chain reaches the db even though these tests never open it.
 mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { closeDb, getDb } = await import('@solus/server/db')
 const { MemberFolders, memberFolderFor, memberFolderName, recordedMemberFolder, useMemberFolders } = await import('@solus/server/host/member-folders')
 const { projectsRootFor } = await import('@solus/server/workspace')
 const { dispatchCheckoutPath } = await import('@solus/server/project-config/dispatch-checkouts')
@@ -17,10 +15,14 @@ const { dispatchCheckoutPath } = await import('@solus/server/project-config/disp
 // credentials) is named after its member; two people with one name are told
 // apart by the start of their account id; a member who predates named folders keeps their id folder.
 
+const previousDataDir = process.env.SOLUS_DATA_DIR
 const roots: string[] = []
 afterEach(() => {
+  closeDb()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
   useMemberFolders(null)
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
 function setup() {
@@ -28,8 +30,10 @@ function setup() {
   roots.push(root)
   const projects = join(root, 'projects')
   mkdirSync(projects, { recursive: true })
-  // bun has no node:sqlite; its own Database speaks the same prepare/get/all/run/exec surface.
-  const db = new Database(':memory:') as unknown as DatabaseSync
+  // `member_folder` is a host table, so the folders read the host database: a
+  // fresh one in this test's own data dir, never a live `~/.solus`.
+  process.env.SOLUS_DATA_DIR = root
+  const db = getDb()
   const folders = new MemberFolders({ db, roots: () => [projects, join(root, 'seats', 'claude')] })
   useMemberFolders(folders)
   return { root, projects, db, folders }

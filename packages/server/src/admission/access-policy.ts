@@ -216,7 +216,6 @@ export const RESOURCE_LOCATORS = {
   tasksAttachArtifact: taskIdAt(0),
   // Owner only. A host admin may also transfer what a departed member owned, which
   // the share manager decides from the organization standing (plan 004 item 10).
-  shareTransfer: sharedResourceAt(0),
   // A Local work leaves its host by its owner's Share (docs/plans/cloud-sharing.md).
   workExportForCloud: workIdAt(0),
   workMarkMoved: workIdAt(0),
@@ -387,8 +386,6 @@ async function guestCheckoutRefusal(principal: Extract<Principal, { kind: 'guest
 
 /** The RPC door: the action and the resource of one call, decided by `authorize`. */
 export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = hostCategory() === 'managed' || isApiMode()): Promise<void> {
-  // A host admin may hand on what a departed member owned; the share manager decides (plan 004 item 10).
-  if (method === 'shareTransfer' && isHostAdmin(principal)) return
   const refusal = isResourceMethod(method)
     ? await authorize(principal, resourceActionPathOf(method), RESOURCE_LOCATORS[method](args), { name: method, resources, managed })
     : await authorize(principal, permissionOf(method)!, null, { name: method, resources, managed })

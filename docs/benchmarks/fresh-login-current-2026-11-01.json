@@ -1,0 +1,100 @@
+{
+  "date": "2026-11-01",
+  "status": "complete",
+  "browser": "Safari",
+  "profile": "Solus Benchmark",
+  "clientEntry": "/assets/index-CENor7gl.js",
+  "scope": "One fresh Google login, compared with the three-run OFF/early-dial median from 2026-10-30.",
+  "method": [
+    "Open a new window in the existing Solus Benchmark profile.",
+    "Sign out to /sign-in; confirm Web Inspector Console prompt focus; clear localStorage and sessionStorage. Verify both key lists are empty.",
+    "Use the existing benchmark Google account. Keep Web Inspector open.",
+    "After workspace rendering, confirm Console prompt focus and read Navigation Timing, Resource Timing, Paint Timing, and performance marks."
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "storageReset": {
+        "path": "/sign-in",
+        "localStorageKeys": [],
+        "sessionStorageKeys": []
+      },
+      "dir": true,
+      "sw": null,
+      "nav": {
+        "responseEnd": 878,
+        "serverTiming": [
+          {
+            "name": "app",
+            "dur": 122.6
+          },
+          {
+            "name": "db",
+            "dur": 103.6
+          },
+          {
+            "name": "db_work",
+            "dur": 182.5
+          },
+          {
+            "name": "cfEdge",
+            "dur": 5
+          },
+          {
+            "name": "cfOrigin",
+            "dur": 0
+          },
+          {
+            "name": "cfWorker",
+            "dur": 154
+          },
+          {
+            "name": "cfExtPri",
+            "dur": 0
+          }
+        ]
+      },
+      "token": [],
+      "hostsRead": false,
+      "code": 1782,
+      "hostReady": 2047,
+      "fcp": 1255,
+      "resourceTimingEntryCount": 171,
+      "webTokens": {
+        "path": "/api/web/tokens",
+        "startMs": 1291,
+        "durationMs": 173,
+        "responseAvailableMs": 1464
+      }
+    }
+  ],
+  "comparisonFile": "docs/benchmarks/fresh-login-early-dial-2026-10-30.json",
+  "comparison": {
+    "fcp": {
+      "previousMedianMs": 2270,
+      "currentMs": 1255,
+      "earlierMs": 1015,
+      "improvementPercent": 44.7
+    },
+    "code": {
+      "previousMedianMs": 2050,
+      "currentMs": 1782,
+      "earlierMs": 268,
+      "improvementPercent": 13.1
+    },
+    "hostReady": {
+      "previousMedianMs": 2293,
+      "currentMs": 2047,
+      "earlierMs": 246,
+      "improvementPercent": 10.7
+    }
+  },
+  "limits": [
+    "This is one observation against an earlier three-run median, not a controlled same-build comparison. Network and machine load can differ.",
+    "A new window and cleared application storage were used, not a newly created Safari profile. The existing profile cache and Google session were retained.",
+    "FCP is the first contentful paint, not a measure of composer interactivity. Only workspace-code and host-ready marks were available.",
+    "The current build uses /api/web/tokens. No /oauth2/token resources were recorded; its duration is not presented as the old code-exchange timing."
+  ],
+  "codeChanged": false,
+  "deployed": false
+}

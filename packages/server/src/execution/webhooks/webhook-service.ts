@@ -1,3 +1,4 @@
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   SECRET_SCHEMES,
@@ -135,10 +136,18 @@ export function createWebhookService(deps: WebhookServiceDeps) {
   }
 
   /** An enabled webhook of an organization must be work the organization lets start here. A paused one may be saved. */
-  function assertAdmitted(record: Pick<WebhookRecord, 'organizationId' | 'enabled' | 'verification'>): void {
+  function assertAdmitted(record: Pick<WebhookRecord, 'organizationId' | 'enabled' | 'verification' | 'actions'>): void {
     if (!record.enabled) return
     const refusal = deps.organizationRefusal(record.organizationId, { unverified: record.verification.scheme === 'none' })
     if (refusal) throw new WebhookInputError(refusal)
+    for (const action of record.actions) {
+      if (action.type !== 'start_session') continue
+      try {
+        enforce(hostPolicies().forWork(record.organizationId).selectionDenial(action.agentProvider, action.modelId))
+      } catch (error) {
+        throw new WebhookInputError(error instanceof Error ? error.message : String(error))
+      }
+    }
   }
 
   async function view(record: WebhookRecord, now = Date.now()): Promise<Webhook> {

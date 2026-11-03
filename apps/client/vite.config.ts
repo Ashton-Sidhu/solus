@@ -6,7 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { solusIconSubset } from '../../scripts/vite-icon-collections'
 import { devServeRoots } from '../../scripts/vite-fs-allow'
 import { workspaceStartupChunk, workspaceStartupPreloads } from '../../scripts/vite-workspace-preloads'
-import { bootSplash, nonBlockingStylesheets } from '../../scripts/vite-boot-splash'
+import { asyncEntryScript, bootSplash, nonBlockingStylesheets } from '../../scripts/vite-boot-splash'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -42,7 +42,7 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
-  plugins: [solusIconSubset(), tailwindcss(), svelte(), workspaceStartupPreloads(['/apps/client/src/App.svelte']), bootSplash(), nonBlockingStylesheets()],
+  plugins: [solusIconSubset(), tailwindcss(), svelte(), workspaceStartupPreloads(['/apps/client/src/App.svelte']), bootSplash(), nonBlockingStylesheets(), asyncEntryScript()],
   server: {
     host: '0.0.0.0',
     port: 5174,

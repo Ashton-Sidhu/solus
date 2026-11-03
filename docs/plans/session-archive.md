@@ -33,8 +33,11 @@ snoozed session came back to the active list on each reload.
 - **session list** — the sessions in a person's list: every root session of
   theirs that they did not archive and that was active in the last 30 days,
   that they snoozed, or that waits on an open pull request. A session is theirs
-  when they own it, when they prompted or organized it, or when it has no
-  owner (a machine's personal sessions). A session that another person
+  when they own it and Solus started it, or when they opened, prompted, or
+  organized it. A session the indexer found on a host's disk (a provider CLI
+  run, or a transcript older than the database) has no starter: it stays out
+  of the list until the person opens it, and the picker finds it
+  (decided 2026-11-02). A session that another person
   shared directly with them (a person or team share) is in their list too,
   until they archive it; a later grant brings it back
   (`docs/plans/shared-with-you.md` §2).

@@ -151,9 +151,9 @@ describe('organize_session', () => {
   test('mark_unread clears the read boundary and tells listeners, so every client sees it', async () => {
     // WHY: the agent has no client connection. The host broadcasts read state
     // from the data layer, so a change made here reaches every device.
-    await states.markSessionViewed('caller', NOW - 1_000)
+    await states.markSessionViewed('caller', personKey, NOW - 1_000)
     const heard: Array<[string, number | null]> = []
-    const stop = states.onSessionReadStateChanged((sessionId, viewedAt) => heard.push([sessionId, viewedAt]))
+    const stop = states.onSessionReadStateChanged((change) => heard.push([change.sessionId, change.viewedAt]))
     try {
       expect(await organize({ action: 'mark_unread' })).toMatchObject({ ok: true })
     } finally {
@@ -161,6 +161,6 @@ describe('organize_session', () => {
     }
     expect(heard).toEqual([['caller', null]])
     // The boundary is gone: an older read lands again.
-    expect(await states.markSessionViewed('caller', NOW - 5_000)).toBe(NOW - 5_000)
+    expect(await states.markSessionViewed('caller', personKey, NOW - 5_000)).toBe(NOW - 5_000)
   })
 })

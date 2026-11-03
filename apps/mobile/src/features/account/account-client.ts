@@ -12,6 +12,7 @@ import type { z } from 'zod'
 import type { AccountSettingsResponse } from '@solus/contracts/settings'
 import { settingsCloudRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import { agentProfileCloudRequests, type AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
+import { hostListCloudRequests, type HostListCloudRequests } from '@solus/client-core/host-list-requests'
 
 /**
  * The Solus account calls the native client makes, each with a five-minute access
@@ -88,6 +89,11 @@ export class CloudAccountClient {
   /** The agent profile document (plans/020-agent-profile.md §3), with the same token. */
   agentProfileRequests(accessToken: () => Promise<string | null>, onUnauthorized: () => void): AgentProfileCloudRequests {
     return agentProfileCloudRequests((request) => this.accountRequest(request, accessToken, onUnauthorized))
+  }
+
+  /** The account host list (plans/031 D7), with the same token. */
+  hostListRequests(accessToken: () => Promise<string | null>, onUnauthorized: () => void): HostListCloudRequests {
+    return hostListCloudRequests((request) => this.accountRequest(request, accessToken, onUnauthorized))
   }
 
   private accountRequest(request: { method: string; path: string; body?: object }, accessToken: () => Promise<string | null>, onUnauthorized: () => void): Promise<Response | null | 'signed-out'> {

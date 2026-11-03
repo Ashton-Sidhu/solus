@@ -19,17 +19,25 @@ const { browserStore } = await import('@solus/workspace-ui/contexts/browser/brow
 function shell() {
   const opened: { automatic?: boolean }[] = []
   const beside: { sessionId: string; ref: { name: string; params: object }; automatic?: boolean }[] = []
+  // An open moves the focused pane to the browser, as the router does.
+  const router = {
+    focusedPaneId: 'main',
+    openSurfaceBesideSession: (sessionId: string, ref: { name: 'browser'; params: object }, opts?: { automatic?: boolean }) => {
+      beside.push({ sessionId, ref, automatic: opts?.automatic })
+      router.focusedPaneId = 'companion'
+    },
+    focusPane: (paneId: string) => {
+      router.focusedPaneId = paneId
+    },
+  }
   return {
     opened,
     beside,
     openBrowser: (_browserPageId?: string, _serverId?: string, opts?: { automatic?: boolean }) => {
       opened.push(opts ?? {})
+      router.focusedPaneId = 'companion'
     },
-    router: {
-      openSurfaceBesideSession: (sessionId: string, ref: { name: 'browser'; params: object }, opts?: { automatic?: boolean }) => {
-        beside.push({ sessionId, ref, automatic: opts?.automatic })
-      },
-    },
+    router,
   }
 }
 
@@ -59,5 +67,15 @@ describe('revealBrowserSurface', () => {
 
     expect(target.opened).toEqual([{ automatic: true }])
     expect(browserStore.activeKey).toBe(hostKey('local', 'browser_1'))
+  })
+
+  test("an agent's reveal leaves the keyboard in the pane the user was in", () => {
+    // WHY: the user may be typing in the composer when an agent opens a page.
+    // The keys must keep going to that composer, not to the browser pane.
+    for (const sessionId of ['session_a', undefined]) {
+      const target = shell()
+      revealBrowserSurface(target, hostKey('local', 'browser_1'), sessionId)
+      expect(target.router.focusedPaneId).toBe('main')
+    }
   })
 })

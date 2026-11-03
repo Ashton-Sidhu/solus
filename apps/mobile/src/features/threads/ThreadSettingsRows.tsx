@@ -194,11 +194,14 @@ export function ModelRow(props: {
   readonly isLast: boolean;
 }) {
   const badge = props.option.isDefault ? "Default" : props.option.isLegacy ? "Legacy" : null;
+  // A model the work's policy does not allow stays listed, disabled, with the policy's reason (plans/030 §7).
+  const denial = props.option.policyDenial;
   return (
     <Pressable
-      accessibilityLabel={[props.option.label, badge].filter(Boolean).join(", ")}
+      accessibilityLabel={[props.option.label, badge, denial].filter(Boolean).join(", ")}
       accessibilityRole="radio"
-      accessibilityState={{ checked: props.selected }}
+      accessibilityState={{ checked: props.selected, disabled: denial !== null }}
+      disabled={denial !== null}
       className={cn(
         "mx-4 min-h-12 flex-row items-center gap-2 bg-grouped-card px-4 py-3 active:bg-subtle android:min-h-14",
         props.isFirst && "rounded-t-2xl",
@@ -206,14 +209,19 @@ export function ModelRow(props: {
       )}
       onPress={props.onPress}
     >
-      <Text className="min-w-0 shrink text-base font-t3-medium text-foreground" numberOfLines={1}>
-        {props.option.label}
-      </Text>
-      {badge ? (
-        <View className="rounded-md bg-subtle px-1.5 py-0.5">
-          <Text className="text-3xs font-t3-medium text-foreground-muted">{badge}</Text>
+      <View className={cn("min-w-0 shrink gap-0.5", denial && "opacity-50")}>
+        <View className="flex-row items-center gap-2">
+          <Text className="min-w-0 shrink text-base font-t3-medium text-foreground" numberOfLines={1}>
+            {props.option.label}
+          </Text>
+          {badge ? (
+            <View className="rounded-md bg-subtle px-1.5 py-0.5">
+              <Text className="text-3xs font-t3-medium text-foreground-muted">{badge}</Text>
+            </View>
+          ) : null}
         </View>
-      ) : null}
+        {denial ? <Text className="text-sm leading-5 text-foreground-muted">{denial}</Text> : null}
+      </View>
       <View className="flex-1" />
       <SelectedCheckmark selected={props.selected} />
     </Pressable>
@@ -229,12 +237,17 @@ export function ChoiceRow(props: {
   readonly selected: boolean;
   readonly onPress: () => void;
   readonly isLast: boolean;
+  /** Why the choice cannot be made, such as a policy's ceiling; the row is disabled and says it. */
+  readonly disabledReason?: string | null;
 }) {
+  const disabled = Boolean(props.disabledReason);
+  const description = props.disabledReason ?? props.description;
   return (
     <Pressable
-      accessibilityLabel={props.description ? `${props.label}. ${props.description}` : props.label}
+      accessibilityLabel={description ? `${props.label}. ${description}` : props.label}
       accessibilityRole="radio"
-      accessibilityState={{ checked: props.selected }}
+      accessibilityState={{ checked: props.selected, disabled }}
+      disabled={disabled}
       onPress={props.onPress}
       className={cn(
         "min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3 active:bg-subtle",
@@ -242,10 +255,10 @@ export function ChoiceRow(props: {
       )}
     >
       {props.icon ? <RowLeadingSymbol name={props.icon} /> : null}
-      <View className="min-w-0 flex-1 gap-0.5">
+      <View className={cn("min-w-0 flex-1 gap-0.5", disabled && "opacity-50")}>
         <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
-        {props.description ? (
-          <Text className="text-sm leading-5 text-foreground-muted">{props.description}</Text>
+        {description ? (
+          <Text className="text-sm leading-5 text-foreground-muted">{description}</Text>
         ) : null}
       </View>
       <SelectedCheckmark selected={props.selected} />

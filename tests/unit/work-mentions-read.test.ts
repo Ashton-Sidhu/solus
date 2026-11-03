@@ -52,12 +52,10 @@ describe('read_work shows a mention as the name an agent reads', () => {
     const ann = personMentionMarkdown({ userId: 'u_ann', name: 'Ann [Ops] Lee' })
     const bob = personMentionMarkdown({ userId: 'u_bob', name: 'Bob' })
     const work = await works.createWork('local', 'Launch', 'doc', `Owner: ${ann}.`, '', 'peer-1', 'claude-code', '/tmp/proj')
-    await workAnnotations.saveWorkAnnotations('local', {
-      version: 1,
-      workId: work.id,
-      updatedAt: 1,
-      comments: [{ id: 'c1', selectedText: 'Owner', comment: `${bob} can you confirm?` }],
-    })
+    await workAnnotations.applyWorkComment('local', work.id, {
+      kind: 'add',
+      comment: { id: 'c1', selectedText: 'Owner', comment: `${bob} can you confirm?` },
+    }, { by: { kind: 'system' }, canModerate: true, now: 1 })
 
     const result = await workTools.executeWorkTool('read_work', { work_id: work.id })
 

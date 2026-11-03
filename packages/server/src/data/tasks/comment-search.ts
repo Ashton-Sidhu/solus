@@ -6,11 +6,12 @@ import { SearchQuery } from '@solus/contracts/search-query'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
-import { taskComments, tasks } from './schema'
+import { commentThreads } from '../comments/schema'
+import { tasks } from './schema'
 import { TASK_HERE } from './task-store'
 
 const commentRowSchema = z.object({
-  id: z.string(),
+  thread_id: z.string(),
   task_id: z.string(),
   body: z.string(),
   created_at: z.coerce.number(),
@@ -32,14 +33,15 @@ export async function searchTaskComments(scope: RecordScope, input: TaskCommentS
   if (query.isEmpty) return []
   const like = (word: string) => `%${word.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
   // A coarse first pass in SQL; the word rule decides below.
-  const anyWord = sql.join(query.required.map((word) => sql`LOWER(${taskComments}.body) LIKE ${like(word)} ESCAPE '\\'`), sql` OR `)
+  const anyWord = sql.join(query.required.map((word) => sql`LOWER(${commentThreads}.body) LIKE ${like(word)} ESCAPE '\\'`), sql` OR `)
   const project = input.projectKey ? sql` AND ${tasks}.project_key = ${input.projectKey}` : sql``
   const rows = commentRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${taskComments}.id, ${taskComments}.task_id, ${taskComments}.body, ${taskComments}.created_at
-    FROM ${taskComments}
-    JOIN ${tasks} ON ${tasks}.id = ${taskComments}.task_id
-    WHERE ${scopeClause(scope, sql`${tasks}.organization_id`)} AND ${TASK_HERE}${project} AND (${anyWord})
-    ORDER BY ${taskComments}.created_at DESC
+    SELECT ${commentThreads}.thread_id, ${commentThreads}.subject_id AS task_id, ${commentThreads}.body, ${commentThreads}.created_at
+    FROM ${commentThreads}
+    JOIN ${tasks} ON ${tasks}.id = ${commentThreads}.subject_id AND ${tasks}.organization_id = ${commentThreads}.organization_id
+    WHERE ${commentThreads}.subject_kind = 'task'
+      AND ${scopeClause(scope, sql`${tasks}.organization_id`)} AND ${TASK_HERE}${project} AND (${anyWord})
+    ORDER BY ${commentThreads}.created_at DESC
     LIMIT ${MAX_COMMENTS}
   `))
   const byTask = new Map<string, z.infer<typeof commentRowSchema>[]>()
@@ -62,7 +64,7 @@ export async function searchTaskComments(scope: RecordScope, input: TaskCommentS
     const comment = comments[best]!
     hits.push({
       taskId,
-      commentId: comment.id,
+      commentId: comment.thread_id,
       snippet: query.passage(comment.body, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
       createdAt: comment.created_at,
     })

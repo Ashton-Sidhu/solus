@@ -87,7 +87,8 @@ function receiver(overrides: Partial<import('@solus/server/execution/webhooks/re
     hostId: () => 'host-1',
     forwarderSecret: () => FORWARDER_SECRET,
     isPausedByAdmin: () => false,
-    allowsUnverifiedWebhooks: () => false,
+    // The host's rule: an unverified organization webhook is refused unless its policy allows it; a Local one is not.
+    organizationRefusal: (organizationId: string, work: { unverified: boolean }) => work.unverified && organizationId !== 'local' ? 'A policy does not allow unverified webhooks here.' : null,
     runDelivery: async (delivery) => { ran.push(delivery.deliveryId) },
     ...overrides,
   })
@@ -171,8 +172,17 @@ describe('webhook receiver check order', () => {
     const { receiver: r } = receiver()
     expect(await r.receive(post(organization.id, '{}', []))).toMatchObject({ status: 403, outcome: 'not_allowed' })
     expect((await r.receive(post(local.id, '{}', []))).status).toBe(202)
-    const { receiver: allowed } = receiver({ allowsUnverifiedWebhooks: (id) => id === 'org-1' })
+    const { receiver: allowed } = receiver({ organizationRefusal: () => null })
     expect((await allowed.receive(post(organization.id, '{}', []))).status).toBe(202)
+  })
+
+  test('a refusal is checked on every delivery, so a rule changed after the save still holds (plans/030 §6.9)', async () => {
+    const webhook = await makeWebhook({ organizationId: 'org-1' })
+    let refusal: string | null = null
+    const { receiver: r } = receiver({ organizationRefusal: () => refusal })
+    expect((await r.receive(post(webhook.id, '{}', signed('{}')))).outcome).toBe('accepted')
+    refusal = 'This organization does not allow its work to start on a personal computer.'
+    expect(await r.receive(post(webhook.id, '{}', signed('{}')))).toMatchObject({ status: 403, outcome: 'not_allowed' })
   })
 
   test('a proven delivery ID runs once; an unproven one is ignored', async () => {

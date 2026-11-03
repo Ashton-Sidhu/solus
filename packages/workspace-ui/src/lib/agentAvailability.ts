@@ -1,4 +1,5 @@
 import type { AgentId, AgentMetadata } from "@solus/contracts/types";
+import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
 
 export interface AgentAvailabilityRow {
   id: AgentId;
@@ -24,8 +25,9 @@ export function agentLabel(
 export function buildAgentAvailabilityRows(
   agents: AgentMetadata[],
   metadataByAgent: Record<string, AgentMetadata | null>,
+  isDevelopment = false,
 ): AgentAvailabilityRow[] {
-  return agents.map((agent) => {
+  return agents.filter((agent) => isModelPickerAgentVisible(agent.id, isDevelopment)).map((agent) => {
     const metadata = metadataByAgent[agent.id] ?? agent;
     const binaryAvailable = metadata?.available === true;
 

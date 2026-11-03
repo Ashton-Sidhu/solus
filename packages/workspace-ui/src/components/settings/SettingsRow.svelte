@@ -6,6 +6,8 @@
    *  between rows. Under thirty rem of pane the control drops beneath the
    *  copy rather than squeezing it. */
   import type { Snippet } from "svelte";
+  import ManagedSettingNote from "./policy/ManagedSettingNote.svelte";
+  import type { ManagedSettingNote as ManagedNote } from "./policy/lib/managed-setting-note";
 
   interface Props {
     label: string;
@@ -28,6 +30,9 @@
     comingSoon?: boolean;
     /** A setting that exists but cannot apply yet: dimmed and inert, no badge. */
     disabled?: boolean;
+    /** A key a policy manages: its lines show under the copy. When the MDM
+     *  policy locks it for all work, the control and the body are inert. */
+    managed?: ManagedNote;
     /** Hook for e2e selectors that need to scope into a single row. */
     testId?: string;
   }
@@ -43,16 +48,18 @@
     bodyVisible = true,
     comingSoon = false,
     disabled = false,
+    managed,
     testId,
   }: Props = $props();
-  const isInert = $derived(comingSoon || disabled);
+  const isLocked = $derived(managed?.lockedEverywhere === true);
+  const isInert = $derived(comingSoon || disabled || isLocked);
 </script>
 
 {#if visible}
   <div
     data-testid={testId}
     class="px-4 py-3.5 {isInert ? 'opacity-55' : ''}"
-    aria-disabled={disabled || undefined}
+    aria-disabled={disabled || isLocked || undefined}
   >
     <!-- Only a row with a control reserves the trailing column; otherwise the
          copy takes the full width instead of wrapping beside an empty cell. -->
@@ -82,6 +89,9 @@
             {description}
           </p>
         {/if}
+        {#if managed}
+          <ManagedSettingNote note={managed} />
+        {/if}
       </div>
       {#if control}
         <div
@@ -93,7 +103,7 @@
       {/if}
     </div>
     {#if body && bodyVisible}
-      <div class="mt-3">{@render body()}</div>
+      <div class="mt-3" inert={isLocked}>{@render body()}</div>
     {/if}
   </div>
 {/if}

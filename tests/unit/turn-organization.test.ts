@@ -36,9 +36,10 @@ const STANDING: HostOrganizationsResponse = {
   category: 'personal',
   owner: { userId: 'alice', email: 'alice@example.test', name: 'Alice' },
   organizations: [
-    { organizationId: 'A', name: 'Acme', shared: true, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: true } },
-    { organizationId: 'B', name: 'Bolt', shared: true, policy: { allowsCloudHosts: true, allowsPersonalHosts: false, syncAllInsights: false } },
+    { organizationId: 'A', name: 'Acme', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Acme' }, sessions: { limits: { insights: { syncAll: true } } } }, hostPolicy: null },
+    { organizationId: 'B', name: 'Bolt', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false }, policy: { schemaVersion: 1, organization: { name: 'Bolt' }, sessions: { limits: { insights: { syncAll: false } } } }, hostPolicy: null },
   ],
+  hostOwnerOrganizationId: null,
 }
 
 beforeAll(async () => {
@@ -64,9 +65,11 @@ beforeAll(async () => {
     clearTimeoutFn: (() => {}) as typeof clearTimeout,
   })
   await hostOrganizations.refresh()
-  // Wired as boot wires it: the organization's own setting, else the person's opt-in.
+  // Wired as boot wires it: the organization's policy through the host policy store, else the person's opt-in.
+  const { HostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
+  const store = new HostPolicyStore({ mdm: null, standing: () => hostOrganizations.current() })
   insightMirror.useInsightsPolicy({
-    syncAllInsights: (organizationId) => hostOrganizations.organization(organizationId)?.policy.syncAllInsights ?? null,
+    syncAllInsights: (organizationId) => store.current().forWork(organizationId).syncsAllInsights(),
     optedIn: () => false,
     attached: () => false,
   })

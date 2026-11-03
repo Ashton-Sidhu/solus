@@ -1,66 +1,42 @@
 import { existsSync } from 'node:fs'
-import { basename } from 'node:path'
 import { worktreeProjectRoot, type RecentProject } from '@solus/contracts/types'
-import { getDb, withTx } from './db'
+import { getDb } from './db'
 import { isChat } from '@solus/contracts/chat'
 import { recordProject } from './project-config/projects-manifest'
 import { z } from 'zod'
 
-const MAX_PROJECTS = 10
+/**
+ * Recents are the project list ordered by last use (plan 029 §3.7): `projects`
+ * is the one owner of when a project was used, and the directory picker shows
+ * the newest few. A recent is the repository root, as the project list shows
+ * it; a worktree opened inside a repository counts as a use of that repository.
+ */
 
-interface RecentProjectRow {
-  path: string
-  folder_name: string
-  last_opened: number
-}
+const MAX_PROJECTS = 10
 
 const recentProjectRowsSchema = z.array(z.object({
   path: z.string(),
   folder_name: z.string(),
-  last_opened: z.number(),
+  last_used_at: z.number(),
 }))
-
-function fromRow(row: RecentProjectRow): RecentProject {
-  return {
-    path: row.path,
-    folderName: row.folder_name,
-    lastOpened: new Date(row.last_opened).toISOString(),
-  }
-}
 
 export async function trackRecentProject(path: string): Promise<void> {
   if (!path || path === '~') return
   path = worktreeProjectRoot(path)
   // A chat is a session with no project — never log its folder as one.
   if (isChat(path)) return
-  withTx(() => {
-    const db = getDb()
-    db.prepare('DELETE FROM recent_projects WHERE path = ?').run(path)
-    db.prepare(`
-      INSERT INTO recent_projects (path, folder_name, last_opened)
-      VALUES (?, ?, ?)
-    `).run(path, basename(path) || path, Date.now())
-    db.prepare(`
-      DELETE FROM recent_projects
-      WHERE path IN (
-        SELECT path
-        FROM recent_projects
-        ORDER BY last_opened DESC, rowid DESC
-        LIMIT -1 OFFSET ?
-      )
-    `).run(MAX_PROJECTS)
-  })
-  // Recents are capped; the manifest keeps the full, permanent list.
   await recordProject(path).catch(() => {})
 }
 
 export async function listRecentProjects(): Promise<RecentProject[]> {
   const rows = recentProjectRowsSchema.parse(getDb().prepare(`
-    SELECT path, folder_name, last_opened
-    FROM recent_projects
-    ORDER BY last_opened DESC, rowid DESC
-  `).all())
+    SELECT path, folder_name, COALESCE(last_used_at, added_at) AS last_used_at
+    FROM projects
+    WHERE path IS NOT NULL AND folder_name IS NOT NULL
+    ORDER BY COALESCE(last_used_at, added_at) DESC, key
+    LIMIT ?
+  `).all(MAX_PROJECTS))
   return rows
-    .map(fromRow)
+    .map((row) => ({ path: row.path, folderName: row.folder_name, lastOpened: new Date(row.last_used_at).toISOString() }))
     .filter((project) => existsSync(project.path))
 }

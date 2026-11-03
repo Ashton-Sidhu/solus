@@ -37,7 +37,7 @@ const parentRowSchema = z.object({
 export function delegationColumnsFor(start: SessionDelegationStart, db: DatabaseSync = getDb()): SessionDelegationColumns {
   const parent = parentRowSchema.nullish().parse(db.prepare(`
     SELECT root_session_id, delegation_depth
-    FROM sessions
+    FROM transcript_index
     WHERE session_id = ?
   `).get(activeThreadOf(start.parentSessionId, db) ?? start.parentSessionId))
   return {

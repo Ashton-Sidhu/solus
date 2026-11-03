@@ -181,22 +181,16 @@ describe('an agent’s actions', () => {
 
 describe('rows written before stage 4', () => {
   // Old task event actors move with `task_events` into `activity` (activity.test.ts).
-  test('old comment authors and link makers still read', async () => {
+  test('old link makers still read', async () => {
     const task = await taskStore.createTask('local', { title: 'Old task' })
     const raw = database.getDatabase()
-    await raw.run(sql`INSERT INTO task_comments (id, task_id, author, source, origin_session_id, body, created_at, organization_id) VALUES
-      ('01C1', ${task.id}, 'You', 'local', NULL, 'mine', 10, 'local'),
-      ('01C2', ${task.id}, 'agent', 'local', 'thread-9', 'the agent', 11, 'local')`)
-    await raw.run(sql`INSERT INTO task_comments (id, task_id, author, source, external_id, body, created_at, organization_id) VALUES
-      ('external:1', ${task.id}, 'octocat', 'external', '1', 'upstream', 12, 'local')`)
-    await raw.run(sql`INSERT INTO task_links (task_id, kind, target_scope, target_key, title, created_by, origin_session_id, linked_at, organization_id) VALUES
-      (${task.id}, 'automation', '', 'a1', 'A', 'migration', NULL, 1, 'local'),
-      (${task.id}, 'automation', '', 'a2', 'B', 'agent', 'thread-9', 2, 'local')`)
+    // A link's maker is its `author` attribution; `created_by` is the user id behind it (plans/029 decision 2).
+    await raw.run(sql`INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, title, source, status, author, origin_session_id, created_by, created_at) VALUES
+      ('local', 'task', ${task.id}, 'automation', '', 'a1', 'reference', 'A', 'system', 'active', '{"kind":"system"}', NULL, 'local:host', 1),
+      ('local', 'task', ${task.id}, 'automation', '', 'a2', 'reference', 'B', 'agent', 'active', '{"kind":"agent","sessionId":"thread-9"}', 'thread-9', 'local:host', 2)`)
 
     const details = await (await tasks.Task.byId('local', task.id)).details()
-    const owner: Attribution = { kind: 'user', user: hostUser.hostUser()! }
     const agent: Attribution = { kind: 'agent', sessionId: 'thread-9' }
-    expect(details.comments.map((comment) => [comment.author, comment.externalAuthor])).toEqual([[owner, undefined], [agent, undefined], [undefined, 'octocat']])
     expect(Object.fromEntries(details.links.map((link) => [link.targetKey, link.createdBy]))).toEqual({ a1: { kind: 'system' }, a2: agent })
   })
 
@@ -230,29 +224,5 @@ describe('rows written before stage 4', () => {
     expect((await automations.loadAutomation(byAgent.id))!.createdBy).toMatchObject({ kind: 'agent', sessionId: 's-1', provider: 'codex', for: { id: { kind: 'account', accountId: 'bob' } } })
     const paused = await automations.pauseAutomationsOf('bob', byMember.organizationId!)
     expect(paused.map((automation) => automation.id).sort()).toEqual([byMember.id, byAgent.id].sort())
-  })
-
-  test('an old comment thread reads as attributions, on a host and on the Solus API', () => {
-    const legacy = [
-      { id: 'c1', selectedText: 'a', comment: 'mine', author: 'you' },
-      { id: 'c2', selectedText: 'b', comment: 'theirs', author: 'you', person: { userId: 'bob', displayName: 'Bob', colorIndex: 2 }, replies: [
-        { id: 'r1', author: 'solus', authorAgent: { sessionId: 's-1', provider: 'codex', title: 'Reviewer' }, text: 'noted', createdAt: 2 },
-      ] },
-      { id: 'c3', selectedText: 'c', comment: 'unsigned', author: 'solus', resolvedAt: 5, resolvedBy: 'you' },
-    ] as unknown as PlanComment[]
-    const host: User = { id: { kind: 'local', localId: 'L1' }, displayName: 'Owner' }
-    const onHost = storedComments.readStoredComments(legacy, host)
-    expect(onHost.map((thread) => thread.author)).toEqual([
-      { kind: 'user', user: host },
-      { kind: 'user', user: { id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob' } },
-      { kind: 'system' },
-    ])
-    expect(onHost[1]!.replies![0]!.author).toEqual({ kind: 'agent', sessionId: 's-1', provider: 'codex', title: 'Reviewer' })
-    expect(onHost[2]!.resolvedBy).toEqual({ kind: 'user', user: host })
-    expect(onHost.some((thread) => 'person' in thread || 'authorAgent' in thread)).toBe(false)
-    // The Solus API has no host user: an unsigned `'you'` was the host's own work.
-    expect(storedComments.readStoredComments(legacy, null)[0]!.author).toEqual({ kind: 'system' })
-    // A thread already in the new shape comes back as the same object.
-    expect(storedComments.readStoredComments(onHost, host)[1]).toBe(onHost[1])
   })
 })

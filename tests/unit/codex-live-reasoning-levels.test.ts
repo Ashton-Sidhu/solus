@@ -49,7 +49,7 @@ describe('Codex reasoning levels for models the published list does not know', (
     expect(reasoningLevelsFor('codex', 'gpt-9-codex-new', metadata)).toEqual(['low', 'medium', 'high', 'xhigh'])
     expect(metadata.modelProfiles?.['gpt-9-codex-new']).toMatchObject({ defaultReasoningEffort: 'xhigh', supportsFastMode: true })
     // A provider instance's catalog keeps the live profile under its own.
-    const instance = { id: 'codex-default', provider: 'codex' as const, displayName: 'Codex', enabled: true, customModels: [], hiddenModels: [], favoriteModels: [], modelOrder: [], binaryAvailable: true }
+    const instance = { id: 'codex-default', provider: 'codex' as const, displayName: 'Codex', enabled: true, customModels: [], hiddenModels: [], favoriteModels: [], modelOrder: [], modelGroups: {}, binaryAvailable: true }
     const project = agentForProject({ ...metadata, instancePreferences: { selected: instance.id, instances: [instance], projects: [] } })
     expect(reasoningLevelsFor('codex', 'gpt-9-codex-new', project)).toContain('xhigh')
   })

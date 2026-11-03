@@ -20,7 +20,8 @@ function releaseOf(state: DesktopUpdateState): DesktopUpdateRelease | null {
 export function reduceUpdateState(state: DesktopUpdateState, event: UpdateEvent): DesktopUpdateState {
   // The update is on disk. Nothing but a restart moves the app past it, so a
   // later check, progress tick, or error never demotes the state.
-  if (state.kind === 'ready' || state.kind === 'manual') return state
+  // A policy that manages updates holds the state until the policy changes.
+  if (state.kind === 'ready' || state.kind === 'manual' || state.kind === 'managed') return state
 
   switch (event.type) {
     case 'checking':

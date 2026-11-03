@@ -1,3 +1,5 @@
+import { hostPolicies } from '../../host/policy/host-policy-store'
+import { organizationOfSession } from '../../data/sessions/session-records'
 import { randomUUID } from 'node:crypto'
 import { recoverExchanges } from './recover-exchanges'
 import { ExchangeLedger, type ExchangeIdentity } from './exchange-ledger'
@@ -468,7 +470,8 @@ export class SessionOrchestrator {
       prompt: `${IMPLEMENT_PREFIX}${pending.planContent}`,
       delivery: 'queue',
       notify: true,
-      permissionMode: 'full-access',
+      // Implementation runs with full access, lowered to the target's policy ceiling (plans/030 §6.3).
+      permissionMode: hostPolicies().forWork(await organizationOfSession(targetSessionId)).clampMode('full-access'),
     })
     return true
   }

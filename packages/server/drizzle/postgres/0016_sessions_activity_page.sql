@@ -1,1 +1,0 @@
-CREATE INDEX "sessions_api_activity_page" ON "session_records" USING btree ("organization_id","last_activity_at" desc,"session_id" desc);

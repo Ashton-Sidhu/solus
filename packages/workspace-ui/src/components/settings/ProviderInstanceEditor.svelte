@@ -12,8 +12,13 @@
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import ProviderModelSettings from "./ProviderModelSettings.svelte";
+  import { launchLock } from "@solus/client-core/policy";
+  import { launchLockNotes } from "./policy/lib/launch-lock-notes";
+  import { workPolicy } from "../../contexts/policy/work-policy.svelte";
 
-  let { instance, revision, client, saving }: { instance: ProviderInstance; revision: number; client: ProviderInstancesClient; saving: boolean } = $props();
+  let { serverId, instance, revision, client, saving }: { serverId: string; instance: ProviderInstance; revision: number; client: ProviderInstancesClient; saving: boolean } = $props();
+  // The launch fields the policy of the window's organization's work owns (plans/030 §6.4).
+  const launch = $derived(launchLockNotes(launchLock(workPolicy(serverId), instance.provider)));
   let draft = $state(untrack(() => structuredClone(instance)));
   let expectedRevision = $state(untrack(() => revision));
   async function save() {
@@ -33,29 +38,19 @@
   <SettingsRow label="Display name">
     {#snippet control()}<Input aria-label="Provider display name" bind:value={draft.displayName} maxlength={120} />{/snippet}
   </SettingsRow>
-  <SettingsRow label="Accent color">
-    {#snippet control()}
-      <div class="flex items-center gap-2">
-        {#if draft.accentColor}<Button variant="ghost" size="sm" onclick={() => (draft.accentColor = null)}>Reset</Button>{:else}<span class="text-sm text-muted-foreground">None</span>{/if}
-        <label class="relative size-6 shrink-0 cursor-pointer rounded-full has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-ring {draft.accentColor ? 'ring-1 ring-black/10 ring-inset dark:ring-white/15' : 'border border-dashed border-muted-foreground/50'}" style:background-color={draft.accentColor}>
-          <input type="color" aria-label="Provider accent color" value={draft.accentColor ?? "#808080"} oninput={(event) => (draft.accentColor = event.currentTarget.value)} class="absolute inset-0 size-full cursor-pointer opacity-0" />
-        </label>
-      </div>
-    {/snippet}
-  </SettingsRow>
   <SettingsRow label="Enabled" description="A disabled instance refuses new turns. Running turns can finish.">
     {#snippet control()}<Switch checked={draft.enabled} onCheckedChange={(value) => (draft.enabled = value)} aria-label="Enable provider instance" />{/snippet}
   </SettingsRow>
 </SettingsSection>
 <SettingsSection label="Runtime">
-  <SettingsRow label="Binary path" description="Executable name or absolute path on this host. Leave empty to use the installed CLI.">
+  <SettingsRow label="Binary path" description="Executable name or absolute path on this host. Leave empty to use the installed CLI." managed={launch.binaryPath}>
     {#snippet control()}<Input aria-label="Provider binary path" bind:value={draft.binaryPath} placeholder={draft.provider === "codex" ? "codex" : "claude"} />{/snippet}
   </SettingsRow>
-  <SettingsRow label={draft.provider === "codex" ? "CODEX_HOME path" : "CLAUDE_CONFIG_DIR path"} description="Custom provider home and config directory on this host. Leave empty to use your seat.">
+  <SettingsRow label={draft.provider === "codex" ? "CODEX_HOME path" : "CLAUDE_CONFIG_DIR path"} description="Custom provider home and config directory on this host. Leave empty to use your seat." managed={launch.homePaths}>
     {#snippet control()}<Input aria-label="Provider home path" bind:value={draft.homePath} placeholder={draft.provider === "codex" ? "~/.codex" : "~/.claude"} />{/snippet}
   </SettingsRow>
   {#if draft.provider === "codex"}
-    <SettingsRow label="Shadow home path" description="Separate auth.json while sharing configuration, sessions, and skills from CODEX_HOME.">
+    <SettingsRow label="Shadow home path" description="Separate auth.json while sharing configuration, sessions, and skills from CODEX_HOME." managed={launch.homePaths}>
       {#snippet control()}<Input aria-label="Codex shadow home path" bind:value={draft.shadowHomePath} placeholder="~/.codex-solus/work" />{/snippet}
     </SettingsRow>
   {:else}
@@ -66,7 +61,7 @@
       {#snippet control()}<Input type="number" aria-label="Claude auto-compaction token threshold" min={100000} max={1000000} value={draft.autoCompactWindow ?? ""} onchange={(event) => (draft.autoCompactWindow = event.currentTarget.value ? Number(event.currentTarget.value) : null)} />{/snippet}
     </SettingsRow>
   {/if}
-  <SettingsRow label="Launch arguments" description="One literal CLI argument per row. Arguments are passed directly, without a shell.">
+  <SettingsRow label="Launch arguments" description="One literal CLI argument per row. Arguments are passed directly, without a shell." managed={launch.launchArgs}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={() => draft.launchArgs.push("")}>Add argument</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-2">
@@ -78,12 +73,12 @@
   </SettingsRow>
 </SettingsSection>
 <SettingsSection label="Environment">
-  <SettingsRow label="Variables" description="Private CLI settings, API keys, and base URLs. Saved sensitive values are never returned to clients.">
+  <SettingsRow label="Variables" description="Private CLI settings, API keys, and base URLs. Saved sensitive values are never returned to clients." managed={launch.environment}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={addVariable}>Add variable</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-3">
         {#each draft.environment as variable, index (index)}
-          <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-2" inert={launch.pinnedVariables.includes(variable.name)}>
             <Input class="w-44" aria-label="Environment variable name {index + 1}" bind:value={variable.name} placeholder="VARIABLE_NAME" />
             <Input class="min-w-0 flex-1" type={variable.sensitive ? "password" : "text"} aria-label="Environment variable value {index + 1}" value={variable.value} oninput={(event) => { variable.value = event.currentTarget.value; variable.configured = false; }} placeholder={variable.configured ? "Saved value — leave empty to keep" : "Value"} autocomplete="off" />
             <label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={variable.sensitive} onchange={(event) => { variable.sensitive = event.currentTarget.checked; if (!variable.sensitive) variable.configured = false; }} />Sensitive</label>
@@ -108,4 +103,4 @@
   {/if}
 </div>
 {/if}
-<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Provider model default" description="Your personal default for this provider across projects and hosts. Changes save at once." />
+<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />

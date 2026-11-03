@@ -1,3 +1,4 @@
+import { hostPolicies } from '../host/policy/host-policy-store'
 import { normalizeDisplayName, type AccessTokenClaims, type HandshakeCredential, type HostKind } from '@solus/contracts/uplink'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
 import type { TokenVerdict } from './access-tokens'
@@ -115,6 +116,8 @@ export async function guestPrincipalFor(
 
 /** A device paired on the local network: the local owner, until the owner revokes it. */
 export function pairedPrincipalFor(sessionToken: string): Admission {
+  // A policy without remote access signs out every paired device (plans/030 §6.7).
+  if (hostPolicies().hostSetting('remoteAccess')?.value === false) return { ok: false, reason: 'pairing-refused' }
   const paired = verifySessionToken(sessionToken)
   if (!paired) return { ok: false, reason: 'pairing-refused' }
   return { ok: true, principal: { kind: 'owner', via: 'local', deviceId: paired.deviceId, deviceLabel: paired.deviceLabel, expiresAt: null } }

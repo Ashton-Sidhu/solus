@@ -22,21 +22,20 @@ const SLUG_MAX_LENGTH = 40
 const integrationRowSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
-  owner_key: z.string(),
+  created_by: z.string(),
   kind: integrationKindSchema,
   slug: z.string(),
   name: z.string(),
   url: z.string(),
   auth: z.string(),
   disabled_tools: z.string(),
-  created_by: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 })
 
 type IntegrationRow = z.infer<typeof integrationRowSchema>
 
-const INTEGRATION_COLUMNS = sql.raw('id, organization_id, owner_key, kind, slug, name, url, auth, disabled_tools, created_by, created_at, updated_at')
+const INTEGRATION_COLUMNS = sql.raw('id, organization_id, created_by, kind, slug, name, url, auth, disabled_tools, created_at, updated_at')
 
 const dialect = new SQLiteSyncDialect()
 
@@ -59,14 +58,13 @@ function integrationFromRow(row: IntegrationRow): Integration {
   return {
     id: row.id,
     organizationId: row.organization_id,
-    ownerKey: row.owner_key,
+    ownerKey: row.created_by,
     kind: row.kind,
     slug: row.slug,
     name: row.name,
     url: row.url,
     auth: integrationAuthSchema.parse(JSON.parse(row.auth)),
     disabledTools: z.array(z.string()).parse(JSON.parse(row.disabled_tools)),
-    createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -95,7 +93,7 @@ function run(query: SQL): number {
 
 /** One person's records. The host's own work and a runner (null) own none. */
 function ownerClause(ownerKey: string | null): SQL {
-  return ownerKey === null ? sql`1 = 0` : sql`owner_key = ${ownerKey}`
+  return ownerKey === null ? sql`1 = 0` : sql`created_by = ${ownerKey}`
 }
 
 /** `base`, else `base-2`, `base-3`, … within the slug length. */
@@ -134,7 +132,7 @@ export class IntegrationStore {
     return row ? integrationFromRow(row) : null
   }
 
-  /** A new record of `ownerKey`, who also made it. */
+  /** A new record of `ownerKey`, who made it: `created_by`. */
   create(input: IntegrationCreateInput, organizationId: string, ownerKey: string): Integration {
     const now = new Date().toISOString()
     const id = ulid()
@@ -147,8 +145,8 @@ export class IntegrationStore {
         const taken = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE organization_id = ${organizationId} AND ${ownerClause(ownerKey)} AND slug = ${slug}`)
         if (taken) continue
         run(sql`
-          INSERT INTO integration (id, organization_id, owner_key, kind, slug, name, url, auth, created_by, created_at, updated_at)
-          VALUES (${id}, ${organizationId}, ${ownerKey}, ${kind}, ${slug}, ${input.name}, ${input.url}, ${auth}, ${ownerKey}, ${now}, ${now})
+          INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, created_at, updated_at)
+          VALUES (${id}, ${organizationId}, ${ownerKey}, ${kind}, ${slug}, ${input.name}, ${input.url}, ${auth}, ${now}, ${now})
         `)
         return
       }

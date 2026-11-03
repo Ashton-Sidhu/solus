@@ -57,6 +57,10 @@ const PERMISSION_OF_METHOD = {
   hostsListWslDistros: 'host.local.reach',
   hostsAddWsl: 'host.local.reach',
   hostsRemoveForwarded: 'host.local.reach',
+  // The owner's own list; the handler also refuses anyone but the host owner.
+  hostListRead: 'host.admin',
+  hostListPut: 'host.admin',
+  hostListRemove: 'host.admin',
   hostsLinkForwarded: 'host.local.reach',
   uplinkRegister: 'host.local.reach',
   uplinkLink: 'host.local.reach',
@@ -204,7 +208,7 @@ const PERMISSION_OF_METHOD = {
   projectConfigSave: HOST_USE, listProjectIdentities: HOST_USE, resolveDispatchHistoryRoots: HOST_USE,
   untrackProject: HOST_USE, skillsSearch: HOST_USE, skillsInstall: HOST_USE, skillsList: HOST_USE,
   skillsRemove: HOST_USE, connectionsListEndpoints: HOST_USE, connectionsListSessions: HOST_USE,
-  uplinkStatus: HOST_USE, hostOrganizations: HOST_USE, workUpload: HOST_USE, taskUpload: HOST_USE,
+  uplinkStatus: HOST_USE, hostOrganizations: HOST_USE, hostPolicy: HOST_USE, workUpload: HOST_USE, taskUpload: HOST_USE,
   shareLinkOrigin: HOST_USE, providerInstanceStatus: HOST_USE, providerInstanceSignIn: HOST_USE, providerInstanceSubmitCode: HOST_USE, providerInstanceCancelSignIn: HOST_USE, providerInstanceSignOut: HOST_USE, providerInstancesGet: HOST_USE, providerInstancesWrite: HOST_USE, seatList: HOST_USE, seatConnectStart: HOST_USE, seatConnectSubmitCode: HOST_USE,
   seatConnectCancel: HOST_USE, seatConnectToken: HOST_USE, seatDisconnect: HOST_USE, agentAuthStart: HOST_USE,
   agentAuthSubmit: HOST_USE, agentAuthCancel: HOST_USE, agentAuthSignOut: HOST_USE, integrationCatalogList: HOST_USE,
@@ -407,7 +411,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   tasksRecordActivity: 'read', tasksComment: 'edit', tasksDeleteComment: 'edit', tasksPublishComments: 'edit', tasksPublish: 'edit',
   tasksSyncNow: 'edit', tasksLink: 'edit', tasksUnlink: 'edit', tasksAttachArtifact: 'edit',
   // Owner only: transfer, and taking the record off its host (docs/plans/cloud-sharing.md)
-  shareTransfer: 'own', workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
+  workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
   // Automations (access-model.md §4 D4): the owner, or an administrator as an editor, reads,
   // changes, runs, and deletes one. Listing and creating are host-wide; a list is filtered.
   automationRead: 'read', automationListRuns: 'read', automationReadRun: 'read',

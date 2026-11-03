@@ -4,8 +4,10 @@ import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
 import type { ShareDialogLog } from '@solus/contracts/sharing'
-import type { AccountSettingsPatchRequest, OrganizationSettingsPatchRequest } from '@solus/contracts/settings'
+import type { AccountSettingsPatchRequest } from '@solus/contracts/settings'
+import type { HostPolicyAssignRequest, HostPolicyCreateRequest, PolicyWriteRequest } from '@solus/contracts/policy-api'
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
+import type { AccountHostListPatchRequest } from '@solus/contracts/host-list'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
@@ -106,13 +108,23 @@ const nativeApi: NativeSolusAPI = {
   accountAgentProfileGet: () => ipcRenderer.invoke('solus:account-agent-profile-get'),
   accountAgentProfilePatch: (request: AccountAgentProfilePatchRequest) => ipcRenderer.invoke('solus:account-agent-profile-patch', request),
   accountAgentProfileDelete: () => ipcRenderer.invoke('solus:account-agent-profile-delete'),
+  accountHostListGet: () => ipcRenderer.invoke('solus:account-host-list-get'),
+  accountHostListPatch: (request: AccountHostListPatchRequest) => ipcRenderer.invoke('solus:account-host-list-patch', request),
+  accountHostListDelete: () => ipcRenderer.invoke('solus:account-host-list-delete'),
   accountVault: () => ipcRenderer.invoke('solus:account-vault'),
   accountVaultConnect: (request: VaultConnectRequest) => ipcRenderer.invoke('solus:account-vault-connect', request),
   accountVaultSaveKey: (request: VaultSaveKeyRequest) => ipcRenderer.invoke('solus:account-vault-save-key', request),
   accountVaultDisconnect: (request: VaultDisconnectRequest) => ipcRenderer.invoke('solus:account-vault-disconnect', request),
-  organizationSettingsGet: (organizationId: string) => ipcRenderer.invoke('solus:organization-settings-get', organizationId),
-  organizationSettingsPatch: (organizationId: string, request: OrganizationSettingsPatchRequest) =>
-    ipcRenderer.invoke('solus:organization-settings-patch', organizationId, request),
+  organizationPolicyGet: (organizationId: string) => ipcRenderer.invoke('solus:organization-policy-get', organizationId),
+  organizationPolicyPut: (organizationId: string, request: PolicyWriteRequest) => ipcRenderer.invoke('solus:organization-policy-put', organizationId, request),
+  hostPoliciesGet: (organizationId: string) => ipcRenderer.invoke('solus:host-policies-get', organizationId),
+  hostPolicyCreate: (organizationId: string, request: HostPolicyCreateRequest) => ipcRenderer.invoke('solus:host-policy-create', organizationId, request),
+  hostPolicyPut: (organizationId: string, policyId: string, request: PolicyWriteRequest) =>
+    ipcRenderer.invoke('solus:host-policy-put', organizationId, policyId, request),
+  hostPolicyDelete: (organizationId: string, policyId: string) => ipcRenderer.invoke('solus:host-policy-delete', organizationId, policyId),
+  hostPolicyAssign: (organizationId: string, hostId: string, request: HostPolicyAssignRequest) =>
+    ipcRenderer.invoke('solus:host-policy-assign', organizationId, hostId, request),
+  hostPolicyUnassign: (organizationId: string, hostId: string) => ipcRenderer.invoke('solus:host-policy-unassign', organizationId, hostId),
   uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
   uplinkOrganizationDirectory: (organizationId: string) => ipcRenderer.invoke('solus:uplink-organization-directory', organizationId),
   updateStatus: () => ipcRenderer.invoke('solus:update-status'),

@@ -179,8 +179,8 @@ describe('database calls per typed turn', () => {
       // reads. The turn ledger's two writes had no reader and were removed.
       expect(counted.statements.map((statement) => statement.split(' ').slice(0, 3).join(' '))).toEqual([
         'UPDATE "session_records" SET',
-        'SELECT task_id FROM',
-        'SELECT tasks.*, task_external_links.provider',
+        'SELECT resource_links.source_id AS',
+        'SELECT tasks.*, (SELECT',
         'SELECT session_id, provider,',
         'UPDATE "session_records" SET',
       ])

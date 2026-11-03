@@ -1,4 +1,5 @@
 import type { AgentDispatcher } from './agent-runner'
+import { hostPolicies } from '../../host/policy/host-policy-store'
 import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
 import { instructionsFor } from './run-input'
@@ -11,6 +12,8 @@ import type { TurnSeat } from '../seats/seat-manager'
 const DEFAULT_TIMEOUT_MS = 120_000
 
 export interface TextGenerationOptions {
+  /** The organization whose work this text is for (`local` for personal work); its policies govern the run (plans/030 §6.3). */
+  organizationId: string
   prompt: string
   cwd: string
   provider: AgentId
@@ -47,6 +50,7 @@ export class TextGenerator {
     const userInstructions = buildSystemPrompt(instructionsFor(options.executionPreferences, options.model))
     const systemPrompt = [userInstructions, options.systemPrompt].filter(Boolean).join('\n\n')
     const run = this.dispatcher.runAgent({
+      organizationId: options.organizationId,
       provider: options.provider,
       prompt: options.prompt,
       cwd: resolveHomePath(options.cwd),
@@ -54,7 +58,8 @@ export class TextGenerator {
       unattended: options.unattended,
       model: options.model,
       reasoningEffort: options.disableReasoning ? 'none' : reasoningEffort,
-      permissionMode: options.provider === 'codex' ? 'plan' : 'full-access',
+      // Under a policy ceiling the run uses the ceiling; it is unattended, so a tool that would ask is declined.
+      permissionMode: hostPolicies().forWork(options.organizationId).clampMode(options.provider === 'codex' ? 'plan' : 'full-access'),
       persistence: 'ephemeral',
       service: options.service ?? SPAN_SERVICES.textGeneration,
       additionalDirectories: options.additionalDirs,

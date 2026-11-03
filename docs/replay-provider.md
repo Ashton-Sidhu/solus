@@ -14,6 +14,8 @@ On desktop (run from source), web, and mobile:
 
 Headless, run the standalone server as `.claude/skills/run-app/SKILL.md` describes and drive the same picker with Playwright. Mobile has no extra UI: the picker lists the scenarios that the host reports.
 
+Production clients hide Replay and its scenarios, even when connected to a development host. Development clients use the host's scenario list. Mobile checks `__DEV__`; desktop and web check `import.meta.env.DEV`. This client check also applies when an existing Replay session is open. The server registration rules below still apply.
+
 ## What a replay does
 
 - A new session gets a random provider session id. A resumed session keeps its id and continues at its next turn. Each session keeps its own place in its scenario; changing the scenario starts it from its first turn.

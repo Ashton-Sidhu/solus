@@ -79,7 +79,7 @@ T3 Code source, docs, and issues on 2026-09-25.
 | Agents cannot use the Tools drawer controls | `device.action` is RPC-only | One typed action surface for user and agent (§7.2) |
 | Granting agent access needs a session restart | `docs/user/devices.md`: "Restart an existing agent session after granting access" | Tools are selected each run; the shim is always on `PATH` and checks access when it runs (§6) |
 | The shim ran the wrong binary and damaged live sessions | Issue #12926, open fix #13093 | The shim runs the host's Node by absolute path, never `process.execPath` (§6) |
-| Linux works only as far as "watch and tap": the Mac is reached over SSH, and builds, app delivery, and Metro are left to the user | `DeviceHostSummary.kind` is `local \| ssh`; #10856: "EAS, app delivery, and Metro forwarding are outside this milestone" | A device host link with worktree sync, remote build, and port forwarding; managed Macs so the user needs none (§5.5) |
+| Linux works only as far as "watch and tap": the Mac is reached over SSH, and builds, app delivery, and Metro are left to the user | `DeviceHostSummary.kind` is `local \| ssh`; #10856: "App delivery and Metro forwarding are outside this milestone" | A device host link with worktree sync, remote build, and port forwarding; managed Macs so the user needs none (§5.5) |
 | No physical iOS devices | Physical Android is an open PR (#12765); nothing for iOS | Phase 4 (§11) |
 | No signing or TestFlight | Nothing in the repo | Out of scope (§12) |
 

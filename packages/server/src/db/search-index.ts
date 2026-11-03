@@ -52,7 +52,7 @@ export interface SessionMatchQuery {
   metadata?: ReadonlyMap<string, string>
   /** Match names and branches only; read no message. */
   namesOnly: boolean
-  /** Which records the caller may read, over `session_records` (scope, visibility, filters). */
+  /** Which records the caller may read, over `session` (scope, visibility, filters). */
   records: SQL
   limit: number
   offset: number

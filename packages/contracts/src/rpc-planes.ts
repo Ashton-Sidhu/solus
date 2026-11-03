@@ -202,6 +202,9 @@ export const RPC_PLANES = {
   hostsListWslDistros: 'collaboration',
   hostsAddWsl: 'collaboration',
   hostsRemoveForwarded: 'collaboration',
+  hostListRead: 'collaboration',
+  hostListPut: 'collaboration',
+  hostListRemove: 'collaboration',
   hostsLinkForwarded: 'collaboration',
   connectionsRevokeDevice: 'collaboration',
   connectionsGetServerInfo: 'collaboration',
@@ -228,6 +231,7 @@ export const RPC_PLANES = {
   // Organization scope: a machine's standing is an execution-host fact;
   // an organization's Insights are read where they are stored, on the Solus API.
   hostOrganizations: 'execution',
+  hostPolicy: 'execution',
   hostSetInsightsOptIn: 'execution',
   // Cloud sharing: the host gives and removes the Local work; the Solus API stores the upload.
   workExportForCloud: 'execution',
@@ -241,7 +245,6 @@ export const RPC_PLANES = {
   shareGet: 'collaboration',
   shareSet: 'collaboration',
   shareSetLink: 'collaboration',
-  shareTransfer: 'collaboration',
   shareLinkOrigin: 'collaboration',
 
   // Provider seats belong only to the execution host

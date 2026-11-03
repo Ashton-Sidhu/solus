@@ -202,6 +202,7 @@
         "@shikijs/themes": "4.2.0",
         "@solus/client-core": "workspace:*",
         "@solus/contracts": "workspace:*",
+        "@solus/document-model": "workspace:*",
         "@t3tools/mobile-review-diff-native": "file:./modules/t3-review-diff",
         "@tabler/icons-react-native": "^3.44.0",
         "clsx": "^2.1.1",

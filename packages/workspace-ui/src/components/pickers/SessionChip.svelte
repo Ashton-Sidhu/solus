@@ -1,6 +1,7 @@
 <script lang="ts">
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { agentForProject } from "@solus/contracts/provider-instance-models";
+  import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import { tick, untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
@@ -17,6 +18,8 @@
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
   import { getSettingsContext, getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
+  import { workPolicy } from "../../contexts/policy/work-policy.svelte";
+  import { modelPolicyDenial, withProviderPolicy } from "./lib/policy-locks";
   import {
     REASONING_EFFORT_LABELS,
     isLegacyModel,
@@ -123,8 +126,12 @@
 
   const activeAgent = $derived(selection?.provider ?? ctx.activeAgent);
 
+  // The work's policy on its host: the session's record organization, else the window's (plans/030 §7).
+  const policyHostId = $derived(serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined));
+  const policy = $derived(policyHostId ? workPolicy(policyHostId, sess?.organizationId) : null);
+
   const metadata = $derived.by(() => {
-    const hostId = serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined);
+    const hostId = policyHostId;
     const hostAgents = agents ?? (hostId ? hosts.get(hostId).machineInfo?.agents : undefined);
     if (!hostAgents) return agentContext.metadata;
     const entries = hostAgents.map((agent) => [agent.id, agentForProject(agent, modelOnly ? undefined : checkoutGit(sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined))?.repoRoot ?? ctx.workingDirectory)] as const);
@@ -135,7 +142,7 @@
     metadata[activeAgent] ?? (detached ? null : agentContext.activeMetadata),
   );
   const models = $derived(
-    modelOnly && modelMeta?.available === false
+    !isModelPickerAgentVisible(activeAgent, Boolean(import.meta.env.DEV)) || (modelOnly && modelMeta?.available === false)
       ? []
       : detached
         ? modelOptionsFor(activeAgent, metadata)
@@ -143,7 +150,7 @@
   );
   // Superseded models stay selectable but sit behind a disclosure, so the column
   // reads as the generation we expect people to pick.
-  const modelSections = $derived(splitLegacyModels(activeAgent, models));
+  const modelSections = $derived(splitLegacyModels(activeAgent, models, modelMeta?.modelProfiles));
   let legacyExpanded = $state(false);
   const canRoute = $derived(!modelOnly && isPrimary && !sess?.agentSessionId && !sess?.forked);
   // A model-only picker hides the reasoning column Auto normally sits in, so its
@@ -182,7 +189,7 @@
   // flyout blank whenever a binary probe came back empty, with nothing on screen
   // to say why there was nothing to pick.
   const agentRows = $derived(
-    buildAgentAvailabilityRows(agents ?? agentContext.agents, metadata),
+    withProviderPolicy(buildAgentAvailabilityRows(agents ?? agentContext.agents, metadata, Boolean(import.meta.env.DEV)), policy),
   );
   const agentName = $derived(agentLabel(activeAgent, metadata));
 
@@ -316,7 +323,7 @@
   function selectAgent(id: AgentId) {
     // The menu stays up across the switch, so the disclosure has to follow the
     // model the new agent lands on rather than keep the old agent's answer.
-    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn));
+    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn), metadata[id]?.modelProfiles);
     if (selection && !draftId) {
       const modelId = defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn);
       selection.provider = id;
@@ -458,7 +465,7 @@
     hoveredLevel = null;
     // Open on the section holding the current choice: a session already running
     // a superseded model must not have to go looking for what it is running.
-    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId);
+    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId, modelMeta?.modelProfiles);
   }}
 >
   <DropdownMenu.Trigger {disabled} bind:ref={triggerEl}>
@@ -570,8 +577,11 @@
             <span class="min-w-0 truncate">{agentName}</span>
           </DropdownMenu.GroupHeading>
           {#each modelSections.current as model (model.id)}
+            {@const denial = modelPolicyDenial(policy, activeAgent, model.id)}
             <DropdownMenu.RadioItem
               value={model.id}
+              disabled={denial !== null}
+              title={denial ?? undefined}
               data-picker-column="model"
               data-picker-value={model.id}
               closeOnSelect={pickClosesModelPicker("model")}
@@ -589,6 +599,7 @@
               data-menu-preview={previewedModelId === model.id ? "" : undefined}
             >
               <span class="min-w-0 flex-1 truncate" title={model.label}>{model.label}</span>
+              {#if denial}<span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not allowed</span>{/if}
               <!-- The same faded check the Reasoning column shows on a previewed
                    level: both halves of the pending pair are marked the same way. -->
               {#if previewedModelId === model.id && model.id !== currentModelId}
@@ -615,8 +626,11 @@
             </DropdownMenu.Item>
             {#if legacyExpanded}
               {#each modelSections.legacy as model (model.id)}
+                {@const denial = modelPolicyDenial(policy, activeAgent, model.id)}
                 <DropdownMenu.RadioItem
                   value={model.id}
+                  disabled={denial !== null}
+                  title={denial ?? undefined}
                   data-picker-column="model"
                   data-picker-value={model.id}
                   closeOnSelect={pickClosesModelPicker("model")}
@@ -632,6 +646,7 @@
                   data-menu-preview={previewedModelId === model.id ? "" : undefined}
                 >
                   <span class="min-w-0 flex-1 truncate" title={model.label}>{model.label}</span>
+                  {#if denial}<span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not allowed</span>{/if}
                   {#if previewedModelId === model.id && model.id !== currentModelId}
                     <CheckIcon size={12} class="absolute right-2 shrink-0 text-(--solus-accent) opacity-40" />
                   {/if}
@@ -740,10 +755,10 @@
                      the menu stays up so its models and levels can follow. The
                      flyout closes on its own once the pointer reaches them. -->
                 {#each agentRows as agent (agent.id)}
-                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
+                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
                     <span class="min-w-0 flex-1 truncate">{agent.label}</span>
                     {#if !agent.enabled}
-                      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not installed</span>
+                      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{agent.policyDenial ? "Not allowed" : "Not installed"}</span>
                     {/if}
                   </DropdownMenu.RadioItem>
                 {/each}
@@ -757,7 +772,7 @@
           <DropdownMenu.RadioGroup value={activeAgent}>
             <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
             {#each agentRows as agent (agent.id)}
-              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
+              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
                 <span class="min-w-0 flex-1 truncate">{agent.label}</span>
               </DropdownMenu.RadioItem>
             {/each}

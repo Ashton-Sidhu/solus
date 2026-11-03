@@ -25,6 +25,7 @@ export type SettingsTab =
   | 'account'
   | 'agent-profile'
   | 'organization'
+  | 'policy'
   | 'host'
   | 'chat'
   | 'sessions'
@@ -52,6 +53,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'account',
   'agent-profile',
   'organization',
+  'policy',
   'host',
   'chat',
   'sessions',

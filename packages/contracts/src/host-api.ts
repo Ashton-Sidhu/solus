@@ -32,7 +32,9 @@ import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './host-config'
-import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, OrganizationSettingsPatchRequest, OrganizationSettingsResponse } from './settings'
+import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences } from './settings'
+import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
+import type { PolicySet } from './policy'
 import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, SignInEnd } from './account-types'
@@ -58,10 +60,11 @@ import type {
 import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
+import type { AccountHostListPatchRequest, AccountHostListResponse, HostListing } from './host-list'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
-import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
+import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest } from './sharing'
 import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
@@ -135,6 +138,12 @@ export interface ConnectionsServerInfo {
   hostKind: HostKind
   /** The planes this host serves (cloud-service-model.md §1). A host without `execution` runs no agent: a client keeps it out of its execution targets. */
   roles: RpcPlane[]
+  /** What this host loaded (plans/030): the MDM policy's source and fingerprint, and each cloud policy's revision, so `solus policy show` can compare. */
+  policy?: {
+    mdmSource: string | null
+    mdmFingerprint: string | null
+    cloud: Array<{ organizationId: string; kind: 'organization' | 'host'; revision: number | null }>
+  }
   /** How this client was admitted; only a `local-owner` may change how the host is reached. */
   principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
   /** The user key of the caller: the account behind a grant-admitted client, or the host's user on a local connection (plans/012 §1). */
@@ -375,6 +384,12 @@ export interface SolusAPI {
   hostsRemoveForwarded(args: { installationId: string; stopRemote: boolean }): Promise<{ removed: boolean }>
   /** Links a forwarded host to the account over the same SSH target; its forward stays as a route (D9). */
   hostsLinkForwarded(args: { installationId: string; link: SshAddLink }): Promise<{ linked: true }>
+  /** The hosts the owner connected to themselves, as this host keeps them while they are signed out (plans/031 D7). Owner only. */
+  hostListRead(): Promise<HostListing[]>
+  /** Adds a host to the list, or replaces the listing with the same id. */
+  hostListPut(listing: HostListing): Promise<void>
+  /** Removes a host from the list. */
+  hostListRemove(id: string): Promise<void>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsSetTrustLocalNetwork(args: { trustLocalNetwork: boolean }): Promise<{ trustLocalNetwork: boolean }>
@@ -417,6 +432,8 @@ export interface SolusAPI {
   uplinkStatus(): Promise<UplinkStatus>
   /** Organization scope (docs/plans/organization-scope.md §3.1, §6.1, §7). */
   hostOrganizations(): Promise<HostOrganizationsStatus>
+  /** The policies that govern work on this host (plans/030), as a summary: no launch pins and no update feed. */
+  hostPolicy(): Promise<PolicySet>
   /** Host administrator only: opt this machine's work for one organization into its Insights while that organization's policy is off. */
   hostSetInsightsOptIn(organizationId: string, enabled: boolean): Promise<HostOrganizationsStatus>
   /** A Local work, whole, for its upload into an organization (docs/plans/cloud-sharing.md §3). */
@@ -436,7 +453,6 @@ export interface SolusAPI {
   shareSet(request: ShareSetRequest): Promise<ShareList>
   /** The link as it now stands, with its secret, to the owner and editors: a new secret when it was minted or regenerated, the same secret on a role change; null when the link is off. */
   shareSetLink(request: ShareSetLinkRequest): Promise<ShareLink | null>
-  shareTransfer(request: ShareTransferRequest): Promise<ShareList>
   /** The origin a resource's guest link names (docs/plans/host-sharing.md §2): the account origin for a mirrored session, else this host's tunnel when online, else its first direct address; null when nobody off this machine can reach it. */
   shareLinkOrigin(resource: ShareResource): Promise<{ origin: string | null }>
   /** Provider seats (Step 2 plan §3.2): the caller's own Claude and Codex logins on this host. */
@@ -1118,7 +1134,7 @@ export interface SolusAPI {
   /** Settings and foreground app as read from the device. */
   deviceDetail(target: DeviceTarget): Promise<DeviceDetail>
   deviceConfigure(request: DeviceConfigureRequest): Promise<DeviceState>
-  /** Add or replace one SSH, EAS, or Simlock device source on this Solus host. */
+  /** Add or replace one SSH or Simlock device source on this Solus host. */
   deviceHostSave(config: DeviceHostConfig): Promise<DeviceState>
   deviceHostRemove(deviceHostId: string): Promise<DeviceState>
   /** Read-only source check: SSH tools, Expo account, or Simlock identity. Starts no devices. */
@@ -1203,6 +1219,13 @@ export type AccountAgentProfileResult =
   | { kind: 'conflict'; reason: 'profile_conflict' | 'profile_generation_changed'; current: AccountAgentProfileResponse }
   | SettingsRequestFailure
 
+/** The account host list (plans/031 D7), the same way. */
+export type AccountHostListResult =
+  | { kind: 'ok'; hosts: AccountHostListResponse }
+  /** 409: a stale revision, or a cleared generation. `current` is the stored document. */
+  | { kind: 'conflict'; reason: 'host_list_conflict' | 'host_list_generation_changed'; current: AccountHostListResponse }
+  | SettingsRequestFailure
+
 /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, read and started from a client. */
 export type AccountVaultResult =
   | { kind: 'ok'; connections: VaultConnection[] }
@@ -1213,10 +1236,13 @@ export type AccountVaultConnectResult =
   | { kind: 'refused'; message: string }
   | SettingsRequestFailure
 
-export type OrganizationSettingsResult =
-  | { kind: 'ok'; settings: OrganizationSettingsResponse }
-  /** 409: another owner saved first. `current` is what they saved. */
-  | { kind: 'conflict'; current: OrganizationSettingsResponse }
+/** An answer of the policy API (plans/030 §5.2). */
+export type PolicyApiResult<Value> =
+  | { kind: 'ok'; value: Value }
+  /** 409: another owner saved first. */
+  | { kind: 'conflict'; revision: number; document: unknown }
+  /** 422: the validator refused the document, or another organization owns the host's `host` section. */
+  | { kind: 'rejected'; reason: 'policy_invalid' | 'host_owned_by_other_organization'; issues: string[] }
   /** 403 or 404: not a member, not an owner for a write, or the organization is gone. */
   | { kind: 'forbidden' }
   | SettingsRequestFailure
@@ -1300,13 +1326,23 @@ export interface NativeSolusAPI {
   accountAgentProfileGet(): Promise<AccountAgentProfileResult>
   accountAgentProfilePatch(request: AccountAgentProfilePatchRequest): Promise<AccountAgentProfileResult>
   accountAgentProfileDelete(): Promise<AccountAgentProfileResult>
+  accountHostListGet(): Promise<AccountHostListResult>
+  accountHostListPatch(request: AccountHostListPatchRequest): Promise<AccountHostListResult>
+  accountHostListDelete(): Promise<AccountHostListResult>
   /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, start a sign-in, paste a key, disconnect. */
   accountVault(): Promise<AccountVaultResult>
   accountVaultConnect(request: VaultConnectRequest): Promise<AccountVaultConnectResult>
   accountVaultSaveKey(request: VaultSaveKeyRequest): Promise<AccountVaultResult>
   accountVaultDisconnect(request: VaultDisconnectRequest): Promise<AccountVaultResult>
-  organizationSettingsGet(organizationId: string): Promise<OrganizationSettingsResult>
-  organizationSettingsPatch(organizationId: string, request: OrganizationSettingsPatchRequest): Promise<OrganizationSettingsResult>
+  /** The organization's policy and its host policies (plans/030 §5.2), on behalf of the signed-in account. */
+  organizationPolicyGet(organizationId: string): Promise<PolicyApiResult<OrganizationPolicyResponse>>
+  organizationPolicyPut(organizationId: string, request: PolicyWriteRequest): Promise<PolicyApiResult<OrganizationPolicyResponse>>
+  hostPoliciesGet(organizationId: string): Promise<PolicyApiResult<HostPoliciesResponse>>
+  hostPolicyCreate(organizationId: string, request: HostPolicyCreateRequest): Promise<PolicyApiResult<HostPolicySummary>>
+  hostPolicyPut(organizationId: string, policyId: string, request: PolicyWriteRequest): Promise<PolicyApiResult<HostPolicySummary>>
+  hostPolicyDelete(organizationId: string, policyId: string): Promise<PolicyApiResult<null>>
+  hostPolicyAssign(organizationId: string, hostId: string, request: HostPolicyAssignRequest): Promise<PolicyApiResult<PolicyHost>>
+  hostPolicyUnassign(organizationId: string, hostId: string): Promise<PolicyApiResult<PolicyHost>>
   /** The desktop update status. Owned by the main process, which runs the
    *  checks and holds the auto-download setting. `docs/plans/desktop-updates.md`. */
   updateStatus(): Promise<DesktopUpdateStatus>

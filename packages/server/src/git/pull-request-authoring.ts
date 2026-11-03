@@ -234,6 +234,7 @@ export async function authorPullRequest(
   if (!backend) return fallbackPullRequestDraft(context)
   let submitted: PullRequestDraft | null = null
   await writer.textGenerator.generate({
+    organizationId: backend.organizationId,
     provider: backend.provider,
     model: backend.model,
     seat: backend.seat,

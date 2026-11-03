@@ -1,7 +1,8 @@
 import type { WorkspaceInsight, WorkspaceInsightTree } from '@solus/contracts/solus-api'
 import { getMetricsDb } from './metrics-db'
 import type { SpanStatus } from './registries'
-import { announceTurnRow } from './span-table'
+import { announceTurnRow, metricsTransaction, splitSpanTexts, upsertSpanTexts } from './span-table'
+import { storeTurnMeasures } from './turn-measures'
 
 // ─── Turns pulled from other hosts (docs/plans/insights-across-hosts.md) ───
 //
@@ -9,8 +10,10 @@ import { announceTurnRow } from './span-table'
 // pulled turn lands here as its root row, with the host that ran it in
 // `host_id`, so the list, totals and SQL read it like a turn this host ran.
 // Writes never overwrite: a mirrored span does not change once it ends, and a
-// turn this host recorded keeps its own complete row. The one replace is a
-// pulled root whose full tree arrives.
+// turn this host recorded keeps its own complete row. The one update is a
+// pulled root whose full tree arrives. The texts a mirrored span carries in
+// its `attrs` (a prompt, a thought) are stored as this host stores its own:
+// as `span_texts` rows.
 
 function spanStatus(status: string): SpanStatus {
   return status === 'ok' || status === 'error' || status === 'interrupted' ? status : 'unknown'
@@ -28,24 +31,22 @@ export function writePulledTurns(organizationId: string, turns: WorkspaceInsight
     ) VALUES (?, NULL, ?, 'turn', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const written: WorkspaceInsight[] = []
-  db.exec('BEGIN IMMEDIATE')
-  try {
+  metricsTransaction(db, () => {
     for (const turn of turns) {
       const startedAt = Date.parse(turn.startedAt)
       const endedAt = turn.endedAt ? Date.parse(turn.endedAt) : startedAt + turn.durationMs
+      const stored = splitSpanTexts(turn.attrs)
       const result = insert.run(
         turn.traceId, turn.traceId, turn.name, turn.service,
         turn.sessionId, turn.provider, turn.model, turn.projectRoot, turn.origin,
         turn.userId, turn.userEmail, organizationId, turn.hostId,
-        startedAt, endedAt, turn.durationMs, spanStatus(turn.status), JSON.stringify(turn.attrs),
+        startedAt, endedAt, turn.durationMs, spanStatus(turn.status), JSON.stringify(stored.attrs),
       )
-      if (Number(result.changes) > 0) written.push(turn)
+      if (Number(result.changes) === 0) continue
+      upsertSpanTexts(db, turn.traceId, stored.texts)
+      written.push(turn)
     }
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+  })
   for (const turn of written) announceTurnRow({ traceId: turn.traceId, sessionId: turn.sessionId ?? undefined }, spanStatus(turn.status))
   return written.length
 }
@@ -73,38 +74,49 @@ export function pulledTurnAwaitingTree(traceId: string): { hostId: string; organ
   return row?.organizationId ? { hostId: row.hostId, organizationId: row.organizationId } : null
 }
 
+const PULLED_SPAN_COLUMNS = [
+  'parent_span_id', 'trace_id', 'kind', 'name', 'service',
+  'session_id', 'provider', 'model', 'project_root', 'origin',
+  'user_id', 'user_email', 'organization_id', 'host_id',
+  'started_at', 'ended_at', 'duration_ms', 'status', 'attrs',
+] as const
+
+const PULLED_SPAN_VALUES = `(?, ${PULLED_SPAN_COLUMNS.map(() => '?').join(', ')})`
+
 /**
- * Writes a pulled turn's full tree. The root replaces the trimmed row the list
- * pulled; every other span is new. The trace's events are rewritten as one set,
- * so a second fetch of the same tree does not double them.
+ * Writes a pulled turn's full tree. The root takes over the trimmed row the
+ * list pulled — an update on conflict, so the row's texts and events are not
+ * cascaded away (plans/028 E6); every other span is new. The trace's events
+ * are rewritten as one set, so a second fetch of the same tree does not double
+ * them. The root's measures are stored from the tree, as they are for a turn
+ * this host ran.
  */
 export function writePulledTree(organizationId: string, hostId: string, tree: WorkspaceInsightTree): void {
   const db = getMetricsDb()
-  const span = (replace: boolean) => db.prepare(`
-    INSERT OR ${replace ? 'REPLACE' : 'IGNORE'} INTO spans (
-      span_id, parent_span_id, trace_id, kind, name, service,
-      session_id, provider, model, project_root, origin,
-      user_id, user_email, organization_id, host_id,
-      started_at, ended_at, duration_ms, status, attrs
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  const updateRoot = db.prepare(`
+    INSERT INTO spans (span_id, ${PULLED_SPAN_COLUMNS.join(', ')}) VALUES ${PULLED_SPAN_VALUES}
+    ON CONFLICT (span_id) DO UPDATE SET
+      ${PULLED_SPAN_COLUMNS.map((column) => `${column} = excluded.${column}`).join(', ')}
   `)
-  const replaceRoot = span(true)
-  const insertChild = span(false)
+  const insertChild = db.prepare(`
+    INSERT OR IGNORE INTO spans (span_id, ${PULLED_SPAN_COLUMNS.join(', ')}) VALUES ${PULLED_SPAN_VALUES}
+  `)
   const insertEvent = db.prepare(`
     INSERT INTO log_events (trace_id, span_id, occurred_at, level, name, tag, file, attrs)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const traceIds = new Set(tree.spans.map((row) => row.traceId))
-  db.exec('BEGIN IMMEDIATE')
-  try {
+  metricsTransaction(db, () => {
     for (const row of tree.spans) {
-      const statement = row.spanId === row.traceId ? replaceRoot : insertChild
-      statement.run(
+      const isRoot = row.spanId === row.traceId
+      const stored = splitSpanTexts(row.attrs)
+      const result = (isRoot ? updateRoot : insertChild).run(
         row.spanId, row.parentSpanId, row.traceId, row.kind, row.name, row.service,
         row.sessionId, row.provider, row.model, row.projectRoot, row.origin,
         row.userId, row.userEmail, organizationId, hostId,
-        row.startedAt, row.endedAt, row.endedAt - row.startedAt, spanStatus(row.status), JSON.stringify(row.attrs),
+        row.startedAt, row.endedAt, row.endedAt - row.startedAt, spanStatus(row.status), JSON.stringify(stored.attrs),
       )
+      if (Number(result.changes) > 0) upsertSpanTexts(db, row.spanId, stored.texts)
     }
     const traceOf = new Map(tree.spans.map((row) => [row.spanId, row.traceId]))
     for (const traceId of traceIds) db.prepare('DELETE FROM log_events WHERE trace_id = ?').run(traceId)
@@ -113,9 +125,6 @@ export function writePulledTree(organizationId: string, hostId: string, tree: Wo
       if (!traceId) continue
       insertEvent.run(traceId, event.spanId, event.occurredAt, event.level, event.name, event.tag, event.file, JSON.stringify(event.attrs))
     }
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
+    for (const traceId of traceIds) storeTurnMeasures(db, traceId)
+  })
 }

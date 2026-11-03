@@ -2,6 +2,8 @@
 // thread-settings-sheet-state.ts (MIT, see UPSTREAM.md).
 import { MODEL_PROFILES, isLegacyModel, providerModelsFor, type AgentId, type AgentMetadata, type PermissionMode } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { isModelPickerAgentVisible } from '@solus/client-core/model-picker-agents'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { PERMISSION_MODE_TEXT, permissionModesFor, PROVIDERS, type AgentCapabilities } from '../conversation/lib/run-settings'
 
 /**
@@ -16,12 +18,15 @@ export interface PermissionModeChoice {
   readonly mode: PermissionMode
   readonly label: string
   readonly description: string
+  /** Why the work's policy does not allow this mode, such as "Globex limits sessions to Supervised."; null when it does. */
+  readonly policyDenial: string | null
 }
 
 /** The desktop permission picker's modes, labels, and descriptions, in its
- *  order, less the modes this agent does not offer. */
-export function permissionModeChoices(capabilities: AgentCapabilities): PermissionModeChoice[] {
-  return permissionModesFor(capabilities).map((mode) => ({ mode, ...PERMISSION_MODE_TEXT[mode] }))
+ *  order, less the modes this agent does not offer. A mode above the policy's
+ *  ceiling stays listed, disabled with the reason (plans/030 §7). */
+export function permissionModeChoices(capabilities: AgentCapabilities, policy: WorkPolicy | null = null): PermissionModeChoice[] {
+  return permissionModesFor(capabilities).map((mode) => ({ mode, ...PERMISSION_MODE_TEXT[mode], policyDenial: policy?.modeDenial(mode)?.message ?? null }))
 }
 
 export interface ModelOption {
@@ -34,6 +39,8 @@ export interface ModelOption {
   /** The model the agent starts on: one per agent, as the desktop picker's default. */
   readonly isDefault: boolean
   readonly isLegacy: boolean
+  /** Why the work's policy does not allow this model; null when it does. Auto is never refused here: it routes to an allowed model. */
+  readonly policyDenial: string | null
 }
 
 export interface ProviderGroup {
@@ -70,7 +77,7 @@ export function modelOptionKey(provider: AgentId, model: string): string {
 /** Auto as a pick: the host chooses the agent and model for the first prompt.
  *  It stays on the session's agent until then, as on desktop. */
 export function autoModelOption(provider: AgentId): ModelOption {
-  return { key: AUTO_MODEL_ID, provider, providerLabel: 'Solus', model: AUTO_MODEL_ID, label: 'Auto', isDefault: false, isLegacy: false }
+  return { key: AUTO_MODEL_ID, provider, providerLabel: 'Solus', model: AUTO_MODEL_ID, label: 'Auto', isDefault: false, isLegacy: false, policyDenial: null }
 }
 
 /**
@@ -78,16 +85,21 @@ export function autoModelOption(provider: AgentId): ModelOption {
  * agents keeps its own group only. The session's own legacy model stays listed.
  */
 export function buildProviderGroups(input: {
+  readonly isDevelopment?: boolean
   readonly currentProvider: AgentId
   readonly currentModel: string | null
   readonly canSwitchProvider: boolean
   /** The host's agents; null while it has not answered. */
   readonly agents: readonly AgentMetadata[] | null
+  /** The work's policy on its host; agents and models it does not allow are marked with the reason. */
+  readonly policy?: WorkPolicy | null
 }): ProviderGroup[] {
+  const policy = input.policy ?? null
   // An agent the host lists but the profile table does not know (the
   // development replay provider) offers the models the host reports, as on desktop.
   const hostOnly = (input.agents ?? []).filter((agent) => !PROVIDERS.some((provider) => provider.id === agent.id) && !MODEL_PROFILES[agent.id])
   return [...PROVIDERS, ...hostOnly.map((agent) => ({ id: agent.id, label: agent.label }))]
+    .filter((provider) => isModelPickerAgentVisible(provider.id, input.isDevelopment === true))
     .filter((provider) => input.canSwitchProvider || provider.id === input.currentProvider)
     .map((provider) => {
       const hostAgent = hostOnly.find((agent) => agent.id === provider.id)
@@ -98,7 +110,8 @@ export function buildProviderGroups(input: {
         providerKey: provider.id,
         modelProfiles: hostAgent?.modelProfiles,
         providerLabel: provider.label,
-        unavailableReason: agentUnavailableReason({ provider: provider.id, currentProvider: input.currentProvider, agents: input.agents }),
+        unavailableReason: policy?.providerDenial(provider.id)?.message
+          ?? agentUnavailableReason({ provider: provider.id, currentProvider: input.currentProvider, agents: input.agents }),
         models: models.map(({ id: model, label }) => ({
           key: modelOptionKey(provider.id, model),
           provider: provider.id,
@@ -106,7 +119,8 @@ export function buildProviderGroups(input: {
           model,
           label,
           isDefault: model === defaultModel,
-          isLegacy: isLegacyModel(provider.id, model) && !(provider.id === input.currentProvider && model === input.currentModel),
+          isLegacy: isLegacyModel(provider.id, model, hostAgent?.modelProfiles) && !(provider.id === input.currentProvider && model === input.currentModel),
+          policyDenial: policy?.modelDenial(provider.id, model)?.message ?? null,
         })),
       }
     })

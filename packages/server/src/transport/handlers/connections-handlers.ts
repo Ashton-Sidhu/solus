@@ -1,3 +1,4 @@
+import { enforce, hostPolicies, hostPolicyStore } from '../../host/policy/host-policy-store'
 import { accountConnectionsUrl } from '../../vault/account-reads'
 import { ownerKeyOf } from '../../admission/actor'
 import { credentialLocationOf } from '../../vault/vault'
@@ -90,14 +91,16 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
       identityKey: hostIdentity().publicKey(),
       principal: wirePrincipalKind(principal),
       permissions: permissionsFor(principal),
+      policy: loadedPolicy(),
     }
     const connectionsUrl = credentialLocationOf(ownerKeyOf(ctx.actor)).kind === 'account' ? accountConnectionsUrl() : null
     if (connectionsUrl) answer.accountConnectionsUrl = connectionsUrl
     // The one person the client is on this host: "is this me?" compares against it (plans/012 §1).
     if (ctx.actor.user) answer.user = ctx.actor.user
     if (principal.kind === 'owner') {
-      // The person at the machine is the host's user (plans/012 §1): the reader knows its key as their own.
-      answer.userId = principal.via === 'grant' ? principal.userId : hostUserKey()
+      // The person at the machine is the host's user (plans/012 §1), through every door
+      // (plans/031 D1): the reader knows its key as their own.
+      answer.userId = hostUserKey()
     }
     if (principal.kind === 'org-member') {
       answer.userId = principal.userId
@@ -149,6 +152,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   })
 
   server.register('connectionsGeneratePairToken', () => {
+    enforce(hostPolicies().capabilityDenial('remoteAccess', 'pairing devices'))
     const t = generatePairToken()
     log.info('pair_token_generated', { expiresInMinutes: 5 })
     captureServerEvent('pair_token_generated', {})
@@ -178,11 +182,13 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   server.register('hostIntroductionsList', () => deps.introducedHosts.list())
 
   server.register('hostIntroductionIssue', (args) => {
+    enforce(hostPolicies().capabilityDenial('remoteAccess', 'host introductions'))
     const [forHost] = args
     return deps.introducedHosts.issue(forHostSchema.parse(forHost))
   })
 
   server.register('hostIntroductionAccept', async (args) => {
+    enforce(hostPolicies().capabilityDenial('remoteAccess', 'host introductions'))
     const [{ introduction, grantedDeviceId }] = args
     const parsed = introductionSchema.parse(introduction)
     await deps.introducedHosts.accept(parsed, z.string().min(1).parse(grantedDeviceId))
@@ -212,3 +218,15 @@ const introductionSchema = z.object({
   deviceId: z.string().min(1),
   identityKey: hostIdentityKeySchema,
 })
+
+/** What policies this host enforces now: the MDM policy it read at start, and the cloud documents it holds. */
+function loadedPolicy(): NonNullable<ConnectionsServerInfo['policy']> {
+  const mdm = hostPolicyStore().mdm()
+  const cloud: NonNullable<ConnectionsServerInfo['policy']>['cloud'] = []
+  for (const [organizationId, entry] of Object.entries(hostPolicies().set.organizations)) {
+    if (entry.state !== 'ready') continue
+    cloud.push({ organizationId, kind: 'organization', revision: entry.policy.document.revision ?? null })
+    if (entry.hostPolicy) cloud.push({ organizationId, kind: 'host', revision: entry.hostPolicy.document.revision ?? null })
+  }
+  return { mdmSource: mdm?.source ?? null, mdmFingerprint: mdm?.fingerprint ?? null, cloud }
+}

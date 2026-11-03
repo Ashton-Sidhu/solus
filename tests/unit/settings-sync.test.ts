@@ -2,9 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   ACCOUNT_SETTINGS_PATH,
   accountSettingsPatchRequestSchema,
-  organizationSettingsPath,
   type AccountSettingsResponse,
-  type OrganizationSettingsResponse,
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import { desktopSettingsRequests } from '../../apps/desktop/src/main/account/settings-client'
@@ -15,7 +13,6 @@ import {
   type SettingsCloudRequests,
 } from '@solus/client-core/settings-requests'
 import {
-  OrganizationSettingsClient,
   SettingsSync,
   type PersonalSettingsChange,
   type SettingsSyncStatus,
@@ -206,8 +203,14 @@ function switchableRequests(initial: SettingsCloudRequests) {
     accountSettingsGet: () => current.accountSettingsGet(),
     accountSettingsPatch: (request) => current.accountSettingsPatch(request),
     accountSettingsDelete: () => current.accountSettingsDelete(),
-    organizationSettingsGet: (id) => current.organizationSettingsGet(id),
-    organizationSettingsPatch: (id, request) => current.organizationSettingsPatch(id, request),
+    organizationPolicyGet: (id) => current.organizationPolicyGet(id),
+    organizationPolicyPut: (id, request) => current.organizationPolicyPut(id, request),
+    hostPoliciesGet: (id) => current.hostPoliciesGet(id),
+    hostPolicyCreate: (id, request) => current.hostPolicyCreate(id, request),
+    hostPolicyPut: (id, policyId, request) => current.hostPolicyPut(id, policyId, request),
+    hostPolicyDelete: (id, policyId) => current.hostPolicyDelete(id, policyId),
+    hostPolicyAssign: (id, hostId, request) => current.hostPolicyAssign(id, hostId, request),
+    hostPolicyUnassign: (id, hostId) => current.hostPolicyUnassign(id, hostId),
   }
   return { requests, use: (next: SettingsCloudRequests) => { current = next } }
 }
@@ -730,7 +733,7 @@ describe('clearing synced settings', () => {
   })
 })
 
-// ─── Requests and organization settings ───
+// ─── Requests ───
 
 describe('settings requests', () => {
   test('statuses map to typed results on every adapter', async () => {
@@ -739,7 +742,7 @@ describe('settings requests', () => {
     expect(await respond('signed-out').accountSettingsGet()).toEqual({ kind: 'signed-out' })
     expect(await respond(new Response(null, { status: 401 })).accountSettingsGet()).toEqual({ kind: 'signed-out' })
     expect(await respond(Response.json({ revision: 'x' })).accountSettingsGet()).toEqual({ kind: 'error', code: 'invalid_response', message: null })
-    expect(await respond(new Response(null, { status: 403 })).organizationSettingsGet('org')).toEqual({ kind: 'forbidden' })
+    expect(await respond(new Response(null, { status: 403 })).organizationPolicyGet('org')).toEqual({ kind: 'forbidden' })
   })
 
   test('a clear that answers without a body reads the document it left', async () => {
@@ -794,36 +797,5 @@ describe('authenticated adapters', () => {
     // No token (signed out): nothing is sent.
     expect(await client.settingsRequests(async () => null, () => {}).accountSettingsGet()).toEqual({ kind: 'signed-out' })
     expect(seen.length).toBe(1)
-  })
-})
-
-describe('organization settings client', () => {
-  const organization: OrganizationSettingsResponse = {
-    organizationId: 'org',
-    name: 'Acme',
-    canManageSettings: true,
-    revision: 2,
-    settings: { syncAllInsights: true },
-  }
-
-  test('saves Sync all Insights against a revision, maps a concurrent save to a conflict, and refuses a bad request before sending', async () => {
-    const calls: Array<{ method: string; path: string; body: unknown }> = []
-    const client = new OrganizationSettingsClient(settingsCloudRequests(async (request) => {
-      calls.push({ method: request.method, path: request.path, body: request.body })
-      return Response.json({ error: 'settings_conflict', current: organization }, { status: 409 })
-    }))
-    expect(await client.save('org', 1, { syncAllInsights: false }))
-      .toEqual({ kind: 'conflict', current: organization })
-    // Only the setting carried changes; the revision read rides along.
-    expect(calls).toEqual([{ method: 'PATCH', path: organizationSettingsPath('org'), body: { expectedRevision: 1, settings: { syncAllInsights: false } } }])
-
-    const refused = await client.save('org', -1, { syncAllInsights: true })
-    expect(refused.kind).toBe('invalid')
-    expect(calls.length).toBe(1)
-  })
-
-  test('a member who is not allowed to save gets forbidden, not a silent success', async () => {
-    const client = new OrganizationSettingsClient(settingsCloudRequests(async () => new Response(null, { status: 403 })))
-    expect(await client.save('org', 2, { syncAllInsights: false })).toEqual({ kind: 'forbidden' })
   })
 })

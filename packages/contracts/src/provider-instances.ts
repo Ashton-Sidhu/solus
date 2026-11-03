@@ -27,6 +27,7 @@ export const providerInstanceSchema = z.object({
   id: providerInstanceIdSchema,
   provider: instanceProviderSchema,
   displayName: z.string().trim().min(1).max(120),
+  // No longer shown. Kept on the wire because older hosts and clients parse it strictly.
   accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
   enabled: z.boolean(),
   // Accepted for stored documents and older hosts; model defaults belong to personal settings.
@@ -40,8 +41,11 @@ export const providerInstanceSchema = z.object({
   idleCompaction: z.enum(['default', 'onReturn', 'off']),
   customModels: z.array(customProviderModelSchema).max(100),
   hiddenModels: z.array(z.string().max(200)).max(500),
+  // No longer shown or applied. Kept on the wire because older hosts and clients parse it strictly.
   favoriteModels: z.array(z.string().max(200)).max(500),
   modelOrder: z.array(z.string().max(200)).max(500),
+  /** The person's choice of picker group for a model, over the catalog's own legacy flag. */
+  modelGroups: z.record(z.string().max(200), z.enum(['current', 'legacy'])).default({}),
 }).strict().superRefine((instance, context) => {
   const models = new Set<string>()
   for (const model of instance.customModels) {
@@ -69,7 +73,7 @@ export const providerProjectOverrideSchema = z.object({
   selected: z.object({ 'claude-code': providerInstanceIdSchema.optional(), codex: providerInstanceIdSchema.optional() }).strict(),
 }).strict()
 export type ProviderProjectOverride = z.infer<typeof providerProjectOverrideSchema>
-export type ProviderInstanceChoice = Pick<ProviderInstance, 'id' | 'provider' | 'displayName' | 'enabled' | 'customModels' | 'hiddenModels' | 'favoriteModels' | 'modelOrder'> & { binaryAvailable: boolean }
+export type ProviderInstanceChoice = Pick<ProviderInstance, 'id' | 'provider' | 'displayName' | 'enabled' | 'customModels' | 'hiddenModels' | 'favoriteModels' | 'modelOrder' | 'modelGroups'> & { binaryAvailable: boolean }
 export interface ProviderInstancePreferences {
   selected: string
   instances: ProviderInstanceChoice[]
@@ -102,7 +106,7 @@ export function newProviderInstance(provider: InstanceProvider, id: string, disp
   return {
     id, provider, displayName, accentColor: null, enabled: true, defaultModel: null, binaryPath: '', homePath: '', shadowHomePath: '',
     launchArgs: [], environment: [], autoCompactWindow: null, idleCompaction: 'default',
-    customModels: [], hiddenModels: [], favoriteModels: [], modelOrder: [],
+    customModels: [], hiddenModels: [], favoriteModels: [], modelOrder: [], modelGroups: {},
   }
 }
 
