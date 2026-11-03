@@ -6,6 +6,12 @@ model. This change supports English only. Native mobile inference is outside
 this change; web and mobile clients retain their existing host transcription
 path. A standalone server does not advertise transcription.
 
+Desktop and web show a workspace notice while the transcription host downloads
+or installs its model. Download progress is visible without hovering over the
+mic. The notice does not block typing. It disappears when the model is ready;
+a failed download leaves a Retry button. This follows the same device-first
+host selection as the microphone. Native mobile UI remains outside this change.
+
 ## Recording behavior
 
 The microphone belongs to the client device. Desktop audio is transcribed by

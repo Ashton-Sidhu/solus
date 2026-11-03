@@ -1,5 +1,6 @@
 <script lang="ts">
   import EditorInputCard from "@solus/workspace-ui/components/input/EditorInputCard.svelte";
+  import VoiceModelNotice from "@solus/workspace-ui/components/input/VoiceModelNotice.svelte";
   import WorkspaceBody from "@solus/workspace-ui/components/layout/WorkspaceBody.svelte";
   import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
 
@@ -15,6 +16,7 @@
 
 <div class="web-frame">
   <div class="workspace" data-solus-ui>
+    <VoiceModelNotice />
     <WorkspaceBody
       active
       enableProjectPanel
@@ -43,6 +45,7 @@
 
   .workspace {
     display: flex;
+    flex-direction: column;
     height: 100%;
     width: 100%;
     overflow: hidden;
