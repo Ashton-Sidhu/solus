@@ -72,9 +72,10 @@ export class IntegrationConnectionStore {
     return connectionRowSchema.array().parse(rows).map(connectionFromRow)
   }
 
-  /** The person's accounts on one integration (§13.3), the first account first. */
+  /** The person's accounts on one integration (§13.3), the first account first: one primary-key range, not the person's whole list. */
   accounts(integrationId: string, personKey: string): IntegrationConnection[] {
-    return this.list(personKey).filter((connection) => connection.integrationId === integrationId)
+    const rows = getDb().prepare(`SELECT ${COLUMNS} FROM integration_connection WHERE integration_id = ? AND user_id = ? ORDER BY account_id = 'default' DESC, account_id`).all(integrationId, personKey)
+    return connectionRowSchema.array().parse(rows).map(connectionFromRow)
   }
 
   get(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): IntegrationConnection | null {

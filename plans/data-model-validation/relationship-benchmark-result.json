@@ -1,0 +1,359 @@
+{
+  "environment": {
+    "python": "3.14.5",
+    "sqlite": "3.53.1",
+    "os": "macOS-26.5.2-arm64-arm-64bit-Mach-O"
+  },
+  "read_trials": 15,
+  "write_trials": 40,
+  "assertions": 39,
+  "results": [
+    {
+      "fanout": 1,
+      "mode": "closed",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 10000,
+      "rows": 10,
+      "reads": {
+        "old": {
+          "median_ms": 0.9311,
+          "p90_ms": 0.9551
+        },
+        "join": {
+          "median_ms": 10.0633,
+          "p90_ms": 10.2607
+        },
+        "set": {
+          "median_ms": 1.2986,
+          "p90_ms": 1.3393
+        },
+        "cached": {
+          "median_ms": 0.8479,
+          "p90_ms": 0.8696
+        }
+      }
+    },
+    {
+      "fanout": 1,
+      "mode": "one_open",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 10000,
+      "rows": 11,
+      "reads": {
+        "old": {
+          "median_ms": 0.9914,
+          "p90_ms": 1.0063
+        },
+        "join": {
+          "median_ms": 9.9931,
+          "p90_ms": 10.1418
+        },
+        "set": {
+          "median_ms": 1.4462,
+          "p90_ms": 1.4647
+        },
+        "cached": {
+          "median_ms": 0.8964,
+          "p90_ms": 0.9104
+        }
+      }
+    },
+    {
+      "fanout": 1,
+      "mode": "all_unknown",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 10000,
+      "rows": 200,
+      "reads": {
+        "old": {
+          "median_ms": 0.072,
+          "p90_ms": 0.0748
+        },
+        "join": {
+          "median_ms": 0.2078,
+          "p90_ms": 0.2222
+        },
+        "set": {
+          "median_ms": 7.318,
+          "p90_ms": 7.4405
+        },
+        "cached": {
+          "median_ms": 0.0697,
+          "p90_ms": 0.0741
+        }
+      }
+    },
+    {
+      "fanout": 1,
+      "writes": {
+        "old_title": {
+          "median_ms": 0.0027,
+          "p90_ms": 0.0033
+        },
+        "new_title": {
+          "median_ms": 0.0027,
+          "p90_ms": 0.0033
+        },
+        "old_close": {
+          "median_ms": 0.0046,
+          "p90_ms": 0.0058
+        },
+        "new_close_cached": {
+          "median_ms": 0.0083,
+          "p90_ms": 0.0086
+        }
+      },
+      "changed_rows": {
+        "old_title": 1,
+        "new_title": 1,
+        "old_close": 1,
+        "new_close_cached": 2
+      }
+    },
+    {
+      "fanout": 10,
+      "mode": "closed",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 1000,
+      "rows": 10,
+      "reads": {
+        "old": {
+          "median_ms": 0.9572,
+          "p90_ms": 0.9758
+        },
+        "join": {
+          "median_ms": 7.9616,
+          "p90_ms": 8.1363
+        },
+        "set": {
+          "median_ms": 1.3314,
+          "p90_ms": 1.3787
+        },
+        "cached": {
+          "median_ms": 0.856,
+          "p90_ms": 0.898
+        }
+      }
+    },
+    {
+      "fanout": 10,
+      "mode": "one_open",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 1000,
+      "rows": 19,
+      "reads": {
+        "old": {
+          "median_ms": 1.0858,
+          "p90_ms": 1.1236
+        },
+        "join": {
+          "median_ms": 7.9877,
+          "p90_ms": 8.0833
+        },
+        "set": {
+          "median_ms": 1.4562,
+          "p90_ms": 1.4833
+        },
+        "cached": {
+          "median_ms": 1.0166,
+          "p90_ms": 1.0296
+        }
+      }
+    },
+    {
+      "fanout": 10,
+      "mode": "all_unknown",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 1000,
+      "rows": 200,
+      "reads": {
+        "old": {
+          "median_ms": 0.0755,
+          "p90_ms": 0.0787
+        },
+        "join": {
+          "median_ms": 0.2085,
+          "p90_ms": 0.2318
+        },
+        "set": {
+          "median_ms": 2.6077,
+          "p90_ms": 2.6605
+        },
+        "cached": {
+          "median_ms": 0.0732,
+          "p90_ms": 0.0765
+        }
+      }
+    },
+    {
+      "fanout": 10,
+      "writes": {
+        "old_title": {
+          "median_ms": 0.0056,
+          "p90_ms": 0.0067
+        },
+        "new_title": {
+          "median_ms": 0.0028,
+          "p90_ms": 0.0035
+        },
+        "old_close": {
+          "median_ms": 0.0123,
+          "p90_ms": 0.0141
+        },
+        "new_close_cached": {
+          "median_ms": 0.0152,
+          "p90_ms": 0.0177
+        }
+      },
+      "changed_rows": {
+        "old_title": 10,
+        "new_title": 1,
+        "old_close": 10,
+        "new_close_cached": 11
+      }
+    },
+    {
+      "fanout": 100,
+      "mode": "closed",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 100,
+      "rows": 10,
+      "reads": {
+        "old": {
+          "median_ms": 0.9281,
+          "p90_ms": 0.9376
+        },
+        "join": {
+          "median_ms": 7.5065,
+          "p90_ms": 7.6481
+        },
+        "set": {
+          "median_ms": 1.4604,
+          "p90_ms": 1.4939
+        },
+        "cached": {
+          "median_ms": 0.8444,
+          "p90_ms": 0.8618
+        }
+      }
+    },
+    {
+      "fanout": 100,
+      "mode": "one_open",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 100,
+      "rows": 110,
+      "reads": {
+        "old": {
+          "median_ms": 1.2345,
+          "p90_ms": 1.2931
+        },
+        "join": {
+          "median_ms": 3.7621,
+          "p90_ms": 3.8711
+        },
+        "set": {
+          "median_ms": 1.6507,
+          "p90_ms": 1.6837
+        },
+        "cached": {
+          "median_ms": 1.1624,
+          "p90_ms": 1.2099
+        }
+      }
+    },
+    {
+      "fanout": 100,
+      "mode": "all_unknown",
+      "sessions": 10000,
+      "links": 10000,
+      "observations": 100,
+      "rows": 110,
+      "reads": {
+        "old": {
+          "median_ms": 1.597,
+          "p90_ms": 1.6364
+        },
+        "join": {
+          "median_ms": 3.7504,
+          "p90_ms": 3.872
+        },
+        "set": {
+          "median_ms": 2.9558,
+          "p90_ms": 2.9902
+        },
+        "cached": {
+          "median_ms": 1.5019,
+          "p90_ms": 1.5344
+        }
+      }
+    },
+    {
+      "fanout": 100,
+      "writes": {
+        "old_title": {
+          "median_ms": 0.0762,
+          "p90_ms": 0.0828
+        },
+        "new_title": {
+          "median_ms": 0.0034,
+          "p90_ms": 0.004
+        },
+        "old_close": {
+          "median_ms": 0.1721,
+          "p90_ms": 0.1853
+        },
+        "new_close_cached": {
+          "median_ms": 0.1649,
+          "p90_ms": 0.173
+        }
+      },
+      "changed_rows": {
+        "old_title": 100,
+        "new_title": 1,
+        "old_close": 100,
+        "new_close_cached": 101
+      }
+    }
+  ],
+  "plans_closed_fan100": {
+    "old": [
+      "SEARCH s USING INDEX session_org (org=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH p USING INDEX old_open (session_id=?)"
+    ],
+    "join": [
+      "SEARCH s USING INDEX session_org (org=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH l USING INDEX sqlite_autoindex_resource_links_1 (org=? AND owner_kind=? AND owner_id=? AND kind=?)",
+      "SEARCH p USING INDEX sqlite_autoindex_observations_1 (org=? AND authority=? AND repo=? AND num=?) LEFT-JOIN"
+    ],
+    "set": [
+      "SEARCH s USING INDEX session_org (org=?)",
+      "LIST SUBQUERY 3",
+      "MATERIALIZE candidates",
+      "MERGE (UNION)",
+      "LEFT",
+      "SEARCH p USING INDEX observation_open (org=?)",
+      "SEARCH l USING INDEX new_pr_reverse (org=? AND authority=? AND pr_repo=? AND pr_num=?)",
+      "USE TEMP B-TREE FOR ORDER BY",
+      "RIGHT",
+      "SEARCH l USING INDEX sqlite_autoindex_resource_links_1 (org=? AND owner_kind=?)",
+      "SCAN candidates",
+      "CREATE BLOOM FILTER"
+    ],
+    "cached": [
+      "SEARCH s USING INDEX session_org (org=?)",
+      "CORRELATED SCALAR SUBQUERY 1",
+      "SEARCH l USING COVERING INDEX new_open (owner_id=? AND org=?)"
+    ]
+  }
+}

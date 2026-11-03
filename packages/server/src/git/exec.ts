@@ -20,6 +20,11 @@ const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024
  *  refreshed index, and the user's `git checkout` or `git commit` fails. Commands
  *  that must write the index take the lock regardless. A caller's env wins. */
 const GIT_DEFAULT_ENV: NodeJS.ProcessEnv = { GIT_OPTIONAL_LOCKS: '0' }
+/** Solus reads every diff as paths from the repository root. A person's
+ *  `diff.relative=true` would cut a diff run from a project in a subdirectory
+ *  down to that folder, with paths relative to it. Not `--no-relative`, which
+ *  only `diff` takes and Git before 2.28 rejects. */
+const GIT_DEFAULT_ARGS = ['-c', 'diff.relative=false'] as const
 
 export interface GitExecOptions {
   /** Extra env vars merged over the acting identity's environment. They cannot change the identity. */
@@ -37,7 +42,7 @@ export interface GitExecOptions {
 
 export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
   if (!isGitUsable()) throw new GitUnavailableError()
-  const run = launchProcess('git', withBareRepositoryGuard('git', args), { ...GIT_DEFAULT_ENV, ...opts.env })
+  const run = launchProcess('git', withBareRepositoryGuard('git', [...GIT_DEFAULT_ARGS, ...args]), { ...GIT_DEFAULT_ENV, ...opts.env })
   return meterGitCommandSync(args, () => execFileSync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
@@ -52,7 +57,7 @@ async function launched(bin: string, args: string[], opts: GitExecOptions) {
   // The acting identity's environment, with a member's author once known: a
   // partial clone can turn any git command into a fetch, so every one acts as someone.
   const launch = await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).launchOptions(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env)
-  return launchedProcess(launch, bin, withBareRepositoryGuard(bin, args))
+  return launchedProcess(launch, bin, withBareRepositoryGuard(bin, bin === 'git' ? [...GIT_DEFAULT_ARGS, ...args] : args))
 }
 
 export async function runAsync(bin: string, args: string[], cwd: string, opts: GitExecOptions = {}): Promise<string> {

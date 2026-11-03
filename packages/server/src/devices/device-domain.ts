@@ -12,7 +12,6 @@ import { DeviceManager } from './device-manager'
 import { runDeviceCommand } from './device-process'
 import { DeviceSettingsStore } from './device-settings-store'
 import { DeviceToolchain } from './device-toolchain'
-import { EasDeviceHost } from './eas-device-host'
 import { SimlockDeviceHost } from './simlock-device-host'
 import { LocalDeviceHost, processCommandLine } from './local-device-host'
 
@@ -71,9 +70,7 @@ export function initDeviceDomain(options: DeviceDomainOptions): DeviceDomain {
     localHost,
     makeSshHost: makeSshHost ? (config) => makeSshHost(config, { toolchain, stateDir: join(stateDir, 'ssh', config.id) }) : undefined,
     isLocalSshTarget: options.isLocalSshTarget,
-    makeCloudHost: (config) => config.kind === 'eas'
-      ? new EasDeviceHost(config, join(stateDir, 'eas', `${config.id}.json`))
-      : new SimlockDeviceHost(config, join(stateDir, 'simlock', config.id), toolchain, runDeviceCommand),
+    makeCloudHost: (config) => new SimlockDeviceHost(config, join(stateDir, 'simlock', config.id), toolchain, runDeviceCommand),
     publish: options.publish,
     surfaceRequested: options.surfaceRequested,
     storeImage: async (bytes) => ({ assetId: (await writeAssetBytes(bytes, 'png')).id }),

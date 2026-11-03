@@ -10,8 +10,7 @@ export function registerWorkspaceProjectHandlers(server: SolusServer): void {
   server.register('workspaceProjectList', async (_args, ctx) => listWorkspaceProjects(ctx.actor))
   server.register('workspaceProjectAdd', async (args, ctx) => {
     const [request] = args
-    const author = ctx.principal.kind === 'org-member' ? ctx.principal.userId : null
-    return addWorkspaceProject(organizationForNew(ctx.principal), request, ctx.actor, author)
+    return addWorkspaceProject(organizationForNew(ctx.principal), request, ctx.actor)
   })
   server.register('workspaceProjectUpdate', async (args, ctx) => {
     const [projectId, patch] = args

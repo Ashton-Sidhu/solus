@@ -376,7 +376,18 @@ function capturePlans(sessions: DemoFixtures['sessions'], db: Database | null): 
 
 async function captureWorks(workspace: string, db: Database | null): Promise<DemoFixtures['works']> {
   const works: DemoFixtures['works'] = []
-  const annotationRows = new Map(query(db, 'SELECT work_id, data FROM work_annotations').map((row) => [String(row.work_id), parseJson<WorkAnnotations | undefined>(row.data, undefined)]))
+  // One `comment_threads` row per thread (plans/029 §5.2), gathered back into the `WorkAnnotations` a client reads.
+  const annotationRows = new Map<string, WorkAnnotations>()
+  for (const row of query(db, "SELECT subject_id, thread_id, body, author, created_at, updated_at, review FROM comment_threads WHERE subject_kind = 'work' ORDER BY subject_id, position")) {
+    const workId = String(row.subject_id)
+    const annotations = annotationRows.get(workId) ?? { version: 1, workId, comments: [], updatedAt: 0 }
+    annotations.comments.push({
+      ...parseJson<Omit<WorkAnnotations['comments'][number], 'id' | 'comment'>>(row.review, { selectedText: '' }),
+      id: String(row.thread_id), comment: String(row.body), author: parseJson(row.author, undefined), createdAt: Number(row.created_at),
+    })
+    annotations.updatedAt = Math.max(annotations.updatedAt, Number(row.updated_at))
+    annotationRows.set(workId, annotations)
+  }
   for (const row of query(db, 'SELECT * FROM works WHERE cwd = ?', [workspace])) {
     const extra = parseJson<Partial<WorkMeta>>(row.meta, {})
     // SAFETY: `works.type` is written only from `WorkMeta['type']`.

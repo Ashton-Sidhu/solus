@@ -116,7 +116,7 @@ async function linksOf(taskId: string) {
 /** An indexed session that runs in its own worktree on `branch`. */
 async function worktreeSession(sessionId: string, branch: string, scope: string) {
   const { getDb } = await import('@solus/server/db')
-  getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch, cwd)
+  getDb().prepare(`INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch, cwd)
     VALUES (?, 'codex', 1, ?, 0, ?, ?)`).run(sessionId, Date.now(), branch, scope)
 }
 
@@ -420,7 +420,7 @@ describe('merges made outside Solus', () => {
     const { getDb } = await import('@solus/server/db')
     const { scope, host, pullRequest } = codeHost('busy-session')
     const task = await taskLinking(scope, [1])
-    getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size)
+    getDb().prepare(`INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size)
       VALUES ('pr-sync-busy', 'claude', 0, ?, 0)`).run(Date.now())
     await task.linkSession('pr-sync-busy', 'working', {})
     const busy = new Set(['pr-sync-busy'])
@@ -571,7 +571,7 @@ describe('branch discovery', () => {
     for (const [index, isolated] of [true, true, false].entries()) {
       const created = await taskStore.createTask('local', { title: 'Branch task', projectKey: scope, status: 'todo' })
       owners.push(created.id)
-      getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch)
+      getDb().prepare(`INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
         VALUES (?, 'codex', ?, ?, 0, 'feature')`).run(`pr-sync-branch-${index}`, isolated ? 1 : 0, Date.now())
       await (await tasks.Task.byId('local', created.id)).linkSession(`pr-sync-branch-${index}`, 'working', {})
     }
@@ -686,7 +686,7 @@ describe('a session with no task', () => {
     const { sql } = await import('drizzle-orm')
     const { host, pullRequest } = codeHost('solo-watch')
     await sessionPrs.linkSessionPullRequest('pr-sync-watch', { url: 'https://github.com/owner/solo-watch/pull/4', source: 'manual', by: BY })
-    await getDatabase().run(sql`UPDATE session_pull_requests SET linked_at = 1 WHERE session_id = 'pr-sync-watch'`)
+    await getDatabase().run(sql`UPDATE resource_links SET created_at = 1 WHERE source_kind = 'session' AND source_id = 'pr-sync-watch'`)
     host.known.set(4, pullRequest(4))
     let now = Date.now()
 

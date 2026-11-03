@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, ModelConfig, ReasoningEffort, RunConfig } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, ModelConfig, ModelProfile, ReasoningEffort, RunConfig } from '@solus/contracts/types'
 import { MODEL_PROFILES, PERMISSION_MODES, isLegacyModel } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
@@ -134,10 +134,11 @@ export function cycledModelId(
   models: readonly { id: string }[],
   defaultModelId: string | null,
   provider: AgentId | null = run.provider,
+  profiles?: Record<string, ModelProfile>,
 ): string | null {
   if (models.length === 0) return null
   const orderedModels = [...models].sort((a, b) =>
-    Number(isLegacyModel(provider, a.id)) - Number(isLegacyModel(provider, b.id)),
+    Number(isLegacyModel(provider, a.id, profiles)) - Number(isLegacyModel(provider, b.id, profiles)),
   )
   const current = run.modelConfig.modelId || defaultModelId || orderedModels[0].id
   const idx = orderedModels.findIndex((model) => model.id === current)

@@ -457,7 +457,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // The token is the credential: it names one device, one client, and an expiry.
   if (opts.deviceHub) {
     const deviceHub = opts.deviceHub
-    app.on(['GET', 'POST'], '/api/device-hub/:token/:route', (c) => deviceHub.serve(c.req.param('token'), c.req.param('route'), c.req.raw.signal, c.req.raw))
+    app.get('/api/device-hub/:token/:route', (c) => deviceHub.serve(c.req.param('token'), c.req.param('route'), c.req.raw.signal, c.req.raw))
   }
 
   // The token is the credential: it names one file, its size, and an expiry.

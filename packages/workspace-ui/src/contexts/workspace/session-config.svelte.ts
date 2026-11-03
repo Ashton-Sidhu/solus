@@ -1,5 +1,5 @@
 import { withProviderDefault } from '@solus/contracts/provider-model-settings'
-import type { AgentMetadata, ModelProfile, AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, RunLocation, Session, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
+import type { AgentMetadata, ModelProfile, AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, RunLocation, Session, SessionMeta, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -62,6 +62,9 @@ function nextModelConfig(
     fastMode: patch.fastMode ?? current.fastMode,
   }
 }
+
+/** What the host records about the thread a session runs on. */
+export type SessionThread = Pick<SessionMeta, 'provider' | 'model' | 'reasoningEffort'>
 
 export interface SessionConfigControllerDeps {
   settings: SettingsContext
@@ -587,6 +590,19 @@ export class SessionConfigController {
       return { modelId: AUTO_MODEL_ID, reasoningEffort: 'medium', contextWindow: null, fastMode: false }
     }
     return this.pinnedModelConfigFor(agentId, run)
+  }
+
+  /** The run a recorded session opens with: its own provider and model, never
+   *  the tab it was opened from. A model this provider does not run (a stale
+   *  record, or one from before a handoff) and Auto both fall back to the
+   *  pinned default, because a thread that exists already has its model. */
+  threadRunFor(thread: SessionThread, run?: RunConfig): Pick<RunConfig, 'provider' | 'modelConfig' | 'sessionSkills'> {
+    const { provider, model, reasoningEffort } = thread
+    const runsModel = !!model && model !== AUTO_MODEL_ID
+      && !!(this.deps.modelProfileFor?.(provider, model, run) ?? MODEL_PROFILES[provider]?.[model])
+    const modelConfig = runsModel ? this.modelConfigFor(provider, model, run) : this.pinnedModelConfigFor(provider, run)
+    if (runsModel && reasoningEffort) modelConfig.reasoningEffort = reasoningEffort
+    return { provider, modelConfig, sessionSkills: [] }
   }
 
   /** The user's per-agent choice from Settings when it still names a model this

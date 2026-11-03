@@ -42,7 +42,7 @@ async function recorded(sessionId: string, lastActivityAt: number, fields: { own
 
 let grants = 0
 async function granted(sessionId: string, subjectKind: 'user' | 'team' | 'organization', subjectId: string, grantedAt: number, expiresAt: number | null = null) {
-  await database.getDatabase().run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, granted_at, expires_at, organization_id)
+  await database.getDatabase().run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, created_by, created_at, granted_at, expires_at, organization_id)
     VALUES (${`grant-${++grants}`}, 'session', ${sessionId}, ${subjectKind}, ${subjectId}, 'viewer', ${BOB}, ${grantedAt}, ${grantedAt}, ${expiresAt}, 'local')`)
 }
 

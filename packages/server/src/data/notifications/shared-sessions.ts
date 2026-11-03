@@ -8,7 +8,7 @@ import { LOCAL_ORGANIZATION_ID, recordScopeOf } from '../../admission/principal'
 import { isApiMode } from '../../host/api-mode'
 import { aclEntry } from '../../sharing/schema'
 import { scopeClause } from '../scope'
-import { sessionRecords } from '../sessions/schema'
+import { session } from '../sessions/schema'
 import { userOfStoredKey } from '../stored-attribution'
 import { recordNotification, type NotificationReader } from './store'
 
@@ -18,7 +18,7 @@ const grantRowSchema = z.object({
   subject_kind: z.enum(['user', 'team']),
   subject_id: z.string(),
   role: shareRoleSchema,
-  granted_by_user_id: z.string(),
+  created_by: z.string(),
   granted_by_name: z.string().nullable(),
   granted_at: z.coerce.number(),
   session_id: z.string(),
@@ -51,13 +51,13 @@ export async function recordSharedSessions(reader: NotificationReader, now = Dat
   if (teamIds.length) subjects.push(sql`(acl.subject_kind = 'team' AND acl.subject_id IN (${sql.join(teamIds.map((teamId) => sql`${teamId}`), sql`, `)}))`)
   const db = getDatabase()
   const grants = grantRowSchema.array().parse(await db.all(sql`
-    SELECT acl.id, acl.organization_id, acl.subject_kind, acl.subject_id, acl.role, acl.granted_by_user_id, acl.granted_by_name,
+    SELECT acl.id, acl.organization_id, acl.subject_kind, acl.subject_id, acl.role, acl.created_by, acl.granted_by_name,
       COALESCE(acl.granted_at, acl.created_at) AS granted_at, s.session_id, s.title, s.custom_title
     FROM ${aclEntry} AS acl
-    JOIN ${sessionRecords} AS s ON s.session_id = acl.resource_id AND s.organization_id = acl.organization_id
+    JOIN ${session} AS s ON s.session_id = acl.resource_id AND s.organization_id = acl.organization_id
     WHERE acl.resource_kind = 'session' AND (${sql.join(subjects, sql` OR `)})
       AND ${scopeClause(recordScopeOf(principal), sql`acl.organization_id`)}
-      AND s.owner_key <> ${personKey}
+      AND s.created_by <> ${personKey} AND s.started_at IS NOT NULL
       ${isApiMode() ? sql`` : sql`AND NOT (s.organization_id <> ${LOCAL_ORGANIZATION_ID} AND s.publication = 'published')`}
       AND COALESCE(acl.granted_at, acl.created_at) >= ${now - SESSION_LIST_IDLE_MS}
       AND (acl.expires_at IS NULL OR acl.expires_at > ${now})
@@ -71,7 +71,7 @@ export async function recordSharedSessions(reader: NotificationReader, now = Dat
         recipients: [personKey],
         facts: grant.subject_kind === 'team' ? { kind: 'session.shared', role: grant.role, teamId: grant.subject_id } : { kind: 'session.shared', role: grant.role },
         resource: { kind: 'session', sessionId: grant.session_id },
-        by: { kind: 'user', user: userOfStoredKey(grant.granted_by_user_id, grant.granted_by_name ?? 'Someone') },
+        by: { kind: 'user', user: userOfStoredKey(grant.created_by, grant.granted_by_name ?? 'Someone') },
         summary: { title: (grant.custom_title ?? grant.title ?? 'A session').slice(0, 300) },
         createdAt: grant.granted_at,
       })

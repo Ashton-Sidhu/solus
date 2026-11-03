@@ -3,7 +3,9 @@ import { z } from 'zod'
 import type { HostOwnerIdentity } from '@solus/contracts/uplink'
 import { userKey } from '@solus/contracts/user'
 import type { PlanComment } from '@solus/contracts/types'
-import { moveCommentUser, readStoredComments, type StoredThread } from '../annotations/stored-comments'
+import { moveCommentUser, readStoredComments } from '../annotations/stored-comments'
+import { commentOfThread, readThreads, reviewOf, updateThread, type ThreadSubject } from '../data/comments/comment-threads'
+import { commentThreads } from '../data/comments/schema'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
 import { vault, type HostConnectionKey } from '../vault/vault'
@@ -29,29 +31,32 @@ type MoveScope = 'all' | 'local'
 
 /**
  * The resource tables whose rows have an owner (docs/plans/access-model.md §2.2),
- * with the kind their ACL entries name and their id column. One list, so a new
- * resource cannot be forgotten on link and unlink.
+ * with the kind their ACL entries name, their id column, and their owner column
+ * `created_by` (plans/029 decision 2). One list, so a new resource cannot be
+ * forgotten on link and unlink.
  */
 const OWNED_RESOURCES = [
-  { table: 'session_records', kind: 'session', id: 'session_id' },
-  { table: 'works', kind: 'work', id: 'id' },
-  { table: 'tasks', kind: 'task', id: 'id' },
-  { table: 'automations', kind: 'automation', id: 'id' },
-  { table: 'workspace_projects', kind: 'project', id: 'id' },
+  { table: 'session_records', kind: 'session', id: 'session_id', owner: 'created_by' },
+  { table: 'works', kind: 'work', id: 'id', owner: 'created_by' },
+  { table: 'tasks', kind: 'task', id: 'id', owner: 'created_by' },
+  { table: 'automations', kind: 'automation', id: 'id', owner: 'created_by' },
+  { table: 'workspace_projects', kind: 'project', id: 'id', owner: 'created_by' },
 ] as const
 
 /*
- * Not moved: `browser_profiles` and `browser_profile_defaults`. A profile's jar
+ * Not moved: `browser_profiles` (the default is a flag on its row). A profile's jar
  * is named by its person key (docs/plans/member-isolation.md §6) and the jar
  * cannot move, so a moved row would name an empty jar. After a link or an
  * unlink the host's user starts with no named profiles; the old ones come back
  * with their jars if the key returns.
  */
 
-/** Other columns that hold a person key and move as they are. */
+/** Other columns that hold a person key and move as they are. A person's
+ *  personal state follows them: the row is theirs, whatever key names them. */
 const PERSON_COLUMNS = [
-  { table: 'session_admissions', column: 'owner_key' },
-  { table: 'acl_entry', column: 'granted_by_user_id' },
+  { table: 'personal_resource_state', column: 'created_by' },
+  { table: 'acl_entry', column: 'created_by' },
+  { table: 'comment_threads', column: 'created_by' },
 ] as const
 
 /**
@@ -64,12 +69,13 @@ const PERSON_COLUMNS = [
 async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveScope): Promise<number> {
   const inScope = (column: SQL): SQL => (scope === 'local' ? sql` AND ${column} = ${LOCAL_ORGANIZATION_ID}` : sql``)
   let moved = 0
-  for (const { table, kind, id } of OWNED_RESOURCES) {
-    moved += (await db.run(sql`UPDATE ${sql.identifier(table)} SET owner_key = ${toKey} WHERE owner_key = ${fromKey}${inScope(sql`organization_id`)}`)).changes
+  for (const { table, kind, id, owner } of OWNED_RESOURCES) {
+    const ownerColumn = sql.identifier(owner)
+    moved += (await db.run(sql`UPDATE ${sql.identifier(table)} SET ${ownerColumn} = ${toKey} WHERE ${ownerColumn} = ${fromKey}${inScope(sql`organization_id`)}`)).changes
     moved += (await db.run(sql`
       DELETE FROM acl_entry
       WHERE resource_kind = ${kind} AND subject_kind = 'user' AND subject_id IN (${fromKey}, ${toKey})${inScope(sql`organization_id`)}
-        AND resource_id IN (SELECT ${sql.identifier(id)} FROM ${sql.identifier(table)} WHERE owner_key = ${toKey})
+        AND resource_id IN (SELECT ${sql.identifier(id)} FROM ${sql.identifier(table)} WHERE ${ownerColumn} = ${toKey})
     `)).changes
   }
   moved += (await db.run(sql`
@@ -88,22 +94,21 @@ async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveS
   // The person's notifications and their read state go with them (plans/015-notifications-hub.md);
   // a row the target already has for the same event wins.
   moved += (await db.run(sql`
-    DELETE FROM notifications WHERE recipient_key = ${fromKey}${inScope(sql`organization_id`)} AND EXISTS (
+    DELETE FROM notifications WHERE user_id = ${fromKey}${inScope(sql`organization_id`)} AND EXISTS (
       SELECT 1 FROM notifications AS kept WHERE kept.organization_id = notifications.organization_id
-        AND kept.recipient_key = ${toKey} AND kept.event_id = notifications.event_id
+        AND kept.user_id = ${toKey} AND kept.event_id = notifications.event_id
     )
   `)).changes
-  moved += (await db.run(sql`UPDATE notifications SET recipient_key = ${toKey} WHERE recipient_key = ${fromKey}${inScope(sql`organization_id`)}`)).changes
+  moved += (await db.run(sql`UPDATE notifications SET user_id = ${toKey} WHERE user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   // The person's MCP servers and connections (docs/plans/mcp-integrations.md §4.1). A server
   // the target already has under the same slug, or a connection they already hold, wins.
   moved += (await db.run(sql`
-    UPDATE integration SET owner_key = ${toKey} WHERE owner_key = ${fromKey}${inScope(sql`organization_id`)}
+    UPDATE integration SET created_by = ${toKey} WHERE created_by = ${fromKey}${inScope(sql`organization_id`)}
       AND NOT EXISTS (
         SELECT 1 FROM integration AS kept WHERE kept.organization_id = integration.organization_id
-          AND kept.owner_key = ${toKey} AND kept.slug = integration.slug
+          AND kept.created_by = ${toKey} AND kept.slug = integration.slug
       )
   `)).changes
-  moved += (await db.run(sql`UPDATE integration SET created_by = ${toKey} WHERE created_by = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   const connectionsInScope = scope === 'local' ? sql` AND integration_id IN (SELECT id FROM integration WHERE organization_id = ${LOCAL_ORGANIZATION_ID})` : sql``
   moved += (await db.run(sql`
     DELETE FROM integration_connection WHERE user_id = ${fromKey}${connectionsInScope} AND EXISTS (
@@ -124,33 +129,34 @@ async function connectedIntegrations(db: Db, userKey: string, scope: MoveScope):
     .map((row) => ({ integrationId: row.integration_id, accountId: row.account_id }))
 }
 
-const planCommentsRowSchema = z.object({ session_id: z.string(), plan_tool_use_id: z.string(), comments: z.string().nullable() })
-const workAnnotationsRowSchema = z.object({ work_id: z.string(), data: z.string().nullable() })
+const threadSubjectRowSchema = z.object({
+  organization_id: z.string(),
+  subject_kind: z.enum(['task', 'work', 'plan']),
+  subject_id: z.string(),
+  subject_part: z.string(),
+})
 
-/** Every stored comment thread, rewritten by `rewrite`; a row it leaves as it was is not written. */
-async function rewriteComments(db: Db, scope: MoveScope, rewrite: (threads: StoredThread[]) => PlanComment[]): Promise<number> {
+/**
+ * Every comment thread, rewritten by `rewrite` one thread at a time; a thread it
+ * leaves as it was is not written. An upstream comment names no local person and
+ * is not read.
+ */
+async function rewriteComments(db: Db, scope: MoveScope, rewrite: (threads: PlanComment[]) => PlanComment[]): Promise<number> {
   const where = scope === 'local' ? sql`WHERE organization_id = ${LOCAL_ORGANIZATION_ID}` : sql``
   let rewritten = 0
-  const plans = planCommentsRowSchema.array().parse(await db.all(sql`SELECT session_id, plan_tool_use_id, comments FROM plan_annotations ${where}`))
-  for (const row of plans) {
-    if (!row.comments) continue
-    // SAFETY: plan annotations are the sole writer of this column and store `StoredThread[]`.
-    const before = JSON.parse(row.comments) as StoredThread[]
-    const after = JSON.stringify(rewrite(before))
-    if (after === row.comments) continue
-    await db.run(sql`UPDATE plan_annotations SET comments = ${after} WHERE session_id = ${row.session_id} AND plan_tool_use_id = ${row.plan_tool_use_id}`)
-    rewritten++
-  }
-  const works = workAnnotationsRowSchema.array().parse(await db.all(sql`SELECT work_id, data FROM work_annotations ${where}`))
-  for (const row of works) {
-    if (!row.data) continue
-    // SAFETY: work annotations are the sole writer of this column and store their comments as `StoredThread[]`.
-    const annotations = JSON.parse(row.data) as { comments?: StoredThread[] }
-    if (!annotations.comments) continue
-    const after = JSON.stringify({ ...annotations, comments: rewrite(annotations.comments) })
-    if (after === row.data) continue
-    await db.run(sql`UPDATE work_annotations SET data = ${after} WHERE work_id = ${row.work_id}`)
-    rewritten++
+  const subjects = threadSubjectRowSchema.array().parse(await db.all(sql`
+    SELECT DISTINCT organization_id, subject_kind, subject_id, subject_part FROM ${commentThreads} ${where}
+  `))
+  for (const row of subjects) {
+    const subject: ThreadSubject = { organizationId: row.organization_id, kind: row.subject_kind, id: row.subject_id, part: row.subject_part }
+    for (const thread of await readThreads(db, subject)) {
+      if (thread.author.kind === 'external') continue
+      const before = commentOfThread(thread)
+      const [after] = rewrite([before])
+      if (!after || JSON.stringify(after) === JSON.stringify(before)) continue
+      await updateThread(db, subject, thread.threadId, thread.version, { author: after.author ?? thread.author, review: reviewOf(after), updatedAt: thread.updatedAt })
+      rewritten++
+    }
   }
   return rewritten
 }

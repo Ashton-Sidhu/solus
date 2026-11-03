@@ -305,9 +305,14 @@ describe.serial('the span record', () => {
     // predicate names only `started_at`. Without an index on that column it
     // scans the whole spans table — a second per boot on a 250 MB store —
     // while the first transcript page waits behind it.
-    const plan = metricsDb.getMetricsDb()
+    // Read on its own connection: the bun:sqlite stand-in leaves an EXPLAIN of
+    // a write statement in progress, which would block the next commit here.
+    metricsDb.getMetricsDb()
+    const planConnection = new DatabaseSync(metricsDb.metricsDbPath())
+    const plan = planConnection
       .prepare('EXPLAIN QUERY PLAN DELETE FROM spans WHERE started_at < ?')
       .all(0) as { detail: string }[]
+    planConnection.close()
     expect(plan.some((step) => /USING (COVERING )?INDEX spans_time/.test(step.detail))).toBe(true)
 
     spanTable.writeSpan({

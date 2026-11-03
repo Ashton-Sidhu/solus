@@ -378,6 +378,7 @@ The copy includes the tool name, status, full available input, and error head.
 Ordinary tool output is not sent to the client and is not included.
 Historical inputs load on demand; a failed load reports an error instead of
 copying an incomplete summary. Formatting runs only on click, with no new
-streaming derivations, row timers, or history prefetch.
+streaming derivations or history prefetch. The shared copy button shows a check
+for 1.5 seconds after a successful copy; its reset timer starts only on copy.
 
 On mobile, long-press a tool row to copy its full detail.

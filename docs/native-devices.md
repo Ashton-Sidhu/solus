@@ -61,39 +61,8 @@ host.
 - Solus installs the pinned tools under `~/.solus/devices` on that machine and
   forwards their ports to the Solus host's loopback.
 
-### EAS Simulator
-
-In **Settings → Devices → Cloud devices**, choose **Add EAS Simulator**.
-The source form includes copyable Expo login, project linking, project ID,
-and simulator availability commands on desktop, web, and mobile. Run them
-in the Expo app folder on the selected Solus host, including when that host
-is remote. The form links to Expo's setup guide and access-token page.
-Expo Simulators requires access for the project's account; an Expo project
-alone does not enable it.
-Check the Expo account to choose a project, or enter its UUID from the project's
-Expo settings. Add an Expo
-access token, or leave it blank to use `EXPO_TOKEN` on the Solus host, then
-that host's `eas login` session. **Check connection** checks the account and
-EAS Simulator access without starting a paid session.
-
-Set the concurrent session limit, maximum session minutes, and idle minutes.
-Idle minutes must be smaller than session minutes. Opening an EAS device starts
-a paid Expo session with those limits. Closing its last preview stops the
-session. The toolbar also has **Stop EAS session**. Changing or removing the
-source stops its owned sessions before replacing its credentials.
-
-Solus records each session's unique name before requesting it. After a restart,
-it finds and stops sessions recorded by the previous process. It never stops
-sessions from another tool. An uncertain start remains in the recovery ledger;
-a missing answer is not proof that Expo did not start billing. An unobserved
-name is retained for up to a day. Open cloud previews refresh their status every
-15 seconds so a device that Expo stops disappears from all clients.
-
-EAS streams through the Solus host. Preview and agent credentials stay there;
-clients receive only a signed stream link. WebRTC video uses the preview's ICE
-settings, with AVCC as a fallback when the preview serves it. EAS device settings
-and local build installation are unavailable because Expo does not expose host
-commands. Use the bound `agent-device` CLI for supported app operations.
+Saved sources that are no longer supported are ignored when settings load.
+Saved Simlock pools and their credentials are kept.
 
 ### Simlock pool (alpha)
 

@@ -46,16 +46,6 @@ export const sshDeviceHostConfigsSchema = z.array(sshDeviceHostConfigSchema).max
 
 /** Remote device sources. Credentials stay on the Solus host. */
 const deviceSecretSchema = z.string().trim().max(4096).regex(/^[\x21-\x7e]*$/)
-export const easDeviceHostConfigSchema = z.object({
-  ...deviceHostFields,
-  kind: z.literal('eas'),
-  /** Empty only for an unsaved account check; saving requires a project. */
-  appId: z.union([z.string().uuid(), z.literal('')]),
-  accessToken: deviceSecretSchema.default(''),
-  maxSessionMinutes: z.number().int().min(2).max(115).default(30),
-  idleMinutes: z.number().int().min(1).max(114).default(10),
-  maxConcurrentSessions: z.number().int().min(1).max(10).default(2),
-}).refine((host) => host.idleMinutes < host.maxSessionMinutes, { message: 'Idle minutes must be smaller than session minutes.' })
 export const simlockDeviceHostConfigSchema = z.object({
   ...deviceHostFields,
   kind: z.literal('simlock'),
@@ -69,9 +59,8 @@ export const simlockDeviceHostConfigSchema = z.object({
   maxLeases: z.number().int().min(1).max(20).default(2),
   maxLeaseMinutes: z.number().int().min(5).max(240).default(60),
 })
-export const cloudDeviceHostConfigSchema = z.discriminatedUnion('kind', [easDeviceHostConfigSchema, simlockDeviceHostConfigSchema])
+export const cloudDeviceHostConfigSchema = simlockDeviceHostConfigSchema
 export type CloudDeviceHostConfig = z.infer<typeof cloudDeviceHostConfigSchema>
-export type EasDeviceHostConfig = z.infer<typeof easDeviceHostConfigSchema>
 export type SimlockDeviceHostConfig = z.infer<typeof simlockDeviceHostConfigSchema>
 export const deviceHostConfigSchema = z.union([cloudDeviceHostConfigSchema, sshDeviceHostConfigSchema])
 export type DeviceHostConfig = z.infer<typeof deviceHostConfigSchema>
@@ -125,7 +114,7 @@ export interface DeviceToolVersions {
 
 export interface DeviceHostSummary {
   deviceHostId: string
-  kind: 'local' | 'ssh' | 'eas' | 'simlock'
+  kind: 'local' | 'ssh' | 'simlock'
   /** Saved configuration, with credentials replaced by DEVICE_SECRET_SAVED. */
   config?: CloudDeviceHostConfig
   label: string
@@ -281,12 +270,11 @@ export const deviceToolUpdateRequestSchema = z.object({
 export type DeviceToolUpdateRequest = z.input<typeof deviceToolUpdateRequestSchema>
 
 export interface DeviceHostTestResult {
-  apps?: { id: string; fullName: string }[]
   ok: boolean
   /** The alias resolves to this Solus host; it is skipped as a duplicate. */
   isLocal: boolean
   summary?: DeviceHostSummary
-  checks: { name: 'ssh' | 'node' | 'npm' | 'xcode' | 'android' | 'expo' | 'simlock'; ok: boolean; detail?: string }[]
+  checks: { name: 'ssh' | 'node' | 'npm' | 'xcode' | 'android' | 'simlock'; ok: boolean; detail?: string }[]
 }
 
 // ─── Control ───

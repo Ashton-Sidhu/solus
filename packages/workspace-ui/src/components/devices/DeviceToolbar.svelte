@@ -17,7 +17,7 @@
 
   interface Props {
     platform: DevicePlatform;
-    sourceKind?: "local" | "ssh" | "eas" | "simlock";
+    sourceKind?: "local" | "ssh" | "simlock";
     name: string;
     version: string;
     /** Set when other sessions show this device too. */
@@ -54,7 +54,7 @@
       { button: "appSwitcher", label: props.platform === "ios" ? "App switcher" : "Recents", icon: LayoutGrid },
     ] as const).filter((entry) => deviceSupportsButton(props.platform, entry.button)),
   );
-  const cloud = $derived(props.sourceKind === "eas" || props.sourceKind === "simlock");
+  const cloud = $derived(props.sourceKind === "simlock");
   const live = $derived(props.liveState === "live");
   const deviceLabel = $derived([props.name, props.version, props.sharedNote].filter(Boolean).join(", "));
 </script>
@@ -142,5 +142,5 @@
 
   {@render divider()}
 
-  {@render tool(props.sourceKind === "simlock" ? "Return device to the pool" : props.sourceKind === "eas" ? "Stop EAS session" : "Power off device", props.onShutdown, Power, { disabled: props.liveState === "offline" || props.liveState === "stopped" })}
+  {@render tool(props.sourceKind === "simlock" ? "Return device to the pool" : "Power off device", props.onShutdown, Power, { disabled: props.liveState === "offline" || props.liveState === "stopped" })}
 </div>

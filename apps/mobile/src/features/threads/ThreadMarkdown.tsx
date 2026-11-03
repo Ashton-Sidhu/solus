@@ -46,6 +46,9 @@ import { parseReviewCommentMessageSegments } from "@solus/contracts/review-comme
 import { openPullRequestLink } from "../prs/lib/pull-request-link";
 import { usePullRequestLinkActions } from "../prs/use-pull-request-link-actions";
 import { ReviewCommentCard } from "../review/ReviewCommentCard";
+import { resolveArtifactTitle } from "@solus/contracts/work-preview";
+import { ArtifactPage } from "./ThreadArtifact";
+import { replySegments } from "./reply-html-fences";
 
 /** A path the host resolves without the working directory: `~` is its home. */
 function isHostRootedPath(path: string): boolean {
@@ -72,6 +75,12 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   readonly imagesOnly?: boolean;
   readonly imageLabel?: string;
 }) {
+  // A reply can hold live HTML pages between its prose.
+  const htmlSegments = useMemo(
+    () => (props.tone === "assistant" && !props.imagesOnly ? replySegments(props.markdown) : []),
+    [props.markdown, props.tone, props.imagesOnly],
+  );
+  const hasHtmlBlocks = htmlSegments.some((segment) => segment.kind === "html");
   const markdown = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? imageFileChips(props.markdown) : props.markdown, [props.markdown, props.tone, props.imagesOnly]);
   // A user message can hold review cards between its prose.
   const reviewSegments = useMemo(
@@ -232,7 +241,18 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
 
   return (
     <>
-      {hasReviewComments ? (
+      {hasHtmlBlocks ? (
+        <View className="w-full gap-2">
+          {htmlSegments.map((segment) =>
+            segment.kind === "html" ? (
+              // Keyed by the page itself: the same page in another mount keeps its height.
+              <ArtifactPage key={segment.key} html={segment.html} title={resolveArtifactTitle(undefined, segment.html)} heightKey={segment.html} />
+            ) : (
+              <ThreadMarkdown key={segment.key} markdown={segment.text} tone={props.tone} store={props.store} />
+            ),
+          )}
+        </View>
+      ) : hasReviewComments ? (
         <View className="w-full gap-2">
           {reviewSegments.map((segment) =>
             segment.kind === "review-comment" ? (

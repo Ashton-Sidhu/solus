@@ -97,7 +97,7 @@ session.drive.devices         deviceOpen, deviceClose
 session.drive.apps            mcpAppToolInfo, mcpAppCallTool, mcpAppReadResource
 session.edit                  title, branch, goal, plan files, task links
 session.share                 shareSet, shareSetLink
-session.own                   shareTransfer, export
+session.own                   export
 ```
 
 Notes:

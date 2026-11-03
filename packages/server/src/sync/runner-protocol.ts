@@ -152,6 +152,8 @@ const spanWireSchema = z.object({
   endedAt: z.number(),
   status: z.string().min(1),
   attrs: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  /** The span's long texts by name (a turn's prompt, systemPrompt, response; a thought), kept out of `attrs` as the host keeps them. */
+  texts: z.record(z.string().min(1).max(64), z.string()).optional(),
 })
 const logEventWireSchema = z.object({
   eventId: z.number().int(),

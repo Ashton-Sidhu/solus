@@ -19,7 +19,8 @@ import {
 import type { Attribution } from '@solus/contracts/user'
 import { getDatabase, type Db } from '../../db/database'
 import { attributionJson, parseStoredAttribution, hostAttribution } from '../stored-attribution'
-import { webhookDeliveries, webhooks, webhookSeenKeys } from './schema'
+import { deleteWebhookReceipts } from '../receipts/operation-receipts'
+import { webhookDeliveries, webhooks } from './schema'
 
 /**
  * The webhook records and their deliveries log (docs/plans/webhooks.md §3.3, §5).
@@ -57,14 +58,14 @@ const nullableTimeSchema = z.union([z.null(), z.coerce.number()])
 const webhookRowSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
-  owner_key: z.string(),
+  created_by: z.string(),
   name: z.string(),
   enabled: flagSchema,
   project: z.string().nullable(),
   verification: z.string(),
   replay_key: z.string().nullable(),
   actions: z.string(),
-  created_by: z.string(),
+  author: z.string(),
   copied_url_hash: z.string().nullable(),
   lost_count: z.coerce.number(),
   lost_at: nullableTimeSchema,
@@ -76,14 +77,14 @@ function recordFromRow(row: z.infer<typeof webhookRowSchema>): WebhookRecord {
   return {
     id: row.id,
     organizationId: row.organization_id,
-    ownerKey: row.owner_key,
+    ownerKey: row.created_by,
     name: row.name,
     enabled: row.enabled,
     project: row.project,
     verification: webhookVerificationSchema.parse(JSON.parse(row.verification)),
     replayKey: row.replay_key,
     actions: z.array(webhookActionSchema).parse(JSON.parse(row.actions)),
-    createdBy: parseStoredAttribution(row.created_by) ?? hostAttribution(),
+    createdBy: parseStoredAttribution(row.author) ?? hostAttribution(),
     copiedUrlHash: row.copied_url_hash,
     lostCount: row.lost_count,
     lostAt: row.lost_at,
@@ -94,7 +95,7 @@ function recordFromRow(row: z.infer<typeof webhookRowSchema>): WebhookRecord {
 
 export async function insertWebhook(record: WebhookRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${webhooks} (id, organization_id, owner_key, name, enabled, project, verification, replay_key, actions, created_by, copied_url_hash, lost_count, lost_at, created_at, updated_at)
+    INSERT INTO ${webhooks} (id, organization_id, created_by, name, enabled, project, verification, replay_key, actions, author, copied_url_hash, lost_count, lost_at, created_at, updated_at)
     VALUES (
       ${record.id}, ${record.organizationId}, ${record.ownerKey}, ${record.name}, ${flag(db, record.enabled)}, ${record.project},
       ${JSON.stringify(record.verification)}, ${record.replayKey}, ${JSON.stringify(record.actions)}, ${attributionJson(record.createdBy)},
@@ -137,7 +138,7 @@ export async function listWebhooks(where: SQL = sql`1 = 1`, db: Db = getDatabase
 export async function deleteWebhook(id: string, db: Db = getDatabase()): Promise<boolean> {
   return db.transaction(async (tx) => {
     await tx.run(sql`DELETE FROM ${webhookDeliveries} WHERE webhook_id = ${id}`)
-    await tx.run(sql`DELETE FROM ${webhookSeenKeys} WHERE key LIKE ${`${id}:%`}`)
+    await deleteWebhookReceipts(tx, id)
     const result = await tx.run(sql`DELETE FROM ${webhooks} WHERE id = ${id}`)
     return result.changes > 0
   })
@@ -147,28 +148,6 @@ export async function deleteWebhook(id: string, db: Db = getDatabase()): Promise
 export async function addLostRequests(id: string, count: number, at: number, db: Db = getDatabase()): Promise<boolean> {
   const result = await db.run(sql`UPDATE ${webhooks} SET lost_count = lost_count + ${count}, lost_at = ${at} WHERE id = ${id}`)
   return result.changes > 0
-}
-
-// ─── Seen keys (plan §2.5, §3.4) ───
-
-export type SeenKeyKind = 'delivery' | 'replay'
-
-/**
- * Records a key for `ttlMs`. True when it is new; false when the same key is
- * still unexpired. An expired key is taken again.
- */
-export async function claimSeenKey(kind: SeenKeyKind, webhookId: string, key: string, ttlMs: number, now: number, db: Db = getDatabase()): Promise<boolean> {
-  const result = await db.run(sql`
-    INSERT INTO ${webhookSeenKeys} (kind, key, expires_at) VALUES (${kind}, ${`${webhookId}:${key}`}, ${now + ttlMs})
-    ON CONFLICT (kind, key) DO UPDATE SET expires_at = excluded.expires_at
-    WHERE ${webhookSeenKeys}.expires_at <= ${now}
-  `)
-  return result.changes > 0
-}
-
-/** The one sweeper of expired seen keys. */
-export async function sweepSeenKeys(now: number, db: Db = getDatabase()): Promise<number> {
-  return (await db.run(sql`DELETE FROM ${webhookSeenKeys} WHERE expires_at <= ${now}`)).changes
 }
 
 // ─── Deliveries ───
@@ -285,13 +264,17 @@ export interface DeliveryQuery {
   outcomes?: WebhookDeliveryOutcome[]
   /** Deliveries that arrived before this time: the next page. */
   before?: number
+  /** With `before`, the id of the last delivery shown: the page goes on after it in `(arrived_at, id)` order. */
+  beforeId?: string
   limit?: number
 }
 
-/** A webhook's deliveries, newest first. */
+/** A webhook's deliveries, newest first. The cursor is the list's own order, `(arrived_at, id)`, so a page never skips a delivery that arrived in the same millisecond as the last one shown. */
 export async function listDeliveries(webhookId: string, query: DeliveryQuery = {}, db: Db = getDatabase()): Promise<WebhookDeliverySummary[]> {
   const outcomes = query.outcomes?.length ? sql`AND outcome IN (${sql.join(query.outcomes.map((outcome) => sql`${outcome}`), sql`, `)})` : sql``
-  const before = query.before === undefined ? sql`` : sql`AND arrived_at < ${query.before}`
+  const before = query.before === undefined
+    ? sql``
+    : query.beforeId === undefined ? sql`AND arrived_at < ${query.before}` : sql`AND (arrived_at, id) < (${query.before}, ${query.beforeId})`
   const limit = Math.min(Math.max(query.limit ?? 50, 1), MAX_DELIVERIES_PER_WEBHOOK)
   const rows = await db.all(sql`
     SELECT ${deliverySummaryColumns} FROM ${webhookDeliveries}

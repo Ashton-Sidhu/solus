@@ -105,7 +105,7 @@ export function useWebhook(hostId: string, webhookId: string) {
     if (!oldest) return
     const page = deliveriesRequest.current
     setDeliveries({ ...state, loadingMore: true })
-    current.api.webhookListDeliveries(webhookId, { limit: DELIVERY_PAGE_SIZE, before: oldest.arrivedAt }).then(
+    current.api.webhookListDeliveries(webhookId, { limit: DELIVERY_PAGE_SIZE, before: oldest.arrivedAt, beforeId: oldest.id }).then(
       (summaries) => {
         if (page !== deliveriesRequest.current) return
         setDeliveries((latest) => latest.kind === 'loaded'

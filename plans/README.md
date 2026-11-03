@@ -1,5 +1,33 @@
 # Implementation plans
 
+## Data model — 2026-11-01
+
+**[029 Fresh database baseline](029-fresh-database-baseline.md)** is the one data
+model plan. The database is rebuilt from scratch and the existing one is wiped
+(user decision, reaffirmed: no backwards compatibility, host or cloud), so 029
+carries no migration, backfill, or compatibility step:
+one generated baseline per engine, every table a `defineTable`. It absorbs the
+first-stage consolidations (022–027), the query and storage findings (028), the
+relationship and thread models (`data-model-validation/README.md`), the cloud
+consolidations owned by the startup session, the creator-identity and
+organization-scope rules, and the eight structural principles. Section 4.2 of
+029 holds the session identity merger validation (fixture:
+`data-model-validation/session-merge-fixture.ts`).
+
+| Plan | Status |
+| --- | --- |
+| [022](022-remove-unused-saved-prompts.md) – [027](027-operation-receipts.md) | ABSORBED into 029 §3; kept as history, not executed on their own |
+| [028 Query and storage findings](028-query-and-storage-findings.md) | ABSORBED into 029 §6–§8; its tables remain the evidence record (file:line, plans, timings) |
+| [029 Fresh database baseline](029-fresh-database-baseline.md) | IMPLEMENTED on `main` (2026-11-02; not deployed; local databases must be deleted before the next start): one `0000_baseline.sql` per database, 74 → 60 tables in `solus.db` plus 3 in `metrics.db`; PostgreSQL concurrency gates and the live runtime not exercised |
+
+Validation record: `data-model-validation/README.md` (58 thread and 74
+relationship checks passed in SQLite fixtures; application integration and
+PostgreSQL concurrency are open gates). Baseline of existing behaviour: 59 tests
+across `browser-profiles`, `lead-sessions`, `task-snoozes`, `session-states`,
+`session-pull-requests` (2026-11-01).
+
+## Existing implementation plans
+
 | Plan | Status | Dependencies |
 | --- | --- | --- |
 | [001 Owned server installation](001-owned-server-installation.md) | IMPLEMENTED — verification evidence in .solus-local/owned-server-qa | Current working-tree server update implementation (baseline, no migration required) |

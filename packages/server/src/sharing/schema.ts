@@ -5,7 +5,7 @@ import { bigint, defineTable, text } from '../db/schema/define-table'
  * (docs/plans/access-model.md §2.2; docs/plans/cloud-sharing.md §4c). One row
  * is one ACL entry: what a resource's owner gave to someone else — a person, a
  * team, the organization, or everyone with the link. The owner is never a row
- * here: it is the resource's own `owner_key`. The row schemas in
+ * here: it is the resource's own `created_by`. The row schemas in
  * `share-manager.ts` validate the enumerations on read, which is the one form
  * both engines and the builder share.
  */
@@ -26,7 +26,8 @@ export const aclEntry = defineTable('acl_entry', {
   actions: text(),
   /** When the row stops naming anyone, in ms on this host's clock; null never. Only a link has one. */
   expires_at: bigint(),
-  granted_by_user_id: text({ notNull: true }),
+  /** The user id of who made the grant; a higher role is a new grant by who raised it (shared-with-you.md §2). */
+  created_by: text({ notNull: true }),
   created_at: bigint({ notNull: true }),
   /** When the row last gave its subject access or a higher role, in ms; null on a row made before the column existed, read as `created_at` (docs/plans/shared-with-you.md §4.1). */
   granted_at: bigint(),

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
-  import { Copy as CopyIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
+  import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
   import { toasts } from "../../lib/toasts";
+  import CopyButton from "../ui/CopyButton.svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
@@ -156,16 +157,10 @@
     if (view.expanded) void history?.load(tools);
   }
 
-  async function copyTools(messages: Message[]): Promise<void> {
-    try {
-      const text = await toolRowsCopyText(messages, history);
-      await navigator.clipboard.writeText(text);
-      toasts.success("Tool row copied");
-    } catch (error) {
-      toasts.error("Could not copy tool row", {
-        description: error instanceof Error ? error.message : "Try again.",
-      });
-    }
+  function copyFailed(error: Error): void {
+    toasts.error("Could not copy tool row", {
+      description: error.message,
+    });
   }
 
   function toggleToolExpanded(toolId: string): void {
@@ -233,13 +228,13 @@
     {/snippet}
 
     {#snippet actions()}
-      <button
-        type="button"
-        class="inline-flex size-6 pointer-coarse:size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-        aria-label="Copy tool row"
+      <CopyButton
+        getText={() => toolRowsCopyText(tools.slice(), history)}
         title="Copy tool row"
-        onclick={() => copyTools(tools.slice())}
-      ><CopyIcon size={14} /></button>
+        iconOnly
+        refocusInput={false}
+        onError={copyFailed}
+      />
     {/snippet}
 
     {#snippet rail()}
@@ -290,13 +285,13 @@
               {describe(step, parsed)}
             </button>
             <span class="flex-1"></span>
-            <button
-              type="button"
-              class="inline-flex size-6 pointer-coarse:size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-              aria-label="Copy tool call"
+            <CopyButton
+              getText={() => toolRowsCopyText([step], history)}
               title="Copy tool call"
-              onclick={() => copyTools([step])}
-            ><CopyIcon size={14} /></button>
+              iconOnly
+              refocusInput={false}
+              onError={copyFailed}
+            />
             {#if endMs !== undefined}
               <span class="tool-step-duration text-tool-step font-mono shrink-0">
                 {formatActivityDuration(endMs - step.timestamp)}

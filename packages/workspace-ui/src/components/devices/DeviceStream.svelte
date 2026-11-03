@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { DevicePlatform, DeviceInput } from "@solus/contracts/device-types";
-  import { cloudDeviceVideo } from "@solus/client-core/device-webrtc";
   import { DeviceHubStream } from "@solus/client-core/device-hub-stream";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import type { DeviceScreenConfig } from "@solus/contracts/device-types";
@@ -26,7 +25,7 @@
     /** The simulator's name: it picks a phone or a tablet body. */
     deviceName: string;
     showPhone: boolean;
-    sourceKind?: "local" | "ssh" | "eas" | "simlock";
+    sourceKind?: "local" | "ssh" | "simlock";
     onPhoneUnavailable: () => void;
     active: boolean;
     /** Input is refused while someone else controls the device. */
@@ -61,14 +60,6 @@
     const context = node.getContext("2d");
     const currentFormat = format;
     let screen: DeviceScreenConfig | null = null;
-    let fallbackStream: DeviceHubStream | null = null;
-    const paintVideo = (source: HTMLVideoElement, width: number, height: number) => {
-      if (!context) return;
-      if (node.width !== width || node.height !== height) { node.width = width; node.height = height; }
-      context.drawImage(source, 0, 0, width, height);
-      phoneView?.frameUpdated();
-      if (frame?.width !== width || frame?.height !== height) frame = { width, height };
-    };
     const decoder = new DeviceVideoDecoder(
       {
         present: (source, width, height) => {
@@ -104,24 +95,13 @@
     const hub = new DeviceHubStream({
       platform,
       serveSimOnly: sourceKind === "simlock",
-      video: sourceKind !== "eas",
       format: currentFormat,
       openUrl: () => devicesStore.streamUrl(serverId, target),
       onPacket: (packet, data) => decoder.push(packet, data),
     });
     stream = hub;
     hub.start();
-    const closeCloud = sourceKind === "eas" ? cloudDeviceVideo({
-      openUrl: () => devicesStore.streamUrl(serverId, target), present: paintVideo,
-      status: (kind, detail) => { status = kind === "ended" ? { kind, detail: detail ?? "The video ended." } : { kind }; },
-      fallback: () => {
-        fallbackStream = new DeviceHubStream({ platform, format: currentFormat, openUrl: () => devicesStore.streamUrl(serverId, target), onPacket: (packet, data) => decoder.push(packet, data) });
-        fallbackStream.start();
-      },
-    }) : null;
     return () => {
-      closeCloud?.();
-      fallbackStream?.close();
       hub.close();
       if (stream === hub) stream = null;
       decoder.close();

@@ -23,7 +23,6 @@ export const tasks = defineTable('tasks', {
   due_date: text(),
   priority: text(),
   labels: json({ notNull: true, default: '[]' }),
-  pr: json(),
   /** Upstream epic snapshot (`TaskEpic`), written only by the sync engine. */
   epic: json(),
   source: text({ notNull: true, default: 'user' }),
@@ -39,8 +38,10 @@ export const tasks = defineTable('tasks', {
    * location keeps its id, title, and links, and nothing else. */
   location: json(),
   organization_id: ORGANIZATION,
-  /** The person the task belongs to (docs/plans/access-model.md §2.2): its creator, never empty. */
-  owner_key: text({ notNull: true }),
+  /** The user id of who made the task (plans/029 decision 2): also its owner, never empty, never changed. */
+  created_by: text({ notNull: true }),
+  /** The position the task's next comment thread takes (`comment_threads.position`), advanced in the inserting transaction. */
+  comment_position: integer({ notNull: true, default: 0 }),
 }, {
   indexes: [
     { name: 'tasks_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },
@@ -51,73 +52,9 @@ export const tasks = defineTable('tasks', {
 
 const TASK_REFERENCE = { table: tasks, column: 'id', onDelete: 'cascade' } as const
 
-export const taskSessionLinks = defineTable('task_session_links', {
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  session_id: text({ notNull: true }),
-  role: text({ notNull: true, default: 'working' }),
-  /** Legacy capture — populated by earlier versions, read-only today. */
-  pr: json(),
-  injected_at: bigint(),
-  linked_at: bigint({ notNull: true }),
-  /** `Attribution` JSON: who started the session, as the first writer of the
-   *  link knew it. Null when nobody said (an agent's own link, older rows). */
-  started_by: json(),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['task_id', 'session_id'],
-  indexes: [{ name: 'task_session_links_by_session', columns: ['session_id'] }],
-})
-
-export const taskComments = defineTable('task_comments', {
-  id: text({ primaryKey: true }),
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  author: text(),
-  source: text({ notNull: true, default: 'local' }),
-  external_id: text(),
-  origin_session_id: text(),
-  body: text({ notNull: true }),
-  created_at: bigint({ notNull: true }),
-  dirty: integer({ notNull: true, default: 0 }),
-  organization_id: ORGANIZATION,
-}, {
-  indexes: [
-    { name: 'task_comments_by_task', columns: ['task_id', 'created_at'] },
-    { name: 'task_comments_external', columns: ['task_id', 'external_id'], unique: true, where: 'external_id IS NOT NULL' },
-  ],
-})
-
-export const taskLinks = defineTable('task_links', {
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  kind: text({ notNull: true }),
-  target_scope: text({ notNull: true, default: '' }),
-  target_key: text({ notNull: true }),
-  title: text({ notNull: true, default: '' }),
-  url: text(),
-  created_by: text({ notNull: true, default: 'user' }),
-  origin_session_id: text(),
-  // The session of the task that made the item, when the link is on the task
-  // because that session made it (docs/plans/session-outputs.md). The link
-  // follows the session: it leaves the task when the session does. Null on a
-  // link that a person or an agent made deliberately.
-  output_session_id: text(),
-  linked_at: bigint({ notNull: true }),
-  pinned: integer({ notNull: true, default: 0 }),
-  // A `pr` link's last observation, written by PR sync so a task reads its pull
-  // request without the network (docs/plans/pr-sync.md §3.5). `title` and `url`
-  // above carry the rest. `pr_state` is open, closed, merged, or missing; null
-  // until PR sync first answers.
-  pr_state: text(),
-  pr_draft: integer(),
-  pr_updated_at: text(),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['task_id', 'kind', 'target_scope', 'target_key'],
-  indexes: [
-    // Target key before scope: a work link is found by its key alone.
-    { name: 'task_links_by_target', columns: ['kind', 'target_key', 'target_scope'] },
-    { name: 'task_pr_links_by_url', columns: ['task_id', 'url'], unique: true, where: "kind = 'pr' AND url IS NOT NULL" },
-  ],
-})
+// A task's sessions and its links to works, plans, pull requests, and
+// automations are edges of `resource_links` (data/links/schema.ts); a task
+// delete removes them explicitly (`deleteEdgesOf`), as no foreign key can.
 
 export const taskExternalLinks = defineTable('task_external_links', {
   task_id: text({ primaryKey: true, references: TASK_REFERENCE }),
@@ -173,34 +110,11 @@ export const assetPublications = defineTable('asset_publications', {
 export const taskCounters = defineTable('task_counters', {
   name: text({ primaryKey: true }),
   value: integer({ notNull: true }),
-  organization_id: ORGANIZATION,
-})
-
-/**
- * One person's snooze of a task (docs/task-snooze.md): the task leaves that
- * person's task lists until `snoozed_until`. It is the person's own view, so it
- * is keyed by their user key (`ownerKeyOf`) and is never part of the task record,
- * its events, or its sync. `organization_id` is the task's, so a read is scoped
- * as the task is.
- */
-export const taskSnoozes = defineTable('task_snoozes', {
-  task_id: text({ notNull: true, references: TASK_REFERENCE }),
-  person_key: text({ notNull: true }),
-  snoozed_until: bigint({ notNull: true }),
-  snooze_note: text(),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['task_id', 'person_key'],
-  indexes: [{ name: 'task_snoozes_by_person', columns: ['person_key', 'snoozed_until'] }],
 })
 
 export const TASK_TABLES = [
   tasks,
-  taskSnoozes,
   taskCounters,
-  taskSessionLinks,
-  taskComments,
-  taskLinks,
   taskExternalLinks,
   upstreamTaskCache,
   assetPublications,

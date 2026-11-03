@@ -163,9 +163,13 @@ export interface ClaudeSeat {
  * A member's seat starts from the member's clean environment
  * (plans/019-acting-identity.md), so no API key, token, key agent or helper the
  * server carries answers for them.
+ *
+ * The CLI names Solus as its entrypoint. Without it the SDK sends `sdk-ts`, or
+ * an entrypoint the host inherited, such as `claude-desktop` when Solus started
+ * from inside a Claude Code session. A provider instance's own env still wins.
  */
 export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...(seat?.env ?? process.env), CLAUDE_CODE_ENABLE_TASKS: '0' }
+  const env: NodeJS.ProcessEnv = { ...(seat?.env ?? process.env), CLAUDE_CODE_ENABLE_TASKS: '0', CLAUDE_CODE_ENTRYPOINT: 'solus' }
   if (!seat) return env
   if (!seat.isHostLogin) {
     delete env.ANTHROPIC_API_KEY

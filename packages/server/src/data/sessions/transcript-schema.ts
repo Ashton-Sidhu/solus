@@ -26,4 +26,6 @@ export const sessionTranscripts = defineTable('session_transcripts', {
   // Session ids are unique on their own: leading with one lets a read that
   // spans every organization seek a session's rows too.
   primaryKey: ['session_id', 'position', 'organization_id'],
+  // The rows whose search text is still to be derived (`db/session-search-rebuild.ts`).
+  indexes: [{ name: 'session_transcripts_search_pending', columns: ['session_id'], where: "search_text = ''" }],
 })

@@ -532,7 +532,7 @@
     const metadata = agent.metadata[activeProvider] ?? agent.activeMetadata;
     const models = metadata?.models;
     if (!models || models.length === 0) return;
-    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null, activeProvider);
+    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null, activeProvider, metadata?.modelProfiles);
     if (!nextModelId) return;
     const nextConfig = session.config.configureModel(run.modelConfig, { modelId: nextModelId }, run.provider ?? theme.activeAgent);
     if (onRun) onRun({ ...run, modelConfig: { ...run.modelConfig, ...nextConfig } });

@@ -175,8 +175,8 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
     const instances = snapshot.instances.filter((instance) => instance.provider === metadata.id).map((instance) => {
       const path = instance.binaryPath.startsWith('~/') && home ? join(home, instance.binaryPath.slice(2)) : instance.binaryPath
       const customBinary = path ? isAbsolute(path) ? existsSync(path) ? path : null : findOnPath(path, cliPath) : binaryPath
-      const { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder } = instance
-      return { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, binaryAvailable: !!customBinary }
+      const { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, modelGroups } = instance
+      return { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, modelGroups, binaryAvailable: !!customBinary }
     })
     return agentForProject({ ...metadata, binaryPath: binaryPath ?? undefined, instancePreferences: { selected: snapshot.selected[metadata.id], instances, projects: snapshot.projects } })
   }

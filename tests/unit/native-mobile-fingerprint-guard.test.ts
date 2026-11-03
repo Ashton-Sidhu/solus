@@ -32,17 +32,16 @@ type FingerprintReading = { android: number; ios: number; settings: FingerprintS
 /**
  * The fingerprint consumers this guard can see: the resolved Expo config
  * (`app.json` or a dynamic `app.config.*`), the `expo-updates` dependency,
- * `eas.json`, and the repository workflows. Each setting is reported on its
+ * and the repository workflows. Each setting is reported on its
  * own, so one configured `runtimeVersion` does not hide another.
  */
 function fingerprintConsumers(settings: FingerprintSettings): string[] {
   const manifest: { dependencies?: { 'expo-updates'?: string } } = JSON.parse(readFileSync(join(mobile, 'package.json'), 'utf8'))
   const consumers = Object.entries(settings).filter(([, value]) => value != null).map(([name]) => `expo config: ${name}`)
   if (manifest.dependencies?.['expo-updates']) consumers.push('apps/mobile/package.json: expo-updates')
-  if (existsSync(join(mobile, 'eas.json'))) consumers.push('apps/mobile/eas.json')
   const workflows = join(root, '.github/workflows')
   for (const file of existsSync(workflows) ? readdirSync(workflows) : []) {
-    if (/\beas\s+(build|update)\b|fingerprint/i.test(readFileSync(join(workflows, file), 'utf8'))) consumers.push(`.github/workflows/${file}`)
+    if (/fingerprint/i.test(readFileSync(join(workflows, file), 'utf8'))) consumers.push(`.github/workflows/${file}`)
   }
   return consumers
 }

@@ -7,9 +7,8 @@ import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { HostOrganization } from '@solus/contracts/uplink'
 import type { Principal } from '@solus/server/admission/principal'
-import { RpcAccessError, assertRpcAccess } from '@solus/server/admission/access-policy'
 import { SeatManager } from '@solus/server/execution/seats/seat-manager'
-import { hasLeftOrganization, removeDepartedMembers } from '@solus/server/host/departed-members'
+import { removeDepartedMembers } from '@solus/server/host/departed-members'
 import type { HostStanding } from '@solus/server/host/organizations'
 import type { ShareManager as ShareManagerType } from '@solus/server/sharing/share-manager'
 import { resetTestDatabase } from './helpers/test-db'
@@ -104,64 +103,5 @@ describe('a member removed from the organization', () => {
     // Only the socket admitted for the organization that removed them ends.
     expect(outcome).toEqual({ seatUserIds: [], socketsClosed: 1 })
     expect(transport.open).toEqual([member('bob', 'member', 'org2')])
-  })
-})
-
-describe('transferring a departed member\'s resources', () => {
-  type ShareManagerModule = typeof import('@solus/server/sharing/share-manager')
-  let dataDir: string
-  let db: typeof import('@solus/server/db')
-  let database: typeof import('@solus/server/db/database')
-  let ShareManager: ShareManagerModule['ShareManager']
-  let ShareAccessError: ShareManagerModule['ShareAccessError']
-  const previousDataDir = process.env.SOLUS_DATA_DIR
-
-  beforeAll(async () => {
-    dataDir = mkdtempSync(join(tmpdir(), 'solus-member-removal-'))
-    process.env.SOLUS_DATA_DIR = dataDir
-    db = await import('@solus/server/db')
-    database = await import('@solus/server/db/database')
-    ;({ ShareManager, ShareAccessError } = await import('@solus/server/sharing/share-manager'))
-  })
-  afterEach(async () => {
-    await resetTestDatabase()
-    for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
-  })
-  afterAll(() => {
-    db.closeDb()
-    rmSync(dataDir, { recursive: true, force: true })
-    if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
-    else process.env.SOLUS_DATA_DIR = previousDataDir
-  })
-
-  function manager(current: HostStanding): ShareManagerType {
-    return new ShareManager({
-      db: database.getDatabase(),
-      now: () => 1_000,
-      hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(current, organizationId, userId),
-    })
-  }
-  const session = { kind: 'session', id: 's-dave' } as const
-
-  test('a host admin may transfer a departed member\'s session; a member may not', async () => {
-    const shares = manager(standing([{ organizationId: 'org1', memberUserIds: ['alice', 'bob', 'cara'] }]))
-    await seedResource(database.getDatabase(), 'session', session.id, 'dave', 'org1')
-    await expect(shares.transfer({ resource: session, toUserId: 'bob' }, member('bob'))).rejects.toThrow(ShareAccessError)
-    const list = await shares.transfer({ resource: session, toUserId: 'cara' }, member('alice', 'owner'))
-    expect(list.ownerKey).toBe('cara')
-    expect(await shares.roleFor(member('cara'), session)).toBe('owner')
-  })
-
-  test('while the owner is still a member, only they transfer', async () => {
-    const shares = manager(standing([{ organizationId: 'org1', memberUserIds: ['alice', 'dave'] }]))
-    await seedResource(database.getDatabase(), 'session', session.id, 'dave', 'org1')
-    await expect(shares.transfer({ resource: session, toUserId: 'alice' }, member('alice', 'owner'))).rejects.toThrow(ShareAccessError)
-  })
-
-  test('the access gate lets a host admin reach the share manager, and still refuses a member', async () => {
-    const table = { roleFor: async () => 'editor' as const }
-    const args = [{ resource: session, toUserId: 'cara' }]
-    await expect(assertRpcAccess('shareTransfer', member('alice', 'owner'), args, table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('shareTransfer', member('bob'), args, table)).rejects.toThrow(RpcAccessError)
   })
 })

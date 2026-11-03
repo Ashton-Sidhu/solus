@@ -49,7 +49,7 @@ import { SessionOpening } from './session-opening'
 import { SessionDrafts } from './session-drafts.svelte'
 import { PromptDispatch } from './prompt-dispatch'
 import type { SessionRecords } from './session-records.svelte'
-import { SessionConfigController } from './session-config.svelte'
+import { SessionConfigController, type SessionThread } from './session-config.svelte'
 import { WorkspaceLifecycleStore } from './workspace-lifecycle.store.svelte'
 import { SessionEventReducer } from './session-event-reducer.svelte'
 import { type SettingsContext } from '../app/settings.context.svelte'
@@ -173,6 +173,9 @@ export interface CreateTabOptions {
   /** The tab or draft the gesture came from. The new run inherits this focused
    *  source, not whichever hidden tab happens to be active. */
   sourceId?: string
+  /** The recorded session this tab opens. Its provider and model are the
+   *  session's own, so they never come from the source. */
+  thread?: SessionThread
   via?: Via
 }
 
@@ -1066,6 +1069,7 @@ export class WorkspaceContext implements SurfaceContext {
       gitContext: options.gitContext,
       serverId: options.serverId,
     }, this.settings.modelOptionsByProvider)
+    if (options.thread) Object.assign(run, this.config.threadRunFor(options.thread, run))
     // Isolation belongs to one piece of work, so a fresh tab only branches a
     // worktree when the gesture that opened it asked for one.
     const worktreeRequested = options.worktreeRequested ?? false

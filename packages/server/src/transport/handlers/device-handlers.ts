@@ -20,7 +20,6 @@ import {
 import { userKey } from '@solus/contracts/user'
 import type { HandlerCtx, SolusServer } from '../server'
 import { configureDevices, type DeviceDomain } from '../../devices/device-domain'
-import { ExpoDeviceApi } from '../../devices/expo-device-api'
 import { SimlockDeviceHost } from '../../devices/simlock-device-host'
 import { join } from 'node:path'
 import { DeviceDomainError } from '../../devices/device-errors'
@@ -98,21 +97,16 @@ export function registerDeviceHandlers(
     const config = parse(deviceHostConfigSchema, args[0])
     if (!('kind' in config)) return deps.testSshHost(config)
     const saved = manager.settings().cloudHosts?.find((host) => host.id === config.id)
-    if (config.kind === 'eas' && config.accessToken === DEVICE_SECRET_SAVED) config.accessToken = saved?.kind === 'eas' ? saved.accessToken : ''
     if (config.kind === 'simlock' && config.agentToken === DEVICE_SECRET_SAVED) {
       if (saved?.kind !== 'simlock' || saved.gatewayUrl !== config.gatewayUrl) throw new Error('Enter a token for this gateway.')
       config.agentToken = saved.agentToken
     }
     try {
-      if (config.kind === 'eas') {
-        const apps = await new ExpoDeviceApi(config.accessToken).check(config.appId)
-        return { ok: true, isLocal: false, apps, checks: [{ name: 'expo', ok: true, detail: 'Expo account and EAS Simulator access checked.' }] }
-      }
       const host = new SimlockDeviceHost(config, join(deps.domain.agentConfigDir, 'check'), deps.domain.toolchain, runDeviceCommand)
       const name = await host.check()
       return { ok: true, isLocal: false, checks: [{ name: 'simlock', ok: true, detail: `Connected as ${name}.` }] }
     } catch (error) {
-      return { ok: false, isLocal: false, checks: [{ name: config.kind === 'eas' ? 'expo' : 'simlock', ok: false, detail: error instanceof Error ? error.message : 'Connection check failed.' }] }
+      return { ok: false, isLocal: false, checks: [{ name: 'simlock', ok: false, detail: error instanceof Error ? error.message : 'Connection check failed.' }] }
     }
   })
   server.register('deviceToolUpdate', (args) => {

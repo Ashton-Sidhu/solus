@@ -45,7 +45,7 @@ export interface DeliveryAppendResult {
 }
 
 const rowSchema = z.object({ seq: z.number(), kind: deliveryKindSchema, payload: z.string() })
-const destinationRowSchema = z.object({ organization_id: z.string(), actor_user_id: z.string() })
+const destinationRowSchema = z.object({ organization_id: z.string(), user_id: z.string() })
 
 type QueuedListener = () => void
 const listeners = new Set<QueuedListener>()
@@ -92,7 +92,7 @@ export function appendDelivery(destination: DeliveryDestination, kind: DeliveryK
   if (items.length === 0) return { count: 0, lastSeq: 0 }
   let lastSeq = 0
   withTx(() => {
-    const insert = getDb().prepare('INSERT INTO delivery_queue(seq, kind, key, payload, organization_id, actor_user_id) VALUES (?, ?, ?, ?, ?, ?)')
+    const insert = getDb().prepare('INSERT INTO delivery_queue(seq, kind, key, payload, organization_id, user_id) VALUES (?, ?, ?, ?, ?, ?)')
     const firstSeq = nextDeliverySeq(items.length)
     items.forEach((item, index) => {
       lastSeq = firstSeq + index
@@ -123,7 +123,7 @@ export function queueSessionFacts(destination: DeliveryDestination, record: Sess
       getDb().prepare('DELETE FROM delivery_queue WHERE seq = ?').run(existing.seq)
     }
     seq = nextDeliverySeq()
-    getDb().prepare("INSERT INTO delivery_queue(seq, kind, key, payload, organization_id, actor_user_id) VALUES (?, 'session', ?, ?, ?, ?)")
+    getDb().prepare("INSERT INTO delivery_queue(seq, kind, key, payload, organization_id, user_id) VALUES (?, 'session', ?, ?, ?, ?)")
       .run(seq, record.sessionId, JSON.stringify(merged), destination.organizationId, destination.actorUserId)
   })
   emitQueued()
@@ -134,7 +134,7 @@ export function queueSessionFacts(destination: DeliveryDestination, record: Sess
 export function listDelivery(destination: DeliveryDestination, limit: number): DeliveryItem[] {
   const rows = rowSchema.array().parse(getDb().prepare(`
     SELECT seq, kind, payload FROM delivery_queue
-    WHERE organization_id = ? AND actor_user_id = ? AND error IS NULL
+    WHERE organization_id = ? AND user_id = ? AND error IS NULL
     ORDER BY seq LIMIT ?
   `).all(destination.organizationId, destination.actorUserId, limit))
   return rows.map((row) => ({ seq: row.seq, kind: row.kind, payload: z.unknown().parse(JSON.parse(row.payload)) }))
@@ -148,9 +148,9 @@ export function listDelivery(destination: DeliveryDestination, limit: number): D
 export function ackDelivery(destination: DeliveryDestination, lastSeq: number, failed: ReadonlyArray<{ seq: number; error: string }>): number {
   let acked = 0
   withTx(() => {
-    const mark = getDb().prepare('UPDATE delivery_queue SET error = ? WHERE seq = ? AND organization_id = ? AND actor_user_id = ?')
+    const mark = getDb().prepare('UPDATE delivery_queue SET error = ? WHERE seq = ? AND organization_id = ? AND user_id = ?')
     for (const failure of failed) mark.run(failure.error, failure.seq, destination.organizationId, destination.actorUserId)
-    acked = Number(getDb().prepare('DELETE FROM delivery_queue WHERE organization_id = ? AND actor_user_id = ? AND seq <= ? AND error IS NULL')
+    acked = Number(getDb().prepare('DELETE FROM delivery_queue WHERE organization_id = ? AND user_id = ? AND seq <= ? AND error IS NULL')
       .run(destination.organizationId, destination.actorUserId, lastSeq).changes)
   })
   if (failed.length > 0) log.warn('delivery_items_refused', { organizationId: destination.organizationId, seqs: failed.map((failure) => failure.seq) })
@@ -159,8 +159,8 @@ export function ackDelivery(destination: DeliveryDestination, lastSeq: number, f
 
 /** Every destination with something to send: what a delivery pass visits. */
 export function deliveryDestinations(): DeliveryDestination[] {
-  const rows = destinationRowSchema.array().parse(getDb().prepare('SELECT DISTINCT organization_id, actor_user_id FROM delivery_queue WHERE error IS NULL').all())
-  return rows.map((row) => ({ organizationId: row.organization_id, actorUserId: row.actor_user_id }))
+  const rows = destinationRowSchema.array().parse(getDb().prepare('SELECT DISTINCT organization_id, user_id FROM delivery_queue WHERE error IS NULL').all())
+  return rows.map((row) => ({ organizationId: row.organization_id, actorUserId: row.user_id }))
 }
 
 /**
@@ -169,7 +169,7 @@ export function deliveryDestinations(): DeliveryDestination[] {
  * dropped. Other people's rows in the same organization stay. Answers how many rows went.
  */
 export function dropQueuedFor(destination: DeliveryDestination): number {
-  return Number(getDb().prepare('DELETE FROM delivery_queue WHERE organization_id = ? AND actor_user_id = ?').run(destination.organizationId, destination.actorUserId).changes)
+  return Number(getDb().prepare('DELETE FROM delivery_queue WHERE organization_id = ? AND user_id = ?').run(destination.organizationId, destination.actorUserId).changes)
 }
 
 /**

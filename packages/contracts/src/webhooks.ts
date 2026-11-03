@@ -338,6 +338,8 @@ export interface WebhookDeliveryQuery {
   outcomes?: WebhookDeliveryOutcome[]
   /** Deliveries that arrived before this time: the next page. */
   before?: number
+  /** With `before`, the id of the last delivery shown: the page goes on after it, so deliveries that arrived in the same millisecond are not skipped. */
+  beforeId?: string
   limit?: number
 }
 

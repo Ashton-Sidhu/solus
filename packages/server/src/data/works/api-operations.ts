@@ -21,6 +21,7 @@ import { works } from './schema'
 import { createWork, loadWork, readWorkMetadataPage } from './works'
 import { Work, WorkContentInvalidError, WorkMovedError, WorkVersionConflictError } from './work'
 import { workLocation } from './work-rows'
+import { workMembership } from './session-access'
 import { announceWorkDeleted } from './work-events'
 import { requestWorkReview, shareWithReviewers } from './work-reviews'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
@@ -101,17 +102,14 @@ export class WorkApiOperations {
     query = workspaceWorkQuerySchema.parse(query)
     requireScope(context, 'works:read')
     const filters = [scopeClause(apiScope(context), sql`works.organization_id`),
-      workspaceResourceVisibility(context.principal, 'work', { id: sql`works.id`, organization: sql`works.organization_id`, owner: sql`works.owner_key` }),
+      workspaceResourceVisibility(context.principal, 'work', { id: sql`works.id`, organization: sql`works.organization_id`, owner: sql`works.created_by` }),
       seekClause(sql`works.created_at`, sql`works.id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`cwd = ${await projectKeyForId(context, query.projectId)}`)
     if (query.type) filters.push(sql`type = ${query.type}`)
     if (query.sessionId) {
       await requireResource(this.shares, context, { kind: 'session', id: query.sessionId }, 'read')
-      // Additional session links are stored in the portable JSON metadata.
-      const db = getDatabase()
-      filters.push(db.engine === 'postgres'
-        ? sql`(session_id = ${query.sessionId} OR (meta::jsonb->'sessionIds') ? ${query.sessionId})`
-        : sql`(session_id = ${query.sessionId} OR EXISTS (SELECT 1 FROM json_each(meta, '$.sessionIds') WHERE value = ${query.sessionId}))`)
+      // The session made the work, or is a member of it (`resource_links`).
+      filters.push(sql`(works.session_id = ${query.sessionId} OR ${workMembership(sql`works.id`, sql`${query.sessionId}`)})`)
     }
     const records = await readWorkMetadataPage(sql.join(filters, sql` AND `), query.limit + 1)
     return pageOf(await this.summaries(context, records), query.limit, item => ({ time: Date.parse(item.createdAt), id: item.id }))
