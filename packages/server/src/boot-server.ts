@@ -53,7 +53,7 @@ import { LiveActivityRelay } from './host/live-activity-relay'
 import { activityLeases } from './execution/activity-leases'
 import { adoptProvisionedRegistration, applyHostCategory, hostCategory, provisionedOrganizationId } from './host/host-category'
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
-import { adoptHostUser, followHostAccount } from './host/host-user-rows'
+import { followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
 import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions } from './sync/mirror/transcript-mirror'
@@ -89,7 +89,7 @@ import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/sea
 import { CodexBackend } from './execution/agents/codex/codex-backend'
 import { ActingIdentities, identityFor, useActingIdentities } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
-import { currentHostUser, hostUserKey } from './host/host-user'
+import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { memberUsers as installedMemberUsers, WorkspacePreparingError } from './host/member-users'
 import { useMemberSwitch } from './cli-env'
@@ -193,6 +193,7 @@ import { registerChecksHandlers } from './transport/handlers/checks-handlers'
 import { registerUsageHandlers } from './transport/handlers/usage-handlers'
 import { registerSkillsHandlers } from './transport/handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './transport/handlers/pinned-sessions-handlers'
+import { registerHostListHandlers } from './transport/handlers/host-list-handlers'
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
 import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
@@ -1030,6 +1031,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   registerSkillsHandlers(server, { sessionRuntime: opts.sessionRuntime, seats })
   registerPinnedSessionsHandlers(server)
+  registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) })
   registerSessionReadStateHandlers(server)
   phaseDone('domain_handlers_registered')
   const hostUpdates = new UpdateStatusService({
@@ -1274,10 +1276,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerLiveActivityHandlers(server, liveActivityRelay)
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => liveActivityRelay.sessionStatusChanged(event))
   if (!apiMode) {
-    // The host's user (plans/012 §1): its `local` id is minted once, and the rows
-    // written before it had one move to it, before any client connects. The Solus
-    // API has no host user.
-    await adoptHostUser(getDatabase(), hostUserSettings())
+    // The host's user (plans/012 §1): its `local` id is minted once, before any
+    // client connects. The Solus API has no host user.
+    useHostUser(hostUserSettings())
     // How this host acts for people (docs/adr/0001-standard-authentication.md §3.4): a
     // refused token means the person may no longer work here in that scope — a
     // sign-out ended the client grant, or a removal or detach — and it ends everything

@@ -401,11 +401,11 @@ describe('record scope on an attached machine', () => {
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-before' })).toBe('owner')
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('none')
     expect(await scoped.roleFor(ALICE, { kind: 'session', id: 's-new' })).toBe('owner')
-    // On an unattached machine a pairing connection reads every organization again. It is the
-    // host's administrator there, so it edits Alice's session; she alone owns it (access-model.md §2.5).
+    // On an unattached machine a pairing connection reads every organization again. The
+    // machine is its owner's, and so is every record on it (plans/031 rule 1).
     attachment.useOrganizationAttachment(() => null)
     expect(principalModule.recordScopeOf(PAIRED)).toBe(principalModule.ANY_ORGANIZATION)
-    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('editor')
+    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('owner')
   })
 })
 

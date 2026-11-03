@@ -96,8 +96,9 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     // The one person the client is on this host: "is this me?" compares against it (plans/012 §1).
     if (ctx.actor.user) answer.user = ctx.actor.user
     if (principal.kind === 'owner') {
-      // The person at the machine is the host's user (plans/012 §1): the reader knows its key as their own.
-      answer.userId = principal.via === 'grant' ? principal.userId : hostUserKey()
+      // The person at the machine is the host's user (plans/012 §1), through every door
+      // (plans/031 D1): the reader knows its key as their own.
+      answer.userId = hostUserKey()
     }
     if (principal.kind === 'org-member') {
       answer.userId = principal.userId

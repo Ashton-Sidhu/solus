@@ -15,7 +15,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §2.3: one function decides a resource role. Outside
 // the person's organization scope: none. The owner: owner. A personal resource
-// (integration, notification, browserProfile): nobody else. Otherwise the best ACL entry that
+// (integration, notification, browserProfile): nobody else. The personal host's
+// owner: owner of everything else on the disk. Otherwise the best ACL entry that
 // names the person, their team, their organization, or their link, and an
 // administrator gets at least editor. `visibleTo` is the same rule in SQL, so a
 // list and a get cannot disagree.
@@ -80,7 +81,7 @@ const ENTRIES: AclEntry[] = [
 ]
 
 const SHAREABLE: Record<Person, ResourceRole> = {
-  hostOwner: 'editor', admin: 'editor', owner: 'owner', member: 'none', teamMember: 'editor', guest: 'viewer', otherOrganization: 'none', runner: 'none',
+  hostOwner: 'owner', admin: 'editor', owner: 'owner', member: 'none', teamMember: 'editor', guest: 'viewer', otherOrganization: 'none', runner: 'none',
 }
 const PERSONAL: Record<Person, ResourceRole> = {
   hostOwner: 'none', admin: 'none', owner: 'owner', member: 'none', teamMember: 'none', guest: 'none', otherOrganization: 'none', runner: 'none',
@@ -88,13 +89,14 @@ const PERSONAL: Record<Person, ResourceRole> = {
 
 /** A resource with an owner and no ACL entries: an automation, a project, an insight (§2.3, D2, D4). */
 const OWNED: Record<Person, ResourceRole> = {
-  hostOwner: 'editor', admin: 'editor', owner: 'owner', member: 'none', teamMember: 'none', guest: 'none', otherOrganization: 'none', runner: 'none',
+  hostOwner: 'owner', admin: 'editor', owner: 'owner', member: 'none', teamMember: 'none', guest: 'none', otherOrganization: 'none', runner: 'none',
 }
 
 describe('the role table', () => {
   for (const kind of ['automation', 'project', 'insight'] as const) {
     test(`${kind}: its owner owns it, an administrator edits it, no other member reaches it`, () => {
       // WHY (D2, D4): a member sees and changes their own; a host administrator sees and changes all.
+      // The personal host's owner owns all of it: the disk is theirs.
       const resource: ResourceRow = { kind, id: 'r1', organizationId: 'org1', ownerKey: 'alice', acl: [] }
       const roles = Object.fromEntries(Object.entries(PEOPLE).map(([name, principal]) => [name, access.roleOf(actors.actorFor(principal), resource)]))
       expect(roles).toEqual(OWNED)

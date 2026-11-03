@@ -34,7 +34,6 @@ const persistedServerSettingsSchema = z.object({
   hostUser: z.object({
     localId: z.string().min(1),
     account: z.object({ accountId: z.string().min(1), displayName: z.string().optional(), email: z.string().optional() }).optional(),
-    adoptedAt: z.number().optional(),
   }).optional(),
 }).strip()
 
@@ -75,13 +74,11 @@ export interface ServerSettings {
 
 /**
  * The host's own user: the `local` id minted once for its owner, and the account
- * the owner's rows moved to when the host was linked (U4, U5). `adoptedAt` is when
- * the rows written before users had ids were moved to this user.
+ * the host is linked to, if any (U4, plans/031 D1).
  */
 export interface HostUserSettings {
   localId: string
   account?: { accountId: string; displayName?: string; email?: string }
-  adoptedAt?: number
 }
 
 const DEFAULT_SETTINGS: ServerSettings = {

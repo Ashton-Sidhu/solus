@@ -91,6 +91,8 @@ export class ServerConnections {
   /** Connections made but not dialed: a managed host the directory does not call ready yet. */
   private readonly undialedServerIds = new Set<string>()
   private primaryServerId: string | null = null
+  /** The host that served this web page, when it is one (plans/031 D7). */
+  private servingHostId: string | null = null
 
   constructor() {
     // One classified wake stream fans out to every supervisor: N hosts must
@@ -416,6 +418,20 @@ export class ServerConnections {
       if (target.local) return id
     }
     return null
+  }
+
+  /** A web page served by a host names it here: it is the host the page runs beside. */
+  setServingHostId(serverId: string): void {
+    this.servingHostId = serverId
+  }
+
+  /**
+   * The host this client runs beside (plans/031 D7): the desktop's own host, or the
+   * host that served the web page. Null on a phone and at the account origin. It
+   * keeps the person's host list while they are signed out.
+   */
+  deviceHostId(): string | null {
+    return this.localServerId() ?? this.servingHostId
   }
 
   localHostApi(): HostApi | null {

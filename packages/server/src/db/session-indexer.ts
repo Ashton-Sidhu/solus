@@ -41,6 +41,9 @@ import { recordSessionChange } from '../data/tasks/task-revisions'
 const log = createLogger('main', 'session-indexer')
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects')
 const WATCH_DEBOUNCE_MS = 2_000
+/** A transcript last written before this process started is history this host
+ *  did not run: a record the indexer makes for it starts settled (plans/031 D6). */
+const PROCESS_STARTED_AT = Date.now()
 const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
 const CLAUDE_SWEEP_COMPLETED_KEY = 'claude-session-index-swept-at'
 /** Set by the migration that re-reads every message; cleared by the next full sweep. */
@@ -333,7 +336,7 @@ async function recordIndexedClaudeSession(
     isWorktree,
     projectRoot: projectRootFor(meta.cwd) ?? undefined,
     projectRemote: await projectRemoteFor(projectRootFor(meta.cwd)),
-  })
+  }, { bornSettled: mtime < PROCESS_STARTED_AT })
 }
 
 /** Resolves true when the file needed work, so a sweep can report how much of
@@ -916,7 +919,7 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
       branch: session.branch,
       projectRoot: projectRootFor(session.cwd) ?? undefined,
       projectRemote: await projectRemoteFor(projectRootFor(session.cwd)),
-    })
+    }, { bornSettled: new Date(session.lastTimestamp).getTime() < PROCESS_STARTED_AT })
   }
 }
 

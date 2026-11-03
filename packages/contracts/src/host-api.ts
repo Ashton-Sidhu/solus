@@ -57,6 +57,7 @@ import type {
 import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
+import type { AccountHostListPatchRequest, AccountHostListResponse, HostListing } from './host-list'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
@@ -370,6 +371,12 @@ export interface SolusAPI {
   hostsRemoveForwarded(args: { installationId: string; stopRemote: boolean }): Promise<{ removed: boolean }>
   /** Links a forwarded host to the account over the same SSH target; its forward stays as a route (D9). */
   hostsLinkForwarded(args: { installationId: string; link: SshAddLink }): Promise<{ linked: true }>
+  /** The hosts the owner connected to themselves, as this host keeps them while they are signed out (plans/031 D7). Owner only. */
+  hostListRead(): Promise<HostListing[]>
+  /** Adds a host to the list, or replaces the listing with the same id. */
+  hostListPut(listing: HostListing): Promise<void>
+  /** Removes a host from the list. */
+  hostListRemove(id: string): Promise<void>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsSetTrustLocalNetwork(args: { trustLocalNetwork: boolean }): Promise<{ trustLocalNetwork: boolean }>
@@ -1197,6 +1204,13 @@ export type AccountAgentProfileResult =
   | { kind: 'conflict'; reason: 'profile_conflict' | 'profile_generation_changed'; current: AccountAgentProfileResponse }
   | SettingsRequestFailure
 
+/** The account host list (plans/031 D7), the same way. */
+export type AccountHostListResult =
+  | { kind: 'ok'; hosts: AccountHostListResponse }
+  /** 409: a stale revision, or a cleared generation. `current` is the stored document. */
+  | { kind: 'conflict'; reason: 'host_list_conflict' | 'host_list_generation_changed'; current: AccountHostListResponse }
+  | SettingsRequestFailure
+
 /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, read and started from a client. */
 export type AccountVaultResult =
   | { kind: 'ok'; connections: VaultConnection[] }
@@ -1294,6 +1308,9 @@ export interface NativeSolusAPI {
   accountAgentProfileGet(): Promise<AccountAgentProfileResult>
   accountAgentProfilePatch(request: AccountAgentProfilePatchRequest): Promise<AccountAgentProfileResult>
   accountAgentProfileDelete(): Promise<AccountAgentProfileResult>
+  accountHostListGet(): Promise<AccountHostListResult>
+  accountHostListPatch(request: AccountHostListPatchRequest): Promise<AccountHostListResult>
+  accountHostListDelete(): Promise<AccountHostListResult>
   /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, start a sign-in, paste a key, disconnect. */
   accountVault(): Promise<AccountVaultResult>
   accountVaultConnect(request: VaultConnectRequest): Promise<AccountVaultConnectResult>

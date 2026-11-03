@@ -261,6 +261,10 @@ export const RPC_INVOKE_METHODS = [
   'hostsAddWsl',
   'hostsRemoveForwarded',
   'hostsLinkForwarded',
+  // The hosts the owner connected to themselves, while signed out (plans/031 D7)
+  'hostListRead',
+  'hostListPut',
+  'hostListRemove',
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',

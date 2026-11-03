@@ -1,11 +1,12 @@
 import { userInfo } from 'os'
-import { userKey, type User, type UserId } from '@solus/contracts/user'
+import { parseUserKey, userKey, type User, type UserId } from '@solus/contracts/user'
 import type { HostUserSettings } from './settings'
 
 /**
- * The host's own user (plans/012-user-actor-and-activity.md U4): the owner of a
- * host with no account is a `local` user minted once; a linked host's owner is
- * their account. `host-user-rows.ts` moves the rows when that changes.
+ * The host's own user (plans/012-user-actor-and-activity.md U4): the owner, a
+ * `local` user minted once. Its key never changes (plans/031 D1): a link to the
+ * owner's account adds the account's name and email, and the cloud boundary
+ * names the account; no row is rewritten.
  *
  * The Solus API has no host user: it never calls `useHostUser`.
  */
@@ -30,8 +31,7 @@ export function useHostUser(settings: HostUserSettings | null): void {
 }
 
 export function hostUserId(): UserId | null {
-  if (!current) return null
-  return current.account ? { kind: 'account', accountId: current.account.accountId } : { kind: 'local', localId: current.localId }
+  return current ? { kind: 'local', localId: current.localId } : null
 }
 
 export function hostUser(): User | null {
@@ -62,3 +62,13 @@ function localDisplayName(): string {
   }
 }
 
+/**
+ * The account a person key names at the cloud boundary (plans/031 D4): the host's
+ * user is the account the host is linked to, null while it is not; any other key
+ * names its own account, or none.
+ */
+export function cloudAccountOf(key: string): string | null {
+  if (isHostUserKey(key)) return current?.account?.accountId ?? null
+  const id = parseUserKey(key)
+  return id.kind === 'account' ? id.accountId : null
+}

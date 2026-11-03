@@ -623,6 +623,12 @@ CREATE TABLE `delivery_queue` (
 --> statement-breakpoint
 CREATE INDEX `delivery_queue_by_destination` ON `delivery_queue` (`organization_id`,`user_id`,`seq`);--> statement-breakpoint
 CREATE INDEX `delivery_queue_by_key` ON `delivery_queue` (`kind`,`key`);--> statement-breakpoint
+CREATE TABLE `host_list` (
+	`id` text PRIMARY KEY NOT NULL,
+	`listing` text NOT NULL,
+	`last_connected` integer NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `integration` (
 	`id` text PRIMARY KEY NOT NULL,
 	`organization_id` text NOT NULL,

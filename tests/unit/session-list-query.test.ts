@@ -34,10 +34,13 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 const now = Date.now()
 const old = now - SESSION_LIST_IDLE_MS - DAY
 
-async function recorded(sessionId: string, lastActivityAt: number, fields: { owner?: string; parent?: string; createdAt?: number } = {}) {
+/** A session Solus started for its owner, or with `found` one the indexer found on the disk: no starter. */
+async function recorded(sessionId: string, lastActivityAt: number, fields: { owner?: string; parent?: string; createdAt?: number; found?: boolean } = {}) {
+  const owner = fields.owner ?? ALICE
   await records.upsertSessionRecord('local', {
     sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt, parentSessionId: fields.parent ?? null, createdAt: fields.createdAt ?? lastActivityAt,
-  }, { organizationId: 'local', ownerKey: fields.owner ?? ALICE })
+    startedBy: fields.found ? undefined : { kind: 'person', personKey: owner },
+  }, { organizationId: 'local', ownerKey: owner })
 }
 
 let grants = 0
@@ -87,6 +90,11 @@ beforeAll(async () => {
   await recorded('old-dismissed-pr', old)
   await linked('old-dismissed-pr', 4, 'open')
   await sessionPrs.unlinkSessionPullRequest('old-dismissed-pr', 'github.com/acme/solus', 4)
+
+  // Found on the disk: Alice's, but out of her list until she opens it.
+  await recorded('found-recent', now, { found: true })
+  await recorded('found-opened', now - 6, { found: true })
+  await new states.SessionViewer('found-opened', ALICE).returnToList()
 
   // Bob's sessions: not Alice's until she prompts one or someone shares it with her.
   await recorded('bobs-recent', now, { owner: BOB })
@@ -163,10 +171,10 @@ describe('the session list reads only the sessions that can be in it', () => {
     // WHY: an equal answer on a fixture with nothing in it proves nothing.
     const reader = { personKey: ALICE, teamIds: [TEAM], now }
     const listed = new Set((await records.readSessionListPage(sql`session_records.parent_session_id IS NULL`, 1000, 'last_activity_at', reader)).map((record) => record.sessionId))
-    for (const sessionId of ['recent-00', 'recent-59', 'old-snoozed', 'old-open-pr', 'old-unsynced-pr', 'bobs-prompted', 'shared-old', 'shared-with-team', 'archived-then-shared', 'shared-recent-archived-then-shared']) {
+    for (const sessionId of ['recent-00', 'recent-59', 'old-snoozed', 'old-open-pr', 'old-unsynced-pr', 'bobs-prompted', 'found-opened', 'shared-old', 'shared-with-team', 'archived-then-shared', 'shared-recent-archived-then-shared']) {
       expect([sessionId, listed.has(sessionId)]).toEqual([sessionId, true])
     }
-    for (const sessionId of ['old-0', 'archived', 'old-snoozed-archived', 'old-merged-pr', 'bobs-recent', 'bobs-old-prompted', 'bobs-old-open-pr', 'shared-long-ago', 'shared-expired', 'shared-with-organization', 'shared-then-archived', 'child', 'old-child-snoozed']) {
+    for (const sessionId of ['old-0', 'archived', 'old-snoozed-archived', 'old-merged-pr', 'found-recent', 'bobs-recent', 'bobs-old-prompted', 'bobs-old-open-pr', 'shared-long-ago', 'shared-expired', 'shared-with-organization', 'shared-then-archived', 'child', 'old-child-snoozed']) {
       expect([sessionId, listed.has(sessionId)]).toEqual([sessionId, false])
     }
   })

@@ -1,9 +1,8 @@
 import { basename } from 'node:path'
-import { parseUserKey } from '@solus/contracts/user'
 import type { WebhookAction, WebhookDelivery, WebhookUrlMode } from '@solus/contracts/webhooks'
 import type { WebhookAdminDeliverySummary, WebhookAdminMirrorPayload, WebhookAdminRecord } from '@solus/contracts/webhook-admin'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
-import { hostUserId, isHostUserKey } from '../../host/host-user'
+import { cloudAccountOf } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { appendDelivery, deliveryActorOf, kindSupported } from '../delivery-queue'
 
@@ -30,12 +29,6 @@ export interface MirroredWebhook {
   updatedAt: number
 }
 
-/** The account that owns a webhook; null for a person with no account, whom the admin view cannot name. */
-function ownerAccountId(ownerKey: string): string | null {
-  const id = isHostUserKey(ownerKey) ? hostUserId() : parseUserKey(ownerKey)
-  return id?.kind === 'account' ? id.accountId : null
-}
-
 function queue(webhook: MirroredWebhook, key: string, payload: WebhookAdminMirrorPayload, registered: boolean): void {
   if (!registered || webhook.organizationId === LOCAL_ORGANIZATION_ID) return
   // A Solus API on an older release does not know the kind yet (delivery-queue.ts).
@@ -45,7 +38,8 @@ function queue(webhook: MirroredWebhook, key: string, payload: WebhookAdminMirro
 
 /** Queues a webhook's metadata after a save, or its removal after a delete. */
 export function mirrorWebhook(webhook: MirroredWebhook, options: { deleted?: boolean; registered: boolean; now?: number }): void {
-  const ownerUserId = ownerAccountId(webhook.ownerKey)
+  // Null for a person with no account, whom the admin view cannot name.
+  const ownerUserId = cloudAccountOf(webhook.ownerKey)
   if (!ownerUserId) {
     if (webhook.organizationId !== LOCAL_ORGANIZATION_ID) log.warn('webhook_mirror_owner_unknown', { webhookId: webhook.id })
     return

@@ -145,3 +145,26 @@ describe('a Claude pass', () => {
     expect(storedTexts('claude-thread')).toHaveLength(3)
   }, 20_000)
 })
+
+describe('a session the indexer finds', () => {
+  test('is history when its transcript predates this host process, and starts settled; a live one stays open', async () => {
+    // WHY (plans/031 D6): a fresh database rebuilt from the transcripts on disk
+    // listed 30 days of old sessions as open work, because their settle marks
+    // were in the database that was wiped. A transcript this host never ran is
+    // history; one written after the host started is a live run.
+    const meta = (sessionId: string, lastTimestamp: string) => ({
+      sessionId, provider: 'codex' as const, slug: null, firstMessage: 'go', lastTimestamp, size: 1, cwd: '/tmp/found', projectPath: '-tmp-found',
+    })
+    const old = '2026-10-01T00:00:00.000Z'
+    const live = new Date(Date.now() + 60_000).toISOString()
+    await indexer.cacheIndexedSessions([meta('found-old', old), meta('found-live', live)])
+    const settled = (sessionId: string) => getDb().prepare('SELECT settled_at, settled_by FROM session_records WHERE session_id = ?').get(sessionId)
+    expect(settled('found-old')).toEqual({ settled_at: Date.parse(old), settled_by: 'idle' })
+    expect(settled('found-live')).toEqual({ settled_at: null, settled_by: null })
+
+    // A later sweep of the same file never settles a row again: a person may have opened it since.
+    getDb().prepare('UPDATE session_records SET settled_at = NULL, settled_by = NULL WHERE session_id = ?').run('found-old')
+    await indexer.cacheIndexedSessions([meta('found-old', old)])
+    expect(settled('found-old')).toEqual({ settled_at: null, settled_by: null })
+  })
+})

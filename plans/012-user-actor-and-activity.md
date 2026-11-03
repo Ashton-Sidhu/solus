@@ -58,7 +58,7 @@ problems.
 | U2 | The email is part of `User`. It is not private. |
 | U3 | A user id names its kind: `account`, `local` or `guest`. No string sentinel and no `'you'` label is stored. |
 | U4 | `HOST_OWNER_USER_ID` is deleted. Its three jobs move: the owner with no account becomes a `local` user minted once per host; the machine's provider login becomes the `host-login` seat; records nobody claimed belong to the host's user. |
-| U5 | Linking a host moves the `local` user's rows to their account id, once. Unlinking is the reverse step. |
+| U5 | ~~Linking a host moves the `local` user's rows to their account id, once. Unlinking is the reverse step.~~ Replaced by plans/031 D1 (2026-11-03): the host's user keeps its `local` key; a link and an unlink rewrite no row, and the cloud boundary names the account. |
 | U6 | One `Attribution` union names every kind of doer. It replaces `TaskActor`, `WorkContentAuthor`, `CommentAuthor`, `CommentAgentAuthor`, `AutomationCreator` and string authors. |
 | U7 | Admission resolves the actor once and puts it on every request, for every domain: sessions, works, tasks, comments, sharing. Handlers and runtime methods take it. They do not convert the principal. |
 | U8 | One activity record for sessions, tasks and works. Task events move onto it. The notifications hub (D15, [plan 015](015-notifications-hub.md)) projects mention activity into its own recipient rows, keeping the activity id. |
@@ -132,8 +132,8 @@ Migration (one new migration file per engine):
 4. Comment and plan-comment authors: `'solus'` becomes a `system` attribution; `'you'`
    becomes the comment's stamped `person` when it has one, and otherwise the host's
    user. The separate `person` field goes.
-5. On link (U5): rewrite `local:<id>` to the owner's account id in the same columns, in
-   one transaction. On unlink, the reverse.
+5. ~~On link (U5): rewrite `local:<id>` to the owner's account id in the same columns, in
+   one transaction. On unlink, the reverse.~~ Removed by plans/031 D1: no row moves.
 
 The Solus API projections that answer `ownerUserId ?? 'host-owner'`
 (`data/sessions/api-operations.ts:33`, `data/tasks/api-operations.ts:27`,
@@ -405,11 +405,8 @@ place of "Host owner" and "you". Stages 5–8 are new behavior.
   threads in `plan_annotations.comments` and `work_annotations.data`.
   - `adoptHostUser` (boot, once, marked by `adoptedAt`): `host-owner` becomes the host's
     key in every column; every stored comment gets an attribution (migration steps 1, 2, 4).
-  - `followHostAccount(owner)`: the standing names the owner's account → every row of the
-    host's user moves to the account (U5). The link is removed → the rows in the Local
-    organization move back to `local:<id>`; organization records keep the account,
-    because the organization knows its people by account. One transaction for the rows,
-    then host settings. Moves run one at a time.
+  - `followHostAccount(owner)`: since plans/031 D1 it changes host settings and
+    credentials only. No row moves; `adoptHostUser` and the row moves are deleted.
 - Stored comments (`annotations/stored-comments.ts`): the host stores `author` and
   `resolvedBy` as an `Attribution`, with no `'you'` label and no `person` or
   `resolvedByPerson`. `'solus'` with an agent becomes `agent`, else `system`; `'you'`

@@ -9,6 +9,7 @@ import {
 } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../../db/database'
 import { getDb, withTx } from '../../db'
+import { isApiMode } from '../../host/api-mode'
 import { removeAttachmentFolder } from '../assets/attachment-store'
 import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
@@ -154,9 +155,16 @@ function readerViewJoin(reader: SessionPageReader): SQL {
 
 /**
  * Whether a session is in the reader's list (docs/plans/session-archive.md):
- * it is the reader's — they own it, or they prompted it (a prompt leaves their
- * personal-state row) — they did not archive it, and it was active recently, they snoozed it, or it
- * waits on an open pull request. Reads the `reader_view` row the page joins for the reader.
+ * it is the reader's — they own it and Solus started it, or they opened or
+ * prompted it (either leaves their personal-state row) — they did not archive
+ * it, and it was active recently, they snoozed it, or it waits on an open pull
+ * request. Reads the `reader_view` row the page joins for the reader.
+ *
+ * A session the indexer found on a host's disk (a provider CLI run, or a
+ * transcript older than the database) has no starter. It is the owner's, but
+ * it stays out of their list until they open it: search and the picker find it.
+ * The Solus API holds no found sessions, and a runner may send a record without
+ * its starter, so there ownership alone lists it.
  *
  * A direct share lists the session too, until the reader archives it; a grant
  * made after that archive lists it again (docs/plans/shared-with-you.md §2).
@@ -175,8 +183,11 @@ export function sessionListedClause(reader: SessionPageReader): SQL {
       WHERE resource_links.source_id = session_records.session_id AND resource_links.organization_id = session_records.organization_id AND ${OPEN_PULL_REQUEST}
     )
   )`
+  const owned = isApiMode()
+    ? sql`session_records.created_by = ${personKey ?? ''}`
+    : sql`(session_records.created_by = ${personKey ?? ''} AND session_records.started_by IS NOT NULL)`
   return sql`((reader_view.archived_at IS NULL
-  AND (session_records.created_by = ${personKey ?? ''} OR reader_view.created_by IS NOT NULL)
+  AND (${owned} OR reader_view.created_by IS NOT NULL)
   AND ${active})
   OR (${grantedAt} > COALESCE(reader_view.archived_at, -1)
   AND (${active} OR ${grantedAt} >= ${since})))`
@@ -491,10 +502,13 @@ export function upsertSessionRecord(organizationId: string, input: SessionRecord
 /**
  * The host's own writers — the indexer, the runtime — report what they saw of a
  * session on this disk. The row keeps the home it has; a session nobody
- * claimed or admitted yet starts as this machine's own (R9).
+ * claimed or admitted yet starts as this machine's own (R9). `bornSettled`
+ * applies only when the report creates the row: a transcript the indexer found,
+ * which no run of this host wrote, is history and starts settled at its last
+ * activity (plans/031 D6).
  */
-export function upsertOwnSessionRecord(input: SessionRecordUpsert): Promise<SessionRecord> {
-  return serialized(input.sessionId, () => upsertRecordNow(ANY_ORGANIZATION, input, null))
+export function upsertOwnSessionRecord(input: SessionRecordUpsert, options: { bornSettled?: boolean } = {}): Promise<SessionRecord> {
+  return serialized(input.sessionId, () => upsertRecordNow(ANY_ORGANIZATION, input, null, options.bornSettled ?? false))
 }
 
 /**
@@ -511,7 +525,7 @@ async function readStoredRecord(db: Db, scope: RecordScope, input: SessionRecord
   return { record: recordFromRow({ ...row, provider: row.provider ?? input.provider, project_path: row.project_path ?? input.projectPath }), startedAt: row.started_at }
 }
 
-async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, birth: SessionBirth | null): Promise<SessionRecord> {
+async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, birth: SessionBirth | null, bornSettled = false): Promise<SessionRecord> {
   const now = Date.now()
   const merged = await getDatabase().transaction(async (db) => {
     const stored = await readStoredRecord(db, scope, input)
@@ -525,7 +539,7 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         title, custom_title, status, model, reasoning_effort, parent_session_id, root_session_id,
         created_at, last_activity_at, size,
         cwd, slug, is_worktree, branch, project_root, delegation_message_id, delegation_depth, delegation_intent, delegation_created_at,
-        place, started_by
+        place, started_by, settled_at, settled_by
       ) VALUES (
         ${merged.sessionId}, ${merged.organizationId}, ${merged.ownerKey}, ${merged.publication}, ${now}, ${merged.provider}, ${merged.projectPath},
         ${merged.projectRemote}, ${merged.runnerHostId}, ${merged.title}, ${merged.customTitle}, ${merged.status},
@@ -533,7 +547,8 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         ${merged.createdAt}, ${merged.lastActivityAt}, ${merged.size},
         ${merged.cwd}, ${merged.slug}, ${merged.isWorktree ? 1 : 0}, ${merged.branch}, ${merged.projectRoot},
         ${merged.delegation?.messageId ?? null}, ${merged.delegation?.depth ?? null}, ${merged.delegation?.intent ?? null}, ${merged.delegation?.createdAt ?? null},
-        ${merged.place}, ${merged.startedBy ? JSON.stringify(merged.startedBy) : null}
+        ${merged.place}, ${merged.startedBy ? JSON.stringify(merged.startedBy) : null},
+        ${bornSettled ? merged.lastActivityAt : null}, ${bornSettled ? 'idle' : null}
       )
       ON CONFLICT(session_id) DO UPDATE SET
         started_at = COALESCE(session_records.started_at, excluded.started_at),

@@ -42,11 +42,6 @@ const exceptions: ReadonlySet<string> = new Set([
   'data/works/work-applier.ts -> sync/outbox/outbox-store.ts',
   'data/tasks/foreign-tasks.ts -> sync/outbox/outbox-store.ts',
   'data/tasks/linked-content.ts -> execution/agents/tools/session-tools.ts',
-  // The host user link rewrites comment thread authors through the thread
-  // reducers (plans/029 §5.2): the author and the replies live in JSON that raw
-  // SQL cannot rewrite the same way on both engines.
-  'host/host-user-rows.ts -> data/comments/comment-threads.ts',
-  'host/host-user-rows.ts -> data/comments/schema.ts',
 ])
 
 const specifierPattern = /(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"\n]+)['"]/g

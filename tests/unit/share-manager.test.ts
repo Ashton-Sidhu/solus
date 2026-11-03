@@ -160,14 +160,15 @@ describe('ownership', () => {
     }
   })
 
-  test('the personal host owner is an administrator: an editor of a member\'s resource, as a managed-host organization owner is', async () => {
-    // WHY (docs/plans/access-model.md §2.5): an administrator gets `editor` on every
-    // resource that is not personal, and `owner` only on what they own. This changes
-    // the earlier rule, where the host owner held `owner` on the whole disk.
+  test('the personal host owner owns every record on the disk; a managed-host organization owner edits it', async () => {
+    // WHY (docs/plans/access-model.md §2.3.1): what a host's own database holds is its
+    // owner's, whatever key the row names. A sign-out moves the owner to a new key and
+    // leaves an organization's rows on the account; those sessions must stay theirs, not
+    // read as shared with them. Only a read of the cloud filters by person and organization.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
     await seed('work', 'w1', 'bob', 'org1')
-    expect(await shares.roleFor(OWNER, work)).toBe('editor')
+    expect(await shares.roleFor(OWNER, work)).toBe('owner')
     expect(await shares.roleFor(member('admin', [], 'owner', 'managed'), work)).toBe('editor')
     expect(await shares.roleFor(member('admin', [], 'owner', 'personal'), work)).toBe('none')
   })
@@ -311,7 +312,7 @@ describe('one decision per check', () => {
   test('a role check reads the resource row and its entries, for everyone', async () => {
     // WHY: every request through the access policy asks for a role, and `roleOf`
     // decides it from the owner on the row and the ACL entries. The host owner
-    // reads them too: they own only what is theirs.
+    // reads them too, and owns every record on their disk.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
     await seed('work', 'w1', 'alice', 'org1')
@@ -322,7 +323,7 @@ describe('one decision per check', () => {
     expect(await database.tallyQueries(asMember, () => shares.roleFor(member('bob'), work))).toBe('editor')
     expect(asMember.queries).toBe(3)
     const asOwner = { queries: 0, queryMs: 0 }
-    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('editor')
+    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('owner')
     expect(asOwner.queries).toBe(3)
   })
 

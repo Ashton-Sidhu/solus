@@ -287,6 +287,7 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   void loadWorkspaceApp().catch(() => {})
   // The account origin is never a host; only a page a host serves asks whether it is one.
   const serving = accountShell ? null : await probeServingOrigin(location.origin)
+  if (serving?.servingId) serverConnections.setServingHostId(serving.servingId)
   // A catalog this browser already keeps is dialed now, and the directory refreshes it
   // when it answers; an empty one has nothing to dial until the directory answers.
   if (serverConnections.catalogServerIds().length === 0) await directory

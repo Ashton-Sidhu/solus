@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
-import { hostUserId, isHostUserKey } from '../host/host-user'
-import { parseUserKey } from '@solus/contracts/user'
+import { cloudAccountOf, isHostUserKey } from '../host/host-user'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { deliveryKindSchema, type DeliveryKind } from './runner-protocol'
 
@@ -78,13 +77,12 @@ function nextDeliverySeq(count = 1): number {
 }
 
 /**
- * Who delivers a record's rows: its owner when they are an account, which a
- * delegation names; else '' — the account that linked the host — for the host's
- * own records, whose owner is a host user with no account.
+ * Who delivers a record's rows: its owner when they are a person with their own
+ * account, which a delegation names; else '' — the account that linked the host —
+ * for the host's own records, whose owner is the host's user (plans/031 D4).
  */
 export function deliveryActorOf(ownerKey: string): string {
-  const hostUserWithoutAccount = isHostUserKey(ownerKey) && hostUserId()?.kind !== 'account'
-  return ownerKey === '' || hostUserWithoutAccount || parseUserKey(ownerKey).kind !== 'account' ? '' : ownerKey
+  return ownerKey === '' || isHostUserKey(ownerKey) ? '' : cloudAccountOf(ownerKey) ?? ''
 }
 
 /** Appends items of one kind for one destination in one transaction, each with its own sequence number. */

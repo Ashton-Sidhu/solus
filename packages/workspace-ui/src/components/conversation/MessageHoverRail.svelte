@@ -11,8 +11,7 @@
    * timestamp, then a copy control. A third affordance is a design error;
    * anything else belongs to the card's own menu.
    *
-   * The assistant copy control aligns with the first line of prose. The user
-   * rail remains bottom-aligned with its bubble.
+   * Both rails are bottom-aligned with their message.
    */
   interface Props {
     timestamp?: number;
@@ -54,7 +53,6 @@
 <div
   class="hover-rail flex flex-col {side === 'right' ? 'items-start' : 'items-end'}"
   class:is-right={side === "right"}
-  class:is-first-line={side === "left"}
   class:is-touch={runtime.isTouchDevice}
 >
   {#if label}
@@ -95,22 +93,6 @@
     left: 100%;
     margin-right: 0;
     margin-left: 0.625rem;
-  }
-
-  /* The assistant row has 0.125rem top padding and a 1.625 line-height on
-     14px type (a 1.42rem line box). Center the 1.375rem copy control on that
-     first line. Keep the timestamp above the control without letting it shift
-     the control down. */
-  .hover-rail.is-first-line {
-    top: 0.15rem;
-    bottom: auto;
-    gap: 0;
-  }
-
-  .hover-rail.is-first-line .hover-rail-time {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 0.25rem);
   }
 
   /* The hover target is the whole message row — the pointer never has to find a

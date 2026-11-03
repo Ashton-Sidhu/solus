@@ -6,6 +6,7 @@ import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/con
 import type { ShareDialogLog } from '@solus/contracts/sharing'
 import type { AccountSettingsPatchRequest, OrganizationSettingsPatchRequest } from '@solus/contracts/settings'
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
+import type { AccountHostListPatchRequest } from '@solus/contracts/host-list'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
@@ -106,6 +107,9 @@ const nativeApi: NativeSolusAPI = {
   accountAgentProfileGet: () => ipcRenderer.invoke('solus:account-agent-profile-get'),
   accountAgentProfilePatch: (request: AccountAgentProfilePatchRequest) => ipcRenderer.invoke('solus:account-agent-profile-patch', request),
   accountAgentProfileDelete: () => ipcRenderer.invoke('solus:account-agent-profile-delete'),
+  accountHostListGet: () => ipcRenderer.invoke('solus:account-host-list-get'),
+  accountHostListPatch: (request: AccountHostListPatchRequest) => ipcRenderer.invoke('solus:account-host-list-patch', request),
+  accountHostListDelete: () => ipcRenderer.invoke('solus:account-host-list-delete'),
   accountVault: () => ipcRenderer.invoke('solus:account-vault'),
   accountVaultConnect: (request: VaultConnectRequest) => ipcRenderer.invoke('solus:account-vault-connect', request),
   accountVaultSaveKey: (request: VaultSaveKeyRequest) => ipcRenderer.invoke('solus:account-vault-save-key', request),

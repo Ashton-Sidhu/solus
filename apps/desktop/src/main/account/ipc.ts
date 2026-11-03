@@ -10,6 +10,8 @@ import {
   organizationSettingsPatchRequestSchema,
 } from '@solus/contracts/settings'
 import { desktopAgentProfileRequests } from './agent-profile-client'
+import { desktopHostListRequests } from './host-list-client'
+import { accountHostListPatchRequestSchema } from '@solus/contracts/host-list'
 import { secureStorage } from '../secure-storage'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
@@ -36,6 +38,9 @@ export const ACCOUNT_CHANNELS = {
   accountAgentProfileGet: 'solus:account-agent-profile-get',
   accountAgentProfilePatch: 'solus:account-agent-profile-patch',
   accountAgentProfileDelete: 'solus:account-agent-profile-delete',
+  accountHostListGet: 'solus:account-host-list-get',
+  accountHostListPatch: 'solus:account-host-list-patch',
+  accountHostListDelete: 'solus:account-host-list-delete',
   accountVault: 'solus:account-vault',
   accountVaultConnect: 'solus:account-vault-connect',
   accountVaultSaveKey: 'solus:account-vault-save-key',
@@ -127,6 +132,14 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     return request.success ? agentProfile.accountAgentProfilePatch(request.data) : INVALID_REQUEST
   })
   ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileDelete, () => agentProfile.accountAgentProfileDelete())
+  // The host list document (plans/031 D7): the same three narrow calls.
+  const hostList = desktopHostListRequests(session)
+  ipcMain.handle(ACCOUNT_CHANNELS.accountHostListGet, () => hostList.accountHostListGet())
+  ipcMain.handle(ACCOUNT_CHANNELS.accountHostListPatch, (_event, rawRequest) => {
+    const request = accountHostListPatchRequestSchema.safeParse(rawRequest)
+    return request.success ? hostList.accountHostListPatch(request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.accountHostListDelete, () => hostList.accountHostListDelete())
   ipcMain.handle(ACCOUNT_CHANNELS.accountVault, () => agentProfile.accountVault())
   ipcMain.handle(ACCOUNT_CHANNELS.accountVaultConnect, (_event, rawRequest) => {
     const request = vaultConnectRequestSchema.safeParse(rawRequest)

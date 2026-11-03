@@ -20,6 +20,7 @@ export const delivery_queue = host.deliveryQueue.sqlite
 export const transcript_mirror_rows = host.transcriptMirrorRows.sqlite
 export const activity_mirror_rows = host.activityMirrorRows.sqlite
 export const kv = host.kv.sqlite
+export const host_list = host.hostList.sqlite
 export const projects = host.projects.sqlite
 export const member_folder = host.memberFolder.sqlite
 export const automations = host.automations.sqlite

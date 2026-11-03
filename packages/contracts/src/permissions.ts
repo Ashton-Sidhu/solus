@@ -57,6 +57,10 @@ const PERMISSION_OF_METHOD = {
   hostsListWslDistros: 'host.local.reach',
   hostsAddWsl: 'host.local.reach',
   hostsRemoveForwarded: 'host.local.reach',
+  // The owner's own list; the handler also refuses anyone but the host owner.
+  hostListRead: 'host.admin',
+  hostListPut: 'host.admin',
+  hostListRemove: 'host.admin',
   hostsLinkForwarded: 'host.local.reach',
   uplinkRegister: 'host.local.reach',
   uplinkLink: 'host.local.reach',

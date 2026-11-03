@@ -217,6 +217,17 @@ export const kv = defineTable('kv', {
   value: text(),
 })
 
+/**
+ * The hosts the owner connected to themselves while signed out (plans/031 D7): one
+ * row per host id, the listing as the contract names it (`HostListing`), never a
+ * credential. Signed in, the account document holds the list instead.
+ */
+export const hostList = defineTable('host_list', {
+  id: text({ primaryKey: true }),
+  listing: json({ notNull: true }),
+  last_connected: bigint({ notNull: true }),
+})
+
 export const projects = defineTable('projects', {
   key: text({ primaryKey: true }),
   path: text(),

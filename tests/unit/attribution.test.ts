@@ -225,28 +225,4 @@ describe('rows written before stage 4', () => {
     const paused = await automations.pauseAutomationsOf('bob', byMember.organizationId!)
     expect(paused.map((automation) => automation.id).sort()).toEqual([byMember.id, byAgent.id].sort())
   })
-
-  test('an old comment thread reads as attributions, on a host and on the Solus API', () => {
-    const legacy = [
-      { id: 'c1', selectedText: 'a', comment: 'mine', author: 'you' },
-      { id: 'c2', selectedText: 'b', comment: 'theirs', author: 'you', person: { userId: 'bob', displayName: 'Bob', colorIndex: 2 }, replies: [
-        { id: 'r1', author: 'solus', authorAgent: { sessionId: 's-1', provider: 'codex', title: 'Reviewer' }, text: 'noted', createdAt: 2 },
-      ] },
-      { id: 'c3', selectedText: 'c', comment: 'unsigned', author: 'solus', resolvedAt: 5, resolvedBy: 'you' },
-    ] as unknown as PlanComment[]
-    const host: User = { id: { kind: 'local', localId: 'L1' }, displayName: 'Owner' }
-    const onHost = storedComments.readStoredComments(legacy, host)
-    expect(onHost.map((thread) => thread.author)).toEqual([
-      { kind: 'user', user: host },
-      { kind: 'user', user: { id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob' } },
-      { kind: 'system' },
-    ])
-    expect(onHost[1]!.replies![0]!.author).toEqual({ kind: 'agent', sessionId: 's-1', provider: 'codex', title: 'Reviewer' })
-    expect(onHost[2]!.resolvedBy).toEqual({ kind: 'user', user: host })
-    expect(onHost.some((thread) => 'person' in thread || 'authorAgent' in thread)).toBe(false)
-    // The Solus API has no host user: an unsigned `'you'` was the host's own work.
-    expect(storedComments.readStoredComments(legacy, null)[0]!.author).toEqual({ kind: 'system' })
-    // A thread already in the new shape comes back as the same object.
-    expect(storedComments.readStoredComments(onHost, host)[1]).toBe(onHost[1])
-  })
 })

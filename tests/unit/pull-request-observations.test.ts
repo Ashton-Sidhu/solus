@@ -190,7 +190,7 @@ describe('the session list reads the bit', () => {
     const now = Date.now()
     const old = now - 60 * 24 * 60 * 60_000
     for (const [sessionId, state] of [['open-pr', 'open'], ['unsynced-pr', null], ['merged-pr', 'merged'], ['dismissed-pr', 'open']] as const) {
-      await sessionRecords.upsertSessionRecord('local', { sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt: old, createdAt: old }, { organizationId: 'local', ownerKey: 'alice' })
+      await sessionRecords.upsertSessionRecord('local', { sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt: old, createdAt: old, startedBy: { kind: 'person', personKey: 'alice' } }, { organizationId: 'local', ownerKey: 'alice' })
       await sessionPrs.linkSessionPullRequest(sessionId, { url: url(sessionId.length), source: 'manual', by: PERSON })
       if (state) await sessionPrs.recordSessionPullRequestObservation(REPO, sessionId.length, observed(state))
     }

@@ -10,9 +10,8 @@ import { seedResource } from './helpers/resource-rows'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/012-user-actor-and-activity.md §1: one user id per person. The host's owner
-// is a `local` user minted once; the rows that named them by the `host-owner`
-// sentinel, and the comments that said `'you'`, move to that user at boot; linking
-// moves them to the owner's account, and unlinking moves the Local ones back.
+// is a `local` user minted once, and that key never changes (plans/031 D1): a link
+// to the owner's account and an unlink rewrite no row.
 
 describe('user ids', () => {
   const ids: UserId[] = [
@@ -33,15 +32,14 @@ describe('user ids', () => {
   })
 })
 
-describe('the host user rows', () => {
+describe('a link and an unlink of the owner\'s account', () => {
   let dataDir: string
   const previousDataDir = process.env.SOLUS_DATA_DIR
   let database: typeof import('@solus/server/db/database')
   let rows: typeof import('@solus/server/host/host-user-rows')
   let hostUserModule: typeof import('@solus/server/host/host-user')
   let actors: typeof import('@solus/server/admission/actor')
-  let workAnnotations: typeof import('@solus/server/data/works/work-annotations')
-  let planAnnotations: typeof import('@solus/server/plans/annotations')
+  let access: typeof import('@solus/server/admission/access')
   let settings: typeof import('@solus/server/host/settings')
   let closeDb: () => void
 
@@ -52,10 +50,11 @@ describe('the host user rows', () => {
     rows = await import('@solus/server/host/host-user-rows')
     hostUserModule = await import('@solus/server/host/host-user')
     actors = await import('@solus/server/admission/actor')
-    workAnnotations = await import('@solus/server/data/works/work-annotations')
-    planAnnotations = await import('@solus/server/plans/annotations')
+    access = await import('@solus/server/admission/access')
     settings = await import('@solus/server/host/settings')
     ;({ closeDb } = await import('@solus/server/db'))
+    hostUserModule.useHostUser({ localId: 'L1' })
+    settings.setHostUserSettings({ localId: 'L1' })
   })
 
   afterAll(async () => {
@@ -68,167 +67,64 @@ describe('the host user rows', () => {
     else process.env.SOLUS_DATA_DIR = previousDataDir
   })
 
+  const OWNER = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' } as const
 
-  async function notificationRows(): Promise<[string, string, number | null][]> {
-    const found = await database.getDatabase().all<{ id: string; user_id: string; read_at: number | null }>(sql`SELECT id, user_id, read_at FROM notifications ORDER BY id`)
-    return found.map((row) => [row.id, row.user_id, row.read_at === null ? null : Number(row.read_at)])
+  async function owners(): Promise<string[]> {
+    const found = await database.getDatabase().all<{ id: string; owner: string }>(sql`
+      SELECT id, created_by AS owner FROM works UNION ALL SELECT session_id, created_by FROM session_records ORDER BY id`)
+    return found.map((row) => `${row.id}=${row.owner}`)
   }
 
-  async function seed(): Promise<void> {
+  async function personalOwners(): Promise<string[]> {
+    const found = await database.getDatabase().all<{ resource_id: string; created_by: string }>(sql`
+      SELECT resource_id, created_by FROM personal_resource_state ORDER BY resource_id`)
+    return found.map((row) => `${row.resource_id}=${row.created_by}`)
+  }
+
+  test('rewrite no row: the owner keeps their key, their organization session, and its archive', async () => {
+    // WHY (plans/031 D1): a sign-out once moved only the Local rows back, so the owner's
+    // organization sessions kept the account key and read as "Shared with you". With one
+    // key nothing moves, so nothing can be left behind.
     const db = database.getDatabase()
-    await seedResource(db, 'work', 'w-local', 'host-owner')
-    await seedResource(db, 'session', 's-org', 'host-owner', 'org1')
+    await seedResource(db, 'work', 'w-local', 'local:L1')
+    await seedResource(db, 'session', 's-org', 'local:L1', 'org1')
     await seedResource(db, 'work', 'w-bob', 'bob')
-    await db.run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, created_by, created_at, organization_id) VALUES
-      ('g1', 'work', 'w-local', 'user', 'bob', 'viewer', 'host-owner', 1, 'local')`)
-    await seedResource(db, 'session', 's-local', 'host-owner')
-    await db.run(sql`INSERT INTO personal_resource_state (organization_id, resource_kind, resource_id, created_by, archived_at) VALUES
-      ('org1', 'session', 's-org', 'host-owner', 1)`)
-    // The owner's notifications (plans/015): one Local, one of an organization, one read.
-    await db.run(sql`INSERT INTO notifications (id, organization_id, user_id, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at) VALUES
-      ('n-local', 'local', 'host-owner', 'e1', 'task.assigned', 'task:t1', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t1"}', '{"kind":"system"}', '{"title":"t"}', 1, 7),
-      ('n-org', 'org1', 'host-owner', 'e2', 'task.assigned', 'task:t2', '{"kind":"task.assigned"}', '{"kind":"task","taskId":"t2"}', '{"kind":"system"}', '{"title":"t"}', 1, NULL)`)
-    // The host's own threads name its local user; a read mark from before users had ids holds the sentinel.
-    const owner = { kind: 'user', user: { id: { kind: 'local', localId: 'L1' }, displayName: 'Host owner' } }
-    const bob = { kind: 'user', user: { id: parseUserKey('bob'), displayName: 'Bob' } }
-    const agent = { kind: 'agent', sessionId: 's-1', provider: 'codex', title: 'Reviewer' }
-    const thread = (subject: [string, string, string], id: string, position: number, author: object, review: object, createdBy = 'local:L1') => sql`
-      INSERT INTO comment_threads (organization_id, subject_kind, subject_id, subject_part, thread_id, body, created_by, author, source, created_at, updated_at, position, review) VALUES
-      ('local', ${subject[0]}, ${subject[1]}, ${subject[2]}, ${id}, 'note', ${createdBy}, ${JSON.stringify(author)}, 'local', 1, 1, ${position}, ${JSON.stringify(review)})`
-    // A thread made before the host had a user: its creator is the sentinel the boot move replaces.
-    await db.run(thread(['work', 'w-local', ''], 'c-owner', 1, owner, { selectedText: 'a', readBy: [{ userId: 'local:L1', readAt: 5 }] }, 'host-owner'))
-    await db.run(thread(['work', 'w-local', ''], 'c-bob', 2, bob, { selectedText: 'b', replies: [{ id: 'r-agent', author: agent, text: 'noted', createdAt: 2 }] }))
-    await db.run(thread(['work', 'w-local', ''], 'c-anon', 3, owner, { selectedText: 'c', resolvedAt: 9, resolvedBy: owner }))
-    await db.run(sql`INSERT INTO plan_annotations (session_id, plan_tool_use_id, status, title, bookmarked, project_path, cwd, updated_at, organization_id, comment_position) VALUES
-      ('s-local', 'tool-1', 'pending', 'Plan', 0, '/p', '/p', 1, 'local', 2)`)
-    await db.run(thread(['plan', 's-local', 'tool-1'], 'p-you', 1, owner, { selectedText: 'x' }))
-    await db.run(thread(['plan', 's-local', 'tool-1'], 'p-solus', 2, { kind: 'system' }, { selectedText: 'y' }))
-  }
-
-  /** The key a record the local owner makes is owned under. */
-  function localOwnerKey(): string | null {
-    return actors.ownerKeyOf(actors.actorFor({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }))
-  }
-
-  /** The owner on the resource's own row (docs/plans/access-model.md §2.2). */
-  async function ownerOf(resourceId: string): Promise<string | undefined> {
-    const row = await database.getDatabase().get<{ owner: string }>(sql`
-      SELECT created_by AS owner FROM works WHERE id = ${resourceId}
-      UNION ALL SELECT created_by FROM tasks WHERE id = ${resourceId}
-      UNION ALL SELECT created_by FROM session_records WHERE session_id = ${resourceId}`)
-    return row?.owner
-  }
-
-  async function storedWorkThreads(): Promise<Array<{ id: string; createdBy: string; author: unknown; readBy?: Array<{ userId: string }> }>> {
-    const found = await database.getDatabase().all<{ thread_id: string; created_by: string; author: string; review: string }>(sql`
-      SELECT thread_id, created_by, author, review FROM comment_threads WHERE subject_kind = 'work' AND subject_id = 'w-local' ORDER BY position`)
-    return found.map((row) => ({ id: row.thread_id, createdBy: row.created_by, author: JSON.parse(row.author), readBy: JSON.parse(row.review).readBy }))
-  }
-
-  test('boot moves the sentinel rows and the old comment authors to the local user, once', async () => {
-    await seed()
-    await rows.adoptHostUser(database.getDatabase(), { localId: 'L1' })
-
-    expect(await ownerOf('w-local')).toBe('local:L1')
-    expect(await ownerOf('s-org')).toBe('local:L1')
-    expect(await ownerOf('w-bob')).toBe('bob')
-    const grant = await database.getDatabase().get<{ subject_id: string; created_by: string }>(sql`SELECT subject_id, created_by FROM acl_entry WHERE id = 'g1'`)
-    expect(grant).toEqual({ subject_id: 'bob', created_by: 'local:L1' })
-    expect(await ownerOf('s-local')).toBe('local:L1')
-    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM personal_resource_state WHERE resource_id = 's-org'`))?.owner_key).toBe('local:L1')
-
-    // The sentinel read mark moved to the host's user; every author stays who it was.
-    const stored = await storedWorkThreads()
-    expect(stored.map((thread) => thread.author)).toEqual([
-      { kind: 'user', user: expect.objectContaining({ id: { kind: 'local', localId: 'L1' } }) },
-      { kind: 'user', user: { id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob' } },
-      { kind: 'user', user: expect.objectContaining({ id: { kind: 'local', localId: 'L1' } }) },
-    ])
-    expect(stored[0]!.readBy).toEqual([{ userId: 'local:L1', readAt: 5 }])
-    expect(stored.map((thread) => thread.createdBy)).toEqual(['local:L1', 'local:L1', 'local:L1'])
-
-    // The wire carries the same attributions: the member keeps their name, the agent its signature (plans/012 stage 4).
-    const wire = (await workAnnotations.loadWorkAnnotations('local', 'w-local'))!.comments
-    expect(wire[1]!.author).toEqual({ kind: 'user', user: { id: parseUserKey('bob'), displayName: 'Bob' } })
-    expect(wire[1]!.replies![0]!.author).toEqual({ kind: 'agent', sessionId: 's-1', provider: 'codex', title: 'Reviewer' })
-    expect(wire[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
-    expect(wire[2]!.resolvedBy).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
-    const plan = (await planAnnotations.loadAnnotations('local', 's-local', 'tool-1'))!
-    expect(plan.comments.map((comment) => comment.author)).toEqual([
-      { kind: 'user', user: expect.objectContaining({ id: { kind: 'local', localId: 'L1' } }) },
-      { kind: 'system' },
-    ])
-
-    // New rows for the owner are written under the same key.
-    expect(localOwnerKey()).toBe('local:L1')
-    expect(settings.getServerSettings().hostUser).toMatchObject({ localId: 'L1', adoptedAt: expect.any(Number) })
-
-    // A second boot finds the mark and leaves a row written since alone.
-    await seedResource(database.getDatabase(), 'task', 't-late', 'host-owner')
-    await rows.adoptHostUser(database.getDatabase(), settings.getServerSettings().hostUser!)
-    expect(await ownerOf('t-late')).toBe('host-owner')
-    await database.getDatabase().run(sql`DELETE FROM tasks WHERE id = 't-late'`)
-  })
-
-  test('linking moves every row of the local user to the owner account', async () => {
-    // The account already holds an entry on a work the local user owns: as its owner now, the entry would repeat the owner and goes.
-    await database.getDatabase().run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, created_by, created_at, organization_id) VALUES ('g-acc', 'work', 'w-local', 'user', 'acc-1', 'viewer', 'bob', 1, 'local')`)
-    await rows.followHostAccount(database.getDatabase(), { userId: 'acc-1', name: 'Ashton', email: 'a@example.com' })
-
-    expect(await ownerOf('w-local')).toBe('acc-1')
-    expect(await database.getDatabase().get(sql`SELECT id FROM acl_entry WHERE id = 'g-acc'`)).toBeUndefined()
-    expect(await ownerOf('s-org')).toBe('acc-1')
-    expect(await ownerOf('w-bob')).toBe('bob')
-    expect(localOwnerKey()).toBe('acc-1')
-    const stored = await storedWorkThreads()
-    expect(stored[0]!.author).toEqual({ kind: 'user', user: { id: { kind: 'account', accountId: 'acc-1' }, displayName: 'Ashton', email: 'a@example.com' } })
-    expect(stored[0]!.readBy).toEqual([{ userId: 'acc-1', readAt: 5 }])
-    // The thread's creator column follows the person, as every `created_by` does.
-    expect(stored.map((thread) => thread.createdBy)).toEqual(['acc-1', 'acc-1', 'acc-1'])
-    expect(settings.getServerSettings().hostUser?.account).toEqual({ accountId: 'acc-1', displayName: 'Ashton', email: 'a@example.com' })
-    expect(await notificationRows()).toEqual([['n-local', 'acc-1', 7], ['n-org', 'acc-1', null]])
-  })
-
-  test('unlinking moves the Local rows back; an organization keeps the account', async () => {
-    await rows.followHostAccount(database.getDatabase(), null)
-
-    expect(await ownerOf('w-local')).toBe('local:L1')
-    expect(await ownerOf('s-local')).toBe('local:L1')
-    expect(await ownerOf('s-org')).toBe('acc-1')
-    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT created_by AS owner_key FROM personal_resource_state WHERE resource_id = 's-org'`))?.owner_key).toBe('acc-1')
-    expect((await storedWorkThreads())[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
-    expect(localOwnerKey()).toBe('local:L1')
-    expect(settings.getServerSettings().hostUser?.account).toBeUndefined()
-    expect(await notificationRows()).toEqual([['n-local', 'local:L1', 7], ['n-org', 'acc-1', null]])
-  })
-
-  test('the owner\'s MCP servers, connections, and tokens follow them to their account; at the unlink the servers come back and no credential does', async () => {
-    // WHY: the owner is a person with a user key like a member (docs/plans/mcp-integrations.md §4.1).
-    // Linking changes that key; a server or sign-in left under the old one is one nobody acts as.
-    // Unlinked, the host keeps nothing for the person (docs/plans/cloud-vault.md §2.5).
-    const { Vault } = await import('@solus/server/vault/vault')
-    // The host's own vault, reading the same secret store the move writes.
-    const vault = new Vault()
-    const own = { kind: 'mcp', integrationId: 'i-own', serverUrl: 'https://mcp.pscale.dev/mcp/planetscale' } as const
-    const db = database.getDatabase()
-    await db.run(sql`INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, created_at, updated_at) VALUES ('i-own', 'local', 'local:L1', 'mcp', 'planetscale', 'PlanetScale', 'https://mcp.pscale.dev/mcp/planetscale', '{"kind":"none"}', '1', '1')`)
-    await db.run(sql`INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, created_at, updated_at) VALUES ('i-bobs', 'local', 'bob', 'mcp', 'linear', 'Linear', 'https://mcp.linear.app/mcp', '{"kind":"none"}', '1', '1')`)
-    await db.run(sql`INSERT INTO integration_connection (integration_id, user_id, status, source, label, info, error, updated_at) VALUES ('i-own', 'local:L1', 'connected', 'host', NULL, NULL, NULL, '1'), ('i-bobs', 'bob', 'connected', 'host', NULL, NULL, NULL, '1')`)
-    vault.save('local:L1', own, { accessToken: 'owner-token', tokenType: 'Bearer' })
-    const owners = async () => (await db.all<{ id: string; created_by: string }>(sql`SELECT id, created_by FROM integration ORDER BY id`)).map((row) => [row.id, row.created_by])
-    const connected = async () => (await db.all<{ integration_id: string; user_id: string }>(sql`SELECT integration_id, user_id FROM integration_connection ORDER BY integration_id`)).map((row) => [row.integration_id, row.user_id])
+    await db.run(sql`INSERT INTO personal_resource_state (organization_id, resource_kind, resource_id, created_by, archived_at) VALUES ('org1', 'session', 's-org', 'local:L1', 1)`)
+    const before = { owners: await owners(), personal: await personalOwners() }
+    const orgSession = { kind: 'session' as const, id: 's-org', organizationId: 'org1', ownerKey: 'local:L1', acl: [] }
 
     await rows.followHostAccount(db, { userId: 'acc-1', name: 'Ashton', email: 'a@example.com' })
-    // Another person's server and sign-in stay theirs.
-    expect(await owners()).toEqual([['i-bobs', 'bob'], ['i-own', 'acc-1']])
-    expect(await connected()).toEqual([['i-bobs', 'bob'], ['i-own', 'acc-1']])
-    expect(await vault.read('acc-1', own)).toMatchObject({ location: 'host', token: { accessToken: 'owner-token' } })
-    expect(await vault.read('local:L1', own)).toBeNull()
+    expect({ owners: await owners(), personal: await personalOwners() }).toEqual(before)
+    expect(actors.ownerKeyOf(actors.actorFor(OWNER))).toBe('local:L1')
+    expect(access.roleOf(actors.actorFor(OWNER), orgSession)).toBe('owner')
+    expect(settings.getServerSettings().hostUser).toEqual({ localId: 'L1', account: { accountId: 'acc-1', displayName: 'Ashton', email: 'a@example.com' } })
+    // The cloud boundary names the account (plans/031 D4).
+    expect(hostUserModule.cloudAccountOf('local:L1')).toBe('acc-1')
 
     await rows.followHostAccount(db, null)
-    expect(await owners()).toEqual([['i-bobs', 'bob'], ['i-own', 'local:L1']])
+    expect({ owners: await owners(), personal: await personalOwners() }).toEqual(before)
+    expect(actors.ownerKeyOf(actors.actorFor(OWNER))).toBe('local:L1')
+    expect(access.roleOf(actors.actorFor(OWNER), orgSession)).toBe('owner')
+    expect(settings.getServerSettings().hostUser).toEqual({ localId: 'L1' })
+    expect(hostUserModule.cloudAccountOf('local:L1')).toBeNull()
+  })
+
+  test('an unlink leaves the host none of the owner\'s connections; another person\'s stay', async () => {
+    // WHY (docs/plans/cloud-vault.md §2.5): unlinked, the host keeps nothing for the person.
+    const db = database.getDatabase()
+    await db.run(sql`INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, created_at, updated_at) VALUES
+      ('i-own', 'local', 'local:L1', 'mcp', 'planetscale', 'PlanetScale', 'https://mcp.pscale.dev/mcp/planetscale', '{"kind":"none"}', '1', '1'),
+      ('i-bobs', 'local', 'bob', 'mcp', 'linear', 'Linear', 'https://mcp.linear.app/mcp', '{"kind":"none"}', '1', '1')`)
+    await db.run(sql`INSERT INTO integration_connection (integration_id, user_id, status, source, label, info, error, updated_at) VALUES
+      ('i-own', 'local:L1', 'connected', 'host', NULL, NULL, NULL, '1'), ('i-bobs', 'bob', 'connected', 'host', NULL, NULL, NULL, '1')`)
+    const connected = async () => (await db.all<{ integration_id: string; user_id: string }>(sql`SELECT integration_id, user_id FROM integration_connection ORDER BY integration_id`)).map((row) => [row.integration_id, row.user_id])
+    const servers = async () => (await db.all<{ id: string; created_by: string }>(sql`SELECT id, created_by FROM integration ORDER BY id`)).map((row) => [row.id, row.created_by])
+
+    await rows.followHostAccount(db, { userId: 'acc-1' })
+    expect(await connected()).toEqual([['i-bobs', 'bob'], ['i-own', 'local:L1']])
+    await rows.followHostAccount(db, null)
     expect(await connected()).toEqual([['i-bobs', 'bob']])
-    expect(await vault.read('local:L1', own)).toBeNull()
-    expect(await vault.read('acc-1', own)).toMatchObject({ location: 'account' })
+    // The server definitions are records, and stay the owner's.
+    expect(await servers()).toEqual([['i-bobs', 'bob'], ['i-own', 'local:L1']])
   })
 })
