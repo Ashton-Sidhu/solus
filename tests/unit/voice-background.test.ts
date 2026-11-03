@@ -59,7 +59,7 @@ test('a desktop recording survives hiding; a browser retains its cancel-on-hide 
   } finally { runes.dispose() }
 })
 
-test('streaming keeps the existing stop-on-silence threshold', async () => {
+test('streaming previews text before silence stops recording and commits only the final transcript', async () => {
   const runes = new SvelteRunes()
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
   const workletDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'AudioWorkletNode')
@@ -75,10 +75,13 @@ test('streaming keeps the existing stop-on-silence threshold', async () => {
         async start() {} stop() {}
       }
       export const calls = { fed: 0, finished: 0, offline: 0 }
+      export function observePartial(recorder, notify) {
+        return $effect.root(() => { $effect(() => notify(recorder.partialTranscript)) })
+      }
       export const api = {
         async warmTranscription() {},
         async voiceStreamStart() { return { streamId: 'stream' } },
-        async voiceStreamFeed(request) { calls.fed += request.samples.length; return { stable: '', tentative: '' } },
+        async voiceStreamFeed(request) { calls.fed += request.samples.length; return { stable: 'kept ', tentative: 'record' } },
         async voiceStreamFinish() { calls.finished++; return { error: null, transcript: 'kept recording' } },
         async voiceStreamCancel() {},
         async transcribeAudio() { calls.offline++; return { error: null, transcript: 'offline' } },
@@ -101,19 +104,30 @@ test('streaming keeps the existing stop-on-silence threshold', async () => {
     const recorder = new VoiceRecorder(() => 1500)
     let completed!: () => void
     const idle = new Promise<void>(resolve => { completed = resolve })
-    let transcript = ''
-    recorder.onTranscript = (text: string) => { transcript = text }
+    const transcripts: string[] = []
+    recorder.onTranscript = (text: string) => { transcripts.push(text) }
     recorder.onIdle = completed
     await recorder.start()
     expect(recorder.state).toBe('recording')
     const capture = harness.PcmCapture.current
+    let partialReceived!: () => void
+    const partial = new Promise<void>(resolve => { partialReceived = resolve })
+    const stopObserving = harness.observePartial(recorder, (value: { tentative: string }) => {
+      if (value.tentative) partialReceived()
+    })
     capture.emit({ samples: new Float32Array(4000).fill(0.1), rms: 0.1 })
+    await partial
+    stopObserving()
+    expect(recorder.partialTranscript).toEqual({ stable: 'kept ', tentative: 'record' })
+    expect(recorder.state).toBe('recording')
+    expect(transcripts).toEqual([])
     for (let i = 0; i < 5; i++) capture.emit({ samples: new Float32Array(4000), rms: 0 })
     expect(recorder.state).toBe('recording')
     capture.emit({ samples: new Float32Array(4000), rms: 0 })
     await idle
     expect(recorder.state).toBe('idle')
-    expect(transcript).toBe('kept recording')
+    expect(transcripts).toEqual(['kept recording'])
+    expect(recorder.partialTranscript).toEqual({ stable: '', tentative: '' })
     expect(harness.calls).toEqual({ fed: 28_000, finished: 1, offline: 0 })
     recorder.dispose()
   } finally {

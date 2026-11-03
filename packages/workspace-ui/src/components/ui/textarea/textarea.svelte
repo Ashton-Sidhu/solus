@@ -83,6 +83,7 @@
 			variant="field"
 			state={field.micState}
 			rmsRef={field.rmsRef}
+			partial={field.partialTranscript}
 			showMic={micShown}
 			micTextarea
 			disabled={field.micDisabled}

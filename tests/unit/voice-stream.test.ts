@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { VoiceStreamSession, type VoiceStreamApi } from '@solus/workspace-ui/lib/voice-stream'
 import { voiceStreamFeedSchema } from '@solus/contracts/voice-stream'
+import type { VoicePartial } from '@solus/contracts/voice-stream'
 
 const streamId = 'd69aff07-f085-4bca-8613-29bab2b4ad31'
 function deferred<T>() {
@@ -90,4 +91,69 @@ test('wire audio accepts bounded finite PCM only', () => {
   expect(voiceStreamFeedSchema.safeParse({ streamId, samples: [0, -1, 1] }).success).toBe(true)
   for (const samples of [[], [NaN], [Infinity], [1.1], new Array(16_001).fill(0)])
     expect(voiceStreamFeedSchema.safeParse({ streamId, samples }).success).toBe(false)
+})
+
+test('partial snapshots replace tentative words and unchanged feeds do not repaint', async () => {
+  const received: VoicePartial[] = []
+  const snapshots: VoicePartial[] = [
+    { stable: '', tentative: 'open the cat' },
+    { stable: '', tentative: 'open the cat' },
+    { stable: 'open the ', tentative: 'calendar' },
+  ]
+  let index = 0
+  const stream = new VoiceStreamSession({
+    voiceStreamStart: async () => ({ streamId }),
+    voiceStreamFeed: async () => snapshots[index++],
+    voiceStreamFinish: async () => ({ error: null, transcript: 'Open the calendar.' }),
+    voiceStreamCancel: async () => {},
+  }, partial => received.push(partial))
+  for (const _ of snapshots) stream.feed(Float32Array.of(0.25))
+  expect(await stream.finish()).toEqual({ error: null, transcript: 'Open the calendar.' })
+  expect(received).toEqual([snapshots[0], snapshots[2]])
+})
+
+test('cancel clears a live preview and discards a later feed reply', async () => {
+  const received: VoicePartial[] = []
+  const pending = deferred<VoicePartial>()
+  const secondStarted = deferred<void>()
+  let feeds = 0
+  const stream = new VoiceStreamSession({
+    voiceStreamStart: async () => ({ streamId }),
+    voiceStreamFeed: async () => {
+      if (++feeds === 1) return { stable: '', tentative: 'first words' }
+      secondStarted.resolve()
+      return pending.promise
+    },
+    voiceStreamFinish: async () => { throw new Error('Cancelled recording must not finalize') },
+    voiceStreamCancel: async () => {},
+  }, partial => received.push(partial))
+  stream.feed(Float32Array.of(0.25))
+  stream.feed(Float32Array.of(0.5))
+  await secondStarted.promise
+  stream.cancel()
+  pending.resolve({ stable: 'late text', tentative: '' })
+  await expect(stream.finish()).rejects.toThrow('cancelled')
+  expect(received).toEqual([
+    { stable: '', tentative: 'first words' },
+    { stable: '', tentative: '' },
+  ])
+})
+
+test('audio queued just after a partial reply drains before finalization', async () => {
+  const firstPartial = deferred<void>()
+  const fed: number[] = []
+  const stream = new VoiceStreamSession({
+    voiceStreamStart: async () => ({ streamId }),
+    voiceStreamFeed: async ({ samples }) => {
+      fed.push(samples[0])
+      return { stable: '', tentative: 'preview' }
+    },
+    voiceStreamFinish: async () => ({ error: null, transcript: 'final' }),
+    voiceStreamCancel: async () => {},
+  }, () => firstPartial.resolve())
+  stream.feed(Float32Array.of(0.25))
+  await firstPartial.promise
+  stream.feed(Float32Array.of(0.5))
+  await stream.finish()
+  expect(fed).toEqual([0.25, 0.5])
 })

@@ -40,7 +40,14 @@ client. Another client cannot feed, finalize, or cancel it.
 Feeds are serial. The renderer caps queued audio at ten seconds and retains a
 separate complete clip. The native helper uses buffered streaming, with the
 model's default 5.6 s left context, 1.04 s chunk, and 1.04 s lookahead. Partial
-text is returned by the RPC; this change does not add a live text display.
+text is returned by the RPC and displayed while recording. The preview replaces
+the waveform once text arrives. Stable words retain their normal color;
+tentative words use a muted color and can change on the next model update.
+The composer keeps its draft intact until the final transcript is inserted or
+sent once. Cancel clears the preview, and late stream replies cannot restore it.
+Desktop and web share this behavior in the conversation composer, prompt
+composers, prose editors, and text fields. CPU fallback keeps the waveform and
+returns text after recording stops; it does not produce live partial text.
 
 The helper retains the audio and uses whole-clip inference if streaming is
 unsupported, fails, or returns no text. If the worker or transport fails, the

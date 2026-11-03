@@ -110,6 +110,7 @@
 			variant="field"
 			state={field.micState}
 			rmsRef={field.rmsRef}
+			partial={field.partialTranscript}
 			showMic={micShown}
 			disabled={field.micDisabled}
 			idleTooltip={field.idleMicTooltip}

@@ -125,6 +125,10 @@ class Dictation {
     return this.#voice.rmsRef
   }
 
+  get partialTranscript() {
+    return this.#voice.partialTranscript
+  }
+
   setAutoRearm(fn: (() => boolean) | null): void {
     this.#autoRearmFn = fn
   }

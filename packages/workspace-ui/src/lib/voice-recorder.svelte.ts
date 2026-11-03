@@ -1,4 +1,5 @@
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
+import type { VoicePartial } from '@solus/contracts/voice-stream'
 import { VoiceStreamSession } from './voice-stream'
 import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
@@ -67,6 +68,7 @@ export class VoiceRecorder {
   state = $state<VoiceState>('idle')
   error = $state<string | null>(null)
   errorKind = $state<VoiceErrorKind>(null)
+  partialTranscript = $state.raw<VoicePartial>({ stable: '', tentative: '' })
   readonly rmsRef = { current: 0 }
 
   #cancelled = false
@@ -111,6 +113,7 @@ export class VoiceRecorder {
       return
     }
     const generation = ++this.#startGeneration
+    this.partialTranscript = { stable: '', tentative: '' }
     this.starting = true
     this.#setError(null, null)
     this.#cancelled = false
@@ -164,6 +167,7 @@ export class VoiceRecorder {
 
   cancel(): void {
     this.#cancelled = true
+    this.partialTranscript = { stable: '', tentative: '' }
     this.#stream?.cancel()
     this.#startGeneration++
     if (this.starting) this.starting = false
@@ -238,7 +242,10 @@ export class VoiceRecorder {
     }
 
     if (hosts.transcription?.capabilityRecord?.voiceStreaming && this.#recordingHost)
-      this.#stream = new VoiceStreamSession(this.#recordingHost)
+      this.#stream = new VoiceStreamSession(this.#recordingHost, (partial) => {
+        if (generation !== this.#startGeneration || this.#cancelled || !this.#speechDetected) return
+        this.partialTranscript = partial
+      })
     this.state = 'recording'
     this.starting = false
     this.#recordingStartedAtMs = performance.now()
@@ -362,6 +369,7 @@ export class VoiceRecorder {
     this.#capture = null
     this.#stream?.cancel()
     this.#stream = null
+    this.partialTranscript = { stable: '', tentative: '' }
     this.#recordingHost = null
     this.#buffer = []
     this.#speechDetected = false
