@@ -1,24 +1,16 @@
-import {
-  hostKeyLock,
-  managedSettingLines,
-  permissionCeiling,
-  sessionPolicy,
-  updatesManagedMessage,
-  type SessionPolicy,
-} from '@solus/client-core/policy'
+import { managedSettingLines } from '@solus/client-core/policy'
+import { HostPolicies, type WorkPolicy } from '@solus/contracts/host-policies'
 import {
   isPermissionModeAbove,
   LOCAL_POLICY_ORGANIZATION_ID,
   MANAGED_HOST_KEYS,
   MANAGED_SESSION_SETTING_KEYS,
+  permissionCeilingMessage,
   policySourceLabel,
-  resolveSessionLimit,
-  resolveSessionSetting,
   type ManagedHostKey,
   type ManagedHostSettings,
   type ManagedSessionSettingKey,
   type ManagedSessionSettings,
-  type PolicySet,
   type PolicySource,
 } from '@solus/contracts/policy'
 import { MODEL_PROFILES, type AgentId, type PermissionMode } from '@solus/contracts/types'
@@ -27,20 +19,19 @@ import { PERMISSION_MODE_TEXT } from '../../conversation/lib/run-settings'
 /**
  * What the native app shows of a host's policies (plans/030 §7). The host
  * enforces every rule; these only say what is locked and who locks it, with
- * the same resolution as desktop and web (`@solus/client-core/policy`).
+ * the same resolution as desktop and web (`@solus/contracts/host-policies`).
  * Mobile shows policies and locks but does not edit or export them (O1).
  */
 
 /** The policy of work on a host. A summary not read yet locks nothing, so a picker does not flash locked. */
-export function workPolicy(set: PolicySet | null | undefined, organizationId: string | null | undefined): SessionPolicy {
-  const organization = organizationId ?? LOCAL_POLICY_ORGANIZATION_ID
-  return set ? sessionPolicy(set, organization) : { organizationId: organization, refusal: null, sources: [] }
+export function workPolicy(policies: HostPolicies | null | undefined, organizationId: string | null | undefined): WorkPolicy {
+  return policies ? policies.forWork(organizationId) : HostPolicies.none.forWork(LOCAL_POLICY_ORGANIZATION_ID)
 }
 
 /** The mode "Lower the mode" sets after a PERMISSION_MODE_ABOVE_LIMIT refusal; null when `current` is not above a known ceiling. */
-export function loweredPermissionMode(policy: SessionPolicy, current: PermissionMode): PermissionMode | null {
-  const ceiling = permissionCeiling(policy)
-  return ceiling && isPermissionModeAbove(current, ceiling.mode) ? ceiling.mode : null
+export function loweredPermissionMode(policy: WorkPolicy, current: PermissionMode): PermissionMode | null {
+  const ceiling = policy.ceiling()
+  return ceiling && isPermissionModeAbove(current, ceiling.value) ? ceiling.value : null
 }
 
 // ── Host keys ───────────────────────────────────────────────────────────────
@@ -60,19 +51,19 @@ export const HOST_KEY_LABELS = {
 } satisfies Record<ManagedHostKey, string>
 
 /** A host lock holds for all work on the host, so its control is always inert. Null when the person decides. */
-export function hostLockMessage(set: PolicySet | null | undefined, key: ManagedHostKey): string | null {
-  return set ? hostKeyLock(set, key, HOST_KEY_LABELS[key])?.message ?? null : null
+export function hostLockMessage(policies: HostPolicies | null | undefined, key: ManagedHostKey): string | null {
+  return policies?.hostSettingLock(key, HOST_KEY_LABELS[key])?.message ?? null
 }
 
 /** Pairing follows `remoteAccess: false`: no pair codes and no pair links. */
-export function pairingLockMessage(set: PolicySet | null | undefined): string | null {
-  const lock = set ? hostKeyLock(set, 'remoteAccess', 'Pairing') : null
+export function pairingLockMessage(policies: HostPolicies | null | undefined): string | null {
+  const lock = policies?.hostSettingLock('remoteAccess', 'Pairing')
   return lock && lock.value === false ? lock.message : null
 }
 
 /** "<Name> manages Solus updates." when a policy turns updates off. */
-export function updatesLockMessage(set: PolicySet | null | undefined): string | null {
-  return set ? updatesManagedMessage(set) : null
+export function updatesLockMessage(policies: HostPolicies | null | undefined): string | null {
+  return policies?.updatesManagedMessage() ?? null
 }
 
 // ── Session settings ────────────────────────────────────────────────────────
@@ -120,7 +111,7 @@ const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; desc
 
 export interface PolicyHostView {
   readonly hostLabel: string
-  readonly set: PolicySet
+  readonly policies: HostPolicies
 }
 
 /**
@@ -134,14 +125,14 @@ export function managedSettingNotes<K extends ManagedSessionSettingKey>(
   key: K,
 ): string[] {
   const setting = SESSION_SETTINGS[key]
-  return hosts.flatMap((host) => managedSettingLines(host.set, organizations, key, setting.describe).lines.map((line) => `${host.hostLabel}: ${line}`))
+  return hosts.flatMap((host) => managedSettingLines(host.policies, organizations, key, setting.describe).lines.map((line) => `${host.hostLabel}: ${line}`))
 }
 
 /** The ceiling on each host for the active organization's work: "Bob's Mac: Globex limits sessions to Supervised." */
 export function permissionCeilingLines(hosts: readonly PolicyHostView[], organizationId: string | null): string[] {
   return hosts.flatMap((host) => {
-    const ceiling = permissionCeiling(workPolicy(host.set, organizationId))
-    return ceiling ? [`${host.hostLabel}: ${ceiling.message}`] : []
+    const ceiling = host.policies.forWork(organizationId).ceiling()
+    return ceiling ? [`${host.hostLabel}: ${permissionCeilingMessage(ceiling.source, ceiling.value)}`] : []
   })
 }
 
@@ -213,41 +204,41 @@ function hostKeyValue<K extends ManagedHostKey>(key: K, value: NonNullable<Manag
   return 'Set'
 }
 
-function limitRows(sources: PolicySource[]): PolicyRuleRow[] {
+function limitRows(work: WorkPolicy): PolicyRuleRow[] {
   const rows: PolicyRuleRow[] = []
-  const ceiling = resolveSessionLimit(sources, 'maxPermissionMode')
+  const ceiling = work.ceiling()
   if (ceiling) rows.push({ label: 'Highest mode', value: PERMISSION_MODE_TEXT[ceiling.value].label, source: policySourceLabel(ceiling.source) })
-  const providers = resolveSessionLimit(sources, 'providers')
+  const providers = work.limit('providers')
   if (providers?.value.allowed) rows.push({ label: 'Agents', value: list(providers.value.allowed.map((provider) => PROVIDER_NAMES[provider])), source: policySourceLabel(providers.source) })
   if (providers?.value.launch && Object.keys(providers.value.launch).length > 0) {
     rows.push({ label: 'Agent launch', value: list(Object.keys(providers.value.launch).map((provider) => PROVIDER_NAMES[provider as AgentId] ?? provider)), source: policySourceLabel(providers.source) })
   }
-  const models = resolveSessionLimit(sources, 'models')
+  const models = work.limit('models')
   if (models) {
     for (const [provider, allowed] of Object.entries(models.value)) {
       if (allowed) rows.push({ label: `${PROVIDER_NAMES[provider as AgentId] ?? provider} models`, value: list(allowed.map((model) => modelName(provider as AgentId, model))), source: policySourceLabel(models.source) })
     }
   }
-  const insights = resolveSessionLimit(sources, 'insights')
+  const insights = work.limit('insights')
   if (insights) rows.push({ label: 'Sync all Insights', value: onOff(insights.value.syncAll), source: policySourceLabel(insights.source) })
-  const webhooks = resolveSessionLimit(sources, 'webhooks')
+  const webhooks = work.limit('webhooks')
   if (webhooks) rows.push({ label: 'Unverified webhooks', value: webhooks.value.allowUnverified ? 'Allowed' : 'Not allowed', source: policySourceLabel(webhooks.source) })
   return rows
 }
 
-function settingRows(sources: PolicySource[]): PolicyRuleRow[] {
+function settingRows(work: WorkPolicy): PolicyRuleRow[] {
   return MANAGED_SESSION_SETTING_KEYS.flatMap((key) => {
-    const rule = resolveSessionSetting(sources, key)
+    const rule = work.setting(key)
     if (!rule) return []
     const setting = SESSION_SETTINGS[key] as { label: string; describe: (value: unknown) => string }
     return [{ label: setting.label, value: setting.describe(rule.value), source: policySourceLabel(rule.source) }]
   })
 }
 
-function hostKeyRows(set: PolicySet): PolicyRuleRow[] {
+function hostKeyRows(policies: HostPolicies): PolicyRuleRow[] {
   return MANAGED_HOST_KEYS.flatMap((key) => {
-    const lock = hostKeyLock(set, key, HOST_KEY_LABELS[key])
-    return lock ? [{ label: HOST_KEY_LABELS[key], value: hostKeyValue(key, lock.value), source: policySourceLabel(lock.source) }] : []
+    const rule = policies.hostSetting(key)
+    return rule ? [{ label: HOST_KEY_LABELS[key], value: hostKeyValue(key, rule.value), source: policySourceLabel(rule.source) }] : []
   })
 }
 
@@ -257,22 +248,23 @@ function hostKeyRows(set: PolicySet): PolicyRuleRow[] {
  * host, then the organization policy), and every lock with the policy that
  * sets it. `local` work sees the MDM policy only.
  */
-export function policyScreenModel(set: PolicySet, organizationId: string, organizationNames: ReadonlyMap<string, string>): PolicyScreenModel {
-  const policy = sessionPolicy(set, organizationId)
-  // A refusal leaves no sources to apply; the MDM policy still governs the machine and is shown.
-  const sources = policy.refusal ? (set.mdm ? [set.mdm] : []) : policy.sources
+export function policyScreenModel(policies: HostPolicies, organizationId: string, organizationNames: ReadonlyMap<string, string>): PolicyScreenModel {
+  const { set } = policies
+  const work = policies.forWork(organizationId)
+  // A refusal leaves no sources to apply; the MDM policy still governs the machine and is shown, as for personal work.
+  const shown = work.refusal ? policies.forWork(LOCAL_POLICY_ORGANIZATION_ID) : work
   const ownerId = set.mdm ? null : set.hostOwnerOrganizationId
   const ownerEntry = ownerId ? set.organizations[ownerId] : undefined
   const ownerName = ownerId
     ? organizationNames.get(ownerId) ?? (ownerEntry?.state === 'ready' ? ownerEntry.policy.document.organization.name : ownerEntry?.state === 'unenforceable' ? ownerEntry.organizationName : null) ?? 'Another organization'
     : null
   return {
-    refusal: policy.refusal?.message ?? null,
-    sources: sources.map(sourceRow),
+    refusal: work.refusal?.message ?? null,
+    sources: shown.sources.map(sourceRow),
     hostOwner: ownerName ? `${ownerName} manages this host's settings.` : null,
-    settings: settingRows(sources),
-    limits: limitRows(sources),
-    hostKeys: hostKeyRows(set),
-    supportUrl: sources.find((source) => source.document.supportUrl)?.document.supportUrl ?? null,
+    settings: settingRows(shown),
+    limits: limitRows(shown),
+    hostKeys: hostKeyRows(policies),
+    supportUrl: shown.sources.find((source) => source.document.supportUrl)?.document.supportUrl ?? null,
   }
 }

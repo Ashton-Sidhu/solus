@@ -61,8 +61,7 @@
   setAnalyticsEnabled,
     track,
   } from "@solus/workspace-ui/lib/analytics";
-  import { resolveHostKey } from "@solus/contracts/policy";
-  import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
+    import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteModules = afterPaint().then(() => Promise.all([
     import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"),
@@ -113,7 +112,7 @@
   $effect(() => {
     const fact = hosts.get(serverConnections.defaultServerId())?.policy;
     if (fact?.state !== "ready") return;
-    const managedOff = resolveHostKey(fact.value, "analyticsEnabled")?.value === false;
+    const managedOff = fact.value.hostSetting("analyticsEnabled")?.value === false;
     setAnalyticsBlockedByPolicy(managedOff);
     untrack(() => {
       // Undecided consent stays off until the person chooses (plans/018 §3.1).

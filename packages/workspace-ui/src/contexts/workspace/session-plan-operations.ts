@@ -7,8 +7,7 @@ import { track } from '../../lib/analytics'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { SessionUnavailableError } from './session-errors'
 import { checkoutGit, checkoutPlace, chooseStart, runHost } from './run-location'
-import { clampPermissionMode } from '@solus/contracts/policy'
-import { clampedDefaultMode, permissionCeiling, type SessionPolicy } from '@solus/client-core/policy'
+import { HostPolicies, type WorkPolicy } from '@solus/contracts/host-policies'
 
 // ─── Active plan waiting state ───
 
@@ -100,11 +99,10 @@ export function requestConversationScrollToBottom(tabId: string): void {
 export type PlanApprovalMode = 'supervised' | 'default'
 
 /** The work's policy lowers both choices to its ceiling, and a locked default replaces the person's (plans/030 §7). */
-export function implementationMode(mode: PlanApprovalMode, defaultMode: PermissionMode | undefined, policy: SessionPolicy): PermissionMode {
-  const ceiling = permissionCeiling(policy)?.mode
-  if (mode === 'supervised') return clampPermissionMode('supervised', ceiling)
-  const effectiveDefault = clampedDefaultMode(policy, defaultMode ?? 'full-access')
-  return clampPermissionMode(effectiveDefault === 'plan' ? 'full-access' : effectiveDefault, ceiling)
+export function implementationMode(mode: PlanApprovalMode, defaultMode: PermissionMode | undefined, policy: WorkPolicy): PermissionMode {
+  if (mode === 'supervised') return policy.clampMode('supervised')
+  const effectiveDefault = policy.defaultMode(defaultMode ?? 'full-access')
+  return policy.clampMode(effectiveDefault === 'plan' ? 'full-access' : effectiveDefault)
 }
 
 export interface ApprovePlanOptions {
@@ -123,7 +121,7 @@ export interface ApprovePlanOptions {
 }
 
 /** No rule: what a caller gets that cannot read a host's policy. */
-const NO_POLICY: SessionPolicy = { organizationId: 'local', refusal: null, sources: [] }
+const NO_POLICY = HostPolicies.none.forWork(null)
 
 export async function approvePlanWithModel(
   ctx: WorkspaceContext,
@@ -131,7 +129,7 @@ export async function approvePlanWithModel(
   mode: PlanApprovalMode,
   opts: ApprovePlanOptions = {},
   /** The policy of the session's work; the workspace reads it from the session's host. */
-  policyFor: (session: Session) => SessionPolicy = () => NO_POLICY,
+  policyFor: (session: Session) => WorkPolicy = () => NO_POLICY,
 ): Promise<void> {
   const wasPreview = !!ctx.planStore.previewDescriptor
   if (wasPreview && !await resumeFromPreview(ctx)) return

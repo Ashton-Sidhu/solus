@@ -1,4 +1,4 @@
-import { policyGate } from '../../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../../host/policy/host-policy-store'
 import { LOCAL_ORGANIZATION_ID } from '../../../host/host-category'
 import { organizationOfSession } from '../../../data/sessions/session-records'
 import { z } from 'zod'
@@ -294,7 +294,7 @@ export async function executeAutomationTool(
       if (!triggerResult.ok) return { ok: false, text: `create_automation: ${triggerResult.error}` }
       // The automation runs with the preferences of the person this session works for (plans/018 §6).
       const preferences = sessionSettings(deps.ctx?.sessionId)?.preferences
-      policyGate().assertProviderAllowed(deps.ctx?.sessionId ? await organizationOfSession(deps.ctx.sessionId) : LOCAL_ORGANIZATION_ID, action.agentProvider, action.modelId)
+      enforce(hostPolicies().forWork(deps.ctx?.sessionId ? await organizationOfSession(deps.ctx.sessionId) : LOCAL_ORGANIZATION_ID).selectionDenial(action.agentProvider, action.modelId))
       const created = await createAutomation(name_, action, await toolAgentAttribution(deps.ctx), enabled, triggerResult.trigger, preferences)
       const when =
         created.trigger.type === 'manual'
@@ -355,7 +355,7 @@ export async function executeAutomationTool(
       if (automationPatch.action) {
         const current = await loadAutomation(id)
         const next = { ...current?.action, ...automationPatch.action }
-        if (current && next.agentProvider) policyGate().assertProviderAllowed(current.organizationId ?? LOCAL_ORGANIZATION_ID, next.agentProvider, next.modelId)
+        if (current && next.agentProvider) enforce(hostPolicies().forWork(current.organizationId ?? LOCAL_ORGANIZATION_ID).selectionDenial(next.agentProvider, next.modelId))
       }
       const updated = await updateAutomation(id, automationPatch)
       if (updated && deps.ctx?.sessionId) {

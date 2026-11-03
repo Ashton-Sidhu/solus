@@ -49,7 +49,7 @@ import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
-import { PolicyGate, PolicyRefusedError, usePolicyGate } from './host/policy/policy-gate'
+import { HostPolicyStore, PolicyRefusedError, hostPolicies, useHostPolicyStore } from './host/policy/host-policy-store'
 import { loadMachinePolicy } from './host/policy/mdm-policy'
 import { removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
@@ -419,10 +419,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const credentialAlwaysRequired = hostKind !== 'personal'
   // The machine's MDM policy is read before anything listens; one this host cannot enforce stops the boot (plans/030 §5.1).
   let standingSource: () => HostStanding | null = () => null
-  const gate = new PolicyGate({ mdm: await loadMachinePolicy(), standing: () => standingSource() })
-  usePolicyGate(gate)
+  const policyStore = new HostPolicyStore({ mdm: await loadMachinePolicy(), standing: () => standingSource() })
+  useHostPolicyStore(policyStore)
   const remoteBindOptions = () => {
-    const rule = gate.hostKey('remoteAccess')
+    const rule = hostPolicies().hostSetting('remoteAccess')
     return rule?.value === false
       ? { remoteAllowed: false, refusal: capabilityDeniedMessage(rule.source, 'remote access').replace(/\.$/, '') }
       : {}
@@ -466,7 +466,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const stopWorkspaceToolOperations = installWorkspaceToolOperations(workspaceOperations, apiSettings.serviceId, (run) => remoteToolOperations?.(run) ?? null)
   // This host's standing in its organizations (organization-scope §3.1, §6.1): the
   // control plane's answer, asked for once the link is known below. Its policies and
-  // the machine's MDM policy are read only through the policy gate (plans/030 §6.1).
+  // the machine's MDM policy are read only through the host policy store (plans/030 §6.1).
   useSessionIndexState(sessionIndexComplete)
   const hostOrganizationsDeps: { registration: () => HostRegistration | null; credential: () => HostCredential | null; registrationRefused: () => void } = { registration: () => null, credential: () => null, registrationRefused: () => {} }
   const hostOrganizations = new HostOrganizations({
@@ -476,10 +476,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     cachePath: join(solusDir(), 'organization-standing.json'),
   })
   standingSource = () => hostOrganizations.current()
-  gate.standingChanged()
-  hostOrganizations.onChanged(() => gate.standingChanged())
+  policyStore.standingChanged()
+  hostOrganizations.onChanged(() => policyStore.standingChanged())
   useInsightsPolicy({
-    syncAllInsights: (organizationId) => gate.syncAllInsights(organizationId),
+    syncAllInsights: (organizationId) => hostPolicies().forWork(organizationId).syncsAllInsights(),
     optedIn: (organizationId) => getInsightsOptIn().includes(organizationId),
     attached: (organizationId) => hostOrganizations.organization(organizationId)?.shared === true,
   })
@@ -1084,7 +1084,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   startAutomationScheduler()
   // A policy with `updates.mode: off` manages this host's updates (plans/030 §6.8).
   const assertUpdatesAllowed = () => {
-    const rule = gate.hostKey('updates')
+    const rule = hostPolicies().hostSetting('updates')
     if (rule?.value.mode === 'off') throw new PolicyRefusedError('UPDATES_MANAGED', `${rule.source.document.organization.name} manages Solus updates.`)
   }
   server.register('hostInstallUpdate', () => { assertUpdatesAllowed(); remoteUpdates.install(); return structuredClone(hostUpdates.status) })
@@ -1421,7 +1421,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     : presentedTokens ? async (token: string) => presentedTokens.keep(token) : undefined
   registerOrganizationHandlers(server, {
     hostOrganizations,
-    policyGate: gate,
+    policyStore,
     forgetResource: (resource) => shares.forget(resource),
     events,
     registeredHostId: () => registrar.current()?.hostId ?? null,
@@ -1435,7 +1435,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     hostId: () => registrar.current()?.hostId ?? null,
     forwarderSecret: () => uplinkManager?.forwarderSecret() ?? null,
     isPausedByAdmin: (webhookId: string) => hostOrganizations.isWebhookPausedByAdmin(webhookId),
-    organizationRefusal: (organizationId: string, work: { unverified: boolean }) => unattendedOrganizationRefusal(organizationId, { organization: (id) => hostOrganizations.organization(id), allowsUnverifiedWebhooks: (id) => gate.allowsUnverifiedWebhooks(id) }, work)?.message ?? null,
+    organizationRefusal: (organizationId: string, work: { unverified: boolean }) => unattendedOrganizationRefusal(hostOrganizations.organization(organizationId)?.hostRules ?? null, hostPolicies().forWork(organizationId), work.unverified)?.message ?? null,
   }
   const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
   const webhookService = createWebhookService({
@@ -1737,7 +1737,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   if (!apiMode) {
     tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
     // A policy that turns the tunnel off keeps a stored link from resuming (plans/030 §6.7).
-    void registrar.resumeUntilAnswered((remote, isRetrying) => gate.hostKey('cloudTunnel')?.value === false ? Promise.resolve() : uplinkManager.resume(remote, isRetrying)).catch((err) => {
+    void registrar.resumeUntilAnswered((remote, isRetrying) => hostPolicies().hostSetting('cloudTunnel')?.value === false ? Promise.resolve() : uplinkManager.resume(remote, isRetrying)).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -1751,7 +1751,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     close: async () => {},
   }
   let lanDiscovery: LanDiscoveryService
-  if (isLanDiscoveryDisabled() || gate.hostKey('remoteAccess')?.value === false) {
+  if (isLanDiscoveryDisabled() || hostPolicies().hostSetting('remoteAccess')?.value === false) {
     log.info('lan_discovery_skipped')
     lanDiscovery = noLanDiscovery
   } else {
@@ -1811,12 +1811,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     log.info('server_rebound', { host, port: actualPort, requireAuth })
   }
   // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
-  gate.onChanged(() => {
+  policyStore.onChanged(() => {
     void rebind(effectiveRemoteAccess()).catch((error) => log.warn('policy_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
-    if (gate.hostKey('cloudTunnel')?.value === false && uplinkManager.status().linked) {
+    if (hostPolicies().hostSetting('cloudTunnel')?.value === false && uplinkManager.status().linked) {
       void uplinkManager.unlink().catch((error) => log.warn('policy_tunnel_close_failed', { error: error instanceof Error ? error.message : String(error) }))
     }
-    void configureOtel(getHostConfig().config.otel, gate.hostKey('otel') !== null).catch((error) => log.warn('policy_otel_configure_failed', { error: error instanceof Error ? error.message : String(error) }))
+    void configureOtel(getHostConfig().config.otel, hostPolicies().hostSetting('otel') !== null).catch((error) => log.warn('policy_otel_configure_failed', { error: error instanceof Error ? error.message : String(error) }))
   })
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).

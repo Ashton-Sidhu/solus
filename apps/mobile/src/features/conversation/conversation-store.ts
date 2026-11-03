@@ -1,6 +1,6 @@
 import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStarterFromHost, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
-import type { SessionPolicy } from '@solus/client-core/policy'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { setupActivityLabel } from '@solus/contracts/setup-card'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
@@ -52,7 +52,7 @@ export interface ConversationMeta {
     capabilities: AgentCapabilities
     agents: readonly AgentMetadata[] | null
     /** What the work's policy allows on its host (plans/030 §7): the pickers disable the rest, with the reason. */
-    policy: SessionPolicy
+    policy: WorkPolicy
   }
 }
 

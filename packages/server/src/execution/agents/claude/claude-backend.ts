@@ -1,6 +1,6 @@
 import type { PermissionMode } from '@solus/contracts/types'
 import { isPermissionModeAbove } from '@solus/contracts/policy'
-import { policyGate } from '../../../host/policy/policy-gate'
+import { hostPolicies } from '../../../host/policy/host-policy-store'
 import { privateProviderInstances } from '../../seats/provider-instances'
 import { providerHistoryInstanceId } from '../../seats/provider-runtime'
 import { captureActingScope } from '../../../vault/acting-scope'
@@ -229,7 +229,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const sessionId = conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null
     const uiMode = request.permissionMode
     const sessionRef = { current: conversation.kind === 'resume' ? sessionId : null }
-    const ceiling = policyGate().ceiling(request.organizationId)?.value ?? null
+    const ceiling = hostPolicies().forWork(request.organizationId).ceiling()?.value ?? null
     const canUseTool = this.permissions.createCanUseTool(sessionRef, request.unattended, ceiling)
     const onElicitation = this.permissions.createOnElicitation(sessionRef, request.unattended)
 
@@ -345,7 +345,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     request: AgentRunRequest,
   ): Promise<void> {
     // Checked at start by `AgentRunner.run`; the same ceiling bounds any mode the run switches to.
-    const ceiling = policyGate().ceiling(request.organizationId)?.value ?? null
+    const ceiling = hostPolicies().forWork(request.organizationId).ceiling()?.value ?? null
     try {
       for await (const evt of events) {
         if (evt.type === 'session_init') {

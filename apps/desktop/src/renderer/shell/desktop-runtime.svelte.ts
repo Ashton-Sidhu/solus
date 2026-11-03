@@ -69,7 +69,6 @@ import {
   setAnalyticsEnabled,
   track,
 } from "@solus/workspace-ui/lib/analytics";
-import { resolveHostKey } from "@solus/contracts/policy";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 import { checkoutGit, checkoutPlace, runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
@@ -98,7 +97,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   $effect(() => {
     const fact = hosts.device?.policy;
     if (fact?.state !== "ready") return;
-    const managedOff = resolveHostKey(fact.value, "analyticsEnabled")?.value === false;
+    const managedOff = fact.value.hostSetting("analyticsEnabled")?.value === false;
     setAnalyticsBlockedByPolicy(managedOff);
     untrack(() => {
       // Undecided consent stays off until the person chooses (plans/018 §3.1).

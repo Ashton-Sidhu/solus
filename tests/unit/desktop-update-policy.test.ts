@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { EMPTY_POLICY_SET, type PolicyDocument, type PolicySet } from '../../packages/contracts/src/policy'
+import type { PolicyDocument, PolicySet } from '../../packages/contracts/src/policy'
+import { HostPolicies } from '../../packages/contracts/src/host-policies'
 import { updatePolicyOf } from '../../apps/desktop/src/main/updates/update-policy'
 import { reduceUpdateState } from '../../apps/desktop/src/main/updates/update-status'
 
@@ -13,20 +14,20 @@ function document(name: string, updates: NonNullable<PolicyDocument['host']>['up
 }
 
 function mdmSet(updates: NonNullable<PolicyDocument['host']>['updates']): PolicySet {
-  return { ...EMPTY_POLICY_SET, mdm: { kind: 'mdm', organizationId: null, document: document('Example Corp', updates) } }
+  return { ...HostPolicies.none.set, mdm: { kind: 'mdm', organizationId: null, document: document('Example Corp', updates) } }
 }
 
 describe('desktop update policy', () => {
   test('no policy leaves updates to the person and the package.json feed', () => {
-    expect(updatePolicyOf(EMPTY_POLICY_SET)).toEqual({ managedMessage: null, feedUrl: null })
+    expect(updatePolicyOf(HostPolicies.none)).toEqual({ managedMessage: null, feedUrl: null })
   })
 
   test('mode off names the organization that manages updates', () => {
-    expect(updatePolicyOf(mdmSet({ mode: 'off' })).managedMessage).toBe('Example Corp manages Solus updates.')
+    expect(updatePolicyOf(new HostPolicies(mdmSet({ mode: 'off' }))).managedMessage).toBe('Example Corp manages Solus updates.')
   })
 
   test('a feed URL reaches the updater while updates stay automatic', () => {
-    expect(updatePolicyOf(mdmSet({ mode: 'auto', feedUrl: 'https://updates.example.com/solus/' })))
+    expect(updatePolicyOf(new HostPolicies(mdmSet({ mode: 'auto', feedUrl: 'https://updates.example.com/solus/' }))))
       .toEqual({ managedMessage: null, feedUrl: 'https://updates.example.com/solus/' })
   })
 
@@ -42,7 +43,7 @@ describe('desktop update policy', () => {
         },
       },
     }
-    expect(updatePolicyOf(set).managedMessage).toBe('Acme manages Solus updates.')
+    expect(updatePolicyOf(new HostPolicies(set)).managedMessage).toBe('Acme manages Solus updates.')
   })
 
   test('the MDM policy wins over the host-owning organization', () => {
@@ -57,7 +58,7 @@ describe('desktop update policy', () => {
         },
       },
     }
-    expect(updatePolicyOf(set).managedMessage).toBeNull()
+    expect(updatePolicyOf(new HostPolicies(set)).managedMessage).toBeNull()
   })
 
   test('a managed state survives updater events until the policy changes', () => {

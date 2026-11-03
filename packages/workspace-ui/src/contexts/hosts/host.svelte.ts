@@ -1,5 +1,5 @@
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { PolicySet } from '@solus/contracts/policy'
+import type { HostPolicies } from '@solus/contracts/host-policies'
 import type {
   AgentUsageLimits,
   HostCapabilities,
@@ -69,10 +69,10 @@ export class Host {
   get voiceModel(): HostFact<VoiceModelStatus> { return this.#read('voiceModel') }
   get tools(): HostFact<DetectedTools> { return this.#read('tools') }
   /** The policies that govern work here (plans/030 §7). */
-  get policy(): HostFact<PolicySet> { return this.#read('policy') }
+  get policy(): HostFact<HostPolicies> { return this.#read('policy') }
 
   /** The policy summary once read; undefined while it loads or on a host that has none. */
-  get policySet(): PolicySet | undefined {
+  get policies(): HostPolicies | undefined {
     const fact = this.policy
     return fact.state === 'ready' ? fact.value : undefined
   }

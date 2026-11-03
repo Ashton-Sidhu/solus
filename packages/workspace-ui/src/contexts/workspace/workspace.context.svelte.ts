@@ -82,7 +82,6 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { hostKey } from '@solus/client-core/host-key'
-import { clampedDefaultMode } from '@solus/client-core/policy'
 import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
@@ -1197,7 +1196,7 @@ export class WorkspaceContext implements SurfaceContext {
       location: folderLocation({ serverId: project.serverId, path: project.directory }),
       modelConfig: defaults.modelConfig,
       // New work takes the window's organization; the policy on its host lowers the default (plans/030 §7).
-      permissionMode: clampedDefaultMode(workPolicy(project.serverId), defaults.permissionMode),
+      permissionMode: workPolicy(project.serverId).defaultMode(defaults.permissionMode),
       provider: configuredAgent(this.settings.activeAgent),
       sessionSkills: [],
     }

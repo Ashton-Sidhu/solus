@@ -1,5 +1,6 @@
 import { managedSettingLines } from '@solus/client-core/policy'
-import type { ManagedSessionSettingKey, ManagedSessionSettings, PolicySet } from '@solus/contracts/policy'
+import type { HostPolicies } from '@solus/contracts/host-policies'
+import type { ManagedSessionSettingKey, ManagedSessionSettings } from '@solus/contracts/policy'
 import { MODEL_PROFILES, type AgentId } from '@solus/contracts/types'
 import { PERMISSION_MODE_DISPLAY } from '../../../../lib/permission-modes'
 
@@ -54,9 +55,9 @@ const DESCRIBE: ManagedValueDescriptions = {
 }
 
 export function managedSettingNote<K extends ManagedSessionSettingKey>(
-  set: PolicySet,
+  policies: HostPolicies,
   organizations: readonly { organizationId: string; name: string }[],
   key: K,
 ): ManagedSettingNote {
-  return managedSettingLines(set, organizations, key, DESCRIBE[key])
+  return managedSettingLines(policies, organizations, key, DESCRIBE[key])
 }

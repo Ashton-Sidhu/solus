@@ -31,7 +31,7 @@
   const status = $derived(organizationsStore.statusFor(serverId));
   const error = $derived(organizationsStore.errorByServer.get(serverId) ?? null);
   const loading = $derived(organizationsStore.isLoading(serverId));
-  const rows = $derived(status ? organizationRows(status, hosts.get(serverId).policySet ?? null) : []);
+  const rows = $derived(status ? organizationRows(status, hosts.get(serverId).policies ?? null) : []);
   const attachment = $derived(status ? attachmentSummary(status) : null);
   const delivery = $derived(status ? deliverySummary(status) : null);
   const description = $derived(

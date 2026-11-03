@@ -1,7 +1,7 @@
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
 import { isPermissionModeAbove } from '@solus/contracts/policy'
 import type { PermissionMode } from '@solus/contracts/types'
-import { permissionCeiling, type SessionPolicy } from '@solus/client-core/policy'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 
 /** What the refused person can do next. */
 export type TurnRefusalAction = 'choose-organization' | 'sign-in' | 'lower-mode' | 'none'
@@ -65,7 +65,7 @@ export function turnRefusalCopy(code: TurnRefusal, input: { signedIn: boolean; a
  * the ceiling, the highest mode the policy allows. Null when the client does
  * not know a ceiling that `current` is above, so the card offers no action.
  */
-export function loweredPermissionMode(policy: SessionPolicy, current: PermissionMode): PermissionMode | null {
-  const ceiling = permissionCeiling(policy)
-  return ceiling && isPermissionModeAbove(current, ceiling.mode) ? ceiling.mode : null
+export function loweredPermissionMode(policy: WorkPolicy, current: PermissionMode): PermissionMode | null {
+  const ceiling = policy.ceiling()
+  return ceiling && isPermissionModeAbove(current, ceiling.value) ? ceiling.value : null
 }

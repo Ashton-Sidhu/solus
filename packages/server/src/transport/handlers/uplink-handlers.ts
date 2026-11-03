@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 import type { HostRegistrar } from '../../host/host-registration'
 import type { SolusServer } from '../server'
@@ -26,7 +26,7 @@ export function registerUplinkHandlers(server: SolusServer, deps: { registrar: H
     return deps.status()
   })
   server.register('uplinkLink', async () => {
-    policyGate().assertHostCapability('cloudTunnel', 'CLOUD_TUNNEL_NOT_ALLOWED', 'the Solus Cloud tunnel')
+    enforce(hostPolicies().capabilityDenial('cloudTunnel', 'the Solus Cloud tunnel'))
     await deps.manager.link()
     return deps.status()
   })

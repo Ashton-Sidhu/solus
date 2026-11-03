@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { sessionPolicy } from '@solus/client-core/policy'
+import { HostPolicies } from '@solus/contracts/host-policies'
 import { POLICY_REFUSAL_CODES, type PolicySet } from '@solus/contracts/policy'
 import { loweredPermissionMode, turnRefusalCopy } from '../../packages/workspace-ui/src/components/connections/lib/turn-refusal-copy'
 
@@ -30,11 +30,11 @@ describe('lower the mode', () => {
   }
 
   test('a mode above the ceiling lowers to the ceiling, the highest allowed mode', () => {
-    expect(loweredPermissionMode(sessionPolicy(set, 'local'), 'full-access')).toBe('supervised')
+    expect(loweredPermissionMode(new HostPolicies(set).forWork('local'), 'full-access')).toBe('supervised')
   })
 
   test('no action when the mode is already allowed or no ceiling is known', () => {
-    expect(loweredPermissionMode(sessionPolicy(set, 'local'), 'plan')).toBeNull()
-    expect(loweredPermissionMode(sessionPolicy({ mdm: null, hostOwnerOrganizationId: null, organizations: {} }, 'local'), 'full-access')).toBeNull()
+    expect(loweredPermissionMode(new HostPolicies(set).forWork('local'), 'plan')).toBeNull()
+    expect(loweredPermissionMode(HostPolicies.none.forWork('local'), 'full-access')).toBeNull()
   })
 })

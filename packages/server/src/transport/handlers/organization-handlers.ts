@@ -8,8 +8,7 @@ import { getInstallationId } from '../../admission/auth'
 import { hostCategory } from '../../host/host-category'
 import { organizationAttachedAt } from '../../host/organization-attachment'
 import type { HostOrganizations } from '../../host/organizations'
-import type { PolicyGate } from '../../host/policy/policy-gate'
-import { summarizePolicySet } from '@solus/contracts/policy'
+import type { HostPolicyStore } from '../../host/policy/host-policy-store'
 import { getInsightsOptIn, setInsightsOptIn } from '../../host/settings'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
@@ -23,7 +22,7 @@ import type { SolusServer } from '../server'
 export interface OrganizationHandlerDeps {
   hostOrganizations: HostOrganizations
   /** The policies that govern work here (plans/030 §6.1); clients get its summary. */
-  policyGate: PolicyGate
+  policyStore: HostPolicyStore
   /** Drop the share rows of a resource that left this host. */
   forgetResource: (resource: ShareResource) => Promise<void>
   events: HostEventPublisher
@@ -55,9 +54,9 @@ export function hostOrganizationsStatus(deps: Pick<OrganizationHandlerDeps, 'hos
 export function registerOrganizationHandlers(server: SolusServer, deps: OrganizationHandlerDeps): void {
   const status = () => hostOrganizationsStatus(deps)
   deps.hostOrganizations.onChanged(() => deps.events.broadcast('host.organizationsChanged', status()))
-  deps.policyGate.onChanged(() => deps.events.broadcast('host.policyChanged', summarizePolicySet(deps.policyGate.policySet())))
+  deps.policyStore.onChanged(() => deps.events.broadcast('host.policyChanged', deps.policyStore.current().summary().set))
 
-  server.register('hostPolicy', () => summarizePolicySet(deps.policyGate.policySet()))
+  server.register('hostPolicy', () => deps.policyStore.current().summary().set)
 
   server.register('hostOrganizations', async () => {
     // A read older than half a minute asks the control plane again first, so a

@@ -817,13 +817,13 @@ if (isPairUrl) {
       { prepareTranscriptionModel, transcribeAudio },
       { registerFileHandlers },
       { readMdmPolicy },
-      { policyGate },
+      { hostPolicyStore },
     ] = await Promise.all([
       import('@solus/server/boot-core'),
       import('@solus/desktop-main/transcription'),
       import('@solus/desktop-main/server/handlers/file-handlers'),
       import('@solus/server/host/policy/mdm-policy'),
-      import('@solus/server/host/policy/policy-gate'),
+      import('@solus/server/host/policy/host-policy-store'),
     ])
     log.info('server_graph_loaded', { elapsedMs: Math.round(performance.now() - serverGraphLoadStartedAt) })
 
@@ -874,10 +874,10 @@ if (isPairUrl) {
 
       const updates = registerUpdateIpc({
         broadcast: sendNativeEvent,
-        // The embedded host runs in this process; its gate holds the MDM and cloud host policies.
+        // The embedded host runs in this process; its store holds the MDM and cloud host policies.
         policy: {
-          current: () => policyGate().policySet(),
-          onChanged: (listener) => policyGate().onChanged(listener),
+          current: () => hostPolicyStore().current(),
+          onChanged: (listener) => hostPolicyStore().onChanged(listener),
         },
         onBeforeQuitAndInstall: () => {
           forceQuit = true

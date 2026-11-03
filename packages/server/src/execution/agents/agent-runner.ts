@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import type { ProviderRuntime } from '../seats/provider-runtime'
 import { ROOT_CONTEXT, type Span } from '@opentelemetry/api'
 import type { AgentBackend, RunHandle } from './agent-backend'
@@ -116,7 +116,7 @@ export class AgentRunner {
     assertUniqueAgentTools(request.tools)
     const backend = this.backends.get(request.provider)
     if (!backend) throw new Error(`Unknown agent provider: ${request.provider}`)
-    policyGate().checkRun(request.organizationId, { mode: request.permissionMode, provider: request.provider, model: request.model })
+    enforce(hostPolicies().forWork(request.organizationId).runDenial({ mode: request.permissionMode, provider: request.provider, model: request.model }))
 
     // One coarse span per ephemeral run. It is a trace of its own: a text
     // generation or review guide is Solus's own work, not a phase of whichever

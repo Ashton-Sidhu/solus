@@ -6,7 +6,6 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'
-  import { permissionModeDenial } from '@solus/client-core/policy'
   import { workPolicy } from '../../contexts/policy/work-policy.svelte'
   import { runHost } from '../../contexts/workspace/run-location'
 
@@ -121,7 +120,7 @@
       {#each permissionOptions as mode (mode)}
         {@const option = PERMISSION_MODE_DISPLAY[mode]}
         {@const isChecked = permissionMode === mode}
-        {@const denial = permissionModeDenial(policy, mode)}
+        {@const denial = policy.modeDenial(mode)?.message ?? null}
         <DropdownMenu.RadioItem value={mode} disabled={denial !== null} title={denial ?? undefined} class="h-auto gap-3 py-1.5 pl-1.5" onSelect={() => selectPermissionMode(mode)}>
           <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
             <option.icon class="size-3.5" />

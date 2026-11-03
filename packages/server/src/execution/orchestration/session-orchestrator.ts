@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { hostPolicies } from '../../host/policy/host-policy-store'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { randomUUID } from 'node:crypto'
 import { recoverExchanges } from './recover-exchanges'
@@ -471,7 +471,7 @@ export class SessionOrchestrator {
       delivery: 'queue',
       notify: true,
       // Implementation runs with full access, lowered to the target's policy ceiling (plans/030 §6.3).
-      permissionMode: policyGate().clampMode(await organizationOfSession(targetSessionId), 'full-access'),
+      permissionMode: hostPolicies().forWork(await organizationOfSession(targetSessionId)).clampMode('full-access'),
     })
     return true
   }

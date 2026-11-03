@@ -1,4 +1,5 @@
-import { policyGate, type LaunchPolicy } from '../../host/policy/policy-gate'
+import type { LaunchPolicy } from '@solus/contracts/host-policies'
+import { hostPolicies } from '../../host/policy/host-policy-store'
 import { resolveProjectRoot } from '../../project-config/project-config'
 import { instanceModelCatalog } from '@solus/contracts/provider-instance-models'
 import type { ModelProfile } from '@solus/contracts/types'
@@ -46,7 +47,7 @@ export function prepareProviderRun(request: AgentRunRequest, sessionState?: Agen
   const projectPath = request.projectRoot ?? request.cwd
   const chosen = privateProviderInstances().forRun(scope.personKey, request.provider, sessionState?.sessionId, request.conversation?.kind === 'resume', projectPath ? resolveProjectRoot(resolveHomePath(projectPath)) : undefined)
   const { authEpoch, idleCompaction } = chosen
-  const instance = governedInstance(chosen.instance, policyGate().launchPolicy(request.organizationId, request.provider))
+  const instance = governedInstance(chosen.instance, hostPolicies().forWork(request.organizationId).launch(request.provider))
   const configured = request.provider === 'claude-code' || idleCompaction === 'off' || authEpoch > 0 || instance.id !== request.provider || hasRuntimeOverrides(instance)
   if (!configured) return request
   const launch = request.seat?.launch

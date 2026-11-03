@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { HostRpcError } from '@solus/client-core/rpc-error'
-import { sessionPolicy } from '@solus/client-core/policy'
+import { HostPolicies } from '@solus/contracts/host-policies'
 import type { PolicyDocument, PolicySet, PolicySource } from '@solus/contracts/policy'
 import type { IpcContext } from '@solus/contracts/types'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
@@ -63,7 +63,7 @@ const NAMES = new Map([['org-globex', 'Globex'], ['org-acme', 'Acme']])
 
 describe('the Policy screen', () => {
   test('lists the policies that apply in the host\'s order, and names the one that sets each rule', () => {
-    const model = policyScreenModel(policySet({ mdm: MDM }), 'org-globex', NAMES)
+    const model = policyScreenModel(new HostPolicies(policySet({ mdm: MDM })), 'org-globex', NAMES)
     expect(model.sources.map((row) => [row.heading, row.name])).toEqual([
       ['MDM policy', 'Example Corp'],
       ['Host policy', 'Globex laptops'],
@@ -80,18 +80,18 @@ describe('the Policy screen', () => {
   })
 
   test('work of one organization never shows another organization\'s policy, and personal work sees only the MDM policy', () => {
-    const acme = policyScreenModel(policySet(), 'org-acme', NAMES)
+    const acme = policyScreenModel(new HostPolicies(policySet()), 'org-acme', NAMES)
     expect(acme.sources.map((row) => row.name)).toEqual(['Acme'])
     expect(acme.limits).toEqual([])
     expect(acme.settings.map((row) => row.label)).toEqual(['Lead instructions'])
 
-    const personal = policyScreenModel(policySet({ mdm: MDM }), 'local', NAMES)
+    const personal = policyScreenModel(new HostPolicies(policySet({ mdm: MDM })), 'local', NAMES)
     expect(personal.sources.map((row) => row.kind)).toEqual(['mdm'])
     expect(personal.limits).toEqual([])
   })
 
   test('an organization the host has no policy for says so, and the MDM policy still shows', () => {
-    const model = policyScreenModel(policySet({ mdm: MDM }), 'org-new', NAMES)
+    const model = policyScreenModel(new HostPolicies(policySet({ mdm: MDM })), 'org-new', NAMES)
     expect(model.refusal).toContain('has not received this organization\'s policy')
     expect(model.sources.map((row) => row.kind)).toEqual(['mdm'])
   })
@@ -101,20 +101,20 @@ describe('the Policy screen', () => {
       hostOwnerOrganizationId: 'org-globex',
       organizations: { 'org-globex': { state: 'ready', policy: GLOBEX, hostPolicy: source('host', 'org-globex', { organization: { name: 'Globex' }, name: 'Globex laptops', host: { cloudTunnel: false } }) } },
     })
-    expect(policyScreenModel(owned, 'local', NAMES).hostOwner).toBe('Globex manages this host\'s settings.')
-    expect(hostLockMessage(owned, 'cloudTunnel')).toBe('The Solus Cloud link is managed by Globex laptops (Globex).')
-    expect(hostLockMessage(owned, 'remoteAccess')).toBeNull()
+    expect(policyScreenModel(new HostPolicies(owned), 'local', NAMES).hostOwner).toBe('Globex manages this host\'s settings.')
+    expect(hostLockMessage(new HostPolicies(owned), 'cloudTunnel')).toBe('The Solus Cloud link is managed by Globex laptops (Globex).')
+    expect(hostLockMessage(new HostPolicies(owned), 'remoteAccess')).toBeNull()
 
     const mdm = policySet({ mdm: MDM })
-    expect(pairingLockMessage(mdm)).toBe('Pairing is managed by the MDM policy of Example Corp.')
-    expect(updatesLockMessage(mdm)).toBe('Example Corp manages Solus updates.')
+    expect(pairingLockMessage(new HostPolicies(mdm))).toBe('Pairing is managed by the MDM policy of Example Corp.')
+    expect(updatesLockMessage(new HostPolicies(mdm))).toBe('Example Corp manages Solus updates.')
     // No summary read yet locks nothing.
     expect(hostLockMessage(null, 'remoteAccess')).toBeNull()
   })
 })
 
 describe('the session pickers', () => {
-  const globex = sessionPolicy(policySet(), 'org-globex')
+  const globex = new HostPolicies(policySet()).forWork('org-globex')
 
   test('modes above the ceiling stay listed, disabled, with the policy\'s reason', () => {
     const choices = permissionModeChoices(undefined, globex)
@@ -131,7 +131,7 @@ describe('the session pickers', () => {
     expect(claude.models.find((model) => model.model === 'claude-opus-5-5')?.policyDenial).toBeNull()
     expect(claude.models.find((model) => model.model !== 'claude-opus-5-5')?.policyDenial).toContain('does not allow the model')
 
-    const acme = buildProviderGroups({ currentProvider: 'claude-code', currentModel: null, canSwitchProvider: true, agents: null, policy: sessionPolicy(policySet(), 'org-acme') })
+    const acme = buildProviderGroups({ currentProvider: 'claude-code', currentModel: null, canSwitchProvider: true, agents: null, policy: new HostPolicies(policySet()).forWork('org-acme') })
     expect(acme.flatMap((group) => group.models).every((model) => model.policyDenial === null)).toBe(true)
   })
 })
@@ -197,7 +197,7 @@ describe('the conversation under a ceiling', () => {
     expect(controller.run.permissionMode).toBe('full-access')
     // The policy changes while the person works: Globex's host policy now limits sessions.
     ceilingSet = policySet()
-    connection.facts.set('policy', ceilingSet)
+    connection.facts.set('policy', new HostPolicies(ceilingSet))
     let refuse = true
     fake.on('prompt', () => {
       if (refuse) throw new HostRpcError('Globex laptops (Globex) limits sessions to Supervised.', 'PERMISSION_MODE_ABOVE_LIMIT')

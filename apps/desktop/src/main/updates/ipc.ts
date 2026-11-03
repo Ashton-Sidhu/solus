@@ -5,7 +5,7 @@ import { desktopUpdateMode } from './update-mode'
 import { app, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
-import type { PolicySet } from '@solus/contracts/policy'
+import type { HostPolicies } from '@solus/contracts/host-policies'
 import { createLogger } from '@solus/server/logger'
 import { reduceUpdateState, releaseFromUpdateInfo, type UpdateEvent } from './update-status'
 import { updatePolicyOf, type UpdatePolicy } from './update-policy'
@@ -63,7 +63,7 @@ interface UpdateIpcDeps {
   onStatusChange?(status: DesktopUpdateStatus): void
   /** The embedded host's policies, with the update feed (plans/030 §6.8). */
   policy: {
-    current(): PolicySet
+    current(): HostPolicies
     onChanged(listener: () => void): () => void
   }
 }

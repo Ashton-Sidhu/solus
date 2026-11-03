@@ -131,9 +131,9 @@ describe('the backstop where every provider process starts', () => {
   test('AgentRunner.run refuses a run above the ceiling before the provider starts, whatever path asked for it', async () => {
     // WHY: queue drains, restarts, automations, and text generation never pass turn admission; this is the one place they all meet.
     const { AgentRunner } = await import('@solus/server/execution/agents/agent-runner')
-    const { PolicyGate, usePolicyGate } = await import('@solus/server/host/policy/policy-gate')
+    const { HostPolicyStore, useHostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
     const document = { schemaVersion: 1 as const, organization: { name: 'Example Corp' }, sessions: { limits: { maxPermissionMode: 'supervised' as const } } }
-    usePolicyGate(new PolicyGate({ mdm: { source: 'test', document, fingerprint: 'test' }, standing: () => null }))
+    useHostPolicyStore(new HostPolicyStore({ mdm: { source: 'test', document, fingerprint: 'test' }, standing: () => null }))
     let started = 0
     const backend = { startRun: () => { started += 1; throw new Error('started') }, on: () => {}, off: () => {} }
     const runner = new AgentRunner(new Map([['codex', backend as never]]))
@@ -144,7 +144,7 @@ describe('the backstop where every provider process starts', () => {
       expect(() => runner.run({ ...request, permissionMode: 'supervised' })).toThrow('started')
       expect(started).toBe(1)
     } finally {
-      usePolicyGate(new PolicyGate({ mdm: null, standing: () => null }))
+      useHostPolicyStore(new HostPolicyStore({ mdm: null, standing: () => null }))
     }
   })
 })

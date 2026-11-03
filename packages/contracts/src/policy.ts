@@ -230,7 +230,7 @@ export type OrganizationPolicies =
   | { state: 'unenforceable'; organizationName: string; reason: string }
   | { state: 'unavailable' }
 
-/** Everything that governs work on one host. The host holds the full set; clients get `summarizePolicySet`. */
+/** The policies that govern work on one host, as they travel: the host holds the full set; clients get `summarizePolicySet`. Read them through `HostPolicies` (`host-policies.ts`). */
 export interface PolicySet {
   mdm: PolicySource | null
   /** The organization whose host policy holds `host` on this host; null when none. */
@@ -238,88 +238,7 @@ export interface PolicySet {
   organizations: { [organizationId: string]: OrganizationPolicies }
 }
 
-export const EMPTY_POLICY_SET: PolicySet = { mdm: null, hostOwnerOrganizationId: null, organizations: {} }
-
 export const LOCAL_POLICY_ORGANIZATION_ID = 'local'
-
-export type SessionSources = { ok: true; sources: PolicySource[] } | { ok: false; code: 'POLICY_UNAVAILABLE' | 'POLICY_UNENFORCEABLE'; message: string }
-
-/** The documents that govern work of `organizationId` on this host, first wins (§3). */
-export function sessionSourcesFor(set: PolicySet, organizationId: string): SessionSources {
-  const owner = hostOwnerState(set)
-  if (owner && !owner.ok) return owner
-  const sources: PolicySource[] = set.mdm ? [set.mdm] : []
-  if (organizationId === LOCAL_POLICY_ORGANIZATION_ID) return { ok: true, sources }
-  const entry = set.organizations[organizationId]
-  if (!entry || entry.state === 'unavailable') {
-    return { ok: false, code: 'POLICY_UNAVAILABLE', message: "This host has not received this organization's policy yet. Connect to Solus Cloud and try again." }
-  }
-  if (entry.state === 'unenforceable') {
-    return { ok: false, code: 'POLICY_UNENFORCEABLE', message: `This host's Solus version cannot enforce ${entry.organizationName}'s policy. Update Solus.` }
-  }
-  if (entry.hostPolicy) sources.push(entry.hostPolicy)
-  sources.push(entry.policy)
-  return { ok: true, sources }
-}
-
-/** An unreadable policy of the host-owning organization stops all work here: its `host` section cannot be applied. */
-function hostOwnerState(set: PolicySet): SessionSources | null {
-  if (set.mdm || !set.hostOwnerOrganizationId) return null
-  const entry = set.organizations[set.hostOwnerOrganizationId]
-  if (entry?.state === 'unenforceable') {
-    return { ok: false, code: 'POLICY_UNENFORCEABLE', message: `This host's Solus version cannot enforce ${entry.organizationName}'s host policy. Update Solus.` }
-  }
-  if (!entry || entry.state === 'unavailable') {
-    return { ok: false, code: 'POLICY_UNAVAILABLE', message: "This host has not received its host policy yet. Connect to Solus Cloud and try again." }
-  }
-  return null
-}
-
-export interface ResolvedRule<Value> {
-  value: Value
-  source: PolicySource
-}
-
-/** A locked setting; its value can be `null` where the setting allows it (`leadModel: null` locks "the default"). */
-export function resolveSessionSetting<K extends ManagedSessionSettingKey>(sources: PolicySource[], key: K): ResolvedRule<Exclude<ManagedSessionSettings[K], undefined>> | null {
-  for (const source of sources) {
-    const value = source.document.sessions?.settings?.[key]
-    if (value !== undefined) {
-      // SAFETY: `value` is `settings[key]` with `undefined` excluded by the check above; TypeScript loses the key's narrowing through the optional chain.
-      return { value: value as Exclude<ManagedSessionSettings[K], undefined>, source }
-    }
-  }
-  return null
-}
-
-export function resolveSessionLimit<K extends keyof SessionLimits>(sources: PolicySource[], key: K): ResolvedRule<NonNullable<SessionLimits[K]>> | null {
-  for (const source of sources) {
-    const value = source.document.sessions?.limits?.[key]
-    if (value !== undefined) {
-      // SAFETY: `value` is `limits[key]`, checked not undefined above, and limit values are never null.
-      return { value: value as NonNullable<SessionLimits[K]>, source }
-    }
-  }
-  return null
-}
-
-/** Host keys: the MDM policy, then the host-owning organization's host policy (§3). */
-export function resolveHostKey<K extends ManagedHostKey>(set: PolicySet, key: K): ResolvedRule<NonNullable<ManagedHostSettings[K]>> | null {
-  const candidates: PolicySource[] = []
-  if (set.mdm) candidates.push(set.mdm)
-  else if (set.hostOwnerOrganizationId) {
-    const entry = set.organizations[set.hostOwnerOrganizationId]
-    if (entry?.state === 'ready' && entry.hostPolicy) candidates.push(entry.hostPolicy)
-  }
-  for (const source of candidates) {
-    const value = source.document.host?.[key]
-    if (value !== undefined) {
-      // SAFETY: `value` is `host[key]`, checked not undefined above, and host values are never null.
-      return { value: value as NonNullable<ManagedHostSettings[K]>, source }
-    }
-  }
-  return null
-}
 
 /** "the MDM policy of Example Corp", "Engineering laptops (Example Corp)", or "Example Corp". */
 export function policySourceLabel(source: PolicySource): string {

@@ -25,7 +25,7 @@ const log = createLogger('main', 'host-organizations')
  * (docs/adr/0001-standard-authentication.md §2.2 rule 9).
  *
  * The last answer is kept on disk and loaded before the first read, so a host that
- * restarts offline keeps enforcing the policies it last saw. `PolicyGate` reads the
+ * restarts offline keeps enforcing the policies it last saw. `HostPolicyStore` reads the
  * policies from here; nothing else decodes them.
  */
 

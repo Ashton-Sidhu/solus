@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { childPermissionMode } from './child-permissions'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -228,7 +228,7 @@ export class PromptDispatch {
         fastMode: false,
         // An unattended follow-up keeps the stored policy across idle release
         // and host restart. Legacy sessions use the supervised policy.
-        permissionMode: this.rt.sessionPermissionModes.get(sessionId) ?? policyGate().clampMode(await organizationOfSession(sessionId), 'supervised'),
+        permissionMode: this.rt.sessionPermissionModes.get(sessionId) ?? hostPolicies().forWork(await organizationOfSession(sessionId)).clampMode('supervised'),
         rateLimitBehavior: 'queue',
         ...instructionsFor(preferences, meta.model),
         executionPreferences: preferences,
@@ -321,7 +321,7 @@ export class PromptDispatch {
     // A default is lowered to the policy's ceiling; an explicit mode above it is refused where the provider starts.
     const permissionMode = parentMode
       ? childPermissionMode(parentMode, req.permissionMode)
-      : req.permissionMode ?? policyGate().clampMode(await organizationOfSession(sessionId), preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode)
+      : req.permissionMode ?? hostPolicies().forWork(await organizationOfSession(sessionId)).clampMode(preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode)
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,
@@ -413,7 +413,7 @@ export class PromptDispatch {
     // No seat, no run: a creator whose seat is not connected fails the run with SEAT_REQUIRED.
     await this.rt.seatForTurn(req.actor, req.provider)
     // The captured preferences, with what the organization's policies lock now (plans/030 §6.6).
-    const lockedPreferences = req.executionPreferences && policyGate().applyExecutionPreferences(req.organizationId, req.executionPreferences)
+    const lockedPreferences = req.executionPreferences && hostPolicies().forWork(req.organizationId).withLocks(req.executionPreferences, EXECUTION_SETTING_KEYS)
     const input: SessionRunInput = {
       provider: req.provider,
       agentSessionId: null,
@@ -426,7 +426,7 @@ export class PromptDispatch {
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
       // The default of unattended work, lowered to a policy's ceiling (plans/030 §6.3).
-      permissionMode: policyGate().clampMode(req.organizationId, 'full-access'),
+      permissionMode: hostPolicies().forWork(req.organizationId).clampMode('full-access'),
       rateLimitBehavior: 'queue',
       ...unattendedModelInputFor(req.provider, req.modelId, lockedPreferences),
       executionPreferences: lockedPreferences,

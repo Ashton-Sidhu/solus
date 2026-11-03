@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { UplinkLinkManager } from '@solus/server/transport/uplink/link'
 import { HostOrganizations } from '@solus/server/host/organizations'
 import { hostOrganizationsResponseSchema } from '@solus/contracts/uplink'
-import { PolicyGate } from '@solus/server/host/policy/policy-gate'
+import { HostPolicyStore } from '@solus/server/host/policy/host-policy-store'
 
 // docs/plans/webhooks.md §2.3–§2.5, §2.7: the link answer gives the host a
 // forwarder secret that proves forwarded deliveries, the hold switch lives in
@@ -141,9 +141,9 @@ describe('organization facts for webhooks', () => {
     await organizations.refresh()
     expect(organizations.isWebhookPausedByAdmin('wh-paused')).toBe(true)
     expect(organizations.isWebhookPausedByAdmin('wh-other')).toBe(false)
-    // The unverified rule is the organization's policy, read through the gate; a policy that says nothing does not allow it.
-    const gate = new PolicyGate({ mdm: null, standing: () => organizations.current() })
-    expect(gate.allowsUnverifiedWebhooks('org-1')).toBe(true)
-    expect(gate.allowsUnverifiedWebhooks('org-2')).toBe(false)
+    // The unverified rule is the organization's policy; a policy that says nothing does not allow it.
+    const policies = new HostPolicyStore({ mdm: null, standing: () => organizations.current() }).current()
+    expect(policies.forWork('org-1').allowsUnverifiedWebhooks()).toBe(true)
+    expect(policies.forWork('org-2').allowsUnverifiedWebhooks()).toBe(false)
   })
 })

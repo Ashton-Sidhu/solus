@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import type { ProviderConversation } from './agent-runner'
 import type { AgentId, IpcContext, SessionRunInput } from '@solus/contracts/types'
@@ -67,7 +67,7 @@ export function parseExecutionPreferences(sent: ExecutionPreferences | undefined
  */
 export function contextPreferences(ctx: Pick<IpcContext, 'settings'> & { session?: Pick<IpcContext['session'], 'organizationId'> }): ExecutionPreferences {
   const sent = parseExecutionPreferences(ctx.settings.executionPreferences) ?? {}
-  return policyGate().applyExecutionPreferences(ctx.session?.organizationId ?? LOCAL_ORGANIZATION_ID, sent)
+  return hostPolicies().forWork(ctx.session?.organizationId ?? LOCAL_ORGANIZATION_ID).withLocks(sent, EXECUTION_SETTING_KEYS)
 }
 
 /**

@@ -8,8 +8,8 @@ import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
 import { isSessionBusyStatus, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
-import { clampedDefaultMode, modelDenial, permissionCeiling, providerDenial, type SessionPolicy } from '@solus/client-core/policy'
-import { clampPermissionMode, isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
+import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
 import { resourceAllows } from '@solus/contracts/permissions'
 import type { HostConnection } from '../hosts/host-connections'
 import {
@@ -253,7 +253,7 @@ export class ConversationController {
     connection.facts.ensure('policy')
     this.cleanups.push(connection.facts.subscribe((key) => {
       if (key !== 'policy') return
-      if (!this.started) this.run.permissionMode = clampPermissionMode(this.run.permissionMode, permissionCeiling(this.policy)?.mode)
+      if (!this.started) this.run.permissionMode = this.policy.clampMode(this.run.permissionMode)
       this.flush(true)
     }))
     this.cleanups.push(connection.events.subscribe('config.changed', () => {
@@ -295,7 +295,7 @@ export class ConversationController {
   }
 
   /** What governs this work on its host (plans/030 §7). A saved session keeps its record's organization; new work takes the device's. Nothing is locked until the host answers. */
-  get policy(): SessionPolicy {
+  get policy(): WorkPolicy {
     return workPolicy(this.deps.connection.facts.value('policy'), this.target.record?.organizationId ?? this.run.organizationId)
   }
 
@@ -366,7 +366,7 @@ export class ConversationController {
     if (this.settings) return
     this.settings = await this.deps.runSettings()
     // New work starts at the default, lowered to the policy's ceiling; a locked default wins.
-    this.run.permissionMode = this.started ? this.settings.defaultPermissionMode : clampedDefaultMode(this.policy, this.settings.defaultPermissionMode)
+    this.run.permissionMode = this.started ? this.settings.defaultPermissionMode : this.policy.defaultMode(this.settings.defaultPermissionMode)
     if (!this.target.record) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents?.find((agent) => agent.id === this.run.provider)))
     else if (!this.run.preferredModel) Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider), this.agents?.find((agent) => agent.id === this.run.provider), false))
     else this.run.fastMode = rememberedFastMode(this.run.provider, this.run.preferredModel, this.settings)
@@ -622,8 +622,8 @@ export class ConversationController {
    */
   updateRun(change: { model?: string; reasoningEffort?: ReasoningEffort; permissionMode?: PermissionMode; fastMode?: boolean }): boolean {
     // The pickers disable what the policy refuses; the host refuses it too. Lowering is always allowed.
-    if (change.permissionMode !== undefined && isPermissionModeAbove(change.permissionMode, permissionCeiling(this.policy)?.mode)) return false
-    if (change.model !== undefined && change.model !== AUTO_MODEL_ID && modelDenial(this.policy, this.run.provider, change.model)) return false
+    if (change.permissionMode !== undefined && isPermissionModeAbove(change.permissionMode, this.policy.ceiling()?.value)) return false
+    if (change.model !== undefined && change.model !== AUTO_MODEL_ID && this.policy.modelDenial(this.run.provider, change.model)) return false
     if (change.model !== undefined) this.modelPicked = true
     if (change.model !== undefined) Object.assign(this.run, selectModel(this.run.provider, change.model, this.settings, this.agents?.find((agent) => agent.id === this.run.provider)))
     if (change.reasoningEffort !== undefined) this.run.reasoningEffort = change.reasoningEffort
@@ -664,7 +664,7 @@ export class ConversationController {
    * prompt and its card stay.
    */
   pickProvider(provider: Exclude<AgentId, 'opencode'>): void {
-    if (provider === this.run.provider || providerDenial(this.policy, provider)) return
+    if (provider === this.run.provider || this.policy.providerDenial(provider)) return
     this.run.provider = provider
     Object.assign(this.run, newSessionModel(provider, this.defaultsWithoutAuto(provider), this.agents?.find((agent) => agent.id === provider), false))
     this.settleRun()
@@ -773,7 +773,7 @@ export class ConversationController {
     this.model.setStatus('idle')
     this.run.agentSessionId = null
     this.flush()
-    const mode = clampPermissionMode(implementationMode(clampedDefaultMode(this.policy, settings.defaultPermissionMode)), permissionCeiling(this.policy)?.mode)
+    const mode = this.policy.clampMode(implementationMode(this.policy.defaultMode(settings.defaultPermissionMode)))
     await this.send(implementPlanPrompt({ ...plan, sessionId }, note), { permissionMode: mode })
     return true
   }

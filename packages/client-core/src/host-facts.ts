@@ -1,5 +1,5 @@
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { PolicySet } from '@solus/contracts/policy'
+import { HostPolicies } from '@solus/contracts/host-policies'
 import type {
   AgentUsageLimits,
   DetectedEditor,
@@ -38,7 +38,7 @@ export interface HostFactValues {
   /** Editors and terminals the host found, limited to the editors it advertises. */
   tools: DetectedTools
   /** The policies that govern work on this host, as a summary (plans/030 §7). */
-  policy: PolicySet
+  policy: HostPolicies
 }
 
 export type HostFactKey = keyof HostFactValues
@@ -93,7 +93,7 @@ export class HostFacts {
       source.events.subscribe('host.modelProfilesChanged', () => { if (this.requested.has('machine')) void this.refresh('machine'); }),
       source.events.subscribe('usage.limitsChanged', ({ snapshots }) => this.set('usage', snapshots)),
       source.events.subscribe('voice.modelStatusChanged', (status) => this.set('voiceModel', status)),
-      source.events.subscribe('host.policyChanged', (policy) => this.set('policy', policy)),
+      source.events.subscribe('host.policyChanged', (policy) => this.set('policy', new HostPolicies(policy))),
       // The host made this member's Linux user: its server info no longer says `preparing` (docs/plans/member-isolation.md §8.1).
       source.events.subscribe('connection.memberWorkspaceReady', () => void this.refresh('serverInfo')),
     ]
@@ -230,7 +230,7 @@ export class HostFacts {
         case 'usage':
           return { state: 'ready', value: await api.usageLimits() }
         case 'policy':
-          return { state: 'ready', value: await api.hostPolicy() }
+          return { state: 'ready', value: new HostPolicies(await api.hostPolicy()) }
         case 'voiceModel': {
           const capabilities = await this.when('capabilities')
           // Only the desktop main process transcribes; a server without it never will.

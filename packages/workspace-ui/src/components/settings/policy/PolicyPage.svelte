@@ -44,7 +44,7 @@
   const view = $derived(origin && organizationId ? store.viewFor(origin, organizationId) : undefined);
   const ready = $derived(view?.status === "ready" ? view : null);
   const canManage = $derived(!!ready?.organization.canManage);
-  const policySet = $derived(serverId ? hosts.get(serverId).policySet : undefined);
+  const policySet = $derived(serverId ? hosts.get(serverId).policies?.set : undefined);
   const mdm = $derived(policySet?.mdm ?? null);
   const ownerName = $derived(hostOwnerName(policySet, organizations));
 

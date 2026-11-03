@@ -20,7 +20,7 @@ import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { canChangeAccess, networkNote, type HostAccessSnapshot } from "./host-access";
-import type { PolicySet } from "@solus/contracts/policy";
+import type { HostPolicies } from "@solus/contracts/host-policies";
 import { hostLockMessage, pairingLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
 
@@ -32,7 +32,7 @@ import { PolicyLockNote } from "../policy/PolicyLockNote";
 export function HostOrganizationsSection(props: {
   readonly access: HostAccessSnapshot;
   /** The host's policy summary; null until it is read, when no row is managed by it. */
-  readonly policy: PolicySet | null;
+  readonly policy: HostPolicies | null;
   readonly onInsightsOptIn: (organizationId: string, next: boolean) => void;
 }) {
   const status = props.access.organizations;
@@ -91,7 +91,7 @@ export function HostOrganizationsSection(props: {
 
 export function HostNetworkSection(props: {
   readonly access: HostAccessSnapshot;
-  readonly policy: PolicySet | null;
+  readonly policy: HostPolicies | null;
   readonly onRemoteAccess: (next: boolean) => void;
   readonly onTrustLocalNetwork: (next: boolean) => void;
 }) {
@@ -141,7 +141,7 @@ export function HostNetworkSection(props: {
 
 export function HostPairingSection(props: {
   readonly access: HostAccessSnapshot;
-  readonly policy: PolicySet | null;
+  readonly policy: HostPolicies | null;
   readonly onGenerate: () => void;
 }) {
   const { pair, endpoints, busy } = props.access;

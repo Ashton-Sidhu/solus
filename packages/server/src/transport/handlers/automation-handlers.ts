@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import type { SolusServer } from '../server'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
@@ -50,7 +50,7 @@ export function registerAutomationHandlers(server: SolusServer): void {
     // The creator comes from the verified caller, never from the request. Their
     // preferences choose behaviour, never authority.
     const preferences = parseExecutionPreferences(executionPreferences)
-    policyGate().assertProviderAllowed(organizationForNew(ctx.principal), action.agentProvider, action.modelId)
+    enforce(hostPolicies().forWork(organizationForNew(ctx.principal)).selectionDenial(action.agentProvider, action.modelId))
     const automation = await createAutomation(name, action, attributionOf(ctx.actor), enabled ?? true, trigger ?? { type: 'manual' }, preferences, organizationForNew(ctx.principal))
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)
     return withAutomationRole(ctx.actor, automation)
@@ -69,7 +69,7 @@ export function registerAutomationHandlers(server: SolusServer): void {
     if (rest.action) {
       const current = await loadAutomation(id)
       const next = { ...current?.action, ...rest.action }
-      if (current && next.agentProvider) policyGate().assertProviderAllowed(current.organizationId ?? LOCAL_ORGANIZATION_ID, next.agentProvider, next.modelId)
+      if (current && next.agentProvider) enforce(hostPolicies().forWork(current.organizationId ?? LOCAL_ORGANIZATION_ID).selectionDenial(next.agentProvider, next.modelId))
     }
     const automation = await updateAutomation(id, executionPreferences === undefined ? rest : { ...rest, executionPreferences: parseExecutionPreferences(executionPreferences) })
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)

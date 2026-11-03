@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   SECRET_SCHEMES,
@@ -143,7 +143,7 @@ export function createWebhookService(deps: WebhookServiceDeps) {
     for (const action of record.actions) {
       if (action.type !== 'start_session') continue
       try {
-        policyGate().assertProviderAllowed(record.organizationId, action.agentProvider, action.modelId)
+        enforce(hostPolicies().forWork(record.organizationId).selectionDenial(action.agentProvider, action.modelId))
       } catch (error) {
         throw new WebhookInputError(error instanceof Error ? error.message : String(error))
       }

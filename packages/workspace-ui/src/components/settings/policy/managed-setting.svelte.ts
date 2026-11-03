@@ -1,39 +1,39 @@
-import { EMPTY_POLICY_SET, type ManagedHostKey, type ManagedSessionSettingKey, type PolicySet } from '@solus/contracts/policy'
-import { updatesManagedMessage } from '@solus/client-core/policy'
+import type { ManagedHostKey, ManagedSessionSettingKey } from '@solus/contracts/policy'
+import { HostPolicies } from '@solus/contracts/host-policies'
 import { serversStore } from '../../../contexts'
 import { hosts } from '../../../contexts/hosts/hosts.svelte'
-import { policySetOn } from '../../../contexts/policy/work-policy.svelte'
+import { policiesOn } from '../../../contexts/policy/work-policy.svelte'
 import { hostLockNote, pairingLockNote, solusToolsLock } from './lib/host-locks'
 import { managedSettingNote, type ManagedSettingNote } from './lib/managed-setting-note'
 
 /** Personal settings apply on every host; the page shows the locks of this device's host, else of the Run on host. */
-export function settingsPolicySet(): PolicySet {
-  return (hosts.device ?? hosts.runOn)?.policySet ?? EMPTY_POLICY_SET
+export function settingsPolicies(): HostPolicies {
+  return (hosts.device ?? hosts.runOn)?.policies ?? HostPolicies.none
 }
 
 /** The note under one managed personal setting. Reactive: read it in markup or in `$derived`. */
 export function managedSetting(key: ManagedSessionSettingKey): ManagedSettingNote {
-  return managedSettingNote(settingsPolicySet(), serversStore.organizations, key)
+  return managedSettingNote(settingsPolicies(), serversStore.organizations, key)
 }
 
 /** The lock note of one machine-wide key on the host a page shows. Reactive. */
 export function hostLock(serverId: string, key: ManagedHostKey): ManagedSettingNote | undefined {
-  return hostLockNote(policySetOn(serverId), key)
+  return hostLockNote(policiesOn(serverId), key)
 }
 
 /** The pairing lock on the host a page shows, from `remoteAccess: false`. Reactive. */
 export function pairingLock(serverId: string): ManagedSettingNote | undefined {
-  return pairingLockNote(policySetOn(serverId))
+  return pairingLockNote(policiesOn(serverId))
 }
 
 /** The Solus tools a policy locks on the host a page shows. Reactive. */
 export function solusToolsPolicyLock(serverId: string): ReturnType<typeof solusToolsLock> {
-  return solusToolsLock(policySetOn(serverId))
+  return solusToolsLock(policiesOn(serverId))
 }
 
 /** "<Name> manages Solus updates." when a policy turns updates off on a host; else undefined. Reactive. */
 export function updatesLock(serverId: string): ManagedSettingNote | undefined {
-  const message = updatesManagedMessage(policySetOn(serverId))
+  const message = policiesOn(serverId).updatesManagedMessage()
   return message ? { lockedEverywhere: true, lines: [message] } : undefined
 }
 

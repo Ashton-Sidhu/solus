@@ -65,11 +65,11 @@ beforeAll(async () => {
     clearTimeoutFn: (() => {}) as typeof clearTimeout,
   })
   await hostOrganizations.refresh()
-  // Wired as boot wires it: the organization's policy through the gate, else the person's opt-in.
-  const { PolicyGate } = await import('@solus/server/host/policy/policy-gate')
-  const gate = new PolicyGate({ mdm: null, standing: () => hostOrganizations.current() })
+  // Wired as boot wires it: the organization's policy through the host policy store, else the person's opt-in.
+  const { HostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
+  const store = new HostPolicyStore({ mdm: null, standing: () => hostOrganizations.current() })
   insightMirror.useInsightsPolicy({
-    syncAllInsights: (organizationId) => gate.syncAllInsights(organizationId),
+    syncAllInsights: (organizationId) => store.current().forWork(organizationId).syncsAllInsights(),
     optedIn: () => false,
     attached: () => false,
   })

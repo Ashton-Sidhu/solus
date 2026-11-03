@@ -1,4 +1,4 @@
-import { policyGate } from '../host/policy/policy-gate'
+import { hostPolicies, REVIEW_SETTING_KEYS } from '../host/policy/host-policy-store'
 import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
@@ -244,5 +244,5 @@ function errorMessage(err: Parameters<typeof String>[0]): string {
 
 /** The review settings a request carries, with what its organization's policies lock (plans/030 §6.6). */
 export function lockedReviewSettings(ctx: Pick<IpcContext, 'settings' | 'session'>): IpcContext['settings'] {
-  return policyGate().applyReviewSettings(ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID, ctx.settings)
+  return hostPolicies().forWork(ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID).withLocks(ctx.settings, REVIEW_SETTING_KEYS)
 }

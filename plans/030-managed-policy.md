@@ -361,41 +361,39 @@ starts.
 
 ## 6. Enforcement on the host
 
-### 6.1 One owner
+### 6.1 One model, one owner
 
-`packages/server/src/host/policy/policy-gate.ts` is the only module that reads a
-policy document.
+The rules are two classes in `packages/contracts/src/host-policies.ts`, shared by the
+host (which enforces them) and every client (which shows them):
 
-```ts
-interface PolicyGate {
-  resolveSession<K extends SessionPolicyKey>(organizationId: string, key: K): ResolvedRule<K> | null
-  resolveHost<K extends HostPolicyKey>(key: K): ResolvedRule<K> | null
-  /** Refuse a run above the ceiling, on a provider not allowed, or on a model not allowed. */
-  checkRun(organizationId: string, run: { mode: PermissionMode; provider: AgentId; model: string | null }): void
-  /** A default or an automatic grant, lowered to the ceiling. */
-  clampMode(organizationId: string, mode: PermissionMode): PermissionMode
-  isProviderAllowed(organizationId: string, provider: AgentId): boolean
-  isModelAllowed(organizationId: string, provider: AgentId, model: string): boolean
-  launchConfig(organizationId: string, provider: AgentId, instance: ProviderInstance | null): ProviderInstance | null
-  applySettings(organizationId: string, preferences: ExecutionPreferences, settings: RequestSettings): { preferences: ExecutionPreferences; settings: RequestSettings }
-  applyHostSettings(config: HostConfig): HostConfig
-  syncAllInsights(organizationId: string): boolean
-  allowsUnverifiedWebhooks(organizationId: string): boolean
-  summary(): PolicySummary
-}
-```
+- `HostPolicies` holds everything that governs work on one host: the MDM policy and
+  each organization's policies (`PolicySet`, the wire shape). It answers the
+  machine-wide keys (`hostSetting`, `hostSettingLock`, `settingChangeDenial`,
+  `capabilityDenial`, `updatesManagedMessage`), gives clients their `summary()`, and
+  gives each organization's work its `WorkPolicy` (`forWork`).
+- `WorkPolicy` answers for one organization's work on this host, first source wins
+  (§3): `setting`/`settingLock`, `limit`, `ceiling`, `clampMode`, `defaultMode`,
+  `launch`, `withLocks`, `syncsAllInsights`, `allowsUnverifiedWebhooks`, and the
+  denials `modeDenial`, `providerDenial`, `modelDenial`, `selectionDenial`, and
+  `runDenial`.
 
-`ResolvedRule` carries the value and its source, for example "MDM policy of Example
-Corp", "Globex laptops (Globex)", or "Globex". Each lock and each refusal names that
-source.
+A rule never throws. A denial is a `PolicyRefusal` value (`{ code, message }`), so the
+host decides how to refuse and a client decides how to show it. When the host cannot
+know an organization's policies, its `WorkPolicy` carries that `refusal`, every run
+is denied, and no setting is locked.
 
-A refusal is a `PolicyRefusedError`:
+On the host, `packages/server/src/host/policy/host-policy-store.ts` is the only
+module that decodes policy documents. `HostPolicyStore` builds the current
+`HostPolicies` from the MDM policy and the standing, and tells listeners when they
+change. Enforcement points read `hostPolicies()` and turn a denial into the error the
+transport sends with `enforce(refusal)` (`PolicyRefusedError`, with the codes below).
 
-- Codes: `PERMISSION_MODE_ABOVE_LIMIT`, `PROVIDER_NOT_ALLOWED`, `MODEL_NOT_ALLOWED`,
-  `SETTING_MANAGED`, `REMOTE_ACCESS_NOT_ALLOWED`, `CLOUD_TUNNEL_NOT_ALLOWED`,
-  `UPDATES_MANAGED`, `POLICY_UNAVAILABLE`, `POLICY_UNENFORCEABLE`.
-- Messages: `"<Source> limits sessions to <Mode>."`, `"<Source> does not allow
-  <thing>."`, `"<Setting> is managed by <Source>."`
+Each lock and each refusal names its source, for example "the MDM policy of Example
+Corp", "Engineering laptops (Example Corp)", or "Example Corp" (`policySourceLabel`).
+
+Codes: `PERMISSION_MODE_ABOVE_LIMIT`, `PROVIDER_NOT_ALLOWED`, `MODEL_NOT_ALLOWED`,
+`SETTING_MANAGED`, `REMOTE_ACCESS_NOT_ALLOWED`, `CLOUD_TUNNEL_NOT_ALLOWED`,
+`UPDATES_MANAGED`, `POLICY_UNAVAILABLE`, `POLICY_UNENFORCEABLE`.
 
 ### 6.2 Fail closed
 
@@ -611,7 +609,7 @@ this.
    fields. Remove the old organization policy and settings schemas.
 2. **Cloud:** the tables, the API, ownership of the host section, the audit events,
    the template, the standing.
-3. **Host:** `mdm-policy.ts` (all three sources), the standing cache, `policy-gate.ts`.
+3. **Host:** `mdm-policy.ts` (all three sources), the standing cache, `host-policy-store.ts`.
 4. **Enforcement:** §6.3 to §6.9.
 5. **Desktop main:** the MDM read before boot, analytics and updates (§5.4, §6.8).
 6. **Clients:** the `policy` fact, the resolver, the locks, the refusal copy, the
@@ -641,7 +639,7 @@ All tests are in `tests/unit/`. Each one names the rule it protects.
   - two sources refuse;
   - a bad document refuses, and the message names the source;
   - a release build ignores the dev override.
-- `policy-gate.test.ts`:
+- `managed-policy.test.ts`:
   - work of organization A never sees organization B's policies;
   - order: MDM, then the host policy, then the organization policy;
   - `local` work sees only MDM;
@@ -757,5 +755,5 @@ Decisions made while building, which change or refine the sections above:
 - **A steer is checked against the active run's mode**, and a reported Claude mode
   change above the ceiling aborts the run.
 - **The policy refusal is its own error** (`PolicyRefusedError` in
-  `host/policy/policy-gate.ts`), sent with its code like a turn refusal. The host
+  `host/policy/host-policy-store.ts`), sent with its code like a turn refusal. The host
   area may not import the execution area (`server-module-boundaries.test.ts`).

@@ -11,7 +11,8 @@ import { parseUserKey } from '@solus/contracts/user'
 import { hostUserKey, isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
 import { hostCategory } from '../../host/host-category'
-import type { HostCategory, HostOrganization } from '@solus/contracts/uplink'
+import type { HostCategory, HostRules } from '@solus/contracts/uplink'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
 import { z } from 'zod'
@@ -288,16 +289,17 @@ export interface UnattendedWorkRefusal {
  * gate (plans/030 §6.9), which an MDM policy also sets for Local webhooks.
  */
 export function unattendedOrganizationRefusal(
-  organizationId: string,
-  rules: { organization: (organizationId: string) => Pick<HostOrganization, 'hostRules'> | null; allowsUnverifiedWebhooks: (organizationId: string) => boolean },
-  work: { unverified: boolean },
+  /** The organization's host rules; null for personal work or an organization this host has not heard of. */
+  hostRules: HostRules | null,
+  /** What governs the work; it decides the unverified rule (an MDM policy decides it for personal work too). */
+  work: WorkPolicy,
+  unverified: boolean,
   category: HostCategory = hostCategory(),
 ): UnattendedWorkRefusal | null {
-  const hostRules = organizationId === LOCAL_ORGANIZATION_ID ? null : rules.organization(organizationId)?.hostRules ?? null
   if (hostRules && category === 'personal' && !hostRules.allowsPersonalHosts) {
     return { code: 'PERSONAL_HOSTS_NOT_ALLOWED', message: 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud or self-hosted machine of the organization.' }
   }
-  if (work.unverified && !rules.allowsUnverifiedWebhooks(organizationId)) {
+  if (unverified && !work.allowsUnverifiedWebhooks()) {
     return { code: 'ORGANIZATION_NOT_ALLOWED', message: 'A policy does not allow unverified webhooks here. Choose a verification scheme.' }
   }
   return null

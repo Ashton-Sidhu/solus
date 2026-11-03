@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { canonicalPolicyJson, REDACTED_LAUNCH_VALUE, summarizePolicySet, validatePolicyDocument, type PolicyDocument } from '@solus/contracts/policy'
-import { PolicyGate, PolicyRefusedError } from '@solus/server/host/policy/policy-gate'
+import { canonicalPolicyJson, REDACTED_LAUNCH_VALUE, validatePolicyDocument, type PolicyDocument } from '@solus/contracts/policy'
+import type { HostPolicies } from '@solus/contracts/host-policies'
+import { HostPolicyStore, PolicyRefusedError, enforce } from '@solus/server/host/policy/host-policy-store'
 import type { HostStanding } from '@solus/server/host/organizations'
 import type { MdmPolicy } from '@solus/server/host/policy/mdm-policy'
 
@@ -36,8 +37,9 @@ function standing(organizations: Array<{ id: string; name: string; policy: unkno
   }
 }
 
-function gate(machine: PolicyDocument | null, hostStanding: HostStanding | null): PolicyGate {
-  return new PolicyGate({ mdm: machine ? mdm(machine) : null, standing: () => hostStanding })
+/** The policies a host holds with this MDM policy and standing, as the store builds them. */
+function host(machine: PolicyDocument | null, hostStanding: HostStanding | null): HostPolicies {
+  return new HostPolicyStore({ mdm: machine ? mdm(machine) : null, standing: () => hostStanding }).current()
 }
 
 describe('the policy document', () => {
@@ -84,34 +86,34 @@ describe('resolution keyed by the work\'s organization', () => {
 
   test('work of one organization never sees another organization\'s policies (the Bob case)', () => {
     // WHY: a host shared with Acme and Globex must not let Acme's host policy loosen Globex's limit.
-    const policies = gate(null, both)
-    expect(policies.ceiling('globex')?.value).toBe('supervised')
-    expect(policies.ceiling('acme')?.value).toBe('full-access')
-    expect(() => policies.checkRun('globex', { mode: 'full-access', provider: 'claude-code' })).toThrow(PolicyRefusedError)
-    expect(() => policies.checkRun('acme', { mode: 'full-access', provider: 'claude-code' })).not.toThrow()
+    const policies = host(null, both)
+    expect(policies.forWork('globex').ceiling()?.value).toBe('supervised')
+    expect(policies.forWork('acme').ceiling()?.value).toBe('full-access')
+    expect(() => enforce(policies.forWork('globex').runDenial({ mode: 'full-access', provider: 'claude-code' }))).toThrow(PolicyRefusedError)
+    expect(policies.forWork('acme').runDenial({ mode: 'full-access', provider: 'claude-code' })).toBeNull()
   })
 
   test('the organization\'s host policy comes before its organization policy, and the MDM policy before both', () => {
-    const policies = gate(doc('IT', { sessions: { settings: { extraInstructions: 'MDM rules.' } } }), both)
-    expect(policies.applyExecutionPreferences('globex', { extraInstructions: 'Mine.' }).extraInstructions).toBe('MDM rules.')
-    expect(gate(null, both).applyExecutionPreferences('globex', { extraInstructions: 'Mine.' }).extraInstructions).toBe('Never push to main.')
+    const policies = host(doc('IT', { sessions: { settings: { extraInstructions: 'MDM rules.' } } }), both)
+    expect(policies.forWork('globex').withLocks({ extraInstructions: 'Mine.' }, ['extraInstructions']).extraInstructions).toBe('MDM rules.')
+    expect(host(null, both).forWork('globex').withLocks({ extraInstructions: 'Mine.' }, ['extraInstructions']).extraInstructions).toBe('Never push to main.')
   })
 
   test('personal work sees only the MDM policy; without one it has no rule and keeps the person\'s values', () => {
-    expect(gate(null, both).ceiling('local')).toBeNull()
-    expect(gate(null, both).applyExecutionPreferences('local', { extraInstructions: 'Mine.' }).extraInstructions).toBe('Mine.')
-    expect(gate(doc('IT', { sessions: { limits: { maxPermissionMode: 'plan' } } }), both).ceiling('local')?.value).toBe('plan')
+    expect(host(null, both).forWork('local').ceiling()).toBeNull()
+    expect(host(null, both).forWork('local').withLocks({ extraInstructions: 'Mine.' }, ['extraInstructions']).extraInstructions).toBe('Mine.')
+    expect(host(doc('IT', { sessions: { limits: { maxPermissionMode: 'plan' } } }), both).forWork('local').ceiling()?.value).toBe('plan')
   })
 
   test('host keys come from the MDM policy, else the host-owning organization, else nobody', () => {
-    expect(gate(null, both).hostKey('analyticsEnabled')?.value).toBe(false)
-    expect(gate(doc('IT', { host: { analyticsEnabled: true } }), both).hostKey('analyticsEnabled')?.value).toBe(true)
-    expect(gate(null, standing([{ id: 'acme', name: 'Acme', policy: doc('Acme'), hostPolicy: acmeHost }], null)).hostKey('analyticsEnabled')).toBeNull()
+    expect(host(null, both).hostSetting('analyticsEnabled')?.value).toBe(false)
+    expect(host(doc('IT', { host: { analyticsEnabled: true } }), both).hostSetting('analyticsEnabled')?.value).toBe(true)
+    expect(host(null, standing([{ id: 'acme', name: 'Acme', policy: doc('Acme'), hostPolicy: acmeHost }], null)).hostSetting('analyticsEnabled')).toBeNull()
   })
 
   test('the person\'s preferences are never changed: locks are laid over a copy', () => {
     const sent = { extraInstructions: 'Mine.' }
-    gate(null, both).applyExecutionPreferences('globex', sent)
+    host(null, both).forWork('globex').withLocks(sent, ['extraInstructions'])
     expect(sent.extraInstructions).toBe('Mine.')
   })
 })
@@ -119,7 +121,7 @@ describe('resolution keyed by the work\'s organization', () => {
 describe('fail closed', () => {
   test('work of an organization this host has no policy for is refused, not run on defaults', () => {
     // WHY: the old registry answered defaults for an unknown organization, which allowed everything.
-    expect(() => gate(null, standing([])).checkRun('globex', { mode: 'plan', provider: 'codex' })).toThrow('has not received')
+    expect(host(null, standing([])).forWork('globex').runDenial({ mode: 'plan', provider: 'codex' })?.message).toContain('has not received')
   })
 
   test('a policy this Solus version cannot decode refuses that organization\'s work and nobody else\'s', () => {
@@ -127,13 +129,13 @@ describe('fail closed', () => {
       { id: 'acme', name: 'Acme', policy: { schemaVersion: 2, organization: { name: 'Acme' } } },
       { id: 'globex', name: 'Globex', policy: doc('Globex') },
     ])
-    expect(() => gate(null, newer).checkRun('acme', { mode: 'plan', provider: 'codex' })).toThrow('Update Solus')
-    expect(() => gate(null, newer).checkRun('globex', { mode: 'plan', provider: 'codex' })).not.toThrow()
+    expect(host(null, newer).forWork('acme').runDenial({ mode: 'plan', provider: 'codex' })?.message).toContain('Update Solus')
+    expect(host(null, newer).forWork('globex').runDenial({ mode: 'plan', provider: 'codex' })).toBeNull()
   })
 
   test('an undecodable policy of the host-owning organization stops all work on the host, personal work too', () => {
     const owned = standing([{ id: 'acme', name: 'Acme', policy: doc('Acme'), hostPolicy: { schemaVersion: 1, organization: { name: 'Acme' }, host: { unknown: true } } }], 'acme')
-    expect(() => gate(null, owned).checkRun('local', { mode: 'plan', provider: 'codex' })).toThrow('Update Solus')
+    expect(host(null, owned).forWork('local').runDenial({ mode: 'plan', provider: 'codex' })?.message).toContain('Update Solus')
   })
 })
 
@@ -141,35 +143,35 @@ describe('limits', () => {
   const limited = standing([{ id: 'org', name: 'Org', policy: doc('Org', { sessions: { limits: { maxPermissionMode: 'accept-edits', providers: { allowed: ['claude-code'] }, models: { 'claude-code': ['claude-sonnet-5-5'] } } } }) }])
 
   test('a run above the ceiling is refused; a default or automatic grant is lowered to it', () => {
-    const policies = gate(null, limited)
-    expect(() => policies.checkRun('org', { mode: 'auto', provider: 'claude-code' })).toThrow('limits sessions to Accept edits')
-    expect(policies.clampMode('org', 'full-access')).toBe('accept-edits')
-    expect(policies.clampMode('org', 'plan')).toBe('plan')
+    const policies = host(null, limited)
+    expect(policies.forWork('org').runDenial({ mode: 'auto', provider: 'claude-code' })?.message).toContain('limits sessions to Accept edits')
+    expect(policies.forWork('org').clampMode('full-access')).toBe('accept-edits')
+    expect(policies.forWork('org').clampMode('plan')).toBe('plan')
   })
 
   test('a provider or a model outside the allowlist is refused', () => {
-    const policies = gate(null, limited)
-    expect(() => policies.checkRun('org', { mode: 'plan', provider: 'codex' })).toThrow('does not allow Codex')
-    expect(() => policies.checkRun('org', { mode: 'plan', provider: 'claude-code', model: 'claude-opus-5-5' })).toThrow('does not allow the model')
-    expect(() => policies.checkRun('org', { mode: 'plan', provider: 'claude-code', model: 'claude-sonnet-5-5' })).not.toThrow()
+    const policies = host(null, limited)
+    expect(policies.forWork('org').runDenial({ mode: 'plan', provider: 'codex' })?.message).toContain('does not allow Codex')
+    expect(policies.forWork('org').runDenial({ mode: 'plan', provider: 'claude-code', model: 'claude-opus-5-5' })?.message).toContain('does not allow the model')
+    expect(policies.forWork('org').runDenial({ mode: 'plan', provider: 'claude-code', model: 'claude-sonnet-5-5' })).toBeNull()
   })
 
   test('under a ceiling the policy owns the launch config', () => {
-    expect(gate(null, limited).launchPolicy('org', 'claude-code').ownsLaunch).toBe(true)
-    expect(gate(null, standing([{ id: 'org', name: 'Org', policy: doc('Org') }])).launchPolicy('org', 'claude-code')).toEqual({ ownsLaunch: false, pin: null })
+    expect(host(null, limited).forWork('org').launch('claude-code').ownsLaunch).toBe(true)
+    expect(host(null, standing([{ id: 'org', name: 'Org', policy: doc('Org') }])).forWork('org').launch('claude-code')).toEqual({ ownsLaunch: false, pin: null, source: null })
   })
 
   test('unverified webhooks: refused for an organization unless its policy allows them; personal ones only when the MDM policy says no', () => {
     const allowing = standing([{ id: 'org', name: 'Org', policy: doc('Org', { sessions: { limits: { webhooks: { allowUnverified: true } } } }) }, { id: 'quiet', name: 'Quiet', policy: doc('Quiet') }])
-    expect(gate(null, allowing).allowsUnverifiedWebhooks('org')).toBe(true)
-    expect(gate(null, allowing).allowsUnverifiedWebhooks('quiet')).toBe(false)
-    expect(gate(null, allowing).allowsUnverifiedWebhooks('local')).toBe(true)
-    expect(gate(doc('IT', { sessions: { limits: { webhooks: { allowUnverified: false } } } }), allowing).allowsUnverifiedWebhooks('local')).toBe(false)
+    expect(host(null, allowing).forWork('org').allowsUnverifiedWebhooks()).toBe(true)
+    expect(host(null, allowing).forWork('quiet').allowsUnverifiedWebhooks()).toBe(false)
+    expect(host(null, allowing).forWork('local').allowsUnverifiedWebhooks()).toBe(true)
+    expect(host(doc('IT', { sessions: { limits: { webhooks: { allowUnverified: false } } } }), allowing).forWork('local').allowsUnverifiedWebhooks()).toBe(false)
   })
 
   test('clients get no launch pin values and no update feed: they can carry tokens', () => {
     const secret = doc('IT', { host: { updates: { mode: 'auto', feedUrl: 'https://token@updates.example.com/' } }, sessions: { limits: { providers: { launch: { 'claude-code': { environment: [{ name: 'API_KEY', value: 'secret' }] } } } } } })
-    const summary = summarizePolicySet(gate(secret, null).policySet())
+    const summary = host(secret, null).summary().set
     expect(JSON.stringify(summary)).not.toContain('secret')
     expect(JSON.stringify(summary)).not.toContain('token@')
     expect(summary.mdm?.document.host?.updates?.mode).toBe('auto')

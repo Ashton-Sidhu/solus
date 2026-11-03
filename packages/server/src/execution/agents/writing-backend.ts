@@ -2,7 +2,7 @@ import { AGENT_BIN, type TextGenerationModelSelection } from '@solus/contracts/t
 import { DEFAULT_TEXT_GENERATION_MODELS } from '@solus/contracts/settings'
 import { findOnPath, getCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
-import { policyGate } from '../../host/policy/policy-gate'
+import { hostPolicies } from '../../host/policy/host-policy-store'
 import { SeatRequiredError, type SeatResolver, type TurnSeat } from '../seats/seat-manager'
 
 const log = createLogger('main', 'writing-backend')
@@ -32,7 +32,7 @@ export async function writingBackendFor(
   seatFor: SeatResolver | undefined,
   organizationId: string,
 ): Promise<WritingBackend | null> {
-  const gate = policyGate()
+  const work = hostPolicies().forWork(organizationId)
   const providers = Object.keys(DEFAULT_TEXT_GENERATION_MODELS) as WritingProvider[]
   const selected = providers.find((provider) => provider === selection.provider)
   const candidates: { provider: WritingProvider; model: string }[] = [
@@ -42,7 +42,7 @@ export async function writingBackendFor(
       .map((provider) => ({ provider, model: DEFAULT_TEXT_GENERATION_MODELS[provider] })),
   ]
   for (const { provider, model } of candidates) {
-    if (!gate.isProviderAllowed(organizationId, provider) || !gate.isModelAllowed(organizationId, provider, model)) continue
+    if (work.modelDenial(provider, model)) continue
     const bin = AGENT_BIN[provider]
     if (!bin || !findOnPath(bin, getCliPath())) continue
     let seat: TurnSeat | null | undefined

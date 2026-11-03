@@ -1,4 +1,4 @@
-import { resolveHostKey, type PolicySet } from '@solus/contracts/policy'
+import type { HostPolicies } from '@solus/contracts/host-policies'
 
 /** What the host's `updates` key asks of the desktop updater (plans/030 §6.8). */
 export interface UpdatePolicy {
@@ -8,11 +8,9 @@ export interface UpdatePolicy {
   feedUrl: string | null
 }
 
-export function updatePolicyOf(set: PolicySet): UpdatePolicy {
-  const rule = resolveHostKey(set, 'updates')
-  if (!rule) return { managedMessage: null, feedUrl: null }
+export function updatePolicyOf(policies: HostPolicies): UpdatePolicy {
   return {
-    managedMessage: rule.value.mode === 'off' ? `${rule.source.document.organization.name} manages Solus updates.` : null,
-    feedUrl: rule.value.feedUrl ?? null,
+    managedMessage: policies.updatesManagedMessage(),
+    feedUrl: policies.hostSetting('updates')?.value.feedUrl ?? null,
   }
 }

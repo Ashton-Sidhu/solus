@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import type { ManagedSessionSettingKey, PolicySet } from '@solus/contracts/policy'
+import type { HostPolicies } from '@solus/contracts/host-policies'
+import type { ManagedSessionSettingKey } from '@solus/contracts/policy'
 import { useApp, useListened } from '../../app/app-context'
 import type { HostConnection } from '../hosts/host-connections'
 import { managedSettingNotes, permissionCeilingLines, type PolicyHostView } from './lib/policy-view'
@@ -11,7 +12,7 @@ const NO_SUBSCRIPTION = () => () => {}
  * fact follows `host.policyChanged`, so a screen sees a new policy at once.
  * Null until the host answers, and for a host with no connection.
  */
-export function useHostPolicy(hostId: string | null): PolicySet | null {
+export function useHostPolicy(hostId: string | null): HostPolicies | null {
   const app = useApp()
   const connection = useListened(app.connections.changes, () => (hostId ? app.connections.connection(hostId) : null))
   useEffect(() => {
@@ -41,9 +42,9 @@ export function usePolicyHosts(): PolicyHostView[] {
   const [policies, setPolicies] = useState<PolicyHostView[]>([])
   useEffect(() => {
     const read = () => setPolicies(connections.flatMap((connection) => {
-      const set = connection.facts.value('policy')
+      const policies = connection.facts.value('policy')
       const host = app.registry.host(connection.hostId)
-      return set && host ? [{ hostLabel: host.label, set }] : []
+      return policies && host ? [{ hostLabel: host.label, policies }] : []
     }))
     const stops = connections.map((connection) => {
       connection.facts.ensure('policy')

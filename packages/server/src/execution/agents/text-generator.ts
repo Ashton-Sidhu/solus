@@ -1,5 +1,5 @@
 import type { AgentDispatcher } from './agent-runner'
-import { policyGate } from '../../host/policy/policy-gate'
+import { hostPolicies } from '../../host/policy/host-policy-store'
 import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
 import { instructionsFor } from './run-input'
@@ -59,7 +59,7 @@ export class TextGenerator {
       model: options.model,
       reasoningEffort: options.disableReasoning ? 'none' : reasoningEffort,
       // Under a policy ceiling the run uses the ceiling; it is unattended, so a tool that would ask is declined.
-      permissionMode: policyGate().clampMode(options.organizationId, options.provider === 'codex' ? 'plan' : 'full-access'),
+      permissionMode: hostPolicies().forWork(options.organizationId).clampMode(options.provider === 'codex' ? 'plan' : 'full-access'),
       persistence: 'ephemeral',
       service: options.service ?? SPAN_SERVICES.textGeneration,
       additionalDirectories: options.additionalDirs,

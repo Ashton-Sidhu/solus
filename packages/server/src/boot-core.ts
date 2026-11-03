@@ -1,4 +1,4 @@
-import { PolicyGate, policyGate, usePolicyGate } from './host/policy/policy-gate'
+import { HostPolicyStore, hostPolicies, useHostPolicyStore } from './host/policy/host-policy-store'
 import { loadMachinePolicy } from './host/policy/mdm-policy'
 import { join } from 'node:path'
 import { dataDir } from './platform/paths'
@@ -86,8 +86,8 @@ async function bootCoreAsHost(opts: BootCoreOptions): Promise<BootCore> {
   // onward. Both the desktop app and the standalone server boot through here,
   // so neither can end up exporting on a different rule from the other.
   // The MDM policy is read before the first export: a locked `otel` wins over the environment (plans/030 §5.1).
-  usePolicyGate(new PolicyGate({ mdm: await loadMachinePolicy(), standing: () => null }))
-  await configureOtel(getHostConfig().config.otel, policyGate().hostKey('otel') !== null)
+  useHostPolicyStore(new HostPolicyStore({ mdm: await loadMachinePolicy(), standing: () => null }))
+  await configureOtel(getHostConfig().config.otel, hostPolicies().hostSetting('otel') !== null)
   useGitCommandMeter(({ operation, outcome, durationMs }) => {
     recordOtelDuration('git_command_duration', durationMs, { operation })
     recordOtelCount('git_commands_total', { operation, outcome })

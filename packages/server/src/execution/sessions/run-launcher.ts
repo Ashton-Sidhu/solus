@@ -1,4 +1,4 @@
-import { policyGate } from '../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { providerAvailableForProject } from '../seats/provider-availability'
 import { captureServerEvent } from '../../analytics'
 import { startRun, credentialScopedAgentTools, type PendingStart, type StartedRun } from './run-lifecycle'
@@ -129,7 +129,7 @@ export class RunLauncher {
     const backend = this.rt.backendFor(session.backendId)
     // A steer joins a running turn; a policy changed since it started can put that turn above its ceiling (plans/030 §6.3).
     const activeMode = session.runInput?.permissionMode
-    if (activeMode) policyGate().checkRun(await organizationOfSession(session.sessionId), { mode: activeMode, provider: session.backendId })
+    if (activeMode) enforce(hostPolicies().forWork(await organizationOfSession(session.sessionId)).runDenial({ mode: activeMode, provider: session.backendId }))
     const handle = await backend.steerSession(agentSessionId, {
       prompt: request.options.prompt,
       imageAttachments: await resolvePromptImages(request.options),
@@ -262,7 +262,7 @@ export class RunLauncher {
             for (const agent of metadata) {
               if (!providerAvailableForProject(agent.id, input.projectPath)) continue
               // A provider the policies do not allow is never routed to (plans/030 §6.5).
-              if (!policyGate().isProviderAllowed(routedOrganizationId, agent.id)) continue
+              if (!!hostPolicies().forWork(routedOrganizationId).providerDenial(agent.id)) continue
               try { await this.rt.seatForTurn(request.actor, agent.id); available.push(agent) }
               catch (error) { if (!(error instanceof SeatRequiredError)) throw error }
             }

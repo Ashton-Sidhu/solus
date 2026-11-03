@@ -14,7 +14,7 @@ import { compactSession } from '../../execution/sessions/session-compaction'
 import type { SessionOrchestrator } from '../../execution/orchestration/session-orchestrator'
 import { activityLeases } from '../../execution/activity-leases'
 import { PERMISSION_MODES, type AgentId, type AgentMetadata, type IpcContext } from '@solus/contracts/types'
-import { policyGate } from '../../host/policy/policy-gate'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { organizationOfSession } from '../../data/sessions/session-records'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { AGENT_BIN } from '@solus/contracts/types'
@@ -386,7 +386,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const organizationId = await organizationOfSession(request.sessionId)
     const mode = origin.permissionMode ?? sessionRuntime.sessionPermissionModes.get(request.sessionId)
     const provider = sessionRuntime.activeSessions.get(request.sessionId)?.runInput?.provider
-    if (mode && provider) policyGate().checkRun(organizationId, { mode, provider })
+    if (mode && provider) enforce(hostPolicies().forWork(organizationId).runDenial({ mode, provider }))
     return sessionRuntime.dispatch.promptSession(request.sessionId, request.prompt, request.delivery, origin)
   })
 
@@ -580,5 +580,5 @@ async function checkTurnPolicy(ctx: IpcContext): Promise<void> {
   const organizationId = ctx.session.sessionId ? await organizationOfSession(ctx.session.sessionId) : ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID
   const provider = ctx.session.provider ?? ctx.settings.activeAgent
   // The model is checked where the provider starts: Auto routing chooses it later.
-  policyGate().checkRun(organizationId, { mode: mode ?? 'plan', provider })
+  enforce(hostPolicies().forWork(organizationId).runDenial({ mode: mode ?? 'plan', provider }))
 }

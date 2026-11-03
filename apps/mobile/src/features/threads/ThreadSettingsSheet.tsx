@@ -37,7 +37,7 @@ import {
   ChoiceRow,
 } from "./ThreadSettingsRows";
 import type { ConversationStore } from "../conversation/conversation-store";
-import type { SessionPolicy } from "@solus/client-core/policy";
+import type { WorkPolicy } from "@solus/contracts/host-policies";
 import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
 import {
   canChoosePermissionMode,
@@ -88,7 +88,7 @@ interface ThreadSettingsSessionProps {
   /** What the session's agent reports it can do; unknown allows every mode. */
   readonly capabilities: AgentCapabilities;
   /** The work's policy on its host: modes above its ceiling are disabled, with the reason. */
-  readonly policy: SessionPolicy;
+  readonly policy: WorkPolicy;
   /** Auto is offered only before the host starts the session. */
   readonly canRoute: boolean;
   readonly autoNeedsKey: boolean;

@@ -3,7 +3,7 @@
 import { MODEL_PROFILES, isLegacyModel, providerModelsFor, type AgentId, type AgentMetadata, type PermissionMode } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { isModelPickerAgentVisible } from '@solus/client-core/model-picker-agents'
-import { modelDenial, permissionModeDenial, providerDenial, type SessionPolicy } from '@solus/client-core/policy'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { PERMISSION_MODE_TEXT, permissionModesFor, PROVIDERS, type AgentCapabilities } from '../conversation/lib/run-settings'
 
 /**
@@ -25,8 +25,8 @@ export interface PermissionModeChoice {
 /** The desktop permission picker's modes, labels, and descriptions, in its
  *  order, less the modes this agent does not offer. A mode above the policy's
  *  ceiling stays listed, disabled with the reason (plans/030 §7). */
-export function permissionModeChoices(capabilities: AgentCapabilities, policy: SessionPolicy | null = null): PermissionModeChoice[] {
-  return permissionModesFor(capabilities).map((mode) => ({ mode, ...PERMISSION_MODE_TEXT[mode], policyDenial: policy ? permissionModeDenial(policy, mode) : null }))
+export function permissionModeChoices(capabilities: AgentCapabilities, policy: WorkPolicy | null = null): PermissionModeChoice[] {
+  return permissionModesFor(capabilities).map((mode) => ({ mode, ...PERMISSION_MODE_TEXT[mode], policyDenial: policy?.modeDenial(mode)?.message ?? null }))
 }
 
 export interface ModelOption {
@@ -92,7 +92,7 @@ export function buildProviderGroups(input: {
   /** The host's agents; null while it has not answered. */
   readonly agents: readonly AgentMetadata[] | null
   /** The work's policy on its host; agents and models it does not allow are marked with the reason. */
-  readonly policy?: SessionPolicy | null
+  readonly policy?: WorkPolicy | null
 }): ProviderGroup[] {
   const policy = input.policy ?? null
   // An agent the host lists but the profile table does not know (the
@@ -110,7 +110,7 @@ export function buildProviderGroups(input: {
         providerKey: provider.id,
         modelProfiles: hostAgent?.modelProfiles,
         providerLabel: provider.label,
-        unavailableReason: (policy ? providerDenial(policy, provider.id) : null)
+        unavailableReason: policy?.providerDenial(provider.id)?.message
           ?? agentUnavailableReason({ provider: provider.id, currentProvider: input.currentProvider, agents: input.agents }),
         models: models.map(({ id: model, label }) => ({
           key: modelOptionKey(provider.id, model),
@@ -120,7 +120,7 @@ export function buildProviderGroups(input: {
           label,
           isDefault: model === defaultModel,
           isLegacy: isLegacyModel(provider.id, model, hostAgent?.modelProfiles) && !(provider.id === input.currentProvider && model === input.currentModel),
-          policyDenial: policy ? modelDenial(policy, provider.id, model) : null,
+          policyDenial: policy?.modelDenial(provider.id, model)?.message ?? null,
         })),
       }
     })
