@@ -31,7 +31,9 @@ import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './host-config'
-import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, OrganizationSettingsPatchRequest, OrganizationSettingsResponse } from './settings'
+import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences } from './settings'
+import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
+import type { PolicySet } from './policy'
 import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, SignInEnd } from './account-types'
@@ -135,6 +137,12 @@ export interface ConnectionsServerInfo {
   hostKind: HostKind
   /** The planes this host serves (cloud-service-model.md §1). A host without `execution` runs no agent: a client keeps it out of its execution targets. */
   roles: RpcPlane[]
+  /** What this host loaded (plans/030): the MDM policy's source and fingerprint, and each cloud policy's revision, so `solus policy show` can compare. */
+  policy?: {
+    mdmSource: string | null
+    mdmFingerprint: string | null
+    cloud: Array<{ organizationId: string; kind: 'organization' | 'host'; revision: number | null }>
+  }
   /** How this client was admitted; only a `local-owner` may change how the host is reached. */
   principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
   /** The user key of the caller: the account behind a grant-admitted client, or the host's user on a local connection (plans/012 §1). */
@@ -419,6 +427,8 @@ export interface SolusAPI {
   uplinkStatus(): Promise<UplinkStatus>
   /** Organization scope (docs/plans/organization-scope.md §3.1, §6.1, §7). */
   hostOrganizations(): Promise<HostOrganizationsStatus>
+  /** The policies that govern work on this host (plans/030), as a summary: no launch pins and no update feed. */
+  hostPolicy(): Promise<PolicySet>
   /** Host administrator only: opt this machine's work for one organization into its Insights while that organization's policy is off. */
   hostSetInsightsOptIn(organizationId: string, enabled: boolean): Promise<HostOrganizationsStatus>
   /** A Local work, whole, for its upload into an organization (docs/plans/cloud-sharing.md §3). */
@@ -1221,10 +1231,13 @@ export type AccountVaultConnectResult =
   | { kind: 'refused'; message: string }
   | SettingsRequestFailure
 
-export type OrganizationSettingsResult =
-  | { kind: 'ok'; settings: OrganizationSettingsResponse }
-  /** 409: another owner saved first. `current` is what they saved. */
-  | { kind: 'conflict'; current: OrganizationSettingsResponse }
+/** An answer of the policy API (plans/030 §5.2). */
+export type PolicyApiResult<Value> =
+  | { kind: 'ok'; value: Value }
+  /** 409: another owner saved first. */
+  | { kind: 'conflict'; revision: number; document: unknown }
+  /** 422: the validator refused the document, or another organization owns the host's `host` section. */
+  | { kind: 'rejected'; reason: 'policy_invalid' | 'host_owned_by_other_organization'; issues: string[] }
   /** 403 or 404: not a member, not an owner for a write, or the organization is gone. */
   | { kind: 'forbidden' }
   | SettingsRequestFailure
@@ -1316,8 +1329,15 @@ export interface NativeSolusAPI {
   accountVaultConnect(request: VaultConnectRequest): Promise<AccountVaultConnectResult>
   accountVaultSaveKey(request: VaultSaveKeyRequest): Promise<AccountVaultResult>
   accountVaultDisconnect(request: VaultDisconnectRequest): Promise<AccountVaultResult>
-  organizationSettingsGet(organizationId: string): Promise<OrganizationSettingsResult>
-  organizationSettingsPatch(organizationId: string, request: OrganizationSettingsPatchRequest): Promise<OrganizationSettingsResult>
+  /** The organization's policy and its host policies (plans/030 §5.2), on behalf of the signed-in account. */
+  organizationPolicyGet(organizationId: string): Promise<PolicyApiResult<OrganizationPolicyResponse>>
+  organizationPolicyPut(organizationId: string, request: PolicyWriteRequest): Promise<PolicyApiResult<OrganizationPolicyResponse>>
+  hostPoliciesGet(organizationId: string): Promise<PolicyApiResult<HostPoliciesResponse>>
+  hostPolicyCreate(organizationId: string, request: HostPolicyCreateRequest): Promise<PolicyApiResult<HostPolicySummary>>
+  hostPolicyPut(organizationId: string, policyId: string, request: PolicyWriteRequest): Promise<PolicyApiResult<HostPolicySummary>>
+  hostPolicyDelete(organizationId: string, policyId: string): Promise<PolicyApiResult<null>>
+  hostPolicyAssign(organizationId: string, hostId: string, request: HostPolicyAssignRequest): Promise<PolicyApiResult<PolicyHost>>
+  hostPolicyUnassign(organizationId: string, hostId: string): Promise<PolicyApiResult<PolicyHost>>
   /** The desktop update status. Owned by the main process, which runs the
    *  checks and holds the auto-download setting. `docs/plans/desktop-updates.md`. */
   updateStatus(): Promise<DesktopUpdateStatus>

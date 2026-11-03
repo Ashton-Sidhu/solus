@@ -1,3 +1,4 @@
+import { policyGate } from '../../host/policy/policy-gate'
 import { accountConnectionsUrl } from '../../vault/account-reads'
 import { ownerKeyOf } from '../../admission/actor'
 import { credentialLocationOf } from '../../vault/vault'
@@ -90,6 +91,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
       identityKey: hostIdentity().publicKey(),
       principal: wirePrincipalKind(principal),
       permissions: permissionsFor(principal),
+      policy: loadedPolicy(),
     }
     const connectionsUrl = credentialLocationOf(ownerKeyOf(ctx.actor)).kind === 'account' ? accountConnectionsUrl() : null
     if (connectionsUrl) answer.accountConnectionsUrl = connectionsUrl
@@ -150,6 +152,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   })
 
   server.register('connectionsGeneratePairToken', () => {
+    policyGate().assertHostCapability('remoteAccess', 'REMOTE_ACCESS_NOT_ALLOWED', 'pairing devices')
     const t = generatePairToken()
     log.info('pair_token_generated', { expiresInMinutes: 5 })
     captureServerEvent('pair_token_generated', {})
@@ -179,11 +182,13 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   server.register('hostIntroductionsList', () => deps.introducedHosts.list())
 
   server.register('hostIntroductionIssue', (args) => {
+    policyGate().assertHostCapability('remoteAccess', 'REMOTE_ACCESS_NOT_ALLOWED', 'host introductions')
     const [forHost] = args
     return deps.introducedHosts.issue(forHostSchema.parse(forHost))
   })
 
   server.register('hostIntroductionAccept', async (args) => {
+    policyGate().assertHostCapability('remoteAccess', 'REMOTE_ACCESS_NOT_ALLOWED', 'host introductions')
     const [{ introduction, grantedDeviceId }] = args
     const parsed = introductionSchema.parse(introduction)
     await deps.introducedHosts.accept(parsed, z.string().min(1).parse(grantedDeviceId))
@@ -213,3 +218,16 @@ const introductionSchema = z.object({
   deviceId: z.string().min(1),
   identityKey: hostIdentityKeySchema,
 })
+
+/** What policies this host enforces now: the MDM policy it read at start, and the cloud documents it holds. */
+function loadedPolicy(): NonNullable<ConnectionsServerInfo['policy']> {
+  const gate = policyGate()
+  const mdm = gate.mdm()
+  const cloud: NonNullable<ConnectionsServerInfo['policy']>['cloud'] = []
+  for (const [organizationId, entry] of Object.entries(gate.policySet().organizations)) {
+    if (entry.state !== 'ready') continue
+    cloud.push({ organizationId, kind: 'organization', revision: entry.policy.document.revision ?? null })
+    if (entry.hostPolicy) cloud.push({ organizationId, kind: 'host', revision: entry.hostPolicy.document.revision ?? null })
+  }
+  return { mdmSource: mdm?.source ?? null, mdmFingerprint: mdm?.fingerprint ?? null, cloud }
+}

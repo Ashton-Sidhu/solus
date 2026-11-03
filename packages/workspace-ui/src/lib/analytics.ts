@@ -64,9 +64,17 @@ export function initAnalytics(opts: {
   })
 }
 
+/** A host policy turned this machine's analytics off (plans/030 §5.4); the person's own switch cannot turn it back on. */
+let blockedByPolicy = false
+
+export function setAnalyticsBlockedByPolicy(blocked: boolean): void {
+  blockedByPolicy = blocked
+  if (blocked) whenLoaded((ph) => ph.opt_out_capturing())
+}
+
 export function setAnalyticsEnabled(enabled: boolean): void {
   whenLoaded((ph) => {
-    if (enabled) ph.opt_in_capturing()
+    if (enabled && !blockedByPolicy) ph.opt_in_capturing()
     else ph.opt_out_capturing()
   })
 }

@@ -1,3 +1,4 @@
+import { policyGate, type LaunchPolicy } from '../../host/policy/policy-gate'
 import { resolveProjectRoot } from '../../project-config/project-config'
 import { instanceModelCatalog } from '@solus/contracts/provider-instance-models'
 import type { ModelProfile } from '@solus/contracts/types'
@@ -43,7 +44,9 @@ export function prepareProviderRun(request: AgentRunRequest, sessionState?: Agen
   const scope = captureActingScope()
   if (!scope?.personKey) return request
   const projectPath = request.projectRoot ?? request.cwd
-  const { instance, authEpoch, idleCompaction } = privateProviderInstances().forRun(scope.personKey, request.provider, sessionState?.sessionId, request.conversation?.kind === 'resume', projectPath ? resolveProjectRoot(resolveHomePath(projectPath)) : undefined)
+  const chosen = privateProviderInstances().forRun(scope.personKey, request.provider, sessionState?.sessionId, request.conversation?.kind === 'resume', projectPath ? resolveProjectRoot(resolveHomePath(projectPath)) : undefined)
+  const { authEpoch, idleCompaction } = chosen
+  const instance = governedInstance(chosen.instance, policyGate().launchPolicy(request.organizationId, request.provider))
   const configured = request.provider === 'claude-code' || idleCompaction === 'off' || authEpoch > 0 || instance.id !== request.provider || hasRuntimeOverrides(instance)
   if (!configured) return request
   const launch = request.seat?.launch
@@ -72,6 +75,28 @@ export function instanceRuntime(instance: ProviderInstance, seatLaunch?: LaunchO
   if (paths.sharedHomePath) runtime.sharedHomePath = paths.sharedHomePath
   if (homePath) runtime.homePath = homePath
   return runtime
+}
+
+/**
+ * The instance as the policies allow it to launch (plans/030 §6.4). Under a
+ * ceiling the policy owns the launch: the person's binary, arguments, environment,
+ * and homes are dropped, because a wrapper, a flag, or a variable could turn the
+ * provider's approvals off. A launch pin is laid over what remains. The stored
+ * instance is not changed.
+ */
+export function governedInstance(instance: ProviderInstance, policy: LaunchPolicy): ProviderInstance {
+  const { ownsLaunch, pin } = policy
+  if (!ownsLaunch && !pin) return instance
+  const governed: ProviderInstance = ownsLaunch
+    ? { ...instance, binaryPath: '', homePath: '', shadowHomePath: '', launchArgs: [], environment: [] }
+    : { ...instance }
+  if (pin?.binaryPath) governed.binaryPath = pin.binaryPath
+  if (pin?.launchArgs) governed.launchArgs = [...pin.launchArgs]
+  if (pin?.environment) {
+    const pinned = new Set(pin.environment.map((variable) => variable.name))
+    governed.environment = [...governed.environment.filter((variable) => !pinned.has(variable.name)), ...pin.environment.map((variable) => ({ ...variable, sensitive: true }))]
+  }
+  return governed
 }
 
 /** A persisted history locator contains no paths, credentials, or raw person key. */

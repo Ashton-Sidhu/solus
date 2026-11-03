@@ -1,3 +1,4 @@
+import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import { reviewedSessionId } from './review-target'
 import type {
   ReviewContext,
@@ -389,6 +390,7 @@ export class ReviewLensJobs {
       const agent = runPlan.options.agent ?? 'claude-code'
       const seat = await seatFor?.(agent) ?? undefined
       const draft = await this.deps.runAgent({
+        organizationId: ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
         workTree: resolved.workTree,
         base: change.base,
         head: change.head,

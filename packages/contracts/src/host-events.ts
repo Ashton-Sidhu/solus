@@ -1,3 +1,4 @@
+import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
@@ -207,6 +208,8 @@ export interface HostEventMap {
   /** This host's standing changed: linked or unlinked, an organization shared or withdrawn, a policy edited, an opt-in
    *  changed. The whole status, as `hostOrganizations` answers it. */
   'host.organizationsChanged': HostOrganizationsStatus
+  /** The policies that govern work on this host changed (plans/030 §5.2). The whole summary, as `hostPolicy` answers it. */
+  'host.policyChanged': PolicySet
 }
 
 export type HostEventName = keyof HostEventMap
@@ -297,6 +300,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
   'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's registration, its link, or its tunnel changed state." },
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
+  'host.policyChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: 'The policies that govern work on this host changed.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 export const hostEventEnvelopeSchema = z.object({

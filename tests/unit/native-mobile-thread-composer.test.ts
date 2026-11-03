@@ -73,7 +73,7 @@ describe('native thread settings sheet', () => {
   test('the permission choices are the Solus permission modes, desktop labels and all', () => {
     const choices = permissionModeChoices(undefined)
     expect(choices.map((choice) => choice.mode)).toEqual(['supervised', 'accept-edits', 'auto', 'full-access', 'plan'])
-    expect(choices[0]).toEqual({ mode: 'supervised', label: 'Supervised', description: 'Ask before commands and edits' })
+    expect(choices[0]).toEqual({ mode: 'supervised', label: 'Supervised', description: 'Ask before commands and edits', policyDenial: null })
     expect(choices.find((choice) => choice.mode === 'full-access')?.label).toBe('Full access')
   })
 

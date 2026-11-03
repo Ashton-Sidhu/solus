@@ -154,28 +154,20 @@ export const enrollHostCategorySchema = z.enum(['personal', 'self-hosted'])
 export type EnrollHostCategory = z.infer<typeof enrollHostCategorySchema>
 
 /**
- * What an organization's owners decided (organization-scope §3.1, §6.1). Every
- * client and host reads the same three facts; only the account website changes them.
- * `syncAllInsights` on means every session of the organization sends its Insights;
- * off leaves that to managed machines, explicit sharing, and a client opt-in.
+ * An organization's host rules (organization-scope §3.1): which cloud resources its
+ * members' agents run on. Owners set them in the cloud console. They are not policy:
+ * what work may do is the organization's policy document (plans/030, `policy.ts`).
  */
-export const organizationPolicySchema = z.object({
+export const hostRulesSchema = z.object({
   allowsCloudHosts: z.boolean(),
   allowsPersonalHosts: z.boolean(),
-  syncAllInsights: z.boolean(),
-  /**
-   * An unverified webhook (scheme `none`) may start this organization's work
-   * (docs/plans/webhooks.md §3.7). Off by default; absent from an older control plane.
-   */
-  allowsUnverifiedWebhooks: z.boolean().optional(),
 })
-export type OrganizationPolicy = z.infer<typeof organizationPolicySchema>
+export type HostRules = z.infer<typeof hostRulesSchema>
 
-/** An organization that never set a policy. */
-export const DEFAULT_ORGANIZATION_POLICY: OrganizationPolicy = {
+/** An organization that never set its host rules. */
+export const DEFAULT_HOST_RULES: HostRules = {
   allowsCloudHosts: true,
   allowsPersonalHosts: true,
-  syncAllInsights: true,
 }
 
 // ── Workspace service ────────────────────────────────────────────────────────
@@ -458,8 +450,8 @@ export const directoryWorkspaceSchema = z.object({
   label: z.string(),
   routes: z.array(hostRouteSchema),
   isActive: z.boolean(),
-  /** The organization's current policy, so a client can show it beside its content. */
-  policy: organizationPolicySchema,
+  /** The organization's host rules, so a client can show them beside its content. */
+  hostRules: hostRulesSchema,
 })
 export type DirectoryWorkspace = z.infer<typeof directoryWorkspaceSchema>
 
@@ -638,8 +630,8 @@ export const accountOrganizationSchema = z.object({
   role: organizationRoleSchema,
   /** The caller may create this organization's managed host now: member, allowlisted, allowed by its policy, none yet. */
   mayCreateManagedHost: z.boolean(),
-  /** The organization's policy (§3.1, §6.1). */
-  policy: organizationPolicySchema,
+  /** The organization's host rules (§3.1). */
+  hostRules: hostRulesSchema,
 })
 export type AccountOrganization = z.infer<typeof accountOrganizationSchema>
 
@@ -704,7 +696,15 @@ export const hostOrganizationSchema = z.object({
   name: z.string(),
   /** Members of the organization may reach this machine through grants. */
   shared: z.boolean(),
-  policy: organizationPolicySchema,
+  hostRules: hostRulesSchema,
+  /**
+   * The organization's policy document (plans/030 §5.2). The host decodes it with
+   * `validatePolicyDocument`, so a document from a newer schema reads as unenforceable
+   * instead of failing the whole standing.
+   */
+  policy: z.unknown(),
+  /** The host policy this organization assigned to this host, or null. */
+  hostPolicy: z.object({ policyId: z.string().min(1), document: z.unknown() }).nullable(),
   /**
    * Every current member's user id, sent only for an organization the machine is
    * shared with. A person who is not in it was removed: the host removes their seats
@@ -734,6 +734,8 @@ export const hostOrganizationsResponseSchema = z.object({
    * Absent from an older control plane: nothing is paused.
    */
   pausedWebhookIds: z.array(z.string().min(1)).optional(),
+  /** The organization whose host policy holds the `host` section on this host (plans/030 §3); null when none. */
+  hostOwnerOrganizationId: z.string().min(1).nullable(),
 })
 export type HostOrganizationsResponse = z.infer<typeof hostOrganizationsResponseSchema>
 

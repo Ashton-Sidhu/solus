@@ -11,8 +11,11 @@ import {
   HOST_CONFIG_FIELDS,
   isHostConfigKey,
   mergeHostConfig,
+  normalizeOtelSettings,
 } from '@solus/contracts/host-config'
-import type { HostConfig, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
+import type { HostConfig, HostConfigKey, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
+import type { ManagedHostKey } from '@solus/contracts/policy'
+import { policyGate } from './policy/policy-gate'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
 import { hostCategory } from './host-category'
@@ -154,7 +157,43 @@ export function getHostConfig(): HostConfigSnapshot {
   const config = hostCategory() === 'managed' && stored.continueSessionsAfterHostRestart
     ? { ...stored, continueSessionsAfterHostRestart: false }
     : stored
-  return { config }
+  return { config: withHostLocks(config) }
+}
+
+/** Host config keys a policy can lock (plans/030 §4.4), with the label a refusal names. */
+const LOCKABLE_HOST_CONFIG: ReadonlyArray<readonly [ManagedHostKey & HostConfigKey, string]> = [
+  ['solusTools', 'Solus tools'],
+  ['continueSessionsAfterHostRestart', 'Continue sessions after a restart'],
+  ['archivedAutomationRetentionDays', 'Archived automation retention'],
+  ['unfiledRecordingRetentionDays', 'Unfiled recording retention'],
+  ['otel', 'Telemetry export'],
+  ['analyticsEnabled', 'Analytics'],
+]
+
+/** The policies' locked host keys laid over the owner's config; the stored file never holds them. */
+function withHostLocks(config: HostConfig): HostConfig {
+  const gate = policyGate()
+  if (!LOCKABLE_HOST_CONFIG.some(([key]) => gate.hostKey(key))) return config
+  const next: HostConfig = { ...config }
+  const otel = gate.hostKey('otel')
+  if (otel) next.otel = normalizeOtelSettings({ ...config.otel, ...otel.value })
+  const solusTools = gate.hostKey('solusTools')
+  if (solusTools) next.solusTools = { ...config.solusTools, ...solusTools.value }
+  next.continueSessionsAfterHostRestart = gate.hostKey('continueSessionsAfterHostRestart')?.value ?? config.continueSessionsAfterHostRestart
+  next.archivedAutomationRetentionDays = gate.hostKey('archivedAutomationRetentionDays')?.value ?? config.archivedAutomationRetentionDays
+  next.unfiledRecordingRetentionDays = gate.hostKey('unfiledRecordingRetentionDays')?.value ?? config.unfiledRecordingRetentionDays
+  next.analyticsEnabled = gate.hostKey('analyticsEnabled')?.value ?? config.analyticsEnabled
+  return next
+}
+
+/** Remote access as the policies allow it: a locked value wins over the owner's (plans/030 §6.7). */
+export function effectiveRemoteAccess(): boolean {
+  return policyGate().hostKey('remoteAccess')?.value ?? getServerSettings().remoteAccess
+}
+
+export function effectiveTrustLocalNetwork(): boolean {
+  if (policyGate().hostKey('remoteAccess')?.value === false) return false
+  return policyGate().hostKey('trustLocalNetwork')?.value ?? getServerSettings().trustLocalNetwork === true
 }
 
 /** The organizations this machine's work is opted into for Insights while their policy is off (§6.1). */
@@ -190,7 +229,10 @@ export function setHostUserSettings(hostUser: HostUserSettings): void {
 }
 
 export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
-  const hostConfig = mergeHostConfig(getHostConfig().config, patch)
+  for (const [key, label] of LOCKABLE_HOST_CONFIG) {
+    if (key in patch) policyGate().assertHostKeyUnlocked(key, label)
+  }
+  const hostConfig = mergeHostConfig(getServerSettings().hostConfig, patch)
   if (hostCategory() === 'managed') hostConfig.continueSessionsAfterHostRestart = false
   _settings = { ...getServerSettings(), hostConfig }
   persistSettings(_settings)
@@ -200,6 +242,7 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
 }
 
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
+  policyGate().assertHostKeyUnlocked('remoteAccess', 'Remote access')
   _settings = { ...getServerSettings(), remoteAccess }
   persistSettings(_settings)
   return _settings
@@ -212,6 +255,8 @@ export function setMetricsRetentionDays(metricsRetentionDays: number): ServerSet
 }
 
 export function setTrustLocalNetwork(trustLocalNetwork: boolean): ServerSettings {
+  policyGate().assertHostKeyUnlocked('trustLocalNetwork', 'Local network trust')
+  if (policyGate().hostKey('remoteAccess')?.value === false) policyGate().assertHostKeyUnlocked('remoteAccess', 'Local network trust')
   _settings = { ...getServerSettings(), trustLocalNetwork }
   persistSettings(_settings)
   log.info('trust_local_network_changed', { trustLocalNetwork })

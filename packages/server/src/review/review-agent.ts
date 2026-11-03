@@ -14,6 +14,8 @@ const log = createLogger('review', 'review-agent.ts')
 const REVIEW_AGENT_TIMEOUT_MS = 10 * 60_000
 
 export interface ReviewAgentInput {
+  /** The organization the review is for; its policies govern the run (plans/030). */
+  organizationId: string
   /** Directory the agent runs git in — the worktree holding the live edits. */
   workTree: string
   /** Resolved diff base (the episode base SHA, or 'HEAD' when unresolved). */
@@ -67,6 +69,7 @@ export async function runReviewAgent(
   })
   try {
     const run = dispatcher.runAgent({
+      organizationId: input.organizationId,
       provider: input.agent,
       prompt,
       cwd: input.workTree,

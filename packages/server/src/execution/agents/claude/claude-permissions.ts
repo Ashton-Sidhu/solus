@@ -1,7 +1,9 @@
+import { isPermissionModeAbove } from '@solus/contracts/policy'
+import { SDK_TO_UI_PERMISSION_MODE } from './claude-event-normalizer'
 import { createLogger } from '../../../logger'
 import { z } from 'zod'
 import type { CanUseTool, ElicitationResult, OnElicitation, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
-import type { NormalizedEvent, PermissionOption, PermissionToolInput } from '@solus/contracts/types'
+import type { NormalizedEvent, PermissionMode, PermissionOption, PermissionToolInput } from '@solus/contracts/types'
 import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../codex/codex-permissions'
 
 const log = createLogger('Permissions', 'permissions.ts')
@@ -35,12 +37,19 @@ export function maskSensitiveFields(input: PermissionToolInput): PermissionToolI
  * (a Bash prefix, one directory), but they usually target a settings file, so
  * they are rewritten to the session: a click in Solus never edits the user's
  * settings. Without suggestions the whole tool is allowed, except Bash, where
- * that would allow every command.
+ * that would allow every command. A suggestion to switch the session to a mode
+ * above a policy's ceiling is dropped (plans/030 §6.3).
  */
-export function sessionPermissionUpdates(toolName: string, suggestions: PermissionUpdate[] | undefined): PermissionUpdate[] | null {
-  if (suggestions?.length) return suggestions.map((update) => ({ ...update, destination: 'session' }))
+export function sessionPermissionUpdates(toolName: string, suggestions: PermissionUpdate[] | undefined, ceiling: PermissionMode | null = null): PermissionUpdate[] | null {
+  const allowed = suggestions?.filter((update) => !(update.type === 'setMode' && isPermissionModeAbove(uiModeOf(update.mode), ceiling)))
+  if (allowed?.length) return allowed.map((update) => ({ ...update, destination: 'session' }))
   if (toolName === 'Bash') return null
   return [{ type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination: 'session' }]
+}
+
+/** The Solus mode of an SDK mode; an unknown one counts as the broadest, so a ceiling never lets it through. */
+function uiModeOf(sdkMode: string): PermissionMode {
+  return Object.entries(SDK_TO_UI_PERMISSION_MODE).find(([mode]) => mode === sdkMode)?.[1] ?? 'full-access'
 }
 
 const ALLOW_ONCE: PermissionOption = { id: 'allow', label: 'Allow Once', kind: 'allow' }
@@ -88,7 +97,7 @@ export class PermissionManager {
   /** Build a canUseTool callback bound to a specific run.
    * `sessionRef` is a mutable holder so the closure always reads the
    * up-to-date sessionId (updated by the backend after session_init). */
-  createCanUseTool(sessionRef: { current: string | null }, unattended = false): CanUseTool {
+  createCanUseTool(sessionRef: { current: string | null }, unattended = false, ceiling: PermissionMode | null = null): CanUseTool {
     return async (toolName, input: any, options) => {
       const sessionId = sessionRef.current
       // EnterPlanMode is denied too: nobody can approve the resulting plan, so a
@@ -163,7 +172,7 @@ export class PermissionManager {
       }
 
       const questionId = `perm-${crypto.randomUUID()}`
-      const sessionUpdates = sessionPermissionUpdates(toolName, options.suggestions)
+      const sessionUpdates = sessionPermissionUpdates(toolName, options.suggestions, ceiling)
       log.info('permission_prompt_shown', { questionId, toolName })
       this.onPermissionEvent?.(sessionId, {
         type: 'permission_request',

@@ -8,7 +8,6 @@ import {
   type WebhookDeliveryOutcome,
   type WebhookVerificationFailure,
 } from '@solus/contracts/webhooks'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { createLogger } from '../../logger'
 import type { FetchLike } from '../../admission/access-tokens'
 import { afterDatabaseCommit, getDatabase } from '../../db/database'
@@ -70,8 +69,8 @@ export interface WebhookReceiverDeps {
   forwarderSecret(): Buffer | null
   /** An organization admin paused this webhook (plan §2.7), as the host's organization facts say. */
   isPausedByAdmin(webhookId: string): boolean
-  /** The organization's `allowsUnverifiedWebhooks` policy (plan §3.7). */
-  allowsUnverifiedWebhooks(organizationId: string): boolean
+  /** Why the policies refuse this webhook's work now, or null (plan §3.7; plans/030 §6.9). Checked on every delivery, not only on save. */
+  organizationRefusal(organizationId: string, work: { unverified: boolean }): string | null
   /** Runs the actions of an accepted delivery. Called after the answer; it must not throw. */
   runDelivery(delivery: AcceptedDelivery): Promise<void>
   now?: () => number
@@ -89,11 +88,6 @@ function tokenMatches(presented: string, stored: string): boolean {
   const a = createHash('sha256').update(presented).digest()
   const b = createHash('sha256').update(stored).digest()
   return timingSafeEqual(a, b)
-}
-
-/** True when an organization's policy refuses this webhook because it is unverified. */
-export function refusedAsUnverified(webhook: Pick<WebhookRecord, 'verification' | 'organizationId'>, allowsUnverified: (organizationId: string) => boolean): boolean {
-  return webhook.verification.scheme === 'none' && webhook.organizationId !== LOCAL_ORGANIZATION_ID && !allowsUnverified(webhook.organizationId)
 }
 
 export function createWebhookReceiver(deps: WebhookReceiverDeps) {
@@ -153,9 +147,10 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
       return answer(401, 'unverified', { error: 'Verification failed.' })
     }
 
-    if (refusedAsUnverified(webhook, deps.allowsUnverifiedWebhooks)) {
-      await logRefused(webhook, proven, arrivedAt, data, 'not_allowed', 'The organization does not allow unverified webhooks.')
-      return answer(403, 'not_allowed', { error: 'The organization does not allow unverified webhooks.' })
+    const refusal = deps.organizationRefusal(webhook.organizationId, { unverified: webhook.verification.scheme === 'none' })
+    if (refusal) {
+      await logRefused(webhook, proven, arrivedAt, data, 'not_allowed', refusal)
+      return answer(403, 'not_allowed', { error: refusal })
     }
     const pausedByAdmin = deps.isPausedByAdmin(webhook.id)
     if (!webhook.enabled || pausedByAdmin) {

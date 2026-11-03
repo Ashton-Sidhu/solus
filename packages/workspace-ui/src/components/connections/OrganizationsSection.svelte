@@ -12,6 +12,7 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { organizationsStore } from "./organizations.store.svelte";
+  import { hosts } from "../../contexts";
   import { attachmentSummary, deliverySummary, hostCategoryLabel, insightsDetail, organizationDetail, organizationRows } from "@solus/client-core/organization-rows";
 
   interface Props {
@@ -30,7 +31,7 @@
   const status = $derived(organizationsStore.statusFor(serverId));
   const error = $derived(organizationsStore.errorByServer.get(serverId) ?? null);
   const loading = $derived(organizationsStore.isLoading(serverId));
-  const rows = $derived(status ? organizationRows(status) : []);
+  const rows = $derived(status ? organizationRows(status, hosts.get(serverId).policySet ?? null) : []);
   const attachment = $derived(status ? attachmentSummary(status) : null);
   const delivery = $derived(status ? deliverySummary(status) : null);
   const description = $derived(

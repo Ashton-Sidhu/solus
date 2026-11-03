@@ -1,4 +1,4 @@
-import type { AcceptPlanResult, AgentId, Plan, PlanDescriptor, PermissionMode, PermissionOption, PlanReference, ReasoningEffort, SessionMeta, WorkReference } from '@solus/contracts/types'
+import type { AcceptPlanResult, AgentId, Plan, PlanDescriptor, PermissionMode, PermissionOption, PlanReference, ReasoningEffort, Session, SessionMeta, WorkReference } from '@solus/contracts/types'
 import { MODEL_PROFILES, planKey, encodePathAsFolder, REQUEST_NOT_ANSWERABLE_CODE } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
@@ -7,6 +7,8 @@ import { track } from '../../lib/analytics'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { SessionUnavailableError } from './session-errors'
 import { checkoutGit, checkoutPlace, chooseStart, runHost } from './run-location'
+import { clampPermissionMode } from '@solus/contracts/policy'
+import { clampedDefaultMode, permissionCeiling, type SessionPolicy } from '@solus/client-core/policy'
 
 // ─── Active plan waiting state ───
 
@@ -97,9 +99,12 @@ export function requestConversationScrollToBottom(tabId: string): void {
  *  Settings — full access when that default is itself plan. */
 export type PlanApprovalMode = 'supervised' | 'default'
 
-function implementationMode(mode: PlanApprovalMode, defaultMode: PermissionMode | undefined): PermissionMode {
-  if (mode === 'supervised') return 'supervised'
-  return !defaultMode || defaultMode === 'plan' ? 'full-access' : defaultMode
+/** The work's policy lowers both choices to its ceiling, and a locked default replaces the person's (plans/030 §7). */
+export function implementationMode(mode: PlanApprovalMode, defaultMode: PermissionMode | undefined, policy: SessionPolicy): PermissionMode {
+  const ceiling = permissionCeiling(policy)?.mode
+  if (mode === 'supervised') return clampPermissionMode('supervised', ceiling)
+  const effectiveDefault = clampedDefaultMode(policy, defaultMode ?? 'full-access')
+  return clampPermissionMode(effectiveDefault === 'plan' ? 'full-access' : effectiveDefault, ceiling)
 }
 
 export interface ApprovePlanOptions {
@@ -117,11 +122,16 @@ export interface ApprovePlanOptions {
   workRefs?: WorkReference[]
 }
 
+/** No rule: what a caller gets that cannot read a host's policy. */
+const NO_POLICY: SessionPolicy = { organizationId: 'local', refusal: null, sources: [] }
+
 export async function approvePlanWithModel(
   ctx: WorkspaceContext,
   planId: string,
   mode: PlanApprovalMode,
   opts: ApprovePlanOptions = {},
+  /** The policy of the session's work; the workspace reads it from the session's host. */
+  policyFor: (session: Session) => SessionPolicy = () => NO_POLICY,
 ): Promise<void> {
   const wasPreview = !!ctx.planStore.previewDescriptor
   if (wasPreview && !await resumeFromPreview(ctx)) return
@@ -190,7 +200,7 @@ export async function approvePlanWithModel(
   } else if (opts.reasoningEffort) {
     session.run.modelConfig.reasoningEffort = opts.reasoningEffort
   }
-  session.run.permissionMode = implementationMode(mode, ctx.settings.defaultPermissionMode)
+  session.run.permissionMode = implementationMode(mode, ctx.settings.defaultPermissionMode, policyFor(session))
 
   if (wasPreview && opts.useWorktree && !checkoutGit(session.run)) {
     await ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, cwd: plan.cwd })

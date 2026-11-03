@@ -381,7 +381,7 @@
       {/if}
       {#if selected === "link" && !cloud.linkCode && !options.some((option) => option.group === "Solus Cloud")}
         <p class="text-muted-foreground">
-          {organization?.policy.allowsCloudHosts === false
+          {organization?.hostRules.allowsCloudHosts === false
             ? `${organizationName} runs agents on members’ own computers.`
             : `Cloud hosts are not available for ${organizationName} yet.`}
         </p>

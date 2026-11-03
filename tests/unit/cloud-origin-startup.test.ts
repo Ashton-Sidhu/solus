@@ -4,7 +4,7 @@ import { adoptAccountOrigin, configureUplinkAccountSource, takeStartupDirectoryR
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { configureCloudAccount, startupAccountRead, type CloudAccountSession } from '@solus/client-core/cloud-account'
 import type { SavedServer } from '@solus/client-core/server-registry'
-import { DEFAULT_ORGANIZATION_POLICY, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
+import { DEFAULT_HOST_RULES, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
 import { WebTokenSession } from '@solus/client-core/web-token-session'
 
 // The web client's start on the account origin (docs/plans/fast-secure-startup.md). The
@@ -18,7 +18,7 @@ const host = {
   kind: 'personal', category: 'personal', organizationIds: [],
   routes: [{ kind: 'tunnel', url: 'https://host.example' }],
 }
-const workspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.example' }], isActive: true, policy: DEFAULT_ORGANIZATION_POLICY }
+const workspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.example' }], isActive: true, hostRules: DEFAULT_HOST_RULES }
 const fetchSpy = spyOn(globalThis, 'fetch')
 afterAll(() => fetchSpy.mockRestore())
 afterEach(() => {

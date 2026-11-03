@@ -1,7 +1,7 @@
 import { isLoopbackAddress } from './websocket'
 import { tailnetAddresses } from './endpoints'
 import { hostCategory } from '../host/host-category'
-import { getServerSettings } from '../host/settings'
+import { effectiveTrustLocalNetwork } from '../host/settings'
 import { isApiMode } from '../host/api-mode'
 
 /**
@@ -27,7 +27,7 @@ export async function isTrustedRequesterAddress(address: string | undefined): Pr
   if (!address || hostCategory() === 'managed' || isApiMode()) return false
   if (isLoopbackAddress(address)) return true
   const normalized = address.startsWith('::ffff:') ? address.slice(7) : address
-  if (getServerSettings().trustLocalNetwork && isPrivateLanAddress(normalized)) return true
+  if (effectiveTrustLocalNetwork() && isPrivateLanAddress(normalized)) return true
   return (await tailnetAddresses()).has(normalized)
 }
 

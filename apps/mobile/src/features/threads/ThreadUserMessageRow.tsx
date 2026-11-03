@@ -159,6 +159,18 @@ function UserMessageMeta(props: {
       ) : null}
       {item.delivery === "failed" && item.error !== "Not sent." ? (
         <>
+          {props.store.controller.lowerModeFor(item.id) ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Lower the mode"
+              accessibilityHint="Sets the highest mode the policy allows and sends the message again"
+              hitSlop={8}
+              className="rounded-full bg-subtle px-2.5 py-1 active:opacity-70"
+              onPress={() => void props.store.controller.lowerModeAndRetry(item.id)}
+            >
+              <Text className="font-t3-medium text-xs text-foreground">Lower the mode</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Send again"

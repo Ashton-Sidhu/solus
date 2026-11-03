@@ -9,6 +9,9 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { cloudLinkSummary, cloudRegistrationSummary } from "./host-cloud-link";
 import { useHostCloudLink } from "./use-host-cloud-link";
+import { hostLockMessage } from "../policy/lib/policy-view";
+import { PolicyLockNote } from "../policy/PolicyLockNote";
+import { useHostPolicy } from "../policy/use-host-policy";
 
 /**
  * The host and Solus Cloud, as the desktop and web Access tab shows them
@@ -22,6 +25,7 @@ export function HostCloudLinkSection(props: { readonly hostId: string; readonly 
   const app = useApp();
   const { state, register, setLinked } = useHostCloudLink(props.hostId);
   const signedIn = useListened(app.account.changes, () => app.account.isSignedIn);
+  const cloudTunnelLock = hostLockMessage(useHostPolicy(props.hostId), "cloudTunnel");
   if (state.kind !== "loaded" || state.control === "none") return null;
   const registration = cloudRegistrationSummary(state);
   const link = cloudLinkSummary(state);
@@ -52,10 +56,11 @@ export function HostCloudLinkSection(props: { readonly hostId: string; readonly 
               icon="globe"
               label="Reachable from the internet"
               value={link.isLinked}
-              disabled={!canManage || state.busy}
+              disabled={!canManage || state.busy || cloudTunnelLock !== null}
               onValueChange={setLinked}
             />
           </SettingsSection>
+          {cloudTunnelLock ? <PolicyLockNote lines={[cloudTunnelLock]} /> : null}
           <SettingsNote>{link.note}</SettingsNote>
         </>
       ) : null}

@@ -1,3 +1,4 @@
+import { policyGate } from '../../host/policy/policy-gate'
 import { resolveProjectRoot } from '../../project-config/project-config'
 import { resolveHomePath } from '../../platform/paths'
 import { privateProviderInstances } from '../../execution/seats/provider-instances'
@@ -56,7 +57,7 @@ export function registerSettingsHandlers(
     const snapshot = Object.keys(patch).length ? setHostConfig(patch) : getHostConfig()
     // Applied to the running process, not just persisted: an operator who turns
     // export on should see data arrive without restarting the host.
-    if (patch.otel) await configureOtel(snapshot.config.otel)
+    if (patch.otel) await configureOtel(snapshot.config.otel, policyGate().hostKey('otel') !== null)
     // Broadcast so a second window or a second device converges rather than
     // holding a settings panel that disagrees with the one just edited.
     deps.onHostConfigChanged(snapshot)

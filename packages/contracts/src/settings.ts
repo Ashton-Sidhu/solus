@@ -467,44 +467,6 @@ export function effectiveFontFamily(key: FontPreferenceKey, personal: Pick<Perso
 
 // ─── Organization settings ───
 
-/**
- * What an organization's owners decide for all its work, from any client's
- * Settings. Only `syncAllInsights` today: on, every session of the organization
- * sends its Insights and members cannot turn it off. The control plane stores it
- * in the organization's host policy and delivers it to hosts in their standing,
- * where Insights delivery already applies it. Host eligibility and provisioning
- * defaults stay in the console; a client cannot change them. A new key here needs
- * its own enforcement point and an explicit product decision (plans/018 §3.4).
- */
-export const organizationSettingsSchema = z.object({
-  syncAllInsights: z.boolean(),
-}).strict()
-export type OrganizationSettings = z.infer<typeof organizationSettingsSchema>
-
-/** `GET /v1/orgs/:organizationId/settings`: the settings and what the caller may do. */
-export const organizationSettingsResponseSchema = z.object({
-  organizationId: z.string().min(1),
-  name: z.string(),
-  /** Computed by the control plane from current membership. Owners only. */
-  canManageSettings: z.boolean(),
-  revision: z.number().int().nonnegative(),
-  settings: organizationSettingsSchema,
-})
-export type OrganizationSettingsResponse = z.infer<typeof organizationSettingsResponseSchema>
-
-/** `PATCH /v1/orgs/:organizationId/settings`. Only the keys carried change. */
-export const organizationSettingsPatchRequestSchema = z.object({
-  expectedRevision: z.number().int().nonnegative(),
-  settings: organizationSettingsSchema.partial().strict(),
-}).strict()
-export type OrganizationSettingsPatchRequest = z.infer<typeof organizationSettingsPatchRequestSchema>
-
-/** A 409 on an organization write: someone saved first. The body carries what they saved. */
-export const organizationSettingsConflictBodySchema = z.object({
-  error: z.literal('settings_conflict'),
-  current: organizationSettingsResponseSchema,
-})
-
 // ─── Account settings (personal sync) ───
 
 /**
@@ -542,4 +504,3 @@ export const accountSettingsConflictBodySchema = z.object({
 })
 
 export const ACCOUNT_SETTINGS_PATH = '/v1/account/settings'
-export const organizationSettingsPath = (organizationId: string): string => `/v1/orgs/${encodeURIComponent(organizationId)}/settings`

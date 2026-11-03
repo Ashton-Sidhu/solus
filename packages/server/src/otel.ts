@@ -134,8 +134,9 @@ export function otelActiveSignals(): OtelActiveSignals {
  * Ignored while the environment is in charge: env vars are the deployment's
  * decision and a UI toggle must not silently override the deployment.
  */
-export async function configureOtel(settings: OtelSettings): Promise<void> {
-  if (!otelManagedByEnvironment()) {
+export async function configureOtel(settings: OtelSettings, lockedByPolicy = false): Promise<void> {
+  // A policy that locks export decides even over the environment (plans/030 §4.4).
+  if (lockedByPolicy || !otelManagedByEnvironment()) {
     await shutdownOtel()
     const base = settings.endpoint.trim().replace(/\/+$/, '')
     const headers = parseHeaders(settings.headers)

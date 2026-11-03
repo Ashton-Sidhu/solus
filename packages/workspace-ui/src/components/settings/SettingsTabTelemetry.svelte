@@ -28,6 +28,7 @@
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
   import SettingsRow from "./SettingsRow.svelte";
+  import { hostLock } from "./policy/managed-setting.svelte";
   import SettingsSection from "./SettingsSection.svelte";
 
   interface Props {
@@ -45,7 +46,9 @@
   const managed = $derived(snapshot?.managedByEnvironment === true);
   /** Nothing is editable before the host has answered, or once its environment
    *  has taken the decision away from this page. */
-  const locked = $derived(!snapshot || managed);
+  // A host policy that holds `otel` decides the export for everyone (plans/030 §4.4).
+  const otelLock = $derived(hostLock(serverId, "otel"));
+  const locked = $derived(!snapshot || managed || otelLock !== undefined);
 
   // Endpoint and headers are typed, so they are drafts until saved rather than
   // firing an RPC per keystroke. Every other control is a switch and saves on
@@ -126,6 +129,7 @@
 <SettingsSection label="OpenTelemetry" visible={isVisible("export")}>
   <SettingsRow
     label="Export telemetry"
+    managed={otelLock}
     description={statusLine}
     visible={isVisible("export")}
   >

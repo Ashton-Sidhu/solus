@@ -37,7 +37,7 @@ import {
   type SavedServerUplink,
 } from '@solus/client-core/server-registry'
 import type { HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
-import { isSolusApiId, solusApiId, type OrganizationPolicy } from '@solus/contracts/uplink'
+import { isSolusApiId, solusApiId, type HostRules } from '@solus/contracts/uplink'
 import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
@@ -87,7 +87,7 @@ export interface UnknownRemoteHost {
 export interface OrganizationChoice {
   organizationId: string
   name: string
-  policy: OrganizationPolicy
+  hostRules: HostRules
   /** The organization this window works in. */
   isActive: boolean
 }
@@ -246,12 +246,12 @@ class ServersStore {
       : null
   }
 
-  /** The organizations the account belongs to, with each one's policy, the window's marked. */
+  /** The organizations the account belongs to, with each one's host rules, the window's marked. */
   get organizations(): OrganizationChoice[] {
     return this.workspaces.map((workspace) => ({
       organizationId: workspace.organizationId,
       name: workspace.label,
-      policy: workspace.policy,
+      hostRules: workspace.hostRules,
       isActive: workspace.organizationId === this.activeOrganizationId,
     }))
   }

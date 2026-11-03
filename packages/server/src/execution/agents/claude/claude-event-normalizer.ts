@@ -8,7 +8,7 @@ import { claudeToolResultText } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
 import { z } from 'zod'
 
-const SDK_TO_UI_PERMISSION_MODE = {
+export const SDK_TO_UI_PERMISSION_MODE = {
   default: 'supervised',
   acceptEdits: 'accept-edits',
   auto: 'auto',

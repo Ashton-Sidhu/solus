@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
-import { DEFAULT_ORGANIZATION_POLICY, directoryResponseSchema, type DirectoryHost, type DirectoryWorkspace } from '@solus/contracts/uplink'
+import { DEFAULT_HOST_RULES, directoryResponseSchema, type DirectoryHost, type DirectoryWorkspace } from '@solus/contracts/uplink'
 import { loadServers, saveServers } from '@solus/client-core/server-registry'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget } from '@solus/client-core/workspace-registry'
@@ -36,8 +36,8 @@ afterEach(() => {
   }
 })
 
-const acme: DirectoryWorkspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: true, policy: DEFAULT_ORGANIZATION_POLICY }
-const beta: DirectoryWorkspace = { organizationId: 'org-2', label: 'Beta', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: false, policy: DEFAULT_ORGANIZATION_POLICY }
+const acme: DirectoryWorkspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: true, hostRules: DEFAULT_HOST_RULES }
+const beta: DirectoryWorkspace = { organizationId: 'org-2', label: 'Beta', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: false, hostRules: DEFAULT_HOST_RULES }
 const machine: DirectoryHost = {
   hostId: 'h1', installationId: 'inst-1', label: 'Studio Mac', kind: 'personal', category: 'personal', ownerUserId: 'me',
   routes: [{ kind: 'tunnel', url: 'https://h1.solus.test' }],
@@ -88,8 +88,8 @@ describe('the directory\'s workspace services', () => {
       const invalid = Object.fromEntries(Object.entries(machine).filter(([key]) => key !== field))
       expect(directoryResponseSchema.safeParse({ hosts: [invalid], workspaces: [acme] }).success).toBe(false)
     }
-    expect(directoryResponseSchema.safeParse({ hosts: [machine], workspaces: [{ ...acme, policy: { syncAllInsights: 'yes' } }] }).success).toBe(false)
-    expect(directoryResponseSchema.safeParse({ hosts: [machine], workspaces: [{ ...acme, policy: undefined }] }).success).toBe(false)
+    expect(directoryResponseSchema.safeParse({ hosts: [machine], workspaces: [{ ...acme, hostRules: { allowsCloudHosts: 'yes' } }] }).success).toBe(false)
+    expect(directoryResponseSchema.safeParse({ hosts: [machine], workspaces: [{ ...acme, hostRules: undefined }] }).success).toBe(false)
   })
 
   test('a workspace is dialed on its tunnel alone, with a grant for its own id', () => {

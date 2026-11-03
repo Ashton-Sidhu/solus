@@ -207,7 +207,7 @@ const PERMISSION_OF_METHOD = {
   projectConfigSave: HOST_USE, listProjectIdentities: HOST_USE, resolveDispatchHistoryRoots: HOST_USE,
   untrackProject: HOST_USE, skillsSearch: HOST_USE, skillsInstall: HOST_USE, skillsList: HOST_USE,
   skillsRemove: HOST_USE, connectionsListEndpoints: HOST_USE, connectionsListSessions: HOST_USE,
-  uplinkStatus: HOST_USE, hostOrganizations: HOST_USE, workUpload: HOST_USE, taskUpload: HOST_USE,
+  uplinkStatus: HOST_USE, hostOrganizations: HOST_USE, hostPolicy: HOST_USE, workUpload: HOST_USE, taskUpload: HOST_USE,
   shareLinkOrigin: HOST_USE, providerInstanceStatus: HOST_USE, providerInstanceSignIn: HOST_USE, providerInstanceSubmitCode: HOST_USE, providerInstanceCancelSignIn: HOST_USE, providerInstanceSignOut: HOST_USE, providerInstancesGet: HOST_USE, providerInstancesWrite: HOST_USE, seatList: HOST_USE, seatConnectStart: HOST_USE, seatConnectSubmitCode: HOST_USE,
   seatConnectCancel: HOST_USE, seatConnectToken: HOST_USE, seatDisconnect: HOST_USE, agentAuthStart: HOST_USE,
   agentAuthSubmit: HOST_USE, agentAuthCancel: HOST_USE, agentAuthSignOut: HOST_USE, integrationCatalogList: HOST_USE,

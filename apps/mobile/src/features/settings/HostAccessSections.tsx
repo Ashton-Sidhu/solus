@@ -20,6 +20,9 @@ import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { canChangeAccess, networkNote, type HostAccessSnapshot } from "./host-access";
+import type { PolicySet } from "@solus/contracts/policy";
+import { hostLockMessage, pairingLockMessage } from "../policy/lib/policy-view";
+import { PolicyLockNote } from "../policy/PolicyLockNote";
 
 /**
  * The sections of a host's Access screen below its Solus Cloud link, in the
@@ -28,6 +31,8 @@ import { canChangeAccess, networkNote, type HostAccessSnapshot } from "./host-ac
 
 export function HostOrganizationsSection(props: {
   readonly access: HostAccessSnapshot;
+  /** The host's policy summary; null until it is read, when no row is managed by it. */
+  readonly policy: PolicySet | null;
   readonly onInsightsOptIn: (organizationId: string, next: boolean) => void;
 }) {
   const status = props.access.organizations;
@@ -41,7 +46,7 @@ export function HostOrganizationsSection(props: {
       </View>
     ) : null;
   }
-  const rows = organizationRows(status);
+  const rows = organizationRows(status, props.policy);
   const attachment = attachmentSummary(status);
   const delivery = deliverySummary(status);
 
@@ -86,11 +91,15 @@ export function HostOrganizationsSection(props: {
 
 export function HostNetworkSection(props: {
   readonly access: HostAccessSnapshot;
+  readonly policy: PolicySet | null;
   readonly onRemoteAccess: (next: boolean) => void;
   readonly onTrustLocalNetwork: (next: boolean) => void;
 }) {
   const { info, busy } = props.access;
   const locked = !canChangeAccess(info) || busy !== null;
+  // A host key a policy sets is inert for everyone; the host refuses the change too (plans/030 §6.7).
+  const remoteAccessLock = hostLockMessage(props.policy, "remoteAccess");
+  const trustLocalNetworkLock = hostLockMessage(props.policy, "trustLocalNetwork");
   const address = info.remoteAccess
     ? props.access.endpoints.find((endpoint) => endpoint.kind !== "loopback")
     : undefined;
@@ -103,7 +112,7 @@ export function HostNetworkSection(props: {
           label="Allow remote connections"
           subtitle="Remote devices must pair before connecting."
           value={info.remoteAccess}
-          disabled={locked}
+          disabled={locked || remoteAccessLock !== null}
           onValueChange={props.onRemoteAccess}
         />
         {info.remoteAccess ? (
@@ -112,7 +121,7 @@ export function HostNetworkSection(props: {
             label="Trust my local network"
             subtitle="Devices on your local network connect without a pairing code. Only enable on a network you control."
             value={info.trustLocalNetwork}
-            disabled={locked}
+            disabled={locked || trustLocalNetworkLock !== null}
             onValueChange={props.onTrustLocalNetwork}
           />
         ) : null}
@@ -124,13 +133,19 @@ export function HostNetworkSection(props: {
           />
         ) : null}
       </SettingsSection>
+      <PolicyLockNote lines={[remoteAccessLock, trustLocalNetworkLock].filter((line): line is string => line !== null)} />
       <SettingsNote>{networkNote(info)}</SettingsNote>
     </View>
   );
 }
 
-export function HostPairingSection(props: { readonly access: HostAccessSnapshot; readonly onGenerate: () => void }) {
+export function HostPairingSection(props: {
+  readonly access: HostAccessSnapshot;
+  readonly policy: PolicySet | null;
+  readonly onGenerate: () => void;
+}) {
   const { pair, endpoints, busy } = props.access;
+  const pairingLock = pairingLockMessage(props.policy);
   const live = pair && pair.expiresAt > Date.now() ? pair : null;
   const endpoint = bestPairEndpoint(endpoints);
   const link = live && endpoint ? pairLink(endpoint, live.token) : null;
@@ -162,10 +177,11 @@ export function HostPairingSection(props: { readonly access: HostAccessSnapshot;
           icon="plus"
           label={live ? "New code" : "Pair a device"}
           loading={busy === "pair"}
-          disabled={busy !== null}
+          disabled={busy !== null || pairingLock !== null}
           onPress={props.onGenerate}
         />
       </SettingsSection>
+      {pairingLock ? <PolicyLockNote lines={[pairingLock]} /> : null}
       <SettingsNote>
         On the other device, scan the QR code or open the pairing link. Or enter this host's address and the code.
       </SettingsNote>

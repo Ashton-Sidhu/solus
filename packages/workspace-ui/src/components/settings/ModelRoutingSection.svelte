@@ -10,6 +10,7 @@
   import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import { Button } from "../ui/button";
 
   let { serverId, visible = true }: { serverId: string; visible?: boolean } = $props();
@@ -22,6 +23,8 @@
   ) ?? []);
   // Jev does the routing, so without a TypeSafe key these choices do nothing.
   const keyMissing = $derived(solusToolsStore.isTypeSafeKeyMissing(serverId));
+  // One policy note for the whole routing table; it shows on the first row only.
+  const routingNote = $derived(managedSetting("modelRouting"));
   $effect(() => {
     const targetServerId = serverId;
     return untrack(() => {
@@ -64,6 +67,7 @@
         label={ROUTING_LABELS[category]}
         description={isInstalled ? categoryHints[category] : "No installed provider offers this. Auto uses General use."}
         disabled={keyMissing}
+        managed={category === ROUTING_CATEGORIES[0] ? routingNote : { lockedEverywhere: routingNote.lockedEverywhere, lines: [] }}
       >
         {#snippet control()}
           <SessionChip

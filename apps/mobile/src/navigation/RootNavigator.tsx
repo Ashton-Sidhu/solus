@@ -48,7 +48,7 @@ import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { AppearanceScreen } from '../features/settings/AppearanceScreen'
 import { AccountSyncScreen } from '../features/settings/AccountSyncScreen'
 import { AgentProfileScreen } from '../features/settings/AgentProfileScreen'
-import { OrganizationSettingsScreen } from '../features/settings/OrganizationSettingsScreen'
+import { PolicyScreen } from '../features/policy/PolicyScreen'
 import { DeviceSettingsScreen } from '../features/devices/DeviceSettingsScreen'
 import { DevicesScreen } from '../features/devices/DevicesScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
@@ -170,7 +170,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'ChatSettings',
   'AgentDefaults',
   'NotificationSettings',
-  'OrganizationSettings',
+  'Policy',
   'HostSettings',
   'DeviceSettings',
   'Devices',
@@ -357,7 +357,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="AccountSync" component={AccountSyncScreen} options={{ title: 'Account & sync' }} />
             <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
             <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
-            <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
+            <Stack.Screen name="Policy" component={PolicyScreen} options={{ title: 'Policy' }} />
             <Stack.Screen name="DeviceSettings" component={DeviceSettingsScreen} options={{ title: 'Devices' }} />
             <Stack.Screen name="Devices" component={DevicesScreen} options={{ title: 'Devices' }} />
             <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />

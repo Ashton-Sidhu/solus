@@ -1,4 +1,4 @@
-import { Building2, RefreshCw, Webhook } from '@lucide/svelte'
+import { Building2, RefreshCw, ShieldCheck, Webhook } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
@@ -6,7 +6,7 @@ import { EMPTY_WEBHOOKS_VIEW, serializeWebhooksView } from '../../webhooks/lib/w
 
 /**
  * Palette entries for the settings pages that have an owner of their own
- * (plans/018 §7): personal sync and the organization's settings.
+ * (plans/018 §7, plans/030 §7): personal sync, the organization, and policy.
  * Shared by desktop and web so both expose the same entry points.
  */
 export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
@@ -22,8 +22,15 @@ export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, vi
     label: 'Organization settings',
     group: 'General',
     icon: Building2,
-    keywords: ['organization', 'insights', 'owner', 'team'],
+    keywords: ['organization', 'projects', 'owner', 'team'],
     run: () => shell.showSettings('organization', 'palette'),
+  }, {
+    id: 'open-policy',
+    label: 'Policy',
+    group: 'General',
+    icon: ShieldCheck,
+    keywords: ['policy', 'managed', 'mdm', 'lock', 'permission', 'limit', 'insights', 'export', 'mobileconfig'],
+    run: () => shell.showSettings('policy', 'palette'),
   }]
 }
 
