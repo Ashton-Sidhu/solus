@@ -4,7 +4,7 @@ import type { PolicyApiResult } from '@solus/contracts/host-api'
 import type { HostPoliciesResponse, OrganizationPolicyResponse } from '@solus/contracts/policy-api'
 import type { PolicyCloudRequests } from '@solus/client-core/settings-requests'
 import { accountSettingsRequests } from '../../../contexts/account/account-sync.store.svelte'
-import { checkPolicyText, newPolicyDocument, policyResultMessage, policyText } from './lib/policy-editor'
+import { checkPolicyText, newPolicyDocument, policyResultMessage, policyText, readPolicy, type ReadPolicy } from './lib/policy-editor'
 
 /**
  * One organization's policies as this account reads them (plans/030 §5.2, §7).
@@ -39,13 +39,13 @@ export type PolicyEditorTarget = { kind: 'organization' } | { kind: 'host'; poli
  * keeps the text beside what the other owner saved until the owner chooses.
  */
 export interface PolicyDraft {
-  revision: number
-  /** The document that was read, as Solus Cloud sent it. */
-  document: unknown
+  /** What was read. */
+  saved: ReadPolicy
   text: string
   saving: boolean
   error: string | null
-  conflict: { revision: number; document: unknown } | null
+  /** What the other owner saved. */
+  conflict: ReadPolicy | null
 }
 
 /** A document anyone can build and export as an MDM policy, without an organization. */
@@ -106,10 +106,10 @@ export class PolicyStore {
       assignmentError: null,
     })
     this.views.set(key, ready)
-    this.reconcileDraft(origin, organizationId, { kind: 'organization' }, organization.value.revision, organization.value.document)
+    this.reconcileDraft(origin, organizationId, { kind: 'organization' }, readPolicy(organization.value, 'organization'))
     if (hostPolicies.kind === 'ok') {
       for (const policy of hostPolicies.value.policies) {
-        this.reconcileDraft(origin, organizationId, { kind: 'host', policyId: policy.policyId }, policy.revision, policy.document)
+        this.reconcileDraft(origin, organizationId, { kind: 'host', policyId: policy.policyId }, readPolicy(policy, 'host'))
       }
     }
   }
@@ -126,7 +126,7 @@ export class PolicyStore {
   cancel(origin: string, organizationId: string, target: PolicyEditorTarget): void {
     const draft = this.draftFor(origin, organizationId, target)
     if (!draft || draft.saving) return
-    draft.text = policyText(draft.document)
+    draft.text = draft.saved.text
     draft.error = null
     draft.conflict = null
   }
@@ -139,9 +139,8 @@ export class PolicyStore {
     const draft = this.draftFor(origin, organizationId, target)
     if (!draft?.conflict) return
     const theirs = draft.conflict
-    draft.revision = theirs.revision
-    draft.document = theirs.document
-    if (choice === 'use-theirs') draft.text = policyText(theirs.document)
+    draft.saved = theirs
+    if (choice === 'use-theirs') draft.text = theirs.text
     draft.conflict = null
     draft.error = null
   }
@@ -158,20 +157,19 @@ export class PolicyStore {
     }
     draft.saving = true
     draft.error = null
-    const request = { expectedRevision: draft.revision, document: checked.document }
-    const result: PolicyApiResult<{ revision: number; document: unknown }> = target.kind === 'organization'
+    const request = { expectedRevision: draft.saved.revision, document: checked.document }
+    const result: PolicyApiResult<Pick<OrganizationPolicyResponse, 'revision' | 'document'>> = target.kind === 'organization'
       ? await requests.organizationPolicyPut(organizationId, request)
       : await requests.hostPolicyPut(organizationId, target.policyId, request)
     draft.saving = false
     if (result.kind === 'ok') {
-      draft.revision = result.value.revision
-      draft.document = result.value.document
-      draft.text = policyText(result.value.document)
+      draft.saved = readPolicy(result.value, target.kind)
+      draft.text = draft.saved.text
       void this.load(origin, organizationId)
       return
     }
     if (result.kind === 'conflict') {
-      draft.conflict = { revision: result.revision, document: result.document }
+      draft.conflict = readPolicy(result, target.kind)
       return
     }
     if (result.kind === 'forbidden') {
@@ -239,23 +237,22 @@ export class PolicyStore {
   }
 
   /** A fresh read replaces what was read; an edit in progress stays, and a revision change under it is a conflict. */
-  private reconcileDraft(origin: string, organizationId: string, target: PolicyEditorTarget, revision: number, document: unknown): void {
+  private reconcileDraft(origin: string, organizationId: string, target: PolicyEditorTarget, read: ReadPolicy): void {
     const key = draftKey(origin, organizationId, target)
     const draft = this.drafts.get(key)
     if (!draft) {
       // A proxy, so each keystroke changes one field.
-      const created = $state<PolicyDraft>({ revision, document, text: policyText(document), saving: false, error: null, conflict: null })
+      const created = $state<PolicyDraft>({ saved: read, text: read.text, saving: false, error: null, conflict: null })
       this.drafts.set(key, created)
       return
     }
-    if (draft.saving || draft.revision === revision) return
-    if (draft.text !== policyText(draft.document)) {
-      draft.conflict = { revision, document }
+    if (draft.saving || draft.saved.revision === read.revision) return
+    if (draft.text !== draft.saved.text) {
+      draft.conflict = read
       return
     }
-    draft.revision = revision
-    draft.document = document
-    draft.text = policyText(document)
+    draft.saved = read
+    draft.text = read.text
   }
 }
 

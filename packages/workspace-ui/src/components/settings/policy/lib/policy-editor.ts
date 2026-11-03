@@ -6,7 +6,8 @@ import {
   type PolicyDocument,
   type PolicyKind,
 } from '@solus/contracts/policy'
-import type { HostPolicySummary, PolicyHost } from '@solus/contracts/policy-api'
+import { z } from 'zod'
+import type { HostPolicySummary, OrganizationPolicyResponse, PolicyHost } from '@solus/contracts/policy-api'
 import type { PolicyApiResult } from '@solus/contracts/host-api'
 
 /**
@@ -29,8 +30,28 @@ export function checkPolicyText(text: string, kind: PolicyKind): PolicyTextCheck
   return validatePolicyDocument(input, kind)
 }
 
-export function policyText(document: unknown): string {
+export function policyText(document: PolicyDocument): string {
   return `${JSON.stringify(document, null, 2)}\n`
+}
+
+/**
+ * A document as Solus Cloud sent it, decoded once here. A document this Solus
+ * version cannot decode (a newer schema) keeps its text, so an owner still sees
+ * it, and has no `document`.
+ */
+export interface ReadPolicy {
+  revision: number
+  text: string
+  document: PolicyDocument | null
+}
+
+export function readPolicy(response: Pick<OrganizationPolicyResponse, 'revision' | 'document'>, kind: PolicyKind): ReadPolicy {
+  const decoded = validatePolicyDocument(response.document, kind)
+  return {
+    revision: response.revision,
+    text: `${JSON.stringify(response.document, null, 2)}\n`,
+    document: decoded.ok ? decoded.document : null,
+  }
 }
 
 /** A first document for each kind. An organization policy starts from today's defaults (§4.5). */
@@ -56,9 +77,9 @@ export interface PolicyDifference {
 }
 
 /** What `after` changes in `before`, one line for each leaf. An array is one value. */
-export function policyDifferences(before: unknown, after: unknown): PolicyDifference[] {
-  const left = leaves(before)
-  const right = leaves(after)
+export function policyDifferences(before: PolicyDocument | null, after: PolicyDocument): PolicyDifference[] {
+  const left = before ? leaves(jsonTreeSchema.parse(before)) : new Map<string, string>()
+  const right = leaves(jsonTreeSchema.parse(after))
   const paths = [...new Set([...left.keys(), ...right.keys()])].sort()
   const out: PolicyDifference[] = []
   for (const path of paths) {
@@ -72,14 +93,24 @@ export function policyDifferences(before: unknown, after: unknown): PolicyDiffer
   return out
 }
 
-function leaves(value: unknown, prefix = '', out = new Map<string, string>()): Map<string, string> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    const entries = Object.entries(value).filter(([, child]) => child !== undefined)
-    if (entries.length === 0 && prefix) out.set(prefix, '{}')
-    for (const [key, child] of entries) leaves(child, prefix ? `${prefix}.${key}` : key, out)
+/** A document as objects down to its leaves; an array or a scalar is one leaf, as its JSON. */
+type JsonTree = { kind: 'object'; entries: [string, JsonTree][] } | { kind: 'leaf'; json: string }
+
+const jsonTreeSchema: z.ZodType<JsonTree> = z.lazy(() => z.union([
+  z.record(z.string(), jsonTreeSchema.optional()).transform((record): JsonTree => ({
+    kind: 'object',
+    entries: Object.entries(record).flatMap(([key, child]): [string, JsonTree][] => (child ? [[key, child]] : [])),
+  })),
+  z.json().transform((value): JsonTree => ({ kind: 'leaf', json: JSON.stringify(value) })),
+]))
+
+function leaves(tree: JsonTree, prefix = '', out = new Map<string, string>()): Map<string, string> {
+  if (tree.kind === 'leaf') {
+    if (prefix) out.set(prefix, tree.json)
     return out
   }
-  if (value !== undefined && prefix) out.set(prefix, JSON.stringify(value))
+  if (tree.entries.length === 0 && prefix) out.set(prefix, '{}')
+  for (const [key, child] of tree.entries) leaves(child, prefix ? `${prefix}.${key}` : key, out)
   return out
 }
 
@@ -109,7 +140,7 @@ export function assignableHostPolicies(host: PolicyHost, organizationId: string,
   return policies.map((policy) => ({
     policyId: policy.policyId,
     name: policy.name,
-    blockedReason: owner && holdsHostSection(policy.document)
+    blockedReason: owner && holdsHostSection(policy)
       ? `${owner.name} manages this host's settings. Only a host policy without host settings can be assigned.`
       : null,
   }))
@@ -124,8 +155,10 @@ export function policyHostDetail(host: PolicyHost, organizationId: string, polic
     : `${assigned} · host settings managed by ${host.hostOwner.name}`
 }
 
-function holdsHostSection(document: unknown): boolean {
-  return document !== null && typeof document === 'object' && 'host' in document && (document as { host?: unknown }).host !== undefined
+/** A policy this Solus version cannot decode may hold host settings, so it is treated as one that does. */
+function holdsHostSection(policy: HostPolicySummary): boolean {
+  const decoded = validatePolicyDocument(policy.document, 'host')
+  return !decoded.ok || decoded.document.host !== undefined
 }
 
 /** A policy API refusal in words; null for `ok`. */

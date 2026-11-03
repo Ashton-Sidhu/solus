@@ -17,6 +17,7 @@ import {
   type PolicySet,
   type PolicySource,
   type ResolvedRule,
+  POLICY_PROVIDER_IDS,
 } from '@solus/contracts/policy'
 import type { AgentId, PermissionMode } from '@solus/contracts/types'
 
@@ -83,7 +84,7 @@ export function providerDenial(policy: SessionPolicy, provider: AgentId): string
   if (policy.refusal) return policy.refusal.message
   const rule = resolveSessionLimit(policy.sources, 'providers')
   const allowed = rule?.value.allowed
-  return rule && allowed && !allowed.includes(provider as (typeof allowed)[number]) ? providerDeniedMessage(rule.source, provider) : null
+  return rule && allowed && !allowed.some((id) => id === provider) ? providerDeniedMessage(rule.source, provider) : null
 }
 
 /** Why `model` of `provider` cannot run this work, or null when it can. A provider the policy does not name is not limited. */
@@ -91,7 +92,7 @@ export function modelDenial(policy: SessionPolicy, provider: AgentId, model: str
   const denied = providerDenial(policy, provider)
   if (denied) return denied
   const rule = resolveSessionLimit(policy.sources, 'models')
-  const allowed = rule?.value[provider as keyof typeof rule.value]
+  const allowed = providerEntry(rule?.value, provider)
   return rule && allowed && !allowed.includes(model) ? modelDeniedMessage(rule.source, model) : null
 }
 
@@ -119,6 +120,12 @@ export function updatesManagedMessage(set: PolicySet): string | null {
   return rule?.value.mode === 'off' ? `${rule.source.document.organization.name} manages Solus updates.` : null
 }
 
+/** The lines under a managed setting, and whether the MDM policy locks it for all work. */
+export interface ManagedSettingLines {
+  lockedEverywhere: boolean
+  lines: string[]
+}
+
 /**
  * The line under a managed setting on a page that is not one session's, for each
  * organization that locks it here: "Globex sessions use Opus (managed)". The MDM
@@ -129,7 +136,7 @@ export function managedSettingLines<K extends ManagedSessionSettingKey>(
   organizations: readonly { organizationId: string; name: string }[],
   key: K,
   describe: (value: Exclude<ManagedSessionSettings[K], undefined>) => string,
-): { lockedEverywhere: boolean; lines: string[] } {
+): ManagedSettingLines {
   const mdm = set.mdm ? resolveSessionSetting([set.mdm], key) : null
   if (mdm) return { lockedEverywhere: true, lines: [`All sessions on this host use ${describe(mdm.value)} (${policySourceLabel(mdm.source)}).`] }
   const lines: string[] = []
@@ -142,14 +149,50 @@ export function managedSettingLines<K extends ManagedSessionSettingKey>(
 }
 
 /**
- * Under a ceiling the host drops the person's launch fields (binary, arguments,
- * environment, home) for every provider (§6.4). Launch pins are not in the
- * summary, because they can carry tokens, so only the ceiling shows here.
+ * The launch fields a policy owns for `provider` (§6.4). Under a ceiling the host
+ * drops all of the person's launch fields; otherwise only the pinned ones are
+ * replaced. The summary keeps each pin's field names with its values redacted.
  */
-export function launchFieldsManaged(policy: SessionPolicy): { message: string } | null {
-  const ceiling = permissionCeiling(policy)
-  return ceiling ? { message: `${capitalize(policySourceLabel(ceiling.source))} sets how agents start. Your launch settings do not apply.` } : null
+export interface LaunchLock {
+  /** Every launch field: binary, arguments, environment, and home paths. */
+  all: boolean
+  binaryPath: boolean
+  launchArgs: boolean
+  /** The pinned environment variables by name; the person's others still apply. */
+  environment: string[]
+  message: string
 }
+
+export function launchLock(policy: SessionPolicy, provider: AgentId): LaunchLock | null {
+  const ceiling = permissionCeiling(policy)
+  if (ceiling) {
+    return {
+      all: true,
+      binaryPath: true,
+      launchArgs: true,
+      environment: [],
+      message: `${capitalize(policySourceLabel(ceiling.source))} sets how agents start. Your launch settings do not apply.`,
+    }
+  }
+  const rule = resolveSessionLimit(policy.sources, 'providers')
+  const pin = providerEntry(rule?.value.launch, provider)
+  if (!rule || !pin) return null
+  return {
+    all: false,
+    binaryPath: pin.binaryPath !== undefined,
+    launchArgs: pin.launchArgs !== undefined,
+    environment: pin.environment?.map((variable) => variable.name) ?? [],
+    message: `${capitalize(policySourceLabel(rule.source))} pins some launch settings of this provider.`,
+  }
+}
+
+/** The entry of a by-provider record for `provider`; the record names only the providers a policy can name. */
+function providerEntry<Value>(record: Partial<Record<PolicyProviderId, Value>> | undefined, provider: AgentId): Value | undefined {
+  const id = POLICY_PROVIDER_IDS.find((candidate) => candidate === provider)
+  return id && record ? record[id] : undefined
+}
+
+type PolicyProviderId = (typeof POLICY_PROVIDER_IDS)[number]
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)

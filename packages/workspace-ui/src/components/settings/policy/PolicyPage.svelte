@@ -120,7 +120,7 @@
 {#snippet draftActions(target: PolicyEditorTarget)}
   {@const current = draft(target)}
   {#if current && canManage}
-    {@const dirty = current.text !== policyText(current.document)}
+    {@const dirty = current.text !== current.saved.text}
     <Button variant="ghost" size="sm" disabled={!dirty || current.saving} onclick={() => cancel(target)}>Cancel</Button>
     <Button size="sm" disabled={!dirty || current.saving || !!current.conflict} onclick={() => void save(target)}>
       {current.saving ? "Saving…" : "Save"}
@@ -202,14 +202,14 @@
       {@const organizationDraft = draft(ORGANIZATION)}
       <SettingsSection label="Organization policy" description="Applies to this organization's work on every host, after the MDM policy and the host policy. It cannot hold host settings.">
         {#if organizationDraft}
-          <SettingsRow label={`Revision ${organizationDraft.revision}`}>
+          <SettingsRow label={`Revision ${organizationDraft.saved.revision}`}>
             {#snippet body()}
               <div class="flex flex-col gap-2">
                 <PolicyDocumentEditor
                   label="Organization policy"
                   kind="organization"
                   text={organizationDraft.text}
-                  base={organizationDraft.document}
+                  base={organizationDraft.saved.document}
                   readOnly={!canManage || organizationDraft.saving || !!organizationDraft.conflict}
                   onChange={(text) => origin && organizationId && store.edit(origin, organizationId, ORGANIZATION, text)}
                 >
@@ -244,7 +244,7 @@
                     label={`Host policy ${editedPolicy.name}`}
                     kind="host"
                     text={hostDraft.text}
-                    base={hostDraft.document}
+                    base={hostDraft.saved.document}
                     readOnly={!canManage || hostDraft.saving || !!hostDraft.conflict}
                     onChange={(text) => origin && organizationId && store.edit(origin, organizationId, hostTarget, text)}
                   >

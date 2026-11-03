@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { PolicyDocument, PolicySet, PolicySource } from '@solus/contracts/policy'
+import { summarizePolicySet, type PolicyDocument, type PolicySet, type PolicySource } from '@solus/contracts/policy'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import {
   clampedDefaultMode,
   hostKeyLock,
-  launchFieldsManaged,
+  launchLock,
   managedSettingLines,
   modelDenial,
   permissionModeDenial,
@@ -111,9 +111,25 @@ describe('client policy resolver', () => {
 
   test('updates and launch fields say who manages them', () => {
     expect(updatesManagedMessage(shared)).toBe('Acme manages Solus updates.')
-    expect(launchFieldsManaged(sessionPolicy(shared, 'globex'))?.message).toBe('Globex sets how agents start. Your launch settings do not apply.')
-    expect(launchFieldsManaged(sessionPolicy(shared, 'local'))).toBeNull()
+    expect(launchLock(sessionPolicy(shared, 'globex'), 'codex')).toMatchObject({ all: true, message: 'Globex sets how agents start. Your launch settings do not apply.' })
+    expect(launchLock(sessionPolicy(shared, 'local'), 'claude-code')).toBeNull()
   })
+})
+
+test('without a ceiling, only the pinned launch fields are locked, from the redacted summary', () => {
+  const pinned = summarizePolicySet({
+    mdm: source('mdm', null, {
+      organization: { name: 'IT' },
+      sessions: { limits: { providers: { launch: { 'claude-code': { binaryPath: '/opt/claude', environment: [{ name: 'CLAUDE_CODE_USE_BEDROCK', value: 'secret' }] } } } } },
+    }),
+    hostOwnerOrganizationId: null,
+    organizations: {},
+  })
+  const lock = launchLock(sessionPolicy(pinned, 'local'), 'claude-code')
+  expect(lock).toEqual({ all: false, binaryPath: true, launchArgs: false, environment: ['CLAUDE_CODE_USE_BEDROCK'], message: 'The MDM policy of IT pins some launch settings of this provider.' })
+  // The value never reaches the client.
+  expect(JSON.stringify(pinned)).not.toContain('secret')
+  expect(launchLock(sessionPolicy(pinned, 'local'), 'codex')).toBeNull()
 })
 
 describe('organization rows', () => {

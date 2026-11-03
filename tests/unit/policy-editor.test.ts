@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { PolicyApiResult } from '@solus/contracts/host-api'
+import type { PolicyDocument } from '@solus/contracts/policy'
 import type { HostPoliciesResponse, HostPolicySummary, OrganizationPolicyResponse, PolicyHost } from '@solus/contracts/policy-api'
 import type { PolicyCloudRequests } from '@solus/client-core/settings-requests'
 import {
@@ -8,6 +9,7 @@ import {
   hostOwnerName,
   policyDifferences,
   policyText,
+  readPolicy,
 } from '@solus/workspace-ui/components/settings/policy/lib/policy-editor'
 import { exportChoice, readImport } from '@solus/workspace-ui/components/settings/policy/lib/policy-document-editor'
 
@@ -29,7 +31,7 @@ afterEach(() => {
   else globals.$state = previousState
 })
 
-const acmeDocument = { schemaVersion: 1, organization: { name: 'Acme' }, sessions: { limits: { insights: { syncAll: true } } } }
+const acmeDocument: PolicyDocument = { schemaVersion: 1, organization: { name: 'Acme' }, sessions: { limits: { insights: { syncAll: true } } } }
 
 describe('policy editor', () => {
   test('an organization policy with host settings is refused, as the cloud refuses it', () => {
@@ -41,7 +43,7 @@ describe('policy editor', () => {
   })
 
   test('the difference lists each changed leaf', () => {
-    const after = { ...acmeDocument, sessions: { limits: { insights: { syncAll: false }, maxPermissionMode: 'supervised' } } }
+    const after: PolicyDocument = { ...acmeDocument, sessions: { limits: { insights: { syncAll: false }, maxPermissionMode: 'supervised' } } }
     expect(policyDifferences(acmeDocument, after)).toEqual([
       { path: 'sessions.limits.insights.syncAll', change: 'changed', before: 'true', after: 'false' },
       { path: 'sessions.limits.maxPermissionMode', change: 'added', after: '"supervised"' },
@@ -50,9 +52,9 @@ describe('policy editor', () => {
 
   test('an import is checked against the kind of the editor, and compared with its text', () => {
     const imported = JSON.stringify({ ...acmeDocument, name: 'Laptops' })
-    const pending = readImport('laptops.json', imported, policyText(acmeDocument), 'host')
+    const pending = readImport('laptops.json', imported, checkPolicyText(policyText(acmeDocument), 'host'), 'host')
     expect(pending.ok && pending.differences.map((difference) => difference.path)).toEqual(['name'])
-    expect(readImport('bad.json', '{"schemaVersion":2}', '', 'host').ok).toBe(false)
+    expect(readImport('bad.json', '{"schemaVersion":2}', checkPolicyText('', 'host'), 'host').ok).toBe(false)
   })
 
   test('a document that fails the check exports nothing', () => {
@@ -69,6 +71,15 @@ describe('policy editor', () => {
     expect(assignableHostPolicies(owned, 'acme', policies).map((choice) => [choice.policyId, choice.blockedReason !== null])).toEqual([['p-host', true], ['p-sessions', false]])
     // The owner itself may assign either.
     expect(assignableHostPolicies(owned, 'globex', policies).every((choice) => choice.blockedReason === null)).toBe(true)
+  })
+
+  test('a cloud document this Solus version cannot decode keeps its text and is treated as unknown', () => {
+    const newer = readPolicy({ revision: 3, document: { schemaVersion: 2, organization: { name: 'Acme' } } }, 'organization')
+    expect(newer.document).toBeNull()
+    expect(JSON.parse(newer.text)).toEqual({ schemaVersion: 2, organization: { name: 'Acme' } })
+    const unknownPolicy: HostPolicySummary = { policyId: 'p-new', name: 'Newer', revision: 1, updatedAt: 1, hostIds: [], document: { schemaVersion: 2 } }
+    const owned: PolicyHost = { hostId: 'h', label: 'Laptop', policyId: null, hostOwner: { organizationId: 'globex', name: 'Globex' } }
+    expect(assignableHostPolicies(owned, 'acme', [unknownPolicy])[0]?.blockedReason).not.toBeNull()
   })
 
   test('with an MDM policy no organization manages the host settings', () => {
@@ -135,14 +146,14 @@ describe('policy store', () => {
     store.edit('https://solus.test', 'acme', target, mine)
     await store.save('https://solus.test', 'acme', target)
     const draft = store.draftFor('https://solus.test', 'acme', target)!
-    expect(draft.conflict).toEqual({ revision: 9, document: theirs })
+    expect(draft.conflict).toEqual({ revision: 9, document: theirs, text: policyText(theirs) })
     expect(draft.text).toBe(mine)
     // No edit while the conflict is open.
     store.edit('https://solus.test', 'acme', target, '{}')
     expect(draft.text).toBe(mine)
 
     store.resolveConflict('https://solus.test', 'acme', target, 'keep-mine')
-    expect({ revision: draft.revision, text: draft.text, conflict: draft.conflict }).toEqual({ revision: 9, text: mine, conflict: null })
+    expect({ revision: draft.saved.revision, text: draft.text, conflict: draft.conflict }).toEqual({ revision: 9, text: mine, conflict: null })
   })
 
   test('a member reads the policy and cannot edit it', async () => {

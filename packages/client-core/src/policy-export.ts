@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { PolicyDocument } from '@solus/contracts/policy'
 
 /**
@@ -37,12 +38,12 @@ export function policyRegistryValue(document: PolicyDocument): string {
 
 /** A profile cannot hold `null`; a document that needs one is installed as the file. Null when the document has none. */
 export function mobileconfigBlocker(document: PolicyDocument): string | null {
-  const path = firstNullPath(document, [])
+  const path = firstNullPath(plistNodeSchema.parse(document), [])
   return path ? `A macOS profile cannot hold null (${path.join('.')}). Install policy.json instead.` : null
 }
 
 /** The payload's keys are the document's top-level keys, beside the payload's own `Payload*` keys. */
-export function mobileconfigPayload(document: PolicyDocument, payloadUuid: string): { [key: string]: unknown } {
+export function mobileconfigPayload(document: PolicyDocument, payloadUuid: string) {
   return {
     PayloadType: POLICY_PREFERENCE_DOMAIN,
     PayloadIdentifier: `${POLICY_PREFERENCE_DOMAIN}.policy.${payloadUuid}`,
@@ -74,7 +75,7 @@ export function policyMobileconfig(document: PolicyDocument, uuid: () => string 
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
     '<plist version="1.0">',
-    plistValue(profile, ''),
+    plistXml(plistNodeSchema.parse(profile), ''),
     '</plist>',
     '',
   ].join('\n')
@@ -103,45 +104,68 @@ export function policyExportFile(document: PolicyDocument, format: PolicyExportF
   }
 }
 
-function plistValue(value: unknown, indent: string): string {
+/** A property-list value. JSON decodes into it at the export boundary; `null` is kept so the blocker can name its path. */
+type PlistNode =
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'integer' | 'real'; value: number }
+  | { kind: 'string'; value: string }
+  | { kind: 'null' }
+  | { kind: 'array'; items: PlistNode[] }
+  | { kind: 'dict'; entries: [string, PlistNode][] }
+
+const plistNodeSchema: z.ZodType<PlistNode> = z.lazy(() => z.union([
+  z.null().transform((): PlistNode => ({ kind: 'null' })),
+  z.boolean().transform((value): PlistNode => ({ kind: 'boolean', value })),
+  z.number().transform((value): PlistNode => ({ kind: Number.isInteger(value) ? 'integer' : 'real', value })),
+  z.string().transform((value): PlistNode => ({ kind: 'string', value })),
+  z.array(plistNodeSchema).transform((items): PlistNode => ({ kind: 'array', items })),
+  // An absent optional key is not written.
+  z.record(z.string(), plistNodeSchema.optional()).transform((record): PlistNode => ({
+    kind: 'dict',
+    entries: Object.entries(record).flatMap(([key, child]): [string, PlistNode][] => (child ? [[key, child]] : [])),
+  })),
+]))
+
+function plistXml(node: PlistNode, indent: string): string {
   const inner = `${indent}  `
-  if (Array.isArray(value)) {
-    if (value.length === 0) return `${indent}<array/>`
-    return [`${indent}<array>`, ...value.map((item) => plistValue(item, inner)), `${indent}</array>`].join('\n')
+  switch (node.kind) {
+    case 'array':
+      if (node.items.length === 0) return `${indent}<array/>`
+      return [`${indent}<array>`, ...node.items.map((item) => plistXml(item, inner)), `${indent}</array>`].join('\n')
+    case 'dict':
+      if (node.entries.length === 0) return `${indent}<dict/>`
+      return [
+        `${indent}<dict>`,
+        ...node.entries.flatMap(([key, child]) => [`${inner}<key>${escapeXml(key)}</key>`, plistXml(child, inner)]),
+        `${indent}</dict>`,
+      ].join('\n')
+    case 'boolean': return `${indent}<${node.value}/>`
+    case 'integer':
+    case 'real': return `${indent}<${node.kind}>${node.value}</${node.kind}>`
+    case 'string': return `${indent}<string>${escapeXml(node.value)}</string>`
+    case 'null': throw new Error('A macOS profile cannot hold null.')
   }
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value).filter(([, child]) => child !== undefined)
-    if (entries.length === 0) return `${indent}<dict/>`
-    return [
-      `${indent}<dict>`,
-      ...entries.flatMap(([key, child]) => [`${inner}<key>${escapeXml(key)}</key>`, plistValue(child, inner)]),
-      `${indent}</dict>`,
-    ].join('\n')
-  }
-  if (typeof value === 'boolean') return `${indent}<${value}/>`
-  if (typeof value === 'number') return Number.isInteger(value) ? `${indent}<integer>${value}</integer>` : `${indent}<real>${value}</real>`
-  if (typeof value === 'string') return `${indent}<string>${escapeXml(value)}</string>`
-  throw new Error(`A macOS profile cannot hold ${value === null ? 'null' : typeof value}.`)
 }
 
 function escapeXml(text: string): string {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-function firstNullPath(value: unknown, path: string[]): string[] | null {
-  if (value === null) return path
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      const found = firstNullPath(item, [...path, String(index)])
-      if (found) return found
-    }
-    return null
+function firstNullPath(node: PlistNode, path: string[]): string[] | null {
+  switch (node.kind) {
+    case 'null': return path
+    case 'array':
+      for (const [index, item] of node.items.entries()) {
+        const found = firstNullPath(item, [...path, String(index)])
+        if (found) return found
+      }
+      return null
+    case 'dict':
+      for (const [key, child] of node.entries) {
+        const found = firstNullPath(child, [...path, key])
+        if (found) return found
+      }
+      return null
+    default: return null
   }
-  if (typeof value === 'object' && value !== undefined) {
-    for (const [key, child] of Object.entries(value)) {
-      const found = firstNullPath(child, [...path, key])
-      if (found) return found
-    }
-  }
-  return null
 }

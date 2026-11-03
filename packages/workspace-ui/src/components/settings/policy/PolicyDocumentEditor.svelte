@@ -4,7 +4,7 @@
    *  confirmation that lists the changes. Read-only shows the text and Export. */
   import type { Snippet } from "svelte";
   import { Download as DownloadIcon, Upload as UploadIcon } from "@lucide/svelte";
-  import type { PolicyKind } from "@solus/contracts/policy";
+  import type { PolicyDocument, PolicyKind } from "@solus/contracts/policy";
   import { POLICY_EXPORT_FORMATS, type PolicyExportFormat } from "@solus/client-core/policy-export";
   import { downloadText } from "../../insights/lib/trace-export";
   import { requestInputFocus } from "../../../lib/inputFocus";
@@ -19,8 +19,8 @@
     label: string;
     kind: PolicyKind;
     text: string;
-    /** The document that was read; the edit is compared with it. Absent: no comparison. */
-    base?: unknown;
+    /** The document that was read; the edit is compared with it. Null: it does not decode here. Absent: no comparison. */
+    base?: PolicyDocument | null;
     readOnly?: boolean;
     onChange?: (text: string) => void;
     /** Save, Cancel, and other verbs of the owner of the document. */
@@ -30,7 +30,7 @@
   let { label, kind, text, base, readOnly = false, onChange, actions }: Props = $props();
 
   const check = $derived(checkPolicyText(text, kind));
-  const changes = $derived(base === undefined ? [] : editDifferences(base, text));
+  const changes = $derived(base === undefined ? [] : editDifferences(base, check));
   let pendingImport = $state<PendingImport | null>(null);
   let exportError = $state<string | null>(null);
   let fileInput = $state<HTMLInputElement | null>(null);
@@ -45,12 +45,11 @@
     downloadText(choice.file.fileName, choice.file.text, choice.file.mimeType);
   }
 
-  async function importFile(event: Event) {
-    const input = event.currentTarget as HTMLInputElement;
+  async function importFile(input: HTMLInputElement) {
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
-    pendingImport = readImport(file.name, await file.text(), text, kind);
+    pendingImport = readImport(file.name, await file.text(), check, kind);
   }
 
   function confirmImport() {
@@ -153,7 +152,7 @@
           <UploadIcon size={16} />
           Import JSON
         </Button>
-        <input bind:this={fileInput} type="file" accept="application/json,.json" class="hidden" onchange={(event) => void importFile(event)} />
+        <input bind:this={fileInput} type="file" accept="application/json,.json" class="hidden" onchange={(event) => void importFile(event.currentTarget)} />
       {/if}
     </div>
     {#if actions}
