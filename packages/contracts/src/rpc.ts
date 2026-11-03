@@ -284,6 +284,7 @@ export const RPC_INVOKE_METHODS = [
   'uplinkStatus',
   // Organization scope (docs/plans/organization-scope.md): this host's standing, its Insights opt-ins, and publication
   'hostOrganizations',
+  'hostPolicy',
   'hostSetInsightsOptIn',
   // Cloud sharing (docs/plans/cloud-sharing.md): a Local work read from its host, uploaded to the Solus API, then removed
   'workExportForCloud',

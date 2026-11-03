@@ -37,8 +37,8 @@ export const hostOrganizationsStatusSchema = z.object({
   category: hostCategorySchema,
   /** The account this host is registered to; null on a managed host or before the control plane answered. */
   owner: hostOwnerIdentitySchema.nullable(),
-  /** The organizations this host may deliver records to, each with its policy. */
-  organizations: z.array(hostOrganizationSchema),
+  /** The organizations this host may deliver records to. Their policies reach clients as a summary, through `hostPolicy`. */
+  organizations: z.array(hostOrganizationSchema.omit({ policy: true, hostPolicy: true })),
   /** Organizations the person at this host opted its work into while their **Sync all Insights** is off (§6.1). */
   insightsOptIn: z.array(z.string()),
   /**
