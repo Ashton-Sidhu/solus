@@ -1,5 +1,5 @@
 import { hostPathBaseName } from '@solus/contracts/host-path'
-import type { SessionArtifact, SessionArtifactKind, SessionArtifacts } from '@solus/contracts/session-artifacts'
+import { artifactLinkedAt, type SessionArtifact, type SessionArtifactKind, type SessionArtifacts } from '@solus/contracts/session-artifacts'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 
 /**
@@ -118,6 +118,50 @@ export function sessionArtifactItems(
   if (!artifacts) return null
   if (ownerSessionId === sessionId) return artifacts.own
   return artifacts.children.find((group) => group.sessionId === sessionId)?.items ?? null
+}
+
+/** When a turn holds a link: from its start until the next turn starts. The last turn stays open. */
+export interface TurnSpan {
+  startedAt: number
+  nextStartedAt: number | null
+}
+
+/** A gallery image's host path, as a reply wrote it. */
+function galleryPath(href: string): string {
+  const path = href.replace(/^file:\/\//, '').replace(/^\.\//, '').split(/[?#]/, 1)[0]!.replaceAll('\\', '/')
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
+/** A reply can name an image by its absolute path or relative to its project. */
+function isInGallery(path: string, galleryHrefs: readonly string[]): boolean {
+  const linked = path.replaceAll('\\', '/')
+  return galleryHrefs.some((href) => {
+    const shown = galleryPath(href)
+    return linked === shown || linked.endsWith(`/${shown}`)
+  })
+}
+
+/**
+ * What a session linked during one turn, for the chips at the turn's end. An
+ * image the turn's gallery shows is left out, so it shows once, as a thumbnail.
+ * `galleryHrefs` reads the turn's replies, so it runs only when an image was linked.
+ */
+export function turnArtifacts(
+  items: readonly SessionArtifact[],
+  span: TurnSpan,
+  galleryHrefs: () => readonly string[],
+): SessionArtifact[] {
+  const linked = items.filter((item) => {
+    const linkedAt = artifactLinkedAt(item)
+    return linkedAt >= span.startedAt && (span.nextStartedAt === null || linkedAt < span.nextStartedAt)
+  })
+  if (!linked.some((item) => item.kind === 'image')) return linked
+  const hrefs = galleryHrefs()
+  return linked.filter((item) => item.kind !== 'image' || !isInGallery(item.path, hrefs))
 }
 
 /** The chips a card shows, newest link first, and how many it leaves to `+N`. */

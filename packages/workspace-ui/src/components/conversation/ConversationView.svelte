@@ -774,7 +774,8 @@
             bind:element={messagesEl}
           >
             {#snippet children(turn: Turn, turnIdx: number, burst: UserBurst)}
-              <ConversationTurn {turn} {burst} index={turnIdx} total={turns.length}
+              <ConversationTurn {turn} {burst} {tabId} index={turnIdx} total={turns.length}
+                nextStartedAt={turns[turnIdx + 1]?.startedAt ?? null}
                 expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
                 {isAwaitingInput} {activityLabel} {setupLabel} turnStart={sess.currentTurnStart}
                 hasBackgroundWork={showsBackgroundWork(sess.status, !!sess.backgroundWorkRunning)}

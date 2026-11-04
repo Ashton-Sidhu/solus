@@ -58,6 +58,7 @@ export type ThreadFeedRow =
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   | { readonly type: 'handoff-pending'; readonly id: string }
   /** All image sources below the turn reply; each item subscribes independently. */
+  | { readonly type: 'turn-artifacts'; readonly id: string; readonly promptId: string | null; readonly nextPromptId: string | null; readonly imageIds: readonly string[] }
   | { readonly type: 'turn-images'; readonly id: string; readonly itemIds: readonly string[] }
   /** An HTML render. `superseded`: a later render in the feed revises the same work. */
   | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
@@ -95,7 +96,7 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
   const rows: ThreadFeedRow[] = []
   const latestRevisions = latestArtifactRevisions(input.entries)
   const hostNotices = new Set<string>()
-  for (const { user, turn } of turns) {
+  for (const [index, { user, turn }] of turns.entries()) {
     if (user) {
       // A prompt directly after another prompt is a burst: nothing came between them.
       const previous = rows.at(-1)
@@ -107,8 +108,16 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
     }
     const active = input.turnActive && turn === lastTurn?.turn
     appendTurnRows(rows, turn, active, input, latestRevisions)
+    // A prompt followed by another is a burst: it has no turn of its own to end.
+    if (!active && turn.entries.length > 0) rows.push({
+      type: 'turn-artifacts',
+      id: `artifacts:${turn.id}`,
+      promptId: user?.id ?? null,
+      nextPromptId: turns[index + 1]?.user?.id ?? null,
+      imageIds: turn.entries.filter((entry) => entry.kind === 'assistant' || entry.kind === 'image').map((entry) => entry.id),
+    })
   }
-  const trailing = rows.findLast((row) => row.type !== 'turn-images')
+  const trailing = rows.findLast((row) => row.type !== 'turn-images' && row.type !== 'turn-artifacts')
   if (input.working && !(trailing?.type === 'work-toggle' && trailing.live)) {
     rows.push({ type: 'thinking', id: LIVE_ACTIVITY_ROW_ID, continuesWorkLog: false })
   }

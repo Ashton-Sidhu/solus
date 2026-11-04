@@ -8,6 +8,11 @@ export function messageImages(message: Message): ReplyImage[] {
   return message.role === 'tool' ? [] : messageReplyImages(message)
 }
 
+/** The images a turn's gallery shows, as its replies name them. */
+export function galleryHrefs(messages: Message[]): string[] {
+  return messages.flatMap((message) => messageImages(message).map((image) => image.href))
+}
+
 /** Whether a turn's gallery has a slide. The carousel mounts only then: an
  *  empty one still measured itself, which forced a layout of the whole
  *  transcript for every turn a session opened with. */

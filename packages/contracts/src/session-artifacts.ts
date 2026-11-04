@@ -57,6 +57,11 @@ export interface SessionArtifacts {
   children: SessionArtifactGroup[]
 }
 
+/** When the session linked an item. */
+export function artifactLinkedAt(artifact: SessionArtifact): number {
+  return artifact.kind === 'pull-request' ? artifact.link.linkedAt : artifact.linkedAt
+}
+
 /** Every artifact in a list, own first, then each child's. */
 export function allSessionArtifacts(artifacts: SessionArtifacts): SessionArtifact[] {
   return [...artifacts.own, ...artifacts.children.flatMap((group) => group.items)]

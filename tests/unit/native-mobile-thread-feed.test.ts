@@ -16,7 +16,7 @@ function present(entries: FeedSourceEntry[], options: { turnActive?: boolean; wo
   })
 }
 
-const shape = (rows: ThreadFeedRow[]) => rows.filter((row) => row.type !== 'turn-images').map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
+const shape = (rows: ThreadFeedRow[]) => rows.filter((row) => row.type !== 'turn-images' && row.type !== 'turn-artifacts').map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
 
 describe('native thread feed', () => {
   test('a finished turn folds its work and progress notes behind "Worked", keeping the final answer', () => {
@@ -63,6 +63,15 @@ describe('native thread feed', () => {
     // A new turn starts a new group.
     const next = present([user('u1'), tool('s1'), user('u2'), tool('s2')])
     expect(next.filter((row) => row.type === 'turn-images').map((row) => row.type === 'turn-images' && row.itemIds)).toEqual([])
+  })
+
+  test('a finished turn names its prompts for the chips at its end; a running one shows none', () => {
+    // WHY: the two prompts bound what the turn linked, and a live turn is not done linking.
+    const rows = present([user('u1'), assistant('a1'), user('u2'), assistant('a2')], { turnActive: true })
+    const spans = rows.flatMap((row) => row.type === 'turn-artifacts' ? [[row.promptId, row.nextPromptId, row.imageIds]] : [])
+    expect(spans).toEqual([['u1', 'u2', ['a1']]])
+    const settled = present([user('u1'), assistant('a1')])
+    expect(settled.at(-1)).toMatchObject({ type: 'turn-artifacts', promptId: 'u1', nextPromptId: null })
   })
 
   test('a turn that failed stays open so its error is read in place', () => {

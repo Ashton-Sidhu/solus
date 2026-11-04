@@ -3,7 +3,7 @@ import type { SessionArtifact, SessionArtifacts } from '@solus/contracts/session
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import type { TaskPrSnapshot } from '@solus/contracts/task-types'
 import type { WorkType } from '@solus/contracts/types'
-import { artifactChip, cardChips, chipTotals, sessionArtifactItems } from '@solus/client-core/session-artifact-chips'
+import { artifactChip, cardChips, chipTotals, sessionArtifactItems, turnArtifacts } from '@solus/client-core/session-artifact-chips'
 
 function snapshot(state: TaskPrSnapshot['state'], draft = false): TaskPrSnapshot {
   return { number: 1, url: '', title: '', state, draft, updatedAt: '', baseRepo: { host: 'github.com', owner: 'acme', repo: 'app' } }
@@ -36,6 +36,45 @@ describe('a card chip', () => {
     expect(artifactChip(work('artifact')).tone).toBe('drawn')
     expect(artifactChip(file('/repo/docs/plan.md'))).toMatchObject({ tone: 'file', label: 'plan.md' })
     expect(artifactChip(image('/tmp/shot.png'))).toMatchObject({ tone: 'image', label: 'shot.png' })
+  })
+})
+
+describe('the chips at the end of a turn', () => {
+  const at = <T extends SessionArtifact>(item: T, linkedAt: number): T => ({ ...item, linkedAt })
+  const span = { startedAt: 100, nextStartedAt: 200 }
+
+  test('a link belongs to the turn that was running when it was made', () => {
+    // WHY: a turn shows what it produced. A link from the moment the next prompt
+    // arrives is the next turn's, and the last turn stays open for a late link.
+    const before = at(file('/repo/a.md'), 99)
+    const first = at(file('/repo/b.md'), 100)
+    const next = at(file('/repo/c.md'), 200)
+    expect(turnArtifacts([next, first, before], span, () => [])).toEqual([first])
+    expect(turnArtifacts([next, first, before], { startedAt: 100, nextStartedAt: null }, () => [])).toEqual([next, first])
+  })
+
+  test('an image the gallery shows is left out, however the reply names it', () => {
+    // WHY: the thumbnail already shows it. An image no reply shows keeps its chip,
+    // or it would not show on the turn at all.
+    const shown = at(image('/repo/shots/dark.png'), 120)
+    const unshown = at(image('/repo/shots/light.png'), 121)
+    const plan = at(file('/repo/plan.md'), 122)
+    const items = [plan, unshown, shown]
+    expect(turnArtifacts(items, span, () => ['/repo/shots/dark.png'])).toEqual([plan, unshown])
+    expect(turnArtifacts(items, span, () => ['./shots/dark.png?raw'])).toEqual([plan, unshown])
+    expect(turnArtifacts(items, span, () => ['file:///repo/shots/dark.png'])).toEqual([plan, unshown])
+  })
+
+  test('a file that shares only a name with a gallery image keeps its chip', () => {
+    const other = at(image('/repo/other/dark.png'), 120)
+    expect(turnArtifacts([other], span, () => ['shots/dark.png'])).toEqual([other])
+  })
+
+  test('the replies are read only when the turn linked an image', () => {
+    // WHY: this runs for each finished turn, and reading a reply parses its Markdown.
+    let reads = 0
+    turnArtifacts([at(file('/repo/plan.md'), 120)], span, () => { reads += 1; return [] })
+    expect(reads).toBe(0)
   })
 })
 

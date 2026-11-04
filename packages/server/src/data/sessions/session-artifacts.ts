@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
-import { isImagePath, type SessionArtifact, type SessionArtifacts } from '@solus/contracts/session-artifacts'
+import { artifactLinkedAt, isImagePath, type SessionArtifact, type SessionArtifacts } from '@solus/contracts/session-artifacts'
 import { getDatabase } from '../../db/database'
 import { ANY_ORGANIZATION, type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
@@ -99,10 +99,6 @@ async function readLinkArtifacts(scope: RecordScope, sessionIds: readonly string
   }
 }
 
-function linkedAtOf(item: SessionArtifact): number {
-  return item.kind === 'pull-request' ? item.link.linkedAt : item.linkedAt
-}
-
 /** Each session's artifacts, newest link first. */
 async function readArtifactsBySession(scope: RecordScope, sessionIds: readonly string[]): Promise<Map<string, SessionArtifact[]>> {
   const bySession = new Map<string, SessionArtifact[]>(sessionIds.map((id) => [id, []]))
@@ -112,7 +108,7 @@ async function readArtifactsBySession(scope: RecordScope, sessionIds: readonly s
   }
   await readWorkArtifacts(scope, sessionIds, bySession)
   await readLinkArtifacts(scope, sessionIds, bySession)
-  for (const items of bySession.values()) items.sort((a, b) => linkedAtOf(b) - linkedAtOf(a))
+  for (const items of bySession.values()) items.sort((a, b) => artifactLinkedAt(b) - artifactLinkedAt(a))
   return bySession
 }
 

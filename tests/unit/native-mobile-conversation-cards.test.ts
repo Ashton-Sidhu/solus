@@ -82,6 +82,6 @@ describe('native conversation card state', () => {
     expect(model.order).toEqual(['activity:a'])
     // The app is read through the session its activity belongs to, not the one showing it.
     expect(model.items.get('activity:a')).toMatchObject({ sessionId: 'earlier-session' })
-    expect(deriveThreadFeedPresentation({ entries: [{ id: 'activity:a', kind: 'mcp_app' }], turnActive: false, working: false, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set() })).toEqual([{ type: 'mcp-app', id: 'activity:a' }])
+    expect(deriveThreadFeedPresentation({ entries: [{ id: 'activity:a', kind: 'mcp_app' }], turnActive: false, working: false, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set() }).filter((row) => row.type !== 'turn-artifacts')).toEqual([{ type: 'mcp-app', id: 'activity:a' }])
   })
 })

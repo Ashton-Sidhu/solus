@@ -12,13 +12,14 @@
   import TurnBody from "./TurnBody.svelte";
   import TurnEndDivider from "./TurnEndDivider.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
+  import TurnArtifacts from "./TurnArtifacts.svelte";
   import TurnImageGallery from "./TurnImageGallery.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationTurn");
   let { turn, burst = NO_BURST, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, turnStart, attempt,
     hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId,
-    settledSetupCard }: {
+    settledSetupCard, tabId, nextStartedAt = null }: {
     turn: Turn;
     /** Whether this turn's prompt sits in a burst of one person's messages. */
     burst?: UserBurst; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
@@ -33,6 +34,9 @@
     serverId?: string;
     /** The setup this turn's send ran, once it finished: drawn after the prompt. */
     settledSetupCard?: StatusCardState;
+    tabId: string;
+    /** When the next turn started; null on the last turn. */
+    nextStartedAt?: number | null;
   } = $props();
   const settings = getSettingsContext();
   const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
@@ -123,6 +127,9 @@
   </div>
 {/if}
 <TurnImageGallery messages={turn.images} {serverId} />
+{#if !live}
+  <TurnArtifacts {turn} {nextStartedAt} {tabId} />
+{/if}
 <!-- §17's transient endings, in the place they happened: after
    everything the turn produced, never in front of it. -->
 {#if !live && turn.end && turn.end.kind !== "failed"}
