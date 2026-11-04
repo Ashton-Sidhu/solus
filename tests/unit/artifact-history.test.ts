@@ -32,7 +32,7 @@ test('an html_path update replays the revision that call wrote, never today\'s b
   expect(workUpdateFromHistory(tool, result, () => undefined, undefined)).toBeUndefined()
 })
 
-for (const workType of ['doc', 'slides', 'diagram'] as const) {
+for (const workType of ['doc', 'slides'] as const) {
   test(`${workType} update cards require a successful save receipt`, () => {
     const tool: WireSessionLoadMessage = { role: 'tool', content: '', timestamp: 1, toolInput: JSON.stringify({ work_id: 'work', content: 'New content' }) }
     const getWork = () => ({ type: workType, title: 'Saved work' })

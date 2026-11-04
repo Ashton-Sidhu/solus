@@ -17,7 +17,6 @@ import {
     Table as TableIcon,
     Minus as MinusIcon,
     Sparkles as SparkleIcon,
-    Network as ArchitectureIcon,
     LayoutTemplate as ArtifactIcon,
   } from "@lucide/svelte";export interface EditorBlockCommand {
   id: string
@@ -156,18 +155,6 @@ export function askSolusCommand(onAskSolus: () => void): EditorBlockCommand {
     group: 'agent',
     accent: true,
     action: () => onAskSolus(),
-  }
-}
-
-export function embedDiagramCommand(onEmbedDiagram: () => void): EditorBlockCommand {
-  return {
-    id: 'diagram',
-    label: 'Embed Diagram',
-    description: 'Insert a live architecture diagram',
-    keywords: ['architecture', 'graph', 'system', 'flow', 'embed'],
-    icon: ArchitectureIcon,
-    group: 'advanced',
-    action: () => onEmbedDiagram(),
   }
 }
 

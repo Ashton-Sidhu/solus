@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import type { DocReadHints, DocRef, NormalizedDoc, WorkExternalLink } from '@solus/contracts/docs'
+import type { DocRef, NormalizedDoc, WorkExternalLink } from '@solus/contracts/docs'
 import type { Attribution } from '@solus/contracts/user'
 import type { WorkUpdateOpPayload } from '@solus/contracts/outbox-types'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
@@ -32,7 +32,7 @@ const adapter = {
   status: async () => ({ provider: 'confluence' as const, connected: true }),
   destinations: async () => [],
   search: async () => [],
-  read: async (ref: DocRef, _hints?: DocReadHints): Promise<NormalizedDoc> => {
+  read: async (ref: DocRef): Promise<NormalizedDoc> => {
     upstream.entered?.()
     await upstream.gate
     return { ref, title: upstream.title, markdown: upstream.markdown, version: '9', updatedAt: '2026-09-29T00:00:00.000Z' }
@@ -141,15 +141,6 @@ describe('agent tools', () => {
     expect(solusToolbox.works.update).toBe(workTools.updateWorkAgentTool)
   })
 
-  test('a diagram body that does not parse is refused by the work, whatever the caller', async () => {
-    const work = await works.createWork('local', 'Map', 'diagram', '{"nodes":[],"edges":[]}', '', undefined, 'claude-code')
-    const result = await workTools.executeWorkTool('update_work', { work_id: work.id, content: 'not json', expected_content_version: 1 })
-    expect(result.ok).toBe(false)
-    expect(result.text).toStartWith('Invalid diagram content:')
-    await expect(personEdit('local', work.id, '{"nodes":1}')).rejects.toBeInstanceOf(workModule.WorkContentInvalidError)
-    await expect(works.createWork('local', 'Bad', 'diagram', '[]', '', undefined, 'claude-code')).rejects.toBeInstanceOf(workModule.WorkContentInvalidError)
-    expect((await works.loadWork('local', work.id))?.content).toBe('{"nodes":[],"edges":[]}')
-  })
 })
 
 describe('the HTTP operations', () => {
@@ -167,9 +158,6 @@ describe('the HTTP operations', () => {
     expect((await operations.updateWork(person, work.id, { content: 'person again', expectedContentVersion: 3 }, saved.version)).contentVersion).toBe(4)
   })
 
-  test('an invalid diagram is a request error, not a stored body', async () => {
-    await expect(operations.createWork(person, { title: 'Map', type: 'diagram', content: '{}' }, 'write-paths-create-02')).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' })
-  })
 })
 
 describe('RPC', () => {
@@ -301,12 +289,6 @@ describe('outbox', () => {
     outbox.ackOutboxOps([stale.id, unversioned.id])
   })
 
-  test('an invalid diagram op dead-letters instead of retrying forever', async () => {
-    const work = await works.createWork('local', 'Map', 'diagram', '{"nodes":[],"edges":[]}', '', undefined, 'claude-code')
-    const op = updateOp(work.id, { content: 'not json', expectedContentVersion: 1 })
-    expect((await outbox.applyOutboxOps([op])).failed[0]).toMatchObject({ id: op.id, permanent: true })
-    outbox.ackOutboxOps([op.id])
-  })
 })
 
 describe('upstream pull', () => {

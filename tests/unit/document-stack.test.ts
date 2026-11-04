@@ -17,7 +17,7 @@ describe('stack title', () => {
     // WHY: the title states what is in the stack and cannot state two types.
     expect(stackKicker(['doc', 'doc'])).toBe('documents')
     expect(stackKicker(['slides', 'slides'])).toBe('decks')
-    expect(stackKicker(['doc', 'diagram'])).toBe('files')
+    expect(stackKicker(['doc', 'artifact'])).toBe('files')
     expect(stackKicker(['artifact', 'artifact'])).toBe('artifacts')
     expect(stackKicker([undefined, 'doc'])).toBe('documents')
   })

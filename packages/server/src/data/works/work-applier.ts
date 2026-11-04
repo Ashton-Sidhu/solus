@@ -1,5 +1,5 @@
 import { createWork, loadWork } from './works'
-import { Work, WorkContentInvalidError, WorkVersionConflictError } from './work'
+import { Work, WorkVersionConflictError } from './work'
 import { workPreview } from '@solus/contracts/work-preview'
 import { Task } from '../tasks/task'
 import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
@@ -12,7 +12,7 @@ const log = createLogger('folio', 'work-applier.ts')
 const workCreatePayloadSchema = z.object({
   taskId: z.string().optional(),
   title: z.string(),
-  docType: z.enum(['doc', 'slides', 'diagram', 'artifact']),
+  docType: z.enum(['doc', 'slides', 'artifact']),
   content: z.string(),
   agentProvider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
   originSessionId: z.string().optional(),
@@ -43,12 +43,12 @@ const workUpdatePayloadSchema = z.object({
  * re-ship carries it back to the execution host. That link write is best effort
  * (the work outliving a deleted task is correct, not a failure).
  */
-/** A stale version or an invalid body will be refused on every retry. */
+/** A stale version will be refused on every retry. */
 async function permanentOnRefusal<T>(write: () => Promise<T>): Promise<T> {
   try {
     return await write()
   } catch (error) {
-    if (error instanceof WorkVersionConflictError || error instanceof WorkContentInvalidError) throw new PermanentApplyError(error.message)
+    if (error instanceof WorkVersionConflictError) throw new PermanentApplyError(error.message)
     throw error
   }
 }

@@ -5,7 +5,7 @@
 
   /**
    * The leading segment of a sub page's crumb: the page it was opened from,
-   * and the separator after it. A document, diagram, artifact, or plan is a
+   * and the separator after it. A document, artifact, or plan is a
    * place inside the Workspace page the way a task is a place inside Tasks, so
    * its header has to name that page and take the reader back to it.
    *

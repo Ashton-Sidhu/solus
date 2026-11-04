@@ -64,8 +64,6 @@ const pinSchema: z.ZodType<CommentPin> = z.object({ x: z.number(), y: z.number()
 const threadReviewSchema = z.object({
   selectedText: z.string().optional(),
   textOffset: z.number().optional(),
-  nodeId: z.string().optional(),
-  edgeId: z.string().optional(),
   pin: pinSchema.optional(),
   externalThreadId: z.string().optional(),
   googleThreadId: z.string().optional(),
@@ -288,8 +286,6 @@ export async function deleteThreadsOf(db: Db, subject: ThreadSubject): Promise<n
 export function reviewOf(comment: PlanComment): ThreadReview {
   const review: ThreadReview = { selectedText: comment.selectedText }
   if (comment.textOffset !== undefined) review.textOffset = comment.textOffset
-  if (comment.nodeId !== undefined) review.nodeId = comment.nodeId
-  if (comment.edgeId !== undefined) review.edgeId = comment.edgeId
   if (comment.pin !== undefined) review.pin = comment.pin
   if (comment.externalThreadId !== undefined) review.externalThreadId = comment.externalThreadId
   if (comment.googleThreadId !== undefined) review.googleThreadId = comment.googleThreadId
@@ -306,8 +302,6 @@ export function commentOfThread(thread: ThreadRecord): PlanComment {
   const { review } = thread
   const comment: PlanComment = { id: thread.threadId, selectedText: review.selectedText ?? '', comment: thread.body }
   if (review.textOffset !== undefined) comment.textOffset = review.textOffset
-  if (review.nodeId !== undefined) comment.nodeId = review.nodeId
-  if (review.edgeId !== undefined) comment.edgeId = review.edgeId
   if (review.pin !== undefined) comment.pin = review.pin
   if (review.externalThreadId !== undefined) comment.externalThreadId = review.externalThreadId
   if (review.googleThreadId !== undefined) comment.googleThreadId = review.googleThreadId

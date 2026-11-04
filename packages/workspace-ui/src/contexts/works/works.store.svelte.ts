@@ -464,14 +464,13 @@ export class WorksStore {
   }
 
   /** A still-unnamed document takes its name from the first heading the user
-   *  writes. Only for documents: diagram content is JSON, and a work the user
-   *  or the agent has already named keeps that name. */
+   *  writes. A work the user or the agent has already named keeps that name. */
   private withDerivedTitle(
     work: WorkListing | undefined,
     updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
   ): Partial<Pick<Work, 'title' | 'preview' | 'content'>> {
     if (updates.title !== undefined || updates.content === undefined) return updates
-    if (!work || work.type === 'diagram' || !isPlaceholderWorkTitle(work.title)) return updates
+    if (!work || !isPlaceholderWorkTitle(work.title)) return updates
     const heading = firstHeadingTitle(updates.content)
     return heading ? { ...updates, title: heading } : updates
   }
@@ -725,10 +724,9 @@ export class WorksStore {
    * result, not an exception: the caller has to offer pull-first or overwrite,
    * and swallowing it as an error would hide that choice.
    */
-  async publish(workId: string, options: { destination?: DocDestination; diagramAssets?: WorkPublishRequest['diagramAssets']; force?: boolean } = {}): Promise<WorkPublishResult> {
+  async publish(workId: string, options: { destination?: DocDestination; force?: boolean } = {}): Promise<WorkPublishResult> {
     const opts: WorkPublishRequest = {}
     if (options.destination) opts.destination = options.destination
-    if (options.diagramAssets?.length) opts.diagramAssets = options.diagramAssets
     if (options.force) opts.force = true
 
     const result = await this.apiForWork(workId).publishWork(workId, opts)
@@ -889,8 +887,6 @@ function logWorkLoad<Data extends object>(
 function newWorkComment(comment: PlanComment): NewWorkComment {
   const next: NewWorkComment = { id: comment.id, selectedText: comment.selectedText, comment: comment.comment }
   if (comment.textOffset !== undefined) next.textOffset = comment.textOffset
-  if (comment.nodeId) next.nodeId = comment.nodeId
-  if (comment.edgeId) next.edgeId = comment.edgeId
   if (comment.pin) next.pin = comment.pin
   if (comment.externalThreadId) next.externalThreadId = comment.externalThreadId
   return next

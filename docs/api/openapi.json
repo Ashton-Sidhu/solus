@@ -3696,7 +3696,6 @@
               "enum": [
                 "doc",
                 "slides",
-                "diagram",
                 "artifact"
               ]
             }
@@ -3835,7 +3834,6 @@
                             "enum": [
                               "doc",
                               "slides",
-                              "diagram",
                               "artifact"
                             ]
                           },
@@ -3937,62 +3935,6 @@
                               "syncError": {
                                 "type": "string",
                                 "maxLength": 4096
-                              },
-                              "googleImages": {
-                                "maxItems": 200,
-                                "type": "array",
-                                "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "workId": {
-                                      "type": "string"
-                                    },
-                                    "title": {
-                                      "type": "string"
-                                    },
-                                    "objectId": {
-                                      "type": "string"
-                                    },
-                                    "tabId": {
-                                      "type": "string"
-                                    },
-                                    "sourceUri": {
-                                      "type": "string"
-                                    },
-                                    "contentHash": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "workId",
-                                    "title",
-                                    "objectId",
-                                    "tabId",
-                                    "sourceUri",
-                                    "contentHash"
-                                  ],
-                                  "additionalProperties": false
-                                }
-                              },
-                              "diagrams": {
-                                "maxItems": 200,
-                                "type": "array",
-                                "items": {
-                                  "type": "object",
-                                  "properties": {
-                                    "workId": {
-                                      "type": "string"
-                                    },
-                                    "title": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "workId",
-                                    "title"
-                                  ],
-                                  "additionalProperties": false
-                                }
                               }
                             },
                             "required": [
@@ -4369,7 +4311,6 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "diagram",
                         "artifact"
                       ]
                     },
@@ -4471,62 +4412,6 @@
                         "syncError": {
                           "type": "string",
                           "maxLength": 4096
-                        },
-                        "googleImages": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              },
-                              "objectId": {
-                                "type": "string"
-                              },
-                              "tabId": {
-                                "type": "string"
-                              },
-                              "sourceUri": {
-                                "type": "string"
-                              },
-                              "contentHash": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title",
-                              "objectId",
-                              "tabId",
-                              "sourceUri",
-                              "contentHash"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "diagrams": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -5144,7 +5029,6 @@
                     "enum": [
                       "doc",
                       "slides",
-                      "diagram",
                       "artifact"
                     ]
                   },
@@ -6025,7 +5909,6 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "diagram",
                         "artifact"
                       ]
                     },
@@ -6127,62 +6010,6 @@
                         "syncError": {
                           "type": "string",
                           "maxLength": 4096
-                        },
-                        "googleImages": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              },
-                              "objectId": {
-                                "type": "string"
-                              },
-                              "tabId": {
-                                "type": "string"
-                              },
-                              "sourceUri": {
-                                "type": "string"
-                              },
-                              "contentHash": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title",
-                              "objectId",
-                              "tabId",
-                              "sourceUri",
-                              "contentHash"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "diagrams": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -6853,7 +6680,6 @@
               "enum": [
                 "doc",
                 "slides",
-                "diagram",
                 "artifact"
               ]
             }
@@ -6904,7 +6730,6 @@
                             "enum": [
                               "doc",
                               "slides",
-                              "diagram",
                               "artifact"
                             ]
                           },
@@ -7206,7 +7031,6 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "diagram",
                         "artifact"
                       ]
                     },
@@ -7308,62 +7132,6 @@
                         "syncError": {
                           "type": "string",
                           "maxLength": 4096
-                        },
-                        "googleImages": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              },
-                              "objectId": {
-                                "type": "string"
-                              },
-                              "tabId": {
-                                "type": "string"
-                              },
-                              "sourceUri": {
-                                "type": "string"
-                              },
-                              "contentHash": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title",
-                              "objectId",
-                              "tabId",
-                              "sourceUri",
-                              "contentHash"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "diagrams": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [
@@ -8113,7 +7881,6 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "diagram",
                         "artifact"
                       ]
                     },
@@ -8215,62 +7982,6 @@
                         "syncError": {
                           "type": "string",
                           "maxLength": 4096
-                        },
-                        "googleImages": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              },
-                              "objectId": {
-                                "type": "string"
-                              },
-                              "tabId": {
-                                "type": "string"
-                              },
-                              "sourceUri": {
-                                "type": "string"
-                              },
-                              "contentHash": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title",
-                              "objectId",
-                              "tabId",
-                              "sourceUri",
-                              "contentHash"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "diagrams": {
-                          "maxItems": 200,
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "workId": {
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "workId",
-                              "title"
-                            ],
-                            "additionalProperties": false
-                          }
                         }
                       },
                       "required": [

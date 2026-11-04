@@ -14,7 +14,7 @@
   import { connectRequestStore, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import { integrationsStore } from "../settings/integrations.store.svelte";
   import ConnectRequestRow from "./ConnectRequestRow.svelte";
   import { connectCardHeading, connectContinuePrompt, connectRequestCopy } from "./lib/connect-card-copy";

@@ -148,7 +148,7 @@ export type WorkspaceTaskPage = z.infer<typeof workspaceTaskPageSchema>
 
 // Works
 
-const workType = z.enum(['doc', 'slides', 'diagram', 'artifact'])
+const workType = z.enum(['doc', 'slides', 'artifact'])
 const agentProvider = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const workExample = { id: 'work_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerKey: 'local:host_user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'API notes', type: 'doc', preview: 'Review notes', sessionIds: [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'codex' }
 
@@ -163,8 +163,6 @@ export const workspaceLinkedDocumentSchema = z.strictObject({
   upstreamContentHash: z.string().max(256).optional(),
   syncState: z.enum(['ok', 'dirty', 'upstream_changed', 'conflict', 'error', 'auth_error']),
   syncError: z.string().max(4096).optional(),
-  googleImages: z.array(z.strictObject({ workId: z.string(), title: z.string(), objectId: z.string(), tabId: z.string(), sourceUri: z.string(), contentHash: z.string() })).max(200).optional(),
-  diagrams: z.array(z.strictObject({ workId: z.string(), title: z.string() })).max(200).optional(),
 })
 
 export const workspaceWorkSummarySchema = z.strictObject({
@@ -247,7 +245,7 @@ export const workspaceWorkUpstreamSchema = z.strictObject({
   outcome: z.enum(['published', 'conflict', 'pulled']),
   title: z.string().max(500),
   url: z.string().max(4096),
-  /** What the conversion could not carry, such as an embedded diagram. */
+  /** What the conversion could not carry, such as an embedded artifact. */
   lossyParts: z.array(z.string().max(500)).max(50),
 }).meta({ examples: [{ outcome: 'published', title: 'API notes', url: 'https://example.atlassian.net/wiki/spaces/ENG/pages/1', lossyParts: [] }] })
 export type WorkspaceWorkUpstream = z.infer<typeof workspaceWorkUpstreamSchema>

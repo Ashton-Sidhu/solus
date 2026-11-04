@@ -12,7 +12,6 @@ import type {
 import type { WorkExternalLink } from '@solus/contracts/docs'
 import type { Attribution } from '@solus/contracts/user'
 import { workPreview } from '@solus/contracts/work-preview'
-import { parseDiagram } from '@solus/contracts/diagram-types'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
 import { type RecordScope } from '../../admission/principal'
@@ -61,28 +60,6 @@ export class WorkMovedError extends Error {
   constructor(readonly workId: string, readonly location: WorkLocation) {
     super(`Work ${workId} moved to organization ${location.organizationId}.`)
     this.name = 'WorkMovedError'
-  }
-}
-
-/** A body the work's type cannot hold. Nothing was written. */
-export class WorkContentInvalidError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'WorkContentInvalidError'
-  }
-}
-
-/**
- * Every body that reaches storage passes here, whoever writes it: an API
- * request, an RPC, an outbox op, or an import. A diagram must parse, or it
- * renders as a blank canvas over the good content it replaced.
- */
-export function validateWorkContent(type: WorkType, content: string): void {
-  if (type !== 'diagram') return
-  try {
-    parseDiagram(content)
-  } catch (error) {
-    throw new WorkContentInvalidError(`Invalid diagram content: ${error instanceof Error ? error.message : String(error)}. The content must be JSON shaped like {"nodes":[...],"edges":[...]}.`)
   }
 }
 
@@ -179,7 +156,6 @@ async function changeBody(db: Db, row: WorkRow, write: WorkBodyWrite, checkpoint
     }
     return
   }
-  validateWorkContent(row.type ?? 'doc', write.content)
   const displaced = checkpoint === null ? null : await checkpointOfCurrent(db, row)
   const written = await writeBody(db, row, write)
   if (checkpoint === null || displaced === null) return

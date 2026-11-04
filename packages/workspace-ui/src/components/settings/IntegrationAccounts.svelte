@@ -7,7 +7,7 @@
   import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
   import AtlassianProviderSettings from "../atlassian/AtlassianProviderSettings.svelte";
   import GoogleProviderSettings from "../google/GoogleProviderSettings.svelte";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import SettingsSection from "./SettingsSection.svelte";
   import { PROVIDER_LOGOS } from "./lib/provider-logos";
 

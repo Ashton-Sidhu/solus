@@ -8,13 +8,6 @@
 import { z } from 'zod'
 import type { Attribution } from './user'
 
-/**
- * The version of the diagram's live model (`diagram-live.ts`). A client and a
- * host that disagree would drop each other's fields; the host opens such a
- * client read-only. Documents use `DOCUMENT_SCHEMA_VERSION`.
- */
-export const DIAGRAM_LIVE_SCHEMA_VERSION = 1
-
 /** The Y.XmlFragment a document's body lives in; Tiptap's default field. */
 export const DOCUMENT_LIVE_FIELD = 'default'
 

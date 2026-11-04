@@ -141,7 +141,7 @@ You can embed images and videos in your response with Markdown and absolute file
         : PULL_REQUEST_LINKING_INSTRUCTIONS,
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
-    has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. Markdown plan files use kind=file and path. Relative paths use the calling session’s working directory.',
+    has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. When you write a plan file, link it with kind=file and path. Relative paths use the calling session’s working directory.',
     has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again. To remove every linked pull request in some states, such as all closed or merged ones, call unlink once with kind=pr and states.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
     runtime.harness === 'Claude Code' && has('background_wait') && BACKGROUND_WAIT_INSTRUCTIONS,

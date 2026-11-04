@@ -1,5 +1,10 @@
 import type { WorkType } from "@solus/contracts/types";
-import type { FilePayload } from "../../diagram/lib/diagram-export";
+
+/** How a payload rides the string-typed `writeFile` contract. */
+export interface FilePayload {
+  contents: string;
+  encoding: "utf8" | "base64";
+}
 
 /** One thing a work can be written out as, offered by the shell that owns it. */
 export interface WorkExportFormat {
@@ -27,7 +32,7 @@ export type WorkExportRequest =
   | { source: "host" };
 
 /** The file the host writes for an exported work: Markdown for a document,
- *  JSON for a diagram or slides, HTML for an artifact. */
+ *  JSON for slides, HTML for an artifact. */
 export function storedExportExtension(type: WorkType): string {
   if (type === "doc") return "md";
   if (type === "artifact") return "html";

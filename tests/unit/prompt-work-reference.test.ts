@@ -10,11 +10,11 @@ describe('a referenced work in the prompt', () => {
     // would send the agent to a file that does not exist.
     const composer = new PromptComposer(
       { get: () => null } as unknown as PlanStore,
-      { get: (workId: string) => (workId === 'work-a' ? { id: 'work-a', type: 'diagram' } : undefined) } as unknown as WorksStore,
+      { get: (workId: string) => (workId === 'work-a' ? { id: 'work-a', type: 'artifact' } : undefined) } as unknown as WorksStore,
     )
     const prompt = {
       planRefs: [],
-      workRefs: [{ workId: 'work-a', title: 'Architecture', type: 'diagram' }],
+      workRefs: [{ workId: 'work-a', title: 'Architecture', type: 'artifact' }],
       sessionRefs: [],
       attachments: [],
     } as unknown as Prompt
@@ -29,7 +29,7 @@ describe('a referenced work in the prompt', () => {
     const composed = composer.compose('Review this', prompt, session)
 
     expect(composed).toContain('[Referenced Work: Architecture]')
-    expect(composed).toContain('Type: diagram')
+    expect(composed).toContain('Type: artifact')
     expect(composed).toContain('Work id: work-a (read it with read_work)')
     expect(composed).not.toContain('File path:')
     expect(composed).not.toContain('.solus/works')

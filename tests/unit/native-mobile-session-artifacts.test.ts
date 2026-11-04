@@ -50,7 +50,6 @@ describe('native artifacts screen: filters and sections', () => {
     const merged: SessionArtifact = { kind: 'pull-request', link: { ...(pr(6) as Extract<SessionArtifact, { kind: 'pull-request' }>).link, snapshot: { number: 6, url: '', title: '', state: 'merged', draft: false, updatedAt: '', baseRepo: { host: 'github.com', owner: 'o', repo: 'r' } } } }
     expect(artifactIcon(merged)).toBe('arrow.triangle.merge')
     expect(artifactRowText(merged).iconLabel).toBe('Merged pull request')
-    expect(artifactIcon({ kind: 'work', workId: 'd', title: 'd', workType: 'diagram', linkedAt: 1 })).toBe('point.3.connected.trianglepath.dotted')
     expect(artifactRowText(work('spec')).detail).toBeNull()
   })
 

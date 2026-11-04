@@ -29,7 +29,7 @@ const everyOutput: SessionOutput[] = [
   { kind: 'question', question: 'Skip it?' },
   { kind: 'permission', tool: 'Bash: rm -rf build', allowed: true },
   { kind: 'plan', sessionId: child, planToolUseId: 'toolu_1', title: 'Ship "the" parser' },
-  { kind: 'work', workId: 'w1', title: 'Design notes', workType: 'diagram' },
+  { kind: 'work', workId: 'w1', title: 'Design notes', workType: 'artifact' },
   { kind: 'changed_files', sessionId: child, count: 2, branch: 'feat/store' },
   { kind: 'pull_request', number: 42, url: 'https://github.com/o/r/pull/42' },
   { kind: 'session', sessionId: 'thread-grandchild', title: 'Write tests', taskId: 'task-7' },

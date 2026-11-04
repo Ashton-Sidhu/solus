@@ -4,8 +4,8 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { DocDiagramAsset, DocDraft, DocPatch, DocReadHints, DocRef, DocScope, NormalizedDoc } from '@solus/contracts/docs'
-import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+import type { DocDraft, DocPatch, DocRef, DocScope, NormalizedDoc } from '@solus/contracts/docs'
+import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { documentToMarkdown } from '@solus/server/google/docs-markdown'
 import { DocVersionConflictError } from '@solus/server/docs/types'
@@ -31,8 +31,6 @@ interface FakeUpstream {
   lastPatch: DocPatch | null
   lastDraft: DocDraft | null
   lastScope: DocScope | null
-  lastAssets: DocDiagramAsset[] | null
-  lastReadHints: DocReadHints | null
   beforeUpdate: (() => void | Promise<void>) | null
 }
 
@@ -44,8 +42,6 @@ const upstream: FakeUpstream = {
   lastPatch: null,
   lastDraft: null,
   lastScope: null,
-  lastAssets: null,
-  lastReadHints: null,
   beforeUpdate: null,
 }
 
@@ -54,8 +50,7 @@ const adapter = {
   status: async () => ({ provider: 'confluence' as const, connected: true }),
   destinations: async () => [],
   search: async () => [],
-  read: async (ref: DocRef, hints?: DocReadHints): Promise<NormalizedDoc> => {
-    upstream.lastReadHints = hints ?? null
+  read: async (ref: DocRef): Promise<NormalizedDoc> => {
     return {
       ref,
       title: upstream.title,
@@ -66,7 +61,6 @@ const adapter = {
   },
   create: async (scope: DocScope, doc: DocDraft): Promise<NormalizedDoc> => {
     upstream.lastScope = scope
-    upstream.lastAssets = doc.diagramAssets ?? null
     upstream.lastDraft = doc
     return {
       ref: {
@@ -145,8 +139,6 @@ beforeEach(async () => {
   upstream.markdown = '# Upstream'
   upstream.lastPatch = null
   upstream.lastScope = null
-  upstream.lastAssets = null
-  upstream.lastReadHints = null
   upstream.beforeUpdate = null
   workId = await newWork()
 })
@@ -181,7 +173,6 @@ describe('work publish and pull tools', () => {
       expect(result.ok).toBe(false)
       expect(result.text).toContain('exactly one of work_id or url')
     }
-    expect(upstream.lastReadHints).toBeNull()
   })
 })
 
@@ -269,14 +260,6 @@ describe('publishWork', () => {
     expect((await linkOf(workId))?.syncState).toBe('ok')
   })
 
-  test('flattens an embedded diagram and says so, instead of publishing a Solus token', async () => {
-    const withDiagram = await newWork(`# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`)
-
-    const result = await workSync.publishWork('local', withDiagram, { destination: ENGINEERING })
-
-    expect(result.ok && result.lossyParts).toEqual(['diagram: Architecture'])
-  })
-
   test('an artifact embed publishes as a caption, never as a work:// link', async () => {
     // WHY: no provider runs HTML, and publishing a render as a picture is out
     // of scope. What matters is that the token never reaches the page, where it
@@ -290,93 +273,6 @@ describe('publishWork', () => {
     expect(result.ok && result.lossyParts).toEqual(['artifact: Latency'])
     expect(upstream.lastDraft?.markdown).toContain('_Artifact: Latency — view it in Solus._')
     expect(upstream.lastDraft?.markdown).not.toContain('work://')
-  })
-
-  test('prepared diagram assets do not carry an artifact embed with them', async () => {
-    // WHY: the assets say the client drew the diagrams. It cannot draw an
-    // artifact, so that embed still has to flatten in the same publish.
-    const content = [
-      '# Spec',
-      '',
-      serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' }),
-      '',
-      serializeWorkEmbed({ workId: 'a1', title: 'Latency', type: 'artifact' }),
-      '',
-    ].join('\n')
-    const withBoth = await newWork(content)
-
-    const result = await workSync.publishWork('local', withBoth, {
-      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
-      diagramAssets: [{
-        workId: 'd1',
-        title: 'Architecture',
-        mimeType: 'image/png',
-        base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
-      }],
-    })
-
-    expect(result.ok && result.lossyParts).toEqual(['artifact: Latency'])
-    expect(upstream.lastDraft?.markdown).toContain('type=diagram')
-    expect(upstream.lastDraft?.markdown).not.toContain('type=artifact')
-  })
-
-  test('carries prepared diagram PNGs through the tracked Google publish', async () => {
-    const content = `# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
-    const withDiagram = await newWork(content)
-    const asset: DocDiagramAsset = {
-      workId: 'd1',
-      title: 'Architecture',
-      mimeType: 'image/png',
-      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
-    }
-
-    const result = await workSync.publishWork('local', withDiagram, {
-      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
-      diagramAssets: [asset],
-    })
-
-    expect(result.ok).toBe(true)
-    expect(upstream.lastAssets).toEqual([asset])
-    expect(result.ok && result.lossyParts).toBeUndefined()
-  })
-
-  test('remembers which diagrams went up as images, and hands them to the pull', async () => {
-    // WHY: Docs returns an embedded diagram as a base64 image with no trace of
-    // the Solus work it came from. The link is the only place that memory can
-    // live, since a plan pull has no local content to compare against.
-    const content = `# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
-    const withDiagram = await newWork(content)
-    const asset: DocDiagramAsset = { workId: 'd1', title: 'Architecture', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }
-
-    await workSync.publishWork('local', withDiagram, {
-      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
-      diagramAssets: [asset],
-    })
-    expect((await linkOf(withDiagram))?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
-
-    upstream.version = '9'
-    await workSync.pullWorkUpstream('local', withDiagram)
-    expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
-  })
-
-  test('a renamed diagram survives the Google caption round trip', async () => {
-    const withDiagram = await newWork(serializeDiagramEmbed({ workId: 'd1', title: 'Old label' }))
-    await workSync.publishWork('local', withDiagram, {
-      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
-      diagramAssets: [{ workId: 'd1', title: 'Current diagram title', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }],
-    })
-    const link = await linkOf(withDiagram)
-    const converted = documentToMarkdown({
-      documentId: 'doc',
-      body: { content: [
-        { paragraph: { elements: [{ inlineObjectElement: { inlineObjectId: 'image' } }] } },
-        { paragraph: { elements: [{ textRun: { content: `${upstream.lastAssets![0].title}\n` } }] } },
-      ] },
-    }, link?.diagrams)
-    expect(converted.lossyParts).toEqual([])
-    upstream.markdown = converted.markdown
-    const pulled = await workSync.pullWorkUpstream('local', withDiagram)
-    expect(pulled.ok && pulled.content).toContain(serializeDiagramEmbed({ workId: 'd1', title: 'Current diagram title' }))
   })
 })
 
@@ -414,40 +310,6 @@ describe('plan mirror', () => {
     })
     expect(update.ok).toBe(true)
     expect(upstream.lastPatch?.markdown).toBe('# Revised plan')
-  })
-
-  test('carries an embedded diagram PNG through the plan mirror', async () => {
-    await annotations.saveAnnotations('local', {
-      version: 1,
-      sessionId: 'session-plan-png',
-      planToolUseId: 'tool-png',
-      projectPath: '/tmp/project',
-      cwd: '/tmp/project',
-      title: 'Plan with diagram',
-      status: 'pending',
-      comments: [],
-      bookmarked: false,
-      updatedAt: Date.now(),
-    })
-    const content = `# Plan\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
-    const asset: DocDiagramAsset = {
-      workId: 'd1',
-      title: 'Architecture',
-      mimeType: 'image/png',
-      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
-    }
-
-    const result = await planSync.publishPlan('local', {
-      sessionId: 'session-plan-png',
-      planToolUseId: 'tool-png',
-      title: 'Plan with diagram',
-      content,
-      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
-      diagramAssets: [asset],
-    })
-
-    expect(result.ok).toBe(true)
-    expect(upstream.lastAssets).toEqual([asset])
   })
 
   test('merges the mirror link into annotations changed during publish', async () => {
@@ -551,22 +413,6 @@ describe('refreshUpstreamState', () => {
     expect(link?.upstreamVersion).toBe('9')
   })
 
-  test('reads with the published diagrams, or their captions would look like an edit', async () => {
-    // WHY: a read without the hint renders each embed as a lossy caption, so
-    // the markdown differs from the pull's and every check reports a change.
-    const content = `# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
-    const withDiagram = await newWork(content)
-    await workSync.publishWork('local', withDiagram, {
-      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
-      diagramAssets: [{ workId: 'd1', title: 'Architecture', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }],
-    })
-    upstream.lastReadHints = null
-    upstream.version = '9'
-
-    await workSync.refreshUpstreamState('local', withDiagram)
-
-    expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
-  })
 })
 
 describe('unlinkWork', () => {

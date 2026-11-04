@@ -1625,15 +1625,13 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** Create an empty user-authored work and open it. Persisted immediately so it
    *  behaves like any other work; the editor opens focused for typing. */
-  async createBlankWork(type: 'doc' | 'slides' | 'diagram'): Promise<void> {
-    const title = type === 'diagram' ? 'Untitled diagram' : 'Untitled document'
-    const content = type === 'diagram' ? '{"nodes":[],"edges":[]}' : ''
-    await this.createWorkFromContent(title, type, content)
+  async createBlankWork(type: 'doc' | 'slides'): Promise<void> {
+    await this.createWorkFromContent('Untitled document', type, '')
   }
 
   /** Create a user-authored work from existing content (blank or imported) and
    *  open it. Uses the active session's cwd/provider for origin context. */
-  async createWorkFromContent(title: string, type: 'doc' | 'slides' | 'diagram', content: string): Promise<void> {
+  async createWorkFromContent(title: string, type: 'doc' | 'slides', content: string): Promise<void> {
     const sessionRun = this.sessionFor(this.activeTabId)?.run
     const run = sessionRun ?? this.defaultRunConfig
     const provider: AgentId = sessionRun?.provider ?? 'claude-code'
@@ -1826,7 +1824,7 @@ export class WorkspaceContext implements SurfaceContext {
     return true
   }
 
-  // ─── Folio (plans + docs + diagrams ledger) ───
+  // ─── Folio (plans + docs ledger) ───
 
   toggleFolio(via: Via = 'click'): void {
     this.togglePage({ name: 'folio', params: {} }, via, 'workspace')

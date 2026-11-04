@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildLocalIconSubset } from '../../scripts/vite-icon-collections'
-import { CURATED_ICONIFY_NAMES } from '@solus/workspace-ui/components/diagram/diagram-icons'
+import { APP_LOGO_NAMES } from '@solus/workspace-ui/components/settings/lib/app-logos'
+import { PROVIDER_LOGO_NAMES } from '@solus/workspace-ui/components/settings/lib/provider-logos'
 import { resolveFileIcon } from '@solus/client-core/file-icons'
 
 describe('file type icons', () => {
@@ -16,10 +17,10 @@ describe('file type icons', () => {
 })
 
 describe('local Iconify subset', () => {
-  test('contains every built-in diagram icon without full collections', () => {
+  test('contains every built-in logo without full collections', () => {
     const icons = buildLocalIconSubset()
     const names = new Set(icons.map((icon) => icon.name))
-    for (const name of [...CURATED_ICONIFY_NAMES]) {
+    for (const name of [...APP_LOGO_NAMES, ...PROVIDER_LOGO_NAMES]) {
       expect(names.has(name)).toBe(true)
     }
     expect(Buffer.byteLength(JSON.stringify(icons))).toBeLessThan(250_000)

@@ -138,7 +138,7 @@ blocked product checks; a zero exit status does not mean those checks passed.
 
 `lab-proof.ts` starts the Lab's isolated record service with the production
 Artifacts adapter. Alice writes; Bob reads edits, archived revisions, restores,
-and a live diagram update; Carol cannot read the organization work. A separate
+and a live document update; Carol cannot read the organization work. A separate
 local host publishes an HTML work and its history. Publication must return only
 after Cloudflare accepts the archive. Each disposable remote is deleted and its
 404 response is checked at the end. No deployment is made.

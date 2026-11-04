@@ -186,9 +186,7 @@ export function formatOpenThreads(comments: readonly PlanComment[]): string {
 
 /** Where a thread sits, in words an agent can act on. A pin is a point over an
  *  artifact's render, given as percentages of its width and height. */
-export function threadAnchorLabel(c: Pick<PlanComment, 'selectedText' | 'nodeId' | 'edgeId' | 'pin'>): string {
-  if (c.nodeId) return `On node "${c.selectedText}" (node id: ${c.nodeId})`
-  if (c.edgeId) return `On edge "${c.selectedText}" (edge id: ${c.edgeId})`
+export function threadAnchorLabel(c: Pick<PlanComment, 'selectedText' | 'pin'>): string {
   if (c.pin) return `At ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down the render ("${c.selectedText}")`
   return `On "${c.selectedText}"`
 }
@@ -227,8 +225,6 @@ const commentDocumentFields = {
       z.object({
         quote: z.string().describe('The exact passage to anchor to, copied verbatim from the document as it READS — plain text only. Markdown syntax (**, #, list markers) is not part of the rendered text and can never anchor. Quote enough words to be unique. On an artifact work there is no prose: pass a short caption naming what the note is about, and it lands on the render as a whole.'),
         comment: z.string().describe('The note itself: what is wrong or what to change.'),
-        node_id: z.string().optional().describe('For diagram works: anchor to this node instead of to a text quote. Pass the node label as `quote`.'),
-        edge_id: z.string().optional().describe('For diagram works: anchor to this edge instead of to a text quote. Pass the edge label as `quote`.'),
       }),
     )
     .min(1)
@@ -269,8 +265,6 @@ export interface CommentToolDeps {
 interface CommentRequest {
   quote?: string
   comment?: string
-  node_id?: string
-  edge_id?: string
 }
 
 interface CommentToolArgs {
@@ -383,13 +377,11 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
     const comment = String(raw.comment ?? '').trim()
     if (!quote) return { ok: false, text: 'Every comment needs a `quote` naming what it is about.' }
     if (!comment) return { ok: false, text: `The comment on "${quote}" is empty.` }
-    const nodeId = raw.node_id?.trim() || undefined
-    const edgeId = raw.edge_id?.trim() || undefined
 
-    // A diagram comment anchors to a node/edge id, and an artifact has no prose
-    // to quote — its note is on the whole render — so there is no text to find.
+    // An artifact has no prose to quote: its note is on the whole render, so
+    // there is no text to find.
     let textOffset: number | undefined
-    if (!nodeId && !edgeId && !target.isArtifact) {
+    if (!target.isArtifact) {
       if (target.content === null) return { ok: false, text: `The content of "${targetId}" could not be read, so no quote can be anchored.` }
       const anchor = anchorQuote(target.content, quote)
       if (!anchor.ok) {
@@ -402,8 +394,6 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
 
     const createdComment: Extract<WorkCommentCommand, { kind: 'add' }>['comment'] = { id: randomUUID(), selectedText: quote, comment }
     if (textOffset !== undefined) createdComment.textOffset = textOffset
-    if (nodeId) createdComment.nodeId = nodeId
-    if (edgeId) createdComment.edgeId = edgeId
     created.push({ kind: 'add', comment: createdComment })
   }
 

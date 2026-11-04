@@ -1,7 +1,5 @@
 import { Parser } from 'htmlparser2'
 import { Marked, Renderer, type Token, type Tokens } from 'marked'
-import { diagramEmbedWorkId, serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
-import { diagramAttachmentWorkId, type DiagramAttachment } from './diagram-attachments'
 
 /**
  * Confluence storage format ↔ markdown.
@@ -51,11 +49,6 @@ function unwrapStrong(tokens: Token[]): Token[] {
 }
 
 class StorageRenderer extends Renderer {
-  /** Work id → the page attachment holding that diagram's PNG. */
-  constructor(private readonly diagramAttachments: ReadonlyMap<string, DiagramAttachment>) {
-    super()
-  }
-
   override html({ text }: Tokens.HTML | Tokens.Tag): string {
     return escapeXml(text)
   }
@@ -97,17 +90,6 @@ class StorageRenderer extends Renderer {
 
   override link({ href, title, tokens }: Tokens.Link): string {
     const label = this.parser.parseInline(tokens)
-    // A diagram embed is a link in markdown and a picture on the page. The
-    // alt text carries the title, which is what a pull reads the embed's
-    // label back from.
-    const workId = diagramEmbedWorkId(href)
-    const attachment = workId ? this.diagramAttachments.get(workId) : undefined
-    if (attachment) {
-      // The label's own tokens, not the rendered inline markup: an alt
-      // attribute holds text, and marked has already turned `\[` back into `[`.
-      const alt = tokens.map((token) => ('text' in token ? token.text : '')).join('')
-      return `<ac:image ac:alt="${escapeXml(alt)}" ac:width="${attachment.widthPx}"><ri:attachment ri:filename="${escapeXml(attachment.filename)}"/></ac:image>`
-    }
     const safe = safeHref(href)
     if (!safe) return label
     const titleAttribute = title ? ` title="${escapeXml(title)}"` : ''
@@ -121,9 +103,9 @@ class StorageRenderer extends Renderer {
   }
 }
 
-export function markdownToStorage(markdown: string, diagramAttachments: ReadonlyMap<string, DiagramAttachment> = new Map()): string {
+export function markdownToStorage(markdown: string): string {
   const marked = new Marked()
-  marked.setOptions({ gfm: true, renderer: new StorageRenderer(diagramAttachments) })
+  marked.setOptions({ gfm: true, renderer: new StorageRenderer() })
   return String(marked.parse(markdown, { async: false })).trim()
 }
 
@@ -267,15 +249,8 @@ class StorageWalker {
 
     if (name === 'ri:attachment' && this.imageAlt !== null) {
       const filename = attribs['ri:filename'] ?? ''
-      const workId = diagramAttachmentWorkId(filename)
-      // Solus's own diagram: the filename names the work and the alt carries
-      // the title, so the live embed is restored instead of reported lost.
-      if (workId) {
-        this.inline += serializeDiagramEmbed({ workId, title: this.imageAlt })
-      } else {
-        this.inline += `![${this.imageAlt}](${filename})`
-        this.lossy.add('attachment')
-      }
+      this.inline += `![${this.imageAlt}](${filename})`
+      this.lossy.add('attachment')
       return
     }
 

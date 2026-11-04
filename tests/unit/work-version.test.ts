@@ -48,7 +48,7 @@ test('cloud saves refuse a stale copy and preserve the newer text', async () => 
 })
 
 test('agent edits and Restore advance the version read by open clients', async () => {
-  const work = await works.createWork('org-a', 'Diagram', 'diagram', '{"nodes":[],"edges":[]}', '', undefined, 'claude-code')
+  const work = await works.createWork('org-a', 'Deck', 'slides', '{"nodes":[],"edges":[]}', '', undefined, 'claude-code')
   const updated = await (await workModule.Work.byId('org-a', work.id)).updateTitle({ title: 'Agent title' })
   expect(updated.updatedAt > work.updatedAt).toBe(true)
   await edit('org-a', work.id, { content: '{"nodes":[{"id":"a"}],"edges":[]}', author: AGENT, reason: 'agent' })

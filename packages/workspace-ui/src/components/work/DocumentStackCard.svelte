@@ -3,7 +3,6 @@
     AppWindow as AppWindowIcon,
     FileText as FileTextIcon,
     Presentation as PresentationIcon,
-    Workflow as WorkflowIcon,
   } from "@lucide/svelte";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { relativeTime } from "../../lib/relative-time";
@@ -73,8 +72,6 @@
             <span class="activity-spinner"></span>
           {:else if entry.workType === "slides"}
             <PresentationIcon />
-          {:else if entry.workType === "diagram"}
-            <WorkflowIcon />
           {:else if entry.workType === "artifact"}
             <AppWindowIcon />
           {:else}

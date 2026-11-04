@@ -73,9 +73,9 @@ export default scenario('work Git storage: local restart, publication, shared ed
     let source = localClient()
     ctx.check('local owner admitted', (await source.connect()).ok)
     let localDb = openDatabase(host.dataDir)
-    for (const type of ['doc', 'diagram', 'slides', 'artifact'] as const) {
-      const before = type === 'diagram' ? '{"nodes":[],"edges":[]}' : 'Original local content\n\n'
-      const after = type === 'diagram' ? '{"nodes":[{"id":"a","label":"Local edit"}],"edges":[]}' : 'Changed local content\n\n'
+    for (const type of ['doc', 'slides', 'artifact'] as const) {
+      const before = 'Original local content\n\n'
+      const after = 'Changed local content\n\n'
       const work = await source.records.createWork(`Local Git ${type}`, type, before, '', undefined, 'codex')
       await archived(localDb, work.id, 'local-git')
       await source.rpc('agentSaveWork', work.id, { content: after }, work.contentVersion)

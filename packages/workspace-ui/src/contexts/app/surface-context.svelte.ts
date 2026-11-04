@@ -87,9 +87,9 @@ export interface SurfaceContext {
   /** Delete a work with a brief undo window. */
   requestWorkDelete(work: WorkListing): void
   /** Create an empty user-authored work on the surface's host and open it. */
-  createBlankWork(type: 'doc' | 'slides' | 'diagram'): Promise<void>
+  createBlankWork(type: 'doc' | 'slides'): Promise<void>
   /** Create a user-authored work from existing content (blank or imported) and open it. */
-  createWorkFromContent(title: string, type: 'doc' | 'slides' | 'diagram', content: string): Promise<void>
+  createWorkFromContent(title: string, type: 'doc' | 'slides', content: string): Promise<void>
   /** The commands only the workspace has, or null on a client without one. */
   readonly workspace: WorkspaceCommands | null
 }

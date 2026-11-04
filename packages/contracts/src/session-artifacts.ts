@@ -12,7 +12,7 @@ export interface PullRequestArtifact {
   link: SessionPullRequestLink
 }
 
-/** One work (document, slides, diagram, or artifact) linked to the session. */
+/** One work (document, slides, or artifact) linked to the session. */
 export interface WorkArtifact {
   kind: 'work'
   workId: string

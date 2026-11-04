@@ -118,18 +118,6 @@ describe('naming a work from its first heading', () => {
     expect(store.get('work-a')?.title).toBe('Release plan')
   })
 
-  test('a diagram is never named from its content', async () => {
-    // WHY: diagram content is JSON, so a heading match there is a coincidence.
-    const entry = work({ title: 'Untitled diagram', type: 'diagram' })
-    const host = hostRecordingSaves(entry)
-    const store = await storeWith(entry)
-
-    await store.save('work-a', { content: '{"nodes":[{"label":"# Release plan"}],"edges":[]}' }, entry.updatedAt)
-
-    expect(host.updates[0].title).toBeUndefined()
-    expect(store.get('work-a')?.title).toBe('Untitled diagram')
-  })
-
   test('an explicit rename still wins', async () => {
     const entry = work({ content: '# Release plan' })
     const host = hostRecordingSaves(entry)

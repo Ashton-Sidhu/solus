@@ -5,7 +5,6 @@ const PLACEHOLDER_TITLES = new Set([
   '',
   'untitled',
   'untitled document',
-  'untitled diagram',
   'untitled slides',
 ])
 

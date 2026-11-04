@@ -290,11 +290,9 @@ export function formatInlineComments(comments: PlanComment[]): string {
   return comments
     .filter((c) => !c.resolvedAt)
     .map((c) => {
-      const anchor = c.nodeId
-        ? `On node "${c.selectedText}" (node id: ${c.nodeId})`
-        : c.pin
-          ? `At ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down the render ("${c.selectedText}")`
-          : `On "${c.selectedText}"`
+      const anchor = c.pin
+        ? `At ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down the render ("${c.selectedText}")`
+        : `On "${c.selectedText}"`
       const head = `- ${anchor}${c.author?.kind === 'user' ? ` — ${c.author.user.displayName}` : ''}: ${c.comment}`
       const replies = (c.replies ?? []).map(
         (r) => `  - ${r.author ? attributionLabel(r.author) : 'User'}: ${r.text}`,

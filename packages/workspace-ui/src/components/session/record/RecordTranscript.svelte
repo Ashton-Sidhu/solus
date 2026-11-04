@@ -10,7 +10,6 @@
     List as ListIcon,
     Minimize2 as Minimize2Icon,
     Presentation as PresentationIcon,
-    Workflow as WorkflowIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import type { Message, Plan, WorkMeta } from "@solus/contracts/types";
@@ -195,7 +194,7 @@
             skipMotion
           >
             {#snippet glyph()}
-              {#if document.workType === "slides"}<PresentationIcon />{:else if document.workType === "diagram"}<WorkflowIcon />{:else if document.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
+              {#if document.workType === "slides"}<PresentationIcon />{:else if document.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
             {/snippet}
             {#snippet rail()}{#if document.contentVersion}v{document.contentVersion}{/if}{/snippet}
           </TranscriptCard>

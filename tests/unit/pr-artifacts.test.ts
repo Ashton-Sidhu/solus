@@ -40,7 +40,7 @@ describe('the artifacts behind a pull request', () => {
         taskTitle: 'Review',
         links: [
           link('work-doc', 'doc'),
-          link('work-diagram', 'diagram'),
+          link('work-slides', 'slides'),
           link('work-art', 'artifact'),
           { ...link('plan-1', 'draft'), kind: 'plan' },
         ],

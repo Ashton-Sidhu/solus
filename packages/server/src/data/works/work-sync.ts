@@ -1,5 +1,5 @@
 import { refreshWorkExternalComments } from './work-comments'
-import type { DocDestination, DocDiagramAsset, WorkExternalLink, WorkPublishResult, WorkPullResult } from '@solus/contracts/docs'
+import type { DocDestination, WorkExternalLink, WorkPublishResult, WorkPullResult } from '@solus/contracts/docs'
 import type { AgentId, Work } from '@solus/contracts/types'
 import { workPreview } from '@solus/contracts/work-preview'
 import type { RecordScope } from '../../admission/principal'
@@ -25,7 +25,7 @@ const log = createLogger('folio', 'work-sync.ts')
  * bookkeeping and the conflict guard cannot diverge between the two paths.
  */
 
-/** Slides and diagrams have no publish action in v1; a deck rendered as one
+/** Slides have no publish action in v1; a deck rendered as one
  *  markdown blob would be worse than not publishing it. */
 function publishableWork(work: Work | null, workId: string): Work {
   if (!work) throw new Error(`No work found with id "${workId}".`)
@@ -50,13 +50,12 @@ export interface PublishWorkOptions {
   /** Required on first publish — the destination picker's answer. Ignored
    *  afterwards: the link remembers where the doc lives. */
   destination?: DocDestination
-  diagramAssets?: DocDiagramAsset[]
   /** Publish over an upstream change the user has chosen to discard. */
   force?: boolean
 }
 
 export async function publishWork(scope: RecordScope, workId: string, options: PublishWorkOptions = {}): Promise<WorkPublishResult> {
-  const { destination, diagramAssets, force } = options
+  const { destination, force } = options
   try {
     const work = publishableWork(await loadWork(scope, workId), workId)
     assertWorkEditable(work)
@@ -65,7 +64,6 @@ export async function publishWork(scope: RecordScope, workId: string, options: P
       content: work.content,
       link: work.mirroredDoc,
       destination,
-      diagramAssets,
       force,
     })
     if (result.link) await (await WorkEntity.byId(scope, workId)).setMirroredDoc(result.link)

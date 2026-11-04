@@ -5,7 +5,6 @@ import { addIcon } from '@iconify/svelte'
 // Diff, or PR surfaces parse both complete 12 MB collections. Names included
 // locally include:
 //   logos:postgresql      → full-colour product logo
-//   simple-icons:redis    → monochrome glyph (inherits currentColor)
 let registration: Promise<void> | null = null
 
 export function ensureIconCollections(): Promise<void> {

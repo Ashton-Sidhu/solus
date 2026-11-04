@@ -33,7 +33,6 @@ describe('a card chip', () => {
   test('works split into written and drawn tones; files and images have their own', () => {
     expect(artifactChip(work('doc')).tone).toBe('written')
     expect(artifactChip(work('slides')).tone).toBe('written')
-    expect(artifactChip(work('diagram')).tone).toBe('drawn')
     expect(artifactChip(work('artifact')).tone).toBe('drawn')
     expect(artifactChip(file('/repo/docs/plan.md'))).toMatchObject({ tone: 'file', label: 'plan.md' })
     expect(artifactChip(image('/tmp/shot.png'))).toMatchObject({ tone: 'image', label: 'shot.png' })

@@ -12,7 +12,6 @@
   "packages/workspace-ui/src/components/conversation/SubagentPane.svelte",
   "packages/workspace-ui/src/components/conversation/UserMessageBubble.svelte",
   "packages/workspace-ui/src/components/diff/DiffThreadComment.svelte",
-  "packages/workspace-ui/src/components/editor/DiagramEmbedNodeView.svelte",
   "packages/workspace-ui/src/components/files/FilesPane.svelte",
   "packages/workspace-ui/src/components/input/ProjectChip.svelte",
   "packages/workspace-ui/src/components/input/TaskPicker.svelte",

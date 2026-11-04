@@ -1297,14 +1297,10 @@ export interface PlanComment {
   /** Legacy private Google discussion reference. */
   googleThreadId?: string
   id: string
-  /** The anchor's display text: the quoted selection (docs/plans), the node label (diagrams), or the pin's label (artifacts). */
+  /** The anchor's display text: the quoted selection (docs/plans), or the pin's label (artifacts). */
   selectedText: string
   comment: string
   textOffset?: number
-  /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
-  nodeId?: string
-  /** For diagram works: id of the edge this comment is anchored to. Mutually exclusive with nodeId. */
-  edgeId?: string
   /** For artifact works: the point over the render this comment is pinned to. Absent = the whole artifact. */
   pin?: CommentPin
   /** Who wrote the thread, stamped by the host from the admitted actor; a client
@@ -1532,10 +1528,10 @@ export interface Message {
 
 // ─── Folio / Works ───
 
-/** How a work's `content` renders: markdown for `doc` and `slides`, serialized
- *  diagram JSON for `diagram`, and a self-contained HTML document for
- *  `artifact` (the `render_artifact` tool's output, shown in a sandbox). */
-export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact'
+/** How a work's `content` renders: markdown for `doc` and `slides`, and a
+ *  self-contained HTML document for `artifact` (the `render_artifact` tool's
+ *  output, shown in a sandbox). */
+export type WorkType = 'doc' | 'slides' | 'artifact'
 
 export interface WorkMeta {
   /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */
@@ -1618,7 +1614,7 @@ export interface WorkRevision extends WorkRevisionSummary {
 }
 
 /** `worksExport`: write a work's stored content to a path on the host that
- *  runs the call — Markdown for a document, JSON for a diagram or slides, HTML
+ *  runs the call — Markdown for a document, JSON for slides, HTML
  *  for an artifact. The work row stays where it is; the file is a copy. */
 export interface WorkExportRequest {
   workId: string
@@ -1658,7 +1654,7 @@ export interface PlanMessageRef {
   timestamp?: number;
   updatedAt?: string;
   contentVersion?: number;
-  /** Only set when kind === 'document' — distinguishes diagram from doc/slides */
+  /** Only set when kind === 'document' — distinguishes an artifact from doc/slides */
   workType?: WorkType;
   /** True while a create_work tool call is still streaming content into the card. */
   streaming?: boolean;

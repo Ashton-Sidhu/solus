@@ -3,7 +3,7 @@
   import { uuid } from '@solus/contracts/uuid'
   import { getSurfaceContext } from '../../contexts'
   import { toasts } from '../../lib/toasts'
-  import { ensureIconCollections } from '../diagram/iconify'
+  import { ensureIconCollections } from '../../lib/iconify'
   import * as TooltipUI from '../ui/tooltip'
   import { docProviderLogo, docProviderLabel } from './lib/work-publish'
   import { outboundText, publishState, publishOperation } from './lib/external-comments-view'

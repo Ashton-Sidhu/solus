@@ -102,8 +102,8 @@ export const SESSION_EVENT_ROWS: NotificationSettingRow<SessionNotificationEvent
   {
     id: 'work_created',
     label: 'Work created',
-    description: 'An agent creates a document, deck, diagram, or artifact.',
-    keywords: ['work', 'document', 'artifact', 'diagram', 'slides', 'created'],
+    description: 'An agent creates a document, deck, or artifact.',
+    keywords: ['work', 'document', 'artifact', 'slides', 'created'],
   },
   {
     id: 'task_created',

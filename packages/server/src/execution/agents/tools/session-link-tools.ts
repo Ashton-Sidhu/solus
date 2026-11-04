@@ -291,7 +291,7 @@ function sessionLinkTool<Fields extends NonNullable<AgentTool['inputFields']>>(
 }
 
 export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file']).describe('The item to link to this session. Use file for Markdown plan files.'),
+  kind: z.enum(['work', 'automation', 'pr', 'file']).describe('The item to link to this session. Use file for plan files.'),
   target_id: z.string().min(1).optional().describe('The work or automation id, or a pull request number or URL. Required except for files and target_ids.'),
   target_ids: z.array(z.string().min(1)).min(1).max(200).optional().describe('For kind=pr: several pull request numbers or URLs to link in one call.'),
   path: z.string().min(1).optional().describe('For files: an absolute path on the execution host, or a path relative to this session’s working directory.'),

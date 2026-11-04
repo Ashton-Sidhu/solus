@@ -20,7 +20,7 @@ After a user clicks or completes an action, refocus the active input bar wheneve
 
 ### 2. Performance without compromise
 
-Solus keeps many tabs and rich surfaces mounted at once: long transcripts, live diffs, editors, diagrams, plans, and provider activity. Small reactive mistakes multiply quickly.
+Solus keeps many tabs and rich surfaces mounted at once: long transcripts, live diffs, editors, plans, and provider activity. Small reactive mistakes multiply quickly.
 
 Treat renderer invalidation, transcript parsing, IPC payload size, WebSocket traffic, filesystem watchers, and continuous animation as performance-sensitive. Avoid rebuilding large state graphs for tiny updates. Do not add continuously repainting decoration. A dropped frame, delayed keystroke, or tab switch that gets slower over time is a product bug.
 
@@ -83,7 +83,7 @@ Use these terms consistently in code, plans, and conversation:
 - **tab** — the mounted UI state through which a user interacts with a session.
 - **turn** — one user-to-agent cycle and its emitted events.
 - **worktree** — a git worktree used to isolate a branch and agent work.
-- **work** — a durable document, slide deck, or diagram managed by Folio.
+- **work** — a durable document, slide deck, or artifact managed by Folio.
 - **pane** — a content region in the workspace; use the canonical pane/slot terminology from the pane model rather than inventing “viewer,” “split,” or “secondary” synonyms.
 - **workspace** — the focused interface where the user directs agent work.
 
@@ -291,7 +291,6 @@ To add an RPC capability, update the shared contract, register the server handle
 - `types.ts` — broad shared domain surface.
 - `rpc.ts` — RPC method and event-topic registry.
 - `review.ts`, `task-types.ts`, `git-types.ts`, `providers.ts`, `browser-types.ts`, `claude-types.ts` — focused contracts.
-- `diagram-*.ts` — diagram domain contracts and helpers.
 - `model-profiles.json` — supported model profiles. The copy on `main` is the published list that hosts download daily; a model ships by merging it, not by a build (`docs/model-profiles.md`).
 
 ### `packages/server/src/` — server and backend
@@ -344,7 +343,7 @@ The server is grouped by responsibility (plans/007-solus-api-organization-refact
 | `tasks/`                                                               | Task board, cards, composer, detail, and filters                                                                                                                                                                                                                                                                                                                             |
 | `plan/`                                                                | Plan gallery, modal, cards, and comments                                                                                                                                                                                                                                                                                                                                     |
 | `automations/`                                                         | Automation builder and page                                                                                                                                                                                                                                                                                                                                                  |
-| `work/`, `artifact/`, `document-shell/`, `document-modal/`, `diagram/` | Works, document surfaces, and diagram canvas                                                                                                                                                                                                                                                                                                                                 |
+| `work/`, `artifact/`, `document-shell/`, `document-modal/`             | Works and document surfaces                                                                                                                                                                                                                                                                                                                                                  |
 | `prs/`, `pr-review/`, `review/`                                        | PR list, review pane, and review guide                                                                                                                                                                                                                                                                                                                                       |
 | `settings/`                                                            | General, projects, tools, skills, voice, review, connections, git providers, and keybindings                                                                                                                                                                                                                                                                                 |
 | `browser/`                                                             | Browser pane, branch-grouped page strip, toolbar, viewport chip and its preset picker, stage, the app-root native webview layer, the streamed canvas surface for clients that cannot host a webview, the annotation bar that turns marks into a prompt, the capture control that files evidence on a task or pull request, and the snapshot card an agent's capture lands in |

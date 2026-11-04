@@ -5,7 +5,7 @@ import {
   THREAD_CARD_WIDTH,
   type ThreadCardAnchor,
   type ThreadCardPlacement,
-} from '../../diagram/lib/thread-card-position'
+} from './thread-card-position'
 
 /**
  * Comments on an artifact (docs/plans/multiplayer-comments.md §4). A render is
@@ -89,7 +89,7 @@ export function placePins(comments: readonly PlanComment[], box: Box, showResolv
   return placed
 }
 
-/** A thread card as wide as the diagram's, or as wide as a narrow pane allows. */
+/** A thread card at its full width, or as wide as a narrow pane allows. */
 export function cardWidthFor(pane: Box, inset = 16): number {
   return Math.max(200, Math.min(THREAD_CARD_WIDTH, pane.width - inset * 2))
 }

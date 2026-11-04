@@ -24,7 +24,6 @@ export type Scope =
   | 'pr-review'
   | 'plan-action-bar'
   | 'attachment-preview'
-  | 'diagram'
   /** An artifact work open in a pane: the render with its comment pins. */
   | 'artifact'
   | 'command-palette'

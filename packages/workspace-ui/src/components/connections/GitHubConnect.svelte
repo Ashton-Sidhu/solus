@@ -2,7 +2,7 @@
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
 import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import {
     ExternalLink as ArrowSquareOutIcon,

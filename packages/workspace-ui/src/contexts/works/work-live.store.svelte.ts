@@ -1,5 +1,4 @@
 import { serverConnections } from '@solus/client-core/server-connections'
-import { DIAGRAM_LIVE_SCHEMA_VERSION } from '@solus/contracts/work-live'
 import type { WorkType } from '@solus/contracts/types'
 import type { LiveHost, WorkLiveDoc } from './work-live-doc.svelte'
 
@@ -13,9 +12,9 @@ export interface WorkLiveLease {
   release(): void
 }
 
-/** Whether people edit this kind of work live: documents and diagrams, never a Google-linked one. */
+/** Whether people edit this kind of work live: documents, never a Google-linked one. */
 export function isLiveEditable(type: WorkType, googleLinked: boolean): boolean {
-  return (type === 'doc' || type === 'diagram') && !googleLinked
+  return type === 'doc' && !googleLinked
 }
 
 function liveHost(serverId: string): LiveHost {
@@ -42,11 +41,11 @@ export class WorkLiveStore {
   constructor(private readonly options: { title: (workId: string) => string }) {}
 
   /** `onLocalEdit` hears the reader's own edits (the presence roster's "editing"). */
-  acquire(serverId: string, workId: string, type: 'doc' | 'diagram', onLocalEdit?: () => void): WorkLiveLease {
+  acquire(serverId: string, workId: string, onLocalEdit?: () => void): WorkLiveLease {
     const key = `${serverId}\u0000${workId}`
     let entry = this.held.get(key)
     if (!entry) {
-      const live = this.open(serverId, workId, type, onLocalEdit)
+      const live = this.open(serverId, workId, onLocalEdit)
       entry = { live, refs: 0 }
       this.held.set(key, entry)
       // A failed load is not kept: the next open tries again.
@@ -68,11 +67,11 @@ export class WorkLiveStore {
     }
   }
 
-  private async open(serverId: string, workId: string, type: 'doc' | 'diagram', onLocalEdit?: () => void): Promise<WorkLiveDoc> {
+  private async open(serverId: string, workId: string, onLocalEdit?: () => void): Promise<WorkLiveDoc> {
     const [{ WorkLiveDoc }, { indexedDbOffline, liveDatabaseName, recordUnsentLiveWork }, schemaVersion] = await Promise.all([
       import('./work-live-doc.svelte'),
       import('./work-live-offline'),
-      type === 'doc' ? import('@solus/document-model/schema').then((schema) => schema.DOCUMENT_SCHEMA_VERSION) : DIAGRAM_LIVE_SCHEMA_VERSION,
+      import('@solus/document-model/schema').then((schema) => schema.DOCUMENT_SCHEMA_VERSION),
     ])
     const database = liveDatabaseName(serverId, workId)
     const live = new WorkLiveDoc({

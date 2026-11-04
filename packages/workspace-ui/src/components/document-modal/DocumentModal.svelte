@@ -103,7 +103,7 @@
 
   // A document is one file: its own markdown. The header still renders it
   // through the shared format list so Save and Download read the same way here
-  // as they do on a diagram.
+  // as they do on an artifact.
   const exportFormats: WorkExportFormat[] = [
     {
       extension: "md",

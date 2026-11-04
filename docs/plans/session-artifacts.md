@@ -66,7 +66,7 @@ Do not call the surface a tab, a panel, or a page.
    another host, or one the caller did not start, is read on its own. One
    model draws the chips on every client
    (`packages/client-core/src/session-artifact-chips.ts`):
-   - The tint is the type: teal for docs and slides, purple for diagrams and
+   - The tint is the type: teal for docs and slides, purple for
      artifacts, blue for files, rose for images, the Solus accent for
      automations. A pull request's chip is plain, and its icon takes the
      colour and glyph of its state, as `prStatusBadge` draws them.

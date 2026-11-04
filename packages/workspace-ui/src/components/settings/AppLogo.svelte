@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import { Code as CodeIcon, SquareTerminal as TerminalWindowIcon } from "@lucide/svelte";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import { APP_ICONS } from "./lib/app-icon-assets";
   import { appLogoFor } from "./lib/app-logos";
   import type { EditorId, TerminalAppId } from "@solus/contracts/types";

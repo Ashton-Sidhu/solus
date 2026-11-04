@@ -33,7 +33,6 @@ const KIND_TITLE = {
 const WORK_TYPE_LABEL = {
   doc: 'Document',
   slides: 'Slides',
-  diagram: 'Diagram',
   artifact: 'Artifact',
 } satisfies Record<WorkType, string>
 
@@ -147,7 +146,6 @@ function pullRequestState(item: Extract<SessionArtifact, { kind: 'pull-request' 
 const WORK_TYPE_ICON = {
   doc: 'doc.text',
   slides: 'square.on.square',
-  diagram: 'point.3.connected.trianglepath.dotted',
   artifact: 'chevron.left.forwardslash.chevron.right',
 } satisfies Record<WorkType, AppSymbolName>
 

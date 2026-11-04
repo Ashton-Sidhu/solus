@@ -18,7 +18,6 @@
   import { getWorkPaneContext } from "./lib/work-pane-context";
   import {
     comparisonBase,
-    diagramRevisionDiff,
     historyPoints,
     historyRows,
     markdownBlockDiff,
@@ -118,7 +117,6 @@
   const shown = $derived(bodies && bodies.key === comparisonKey && bodies.current === comparisonCurrent ? bodies : null);
   const blocks = $derived(shown && (type === "doc" || type === "slides") && !sourceView ? markdownBlockDiff(shown.before, shown.after) : []);
   const sourceDiff = $derived(shown && sourceView ? workSourceDiff(type, shown.before, shown.after) : null);
-  const diagramDiff = $derived(shown && !sourceView && type === "diagram" ? diagramRevisionDiff(shown.before, shown.after) : null);
 
   // Names this dialog's frames, so a render from another dialog is not heard.
   const markNonce = Math.random().toString(36).slice(2);
@@ -360,25 +358,6 @@
               {:else if sourceDiff?.file}
                 <Diff fileDiff={sourceDiff.file} {diffStyle} tokenHighlight={highlightChanges} collapseNoise={false} />
               {/if}
-            {:else if type === "diagram" && diagramDiff}
-              <div class="flex h-full min-h-[24rem] flex-col gap-3">
-                <div class="min-h-0 flex-1 overflow-hidden rounded-2xl bg-(--solus-surface-hover)/50">
-                  {#await import("../diagram/DiagramPreview.svelte") then preview}
-                    <preview.default content={shown.after} {title} marks={highlightChanges ? diagramDiff : undefined} />
-                  {/await}
-                </div>
-                <ul class="flex max-h-40 shrink-0 flex-col gap-1 overflow-y-auto">
-                  {#each diagramDiff.changes as change (`${change.kind}:${change.id}`)}
-                    <li class="flex min-w-0 items-center gap-2">
-                      <span class="shrink-0 rounded px-1.5 {change.change === 'added' ? 'bg-(--solus-diff-added-bg) text-(--solus-diff-added-text)' : change.change === 'removed' ? 'bg-(--solus-diff-removed-bg) text-(--solus-diff-removed-text)' : 'bg-(--solus-accent-light) text-(--solus-accent)'}">
-                        {change.change === "added" ? "Added" : change.change === "removed" ? "Removed" : "Changed"}
-                      </span>
-                      <span class="shrink-0 text-(--solus-text-tertiary)">{change.kind}</span>
-                      <span class="min-w-0 truncate text-(--solus-text-primary)">{change.label}</span>
-                    </li>
-                  {/each}
-                </ul>
-              </div>
             {:else if artifactFrames}
               <div class="grid h-full min-h-[28rem] grid-cols-1 gap-4 @min-[48rem]/history:grid-cols-2">
                 {#each [{ side: "before", point: base, html: artifactFrames.before }, { side: "after", point: activePick, html: artifactFrames.after }] as frame (frame.side)}

@@ -90,7 +90,7 @@ on a local host it opens the save picker; on a remote host the browser
 downloads the file. The overflow menu keeps the same HTML format under Save
 as and Download, and adds Export…, which has the work's host write the stored
 work to a path chosen in the same picker (`worksExport`). Every work type has
-Export…: Markdown for a document, JSON for a diagram or slides, HTML for an
+Export…: Markdown for a document, JSON for slides, HTML for an
 artifact.
 
 HTML file panes retain the source editor after its first use. Preview reads

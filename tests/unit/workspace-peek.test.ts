@@ -90,19 +90,6 @@ describe('peekOutline', () => {
     expect(outline.more).toBe(2)
   })
 
-  it('gives a diagram its clusters — counts are not structure and ride the meta line', () => {
-    const content = JSON.stringify({
-      nodes: [
-        { id: 'g1', label: 'Ingest', group: true },
-        { id: 'n1', label: 'Queue', parentId: 'g1' },
-        { id: 'g2', label: 'Storage', group: true },
-      ],
-      edges: [],
-    })
-    const outline = peekOutline(item({ type: 'diagram' }), content)
-    expect(outline.lines.map((l) => l.text)).toEqual(['Ingest', 'Storage'])
-  })
-
   it('has no structure to show before the content lands', () => {
     expect(peekOutline(item(), null).lines).toEqual([])
   })

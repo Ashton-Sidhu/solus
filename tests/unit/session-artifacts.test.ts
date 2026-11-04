@@ -49,7 +49,7 @@ test("a session's own list joins its pull requests, works, files, images, and au
 
   const made = await createWork('local', 'Made here', 'doc', '', '', 'lead', 'codex')
   // A work another session made, linked to this one afterwards.
-  const linked = await createWork('local', 'Linked later', 'diagram', '{"nodes":[],"edges":[]}', '', 'other', 'codex')
+  const linked = await createWork('local', 'Linked later', 'slides', '# Deck', '', 'other', 'codex')
   await linkSessionItem('lead', { target: { kind: 'work', targetId: linked.id } }, SYSTEM)
   // A work of an unrelated session is not this session's.
   await createWork('local', 'Not ours', 'doc', '', '', 'other', 'codex')
@@ -61,7 +61,7 @@ test("a session's own list joins its pull requests, works, files, images, and au
   const { own } = await readSessionArtifacts('local', 'lead')
   expect(own.map((item) => item.kind).sort()).toEqual(['automation', 'file', 'image', 'pull-request', 'work', 'work'])
   expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: made.id, title: 'Made here', workType: 'doc' }))
-  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: linked.id, workType: 'diagram' }))
+  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: linked.id, workType: 'slides' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'image', path: '/tmp/Shot.PNG', title: 'Shot.PNG', hostId: 'host-1' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'file', path: '/tmp/notes.md' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'automation', automationId: 'auto-1', title: 'Nightly' }))

@@ -7,7 +7,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { SvelteMap } from 'svelte/reactivity'
-import type { DocDestination, DocDiagramAsset, WorkPublishResult, WorkPullResult } from '@solus/contracts/docs'
+import type { DocDestination, WorkPublishResult, WorkPullResult } from '@solus/contracts/docs'
 import { PresenceWatch } from '../../lib/presence-watch'
 
 function extractPlanTitle(planContent: string): string {
@@ -333,7 +333,7 @@ export class PlanStore {
 
   async publish(
     planId: string,
-    options: { allowCommentAnchorLoss?: boolean; content: string; destination?: DocDestination; diagramAssets?: DocDiagramAsset[]; force?: boolean },
+    options: { allowCommentAnchorLoss?: boolean; content: string; destination?: DocDestination; force?: boolean },
   ): Promise<WorkPublishResult> {
     const plan = this.plans[planId]
     if (!plan) return { ok: false, error: 'The plan is no longer available.' }
@@ -345,7 +345,6 @@ export class PlanStore {
       title: plan.title,
       content: options.content,
       destination: options.destination,
-      diagramAssets: options.diagramAssets,
       force: options.force,
       allowCommentAnchorLoss: options.allowCommentAnchorLoss,
     }

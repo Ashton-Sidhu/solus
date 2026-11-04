@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { documentToMarkdown } from '@solus/server/google/docs-markdown'
 import type { DocsDocument, DocsParagraph, DocsStructuralElement, DocsTextStyle } from '@solus/server/google/docs-api'
-import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 
 /**
  * The document says which paragraph is a heading, a bullet, or code; the
@@ -105,34 +104,7 @@ describe('Google Doc → markdown', () => {
     expect(markdown).toBe('| Term | Meaning |\n| --- | --- |\n| `doc` | A provider document |\n')
   })
 
-  test('an image captioned with a published diagram title becomes the embed again', () => {
-    const { markdown, lossyParts } = documentToMarkdown(doc([
-      { paragraph: { elements: [{ inlineObjectElement: { inlineObjectId: 'img' } }, { textRun: { content: '\n' } }] } },
-      paragraph([['Architecture\n']]),
-      paragraph([['After\n']]),
-    ]), [{ workId: 'd1', title: 'Architecture' }])
-    expect(markdown).toBe(`${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n\nAfter\n`)
-    expect(lossyParts).toEqual([])
-  })
-
-  test('the section breaks around a figure page leave nothing in the markdown', () => {
-    // WHY: a landscape diagram sits between two section breaks, each behind
-    // an empty paragraph; a pull must read straight through them.
-    const embed = serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })
-    const { markdown } = documentToMarkdown(doc([
-      paragraph([['Intro\n']]),
-      paragraph([['\n']]),
-      { startIndex: 7, endIndex: 8 },
-      { paragraph: { elements: [{ inlineObjectElement: { inlineObjectId: 'img' } }, { textRun: { content: '\n' } }] } },
-      paragraph([['Architecture\n']]),
-      paragraph([['\n']]),
-      { startIndex: 24, endIndex: 25 },
-      paragraph([['After\n']]),
-    ]), [{ workId: 'd1', title: 'Architecture' }])
-    expect(markdown).toBe(`Intro\n\n${embed}\n\nAfter\n`)
-  })
-
-  test('an image Solus did not publish is named as lost, not silently dropped', () => {
+  test('an image is named as lost, not silently dropped', () => {
     const { markdown, lossyParts } = documentToMarkdown(doc([
       { paragraph: { elements: [{ inlineObjectElement: { inlineObjectId: 'img' } }, { textRun: { content: '\n' } }] } },
       paragraph([['A screenshot\n']]),

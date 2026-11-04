@@ -536,30 +536,6 @@ describe('works from a dispatched session travel through the outbox', () => {
     outbox.ackOutboxOps(pending.map((op) => op.id))
   })
 
-  // Diagram creation is disabled: architecture diagrams go through render_artifact.
-  test('create_work refuses a diagram and names render_artifact', async () => {
-    const created = await workTools.createWorkAgentTool.execute(
-      { title: 'Auth Architecture', doc_type: 'diagram', content: '{"nodes":[{"id":"api","label":"API"}],"edges":[]}' } as never,
-      toolContext(sessionId),
-    )
-
-    expect(created.ok).toBe(false)
-    expect(created.text).toContain('render_artifact')
-  })
-
-  // test('diagram creation returns a canonical embed token', async () => {
-  //   foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot('diagram-owner'))
-  //   const created = await workTools.createWorkAgentTool.execute(
-  //     { title: 'Auth Architecture', doc_type: 'diagram', content: '{"nodes":[{"id":"api","label":"API"}],"edges":[]}' },
-  //     toolContext(sessionId),
-  //   )
-
-  //   expect(created.ok).toBe(true)
-  //   const workId = created.text.match(/id: ([0-9a-f-]+)\)/)?.[1] ?? ''
-  //   expect(workId).not.toBe('')
-  //   expect(created.text).toContain(`[Auth Architecture](work://embed?workId=${workId}&type=diagram)`)
-  // })
-
   test('a redelivered update op is answered by its receipt on the owner host', async () => {
     const created = await works.createWork('local', 'Owner doc', 'doc', 'v1', '', undefined, 'claude-code', '/p')
     const op = outbox.recordOutboxOp({

@@ -21,7 +21,7 @@ export interface WorkSearchHit {
 }
 
 function workType(value: string | null | undefined): WorkType {
-  return value === 'slides' || value === 'diagram' || value === 'artifact' ? value : 'doc'
+  return value === 'slides' || value === 'artifact' ? value : 'doc'
 }
 
 function oneLine(text: string): string {

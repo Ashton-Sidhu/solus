@@ -11,7 +11,7 @@ import { documentContentHash } from '../../docs/content-hash'
 import { workRevisions, works } from './schema'
 import { type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
-import { Work as WorkEntity, validateWorkContent } from './work'
+import { Work as WorkEntity } from './work'
 import { workLiveBridge } from './work-live-bridge'
 import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
@@ -45,7 +45,7 @@ import {
 export type { Work, WorkMeta, WorkPrevious }
 
 /**
- * Works: documents, slide decks, diagrams, and artifacts
+ * Works: documents, slide decks, and artifacts
  * (docs/plans/cloud-service-model.md). Every work is a row of `works`; its
  * immutable checkpoints are rows of `work_revisions`. This module holds what is
  * not about one work: creation, collection reads, and transfer. One work's
@@ -60,7 +60,7 @@ const log = createLogger('folio', 'works.ts')
 const workRefRowSchema = z.object({
   id: z.string(),
   title: z.string(),
-  type: z.enum(['doc', 'slides', 'diagram', 'artifact']),
+  type: z.enum(['doc', 'slides', 'artifact']),
   session_id: z.string(),
 })
 
@@ -110,7 +110,6 @@ export async function createWork(
   /** The person the work belongs to: its creator. The host's own work, which no person made, is the host's user's. */
   ownerKey: string = hostUserKey(),
 ): Promise<Work> {
-  validateWorkContent(type, content)
   const now = new Date().toISOString()
   const meta: WorkMeta = {
     organizationId,
@@ -241,7 +240,6 @@ export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
       return 'md'
     case 'artifact':
       return 'html'
-    case 'diagram':
     case 'slides':
       return 'json'
   }

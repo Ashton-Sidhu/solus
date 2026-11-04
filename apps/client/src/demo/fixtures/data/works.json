@@ -31,8 +31,8 @@
     "meta": {
       "id": "demo-work-acme-architecture",
       "title": "Platform architecture",
-      "preview": "8 nodes · 10 connections",
-      "type": "diagram",
+      "preview": "How a request travels from the edge to storage.",
+      "type": "doc",
       "createdAt": "2026-07-08T14:00:00.000Z",
       "updatedAt": "2026-07-13T18:20:00.000Z",
       "sessionId": "demo-session-ratelimit",
@@ -41,12 +41,12 @@
       "cwd": "/home/demo/api-gateway",
       "pinned": false
     },
-    "content": "{\"nodes\":[{\"id\":\"cdn\",\"label\":\"CDN\",\"icon\":\"cdn\",\"subtitle\":\"TLS · redirects · static dashboard\",\"badges\":[\"global\"],\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"focus\"}}]},{\"id\":\"gateway\",\"label\":\"API Gateway\",\"icon\":\"gateway\",\"subtitle\":\"Hono · authentication\",\"metrics\":{\"P95\":\"38 ms\",\"RPS\":\"620\"},\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"details\"}}]},{\"id\":\"limiter\",\"label\":\"Rate Limiter\",\"icon\":\"function\",\"subtitle\":\"Per-key token bucket\",\"badges\":[\"shadow ready\"],\"body\":\"Atomically refills and consumes tokens in Redis. Emits standard RateLimit headers.\",\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"expand\"}}]},{\"id\":\"app\",\"label\":\"App Server\",\"icon\":\"service\",\"subtitle\":\"Links API · dashboard\",\"badges\":[\"TypeScript\",\"3 replicas\"],\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"focus\"}}]},{\"id\":\"postgres\",\"label\":\"PostgreSQL\",\"icon\":\"logos:postgresql\",\"subtitle\":\"Primary system of record\",\"fields\":[{\"name\":\"links.id\",\"type\":\"uuid\",\"key\":\"pk\"},{\"name\":\"links.slug\",\"type\":\"varchar(12)\",\"key\":\"unique\"},{\"name\":\"api_keys.id\",\"type\":\"uuid\",\"key\":\"pk\"},{\"name\":\"usage_events.request_id\",\"type\":\"uuid\",\"key\":\"unique\"}]},{\"id\":\"redis\",\"label\":\"Redis\",\"icon\":\"logos:redis\",\"subtitle\":\"Buckets · cache · queues\",\"metrics\":{\"P95\":\"3.2 ms\",\"Memory\":\"41%\"}},{\"id\":\"billing\",\"label\":\"Billing Worker\",\"icon\":\"queue\",\"subtitle\":\"Usage rollups · reconciliation\",\"badges\":[\"hourly\"],\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"openFile\",\"path\":\"src/billing/usageRecorder.ts\"}}]},{\"id\":\"stripe\",\"label\":\"Stripe\",\"icon\":\"logos:stripe\",\"subtitle\":\"Subscriptions · metered invoices\",\"badges\":[\"external\"]}],\"edges\":[{\"id\":\"edge-cdn-gateway\",\"source\":\"cdn\",\"target\":\"gateway\",\"label\":\"HTTPS API\",\"kind\":\"sync\"},{\"id\":\"edge-cdn-app\",\"source\":\"cdn\",\"target\":\"app\",\"label\":\"dashboard assets\",\"kind\":\"sync\"},{\"id\":\"edge-gateway-limiter\",\"source\":\"gateway\",\"target\":\"limiter\",\"label\":\"authenticated key\",\"kind\":\"sync\"},{\"id\":\"edge-limiter-redis\",\"source\":\"limiter\",\"target\":\"redis\",\"label\":\"EVALSHA\",\"kind\":\"data\"},{\"id\":\"edge-limiter-app\",\"source\":\"limiter\",\"target\":\"app\",\"label\":\"allowed request\",\"kind\":\"sync\"},{\"id\":\"edge-app-postgres\",\"source\":\"app\",\"target\":\"postgres\",\"label\":\"links and accounts\",\"kind\":\"data\"},{\"id\":\"edge-app-redis\",\"source\":\"app\",\"target\":\"redis\",\"label\":\"cache and jobs\",\"kind\":\"data\"},{\"id\":\"edge-redis-billing\",\"source\":\"redis\",\"target\":\"billing\",\"label\":\"usage queue\",\"kind\":\"async\",\"animated\":true},{\"id\":\"edge-billing-postgres\",\"source\":\"billing\",\"target\":\"postgres\",\"label\":\"rollups and cursor\",\"kind\":\"data\"},{\"id\":\"edge-billing-stripe\",\"source\":\"billing\",\"target\":\"stripe\",\"label\":\"meter events\",\"kind\":\"async\",\"animated\":true}]}",
+    "content": "# Platform architecture\n\nHow a request travels from the edge to storage.\n\n```mermaid\nflowchart LR\n  cdn[\"CDN\"]\n  gateway[\"API Gateway\"]\n  limiter[\"Rate Limiter\"]\n  app[\"App Server\"]\n  postgres[\"PostgreSQL\"]\n  redis[\"Redis\"]\n  billing[\"Billing Worker\"]\n  stripe[\"Stripe\"]\n  cdn -->|\"HTTPS API\"| gateway\n  cdn -->|\"dashboard assets\"| app\n  gateway -->|\"authenticated key\"| limiter\n  limiter -->|\"EVALSHA\"| redis\n  limiter -->|\"allowed request\"| app\n  app -->|\"links and accounts\"| postgres\n  app -->|\"cache and jobs\"| redis\n  redis -->|\"usage queue\"| billing\n  billing -->|\"rollups and cursor\"| postgres\n  billing -->|\"meter events\"| stripe\n```\n",
     "annotations": {
       "version": 1,
       "workId": "demo-work-acme-architecture",
       "comments": [
-        { "id": "architecture-comment-limiter", "selectedText": "Rate Limiter", "comment": "Revisit fail-open after the first month of production data.", "nodeId": "limiter" }
+        { "id": "architecture-comment-limiter", "selectedText": "Rate Limiter", "comment": "Revisit fail-open after the first month of production data." }
       ],
       "updatedAt": 1783966800000
     }
