@@ -76,6 +76,16 @@ Claude", are shown by the service's name. Cloudflare's servers get
 a two-tool code mode. When the registry is unavailable the host serves its last good copy,
 and the URL path does not depend on it.
 
+## MCP Apps
+
+A tool can declare an interactive app with its result. Solus shows the app as a
+card in the conversation on desktop, web, and mobile. This works for an
+integration, on Claude and Codex, and for an MCP server that Claude Code itself
+is set up with (Claude Code 2.1.301 or later). An app can call tools on its own
+server. Solus asks first unless the server marks the tool as read-only. In a
+Claude session, Claude's permission rules also apply: a deny rule refuses the
+call, and an ask rule makes Solus ask first.
+
 ## What the agent sees
 
 Every tool of every integration is a Solus tool named `<slug>__<tool>`, with

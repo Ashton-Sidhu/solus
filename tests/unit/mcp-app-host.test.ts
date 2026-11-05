@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { createMcpAppHost, type McpAppHostContext, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { createMcpAppHost, MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, type McpAppHostContext, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
 import { nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
 import { McpAppStore } from '@solus/client-core/mcp-app-store'
 import { mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
 
 const snapshot: McpAppSnapshot = { html: '<button>Filter</button>', toolInputJson: '{"region":"west"}', toolResultJson: '{"content":[{"type":"text","text":"42"}]}', csp: {} }
-const context: McpAppHostContext = { theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], platform: 'web', styles: { variables: {
+const context: McpAppHostContext = { theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], containerDimensions: { width: 640, maxHeight: 2000 }, platform: 'web', styles: { variables: {
   '--color-background-primary': '#111', '--color-background-secondary': '#222', '--color-text-primary': '#eee', '--color-text-secondary': '#aaa', '--color-border-primary': '#333', '--font-sans': 'system-ui',
 } } }
 const jsonParams = z.json()
@@ -27,11 +27,19 @@ function setup(overrides: Partial<McpAppHostOptions> = {}) {
   return { host, posted, calls, prompts, sizes }
 }
 
+describe('MCP App container dimensions', () => {
+  test('an inline frame follows the app, and a full-screen frame is a box the app must fit', () => {
+    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, false)).toEqual({ width: 640, maxHeight: MCP_APP_MAX_HEIGHT })
+    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, true)).toEqual({ width: 640, height: 320 })
+  })
+})
+
 describe('MCP App bridge', () => {
   test('initializes with the host palette and sends tool data once the app is ready', async () => {
     const { host, posted } = setup()
     await host.receive(request('ui/initialize', {}, 1))
     expect(JSON.parse(posted[0]).result.hostContext.styles.variables).toEqual(context.styles.variables)
+    expect(JSON.parse(posted[0]).result.hostContext.containerDimensions).toEqual({ width: 640, maxHeight: 2000 })
     expect(posted).toHaveLength(1)
     await host.receive(request('ui/notifications/initialized'))
     await host.receive(request('ui/notifications/initialized'))

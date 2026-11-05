@@ -14,6 +14,7 @@ const { ownerKeyOf } = await import('@solus/server/admission/actor')
 const { newActivity, appendActivity } = await import('@solus/server/data/activity/activity')
 const { closeDb } = await import('@solus/server/db')
 const { closeDatabase } = await import('@solus/server/db/database')
+const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
 
 let nextSession = 0
 const ctx = withActor({ clientId: 'test', principal: memberPrincipal('alice', 'Alice') })
@@ -29,7 +30,8 @@ function setup() {
   const tools = spyOn(gateway, 'toolsFor').mockResolvedValue([{ name: 'save', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }])
   const call = spyOn(gateway, 'callAppTool').mockResolvedValue({ content: [{ type: 'text', text: 'saved' }] })
   const recorded: Activity[] = []
-  const runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession'> = {
+  const runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn'> = {
+    seatForTurn: async () => null,
     actorOfSession: () => ctx.actor,
     recordActivity: async (subject, _actor, kind) => {
       const activity = newActivity(subject, { kind: 'system' }, kind)
@@ -38,9 +40,15 @@ function setup() {
       return activity
     },
   }
-  const apps = new IntegrationApps(gateway, runtime)
+  const claude = {
+    toolInfo: mock(async () => ({ callable: true, readOnly: true, title: 'refresh' })),
+    access: mock(async (): Promise<'allow' | 'ask' | 'deny'> => 'allow'),
+    callTool: mock(async () => ({ content: [{ type: 'text', text: 'fresh' }] })),
+    readResource: mock(async () => ({ contents: [] })),
+  }
+  const apps = new IntegrationApps(gateway, runtime, claude)
   const capture: IntegrationAppCapture = { integration, tool: { name: 'chart', inputSchema: { type: 'object' }, _meta: { ui: { resourceUri: 'ui://chart' } } }, input: { region: 'west' }, result: { content: [{ type: 'text', text: '42' }] }, context: { provider: 'codex', cwd: '/fixture', sessionId: () => sessionId, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} } }
-  return { apps, gateway, capture, recorded, read, tools, call, integration, request: () => ({ sessionId, activityId: recorded[0].id }) }
+  return { apps, gateway, capture, recorded, read, tools, call, integration, claude, sessionId, request: () => ({ sessionId, activityId: recorded[0].id }) }
 }
 
 test('a compatible completed tool captures an immutable UI and restores its tool data', async () => {
@@ -119,4 +127,76 @@ test('app-only tools stay out of the provider list while model tools remain avai
     const tools = await integrationAgentTools(ctx.actor)
     expect(tools.map((tool) => tool.name)).toEqual(['charts__visible', 'charts__only_model'])
   } finally { setIntegrationGateway(null) }
+})
+
+async function claudeSession(sessionId: string, ownerKey = ownerKeyOf(ctx.actor)!) {
+  await upsertSessionRecord('org-1', { sessionId, provider: 'claude-code', projectPath: '/fixture', cwd: '/fixture', lastActivityAt: 1 }, { organizationId: 'org-1', ownerKey })
+}
+
+test('a card in a Claude session obeys a deny rule on its integration tool, with the reason', async () => {
+  const s = setup()
+  await claudeSession(s.sessionId)
+  await s.apps.capture(s.capture)
+  s.claude.access.mockResolvedValueOnce('deny')
+  s.tools.mockResolvedValue([{ name: 'save', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }])
+  await expect(s.apps.callTool({ ...s.request(), name: 'save', argumentsJson: '{}', approved: true }, ctx)).rejects.toThrow('A Claude permission rule may cover save')
+  expect(s.claude.access.mock.calls[0]?.[1]).toBe('mcp__solus__charts__save')
+  expect(s.call).not.toHaveBeenCalled()
+})
+
+test('an ask rule makes a read-only integration tool of a Claude session need approval', async () => {
+  const s = setup()
+  await claudeSession(s.sessionId)
+  await s.apps.capture(s.capture)
+  s.claude.access.mockResolvedValue('ask')
+  s.tools.mockResolvedValue([{ name: 'read', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }])
+  expect((await s.apps.toolInfo({ ...s.request(), name: 'read' }, ctx)).readOnly).toBe(false)
+  await expect(s.apps.callTool({ ...s.request(), name: 'read', argumentsJson: '{}', approved: false }, ctx)).rejects.toThrow('needs your approval')
+  await s.apps.callTool({ ...s.request(), name: 'read', argumentsJson: '{}', approved: true }, ctx)
+  expect(s.call).toHaveBeenCalledTimes(1)
+})
+
+test('rules that cannot be read refuse a card instead of skipping Claude', async () => {
+  const s = setup()
+  await claudeSession(s.sessionId)
+  await s.apps.capture(s.capture)
+  s.claude.access.mockRejectedValueOnce(new Error('Claude did not start.'))
+  await expect(s.apps.toolInfo({ ...s.request(), name: 'save' }, ctx)).rejects.toThrow('Claude did not start.')
+  expect(s.call).not.toHaveBeenCalled()
+})
+
+test('a Codex session has no Claude rules to read', async () => {
+  const s = setup()
+  await s.apps.capture(s.capture)
+  await s.apps.toolInfo({ ...s.request(), name: 'save' }, ctx)
+  expect(s.claude.access).not.toHaveBeenCalled()
+})
+
+const claudeApp = {
+  server: 'weather',
+  tool: { name: 'show_weather' },
+  resourceUri: 'ui://weather',
+  input: { city: 'Oslo' },
+  result: { content: [{ type: 'text', text: '19' }], structuredContent: { temp: 19 } },
+  resource: { contents: [{ uri: 'ui://weather', mimeType: 'text/html;profile=mcp-app', text: '<button>Refresh</button>' }] },
+}
+
+test("an app of Claude's own server is saved, reopens with its data, and calls through Claude", async () => {
+  const s = setup()
+  await claudeSession(s.sessionId)
+  await s.apps.captureClaude(s.sessionId, claudeApp)
+  expect(s.recorded[0]).toMatchObject({ kind: 'mcp_app', app: { claudeServer: 'weather', tool: 'show_weather', title: 'weather · show_weather' } })
+  const saved = await s.apps.read(s.request(), ctx)
+  expect(JSON.parse(saved.toolResultJson)).toEqual(claudeApp.result)
+  await s.apps.callTool({ ...s.request(), name: 'refresh', argumentsJson: '{"city":"Oslo"}', approved: false }, ctx)
+  expect(s.claude.callTool.mock.calls[0]?.slice(1)).toEqual(['weather', 'refresh', { city: 'Oslo' }])
+  expect(s.call).not.toHaveBeenCalled()
+})
+
+test("only the session's owner reaches a server of Claude's own", async () => {
+  const s = setup()
+  await claudeSession(s.sessionId, ownerKeyOf(other.actor)!)
+  await s.apps.captureClaude(s.sessionId, claudeApp)
+  await expect(s.apps.toolInfo({ ...s.request(), name: 'refresh' }, ctx)).rejects.toThrow('Only the person who ran this session')
+  expect(s.claude.toolInfo).not.toHaveBeenCalled()
 })

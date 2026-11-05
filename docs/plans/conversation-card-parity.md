@@ -64,8 +64,34 @@ A card is triggered after a successful Solus-managed integration tool call
 whose metadata declares `_meta.ui.resourceUri` (or legacy `ui/resourceUri`).
 The host reads that `ui://` resource from the same integration. It must use
 `text/html;profile=mcp-app`. Ordinary MCP tools and ordinary HTML do not trigger
-an app card. Both Claude and Codex use this gateway path; provider-owned MCP
-configuration outside the Solus integration gateway does not use this capture.
+an app card. Both Claude and Codex use this gateway path.
+
+A card also comes from a tool of an MCP server that Claude Code itself is set up
+with (`claude-mcp-apps.ts`). It needs Claude Code 2.1.301 or later; an older CLI
+keeps the plain tool row. The adapter reads the app beside the event stream, so
+a slow server does not delay the transcript. A tool call inside a subagent is not
+captured. Codex's own MCP configuration still does not use this capture.
+
+A Claude query ends with its turn, and a card outlives the turn. So a card's
+requests run in a separate Claude process with no turn, in the session's
+directory and on the caller's login. It spends no tokens. The first request
+starts it, which can take a few seconds, and it stops after two idle minutes.
+The process follows changes to Claude's settings files by itself. Only the
+session's owner reaches a server of Claude's own.
+
+An app learns its frame from `containerDimensions` in the host context: the
+width and a `maxHeight` when inline, because the frame follows the height the
+app reports, and a fixed width and height in full screen. A later change of that
+box reaches the app as `host-context-changed`.
+
+A card's call reaches the tool without Claude's permission check, so in a Claude
+session the host applies Claude's rules first, for integrations and for Claude's
+own servers. A deny rule refuses the call. An ask rule makes the person approve,
+also for a read-only tool. A rule set that cannot be read refuses the call,
+because a deny rule must not stop applying when Solus cannot see it. On a server
+of Claude's own, any `mcp__` rule or wildcard counts as covering the tool, because
+Claude matches server aliases that Solus cannot list. PreToolUse hooks do not run
+for a card's call.
 
 The host saves immutable HTML, CSP, initial arguments, and initial result in a
 content-addressed asset. A session activity stores its reference. Existing

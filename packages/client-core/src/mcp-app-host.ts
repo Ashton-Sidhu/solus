@@ -4,10 +4,20 @@ import { MCP_APP_MAX_DATA_BYTES, MCP_APP_PROTOCOL_VERSION, type McpAppSnapshot, 
 
 type DisplayMode = 'inline' | 'fullscreen'
 
+export const MCP_APP_MAX_HEIGHT = 2000
+
+/** An inline frame follows the height the app reports, up to `maxHeight`. A full-screen frame is a fixed box the app must fit. */
+export type McpAppContainerDimensions = { width: number; maxHeight: number } | { width: number; height: number }
+
+export function mcpAppContainerDimensions(size: { width: number; height: number }, isFullscreen: boolean): McpAppContainerDimensions {
+  return isFullscreen ? size : { width: size.width, maxHeight: MCP_APP_MAX_HEIGHT }
+}
+
 export interface McpAppHostContext {
   theme: 'light' | 'dark'
   displayMode: DisplayMode
   availableDisplayModes: DisplayMode[]
+  containerDimensions: McpAppContainerDimensions
   platform: 'web' | 'mobile'
   styles: {
     variables: {
@@ -41,7 +51,6 @@ export type McpAppHost = ReturnType<typeof createMcpAppHost>
 
 const MAX_PENDING_REQUESTS = 16
 const MIN_HEIGHT = 80
-const MAX_HEIGHT = 2000
 
 const envelopeSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -98,7 +107,7 @@ export function createMcpAppHost(options: McpAppHostOptions) {
       case 'tools/call': {
         const call = toolCallSchema.parse(params)
         const tool = await options.toolInfo(call.name)
-        if (!tool.callable) throw new Error('This app cannot call that tool.')
+        if (!tool.callable) throw new Error(tool.refusal ?? 'This app cannot call that tool.')
         const argumentsJson = JSON.stringify(call.arguments)
         if (!tool.readOnly) await approve(`Allow ${tool.title}?`, argumentsJson)
         else if (disposed) throw new DeclinedError()
@@ -141,7 +150,7 @@ export function createMcpAppHost(options: McpAppHostOptions) {
       notify('ui/notifications/tool-result', options.snapshot.toolResultJson)
     } else if (method === 'ui/notifications/size-changed') {
       const size = sizeSchema.safeParse(params)
-      if (size.success) options.resize(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(size.data.height))))
+      if (size.success) options.resize(Math.min(MCP_APP_MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(size.data.height))))
     } else if (method === 'ui/notifications/request-teardown') {
       options.close()
     }
@@ -169,7 +178,7 @@ export function createMcpAppHost(options: McpAppHostOptions) {
         pending--
       }
     },
-    /** Sends the current theme and display mode once the app is ready for them. */
+    /** Sends the current theme, display mode, and size once the app is ready for them. */
     updateContext(): void {
       if (initialized) notify('ui/notifications/host-context-changed', JSON.stringify(options.context()))
     },

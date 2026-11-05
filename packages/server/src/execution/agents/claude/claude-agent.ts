@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
 import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
+import { ClaudeAppCapture, type ClaudeMcpApp } from './claude-mcp-apps'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
@@ -263,6 +264,8 @@ export interface ClaudeRunOptions {
   resumeSessionAt?: string
   /** Run on this member's login instead of the host's. */
   seat?: ClaudeSeat
+  /** Saves the MCP App of a tool call that one of Claude's own servers answered. */
+  onMcpApp?: (app: ClaudeMcpApp) => Promise<void>
 }
 
 export interface ClaudeRunResult {
@@ -407,6 +410,7 @@ export class ClaudeAgent {
           options: { ...claudeOptions, settings: flagSettings, pathToClaudeCodeExecutable: executable },
         })
         activeQuery = cquery
+        const appCapture = opts.onMcpApp ? new ClaudeAppCapture(cquery, opts.onMcpApp) : null
 
         for await (const msg of cquery) {
           const initMessage = initMessageSchema.safeParse(msg)
@@ -415,6 +419,7 @@ export class ClaudeAgent {
           }
 
           logRawClaudeEvent(state.sessionId, msg)
+          appCapture?.observe(msg)
 
           const normalized = normalizer.push(msg)
           for (const evt of normalized) {
@@ -435,6 +440,7 @@ export class ClaudeAgent {
             // running. With no background work, refuse input during the snapshot
             // gap: `input.close()` below can lag and nothing would read it again.
             if (backgroundTasks.size === 0) input?.seal()
+            await appCapture?.settled()
             const contextUsage = await readContextUsage(cquery)
             if (contextUsage) yield { type: 'usage', context: contextUsage }
             if (state.sessionId && opts.onTurnComplete) {

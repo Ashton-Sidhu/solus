@@ -44,7 +44,8 @@ export interface ClaudeMcpAuthSession {
   close(): Promise<void>
 }
 
-export async function openClaudeMcpAuthSession(opts: { cwd: string; seat: ClaudeSeat }): Promise<ClaudeMcpAuthSession> {
+/** A Claude process with no turn, loaded as a turn in this directory and seat is. */
+export async function openTurnlessClaude(opts: { cwd: string; seat?: ClaudeSeat }): Promise<{ session: Query; close(): Promise<void> }> {
   const abortController = new AbortController()
   // Streaming input that yields no turn keeps the process alive for control requests.
   async function* emptyInput(): AsyncGenerator<never> {
@@ -65,10 +66,17 @@ export async function openClaudeMcpAuthSession(opts: { cwd: string; seat: Claude
     },
   })
   const drain = (async () => { try { for await (const _ of session) { /* until aborted */ } } catch { /* aborted */ } })()
-  const close = async (): Promise<void> => {
-    abortController.abort()
-    await drain
+  return {
+    session,
+    close: async () => {
+      abortController.abort()
+      await drain
+    },
   }
+}
+
+export async function openClaudeMcpAuthSession(opts: { cwd: string; seat: ClaudeSeat }): Promise<ClaudeMcpAuthSession> {
+  const { session, close } = await openTurnlessClaude(opts)
   if (!hasMcpAuthControls(session)) {
     await close()
     throw new Error('This Claude Code version cannot sign in to MCP servers from Solus. Update Claude Code and try again.')

@@ -6,7 +6,7 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { z } from "zod";
 import type { HostApi } from "@solus/client-core/host-api";
 import { nativeMcpAppDocument, nativeMcpAppPost } from "@solus/client-core/mcp-app-document";
-import { createMcpAppHost, type McpAppHost, type McpAppHostContext } from "@solus/client-core/mcp-app-host";
+import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHost, type McpAppHostContext } from "@solus/client-core/mcp-app-host";
 import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
 import type { McpAppReference, McpAppRequest, McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
@@ -189,12 +189,14 @@ function McpAppWebView(props: {
   const [secret] = useState(() => app.platform.uuid());
   const [failed, setFailed] = useState(false);
   const [generation, setGeneration] = useState(0);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const source = useMemo(() => ({ html: nativeMcpAppDocument(snapshot, secret) }), [snapshot, secret]);
 
   const context: McpAppHostContext = {
     theme: themeAppearance,
     displayMode: isFullscreen ? "fullscreen" : "inline",
     availableDisplayModes: ["inline", "fullscreen"],
+    containerDimensions: mcpAppContainerDimensions(frameSize, isFullscreen),
     platform: "mobile",
     styles: {
       variables: {
@@ -233,9 +235,11 @@ function McpAppWebView(props: {
     };
   }, [app, snapshot, api, request, store, generation]);
 
+  // Inline, the app's own height report is not a change of the app's box.
+  const frameHeight = isFullscreen ? frameSize.height : undefined;
   useEffect(() => {
     host.current?.updateContext();
-  }, [themeAppearance, isFullscreen]);
+  }, [themeAppearance, isFullscreen, frameSize.width, frameHeight]);
 
   const onMessage = (event: WebViewMessageEvent) => {
     let message: z.infer<typeof relayMessageSchema>;
@@ -283,6 +287,7 @@ function McpAppWebView(props: {
       bounces={false}
       allowFileAccess={false}
       onShouldStartLoadWithRequest={(load) => load.isTopFrame === false || load.url.startsWith("about:") || load.url.startsWith("data:")}
+      onLayout={({ nativeEvent: { layout } }) => setFrameSize({ width: Math.round(layout.width), height: Math.round(layout.height) })}
       onMessage={onMessage}
       onError={() => setFailed(true)}
       onContentProcessDidTerminate={() => setFailed(true)}

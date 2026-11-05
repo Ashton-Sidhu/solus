@@ -68,6 +68,7 @@ import { profileTargetFor, registerSeatHandlers } from './transport/handlers/sea
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
 import { IntegrationApps } from './integrations/mcp-apps'
+import { ClaudeAppProcesses, useClaudeAppCapture } from './execution/agents/claude/claude-mcp-apps'
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
@@ -728,8 +729,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // when it starts (`integrationAgentTools`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
   const integrationGateway = new IntegrationGateway(integrations)
-  const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime)
+  const claudeAppProcesses = new ClaudeAppProcesses()
+  const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime, claudeAppProcesses)
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
+  useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
@@ -1846,6 +1849,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         remoteUpdates.stop()
         stopSupervisor?.()
         codeIntel.dispose()
+        await claudeAppProcesses.closeAll()
         devices.runs.dispose()
         await devices.manager.dispose()
         await devices.bridge.stop()

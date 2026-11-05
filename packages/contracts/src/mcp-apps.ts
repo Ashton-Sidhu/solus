@@ -29,14 +29,22 @@ export const mcpAppCspSchema = z.object({
 })
 export type McpAppCsp = z.infer<typeof mcpAppCspSchema>
 
-/** What a session activity stores. HTML and tool data are loaded only when the app is shown. */
-export const mcpAppReferenceSchema = z.object({
-  integrationId: z.string().min(1),
+const appReferenceFields = {
   title: z.string().max(256),
   tool: z.string().max(256),
   resourceUri: appResourceUri,
   assetId: z.string().min(1),
-})
+}
+
+/**
+ * What a session activity stores. HTML and tool data are loaded only when the
+ * app is shown. An app runs on a Solus integration, or on an MCP server that
+ * Claude Code itself is set up with.
+ */
+export const mcpAppReferenceSchema = z.union([
+  z.object({ integrationId: z.string().min(1), ...appReferenceFields }),
+  z.object({ claudeServer: z.string().min(1).max(256), ...appReferenceFields }),
+])
 export type McpAppReference = z.infer<typeof mcpAppReferenceSchema>
 
 const jsonData = z.string().max(MCP_APP_MAX_DATA_BYTES).refine((value) => {
@@ -75,6 +83,8 @@ export interface McpAppToolInfo {
   callable: boolean
   readOnly: boolean
   title: string
+  /** Why the tool is not callable, when the person can act on it. */
+  refusal?: string
 }
 
 /**

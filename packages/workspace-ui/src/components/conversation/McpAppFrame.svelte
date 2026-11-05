@@ -76,7 +76,7 @@
     if (!target) return;
     const connection = connectMcpAppFrame(target, {
       snapshot,
-      context: () => mcpAppContext(untrack(() => settings.isDark), untrack(() => isFullscreen)),
+      context: () => mcpAppContext(target, untrack(() => settings.isDark), untrack(() => isFullscreen)),
       toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
       callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
       readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
@@ -94,7 +94,7 @@
         onHeight(next);
       },
       close,
-    }, () => (failed = true));
+    }, () => (failed = true), () => untrack(() => isFullscreen));
     host = connection.host;
     return () => {
       connection.disconnect();

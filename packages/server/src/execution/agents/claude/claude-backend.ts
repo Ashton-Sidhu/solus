@@ -66,6 +66,7 @@ import { solusPluginsDir } from '../plugins'
 import { runBounded } from '../../../lib/concurrency'
 import { getIndexedSession } from '../../../db/session-indexer'
 import { ClaudeCommandDiscovery } from './claude-command-discovery'
+import { claudeAppSaver } from './claude-mcp-apps'
 import { runtimeInstructions } from '../runtime-instructions'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
@@ -310,6 +311,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         } : request.seat ? claudeSeatOf(request.seat) : undefined,
         persistSession: request.persistence === 'session',
         abortController,
+        onMcpApp: request.persistence === 'session' ? claudeAppSaver(() => handle.sessionId) : undefined,
         onTurnComplete: checkpointTarget
           ? (facts) => endTurnCheckpoint(checkpointTarget, { ...facts, traceId: sessionState?.turnTraceId })
           : undefined,
