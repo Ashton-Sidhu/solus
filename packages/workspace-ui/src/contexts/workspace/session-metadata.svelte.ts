@@ -62,6 +62,11 @@ export class SessionMetadata {
 
   readonly regeneratingTitleSessionIds = new SvelteSet<string>()
 
+  /** Sessions marked unread and not read since. The visibility effect would
+   *  otherwise read a session on screen again at once, and the mark would do
+   *  nothing. It drops a session that leaves the screen. */
+  readonly heldUnreadSessionIds = new SvelteSet<string>()
+
   /**
    * Adopt the host's read state for a session. The event arrives for a read
    * made on any device, so this is what makes opening a session on the desktop
@@ -73,6 +78,8 @@ export class SessionMetadata {
    */
   applySessionReadState(sessionId: string, viewedAt: number | null): void {
     const unread = viewedAt === null
+    if (unread) this.heldUnreadSessionIds.add(sessionId)
+    else this.heldUnreadSessionIds.delete(sessionId)
     for (const tabId of this.workspace.tabIdsForSession(sessionId)) {
       const tab = this.workspace.tabs[tabId]
       // One property, never a spread: this runs on an event that can arrive
@@ -89,6 +96,7 @@ export class SessionMetadata {
    * previous per-client behaviour.
    */
   publishSessionViewed(sessionId: string): void {
+    this.heldUnreadSessionIds.delete(sessionId)
     const serverId = runHost(this.workspace.sessions.byId[sessionId]?.run)
     if (!serverId) return
     void serverConnections.apiFor(serverId)

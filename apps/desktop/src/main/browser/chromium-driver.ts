@@ -7,6 +7,7 @@ import {
   type BrowserNetworkEntry,
   type BrowserNavigateOp,
 } from '@solus/contracts/browser-types'
+import { cutText } from '@solus/contracts/text-cut'
 import {
   BrowserDialogTracker,
   browserDialogType,
@@ -724,10 +725,12 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   private recordConsoleApi(params: CdpEventParams): void {
     const parsed = consoleApiSchema.safeParse(params)
     if (!parsed.success) return
-    const text = parsed.data.args
-      .map((arg) => (arg.value === undefined ? arg.description ?? '' : String(arg.value)))
-      .join(' ')
-      .slice(0, MAX_ENTRY_CHARS)
+    const text = cutText(
+      parsed.data.args
+        .map((arg) => (arg.value === undefined ? arg.description ?? '' : String(arg.value)))
+        .join(' '),
+      MAX_ENTRY_CHARS,
+    )
     if (!text) return
     this.pushConsole({ at: Date.now(), level: consoleLevel(parsed.data.type), text })
   }
@@ -739,7 +742,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     const record: BrowserConsoleEntry = {
       at: Date.now(),
       level: consoleLevel(entry.level),
-      text: entry.text.slice(0, MAX_ENTRY_CHARS),
+      text: cutText(entry.text, MAX_ENTRY_CHARS),
     }
     if (entry.url) record.source = entry.url
     this.pushConsole(record)

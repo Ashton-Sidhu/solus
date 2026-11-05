@@ -158,7 +158,7 @@ export class RunLauncher {
     session.lastActivityAt = Date.now()
     const userMessage = this.userMessageEvent(request.options, 'steer', request.actor)
     if (backend.isSessionRunning(agentSessionId)) {
-      this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId))
+      this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId), 'running')
     }
     this.rt.publish(session.sessionId, userMessage)
 
@@ -893,7 +893,8 @@ export class RunLauncher {
       releaseLaunch()
       const savedRestart = this.rt.restarts.restartRuns?.get(sessionId)
       if (savedRestart && savedRestart.runId === request.runId) {
-        this.rt.restarts.restartRuns?.save({ ...savedRestart, input: effectiveInput, state: 'running' })
+        // From here the provider may hold the prompt, so it is never sent again.
+        this.rt.restarts.restartRuns?.save({ ...savedRestart, input: effectiveInput, state: 'running', options: undefined })
       }
       // Spawning the provider is where the run input, the tool list, and the
       // transport are assembled — the last thing the turn does before it stops

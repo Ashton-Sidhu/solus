@@ -72,15 +72,22 @@ async function openHeadlessGuest(request: BrowserHeadlessOpenRequest): Promise<B
   // before emulation reaches it. A blank document commits instantly, carries no
   // console or network traffic of its own, and leaves the guest attached and
   // emulated before the real navigation starts.
-  await contents.loadURL('about:blank')
-  const driver = await ChromiumBrowserDriver.attach(contents, {
-    kind: 'headless',
-    // Nothing else owns this guest: it exists for the page and goes with it.
-    releaseGuest: async () => {
-      log.info('browser_headless_closed', { url: contents.getURL() })
-      window.destroy()
-    },
-  })
+  let driver: BrowserSurfaceDriver
+  try {
+    await contents.loadURL('about:blank')
+    driver = await ChromiumBrowserDriver.attach(contents, {
+      kind: 'headless',
+      // Nothing else owns this guest: it exists for the page and goes with it.
+      releaseGuest: async () => {
+        log.info('browser_headless_closed', { url: contents.getURL() })
+        window.destroy()
+      },
+    })
+  } catch (error) {
+    // No driver owns the window yet, and a hidden window has no way to be closed.
+    if (!window.isDestroyed()) window.destroy()
+    throw error
+  }
 
   try {
     await driver.applyEmulation(request.emulation)

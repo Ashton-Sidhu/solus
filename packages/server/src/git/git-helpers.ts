@@ -8,7 +8,7 @@ import { getEpisodeNumstat } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
-import { PullRequestHead, parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
+import { PullRequestHead, USERLESS_SCP_REMOTE, parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 
 const gitCommandErrorSchema = z.object({
   message: z.string().optional(),
@@ -317,8 +317,8 @@ export async function resolveRepoRoot(workTree: string): Promise<string | null> 
 
 /**
  * Parse a git remote URL into `{ host, owner, repo }`. Handles the two forms git
- * emits: SCP-style (`git@github.com:owner/repo.git`) and URL-style
- * (`https://github.com/owner/repo.git`, `ssh://git@host/owner/repo`). Returns
+ * emits: SCP-style (`git@github.com:owner/repo.git`, `github.com:owner/repo.git`)
+ * and URL-style (`https://github.com/owner/repo.git`, `ssh://git@host/owner/repo`). Returns
  * null for shapes we can't confidently parse (so the caller disables provider UI).
  */
 export function parseRemoteUrl(remote: string): RepoRef | null {
@@ -328,7 +328,7 @@ export function parseRemoteUrl(remote: string): RepoRef | null {
   let host: string
   let pathname: string
 
-  const scp = url.match(/^[^@]+@([^:]+):(.+)$/)
+  const scp = url.match(/^[^@]+@([^:]+):(.+)$/) ?? url.match(USERLESS_SCP_REMOTE)
   if (scp) {
     host = scp[1]
     pathname = scp[2]

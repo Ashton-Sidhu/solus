@@ -52,10 +52,15 @@ export function toolGroupAction(toolName: string): ToolGroupAction {
   return 'other'
 }
 
-const toolInputSchema = z.object({
+const toolPathSchema = z.object({
   file_path: z.string().optional(),
   notebook_path: z.string().optional(),
   path: z.string().optional(),
+})
+
+const toolInputSchema = toolPathSchema.extend({
+  // A Codex patch lists its files here. Another tool's `changes` is not a file list.
+  changes: z.array(toolPathSchema).optional().catch(undefined),
   command: z.union([z.string(), z.array(z.string())]).optional(),
   cmd: z.union([z.string(), z.array(z.string())]).optional(),
   pattern: z.string().optional(),
@@ -100,8 +105,14 @@ function commandText(parsed: ParsedToolInput | null): string | null {
   return command?.trim() || null
 }
 
-function filePath(parsed: ParsedToolInput | null): string | null {
+function filePath(parsed: z.infer<typeof toolPathSchema> | null): string | null {
   return parsed?.file_path ?? parsed?.notebook_path ?? parsed?.path ?? null
+}
+
+/** Every distinct file a call names, as the desktop row counts them. */
+function toolFilePaths(parsed: ParsedToolInput | null): string[] {
+  const paths = [parsed, ...(parsed?.changes ?? [])].map((target) => filePath(target)?.trim())
+  return [...new Set(paths.filter((path): path is string => !!path && path !== '/dev/null'))]
 }
 
 function basename(path: string): string {
@@ -113,6 +124,12 @@ export function commandProgramName(command: string): string {
   const words = command.trim().split(/\s+/)
   const program = words.find((word) => !/^[A-Z_][A-Z0-9_]*=/.test(word)) ?? words[0] ?? command
   return basename(program)
+}
+
+function filesLabel(paths: readonly string[]): string {
+  const first = basename(paths[0] ?? '')
+  if (paths.length < 2) return first
+  return `${first} and ${paths.length - 1} more ${paths.length === 2 ? 'file' : 'files'}`
 }
 
 /** One line, as a row shows it. */
@@ -127,7 +144,8 @@ export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input'
   const command = commandText(parsed)
   if (command) return expanded ? command : compact(command)
   const path = filePath(parsed)
-  if ((action === 'read' || action === 'edit') && path) return expanded ? path : basename(path)
+  const paths = action === 'read' || action === 'edit' ? toolFilePaths(parsed) : []
+  if (paths.length > 0) return expanded ? paths.join('\n') : filesLabel(paths)
   if ((action === 'code-search' || action === 'search') && (parsed?.pattern || parsed?.query)) {
     return compact(parsed.pattern ?? parsed.query ?? '')
   }
@@ -150,7 +168,7 @@ export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 
       return `${running ? 'Reading' : 'Read'} ${path ? basename(path) : 'file'}`
     case 'edit':
       if (tool.toolName === 'Write') return `${running ? 'Writing' : 'Wrote'} ${path ? basename(path) : 'file'}`
-      return `${running ? 'Editing' : 'Edited'} ${path ? basename(path) : 'file'}`
+      return `${running ? 'Editing' : 'Edited'} ${filesLabel(toolFilePaths(parsed)) || 'file'}`
     case 'code-search':
       return running ? 'Searching code' : 'Searched code'
     case 'search':
@@ -195,13 +213,26 @@ function actionPriority(action: ToolGroupAction): number {
   return 1
 }
 
+/** The distinct files a group's edits change. An edit that names no file yet counts as one. */
+function changedFileCount(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName' | 'input'>>): number {
+  const paths = new Set<string>()
+  let unnamed = 0
+  for (const tool of tools) {
+    if (toolGroupAction(tool.toolName) !== 'edit') continue
+    const changed = toolFilePaths(parseToolInput(tool.input))
+    if (changed.length === 0) unnamed++
+    for (const path of changed) paths.add(path)
+  }
+  return paths.size + unnamed
+}
+
 /**
  * A finished group's sentence: its two weightiest actions, then a count of
  * the rest. One call reads as itself.
  */
 export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status'>>): string {
   const only = tools.length === 1 ? tools[0] : undefined
-  if (only) return toolGroupAction(only.toolName) === 'edit' ? actionLabel('edit', 1) : toolActivitySummary(only)
+  if (only) return toolGroupAction(only.toolName) === 'edit' ? actionLabel('edit', changedFileCount(tools)) : toolActivitySummary(only)
   const groups = new Map<ToolGroupAction, number>()
   for (const tool of tools) {
     const action = toolGroupAction(tool.toolName)
@@ -212,7 +243,7 @@ export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem,
     .sort((a, b) => a.priority - b.priority || a.index - b.index)
     .slice(0, 2)
     .sort((a, b) => a.index - b.index)
-  const labels = selected.map(({ action, count }) => actionLabel(action, count))
+  const labels = selected.map(({ action, count }) => actionLabel(action, action === 'edit' ? changedFileCount(tools) : count))
   const remaining = tools.length - selected.reduce((count, group) => count + group.count, 0)
   if (remaining > 0) labels.push(`Performed ${remaining} other ${remaining === 1 ? 'action' : 'actions'}`)
   const sentence = labels.map((label, index) => (index === 0 ? label : label.charAt(0).toLowerCase() + label.slice(1)))
@@ -223,6 +254,11 @@ export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem,
 export function toolGroupSummaryKind(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName'>>): ToolGroupAction | 'mixed' {
   const actions = new Set(tools.map((tool) => toolGroupAction(tool.toolName)))
   return actions.size === 1 ? actions.values().next().value! : 'mixed'
+}
+
+/** The images an open call shows. A call still running has none to decode. */
+export function toolDetailImages(tool: Pick<ToolTranscriptItem, 'status' | 'images'>): NonNullable<ToolTranscriptItem['images']> {
+  return tool.status === 'running' ? [] : tool.images ?? []
 }
 
 /** An expanded call's full detail: the command or input, then the error head. */

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
-import type { IpcContext, NormalizedEvent, QueuedPromptSnapshot } from '@solus/contracts/types'
+import type { IpcContext, NormalizedEvent, PromptOptions, QueuedPromptSnapshot } from '@solus/contracts/types'
 import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -531,6 +531,108 @@ describe('host restart continuation', () => {
     expect(backend.requests).toHaveLength(1)
     await next.restarts.recoverSessionsAfterRestart()
     expect(next.scheduler.sessionQueue(ctx('uncertain')).entries).toHaveLength(1)
+  })
+
+  /** A host that stops in the setup of a run, after its receipt and before its launch. */
+  async function stopBeforeLaunch(queueDirectory: string, context: IpcContext, input: PromptOptions) {
+    // The database is shared by this file; recovery reads every session's receipt.
+    const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
+    const store = new RunLedger().activeRuns
+    for (const run of store.list()) store.remove(run.sessionId)
+    const backend = holdingBackend('claude-code', 'restart-unstarted')
+    const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
+    runtime.on('error', () => {})
+    const saveRestartRun = runtime.restarts.saveRestartRun.bind(runtime.restarts)
+    runtime.restarts.saveRestartRun = (...args) => {
+      saveRestartRun(...args)
+      runtime.shutdown()
+    }
+    await runtime.dispatch.submitPrompt(context, input, { actor: HOST_ACTOR }).catch(() => {})
+    await Bun.sleep(0)
+    expect(backend.requests).toHaveLength(0)
+  }
+
+  // WHY: nothing reached the provider, so "Continue where you left off" would
+  // answer for a message it never read, and the message would be gone.
+  test('a prompt that never reached its provider is sent after the restart, whole', async () => {
+    const queueDirectory = await recoveryDirectory()
+    const imageAttachments = [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,AA==' }]
+    await stopBeforeLaunch(queueDirectory, ctx('unstarted'), {
+      prompt: 'Read notes.md and fix the parser', displayPrompt: 'Fix the parser', imageAttachments, clientPromptId: 'unstarted-prompt',
+    })
+
+    const next = holdingBackend('claude-code', 'restart-unstarted-next')
+    const second = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', next.value]]), { queueDirectory })
+    second.on('error', () => {})
+    cleanups.push(() => { second.shutdown(); next.releaseAll() })
+    const sent: NormalizedEvent[] = []
+    second.on('event', (_sessionId: string, event: NormalizedEvent) => sent.push(event))
+    const started = next.nextStart()
+    await second.restarts.recoverSessionsAfterRestart()
+    const request = await started
+    expect(request.prompt).toBe('Read notes.md and fix the parser')
+    expect(request.imageAttachments).toEqual(imageAttachments)
+    expect(request.conversation).toEqual({ kind: 'start' })
+    expect(next.requests).toHaveLength(1)
+    expect(sent.find((event) => event.type === 'user_message')).toMatchObject({ text: 'Fix the parser', imageAttachments })
+    // A client that sends the same prompt again does not send it twice.
+    expect((await second.dispatch.submitPrompt(ctx('unstarted'), { prompt: 'Read notes.md and fix the parser', clientPromptId: 'unstarted-prompt' }, { actor: HOST_ACTOR })).disposition).toBe('duplicate')
+    expect(next.requests).toHaveLength(1)
+  })
+
+  test('a host that stops again while delivering an unstarted prompt holds it, never sends it', async () => {
+    const queueDirectory = await recoveryDirectory()
+    await stopBeforeLaunch(queueDirectory, ctx('unstarted-delivering'), { prompt: 'Fix the parser' })
+    const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
+    const store = new RunLedger().activeRuns
+    store.save({ ...store.get('unstarted-delivering')!, state: 'delivering' })
+
+    const next = holdingBackend('claude-code', 'restart-unstarted-held')
+    const second = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', next.value]]), { queueDirectory })
+    second.on('error', () => {})
+    cleanups.push(() => { second.shutdown(); next.releaseAll() })
+    await second.restarts.recoverSessionsAfterRestart()
+    expect(next.requests).toHaveLength(0)
+    expect(second.scheduler.sessionQueue(ctx('unstarted-delivering')).entries[0]).toMatchObject({ text: 'Fix the parser', held: true })
+  })
+
+  // WHY: a steered provider has the prompt. Its receipt must not read like a run
+  // that never launched, or recovery would send the prompt a second time.
+  test('a steered prompt is never sent again after a restart', async () => {
+    const queueDirectory = await recoveryDirectory()
+    const backend = holdingBackend('claude-code', 'restart-steer')
+    const value = backend.value as AgentBackend & { steerSession: AgentBackend['steerSession'] }
+    value.steerSession = async (threadId) => value.getSessionHandle(threadId) ?? null
+    const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', value]]), { queueDirectory })
+    runtime.on('error', () => {})
+    cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
+    await runtime.dispatch.submitPrompt(ctx('steered'), { prompt: 'Fix the parser' }, { actor: HOST_ACTOR })
+    const { input } = runtime.restarts.restartRuns!.get('steered')!
+    await runtime.launcher.steerActiveTurn({
+      sessionId: 'steered', runId: 'run-2', input, tools: [], actor: HOST_ACTOR, target: { kind: 'session', sessionId: 'steered' },
+      options: { prompt: 'Also fix the lexer' },
+    }, 'restart-steer-1', runtime.activeSessions.get('steered')!)
+    const saved = runtime.restarts.restartRuns!.get('steered')!
+    expect(saved.prompt).toBe('Also fix the lexer')
+    expect(saved.state).toBe('running')
+    expect(saved.options).toBeUndefined()
+  })
+
+  // WHY: its sender hears at restart that the run was interrupted, and can send again.
+  test('a prompt another session waits on is not kept to send again', async () => {
+    const queueDirectory = await recoveryDirectory()
+    const backend = holdingBackend('claude-code', 'restart-exchange')
+    const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
+    runtime.on('error', () => {})
+    cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
+    await runtime.dispatch.submitPrompt(ctx('exchange-run'), { prompt: 'Fix the parser' }, { actor: HOST_ACTOR })
+    await Promise.resolve()
+    const { input } = runtime.restarts.restartRuns!.get('exchange-run')!
+    runtime.restarts.saveRestartRun({
+      sessionId: 'exchange-run', runId: 'run-2', input, tools: [], actor: HOST_ACTOR, target: { kind: 'session', sessionId: 'exchange-run' },
+      options: { prompt: 'Report back' }, exchangeIds: ['exchange-1'],
+    }, false)
+    expect(runtime.restarts.restartRuns!.get('exchange-run')?.options).toBeUndefined()
   })
 
   test('managed cloud hosts discard recovery intent without launching a provider', async () => {

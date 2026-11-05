@@ -1,6 +1,7 @@
 import { readOwnSessionArtifacts } from './session-artifacts'
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
 import { trimTrailingSeparators } from '@solus/contracts/host-path'
+import { cutText } from '@solus/contracts/text-cut'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { SearchQuery } from '@solus/contracts/search-query'
 import { runnerPrincipalFor, type RecordScope } from '../../admission/principal'
@@ -61,10 +62,8 @@ const SESSION_NAME_LIMIT = 500
 
 function withinNameLimit(text: string | null): string | null {
   if (text === null || text.length <= SESSION_NAME_LIMIT) return text
-  // The schema counts UTF-16 units. Never end on half of a surrogate pair.
-  let end = SESSION_NAME_LIMIT - 1
-  if (/[\uD800-\uDBFF]/.test(text[end - 1]!)) end -= 1
-  return `${text.slice(0, end)}…`
+  // The schema counts UTF-16 units.
+  return `${cutText(text, SESSION_NAME_LIMIT - 1)}…`
 }
 
 export class SessionApiOperations {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { deriveThreadFeedPresentation, LIVE_ACTIVITY_ROW_ID, type FeedSourceEntry, type ThreadFeedRow } from '../../apps/mobile/src/features/threads/thread-feed-presentation'
-import { summarizeToolGroup, toolActivitySummary, toolFullDetail, toolGroupAction, toolRowLabel } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
+import { summarizeToolGroup, toolActivitySummary, toolDetailImages, toolFullDetail, toolGroupAction, toolRowLabel } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
 
 const user = (id: string): FeedSourceEntry => ({ id, kind: 'user' })
 const assistant = (id: string): FeedSourceEntry => ({ id, kind: 'assistant' })
@@ -116,5 +116,31 @@ describe('native work log wording', () => {
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/src/app.ts"}' }, true)).toBe('/repo/src/app.ts')
     expect(toolFullDetail({ input: '{"command":"bun test"}', errorHead: 'exit 1' })).toBe('bun test\n\nexit 1')
     expect(toolFullDetail({ input: null, errorHead: null })).toBeNull()
+  })
+
+  test('a Codex patch counts and names every file it changes', () => {
+    // WHY: Codex records one Edit call for a whole patch, so counting calls
+    // said "Changed 1 file" and the row named nothing.
+    const patch = (...paths: string[]) => JSON.stringify({ changes: paths.map((path) => ({ path, kind: { type: 'update' } })) })
+    const tool = { toolName: 'Edit', input: patch('/repo/src/a.ts', '/repo/src/b.ts', '/repo/src/c.ts'), status: 'completed' as const }
+    expect(summarizeToolGroup([tool])).toBe('Changed 3 files')
+    expect(toolRowLabel(tool)).toBe('a.ts and 2 more files')
+    expect(toolRowLabel(tool, true)).toBe('/repo/src/a.ts\n/repo/src/b.ts\n/repo/src/c.ts')
+    expect(toolActivitySummary(tool)).toBe('Edited a.ts and 2 more files')
+    // A second patch on a file already named is not another file; a second call
+    // still counts as a call for the rest of the sentence.
+    const tools = [tool, { ...tool, input: patch('/repo/src/a.ts', '/repo/src/d.ts') }, { toolName: 'Bash', input: '{"command":"bun test"}', status: 'completed' as const }]
+    expect(summarizeToolGroup(tools)).toBe('Changed 4 files and ran 1 command')
+    // An edit whose input has not landed still reads as one file.
+    expect(summarizeToolGroup([{ toolName: 'Edit', input: null, status: 'completed' }])).toBe('Changed 1 file')
+    // A `changes` value that is no file list does not cost the call its label.
+    expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/a.ts","changes":"many"}' })).toBe('a.ts')
+  })
+
+  test('an open call shows its images only once it has finished', () => {
+    const images = [{ assetId: `${'a'.repeat(64)}.png`, mimeType: 'image/png' }]
+    expect(toolDetailImages({ status: 'running', images })).toEqual([])
+    expect(toolDetailImages({ status: 'completed', images })).toEqual(images)
+    expect(toolDetailImages({ status: 'error' })).toEqual([])
   })
 })

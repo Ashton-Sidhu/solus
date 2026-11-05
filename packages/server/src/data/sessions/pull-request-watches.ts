@@ -23,7 +23,8 @@ export const pullRequestWatchStateSchema = z.object({
   conflicting: z.boolean(),
   remarkOnlyWakes: z.number(),
   /** Optional checks still running when the required ones passed: owed one
-   *  wake when every check has passed. */
+   *  wake when every check has passed. With a failed gate, the checks still
+   *  running: owed one wake when the last finishes. */
   owedChecks: z.array(z.string()),
   /** When the head was first read with no check at all, until a check shows
    *  up or the agent is told none did; null after either. */

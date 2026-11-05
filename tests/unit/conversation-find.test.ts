@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { Message } from "@solus/contracts/types";
 import {
   findConversationMatches,
+  foldConversationFindText,
   isSearchableConversationMessage,
   stepConversationMatch,
 } from "@solus/workspace-ui/components/conversation/lib/find";
@@ -44,6 +46,41 @@ describe("conversation find", () => {
       { messageId: "first", occurrence: 1 },
       { messageId: "second", occurrence: 0 },
     ]);
+  });
+
+  test("a straight and a curly apostrophe find each other", () => {
+    // WHY: the reader types one and the agent wrote the other. Find must not
+    // depend on which keyboard or model produced the text.
+    const messages = [
+      message("curly", "assistant", "don\u2019t don\u2018t"),
+      message("straight", "user", "don't"),
+    ];
+    const everyOccurrence = [
+      { messageId: "curly", occurrence: 0 },
+      { messageId: "curly", occurrence: 1 },
+      { messageId: "straight", occurrence: 0 },
+    ];
+    expect(findConversationMatches(messages, "don't")).toEqual(everyOccurrence);
+    expect(findConversationMatches(messages, "don\u2019t")).toEqual(everyOccurrence);
+  });
+
+  test("the fold keeps offsets, so the count and the highlights agree", () => {
+    const text = "It\u2019s Don\u2018t";
+    const fold = foldConversationFindText(text);
+    expect(fold).toBe("it's don't");
+    expect(fold).toHaveLength(text.length);
+  });
+
+  test("the highlighter compares with the same fold as the count", () => {
+    const source = readFileSync(
+      new URL(
+        "../../packages/workspace-ui/src/components/conversation/lib/find-highlight.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(source).toContain("foldConversationFindText(text)");
+    expect(source).toContain("foldConversationFindText(query)");
   });
 
   test("excludes provider interrupt notices that render as status rows", () => {

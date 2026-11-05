@@ -22,6 +22,8 @@ export function elementSnapshotExpression(maxElements: number): string {
   return `(() => {
   const REF = ${JSON.stringify(REF_ATTRIBUTE)};
   const MAX = ${Math.max(1, Math.trunc(maxElements))};
+  // A cut must not end on half of a surrogate pair; this code cannot import cutText.
+  const LONE_HALF = /[\\uD800-\\uDBFF]$/;
   const SELECTOR = 'a[href], button, input, select, textarea, summary, [role], [tabindex], [data-testid], [contenteditable="true"]';
   for (const stale of document.querySelectorAll('[' + REF + ']')) stale.removeAttribute(REF);
   const out = [];
@@ -45,7 +47,7 @@ export function elementSnapshotExpression(maxElements: number): string {
       el.getAttribute('title') ||
       el.getAttribute('placeholder') ||
       (el.textContent || '')
-    ).replace(/\\s+/g, ' ').trim().slice(0, 120);
+    ).replace(/\\s+/g, ' ').trim().slice(0, 120).replace(LONE_HALF, '');
     const entry = {
       role: el.getAttribute('role') || el.tagName.toLowerCase(),
       label,
@@ -64,7 +66,7 @@ export function elementSnapshotExpression(maxElements: number): string {
     // dots) stays in the page: nothing that reads the snapshot needs it.
     const textSecurity = style.webkitTextSecurity || (style.getPropertyValue ? style.getPropertyValue('-webkit-text-security') : '');
     const isMasked = el.type === 'password' || (!!textSecurity && textSecurity !== 'none');
-    if (typeof el.value === 'string' && el.value && !isMasked) entry.value = el.value.slice(0, 200);
+    if (typeof el.value === 'string' && el.value && !isMasked) entry.value = el.value.slice(0, 200).replace(LONE_HALF, '');
     // Svelte dev mode hangs the authoring location off the node itself, which is
     // how an agent gets file:line for the thing the user is pointing at.
     const meta = el.__svelte_meta && el.__svelte_meta.loc;

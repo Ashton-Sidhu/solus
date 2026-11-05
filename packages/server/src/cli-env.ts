@@ -73,7 +73,8 @@ function computeCliPathSync(): string {
   const entries = baseEntries()
   for (const cmd of PATH_PROBE_COMMANDS) {
     try {
-      const discovered = execSync(cmd, { encoding: 'utf-8', timeout: 3000 }).trim()
+      // SIGKILL: `execSync` waits for the shell to exit, and a shell can ignore SIGTERM.
+      const discovered = execSync(cmd, { encoding: 'utf-8', timeout: 3000, killSignal: 'SIGKILL' }).trim()
       if (discovered) {
         appendPathEntries(entries.ordered, entries.seen, discovered)
         break // First login shell that answers is authoritative — don't pay for the rest.
@@ -88,15 +89,29 @@ function computeCliPathSync(): string {
 /** One probe's stdout, or null when it printed nothing, failed, or ran out of
  *  time. Stdin is closed from the start: an interactive shell with an open
  *  stdin waits on it instead of exiting, and a probe that waits out its whole
- *  timeout is what let the first RPC beat the warmup. */
+ *  timeout is what let the first RPC beat the warmup. The deadline does not
+ *  wait for `close`: a shell can ignore a signal, and a process the profile
+ *  started can hold stdout open after the shell has exited. */
 function probeShell(cmd: string, timeoutMs: number): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = spawn('/bin/sh', ['-c', cmd], { stdio: ['ignore', 'pipe', 'ignore'], timeout: timeoutMs })
+    const child = spawn('/bin/sh', ['-c', cmd], { stdio: ['ignore', 'pipe', 'ignore'] })
     let stdout = ''
+    let exitCode: number | null = null
+    const finish = (code: number | null): void => {
+      clearTimeout(deadline)
+      resolve(code === 0 && stdout.trim() ? stdout.trim() : null)
+    }
+    const deadline = setTimeout(() => {
+      child.kill('SIGKILL')
+      child.stdout.destroy()
+      child.unref()
+      finish(exitCode)
+    }, timeoutMs)
     child.stdout.setEncoding('utf-8')
     child.stdout.on('data', (chunk: string) => { stdout += chunk })
-    child.on('error', () => resolve(null))
-    child.on('close', (code) => resolve(code === 0 && stdout.trim() ? stdout.trim() : null))
+    child.on('error', () => finish(null))
+    child.on('exit', (code) => { exitCode = code })
+    child.on('close', finish)
   })
 }
 

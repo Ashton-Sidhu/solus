@@ -7,11 +7,18 @@ import { settledSessionIds } from '../../data/sessions/session-states'
 import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import type { NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+import type { NormalizedEvent, PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import { HOST_ACTOR, type Actor } from '../../admission/actor'
 import type { SessionRuntime, SessionRunRequest } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'restart-recovery.ts')
+
+/** A sender hears that its exchange was interrupted at restart (`recoverExchanges`),
+ *  so a prompt another session waits on is never sent again behind it. */
+function optionsToResend(request: SessionRunRequest): PromptOptions | undefined {
+  if (request.exchangeIds?.length || request.reportExchangeIds?.length) return undefined
+  return { ...request.options }
+}
 
 /**
  * Restart receipts: what an active run needs to continue after a host
@@ -24,8 +31,9 @@ export class RestartRecovery {
     this.restartRuns = runLedger?.activeRuns
   }
 
-  /** `isOrganizationWork`: the organization's work continues only from its Solus API. */
-  saveRestartRun(request: SessionRunRequest, isOrganizationWork: boolean): void {
+  /** `isOrganizationWork`: the organization's work continues only from its Solus API.
+   *  `state`: 'running' when the provider already holds the prompt, as a steer does. */
+  saveRestartRun(request: SessionRunRequest, isOrganizationWork: boolean, state: 'starting' | 'running' = 'starting'): void {
     if (!this.restartRuns || this.rt.isShuttingDown || !restartRecoveryEnabled() || isOrganizationWork
       || request.delegation || request.options.automationId) return
     const authority = restartAuthority(request.actor)
@@ -34,9 +42,10 @@ export class RestartRecovery {
     const clientPromptId = request.options.clientPromptId?.startsWith('restart:')
       ? this.restartRuns.get(request.sessionId)?.clientPromptId : request.options.clientPromptId
     this.restartRuns.save({
-      sessionId: request.sessionId, runId: request.runId!, input: request.input, state: 'starting',
+      sessionId: request.sessionId, runId: request.runId!, input: request.input, state,
       author: request.actor?.user ?? null, authority,
       prompt: request.options.displayPrompt ?? request.options.prompt,
+      options: state === 'starting' ? optionsToResend(request) : undefined,
       taskId: request.options.taskId, queueId: request.servedQueueId, backgroundTools: [],
       clientPromptId,
     })
@@ -84,19 +93,22 @@ export class RestartRecovery {
 
   private queueRestartContinuation(saved: RestartRun, error?: string): void {
     // A delivering receipt without a queue entry is uncertain, never resent
-    // automatically. The queue itself has its own durable start receipt.
-    const prompt = restartContinuationPrompt(saved)
+    // automatically. The queue itself has its own durable start receipt. Saved
+    // options mean the run never reached its launch, so the provider did not get
+    // the prompt and the prompt itself goes, not a continuation of it.
+    const prompt = saved.options ? saved.prompt : restartContinuationPrompt(saved)
+    const clientPromptId = `restart:${saved.runId}`
     const actor: Actor = saved.author === null ? HOST_ACTOR : {
       principal: { kind: 'owner', via: 'local', deviceId: null, deviceLabel: 'Host restart recovery', expiresAt: null }, user: saved.author,
     }
-    const input: SessionRunInput = { ...saved.input, forked: false,
+    const input: SessionRunInput = { ...saved.input, forked: saved.options ? saved.input.forked : false,
       agentSessionId: saved.input.agentSessionId, permissionMode: this.rt.sessionPermissionModes.get(saved.sessionId) ?? saved.input.permissionMode }
     const entry: QueuedRequest = {
       queueId: crypto.randomUUID(), sessionId: saved.sessionId, prompt, enqueuedAt: Date.now(), reason: 'busy',
       held: !!error, error, author: saved.author ?? undefined, revision: 0,
       run: { sessionId: saved.sessionId, target: { kind: 'session', sessionId: saved.sessionId }, input,
         runId: crypto.randomUUID(), tools: [], actor,
-        options: { prompt, displayPrompt: prompt, clientPromptId: `restart:${saved.runId}`, promptSource: 'agent', taskId: saved.taskId } },
+        options: saved.options ? { ...saved.options, clientPromptId } : { prompt, displayPrompt: prompt, clientPromptId, promptSource: 'agent', taskId: saved.taskId } },
       resolve() {}, reject() {},
     }
     try {

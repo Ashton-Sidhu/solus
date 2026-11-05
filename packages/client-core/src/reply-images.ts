@@ -3,6 +3,7 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import { mediaTypeFor } from '@solus/contracts/media-types'
+import type { ToolResultImage } from '@solus/contracts/types'
 
 export interface ReplyImage {
   href: string
@@ -19,6 +20,17 @@ export function replyImage(href: string, alt = ''): ReplyImage {
   let name = hostPathBaseName(path)
   try { name = decodeURIComponent(name) } catch {}
   return { href, label: name || alt || 'Image', format: mediaTypeFor(path)?.mime.split('/')[1]?.toUpperCase() ?? 'IMAGE' }
+}
+
+/** A tool's images as their asset references, one per picture. The host signs
+ *  each URL when the picture is on screen, so this holds for a remote host. */
+export function toolResultImages(images: readonly ToolResultImage[] | undefined): ReplyImage[] {
+  const distinct = new Map(images?.map((image) => [image.assetId, image]))
+  return [...distinct.values()].map((image, index) => ({
+    href: `asset://${image.assetId}`,
+    label: `Tool image ${index + 1}`,
+    format: image.mimeType.split('/')[1]?.toUpperCase() ?? 'IMAGE',
+  }))
 }
 
 interface ImageReference {

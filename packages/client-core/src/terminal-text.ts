@@ -29,12 +29,14 @@ export interface TerminalLine {
 
 const COLORS: TerminalColor[] = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
 
-// CSI sequences (`ESC [ params letter`) and OSC strings (`ESC ] … BEL|ST`),
-// then any other lone escape. Only CSI ending in `m` carries SGR. The
-// control characters are the point: the escape byte and the bell are what
-// this expression exists to find.
+// SGR, then any other CSI, OSC strings (`ESC ] … BEL|ST`), and any other lone
+// escape. A CSI is parameter and intermediate bytes up to a final byte (ECMA-48).
+// Those bytes may come in any order here: a terminal ignores a sequence such as
+// `ESC [ 1 . 5 A` up to its final byte, and it must not show. A private form such
+// as `ESC [ ? 25 m` is not SGR. The control characters are the point: the escape
+// byte and the bell are what this expression exists to find.
 // eslint-disable-next-line no-control-regex
-const ESCAPE = /\u001b\[([0-9;]*)([@-~])|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-_]?/g
+const ESCAPE = /\u001b\[([0-9;:]*)m|\u001b\[[ -?]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-_]?/g
 
 interface Style { color: TerminalColor | null; bright: boolean; bold: boolean; dim: boolean }
 const PLAIN: Style = { color: null, bright: false, bold: false, dim: false }
@@ -64,7 +66,7 @@ export function terminalLines(output: string): TerminalLine[] {
   for (const match of output.matchAll(ESCAPE)) {
     pushText(output.slice(at, match.index), push, endLine)
     at = match.index + match[0].length
-    if (match[2] === 'm') style = applySgr(style, match[1] ?? '')
+    if (match[1] !== undefined) style = applySgr(style, match[1])
   }
   pushText(output.slice(at), push, endLine)
   endLine()
@@ -84,7 +86,8 @@ function sameStyle(a: Style, b: Style): boolean {
 }
 
 function applySgr(style: Style, params: string): Style {
-  const codes = params === '' ? [0] : params.split(';').map((code) => Number(code))
+  const fields = params.split(';')
+  const codes = fields.map((code) => Number(code))
   let next = { ...style }
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i]!
@@ -95,7 +98,11 @@ function applySgr(style: Style, params: string): Style {
     else if (code >= 30 && code <= 37) { next.color = COLORS[code - 30]!; next.bright = false }
     else if (code >= 90 && code <= 97) { next.color = COLORS[code - 90]!; next.bright = true }
     else if (code === 39) { next.color = null; next.bright = false }
-    else if (code === 38 || code === 48) {
+    else if (fields[i]!.startsWith('38:')) {
+      // Extended colour with its arguments in one field: `38:2::r:g:b`.
+      next.color = null
+      next.bright = false
+    } else if (code === 38 || code === 48) {
       // Extended colour: `38;5;n` or `38;2;r;g;b`. Consumed, not drawn.
       const mode = codes[i + 1]
       i += mode === 5 ? 2 : mode === 2 ? 4 : 0

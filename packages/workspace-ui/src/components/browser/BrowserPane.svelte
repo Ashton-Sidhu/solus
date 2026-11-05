@@ -317,6 +317,10 @@
 
   /** A typed address belongs to the session's project: that is the jar the
    *  picker's profile chip described, so it is the jar the page must land in. */
+  function refuseAddress(problem: string) {
+    void toasts.error("Couldn't open that address", { description: problem });
+  }
+
   function openUrl(url: string) {
     const target: BrowserTarget = { kind: "url", url };
     if (projectRoot) target.projectRoot = projectRoot;
@@ -879,6 +883,7 @@
         void browserStore
           .navigate(activeKey, { kind: "goto", url })
           .catch(failed("Couldn't open that address"))}
+      onRefused={refuseAddress}
       onAppearance={setAppearance}
       onClearProfile={clearProfile}
       onOpenDevTools={canInspect ? openDevTools : undefined}
@@ -986,6 +991,7 @@
           .catch(failed("Couldn't scan for dev servers"))}
       onOpen={openTarget}
       onOpenUrl={openUrl}
+      onRefused={refuseAddress}
       {openingUrl}
       onCancel={entry && (!isOpeningTarget || hadPageBeforeOpen)
         ? () => (choosingTarget = false)

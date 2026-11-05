@@ -190,6 +190,9 @@ async function readEventStream(response: Response, id: number): Promise<z.infer<
   let buffer = ''
   let data: string[] = []
   let size = 0
+  // CR, LF, and CRLF each end a line. A CR ends its line at once: it can be the
+  // last byte of an answer on a stream that stays open. Its LF may come in the next chunk.
+  let endedOnCarriageReturn = false
   try {
     for (;;) {
       const { done, value } = await reader.read()
@@ -197,10 +200,16 @@ async function readEventStream(response: Response, id: number): Promise<z.infer<
       size += value.byteLength
       if (size > MAX_ANSWER_BYTES) return null
       buffer += decoder.decode(value, { stream: true })
-      let newline: number
-      while ((newline = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, newline).replace(/\r$/, '')
-        buffer = buffer.slice(newline + 1)
+      for (;;) {
+        if (endedOnCarriageReturn && buffer) {
+          if (buffer[0] === '\n') buffer = buffer.slice(1)
+          endedOnCarriageReturn = false
+        }
+        const lineEnd = buffer.search(/[\r\n]/)
+        if (lineEnd < 0) break
+        const line = buffer.slice(0, lineEnd)
+        endedOnCarriageReturn = buffer[lineEnd] === '\r'
+        buffer = buffer.slice(lineEnd + 1)
         if (line === '') {
           const message = data.length ? matchingResponse(data.join('\n'), id) : null
           data = []

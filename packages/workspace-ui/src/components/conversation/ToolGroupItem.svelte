@@ -3,8 +3,11 @@
   import { Copy as CopyIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
+  import { getMarkdownImageContext } from "./lib/markdown-image";
+  import { toolRowImages } from "./lib/turn-images";
   import { toasts } from "../../lib/toasts";
   import ActivityRow from "./ActivityRow.svelte";
+  import MarkdownImage from "./MarkdownImage.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
@@ -61,6 +64,7 @@
   }: Props = $props();
 
   const disclosure = getTranscriptDisclosure();
+  const imageContext = getMarkdownImageContext();
   const view = $derived(disclosure.forKey(`tools:${tools[0]?.id}`));
 
   const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
@@ -303,6 +307,18 @@
               </span>
             {/if}
           </div>
+          <!-- Mounted only while the step is open, so a folded call decodes nothing.
+               A transcript with no host behind it cannot sign an asset URL. -->
+          {#if view.selectedToolId === step.id && imageContext?.serverId()}
+            {@const images = toolRowImages(step)}
+            {#if images.length > 0}
+              <div class="flex flex-wrap gap-2 pb-1 ps-8 [&>button>img]:max-h-40">
+                {#each images as image (image.href)}
+                  <MarkdownImage href={image.href} text={image.label} expandable />
+                {/each}
+              </div>
+            {/if}
+          {/if}
         {/if}
       {/each}
     {/snippet}

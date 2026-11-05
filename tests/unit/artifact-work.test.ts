@@ -372,6 +372,15 @@ describe('render_artifact checks a page before and after it is shown', () => {
     expect(result.text).not.toContain('drawn')
   })
 
+  test('a cut console line does not end on half of an emoji', async () => {
+    // WHY: a lone surrogate in a tool result fails a provider that reads strict JSON.
+    const result = await artifactTools.executeArtifactTool(
+      { html: HTML, title: 'Chart', preview: true },
+      { ctx: ctx(), preview: fakePreview({ console: [{ at: 1, level: 'log', text: `${'a'.repeat(299)}😀 tail` }] }) },
+    )
+    expect(result.text).toEndWith(`[log] ${'a'.repeat(299)}`)
+  })
+
   test('a saved artifact carries its local images, so any client can show them', async () => {
     // WHY: a saved work opens on another device and in a shared link, where a
     // path on this host means nothing.

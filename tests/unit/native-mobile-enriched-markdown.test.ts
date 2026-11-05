@@ -166,6 +166,43 @@ describe("resolveMarkdownLinkPresentation", () => {
   });
 });
 
+describe("routing punctuation in file links", () => {
+  it.each([
+    ["app/(marketing)/page.tsx", "app/(marketing)/page.tsx"],
+    ["app/(marketing)/page.tsx:12", "app/(marketing)/page.tsx"],
+    ["src/routes/+page.svelte", "src/routes/+page.svelte"],
+    ["app/routes/posts.$postId.tsx", "app/routes/posts.$postId.tsx"],
+    ["pages/posts/%5Bid%5D.tsx", "pages/posts/[id].tsx"],
+    ["pages/posts/[id].tsx", "pages/posts/[id].tsx"],
+    ["@scope/package.json", "@scope/package.json"],
+    ["+page.svelte", "+page.svelte"],
+    ["[id].tsx", "[id].tsx"],
+    ["app/(marketing)/", "app/(marketing)/"],
+  ])("%s opens as a file", (href, path) => {
+    const presentation = resolveMarkdownLinkPresentation(href);
+    expect(presentation.kind).toBe("file");
+    expect(presentation.kind === "file" ? presentation.path : null).toBe(path);
+  });
+
+  it.each(["me@example.com", "foo(bar)", "$HOME", "patches"])("%s stays a plain link", (href) => {
+    expect(resolveMarkdownLinkPresentation(href).kind).toBe("link");
+  });
+
+  it("leaves web links, mail links, and mentions as they were", () => {
+    expect(resolveMarkdownLinkPresentation("https://example.com/app/(marketing)/page.tsx").kind).toBe("external");
+    expect(resolveMarkdownLinkPresentation("mailto:me@example.com")).toEqual({ kind: "link", href: "mailto:me@example.com" });
+    expect(resolveMarkdownLinkPresentation('@"docs/My File.md"').kind).toBe("file");
+  });
+
+  it("recognizes such a path in inline code, but no shell expansion", () => {
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("app/(marketing)/page.tsx")).toBe(true);
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("pages/posts/[id].tsx")).toBe(true);
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("src/routes/+page.svelte")).toBe(true);
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("$HOME/notes.txt")).toBe(false);
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("$(pwd)/run.sh")).toBe(false);
+  });
+});
+
 describe("Enriched link presentation", () => {
   it("recognizes file-shaped code without turning commands or URLs into links", () => {
     for (const path of [

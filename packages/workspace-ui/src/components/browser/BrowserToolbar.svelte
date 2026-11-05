@@ -19,7 +19,7 @@
     BrowserViewport,
     BrowserViewportRequest,
   } from "@solus/contracts/browser-types";
-  import { addressParts, navigableAddress } from "./lib/address";
+  import { addressParts, addressProblem, navigableAddress } from "./lib/address";
   import * as TooltipUI from "../ui/tooltip";
   import BrowserViewportChip from "./BrowserViewportChip.svelte";
 
@@ -42,6 +42,8 @@
     scale: number;
     onNavigate: (action: "back" | "forward" | "reload") => void;
     onGoto: (url: string) => void;
+    /** A typed address that cannot open, with the reason. */
+    onRefused: (problem: string) => void;
     onViewport: (request: BrowserViewportRequest) => void;
     onAppearance: (appearance: BrowserAppearance) => void;
     onClearProfile: () => void;
@@ -70,6 +72,7 @@
     scale,
     onNavigate,
     onGoto,
+    onRefused,
     onViewport,
     onAppearance,
     onClearProfile,
@@ -95,6 +98,11 @@
 
   function commit(event: SubmitEvent) {
     event.preventDefault();
+    const problem = addressProblem(draft);
+    if (problem) {
+      onRefused(problem);
+      return;
+    }
     const url = navigableAddress(draft);
     editing = false;
     if (url && url !== page.url) onGoto(url);

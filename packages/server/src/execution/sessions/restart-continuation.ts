@@ -18,7 +18,7 @@ export function restartAuthority(actor?: Actor): RestartRun['authority'] | null 
 export function restartContinuationError(saved: RestartRun, owner: User | null,
   lineage?: Pick<SessionLineageMember, 'provider' | 'providerSessionId'>): string | undefined {
   if (saved.state === 'delivering') return 'The host stopped during recovery delivery. Check history before resuming.'
-  if (!saved.input.agentSessionId) return 'The host stopped before the provider identified its conversation. Check the workspace before retrying.'
+  if (!saved.input.agentSessionId && !saved.options) return 'The host stopped before the provider identified its conversation. Check the workspace before retrying.'
   if (lineage && (lineage.provider !== saved.input.provider || lineage.providerSessionId !== saved.input.agentSessionId)) {
     return 'The session provider changed after this run. Review its history before resuming.'
   }

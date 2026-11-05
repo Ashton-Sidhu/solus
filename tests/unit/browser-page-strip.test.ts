@@ -9,6 +9,7 @@ import {
 } from '@solus/workspace-ui/components/browser/lib/page-strip'
 import {
   addressParts,
+  addressProblem,
   navigableAddress,
 } from '@solus/workspace-ui/components/browser/lib/address'
 
@@ -140,6 +141,26 @@ describe('the address field', () => {
     // into a TLS failure. Explicit schemes remain the user's choice.
     expect(navigableAddress('localhost:5173/app')).toBe('http://localhost:5173/app')
     expect(navigableAddress('http://example.test')).toBe('http://example.test')
+  })
+
+  test('refuses a scheme that is not a page instead of reading it as a host', () => {
+    // WHY: with `https://` added, `mailto:alice@example.com` opens example.com
+    // with `mailto` and `alice` as credentials, and `about:blank` is the guest's
+    // scaffolding, whose report is dropped, so the page would stay loading.
+    expect(addressProblem('mailto:alice@example.com')).toBe('mailto: is not a web address.')
+    expect(addressProblem('  JavaScript:alert(1)')).toBe('JavaScript: is not a web address.')
+    expect(addressProblem('javascript://%0aalert(1)')).toBe('javascript: is not a web address.')
+    expect(addressProblem('about:blank')).toBe('about: is not a web address.')
+    expect(addressProblem('tel:5551234')).toBe('tel: is not a web address.')
+    expect(addressProblem('data:text/html,hi')).toBe('data: is not a web address.')
+  })
+
+  test('a host and port is not a scheme', () => {
+    // WHY: `localhost:3000` is the most common thing typed here, and it parses
+    // as a `localhost:` scheme with a path of `3000`.
+    for (const address of ['localhost:3000', 'localhost:3000/app', 'example.com:8080', 'devbox:8080?a=1', 'x.com', '127.0.0.1:5173', '[::1]:3000', 'https://x.com', 'file:///tmp/a.html', '']) {
+      expect(addressProblem(address)).toBeNull()
+    }
   })
 
   test('splits the address so the host reads first', () => {

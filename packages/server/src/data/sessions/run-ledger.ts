@@ -62,6 +62,8 @@ export const restartRunSchema = z.object({
   queueId: z.string().optional(),
   clientPromptId: z.string().optional(),
   prompt: z.string(),
+  /** What to send again. Held only while the provider has certainly not got the prompt. */
+  options: savedOptions.optional(),
   backgroundTools: z.array(z.object({ toolId: z.string(), name: z.string() })).max(32),
 })
 export type RestartRun = z.infer<typeof restartRunSchema>

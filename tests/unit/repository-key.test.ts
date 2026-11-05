@@ -14,6 +14,7 @@ describe('repository key', () => {
     // same project. Different keys would split its tasks and sessions in two.
     const spellings = [
       'git@github.com:Acme/Web.git',
+      'github.com:Acme/Web.git',
       'https://github.com/acme/web.git',
       'https://github.com/acme/web/',
       'ssh://git@github.com/acme/web',
@@ -25,6 +26,25 @@ describe('repository key', () => {
   test('keeps the whole path, so two GitLab subgroups stay two projects', () => {
     expect(repositoryKeyFromRemoteUrl('git@gitlab.com:group/one/app.git')).toBe('gitlab.com/group/one/app')
     expect(repositoryKeyFromRemoteUrl('git@gitlab.com:group/two/app.git')).toBe('gitlab.com/group/two/app')
+  })
+
+  // WHY: git reads `host:path` as SSH and takes the user from ssh config, so
+  // this is a working remote that must reach its code host.
+  test('a remote that leaves its user to ssh config names its host', () => {
+    expect(repositoryKeyFromRemoteUrl('gitlab.com:group/one/app.git')).toBe('gitlab.com/group/one/app')
+  })
+
+  test.each([
+    'C:/repos/project',
+    'C:\\repos\\project',
+    '/srv/git/repo.git',
+    './team:group/repo',
+    '..\\team:group/repo',
+    'file:///srv/git/repo.git',
+    'hg::team/repo',
+    'codecommit::us-east-1://repo',
+  ])('%s is not read as a host', (remote) => {
+    expect(repositoryKeyFromRemoteUrl(remote)).toBeNull()
   })
 
   test('a remote that names no hosted repository gives no key', () => {

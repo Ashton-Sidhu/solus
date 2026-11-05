@@ -68,6 +68,68 @@ describe('PR watch rules', () => {
     expect(kinds).toEqual([[], ['checks-failed'], []])
   })
 
+  test('a failure told while others ran is told once more when the last one finishes', () => {
+    // WHY: a failed gate never reports a pass, and the wake tells the agent to
+    // end its turn. Without this wake the session waits after CI has ended.
+    const failed = check('build', 'failure')
+    const { kinds, state } = run([
+      read({ checks: checks([failed, check('lint', null), check('types', null)]) }),
+      read({ checks: checks([failed, check('lint', 'success'), check('types', null)]) }),
+      read({ checks: checks([failed, check('lint', 'success'), check('types', 'success')]) }),
+      read({ checks: checks([failed, check('lint', 'success'), check('types', 'success')]) }),
+    ])
+    expect(kinds).toEqual([['checks-failed'], [], ['checks-failed'], []])
+    expect(state.owedChecks).toEqual([])
+
+    const last = evaluateWatch(
+      evaluateWatch(initialWatchState(STARTED_AT), read({ checks: checks([failed, check('lint', null)]) })).next,
+      read({ checks: checks([failed, check('lint', 'success')]) }),
+    )
+    expect(last.news).toEqual([{ kind: 'checks-failed', checks: [failed] }])
+  })
+
+  test('the optional checks of a failed gate are waited on too, and with no required check so are all', () => {
+    const failed = check('build', 'failure')
+    expect(run([
+      read({ checks: checks([failed], [check('bot', null)]) }),
+      read({ checks: checks([failed], [check('bot', 'success')]) }),
+    ]).kinds).toEqual([['checks-failed'], ['checks-failed']])
+    expect(run([
+      read({ checks: checks([], [failed, check('bot', null)]) }),
+      read({ checks: checks([], [failed, check('bot', 'neutral')]) }),
+    ]).kinds).toEqual([['checks-failed'], ['checks-failed']])
+  })
+
+  test('a failure with nothing running owes nothing, and a check that starts later wakes no one', () => {
+    const failed = check('build', 'failure')
+    expect(run([
+      read({ checks: checks([failed]) }),
+      read({ checks: checks([failed, check('late', null)]) }),
+      read({ checks: checks([failed, check('late', 'success')]) }),
+    ]).kinds).toEqual([['checks-failed'], [], []])
+  })
+
+  test('a second failure in the last read is told once, and a push forgets the owed wake', () => {
+    const failed = check('build', 'failure')
+    expect(run([
+      read({ checks: checks([failed, check('lint', null)]) }),
+      read({ checks: checks([failed, check('lint', 'failure')]) }),
+      read({ checks: checks([failed, check('lint', 'failure')]) }),
+    ]).kinds).toEqual([['checks-failed'], ['checks-failed'], []])
+    const pushed = run([
+      read({ checks: checks([failed, check('lint', null)]) }),
+      read({ headSha: 'head-2', checks: checks([check('build', null)]) }),
+    ])
+    expect(pushed.state.owedChecks).toEqual([])
+    expect(pushed.kinds).toEqual([['checks-failed'], []])
+  })
+
+  test('a stored state with no debt reads as before: the owed list needs no migration', () => {
+    const stored = { ...initialWatchState(STARTED_AT), headSha: 'head-1', failedChecks: ['build'], owedChecks: [] }
+    const failed = check('build', 'failure')
+    expect(run([read({ checks: checks([failed, check('lint', 'success')]) })], stored).kinds).toEqual([[]])
+  })
+
   test('a check that fails again after a rerun on the same head is news again', () => {
     const { kinds } = run([
       read({ checks: checks([check('build', 'failure')]) }),
@@ -194,6 +256,19 @@ describe('PR watch rules', () => {
     expect(kinds).toEqual([['conflicting'], [], [], [], ['conflicting']])
   })
 
+  test('a conflict a push did not fix is news again, also after the host recomputes', () => {
+    expect(run([
+      read({ mergeable: false }),
+      read({ headSha: 'head-2', mergeable: false }),
+      read({ headSha: 'head-2', mergeable: false }),
+    ]).kinds).toEqual([['conflicting'], ['conflicting'], []])
+    expect(run([
+      read({ mergeable: false }),
+      read({ headSha: 'head-2', mergeable: null }),
+      read({ headSha: 'head-2', mergeable: false }),
+    ]).kinds).toEqual([['conflicting'], [], ['conflicting']])
+  })
+
   test('remarks after the start are news; the agent account and older remarks are not', () => {
     const evaluation = evaluateWatch(initialWatchState(STARTED_AT), read({
       remarks: [
@@ -253,6 +328,14 @@ describe('PR watch wake text', () => {
     expect(text).toContain('build (GitHub Actions): failure — https://ci.example/build')
     expect(text).toContain('reviewer on src/a.ts: "Please rename this" — https://github.com/c/1')
     expect(text).toContain('watch_pull_request with watching=false')
+  })
+
+  test('a long comment is cut between two characters, never inside an emoji', () => {
+    // WHY: a provider that reads strict JSON rejects a turn with a lone surrogate.
+    const remarks = [{ ...remark('r1', '2026-10-07T12:01:00Z'), body: `${'a'.repeat(198)}${'😀'.repeat(5)}` }]
+    const text = wakeText({ number: 1, url: 'u', headSha: 'h' }, [{ kind: 'remarks', remarks }], null)
+    expect(text.isWellFormed()).toBe(true)
+    expect(text).toContain(`"${'a'.repeat(198)}…"`)
   })
 
   test('a long list is cut at ten items', () => {

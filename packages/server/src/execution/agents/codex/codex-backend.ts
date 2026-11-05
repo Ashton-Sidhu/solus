@@ -137,6 +137,19 @@ function isThreadNotLoadedError(error: Error): error is CodexRpcError {
   return error instanceof CodexRpcError && /thread not loaded/i.test(error.message)
 }
 
+/** A thread archived outside Solus refuses `thread/fork` and `thread/resume`.
+ *  Only starting a run unarchives it, once: a read must not change the thread. */
+async function withUnarchivedThread(client: CodexAppServerClient, threadId: string, send: () => Promise<CodexThreadStartResponse>): Promise<CodexThreadStartResponse> {
+  try {
+    return await send()
+  } catch (error) {
+    if (!(error instanceof CodexRpcError) || !/session \S+ is archived/i.test(error.message)) throw error
+    log.info('codex_thread_unarchived', { sessionId: threadId })
+    await client.request('thread/unarchive', { threadId })
+    return send()
+  }
+}
+
 /** Config overrides for a bare run. They keep out the user's and the project's
  *  setup (AGENTS.md, plugins, apps, the skill list, MCP servers), Codex's
  *  permission and environment text, and every built-in tool except web search
@@ -629,6 +642,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       let response: CodexThreadStartResponse
       if (conversation.kind === 'fork' && threadId) {
+        const sourceThreadId = threadId
         let lastTurnId: string | undefined
         if (conversation.excludeLatestTurn) {
           const source = await handle.client.request<CodexThreadReadResponse>('thread/read', {
@@ -639,11 +653,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           const activeTurnId = this.activeRuns.get(threadId)?.turnId ?? null
           lastTurnId = codexForkCutoffTurnId(turns, activeTurnId)
         }
-        response = await handle.client.request<CodexThreadStartResponse>('thread/fork', {
-          threadId,
+        response = await withUnarchivedThread(handle.client, sourceThreadId, () => handle.client.request<CodexThreadStartResponse>('thread/fork', {
+          threadId: sourceThreadId,
           lastTurnId,
           developerInstructions,
-        })
+        }))
         threadId = response.thread.id
       } else if (!threadId) {
         try {
@@ -661,10 +675,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }
         threadId = response.thread.id
       } else {
-        response = await handle.client.request<CodexThreadStartResponse>('thread/resume', handle.isCompaction ? { threadId } : {
-          threadId,
+        const resumedThreadId = threadId
+        response = await withUnarchivedThread(handle.client, resumedThreadId, () => handle.client.request<CodexThreadStartResponse>('thread/resume', handle.isCompaction ? { threadId: resumedThreadId } : {
+          threadId: resumedThreadId,
           ...toolsConfig,
-        })
+        }))
         threadId = response.thread.id || threadId
       }
 

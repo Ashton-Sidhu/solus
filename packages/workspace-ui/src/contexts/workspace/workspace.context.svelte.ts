@@ -631,9 +631,15 @@ export class WorkspaceContext implements SurfaceContext {
    *  page, and restoring a companion pane all reveal chats. */
   trackVisibleConversations(): void {
     $effect(() => {
+      const heldUnread = this.metadata.heldUnreadSessionIds
+      // A mark-unread holds only while its session stays on screen: leaving
+      // lets this effect read it on the way back.
+      for (const sessionId of heldUnread) {
+        if (!this.isSessionVisible(sessionId)) heldUnread.delete(sessionId)
+      }
       for (const tabId of this.tabOrder) {
         const tab = this.tabs[tabId]
-        if (tab?.hasUnread && this.isSessionVisible(tab.sessionId)) {
+        if (tab?.hasUnread && this.isSessionVisible(tab.sessionId) && !heldUnread.has(tab.sessionId)) {
           tab.hasUnread = false
           // Seeing it here is what "read" means, so the host hears about it and
           // every other device clears the same session.
@@ -1246,6 +1252,9 @@ export class WorkspaceContext implements SurfaceContext {
     const tab = this.tabs[tabId]
     const session = this.sessionFor(tabId)
     const previousTabId = this.activeTabId
+    // The two paths below clear the flag themselves, which the visibility
+    // effect cannot see, so opening an unread tab tells the host here.
+    if (tab?.hasUnread) this.metadata.publishSessionViewed(tab.sessionId)
     if (tabId === this.activeTabId) {
       // If a page covers the active conversation, selecting its tab reveals the
       // conversation again. Otherwise it is a no-op apart from read state.
