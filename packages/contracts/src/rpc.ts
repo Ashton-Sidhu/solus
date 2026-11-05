@@ -130,6 +130,10 @@ export const RPC_INVOKE_METHODS = [
   'takeScreenshot',
   'pasteImage',
   'transcribeAudio',
+  'voiceStreamStart',
+  'voiceStreamFeed',
+  'voiceStreamFinish',
+  'voiceStreamCancel',
   'warmTranscription',
   'voiceModelStatus',
   'voiceModelRetry',
@@ -261,6 +265,10 @@ export const RPC_INVOKE_METHODS = [
   'hostsAddWsl',
   'hostsRemoveForwarded',
   'hostsLinkForwarded',
+  // The hosts the owner connected to themselves, while signed out (plans/031 D7)
+  'hostListRead',
+  'hostListPut',
+  'hostListRemove',
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
@@ -284,6 +292,7 @@ export const RPC_INVOKE_METHODS = [
   'uplinkStatus',
   // Organization scope (docs/plans/organization-scope.md): this host's standing, its Insights opt-ins, and publication
   'hostOrganizations',
+  'hostPolicy',
   'hostSetInsightsOptIn',
   // Cloud sharing (docs/plans/cloud-sharing.md): a Local work read from its host, uploaded to the Solus API, then removed
   'workExportForCloud',
@@ -296,7 +305,6 @@ export const RPC_INVOKE_METHODS = [
   'shareGet',
   'shareSet',
   'shareSetLink',
-  'shareTransfer',
   // The origin a resource's share link names (docs/plans/host-sharing.md §2)
   'shareLinkOrigin',
   // Provider seats: a member's own Claude or Codex login on this host

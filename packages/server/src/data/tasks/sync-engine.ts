@@ -13,8 +13,8 @@ import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '../../db/database'
 import { withUserScope } from '../../vault/acting-scope'
-import { taskLinks, taskSessionLinks, tasks } from './schema'
-import { sessionPullRequests } from '../sessions/schema'
+import { tasks } from './schema'
+import { resourceLinks } from '../links/schema'
 import { createLogger } from '../../logger'
 import { loadProjectConfig } from '../../project-config/project-config'
 import { linkedPullRequestIsMerged, readTaskLinks, type PrLinkTarget } from './task-links'
@@ -22,7 +22,7 @@ import { taskSessions } from './task-sessions'
 import { createTask, emitChanged, TASK_HERE } from './task-store'
 import { Task as TaskModel } from './task'
 import {
-  dirtyCommentsForTask,
+  pendingCommentsForTask,
   acknowledgeExternalPush,
   externalLinkForTask,
   externalLinkForTicket,
@@ -49,14 +49,14 @@ import { mentionsAsText } from '@solus/contracts/mentions'
 const log = createLogger('main', 'task-sync')
 const PUSH_DEBOUNCE_MS = 2_000
 
-const ownerRowSchema = z.object({ owner_key: z.string() })
+const ownerRowSchema = z.object({ created_by: z.string() })
 
 /** Whose credentials a task's link syncs with: its owner's (docs/plans/access-model.md §2.2). */
 async function taskOwnerKey(organizationId: string, taskId: string): Promise<string | null> {
   const row = ownerRowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT owner_key FROM ${tasks} WHERE organization_id = ${organizationId} AND id = ${taskId}
+    SELECT created_by FROM ${tasks} WHERE organization_id = ${organizationId} AND id = ${taskId}
   `))
-  return row?.owner_key || null
+  return row?.created_by || null
 }
 const POLL_INTERVAL_MS = 5 * 60_000
 
@@ -251,7 +251,7 @@ export class TaskSyncEngine {
         const link = record.link
         const mustVisit = link.lastSyncedAt == null
           || link.syncState !== 'ok'
-          || await hasPendingSync(link.taskId)
+          || await hasPendingSync(record.organizationId, link.taskId)
         if (mustVisit || changed.has(link.externalId)) due.push(record)
       }
     }
@@ -381,19 +381,20 @@ export class TaskSyncEngine {
         }
       }
 
-      const dirtyComments = await dirtyCommentsForTask(taskId)
-      for (const comment of dirtyComments) {
+      const pendingComments = await pendingCommentsForTask(organizationId, taskId)
+      for (const comment of pendingComments) {
         // Assets go up before the text that references them, and the durable
         // comment keeps its `asset://` reference: only the posted body carries
         // the provider URL. A mention goes up as `@Name`: the provider knows no
         // Solus member, and the durable comment keeps the user id.
         const publishedBody = await adapter.publishAssets(refFor(currentLink), mentionsAsText(comment.body))
         const posted = await adapter.postComment(refFor(currentLink), publishedBody)
-        await markCommentSynced(getDatabase(), comment.id, posted.externalId)
+        await markCommentSynced(getDatabase(), organizationId, taskId, comment.id, posted.externalId)
       }
       const currentTask = (await TaskModel.byId(organizationId, taskId)).record()
       await getDatabase().transaction((db) => acknowledgeExternalPush(
         db,
+        organizationId,
         taskId,
         lastTicket,
         acknowledgedFields(adapter, currentTask, currentLink, pushedPatch),
@@ -402,7 +403,7 @@ export class TaskSyncEngine {
       const hasClientVisibleChange = changedCommentCount > 0
         || epicChanged
         || currentLink.dirtyFields.length > 0
-        || dirtyComments.length > 0
+        || pendingComments.length > 0
         || currentLink.syncState !== 'ok'
       if (hasClientVisibleChange) emitChanged(taskId)
       return externalLinkForTask(taskId)
@@ -602,17 +603,18 @@ export async function completeTasksForMergedPullRequest(
       AND tasks.status NOT IN ('done', 'dropped')
       AND (
         EXISTS (
-          SELECT 1 FROM ${taskLinks}
-          WHERE task_links.task_id = tasks.id AND task_links.kind = 'pr'
-            AND task_links.target_key = ${String(number)} AND task_links.target_scope = ${repositoryScope}
+          SELECT 1 FROM ${resourceLinks} AS own
+          WHERE own.source_kind = 'task' AND own.source_id = tasks.id AND own.target_kind = 'pr'
+            AND own.target_key = ${String(number)} AND own.target_scope = ${repositoryScope.toLowerCase()}
         )
         OR EXISTS (
-          SELECT 1 FROM ${taskSessionLinks}
-          JOIN ${sessionPullRequests} ON session_pull_requests.session_id = task_session_links.session_id
-          WHERE task_session_links.task_id = tasks.id AND task_session_links.role <> 'referenced'
-            AND session_pull_requests.source <> 'dismissed'
-            AND session_pull_requests.repository = ${repositoryScope.toLowerCase()}
-            AND session_pull_requests.number = ${number}
+          SELECT 1 FROM ${resourceLinks} AS works_on
+          JOIN ${resourceLinks} AS owned ON owned.source_kind = 'session' AND owned.source_id = works_on.target_key
+            AND owned.target_kind = 'pr' AND owned.relation = 'pull-request' AND owned.status = 'active'
+          WHERE works_on.source_kind = 'task' AND works_on.source_id = tasks.id AND works_on.target_kind = 'session'
+            AND works_on.relation = 'works-on' AND works_on.status = 'active'
+            AND owned.repository = ${repositoryScope.toLowerCase()}
+            AND owned.number = ${number}
         )
       )
   `))

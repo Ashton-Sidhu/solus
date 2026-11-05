@@ -3,10 +3,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
-import { randomBytes } from 'node:crypto'
-import { cloudDeviceHostConfigSchema, DEVICE_SECRET_SAVED, type DeviceSummary, type EasDeviceHostConfig, type SimlockDeviceHostConfig } from '@solus/contracts/device-types'
-import { EasDeviceHost } from '@solus/server/devices/eas-device-host'
-import { ExpoDeviceApi, ExpoDeviceApiError, type ExpoDeviceSession } from '@solus/server/devices/expo-device-api'
+import { cloudDeviceHostConfigSchema, type DeviceSummary, type SimlockDeviceHostConfig } from '@solus/contracts/device-types'
 import { SimlockDeviceHost, simlockToken } from '@solus/server/devices/simlock-device-host'
 import { DeviceToolchain } from '@solus/server/devices/device-toolchain'
 import { DeviceHubProxy } from '@solus/server/devices/device-hub-proxy'
@@ -15,48 +12,9 @@ import type { DeviceCommandRunner } from '@solus/server/devices/device-process'
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))) })
 async function directory() { const path = await mkdtemp(join(tmpdir(), 'solus-cloud-device-')); directories.push(path); return path }
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
-}
-const eas: EasDeviceHostConfig = { kind: 'eas', id: 'expo', label: 'Expo', appId: '1dbd623d-8794-4dfc-8a1b-6af10341fced', accessToken: 'expo-secret', maxSessionMinutes: 30, idleMinutes: 10, maxConcurrentSessions: 1 }
 const simlock: SimlockDeviceHostConfig = { kind: 'simlock', id: 'pool', label: 'Pool', gatewayUrl: 'https://gateway.test', agentToken: 'pool-secret', maxLeases: 1, maxLeaseMinutes: 60 }
-const ios: DeviceSummary = { deviceHostId: eas.id, deviceId: 'eas-ios', name: 'iPhone', version: 'Cloud', platform: 'ios', booted: false, physical: false }
-class FakeExpo extends ExpoDeviceApi {
-  created: { id: string; name: string; appId: string; maxRunTimeMinutes: number; maxIdleTimeMinutes: number }[] = []
-  stopped: string[] = []
-  activeSessions: { id: string; name: string; status: string }[] = []
-  status = 'IN_PROGRESS'
-  holdCreate: Promise<void> | null = null
-  onCreate = () => {}
-  override async check() { return [{ id: eas.appId, fullName: '@test/app' }] }
-  override async create(input: Parameters<ExpoDeviceApi['create']>[0]) {
-    const id = `session-${this.created.length + 1}`
-    this.created.push({ id, ...input }); this.onCreate()
-    if (this.holdCreate) await this.holdCreate
-    return id
-  }
-  override async session(id: string): Promise<ExpoDeviceSession> {
-    return { id, status: this.status, remoteConfig: { agentDeviceRemoteSessionUrl: 'https://agent.test', agentDeviceRemoteSessionToken: 'daemon-secret', previewApiUrl: 'https://preview.test', webPreviewToken: 'preview-secret' } }
-  }
-  override async active() { return this.activeSessions }
-  override async stop(id: string) { this.stopped.push(id); return 'STOPPED' }
-}
-const previewFetch = (async () => Response.json({ device: 'REMOTE-UDID', serial: 'emulator-remote' })) as typeof fetch
-
-async function expoHost(config = eas, api = new FakeExpo('')) {
-  const path = join(await directory(), 'eas.json')
-  const host = new EasDeviceHost(config, path, api, previewFetch)
-  return { host, api, path, ready: await host.ensureReady() }
-}
-
+const ios: DeviceSummary = { deviceHostId: simlock.id, deviceId: 'pool-ios', name: 'iPhone', version: 'Cloud', platform: 'ios', booted: false, physical: false }
 describe('cloud device settings', () => {
-  test('EAS refuses idle limits that could conceal a longer billed session', () => {
-    expect(cloudDeviceHostConfigSchema.safeParse({ ...eas, idleMinutes: 30 }).success).toBe(false)
-    expect(cloudDeviceHostConfigSchema.safeParse({ ...eas, maxSessionMinutes: 116 }).success).toBe(false)
-    expect(cloudDeviceHostConfigSchema.safeParse(eas).success).toBe(true)
-  })
   test('a Simlock gateway is an origin, without embedded credentials or routes', () => {
     for (const gatewayUrl of ['', 'not-a-url', 'file:///tmp/pool', 'https://user:secret@gateway.test', 'https://gateway.test/path', 'https://gateway.test?token=secret']) expect(cloudDeviceHostConfigSchema.safeParse({ ...simlock, gatewayUrl }).success).toBe(false)
     expect(cloudDeviceHostConfigSchema.safeParse(simlock).success).toBe(true)
@@ -65,95 +23,6 @@ describe('cloud device settings', () => {
     const env = { AGENT_DEVICE_DAEMON_BASE_URL: 'https://gateway.test/v1/agent-device', AGENT_DEVICE_DAEMON_AUTH_TOKEN: 'env-secret' }
     expect(simlockToken({ ...simlock, agentToken: '' }, env)).toBe('env-secret')
     expect(simlockToken({ ...simlock, gatewayUrl: 'https://other.test', agentToken: '' }, env)).toBe('')
-  })
-})
-
-describe('EAS devices', () => {
-  test('opening records ownership before billing, passes limits, and routes by session id', async () => {
-    const { host, ready, api, path } = await expoHost()
-    api.onCreate = () => { /* The assertion below reads the ledger inside create. */ }
-    let recorded = false
-    const original = api.create.bind(api)
-    api.create = async (input) => { recorded = (await readFile(path, 'utf8')).includes(input.name); return original(input) }
-    const id = await ready.devices!.boot(ios)
-    expect(recorded).toBe(true)
-    expect(api.created[0]).toMatchObject({ maxRunTimeMinutes: 30, maxIdleTimeMinutes: 10 })
-    expect(ready.devices!.agentEndpoint(id)).toMatchObject({ deviceId: 'REMOTE-UDID', baseUrl: 'https://agent.test' })
-    expect(ready.upstream!(id, 'video.avcc')).toMatchObject({ url: 'https://preview.test/helper/REMOTE-UDID/stream.avcc', headers: { authorization: 'Bearer preview-secret' } })
-    expect(ready.upstream!(id, 'exec')).toBeNull()
-    expect((await host.summary()).config.accessToken).toBe(DEVICE_SECRET_SAVED)
-    expect(JSON.stringify(await host.summary())).not.toContain('expo-secret')
-    await host.stop()
-    expect(api.stopped).toEqual([id])
-  })
-  test('concurrent opens cannot exceed the paid session limit', async () => {
-    const { host, ready, api } = await expoHost()
-    const held = deferred<void>(); const created = deferred<void>()
-    api.holdCreate = held.promise; api.onCreate = () => created.resolve()
-    const first = ready.devices!.boot(ios)
-    await created.promise
-    await expect(ready.devices!.boot(ios)).rejects.toThrow('limit')
-    held.resolve(); await first
-    expect(api.created).toHaveLength(1)
-    await host.stop()
-  })
-  test('a stop during create cleans up the resulting session', async () => {
-    const { host, ready, api } = await expoHost()
-    const held = deferred<void>(); const created = deferred<void>()
-    api.holdCreate = held.promise; api.onCreate = () => created.resolve()
-    const opening = ready.devices!.boot(ios)
-    await created.promise
-    const stopped = host.stop()
-    held.resolve()
-    await expect(opening).rejects.toThrow('Could not start')
-    await stopped
-    expect(api.stopped).toContain('session-1')
-    expect((await ready.devices!.list()).some((device) => device.booted)).toBe(false)
-  })
-  test('restart recovery stops only names in its ledger, including an uncertain create', async () => {
-    const path = join(await directory(), 'ledger.json')
-    await writeFile(path, JSON.stringify([{ name: 'solus-owned', appId: eas.appId }]))
-    const api = new FakeExpo('')
-    api.activeSessions = [{ id: 'owned-id', name: 'solus-owned', status: 'IN_PROGRESS' }, { id: 'outside-id', name: 'another-tool', status: 'IN_PROGRESS' }]
-    const host = new EasDeviceHost(eas, path, api, previewFetch)
-    await host.recover()
-    expect(api.stopped).toEqual(['owned-id'])
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual([])
-  })
-  test('a definite create refusal frees its slot, while unconfirmed stops keep ownership', async () => {
-    const { host, ready, api, path } = await expoHost()
-    const create = api.create.bind(api)
-    api.create = async () => { throw new ExpoDeviceApiError('Account refused this start.', true) }
-    await expect(ready.devices!.boot(ios)).rejects.toThrow('Could not start')
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual([])
-    api.create = create
-    const id = await ready.devices!.boot(ios)
-    api.stop = async () => 'IN_PROGRESS'
-    await expect(host.stop()).rejects.toThrow('not confirmed')
-    expect(JSON.parse(await readFile(path, 'utf8'))[0].id).toBe(id)
-    api.stop = async () => 'STOPPED'
-    await host.stop()
-  })
-
-  test('an uncertain create keeps its prewritten name for restart cleanup', async () => {
-    const { ready, api, path } = await expoHost()
-    api.create = async () => { throw new Error('Connection lost after sending create') }
-    await expect(ready.devices!.boot(ios)).rejects.toThrow('Could not start')
-    const records = JSON.parse(await readFile(path, 'utf8')) as { name: string; appId: string }[]
-    expect(records).toHaveLength(1)
-    api.activeSessions = [{ id: 'late-session', name: records[0]!.name, status: 'QUEUED' }]
-    const recovered = new EasDeviceHost(eas, path, api, previewFetch)
-    await recovered.recover()
-    expect(api.stopped).toEqual(['late-session'])
-  })
-
-  test('Expo expiry drops its device and daemon endpoint on the next refresh', async () => {
-    const { host, ready, api } = await expoHost()
-    const id = await ready.devices!.boot(ios)
-    api.status = 'ERRORED'
-    expect((await ready.devices!.list()).some((device) => device.deviceId === id)).toBe(false)
-    expect(ready.devices!.agentEndpoint(id)).toBeNull()
-    await host.stop()
   })
 })
 
@@ -208,28 +77,27 @@ describe('Simlock leases', () => {
   })
 })
 
-test('cloud proxy supplies credentials on the host and never exposes preview shell tokens', async () => {
+test('cloud proxy supplies credentials on the host and only permits video routes', async () => {
   const received: { url: string; auth: string | undefined }[] = []
   const server = createServer((req, res) => {
     received.push({ url: req.url ?? '', auth: req.headers.authorization })
-    res.setHeader('content-type', 'application/json')
-    res.end(JSON.stringify({ token: 'shell-secret', streamSettings: { transport: 'webrtc', iceServers: [{ urls: 'stun:stun.test' }] } }))
+    res.setHeader('content-type', 'video/h264')
+    res.end('video-data')
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('No fixture port')
   const origin = `http://127.0.0.1:${address.port}`
-  const proxy = new DeviceHubProxy({ hubOrigin: async () => { throw new Error('Cloud has no hub') }, upstream: async (_target, route) => ['config', 'offer'].includes(route) ? { url: `${origin}/${route}`, headers: { authorization: 'Bearer preview-secret' } } : null, holdsControl: () => false, secret: () => Buffer.alloc(32) })
+  const proxy = new DeviceHubProxy({ hubOrigin: async () => { throw new Error('Cloud has no hub') }, upstream: async (_target, route) => route === 'video.avcc' ? { url: `${origin}/${route}`, headers: { authorization: 'Bearer preview-secret' } } : null, holdsControl: () => false, secret: () => Buffer.alloc(32) })
   try {
-    const token = proxy.mint('client', { deviceHostId: 'expo', deviceId: 'session-1' }, 'ios').split('/').at(-1)!
-    const config = await proxy.serve(token, 'config', new AbortController().signal)
-    const body = await config.text()
-    expect(body).toContain('webrtc')
-    expect(body).not.toContain('shell-secret')
+    const token = proxy.mint('client', { deviceHostId: 'pool', deviceId: 'session-1' }, 'ios').split('/').at(-1)!
+    const video = await proxy.serve(token, 'video.avcc', new AbortController().signal)
+    const body = await video.text()
+    expect(body).toBe('video-data')
     expect(body).not.toContain('preview-secret')
-    expect(received).toEqual([{ url: '/config', auth: 'Bearer preview-secret' }])
+    expect(received).toEqual([{ url: '/video.avcc', auth: 'Bearer preview-secret' }])
     expect((await proxy.serve(token, 'exec', new AbortController().signal)).status).toBe(404)
-    expect((await proxy.serve(token, 'offer', new AbortController().signal, new Request(`${origin}/offer`, { method: 'POST', body: JSON.stringify({ command: 'whoami' }) }))).status).toBe(400)
+    expect((await proxy.serve(token, 'offer', new AbortController().signal, new Request(`${origin}/offer`, { method: 'POST', body: JSON.stringify({ command: 'whoami' }) }))).status).toBe(404)
     expect(received).toHaveLength(1)
   } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())) }
 })
@@ -240,7 +108,7 @@ import type { DeviceHost, DeviceHostReady } from '@solus/server/devices/device-h
 
 async function cloudManager() {
   const settings = new DeviceSettingsStore(join(await directory(), 'settings.json'))
-  await settings.update({ enabled: true, cloudHosts: [eas] })
+  await settings.update({ enabled: true, cloudHosts: [simlock] })
   let running = false
   let stops = 0
   let shutdowns = 0
@@ -255,8 +123,8 @@ async function cloudManager() {
     },
   }
   const cloud: DeviceHost = {
-    deviceHostId: eas.id, kind: 'eas',
-    summary: async () => ({ deviceHostId: eas.id, kind: 'eas', label: 'Expo', platforms: [{ platform: 'ios', available: true }], hubInstalled: true, agentDeviceInstalled: true }),
+    deviceHostId: simlock.id, kind: 'simlock',
+    summary: async () => ({ deviceHostId: simlock.id, kind: 'simlock', label: 'Pool', platforms: [{ platform: 'ios', available: true }], hubInstalled: true, agentDeviceInstalled: true }),
     platformAvailability: async (platform) => ({ platform, available: platform === 'ios' }),
     ensureReady: async () => ready, ensureAgentReady: async () => ({ ...ready, agentDevice: null }), current: () => ready,
     updateTool: async () => {}, stopAgent: async () => {}, stop: async () => { stops++; if (refuseStop) throw new Error('Cleanup not confirmed'); running = false },
@@ -270,8 +138,8 @@ async function cloudManager() {
 test('cloud preview close releases a device only after its last session closes', async () => {
   const { manager, shutdowns } = await cloudManager()
   try {
-    const first = await manager.open({ sessionId: 'one', deviceHostId: eas.id, deviceId: 'eas-ios', platform: 'ios' }, 'user')
-    await manager.open({ sessionId: 'two', deviceHostId: eas.id, deviceId: first.deviceId, platform: 'ios' }, 'user')
+    const first = await manager.open({ sessionId: 'one', deviceHostId: simlock.id, deviceId: 'pool-ios', platform: 'ios' }, 'user')
+    await manager.open({ sessionId: 'two', deviceHostId: simlock.id, deviceId: first.deviceId, platform: 'ios' }, 'user')
     expect(manager.state().settings).not.toHaveProperty('cloudHosts')
     await manager.close({ sessionId: 'one' })
     expect(shutdowns()).toBe(0)
@@ -284,9 +152,20 @@ test('cloud preview close releases a device only after its last session closes',
 test('a failed cloud cleanup preserves its saved credential and configuration', async () => {
   const { manager, settings, refuseStop } = await cloudManager()
   refuseStop()
-  await expect(manager.saveCloudHost({ ...eas, accessToken: 'replacement-token' })).rejects.toThrow('Cleanup not confirmed')
-  expect(settings.get().cloudHosts?.[0]).toEqual(eas)
-  await expect(manager.removeCloudHost(eas.id)).rejects.toThrow('Cleanup not confirmed')
-  expect(settings.get().cloudHosts?.[0]).toEqual(eas)
+  await expect(manager.saveCloudHost({ ...simlock, agentToken: 'replacement-token' })).rejects.toThrow('Cleanup not confirmed')
+  expect(settings.get().cloudHosts?.[0]).toEqual(simlock)
+  await expect(manager.removeCloudHost(simlock.id)).rejects.toThrow('Cleanup not confirmed')
+  expect(settings.get().cloudHosts?.[0]).toEqual(simlock)
   await manager.dispose()
+})
+
+
+test('loading old device sources keeps saved Simlock pools and their credentials', async () => {
+  const path = join(await directory(), 'settings.json')
+  await writeFile(path, JSON.stringify({ enabled: true, cloudHosts: [{ kind: 'eas', id: 'old-source', label: 'Old source', appId: '1dbd623d-8794-4dfc-8a1b-6af10341fced', accessToken: '', maxSessionMinutes: 30, idleMinutes: 10, maxConcurrentSessions: 2 }, simlock] }))
+  const settings = new DeviceSettingsStore(path)
+  expect(settings.get().enabled).toBe(true)
+  expect(settings.get().cloudHosts).toEqual([simlock])
+  await settings.update({ autoShowAgentDevices: false })
+  expect(JSON.parse(await readFile(path, 'utf8')).cloudHosts).toEqual([simlock])
 })

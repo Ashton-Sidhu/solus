@@ -178,7 +178,6 @@ describe('a row is marked with what actually made it', () => {
   it('keeps each work format on the icon Solus already uses for it, slides included', () => {
     expect(work('doc')).toBe('doc')
     expect(work('slides')).toBe('slides')
-    expect(work('diagram')).toBe('diagram')
   })
 
   it('gives HTML artifacts their own facet instead of filing them under Docs', () => {

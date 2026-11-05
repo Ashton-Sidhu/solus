@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { hostCategorySchema, hostOrganizationSchema, hostOwnerIdentitySchema } from './uplink'
+import { POLICY_REFUSAL_CODES } from './policy'
 
 /**
  * Organization scope on a host (docs/plans/organization-scope.md §3, §6.1, §7):
@@ -26,6 +27,8 @@ export const turnRefusalSchema = z.enum([
   'ORGANIZATION_AUTHORITY_MISSING',
   /** The host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1). */
   'WORKSPACE_PREPARING',
+  /** A host or organization policy refused the work (plans/030 §6.1); the message names the policy. */
+  ...POLICY_REFUSAL_CODES,
 ])
 export type TurnRefusal = z.infer<typeof turnRefusalSchema>
 
@@ -37,8 +40,8 @@ export const hostOrganizationsStatusSchema = z.object({
   category: hostCategorySchema,
   /** The account this host is registered to; null on a managed host or before the control plane answered. */
   owner: hostOwnerIdentitySchema.nullable(),
-  /** The organizations this host may deliver records to, each with its policy. */
-  organizations: z.array(hostOrganizationSchema),
+  /** The organizations this host may deliver records to. Their policies reach clients as a summary, through `hostPolicy`. */
+  organizations: z.array(hostOrganizationSchema.omit({ policy: true, hostPolicy: true })),
   /** Organizations the person at this host opted its work into while their **Sync all Insights** is off (§6.1). */
   insightsOptIn: z.array(z.string()),
   /**

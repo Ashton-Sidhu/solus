@@ -29,6 +29,27 @@ function isPlain(token: Token): boolean {
 
 const markedFor = new WeakMap<MarkedExtension[], Marked>()
 
+/** Finished replies, most recently used last, keyed by extension set and
+ *  text. A conversation that mounts again (ConversationPool unmounts older
+ *  ones) does not lex a long reply again: a 50 KB reply costs hundreds of
+ *  milliseconds. About 10 MB of text; a reply over a quarter of that is not
+ *  kept. Only finished replies come here: a streaming reply never does. */
+const CACHE_MAX_CHARS = 500_000
+const ENTRY_MAX_CHARS = CACHE_MAX_CHARS / 4
+const settledCache = new Map<string, SettledBlock[] | null>()
+let cachedChars = 0
+const extensionSetIds = new WeakMap<MarkedExtension[], number>()
+let nextExtensionSetId = 0
+
+function cacheKey(source: string, extensions: MarkedExtension[]): string {
+  let id = extensionSetIds.get(extensions)
+  if (id === undefined) {
+    id = nextExtensionSetId++
+    extensionSetIds.set(extensions, id)
+  }
+  return `${id}:${source}`
+}
+
 /** Lists and quotes get `dir="auto"`, as `MarkdownList` and
  *  `MarkdownBlockquote` give them in the markdown component. A Hebrew or
  *  Arabic list then has its markers on the right. */
@@ -49,6 +70,26 @@ const messageRenderer: RendererObject = {
  * A reply with raw HTML or footnotes is not split: both need the whole reply.
  */
 export function settledMarkdownBlocks(source: string, extensions: MarkedExtension[]): SettledBlock[] | null {
+  if (source.length > ENTRY_MAX_CHARS) return lexSettledBlocks(source, extensions)
+  const key = cacheKey(source, extensions)
+  const hit = settledCache.get(key)
+  if (hit !== undefined) {
+    settledCache.delete(key)
+    settledCache.set(key, hit)
+    return hit
+  }
+  const blocks = lexSettledBlocks(source, extensions)
+  settledCache.set(key, blocks)
+  cachedChars += source.length
+  for (const [oldest] of settledCache) {
+    if (cachedChars <= CACHE_MAX_CHARS) break
+    settledCache.delete(oldest)
+    cachedChars -= oldest.length - oldest.indexOf(':') - 1
+  }
+  return blocks
+}
+
+function lexSettledBlocks(source: string, extensions: MarkedExtension[]): SettledBlock[] | null {
   if (extensions.some((extension) => extension.extensions?.some((tokenizer) => WHOLE_REPLY_TOKENS.has(tokenizer.name)))) return null
   let marked = markedFor.get(extensions)
   if (!marked) {

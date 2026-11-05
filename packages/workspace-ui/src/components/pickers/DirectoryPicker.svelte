@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { fade, fly } from "svelte/transition";
   import { expoOut } from "svelte/easing";
@@ -521,6 +522,9 @@
       navigateUp();
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open });
 </script>
 
 {#if open && layer.el}

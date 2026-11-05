@@ -1,4 +1,3 @@
-import { parseDiagram } from '@solus/contracts/diagram-types'
 import type { WorkspaceItem } from './workspace-items'
 
 /** The transient hover card's contents and geometry. The card itself is markup;
@@ -124,22 +123,9 @@ function markdownOutline(markdown: string): string[] {
   return [...body.matchAll(/^\s*[-*+]\s+(.+)$/gm)].map((m) => inlineText(m[1]))
 }
 
-/** A diagram's structure is its clusters — the named containers a reader would
- *  use to describe the drawing. Counts are not structure; they go on the meta
- *  line beside the kind. */
-function diagramOutline(content: string): string[] {
-  try {
-    return parseDiagram(content)
-      .nodes.filter((node) => node.group && node.label)
-      .map((node) => inlineText(node.label))
-  } catch {
-    return []
-  }
-}
-
 export function peekOutline(item: WorkspaceItem, content: string | null): PeekOutline {
   if (!content) return EMPTY_OUTLINE
-  const all = item.type === 'diagram' ? diagramOutline(content) : markdownOutline(content)
+  const all = markdownOutline(content)
   return {
     lines: all
       .slice(0, OUTLINE_MAX)

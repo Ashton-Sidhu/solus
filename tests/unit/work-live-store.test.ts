@@ -35,8 +35,8 @@ const { WorkLiveStore } = await import(`${works}/work-live.store.svelte`)
 
 test('two panes on one work share one doc, and the last release destroys it', async () => {
   const store = new WorkLiveStore({ title: () => 'Plan' })
-  const first = store.acquire('host', 'work-1', 'diagram')
-  const second = store.acquire('host', 'work-1', 'diagram')
+  const first = store.acquire('host', 'work-1')
+  const second = store.acquire('host', 'work-1')
   const doc = await first.live
   expect(await second.live).toBe(doc)
   expect(created.filter((each) => each.options.workId === 'work-1')).toHaveLength(1)
@@ -52,7 +52,7 @@ test('two panes on one work share one doc, and the last release destroys it', as
 
 test('a pane released before its doc loads still destroys the doc', async () => {
   const store = new WorkLiveStore({ title: () => 'Plan' })
-  const lease = store.acquire('host', 'work-2', 'diagram')
+  const lease = store.acquire('host', 'work-2')
   lease.release()
   const doc = await lease.live
   await new Promise((done) => setTimeout(done, 0))
@@ -62,7 +62,7 @@ test('a pane released before its doc loads still destroys the doc', async () => 
 test('a failed load is not kept: the next open loads again', async () => {
   const store = new WorkLiveStore({ title: () => 'Plan' })
   failNextLoad = true
-  await expect(store.acquire('host', 'work-3', 'diagram').live).rejects.toThrow('Chunk unavailable')
-  const doc = await store.acquire('host', 'work-3', 'diagram').live
+  await expect(store.acquire('host', 'work-3').live).rejects.toThrow('Chunk unavailable')
+  const doc = await store.acquire('host', 'work-3').live
   expect(doc.options.workId).toBe('work-3')
 })

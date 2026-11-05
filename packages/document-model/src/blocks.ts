@@ -1,5 +1,4 @@
 import { Node, mergeAttributes } from '@tiptap/core'
-import { parseDiagramEmbed, serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 import { parseWorkEmbed, serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { htmlBlockFence, mermaidBlockFence, serializeHtmlBlock, serializeMermaidBlock } from './fences'
 
@@ -123,69 +122,6 @@ export const HtmlBlock = Node.create({
   },
 })
 
-/** A diagram work embedded on its own line: `[title](work://embed?…&type=diagram)`. */
-export const DiagramEmbed = Node.create({
-  name: 'diagramEmbed',
-  group: 'block',
-  atom: true,
-  selectable: true,
-  draggable: true,
-
-  addAttributes() {
-    return {
-      workId: { default: null },
-      title: { default: '' },
-    }
-  },
-
-  markdownTokenizer: {
-    name: 'diagramEmbed',
-    level: 'block',
-    start: embedStart,
-    tokenize(src: string) {
-      const { line, raw } = firstLine(src)
-      const reference = parseDiagramEmbed(line)
-      if (!reference) return undefined
-      return { type: 'diagramEmbed', raw, reference }
-    },
-  },
-
-  parseMarkdown(token) {
-    return {
-      type: 'diagramEmbed',
-      attrs: {
-        workId: String(token.reference?.workId ?? ''),
-        title: String(token.reference?.title ?? ''),
-      },
-    }
-  },
-
-  renderMarkdown(node) {
-    return serializeDiagramEmbed({
-      workId: String(node.attrs?.workId ?? ''),
-      title: String(node.attrs?.title ?? ''),
-    })
-  },
-
-  renderText({ node }) {
-    return serializeDiagramEmbed({
-      workId: String(node.attrs?.workId ?? ''),
-      title: String(node.attrs?.title ?? ''),
-    })
-  },
-
-  parseHTML() {
-    return [{ tag: 'div[data-diagram-embed]' }]
-  },
-
-  renderHTML({ node, HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, {
-      'data-diagram-embed': node.attrs.workId,
-      'data-diagram-title': node.attrs.title,
-    })]
-  },
-})
-
 /** An artifact work embedded on its own line: `[title](work://embed?…&type=artifact)`. */
 export const ArtifactEmbed = Node.create({
   name: 'artifactEmbed',
@@ -208,9 +144,7 @@ export const ArtifactEmbed = Node.create({
     tokenize(src: string) {
       const { line, raw } = firstLine(src)
       const reference = parseWorkEmbed(line)
-      // The diagram tokenizer starts on `[` too. Declining the other member of
-      // the family is what keeps one from swallowing the other's lines.
-      if (reference?.type !== 'artifact') return undefined
+      if (!reference) return undefined
       return { type: 'artifactEmbed', raw, reference }
     },
   },

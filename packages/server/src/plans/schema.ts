@@ -3,11 +3,12 @@ import { bigint, defineTable, integer, json, text } from '../db/schema/define-ta
 /**
  * The plans domain's tables, declared once for both engines
  * (docs/plans/cloud-service-model.md). `plan_annotations` is the review state
- * a person owns; `indexed_plans` is the query model the provider transcript
- * readers keep in step, and `plan_index_providers` records which providers
- * have been indexed in full. A plan is named by its session and its tool use;
- * the thread only says which transcript holds it. Column names and nullability are the ones the
- * hand-written SQLite migrations established; `organization_id` is new.
+ * a person owns: its status, bookmark, and mirror link; its comment threads
+ * are `comment_threads` rows keyed by this durable identity (plans/029 §5.2).
+ * `indexed_plans` is the query model the provider transcript readers keep in
+ * step, and `plan_index_providers` records which providers have been indexed
+ * in full. A plan is named by its session and its tool use; the thread only
+ * says which transcript holds it.
  */
 
 const ORGANIZATION = text({ notNull: true, default: 'local' })
@@ -21,10 +22,11 @@ export const planAnnotations = defineTable('plan_annotations', {
   bookmarked_at: bigint(),
   project_path: text(),
   cwd: text(),
-  comments: json(),
   updated_at: bigint(),
   mirrored_doc: json(),
   organization_id: ORGANIZATION,
+  /** The position the plan's next comment thread takes (`comment_threads.position`), advanced in the inserting transaction. */
+  comment_position: integer({ notNull: true, default: 0 }),
 }, {
   primaryKey: ['session_id', 'plan_tool_use_id'],
 })

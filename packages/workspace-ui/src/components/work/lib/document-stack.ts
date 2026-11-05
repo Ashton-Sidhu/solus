@@ -23,7 +23,6 @@ export function stackKicker(types: Array<WorkType | undefined>): string {
   if (distinct.size > 1) return 'files'
   const [only] = distinct
   if (only === 'slides') return 'decks'
-  if (only === 'diagram') return 'diagrams'
   if (only === 'artifact') return 'artifacts'
   return 'documents'
 }

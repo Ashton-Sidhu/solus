@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-const RESUMABLE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'
 const FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const DOC_MIME_TYPE = 'application/vnd.google-apps.document'
 /** Everything Solus needs to address, order, and version-guard a doc. */
@@ -36,70 +35,6 @@ export async function createEmptyDoc(accessToken: string, title: string, parentI
   if (!res.ok) throw new Error(`Drive create failed (${res.status}): ${responseBody}`)
   const data = z.object({ id: z.string().min(1) }).parse(JSON.parse(responseBody))
   return { docId: data.id, docUrl: docUrlFor(data.id) }
-}
-
-/**
- * A PNG the Docs API can fetch. The Docs API takes an image only by URL and
- * fetches it once at insertion, so a diagram goes up as a Drive file, is
- * readable by link for the seconds the insert takes, and is deleted right
- * after; the document keeps its own copy.
- *
- * The upload is resumable rather than multipart: a figure drawn for a reader
- * zoomed to 200% runs to tens of megapixels, and multipart stops at 5 MB.
- * The bytes go in one PUT — the point here is the size limit, not recovery.
- */
-export async function uploadPng(
-  accessToken: string,
-  name: string,
-  png: Buffer,
-  parentId?: string,
-): Promise<string> {
-  const fields: DriveFileMetadata = { name, mimeType: 'image/png' }
-  if (parentId && parentId !== 'root') fields.parents = [parentId]
-  const start = await fetch(RESUMABLE_UPLOAD_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json; charset=UTF-8',
-      'X-Upload-Content-Type': 'image/png',
-      'X-Upload-Content-Length': String(png.byteLength),
-    },
-    body: JSON.stringify(fields),
-  })
-  if (!start.ok) throw new Error(`Drive image upload failed (${start.status}): ${await start.text()}`)
-  const uploadUrl = start.headers.get('location')
-  if (!uploadUrl) throw new Error('Drive accepted the image upload but named no location to send it to.')
-
-  const res = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'image/png', 'Content-Length': String(png.byteLength) },
-    body: new Uint8Array(png),
-  })
-  const responseBody = await res.text()
-  if (!res.ok) throw new Error(`Drive image upload failed (${res.status}): ${responseBody}`)
-  return z.object({ id: z.string().min(1) }).parse(JSON.parse(responseBody)).id
-}
-
-export async function shareByLink(accessToken: string, fileId: string): Promise<void> {
-  const res = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}/permissions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
-  })
-  if (!res.ok) throw new Error(`Drive share failed (${res.status}): ${(await res.text()).slice(0, 300)}`)
-}
-
-/** The URL Google's own image fetcher resolves for a link-readable file. */
-export function fileContentUrl(fileId: string): string {
-  return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`
-}
-
-export async function deleteFile(accessToken: string, fileId: string): Promise<void> {
-  const res = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!res.ok && res.status !== 404) throw new Error(`Drive delete failed (${res.status}): ${(await res.text()).slice(0, 300)}`)
 }
 
 export function docUrlFor(fileId: string): string {

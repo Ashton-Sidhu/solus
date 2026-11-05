@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { tick, untrack } from "svelte";
   import {
     X as XIcon,
@@ -282,6 +283,9 @@
     "flex min-h-0 w-full flex-col bg-transparent " +
       (expanded ? "flex-1 overflow-y-auto" : "min-h-[5.5rem]"),
   );
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <!-- The task page's priority mark: four bars, filled to the level. -->

@@ -1,10 +1,11 @@
 import type { WorkspaceOperations } from './operations'
 import { workspaceToolAuthority } from '../../admission/workspace-tool-authority'
-import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL, organizationForNew, recordScopeOf } from '../../admission/principal'
+import { INTERNAL_PRINCIPAL, organizationForNew, recordScopeOf } from '../../admission/principal'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import { isOrganizationAttached } from '../../host/organization-attachment'
-import { admittedHomeOf, getSessionRecord, isOrganizationWork } from '../sessions/session-records'
+import { getSessionRecord, isOrganizationWork } from '../sessions/session-records'
+import { sessionIdentityOf } from '../sessions/session-identity'
 
 /**
  * Where an organization run's records are read and written: its Solus API, as the
@@ -41,10 +42,10 @@ export interface WorkspaceToolContext {
 export async function workspaceToolContext(sessionId?: string): Promise<WorkspaceToolContext> {
   if (!installed) throw new Error('Workspace operations are not initialized.')
   const principal = workspaceToolAuthority() ?? INTERNAL_PRINCIPAL
-  const record = sessionId ? await getSessionRecord(ANY_ORGANIZATION, sessionId) : null
-  // A published organization record lives on the Solus API; so does a session the API
-  // admitted whose record is not written yet, or does not show its birth yet.
-  const home = isOrganizationWork(record) ? record : sessionId ? admittedHomeOf(sessionId) : null
+  // A published organization session lives on the Solus API, from its admission on: the
+  // row says so before the provider starts and its record is written.
+  const identity = sessionId ? await sessionIdentityOf(sessionId) : null
+  const home = isOrganizationWork(identity) ? identity : null
   if (sessionId && home && isOrganizationAttached()) {
     const operations = installed.remote?.(sessionId)
     if (!operations) throw new SolusApiError(503, 'CAPABILITY_UNAVAILABLE', 'This organization session holds no authority for its Solus API right now. Send the next message from Solus to continue; nothing was saved on this machine.')

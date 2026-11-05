@@ -1,4 +1,5 @@
-import { type AccessTokenClaims, type HandshakeCredential } from '@solus/contracts/uplink'
+import { type AccessTokenClaims, type HandshakeCredential, type SocketHandshake } from '@solus/contracts/uplink'
+import { dialHostSocket, type HostSocketDial } from '@solus/client-core/host-socket'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 
 /** A socket handshake as a current client sends it: at most one credential. */
@@ -33,4 +34,11 @@ export function fakeAccessTokens() {
       return claims ? { ok: true, claims } : { ok: false, reason: 'bad-signature' }
     },
   }
+}
+
+/** Dials the host socket once with this handshake; the socket ends with the test. */
+export async function dialTestSocket(url: string, auth: SocketHandshake, cleanups: Array<() => void>): Promise<HostSocketDial> {
+  const dialed = await dialHostSocket(url, auth, { timeoutMs: 5_000 })
+  if (dialed.ok) cleanups.push(() => dialed.socket.close())
+  return dialed
 }

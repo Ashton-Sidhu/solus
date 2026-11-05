@@ -13,10 +13,15 @@
   import { Switch } from "../ui/switch";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { hostLock } from "./policy/managed-setting.svelte";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
 
   let { host, searchQuery = "" }: { host: { serverId: string; label: string } | null; searchQuery?: string } = $props();
   const settings = getSettingsContext();
   const hostState = $derived(host ? hostSettingsStore.states.get(host.serverId) : undefined);
+  // `analyticsEnabled` covers the host and the desktop app on that machine (plans/030 §4.4).
+  const deviceLock = $derived(hosts.device ? hostLock(hosts.device.id, "analyticsEnabled") : undefined);
+  const hostAnalyticsLock = $derived(host ? hostLock(host.serverId, "analyticsEnabled") : undefined);
   const matches = (words: string[]) => !searchQuery || words.some((word) => word.includes(searchQuery.toLowerCase()));
 </script>
 
@@ -26,6 +31,7 @@
     description={settings.clientAnalyticsEnabled === null
       ? "Off until you choose. Saved on this device only."
       : "Anonymous usage data from this app. Saved on this device only."}
+    managed={deviceLock}
   >
     {#snippet control()}
       <Switch
@@ -41,6 +47,7 @@
       label="Share anonymous analytics from {host.label}"
       bodyVisible={!!hostState?.error}
       description="Anonymous usage data from the Solus server on this host. Applies to everyone who uses it."
+      managed={hostAnalyticsLock}
     >
       {#snippet control()}
         <Switch

@@ -331,10 +331,9 @@ SOFTWARE.
 ## Cloud device sources (2026-10-30)
 
 The device source forms and preview behavior follow T3 Code at
-`aa11ef6783da81039e6646e2e96941748afb358e`: `EasDeviceHostEditor.tsx`,
-`SimlockDeviceHostEditor.tsx`, `DeviceSourcesSettings.tsx`, and the shared
+`aa11ef6783da81039e6646e2e96941748afb358e`: `SimlockDeviceHostEditor.tsx`, `DeviceSourcesSettings.tsx`, and the shared
 `device/stream.ts`. Solus uses its own typed RPC, source settings store, and
-manual control leases. EAS and Simlock lifecycle code is adapted in the server;
-the decoder and WebRTC code are shared by the workspace and native WebView.
+manual control leases. Simlock lifecycle code is adapted in the server;
+the decoder is shared by the workspace and native WebView.
 The complete upstream MIT notice is also shipped in
 `resources/licenses/t3code-devices.txt`.

@@ -159,12 +159,6 @@ export const shareLinkSchema = z.object({
 })
 export type ShareLink = z.infer<typeof shareLinkSchema>
 
-export const shareTransferRequestSchema = z.object({
-  resource: shareResourceSchema,
-  toUserId: z.string().min(1),
-})
-export type ShareTransferRequest = z.infer<typeof shareTransferRequestSchema>
-
 /** Sent to everyone who can see the resource after any change; the list is re-read. */
 export interface ShareChangedEvent {
   resource: ShareResource

@@ -8,7 +8,6 @@
     GitPullRequest as PullRequestIcon,
     GitPullRequestClosed as ClosedIcon,
     GitPullRequestDraft as DraftIcon,
-    Network as DiagramIcon,
     Presentation as SlidesIcon,
     Workflow as AutomationIcon,
   } from "@lucide/svelte";
@@ -37,7 +36,7 @@
   const iconLabel = $derived(artifactIconLabel(artifact));
   const prState = $derived(artifact.kind === "pull-request" ? (pullRequestState(artifact.link) ?? "unknown") : null);
 
-  const WORK_ICONS = { doc: DocumentIcon, slides: SlidesIcon, diagram: DiagramIcon, artifact: HtmlArtifactIcon };
+  const WORK_ICONS = { doc: DocumentIcon, slides: SlidesIcon, artifact: HtmlArtifactIcon };
   const PR_ICONS = {
     open: PullRequestIcon,
     draft: DraftIcon,
@@ -52,7 +51,6 @@
   const WORK_ICON_COLOR = {
     doc: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
     slides: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
-    diagram: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
     artifact: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
   };
   const PR_ICON_COLOR = {

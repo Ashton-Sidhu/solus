@@ -34,7 +34,6 @@ beforeAll(async () => {
   const reviews = await import('@solus/server/data/works/work-reviews')
   const bodies = [
     { type: 'doc', before: '# Spec\n\nLocal first. [Diagram](work://embed?workId=fixture-diagram&type=diagram)\n\n![Image](asset://proof-image)', after: '# Spec\n\nAgent revision. [Diagram](work://embed?workId=fixture-diagram&type=diagram)\n\n![Image](asset://proof-image)' },
-    { type: 'diagram', before: '{"nodes":[],"edges":[]}', after: '{"nodes":[{"id":"a","label":"API"}],"edges":[]}' },
     { type: 'slides', before: '{"slides":[{"title":"Before"}]}', after: '{"slides":[{"title":"After"}]}' },
     { type: 'artifact', before: '<!doctype html><html><body>Before</body></html>', after: '<!doctype html><html><body>After</body></html>' },
   ] as const
@@ -76,7 +75,7 @@ afterAll(async () => {
 }, 120_000)
 
 test('local work export keeps all types, history, unsnapshotted current body, authors, comments and links', () => {
-  expect(snapshots.map(item => item.work.type)).toEqual(['doc', 'diagram', 'slides', 'artifact'])
+  expect(snapshots.map(item => item.work.type)).toEqual(['doc', 'slides', 'artifact'])
   for (const snapshot of snapshots) {
     expect(snapshot.work.contentVersion).toBe(4)
     expect(snapshot.revisions.at(-1)?.sourceContentVersion).toBe(3)

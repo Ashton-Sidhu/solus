@@ -182,7 +182,7 @@ export type CodexHistoryItem = {
   id?: string
   type?: string
   text?: string
-  content?: Array<{ type?: string; text?: string }>
+  content?: Array<{ type?: string; text?: string; url?: string; path?: string }>
   command?: string
   aggregatedOutput?: string
   result?: unknown
@@ -410,7 +410,7 @@ export function makeCodexPlan(opts: {
     excerpt: extractCodexPlanExcerpt(opts.content),
     planContent: opts.content,
     derivedStatus: status,
-    commentCount: ann?.comments?.length ?? 0,
+    commentCount: ann?.commentCount ?? 0,
     bookmarked: !!ann?.bookmarked,
     bookmarkedAt: ann?.bookmarkedAt,
   }
@@ -483,11 +483,22 @@ export function extractCodexPlanExcerpt(planContent: string): string {
 
 export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): SessionLoadMessage | null {
   if (item.type === 'userMessage') {
-    const content = stripInjectedContext((item.content ?? [])
+    const parts = item.content ?? []
+    const content = stripInjectedContext(parts
       .map((part) => part.type === 'text' ? part.text : '')
       .filter(Boolean)
       .join('\n'))
-    return content ? { role: 'user', content, timestamp } : null
+    // Solus sends a picture as a data URL (`image`); a Codex CLI user may have
+    // sent a file on this host (`localImage`). Both stay with their message, so
+    // a reloaded session shows what was sent and not only the words.
+    const message: SessionLoadMessage = { role: 'user', content, timestamp }
+    for (const part of parts) {
+      const dataUrl = part.type === 'image' ? part.url?.match(/^data:(image\/[a-z0-9.+-]+);base64,/i) : null
+      if (dataUrl && part.url) (message.imageAttachments ??= []).push({ mimeType: dataUrl[1]!.toLowerCase(), dataUrl: part.url })
+      const localMime = part.type === 'localImage' && part.path ? mediaTypeFor(part.path) : null
+      if (localMime?.kind === 'image' && part.path) (message.imageAttachmentRefs ??= []).push({ mimeType: localMime.mime, hostPath: part.path })
+    }
+    return content || message.imageAttachments || message.imageAttachmentRefs ? message : null
   }
 
   if (item.type === 'agentMessage') {

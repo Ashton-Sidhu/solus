@@ -8,7 +8,7 @@ import { AppText as Text } from '../../components/AppText'
 import { devicePreviewSource } from './device-preview-source.generated'
 
 const messageSchema = z.discriminatedUnion('kind', [z.object({ kind: z.literal('url'), requestId: z.number().int() }), z.object({ kind: z.literal('status'), text: z.string() })])
-export function DevicePreview(props: { hostId: string; preview: Preview; kind: 'local' | 'ssh' | 'eas' | 'simlock'; enabled: boolean; input: DeviceInput | null }) {
+export function DevicePreview(props: { hostId: string; preview: Preview; kind: 'local' | 'ssh' | 'simlock'; enabled: boolean; input: DeviceInput | null }) {
   const app = useApp()
   const view = useRef<WebView<{ deviceId?: string }>>(null)
   const [loaded, setLoaded] = useState(false)

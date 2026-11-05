@@ -37,14 +37,13 @@ export function DeviceSettingsScreen({ route, navigation }: ScreenProps<'DeviceS
         <SettingsActionRow icon="desktopcomputer" label="Open devices" onPress={() => navigation.navigate('Devices', { hostId })} />
       </SettingsSection>
       {state.hosts.filter((host) => host.config).map((host) => <SettingsSection key={host.deviceHostId} title={host.label} footer={host.config ? cloudDeviceHostLimits(host.config) : undefined}>
-        <SettingsActionRow icon="pencil" label={`Edit ${host.kind === 'eas' ? 'EAS Simulator' : 'Simlock pool'}`} disabled={busy || !isAdmin || !!draft} onPress={() => setDraft(host.config ?? null)} />
-        <SettingsActionRow icon="trash" label="Remove source" tone="danger" disabled={busy || !isAdmin} onPress={() => Alert.alert('Remove device source?', 'This stops its EAS sessions or returns its Simlock leases.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => void run(() => app.devices.remove(hostId, host.deviceHostId)) }])} />
+        <SettingsActionRow icon="pencil" label="Edit Simlock pool" disabled={busy || !isAdmin || !!draft} onPress={() => setDraft(host.config ?? null)} />
+        <SettingsActionRow icon="trash" label="Remove source" tone="danger" disabled={busy || !isAdmin} onPress={() => Alert.alert('Remove device source?', 'This returns its Simlock leases.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => void run(() => app.devices.remove(hostId, host.deviceHostId)) }])} />
       </SettingsSection>)}
       {draft ? <CloudDeviceHostEditor key={draft.id} hostId={hostId} config={draft} close={() => setDraft(null)} /> : isAdmin ? <SettingsSection title="Cloud devices">
-        <SettingsActionRow icon="plus" label="Add EAS Simulator" disabled={busy} onPress={() => setDraft(newCloudDeviceHost('eas', `eas-${app.platform.uuid()}`))} />
-        <SettingsActionRow icon="plus" label="Add Simlock pool" disabled={busy} onPress={() => setDraft(newCloudDeviceHost('simlock', `simlock-${app.platform.uuid()}`))} />
+        <SettingsActionRow icon="plus" label="Add Simlock pool" disabled={busy} onPress={() => setDraft(newCloudDeviceHost(`simlock-${app.platform.uuid()}`))} />
       </SettingsSection> : null}
-      <SettingsNote>EAS Simulator sessions use your Expo account and are billed by Expo. Simlock uses the gateway and workers you operate.</SettingsNote>
+      <SettingsNote>Simlock uses the gateway and workers you operate.</SettingsNote>
     </>}
   </ScreenScrollView></SettingsScreen>
 }

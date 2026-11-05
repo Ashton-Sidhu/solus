@@ -302,7 +302,10 @@ export function syncLabel(
  * be able to push the churn column wide for every row under it.
  */
 export function compactCount(value: number): string {
-  return value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k` : `${value}`
+  if (value < 1000) return `${value}`
+  // The unit follows the rounded figure: 999,960 reads as 1M, not 1000k.
+  const thousands = Math.round(value / 100) / 10
+  return thousands < 1000 ? `${thousands}k` : `${Math.round(value / 100_000) / 10}M`
 }
 
 /** The timestamp the time slot's tooltip carries. */

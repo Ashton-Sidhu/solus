@@ -5,7 +5,6 @@
 // `doc` is the single word for a provider document. `page` and `file` appear
 // only inside an adapter, where they are the provider's own word.
 
-import type { DiagramEmbedReference } from './diagram-embed'
 
 export type DocProviderId = 'gdrive' | 'confluence'
 
@@ -44,17 +43,7 @@ export interface DocSummary {
  * is the provider's concurrency token — a Confluence version number or a Drive
  * version counter — and is the value a later write must still match.
  */
-export interface GoogleDocImage {
-  workId: string
-  title: string
-  objectId: string
-  tabId: string
-  sourceUri: string
-  contentHash: string
-}
-
 export interface NormalizedDoc {
-  googleImages?: GoogleDocImage[]
   ref: DocRef
   title: string
   markdown: string
@@ -65,36 +54,14 @@ export interface NormalizedDoc {
   lossyParts?: string[]
 }
 
-/** A rendered Solus diagram carried with a publish request. Rendering stays on
- * the client because web and remote clients cannot assume the host has a
- * browser canvas. The server validates the bounded PNG before provider use. */
-export interface DocDiagramAsset {
-  workId: string
-  title: string
-  mimeType: 'image/png'
-  /** The whole diagram: laid out for one page for a paginated provider, drawn
-   *  as authored for a page that scrolls. */
-  base64: string
-}
-
-/** What Solus last published to a doc, handed back to a read so a provider
- *  can recognize its own embeds on the way in instead of reporting them lost. */
-export interface DocReadHints {
-  googleImages?: GoogleDocImage[]
-  diagrams?: DiagramEmbedReference[]
-}
-
 export interface DocDraft {
   title: string
   markdown: string
-  diagramAssets?: DocDiagramAsset[]
 }
 
 export interface DocPatch {
-  googleImages?: GoogleDocImage[]
   title?: string
   markdown: string
-  diagramAssets?: DocDiagramAsset[]
   /** The version the caller last saw. A mismatch is a conflict, not an
    *  overwrite; omit only to force a write the user has explicitly chosen. */
   expectedVersion?: string
@@ -119,7 +86,6 @@ export type DocSyncState = 'ok' | 'dirty' | 'upstream_changed' | 'conflict' | 'e
  * carries its link in the manifest and a local work in its meta row.
  */
 export interface WorkExternalLink extends DocRef {
-  googleImages?: GoogleDocImage[]
   /** The place the doc was created in, kept so every later publish is one
   *  keystroke and the picker is never shown twice for one work. */
   scope: DocScope
@@ -137,19 +103,12 @@ export interface WorkExternalLink extends DocRef {
   upstreamContentHash?: string
   syncState: DocSyncState
   syncError?: string
-  /** The diagrams the last publish embedded as images, so a pull can turn each
-   *  one back into its embed token instead of a base64 blob. */
-  diagrams?: DiagramEmbedReference[]
 }
 
 /** What a publish call carries. `destination` answers the first publish only;
  *  afterwards the link remembers where the doc lives. */
 export interface WorkPublishRequest {
   destination?: DocDestination
-  /** Renderer-prepared diagram PNGs. Google Docs inserts them as inline
-   * images, Confluence as page attachments; a publish that carries none —
-   * an agent's, since a server cannot draw a canvas — sends captions instead. */
-  diagramAssets?: DocDiagramAsset[]
   /** Publish over an upstream change the user has chosen to discard. */
   force?: boolean
 }
@@ -184,7 +143,7 @@ export interface DocProviderStatus {
  *  between pulling first and overwriting. */
 export type WorkPublishResult =
   /** `lossyParts` names what the published page could not carry — an embedded
-   *  diagram, today — so the loss is stated rather than discovered later. */
+   *  artifact, today — so the loss is stated rather than discovered later. */
   | { ok: true; link: WorkExternalLink; lossyParts?: string[] }
   | { ok: false; conflict: true; link: WorkExternalLink; upstreamUpdatedAt?: string }
   | { ok: false; conflict?: false; error: string; link?: WorkExternalLink }
@@ -192,18 +151,3 @@ export type WorkPublishResult =
 export type WorkPullResult =
   | { ok: true; link: WorkExternalLink; title: string; content: string; lossyParts?: string[] }
   | { ok: false; error: string }
-
-/**
- * How many distinct diagrams one published document may carry.
- *
- * The renderer checks this before it spends a canvas render on each diagram,
- * and the server checks it again because a publish is a request from a client.
- * Two checks, one limit — they were declared separately, message included, so
- * a change to one would have let the client build what the server rejects.
- */
-export const MAX_DOCUMENT_DIAGRAMS = 20
-
-/** What both checks say when the limit is passed, so the client and the server
- *  reject a document in the same words. */
-export const TOO_MANY_DIAGRAMS_MESSAGE =
-  `A document can include at most ${MAX_DOCUMENT_DIAGRAMS} unique diagrams.`

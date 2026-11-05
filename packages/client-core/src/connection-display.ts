@@ -5,10 +5,9 @@ export interface ConnectionFailureCopy {
 }
 
 /**
- * socket.io reports failures as mechanism strings — "xhr poll error",
- * "websocket error", "timeout". Each names the layer that gave up, never a
- * reason the user can act on, so lead with a cause and keep the raw text for
- * the details block.
+ * A dial reports failures as mechanism strings ("websocket error",
+ * "timeout"). Each names the layer that gave up, never a reason the user can
+ * act on, so lead with a cause and keep the raw text for the details block.
  */
 export function describeConnectionFailure(hostLabel: string, error: Parameters<typeof String>[0]): ConnectionFailureCopy {
   const message = error instanceof Error ? error.message : String(error)

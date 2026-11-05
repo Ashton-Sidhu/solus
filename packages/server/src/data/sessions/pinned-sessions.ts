@@ -20,12 +20,12 @@ export async function readManifest(): Promise<PinnedSession[]> {
       pinned_sessions.session_id,
       pinned_sessions.server_id,
       pinned_sessions.provider,
-      sessions.model,
+      transcript_index.model,
       pinned_sessions.title,
       pinned_sessions.cwd,
       pinned_sessions.pinned_at
     FROM pinned_sessions
-    LEFT JOIN sessions ON sessions.session_id = COALESCE((
+    LEFT JOIN transcript_index ON transcript_index.session_id = COALESCE((
       SELECT provider_session_id FROM session_lineage_members
       WHERE session_lineage_members.session_id = pinned_sessions.session_id
       ORDER BY position DESC LIMIT 1

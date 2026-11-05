@@ -107,8 +107,10 @@ or a refusal:
 The two doors call it:
 
 - `assertRpcAccess(method, principal, args)` names the method's permission, or
-  its verb and the resource `RESOURCE_LOCATORS` finds. A host admin passes
-  `shareTransfer` first, and the share manager decides (plan 004 item 10).
+  its verb and the resource `RESOURCE_LOCATORS` finds. Ownership never
+  transfers (plans/029 decision 2): there is no `shareTransfer`; what a
+  departed member owned stays theirs and the organization entry keeps it
+  readable.
 - The Solus API's `requireResource(resources, context, resource, verb)` turns a
   refusal into 404. Its token scopes (`requireScope`) stay a separate upper
   bound on what a token may do.

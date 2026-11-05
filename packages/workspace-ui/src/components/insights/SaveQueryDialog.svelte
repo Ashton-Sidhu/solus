@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
 
@@ -23,6 +24,9 @@
       saving = false;
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <!-- Browser prompts are blocked or absent on some Solus clients. Naming a

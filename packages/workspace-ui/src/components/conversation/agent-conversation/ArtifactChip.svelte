@@ -5,7 +5,6 @@
     FileText as DocIcon,
     GitPullRequest as GitPullRequestIcon,
     Image as ImageIcon,
-    Network as DiagramIcon,
     Presentation as SlidesIcon,
     Workflow as AutomationIcon,
   } from "@lucide/svelte";
@@ -50,7 +49,6 @@
   const WORK_ICONS = {
     doc: DocIcon,
     slides: SlidesIcon,
-    diagram: DiagramIcon,
     artifact: ArtifactIcon,
   } satisfies Record<WorkType, Component>;
 
@@ -66,7 +64,7 @@
     tone === "pull-request"
       ? (badge?.Icon ?? GitPullRequestIcon)
       : tone === "written" || tone === "drawn"
-        ? WORK_ICONS[workType ?? (tone === "written" ? "doc" : "diagram")]
+        ? WORK_ICONS[workType ?? (tone === "written" ? "doc" : "artifact")]
         : tone === "image"
           ? ImageIcon
           : AutomationIcon,

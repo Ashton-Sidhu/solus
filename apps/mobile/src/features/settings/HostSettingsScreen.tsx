@@ -26,6 +26,9 @@ import { useGithubConnection } from "./use-github-connection";
 import { hostSettingsErrorText } from "./host-settings";
 import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
+import { hostLockMessage, updatesLockMessage } from "../policy/lib/policy-view";
+import { PolicyLockNote } from "../policy/PolicyLockNote";
+import { useHostPolicy } from "../policy/use-host-policy";
 
 /**
  * One host: its connection, a way into its Access screen, its Solus version, and its own settings, which
@@ -44,6 +47,11 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
   const hostUpdate = useHostUpdateStatus(hostId);
   const { version, status } = hostUpdate;
   const isAdmin = useListened(app.connections.changes, () => app.connections.may(hostId, "host.admin"));
+  const policy = useHostPolicy(hostId);
+  // A policy that turns updates off manages them: the host refuses a check or an install (plans/030 §6.8).
+  const updatesLock = updatesLockMessage(policy);
+  const continueSessionsLock = hostLockMessage(policy, "continueSessionsAfterHostRestart");
+  const retentionLock = hostLockMessage(policy, "unfiledRecordingRetentionDays");
   const updateControls = hostUpdateControls(status, isAdmin);
   const operation = status?.serverUpdate?.operation ?? null;
   // Unset follows the connection: a host that failed to connect opens with
@@ -103,6 +111,12 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                 value="Solus Cloud, network, pairing, and devices"
                 onPress={() => navigation.navigate("HostAccess", { hostId })}
               />
+              <SettingsRow
+                icon="lock"
+                label="Policy"
+                value="What this host's policies lock"
+                onPress={() => navigation.navigate("Policy", { hostId })}
+              />
             </SettingsSection>
 
             {connected ? (
@@ -116,7 +130,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
             ) : null}
 
             <SettingsSection title="Devices">
-              <SettingsRow icon="desktopcomputer" label="Devices" value="Simulators, EAS, and Simlock" onPress={() => navigation.navigate("DeviceSettings", { hostId })} />
+              <SettingsRow icon="desktopcomputer" label="Devices" value="Simulators and Simlock" onPress={() => navigation.navigate("DeviceSettings", { hostId })} />
             </SettingsSection>
 
             <SettingsSection title="MCP">
@@ -151,7 +165,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                         : undefined
                   }
                 />
-                {updateControls.canCheck ? (
+                {updateControls.canCheck && !updatesLock ? (
                   <SettingsActionRow
                     icon="arrow.clockwise"
                     label="Check for updates"
@@ -159,7 +173,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                     onPress={hostUpdate.check}
                   />
                 ) : null}
-                {updateControls.action.kind === "update" ? (
+                {updatesLock ? null : updateControls.action.kind === "update" ? (
                   <SettingsActionRow
                     icon="arrow.up.circle"
                     label={
@@ -193,7 +207,9 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                   />
                 ) : null}
               </SettingsSection>
-              {updateControls.action.kind === "manual" ? (
+              {updatesLock ? (
+                <PolicyLockNote lines={[updatesLock]} />
+              ) : updateControls.action.kind === "manual" ? (
                 <SettingsNote>{updateControls.action.text}</SettingsNote>
               ) : updateControls.action.kind === "limited" ? (
                 <SettingsNote>
@@ -211,9 +227,11 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                       icon="arrow.clockwise"
                       label="Continue sessions after restart"
                       value={state.settings.continueSessionsAfterHostRestart}
+                      disabled={continueSessionsLock !== null}
                       onValueChange={(next) => update({ continueSessionsAfterHostRestart: next })}
                     />
                   </SettingsSection>
+                  {continueSessionsLock ? <PolicyLockNote lines={[continueSessionsLock]} /> : null}
                   <SettingsNote>
                     When the host restarts, it resumes the turns that were running. Every device using
                     this host shares this setting.
@@ -227,10 +245,12 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                         separated={index > 0}
                         label={retentionDaysLabel(days)}
                         selected={state.settings.unfiledRecordingRetentionDays === days}
+                        disabled={retentionLock !== null}
                         onPress={() => update({ unfiledRecordingRetentionDays: days })}
                       />
                     ))}
                   </SettingsSection>
+                  {retentionLock ? <PolicyLockNote lines={[retentionLock]} /> : null}
                   <SettingsNote>
                     The host keeps a browser recording that is filed on a task or pull request, or
                     sent to an agent. It deletes other recordings after this time.

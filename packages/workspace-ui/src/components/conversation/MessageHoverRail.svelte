@@ -11,8 +11,7 @@
    * timestamp, then a copy control. A third affordance is a design error;
    * anything else belongs to the card's own menu.
    *
-   * The assistant copy control aligns with the first line of prose. The user
-   * rail remains bottom-aligned with its bubble.
+   * Both rails are bottom-aligned with their message.
    */
   interface Props {
     timestamp?: number;
@@ -20,8 +19,11 @@
     text: string;
     /** Which edge to hang from: assistant prose left, user bubble right. */
     side?: "left" | "right";
+    /** Copies something other than `text`: a message sent without words
+     *  copies its media. Rejects when nothing was copied. */
+    onCopy?: () => Promise<void>;
   }
-  let { timestamp, text, side = "left" }: Props = $props();
+  let { timestamp, text, side = "left", onCopy }: Props = $props();
 
   let copied = $state(false);
   let now = $state(Date.now());
@@ -40,7 +42,8 @@
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(text);
+      if (onCopy) await onCopy();
+      else await navigator.clipboard.writeText(text);
       copied = true;
       setTimeout(() => (copied = false), 1200);
     } catch {}
@@ -50,13 +53,12 @@
 <div
   class="hover-rail flex flex-col {side === 'right' ? 'items-start' : 'items-end'}"
   class:is-right={side === "right"}
-  class:is-first-line={side === "left"}
   class:is-touch={runtime.isTouchDevice}
 >
   {#if label}
     <span class="hover-rail-time text-conversation-gutter" {title}>{label}</span>
   {/if}
-  {#if text}
+  {#if text || onCopy}
     <button
       type="button"
       class="hover-rail-copy"
@@ -91,22 +93,6 @@
     left: 100%;
     margin-right: 0;
     margin-left: 0.625rem;
-  }
-
-  /* The assistant row has 0.125rem top padding and a 1.625 line-height on
-     14px type (a 1.42rem line box). Center the 1.375rem copy control on that
-     first line. Keep the timestamp above the control without letting it shift
-     the control down. */
-  .hover-rail.is-first-line {
-    top: 0.15rem;
-    bottom: auto;
-    gap: 0;
-  }
-
-  .hover-rail.is-first-line .hover-rail-time {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 0.25rem);
   }
 
   /* The hover target is the whole message row — the pointer never has to find a

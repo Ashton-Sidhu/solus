@@ -24,7 +24,9 @@ import { PullRequestMediaContext, usePullRequestMarkdownMedia, usePullRequestMed
  * in a private repository show too; other media loads from its own address.
  * A tapped image opens a gallery of every image in the text. A pull request
  * link opens in the app as on desktop and web, read against the pull
- * request's own project and host.
+ * request's own project and host. `lineBreaks` breaks the line on a single
+ * newline, as GitHub renders a pull request body or comment; guide text is
+ * written by an agent and keeps Markdown's rule.
  */
 
 /** One image or video from a web address. */
@@ -47,7 +49,7 @@ export function PullRequestMedia(props: { readonly url: string; readonly kind: A
   )
 }
 
-export const PullRequestMarkdown = memo(function PullRequestMarkdown(props: { readonly markdown: string }) {
+export const PullRequestMarkdown = memo(function PullRequestMarkdown(props: { readonly markdown: string; readonly lineBreaks?: boolean }) {
   const app = useApp()
   const textStyle = useNativeMarkdownTextStyle('assistant')
   const [filePreview, setFilePreview] = useState<FilePreviewSource | null>(null)
@@ -86,7 +88,7 @@ export const PullRequestMarkdown = memo(function PullRequestMarkdown(props: { re
     <FilePreviewGallery value={gallery}>
       <View style={{ gap: 12 }}>
         {segments.map((segment) => segment.kind === 'markdown' ? (
-          <SelectableMarkdownText key={segment.id} markdown={segment.text} textStyle={textStyle} onLinkPress={onLinkPress} renderImage={renderImage} resolveImageSource={resolveImageSource} onImagePress={onImagePress} />
+          <SelectableMarkdownText key={segment.id} markdown={segment.text} preserveSoftBreaks={props.lineBreaks ?? false} textStyle={textStyle} onLinkPress={onLinkPress} renderImage={renderImage} resolveImageSource={resolveImageSource} onImagePress={onImagePress} />
         ) : (
           <PullRequestMedia key={segment.id} url={segment.url} kind={segment.media} onPreview={setFilePreview} />
         ))}

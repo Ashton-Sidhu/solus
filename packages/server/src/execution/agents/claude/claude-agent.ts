@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
-import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
+import { Options, query, type CanUseTool, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
@@ -163,9 +163,13 @@ export interface ClaudeSeat {
  * A member's seat starts from the member's clean environment
  * (plans/019-acting-identity.md), so no API key, token, key agent or helper the
  * server carries answers for them.
+ *
+ * The CLI names Solus as its entrypoint. Without it the SDK sends `sdk-ts`, or
+ * an entrypoint the host inherited, such as `claude-desktop` when Solus started
+ * from inside a Claude Code session. A provider instance's own env still wins.
  */
 export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...(seat?.env ?? process.env), CLAUDE_CODE_ENABLE_TASKS: '0' }
+  const env: NodeJS.ProcessEnv = { ...(seat?.env ?? process.env), CLAUDE_CODE_ENABLE_TASKS: '0', CLAUDE_CODE_ENTRYPOINT: 'solus' }
   if (!seat) return env
   if (!seat.isHostLogin) {
     delete env.ANTHROPIC_API_KEY
@@ -242,7 +246,7 @@ export interface ClaudeRunOptions {
   reasoningEffort?: ReasoningEffort
   disableReasoning?: boolean
   fastMode?: boolean
-  permissionMode?: PermissionMode
+  permissionMode: PermissionMode
   additionalDirectories?: string[]
   allowedTools?: string[]
   mcpServers?: Options['mcpServers']
@@ -253,6 +257,8 @@ export interface ClaudeRunOptions {
    *  and no built-in tool but WebFetch when `webAccess` is set. */
   bare?: { webAccess: boolean }
   canUseTool?: CanUseTool
+  /** Answers MCP elicitations; without it the SDK declines them. */
+  onElicitation?: OnElicitation
   persistSession?: boolean
   abortController?: AbortController
   /** Persists the turn and returns the authoritative net session paths. */
@@ -306,7 +312,7 @@ function usageQueryOptions(executable: string, seat: ClaudeSeat | undefined, abo
 export class ClaudeAgent {
   run(opts: ClaudeRunOptions): ClaudeRunExecution {
     const abortController = opts.abortController ?? new AbortController()
-    const sdkPermissionMode = UI_TO_SDK_PERMISSION_MODE[opts.permissionMode ?? 'full-access']
+    const sdkPermissionMode = UI_TO_SDK_PERMISSION_MODE[opts.permissionMode]
 
     const systemPrompt: Options['systemPrompt'] = {
       type: 'preset',
@@ -345,6 +351,7 @@ export class ClaudeAgent {
       claudeOptions.onUserDialog = resumeCompactionDialog(opts.seat.idleCompaction, opts.canUseTool)
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
+    if (opts.onElicitation) claudeOptions.onElicitation = opts.onElicitation
     if (opts.bare) claudeOptions.tools = bareTools
     // Flag settings: they beat the user's and the project's settings.json.
     let flagSettings: Settings | undefined
@@ -461,6 +468,9 @@ export class ClaudeAgent {
           for (const evt of normalized) yield evt
         }
 
+        // A query can end without the result that reports the turn's spend.
+        const unreported = normalizer.takeUnreportedUsage()
+        if (unreported) yield unreported
         resolveResult({
           sessionId: state.sessionId,
           toolCallCount: normalizer.summary.toolCallCount,
@@ -469,6 +479,10 @@ export class ClaudeAgent {
           signal: null,
         })
       } catch (err: any) {
+        // A stopped or failed turn never reaches its result; what its calls
+        // already spent is still spent.
+        const unreported = normalizer.takeUnreportedUsage()
+        if (unreported) yield unreported
         const isAbort = abortController.signal.aborted || err?.name === 'AbortError'
         if (isAbort) {
           normalizer.interrupt()

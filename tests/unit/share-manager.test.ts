@@ -17,7 +17,7 @@ const LINK_EXPIRES_AT = 1_000 + DEFAULT_LINK_LIFETIME_MS
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §2.2–§2.3 and multiplayer-sharing.md §3.4–§3.5: a
-// resource's owner is its own row's `owner_key`; the ACL entries hold only what
+// resource's owner is its own row's `created_by`; the ACL entries hold only what
 // the owner gave others — a person, their team, the organization, or the link
 // (scope, decision 2026-09-16); a resource made in an organization's space starts
 // with the organization's editor entry; an administrator is an editor of what is
@@ -160,30 +160,17 @@ describe('ownership', () => {
     }
   })
 
-  test('the personal host owner is an administrator: an editor of a member\'s resource, as a managed-host organization owner is', async () => {
-    // WHY (docs/plans/access-model.md §2.5): an administrator gets `editor` on every
-    // resource that is not personal, and `owner` only on what they own. This changes
-    // the earlier rule, where the host owner held `owner` on the whole disk.
+  test('the personal host owner owns every record on the disk; a managed-host organization owner edits it', async () => {
+    // WHY (docs/plans/access-model.md §2.3.1): what a host's own database holds is its
+    // owner's, whatever key the row names. A sign-out moves the owner to a new key and
+    // leaves an organization's rows on the account; those sessions must stay theirs, not
+    // read as shared with them. Only a read of the cloud filters by person and organization.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
     await seed('work', 'w1', 'bob', 'org1')
-    expect(await shares.roleFor(OWNER, work)).toBe('editor')
+    expect(await shares.roleFor(OWNER, work)).toBe('owner')
     expect(await shares.roleFor(member('admin', [], 'owner', 'managed'), work)).toBe('editor')
     expect(await shares.roleFor(member('admin', [], 'owner', 'personal'), work)).toBe('none')
-  })
-
-  test('only the owner transfers; the owner key moves and the previous owner is named as removed', async () => {
-    const { shares, changes } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    await seed('work', 'w1', 'bob', 'org1')
-    await shares.shareWithOrganization(work, member('bob'))
-    await expect(shares.transfer({ resource: work, toUserId: 'cara' }, member('cara'))).rejects.toThrow(ShareAccessError)
-    const list = await shares.transfer({ resource: work, toUserId: 'cara' }, member('bob'))
-    expect(list.ownerKey).toBe('cara')
-    expect(await database.getDatabase().all(sql`SELECT owner_key FROM works WHERE id = 'w1'`)).toEqual([{ owner_key: 'cara' }])
-    // The organization entry still admits bob, as an editor now.
-    expect(await shares.roleFor(member('bob'), work)).toBe('editor')
-    expect(changes.at(-1)?.removedUserIds).toEqual(['bob'])
   })
 
   test('a resource of one organization is nothing to a member of another', async () => {
@@ -325,7 +312,7 @@ describe('one decision per check', () => {
   test('a role check reads the resource row and its entries, for everyone', async () => {
     // WHY: every request through the access policy asks for a role, and `roleOf`
     // decides it from the owner on the row and the ACL entries. The host owner
-    // reads them too: they own only what is theirs.
+    // reads them too, and owns every record on their disk.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
     await seed('work', 'w1', 'alice', 'org1')
@@ -336,7 +323,7 @@ describe('one decision per check', () => {
     expect(await database.tallyQueries(asMember, () => shares.roleFor(member('bob'), work))).toBe('editor')
     expect(asMember.queries).toBe(3)
     const asOwner = { queries: 0, queryMs: 0 }
-    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('editor')
+    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('owner')
     expect(asOwner.queries).toBe(3)
   })
 
@@ -353,17 +340,6 @@ describe('one decision per check', () => {
     expect(subjects).toEqual([{ subject_id: 'bob' }])
   })
 
-  test('a transfer to a person with a named entry makes them owner and drops that entry', async () => {
-    const { shares } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    await seed('work', 'w1', 'alice', 'org1')
-    await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
-    const list = await shares.transfer({ resource: work, toUserId: 'bob' }, member('alice'))
-    expect(list.ownerKey).toBe('bob')
-    expect(list.entries.some((grant) => grant.subject.kind === 'user' && grant.subject.id === 'bob')).toBe(false)
-    expect(await shares.roleFor(member('bob'), work)).toBe('owner')
-    expect((await shares.homeOf(work))?.ownerKey).toBe('bob')
-  })
 })
 
 describe('tasks', () => {
@@ -400,9 +376,16 @@ describe('tasks', () => {
 })
 
 describe('works of a session', () => {
-  const link = (workId: string, sessionId: string | null, linked: string[] = []) => database.getDatabase().run(sql`
-    UPDATE works SET session_id = ${sessionId}, meta = ${JSON.stringify({ sessionIds: linked })} WHERE id = ${workId}
-  `)
+  // The origin stays on the row; a later member is a session→work edge (plans/029 §5.1).
+  const link = async (workId: string, sessionId: string | null, linked: string[] = []) => {
+    await database.getDatabase().run(sql`UPDATE works SET session_id = ${sessionId} WHERE id = ${workId}`)
+    for (const member of linked) {
+      await database.getDatabase().run(sql`
+        INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
+        VALUES ('org1', 'session', ${member}, 'work', '', ${workId}, 'member', 'manual', 'active', '{"kind":"system"}', 'alice', 1)
+      `)
+    }
+  }
 
   test('who may open a session holds the same role on the works it made or links', async () => {
     // WHY (decision 2026-10-30): an artifact the agent made in a shared session is

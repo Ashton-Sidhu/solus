@@ -5,7 +5,7 @@ import { AppText as Text } from '../../components/AppText'
 
 export function DevicePreviewControls(props: {
   platform: DevicePlatform
-  kind: 'local' | 'ssh' | 'eas' | 'simlock'
+  kind: 'local' | 'ssh' | 'simlock'
   ownsControl: boolean
   control: DeviceControlState | undefined
   busy: boolean
@@ -18,7 +18,7 @@ export function DevicePreviewControls(props: {
   const [text, setText] = useState('')
   const buttons = props.platform === 'android' ? ['home', 'back', 'recents'] as const : ['home', 'appSwitcher'] as const
   const label = props.ownsControl ? 'You control this device.' : props.control?.lease ? `${props.control.lease.holder.label} controls this device.` : 'Take control to interact.'
-  const closeLabel = props.kind === 'simlock' ? 'Return to pool' : props.kind === 'eas' ? 'Stop session' : 'Close preview'
+  const closeLabel = props.kind === 'simlock' ? 'Return to pool' : 'Close preview'
   return <View className="gap-2">
     <Text className="text-base text-foreground-muted">{label}</Text>
     <View className="flex-row flex-wrap gap-2">

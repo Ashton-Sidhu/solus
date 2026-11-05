@@ -1,3 +1,5 @@
+import { hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
+import { organizationOfSession } from '../../data/sessions/session-records'
 import { childPermissionMode } from './child-permissions'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { createLogger } from '../../logger'
@@ -226,7 +228,7 @@ export class PromptDispatch {
         fastMode: false,
         // An unattended follow-up keeps the stored policy across idle release
         // and host restart. Legacy sessions use the supervised policy.
-        permissionMode: this.rt.sessionPermissionModes.get(sessionId) ?? 'supervised',
+        permissionMode: this.rt.sessionPermissionModes.get(sessionId) ?? hostPolicies().forWork(await organizationOfSession(sessionId)).clampMode('supervised'),
         rateLimitBehavior: 'queue',
         ...instructionsFor(preferences, meta.model),
         executionPreferences: preferences,
@@ -316,9 +318,10 @@ export class PromptDispatch {
     if (parentId && !parentMode) throw new Error('The parent permission policy is unavailable. Start the child from an active parent turn.')
     // A child works for the person its parent works for, with that person's preferences.
     const preferences = req.executionPreferences ?? sessionSettings(parentId)?.preferences ?? (parentId ? await sessionExecutionPreferences(parentId) : undefined)
+    // A default is lowered to the policy's ceiling; an explicit mode above it is refused where the provider starts.
     const permissionMode = parentMode
       ? childPermissionMode(parentMode, req.permissionMode)
-      : req.permissionMode ?? preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode
+      : req.permissionMode ?? hostPolicies().forWork(await organizationOfSession(sessionId)).clampMode(preferences?.defaultPermissionMode ?? DEFAULT_EXECUTION_PREFERENCES.defaultPermissionMode)
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,
@@ -390,6 +393,8 @@ export class PromptDispatch {
    *  through completion. */
   async startUnattendedSession(req: {
     prompt: string
+    /** The organization of the automation or webhook; its policies govern the session (plans/030). */
+    organizationId: string
     /** The automation run or webhook delivery that starts it. */
     startedBy: Extract<SessionStarter, { kind: 'automation' | 'webhook' }>
     /** The automation's name, for the badge on the first prompt. */
@@ -407,6 +412,8 @@ export class PromptDispatch {
   }): Promise<{ sessionId: string; done: Promise<{ output?: string }> }> {
     // No seat, no run: a creator whose seat is not connected fails the run with SEAT_REQUIRED.
     await this.rt.seatForTurn(req.actor, req.provider)
+    // The captured preferences, with what the organization's policies lock now (plans/030 §6.6).
+    const lockedPreferences = req.executionPreferences && hostPolicies().forWork(req.organizationId).withLocks(req.executionPreferences, EXECUTION_SETTING_KEYS)
     const input: SessionRunInput = {
       provider: req.provider,
       agentSessionId: null,
@@ -418,11 +425,11 @@ export class PromptDispatch {
       worktreeBaseBranch: null,
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
-      // The default of unattended work.
-      permissionMode: 'full-access',
+      // The default of unattended work, lowered to a policy's ceiling (plans/030 §6.3).
+      permissionMode: hostPolicies().forWork(req.organizationId).clampMode('full-access'),
       rateLimitBehavior: 'queue',
-      ...unattendedModelInputFor(req.provider, req.modelId, req.executionPreferences),
-      executionPreferences: req.executionPreferences,
+      ...unattendedModelInputFor(req.provider, req.modelId, lockedPreferences),
+      executionPreferences: lockedPreferences,
     }
     const sessionId = crypto.randomUUID()
     const lifecycle = await this.rt.runTurn({

@@ -69,15 +69,67 @@ test('a deleted worktree and branch come back from the project folder branch', a
   expect(git(worktreePath, ['rev-parse', 'HEAD'])).toBe(git(directory, ['rev-parse', 'main']))
 })
 
-test('with no branch to start from, the error names the cause, not git output', async () => {
+function addOrigin(directory: string): string {
+  const origin = mkdtempSync(join(tmpdir(), 'solus-worktree-recreate-origin-'))
+  directories.push(origin)
+  git(origin, ['init', '--bare', '-b', 'main'])
+  git(directory, ['remote', 'add', 'origin', origin])
+  git(directory, ['push', 'origin', 'main'])
+  git(directory, ['remote', 'set-head', 'origin', 'main'])
+  return origin
+}
+
+// A branch the agent pushed holds the session's work even after the local
+// branch is deleted; rebuilding from the project branch would lose it.
+test('a deleted branch that was pushed comes back from its origin tip and tracks it', async () => {
+  const { directory, checkout, worktreePath, branch } = await projectWithWorktree()
+  addOrigin(directory)
+  git(worktreePath, ['commit', '--allow-empty', '-m', 'Pushed agent work'])
+  const pushedCommit = git(worktreePath, ['rev-parse', 'HEAD'])
+  git(worktreePath, ['push', 'origin', branch])
+  rmSync(worktreePath, { recursive: true, force: true })
+  git(directory, ['worktree', 'prune'])
+  git(directory, ['branch', '-D', branch])
+  git(directory, ['commit', '--allow-empty', '-m', 'Newer main'])
+  // A tag with the remote ref's short name must not be chosen instead.
+  git(directory, ['tag', `origin/${branch}`, 'main'])
+
+  await recreateMissingWorktree(checkout)
+
+  expect(git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(branch)
+  expect(git(worktreePath, ['rev-parse', 'HEAD'])).toBe(pushedCommit)
+  expect(git(worktreePath, ['rev-parse', '--symbolic-full-name', '@{upstream}'])).toBe(`refs/remotes/origin/${branch}`)
+})
+
+test('on a detached project folder, a deleted branch comes back from the remote default branch', async () => {
+  const { directory, checkout, worktreePath, branch } = await projectWithWorktree()
+  addOrigin(directory)
+  const remoteDefault = git(directory, ['rev-parse', 'origin/main'])
+  rmSync(worktreePath, { recursive: true, force: true })
+  git(directory, ['worktree', 'prune'])
+  git(directory, ['branch', '-D', branch])
+  git(directory, ['commit', '--allow-empty', '-m', 'Unpushed main'])
+  git(directory, ['checkout', '--detach'])
+
+  await recreateMissingWorktree(checkout)
+
+  expect(git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(branch)
+  expect(git(worktreePath, ['rev-parse', 'HEAD'])).toBe(remoteDefault)
+  expect(spawnSync('git', ['rev-parse', '--abbrev-ref', '@{upstream}'], { cwd: worktreePath }).status).not.toBe(0)
+})
+
+test('on a detached project folder with no remote, a deleted branch comes back from HEAD', async () => {
   const { directory, checkout, worktreePath, branch } = await projectWithWorktree()
   rmSync(worktreePath, { recursive: true, force: true })
   git(directory, ['worktree', 'prune'])
   git(directory, ['branch', '-D', branch])
+  git(directory, ['commit', '--allow-empty', '-m', 'Newer main'])
   git(directory, ['checkout', '--detach'])
 
-  await expect(recreateMissingWorktree(checkout)).rejects.toThrow(`Could not recreate branch '${branch}'`)
-  expect(existsSync(worktreePath)).toBe(false)
+  await recreateMissingWorktree(checkout)
+
+  expect(git(worktreePath, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe(branch)
+  expect(git(worktreePath, ['rev-parse', 'HEAD'])).toBe(git(directory, ['rev-parse', 'HEAD']))
 })
 
 test('a folder outside Solus worktrees is never made again', async () => {

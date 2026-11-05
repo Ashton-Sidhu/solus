@@ -7,7 +7,7 @@ import { TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { FrontMatter } from './front-matter'
 import { DocumentImage } from './image'
 import { DocumentTable } from './table'
-import { ArtifactEmbed, DiagramEmbed, HtmlBlock, MermaidBlock } from './blocks'
+import { ArtifactEmbed, HtmlBlock, MermaidBlock } from './blocks'
 import { PersonReference } from './person-reference'
 import { Callout } from './callout'
 
@@ -17,7 +17,7 @@ import { Callout } from './callout'
  * deletes that content. Change it whenever a node, a mark, or an attribute is
  * added, removed, or renamed.
  */
-export const DOCUMENT_SCHEMA_VERSION = 2
+export const DOCUMENT_SCHEMA_VERSION = 3
 
 /**
  * Node views the editor puts on the markdown schema's own nodes. Each one must
@@ -35,7 +35,6 @@ export interface MarkdownNodeViews {
 /** Node views for the blocks only a work or a plan has. */
 export interface DocumentBlockViews {
   personReference?: Node
-  diagramEmbed?: Node
   artifactEmbed?: Node
   htmlBlock?: Node
   mermaidBlock?: Node
@@ -83,7 +82,6 @@ export function documentExtensions(views: DocumentNodeViews = {}): AnyExtension[
   return [
     ...markdownExtensions(views),
     viewOr(PersonReference, views.personReference),
-    viewOr(DiagramEmbed, views.diagramEmbed),
     viewOr(ArtifactEmbed, views.artifactEmbed),
     viewOr(HtmlBlock, views.htmlBlock),
     viewOr(MermaidBlock, views.mermaidBlock),

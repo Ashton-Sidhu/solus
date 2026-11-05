@@ -1,23 +1,20 @@
-import { mkdirSync } from 'node:fs'
+import { chmodSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
-import { searchText } from '@solus/contracts/search-query'
-import { searchableMessageText } from '@solus/contracts/session-search'
-import { z } from 'zod'
 import { solusDir } from '../platform/paths'
-import { resolveEngine } from './engine'
-import { runMigrations } from './migrations'
 import { runSqliteSchemaMigrations } from './sqlite-migrations'
 import { assertTestDatabase } from './test-safety'
 
 /**
- * The host's SQLite file: the legacy hand-written tables and, on the SQLite
+ * The host's SQLite file: the host tables (`./host-tables`) and, on the SQLite
  * engine, the generated tables of every ported domain share this one
  * connection. Ported domains reach it through `getDatabase()` in
  * `./database`; unported ones still call `getDb()` and `withTx()` directly.
  */
 let db: DatabaseSync | null = null
 let transactionOpen = false
+/** Set by the host's shutdown. A late writer must fail, not reopen the file. */
+let isClosedForShutdown = false
 
 const STATEMENT_CACHE_SIZE = 500
 
@@ -43,48 +40,26 @@ export function cacheStatements(openedDb: DatabaseSync): void {
 
 export function getDb(): DatabaseSync {
   if (db) return db
+  if (isClosedForShutdown) throw new Error('The database is closed because the host shut down')
 
   const dataDir = solusDir()
   assertTestDatabase({ kind: 'sqlite', path: join(dataDir, 'solus.db') })
-  mkdirSync(dataDir, { recursive: true })
+  // The data folder holds the database, keys, and transcripts: this user's
+  // alone. An older host made it with the default mode, so tighten it too.
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+  chmodSync(dataDir, 0o700)
 
   const openedDb = new DatabaseSync(join(dataDir, 'solus.db'))
   try {
+    chmodSync(join(dataDir, 'solus.db'), 0o600)
     openedDb.exec('PRAGMA journal_mode = WAL')
     openedDb.exec('PRAGMA foreign_keys = ON')
     openedDb.exec('PRAGMA busy_timeout = 5000')
     openedDb.exec('PRAGMA synchronous = NORMAL')
-    runMigrations(openedDb)
-    // Rebuild only the derived index. Original messages and identities stay intact.
-    if (!openedDb.prepare("SELECT 1 FROM kv WHERE key = 'session-search-normalized-v2'").get()) {
-      openedDb.exec('BEGIN IMMEDIATE')
-      try {
-        openedDb.exec("DROP TABLE session_fts; CREATE VIRTUAL TABLE session_fts USING fts5(text, content='', contentless_delete=1, tokenize='unicode61')")
-        const insert = openedDb.prepare('INSERT INTO session_fts(rowid, text) VALUES (?, ?)')
-        let after = -1
-        for (;;) {
-          const rows = openedDb.prepare('SELECT id, text FROM session_messages WHERE id > ? ORDER BY id LIMIT 300').all(after)
-          if (!rows.length) break
-          for (const row of rows) { insert.run(Number(row.id), searchText(String(row.text ?? ''))); after = Number(row.id) }
-        }
-        openedDb.exec("INSERT INTO kv(key, value) VALUES ('session-search-normalized-v2', '1')")
-        openedDb.exec('COMMIT')
-      } catch (error) { openedDb.exec('ROLLBACK'); throw error }
-    }
-    // The generated tables live in this file only when it is the engine.
-    if (resolveEngine().kind === 'sqlite') {
-      runSqliteSchemaMigrations(openedDb)
-      const messageSchema = z.object({ content: z.string().optional(), role: z.string().optional(), toolName: z.string().optional(), parentToolUseId: z.string().optional() }).nullable()
-      for (;;) {
-        const rows = openedDb.prepare("SELECT rowid, message FROM session_transcripts WHERE search_text = '' LIMIT 300").all()
-        if (!rows.length) break
-        openedDb.exec('BEGIN IMMEDIATE')
-        try {
-          for (const row of rows) openedDb.prepare('UPDATE session_transcripts SET search_text = ? WHERE rowid = ?').run(searchableMessageText(messageSchema.parse(JSON.parse(String(row.message)))) || ' ', Number(row.rowid))
-          openedDb.exec('COMMIT')
-        } catch (error) { openedDb.exec('ROLLBACK'); throw error }
-      }
-    }
+    // The whole SQLite baseline, host tables and records alike. On the Postgres
+    // engine the record tables here stay empty: records are read through
+    // `getDatabase()`, which points at Postgres.
+    runSqliteSchemaMigrations(openedDb, 'sqlite', 'solus.db')
     // Without planner statistics SQLite guesses index selectivity. This is the
     // open-time form SQLite recommends for a long-lived connection: check
     // every table (0x10000), analyze one only when its statistics are absent
@@ -106,6 +81,12 @@ export function closeDb(): void {
   db = null
   transactionOpen = false
   openedDb.close()
+}
+
+/** Close the file for good: the host is shutting down, and nothing may reopen it. */
+export function closeDbForShutdown(): void {
+  isClosedForShutdown = true
+  closeDb()
 }
 
 /**

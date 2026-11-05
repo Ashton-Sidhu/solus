@@ -117,7 +117,59 @@ const DEFERRED_COMPONENTS = [
   // Stores the first screen does not use; the contexts barrel does not re-export them.
   'packages/workspace-ui/src/contexts/webhooks/webhooks.store.svelte.ts',
   'packages/workspace-ui/src/contexts/webhooks/webhook-admin.store.svelte.ts',
+  // The prompt editor loads beside the workspace; a plain field holds the draft
+  // until it runs (DeferredPromptEditor). This is CodeMirror and the menus.
+  'packages/workspace-ui/src/components/ui/PromptEditor.svelte',
+  'packages/workspace-ui/src/components/ui/plain-text-editor/plain-text-editor.svelte',
+  'packages/workspace-ui/src/components/editor/autocomplete.svelte.ts',
+  // Menus and dialogs load when they first open.
+  'packages/workspace-ui/src/components/session/SessionContextMenu.svelte',
+  'packages/workspace-ui/src/components/session/LinkSessionTaskDialog.svelte',
+  'packages/workspace-ui/src/components/session/LinkPullRequestDialog.svelte',
+  'packages/workspace-ui/src/components/servers/CopiedFilesDialog.svelte',
+  'packages/workspace-ui/src/components/seats/SeatConnectPanel.svelte',
+  // Surfaces the first screen does not show: a host to connect, a work, a
+  // companion pane's strip, the page for a browser with no host.
+  'packages/workspace-ui/src/components/session-draft/ConnectHostPage.svelte',
+  'packages/workspace-ui/src/components/work/WorkPane.svelte',
+  'packages/workspace-ui/src/components/layout/CompanionSurfaceStrip.svelte',
+  'apps/client/src/routes/HostlessHome.svelte',
+  // Devices load at their first event (device-feature.ts); the MCP sign-ins
+  // after the first paint (app-core.ts). Both then follow every host.
+  'packages/workspace-ui/src/contexts/devices/devices.store.svelte.ts',
+  'packages/workspace-ui/src/components/devices/lib/device-entry.ts',
+  'packages/workspace-ui/src/components/settings/integrations.store.svelte.ts',
+  // The changed-file scan and the file icon set load beside the workspace.
+  'packages/workspace-ui/src/lib/changedFiles.ts',
+  'packages/client-core/src/file-icons.ts',
 ]
+
+/** Packages that only later surfaces need. Each is tens of kilobytes or more. */
+const DEFERRED_PACKAGES = [
+  '@codemirror/view',
+  '@codemirror/state',
+  '@codemirror/commands',
+  '@codemirror/language',
+  '@codemirror/lang-markdown',
+  '@lezer/markdown',
+  '@pierre/trees',
+  'croner',
+  'yjs',
+  '@tiptap/core',
+]
+
+/**
+ * Source bytes of the first screen, per client: the files the walk reaches,
+ * comments and types included. Measured on 2026-10-31 after the first-screen
+ * split (docs/plans/fast-secure-startup.md, step 4), with room for ordinary
+ * growth. A feature that comes back into startup through a new static import
+ * costs more than the room; move it behind a dynamic import, or raise the
+ * budget on purpose with a new measurement.
+ */
+const SOURCE_BUDGET_BYTES = {
+  web: 4_600_000,
+  desktop: 4_700_000,
+}
 
 describe('startup import graph', () => {
   for (const [client, roots] of Object.entries(CLIENTS)) {
@@ -129,7 +181,25 @@ describe('startup import graph', () => {
       // Guards the walker itself: a resolver that silently stops early would
       // make every absence below pass.
       expect(reached.has('packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts')).toBe(true)
-      expect(reached.has('packages/workspace-ui/src/components/conversation/ConversationView.svelte')).toBe(true)
+      expect(reached.has('packages/workspace-ui/src/components/input/InputBar.svelte')).toBe(true)
+      expect(reached.has('packages/workspace-ui/src/components/ui/DeferredPromptEditor.svelte')).toBe(true)
+    })
+
+    test(`${client}: a conversation's transcript view loads with the first conversation`, () => {
+      // The pane is in startup so a draft turns into a chat without a skeleton;
+      // the transcript view behind it is not (LazyConversationView).
+      expect(reached.has('packages/workspace-ui/src/components/conversation/ConversationPane.svelte')).toBe(true)
+      expect(reached.has('packages/workspace-ui/src/components/conversation/ConversationView.svelte')).toBe(false)
+    })
+
+    test(`${client}: heavy packages that only later surfaces use are not part of startup`, () => {
+      expect(DEFERRED_PACKAGES.filter((name) => graph.packages.has(name))).toEqual([])
+    })
+
+    test(`${client}: the first screen stays inside its source budget`, () => {
+      let bytes = 0
+      for (const file of graph.files) bytes += statSync(file).size
+      expect(bytes).toBeLessThanOrEqual(SOURCE_BUDGET_BYTES[client as keyof typeof SOURCE_BUDGET_BYTES])
     })
 
     test(`${client}: SQL formatting is not part of startup`, () => {

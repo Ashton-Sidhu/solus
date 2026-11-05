@@ -68,7 +68,7 @@ export class CheckoutService {
   }
 
   /** `preferences` are the person's: their writing model names the branch. */
-  async name(cwd: string, prompt: string, dispatcher: AgentDispatcher, seatFor?: SeatResolver, preferences?: ExecutionPreferences): Promise<void> {
+  async name(cwd: string, prompt: string, dispatcher: AgentDispatcher, seatFor: SeatResolver | undefined, preferences: ExecutionPreferences | undefined, organizationId: string): Promise<void> {
     cwd = resolveHomePath(cwd)
     const branch = this.get(cwd)?.checkout?.branch
     if (!branch) return
@@ -76,7 +76,7 @@ export class CheckoutService {
     const namer = await capturedWorktreeBranchNamer(cwd, branch) ?? await resolveWorktreeBranchNamer(cwd, preferences?.worktreeBranchNaming)
     if (!temporaryWorktreeBranchId(branch, namer)) return
     try {
-      const name = await generateWorktreeName(dispatcher, prompt, cwd, undefined, seatFor, preferences)
+      const name = await generateWorktreeName(dispatcher, prompt, cwd, undefined, seatFor, preferences, organizationId)
       if (name) await this.rename(cwd, branch, name)
     } catch (error) {
       log.warn('worktree_branch_rename_failed', { cwd, branch, error: String(error) })
@@ -96,10 +96,10 @@ export class CheckoutService {
     return result
   }
 
-  async createNamed(projectRoot: string, prompt: string, dispatcher: AgentDispatcher, signal: AbortSignal, preferences?: ExecutionPreferences): Promise<GitCheckout> {
+  async createNamed(projectRoot: string, prompt: string, dispatcher: AgentDispatcher, signal: AbortSignal, preferences: ExecutionPreferences | undefined, organizationId: string): Promise<GitCheckout> {
     projectRoot = resolveHomePath(projectRoot)
     const { naming } = await resolveWorktreeBranchNamer(projectRoot, preferences?.worktreeBranchNaming)
-    const generatedName = namesFromTitle(naming) ? await generateWorktreeName(dispatcher, prompt, projectRoot, signal, undefined, preferences) : null
+    const generatedName = namesFromTitle(naming) ? await generateWorktreeName(dispatcher, prompt, projectRoot, signal, undefined, preferences, organizationId) : null
     return this.create(projectRoot, undefined, { generatedName, signal, naming: preferences?.worktreeBranchNaming })
   }
 

@@ -169,8 +169,7 @@ export class InputRequests {
       if (!reply) {
         settleAsyncQuestion(questionId, 'dismissed')
         this.rt.publish(sessionId, { type: 'permission_resolved', questionId })
-        const agentSessionId = asyncQuestion.agentSessionId
-        this.rt.statuses.syncAttention(agentSessionId, sessionId, this.rt.activeSessions.get(sessionId)?.status ?? 'completed')
+        this.rt.statuses.questionsChanged(asyncQuestion.agentSessionId, sessionId)
         return true
       }
       try {
@@ -181,7 +180,7 @@ export class InputRequests {
         throw error
       }
       settleAsyncQuestion(questionId, 'answered')
-      this.rt.statuses.syncAttention(asyncQuestion.agentSessionId, sessionId, this.rt.activeSessions.get(sessionId)?.status ?? 'completed')
+      this.rt.statuses.questionsChanged(asyncQuestion.agentSessionId, sessionId)
       this.rt.publish(sessionId, {
         type: 'question_answered',
         answer,

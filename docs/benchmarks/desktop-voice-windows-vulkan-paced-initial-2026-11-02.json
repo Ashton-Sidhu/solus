@@ -1,0 +1,49 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "machine": "AMD64",
+  "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+  "fixture": "whisper.cpp JFK, repeated for longer clips; artificial repetition is not an accuracy benchmark",
+  "paced": true,
+  "load_ms": 1292.56,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "begin_ms": 3.28,
+      "stream_compute_ms": 11622.27,
+      "finish_ms": 604.96,
+      "feed_p95_ms": 460.38,
+      "offline_ms": 1228.18,
+      "partial_updates": 32,
+      "first_partial_ms": 3523.62,
+      "resident_mb": 111.7,
+      "transcript_words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 1,
+      "begin_ms": 5.04,
+      "stream_compute_ms": 11594.83,
+      "finish_ms": 594.4,
+      "feed_p95_ms": 461.68,
+      "offline_ms": 1175.67,
+      "partial_updates": 32,
+      "first_partial_ms": 3527.39,
+      "resident_mb": 112.9,
+      "transcript_words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 2,
+      "begin_ms": 5.08,
+      "stream_compute_ms": 11598.27,
+      "finish_ms": 596.31,
+      "feed_p95_ms": 470.89,
+      "offline_ms": 1185.21,
+      "partial_updates": 32,
+      "first_partial_ms": 3516.51,
+      "resident_mb": 113.5,
+      "transcript_words": 22
+    }
+  ]
+}

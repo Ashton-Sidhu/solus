@@ -9,6 +9,7 @@ import { organizationOfSession, organizationsOfSessions } from '../data/sessions
 import { extractPlanTitle } from '../execution/agents/plan-text'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
+import { commentThreads } from '../data/comments/schema'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
 const indexedPlanRowSchema = z.object({
@@ -29,7 +30,7 @@ const indexedPlanRowSchema = z.object({
   annotation_title: z.string().nullable(),
   bookmarked: z.number().nullable(),
   bookmarked_at: z.number().nullable(),
-  comments: z.string().nullable(),
+  comment_count: z.coerce.number(),
 })
 
 type IndexedPlanRow = z.infer<typeof indexedPlanRowSchema>
@@ -158,16 +159,6 @@ export async function isPlanIndexComplete(provider: AgentId): Promise<boolean> {
   `)
 }
 
-function commentCount(raw: string | null): number {
-  if (!raw) return 0
-  try {
-    const parsed = z.array(z.unknown()).safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data.length : 0
-  } catch {
-    return 0
-  }
-}
-
 function effectiveStatus(row: IndexedPlanRow): 'pending' | 'accepted' | 'rejected' {
   return row.annotation_status ?? row.derived_status
 }
@@ -179,7 +170,7 @@ function revisionFor(row: IndexedPlanRow): PlanRevisionSummary {
     title: row.annotation_title || row.title,
     excerpt: row.excerpt,
     status: effectiveStatus(row),
-    commentCount: commentCount(row.comments),
+    commentCount: row.comment_count,
     planFilePath: row.plan_file_path ?? undefined,
   }
 }
@@ -207,7 +198,7 @@ function rowsToDescriptors(rows: IndexedPlanRow[]): PlanDescriptor[] {
       title: latest.annotation_title || latest.title,
       excerpt: latest.excerpt,
       status: effectiveStatus(latest),
-      commentCount: commentCount(latest.comments),
+      commentCount: latest.comment_count,
       bookmarked: group.some((row) => row.bookmarked === 1),
       bookmarkedAt: group.reduce<number | undefined>(
         (value, row) => row.bookmarked_at === null ? value : Math.max(value ?? 0, row.bookmarked_at),
@@ -240,7 +231,14 @@ export async function listIndexedPlans(
       indexed_plans.content, indexed_plans.derived_status, indexed_plans.session_available,
       plan_annotations.status AS annotation_status,
       plan_annotations.title AS annotation_title,
-      plan_annotations.bookmarked, plan_annotations.bookmarked_at, plan_annotations.comments
+      plan_annotations.bookmarked, plan_annotations.bookmarked_at,
+      (
+        SELECT COUNT(*) FROM ${commentThreads}
+        WHERE comment_threads.organization_id = indexed_plans.organization_id
+          AND comment_threads.subject_kind = 'plan'
+          AND comment_threads.subject_id = indexed_plans.session_id
+          AND comment_threads.subject_part = indexed_plans.plan_tool_use_id
+      ) AS comment_count
     FROM ${indexedPlans}
     LEFT JOIN ${planAnnotations}
       ON plan_annotations.session_id = indexed_plans.session_id

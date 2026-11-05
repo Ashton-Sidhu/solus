@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import {
     LoaderCircle as CircleNotchIcon,
@@ -102,6 +103,9 @@
       if (!actions.running) onClose();
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 {#snippet checkbox(state: "all" | "some" | "none")}

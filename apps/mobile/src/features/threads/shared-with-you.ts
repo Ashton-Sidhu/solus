@@ -6,14 +6,15 @@ import type { SessionRecord } from "@solus/contracts/types";
  * sessions in this person's list that another person owns, and the notice a
  * new direct share shows.
  *
- * The owner decides the group (§2 rule 1). A host gives the reader the role
- * `owner` exactly when the record's `ownerKey` is the reader
- * (`standingOf`, `admission/access.ts`), so the role answers "not mine"
- * without a second read of who this person is on each host. A record with no
- * role (a host's own store, an older host) is the reader's own.
+ * The role answers "not mine" without a second read of who this person is on
+ * each host (`standingOf`, `admission/access.ts`): the owner of a personal
+ * host holds `owner` on every record on it (plans/031 rule 1), and elsewhere a
+ * person holds `owner` on what they own. `none` is no access, not a share. A
+ * record with no role (a host's own store, an older host) is the reader's own.
+ * Desktop and web read the same rule (`sessionShareOf`).
  */
 export function isSharedWithReader(record: Pick<SessionRecord, "role">): boolean {
-  return record.role !== undefined && record.role !== "owner";
+  return record.role !== undefined && record.role !== "owner" && record.role !== "none";
 }
 
 /** "Can edit", for a shared session's row and notice; null on the reader's own. */

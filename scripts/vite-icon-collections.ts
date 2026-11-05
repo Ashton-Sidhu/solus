@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import type { IconifyIcon, IconifyJSON } from '@iconify/types'
 import type { Plugin } from 'vite'
-import { CURATED_ICONIFY_NAMES } from '../packages/workspace-ui/src/components/diagram/diagram-icons'
 import { APP_LOGO_NAMES } from '../packages/workspace-ui/src/components/settings/lib/app-logos'
 import { PROVIDER_LOGO_NAMES } from '../packages/workspace-ui/src/components/settings/lib/provider-logos'
 
@@ -11,11 +10,8 @@ const VIRTUAL_ID = 'virtual:solus-icons'
 const RESOLVED_ID = `\0${VIRTUAL_ID}`
 
 const LOCAL_ICON_NAMES = Array.from(new Set([
-  ...CURATED_ICONIFY_NAMES,
   ...APP_LOGO_NAMES,
   ...PROVIDER_LOGO_NAMES,
-  // Kept for existing diagram documents and the public schema example.
-  'simple-icons:redis',
 ]))
 
 interface LocalIcon {

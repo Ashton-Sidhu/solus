@@ -1,5 +1,10 @@
 import type { WorkType } from "@solus/contracts/types";
-import type { FilePayload } from "../../diagram/lib/diagram-export";
+
+/** How a payload rides the string-typed `writeFile` contract. */
+export interface FilePayload {
+  contents: string;
+  encoding: "utf8" | "base64";
+}
 
 /** One thing a work can be written out as, offered by the shell that owns it. */
 export interface WorkExportFormat {
@@ -27,7 +32,7 @@ export type WorkExportRequest =
   | { source: "host" };
 
 /** The file the host writes for an exported work: Markdown for a document,
- *  JSON for a diagram or slides, HTML for an artifact. */
+ *  JSON for slides, HTML for an artifact. */
 export function storedExportExtension(type: WorkType): string {
   if (type === "doc") return "md";
   if (type === "artifact") return "html";
@@ -44,6 +49,12 @@ export function downloadPayload(fileName: string, mimeType: string, payload: Fil
     payload.encoding === "base64"
       ? new Blob([Uint8Array.from(atob(payload.contents), (c) => c.charCodeAt(0))], { type: mimeType })
       : new Blob([payload.contents], { type: mimeType });
+  downloadBlob(fileName, blob);
+}
+
+/** The browser's own download path, which Electron also takes: the file lands
+ *  on the device running the client, named `fileName`. */
+export function downloadBlob(fileName: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

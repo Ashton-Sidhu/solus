@@ -9,6 +9,8 @@ import type { AgentToolImage } from '../tools/agent-tool'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
+import { unlistedCodexModelProfiles } from './codex-models'
+import type { Model } from './generated/v2/Model'
 import { seatKey, type SeatManager, type TurnSeat } from '../../seats/seat-manager'
 import { HOST_LOGIN_SEAT } from '@solus/contracts/seats'
 import { CodexThreadWriters } from '../../../data/sessions/codex-thread-writers'
@@ -63,6 +65,7 @@ import {
 import { runtimeInstructions } from '../runtime-instructions'
 import { enabledAgentTools } from '../tools/agent-tool'
 import type {
+  CodexModelListResponse,
   CodexThreadGoalClearResponse,
   CodexThreadGoalResponse,
   CodexThreadListResponse,
@@ -210,6 +213,9 @@ const SEAT_CLIENT_CAP = 8
  *  otherwise keep them until the host restarts. The next turn's `thread/resume`
  *  loads it again. */
 const THREAD_IDLE_UNLOAD_MS = 10 * 60_000
+/** How long Stop waits for Codex to end the turn before Solus settles the run
+ *  itself (t3code #27252). Past Codex's own 10 s interrupt request deadline. */
+const STOP_CONFIRM_TIMEOUT_MS = 15_000
 
 interface SeatClient {
   client: CodexAppServerClient
@@ -259,6 +265,8 @@ type CodexRunHandle = RunHandle & {
   toolDispatcher: CodexToolDispatcher
   persistent: boolean
   isCompaction: boolean
+  /** Armed by Stop: Solus settles the run if Codex has not ended the turn by then. */
+  stopTimer?: ReturnType<typeof setTimeout>
 }
 
 interface CodexSkillsListResponse {
@@ -294,8 +302,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   readonly id: AgentId = 'codex'
   /** Read per call: the host replaces the model list when GitHub publishes a new one. */
   get metadata(): AgentMetadata {
-    return { ...STATIC_CODEX_METADATA, ...providerModelsFor('codex') }
+    const listed = { ...STATIC_CODEX_METADATA, ...providerModelsFor('codex') }
+    const unlisted = unlistedCodexModelProfiles(this.liveModels)
+    return Object.keys(unlisted).length ? { ...listed, modelProfiles: unlisted } : listed
   }
+  /** The models the host's Codex reports in `model/list`; read once its app-server runs. */
+  private liveModels: Model[] = []
+  private liveModelsRead: Promise<void> | null = null
   readonly permissions: PermissionResponder
 
   /** The host's own login. Every catalog read (thread lists, skills, goals) goes here. */
@@ -310,6 +323,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private readonly idleThreads = new Map<CodexAppServerClient, Map<string, ReturnType<typeof setTimeout>>>()
   /** Maps Codex turn/item IDs → sessionId for event routing. */
   private sessionByTurn = new Map<string, string>()
+  /** The run that started each turn, until Codex ends the turn. A turn whose run
+   *  Solus already settled or replaced belongs to no live run (t3code #25224). */
+  private readonly turnOwners = new Map<string, CodexRunHandle>()
+  /** Threads whose turn ignored Stop, so Solus settled the run without killing
+   *  anything. The next run on the thread force stops that turn first. */
+  private readonly unansweredStops = new Map<string, CodexAppServerClient>()
+  private stopConfirmTimeoutMs = STOP_CONFIRM_TIMEOUT_MS
   private sessionByItem = new Map<string, string>()
   /** Command items still running on a root thread, by item id. A command that
    *  outlives its turn is background work: its completion arrives after the
@@ -640,6 +660,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
             ],
           }
 
+      // A turn that ignored Stop would take this run's input as its own.
+      if (threadId) await this.forceStopUnansweredTurn(threadId)
+
       let response: CodexThreadStartResponse
       if (conversation.kind === 'fork' && threadId) {
         const sourceThreadId = threadId
@@ -748,14 +771,23 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }}
       }
       const turn = await handle.client.request<CodexTurnStartResponse>('turn/start', turnParams)
+      const turnId = turn.turn.id
+      // A turn an earlier run started on this app-server is still that run's, as `turn/steer` checks.
+      const owner = this.turnOwners.get(turnId)
+      if (owner && owner !== handle && owner.client === handle.client && owner.threadId === threadId) {
+        log.warn('turn_start_turn_mismatch', { sessionId: threadId, turnId })
+        throw new Error(`Codex answered with turn ${turnId}, which an earlier run started. Stop the session, then send the prompt again.`)
+      }
 
-      handle.turnId = turn.turn.id
-      this.sessionByTurn.set(turn.turn.id, threadId)
+      handle.turnId = turnId
+      this.turnOwners.set(turnId, handle)
+      this.sessionByTurn.set(turnId, threadId)
       // Stop during turn/start had no turn id to interrupt; interrupt it now.
-      if (handle.abortController.signal.aborted) this.cancelSession(threadId)
+      if (handle.abortController.signal.aborted) this.requestTurnInterrupt(handle)
     } catch (err: any) {
       const sessionId = handle.agentSessionId
       if (sessionId) this.forgetRoutingForSession(sessionId)
+      if (handle.turnId) this.turnOwners.delete(handle.turnId)
       // Emit before finishRun: a run that failed before it had an
       // agentSessionId is only reachable through the backend's pending handles,
       // which finishRun empties, so the SessionRuntime would never see the error.
@@ -807,14 +839,56 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     const handle = this.activeRuns.get(sessionId)
     if (!handle) return isStoppingWork
+    // A second Stop on a turn that has not ended is a force stop.
+    if (handle.interrupted) {
+      this.settleUnansweredStop(handle, true)
+      return true
+    }
     handle.abortController.abort()
     handle.interrupted = true
     handle.normalizer.interrupt()
-    if (handle.threadId && handle.turnId) {
-      handle.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
-        .catch((err) => log.warn('turn_interrupt_failed', { error: err.message }))
-    }
+    this.requestTurnInterrupt(handle)
+    // Every Stop is bounded: an agent that ignores it does not keep the session.
+    handle.stopTimer = setTimeout(() => this.settleUnansweredStop(handle, false), this.stopConfirmTimeoutMs)
+    handle.stopTimer.unref?.()
     return true
+  }
+
+  private requestTurnInterrupt(handle: CodexRunHandle): void {
+    if (!handle.threadId || !handle.turnId) return
+    handle.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
+      .catch((err) => log.warn('turn_interrupt_failed', { error: err.message }))
+  }
+
+  /**
+   * Codex did not end a stopped turn. Solus settles the run as interrupted, so
+   * the session leaves its turn and its queue moves on. On the bound nothing is
+   * killed: the thread is marked, and its next run force stops the turn. A
+   * force stop (a second Stop) unloads the thread from its app-server now,
+   * which ends its turn and terminals; the app-server and its other threads
+   * keep running.
+   */
+  private settleUnansweredStop(handle: CodexRunHandle, isForced: boolean): void {
+    clearTimeout(handle.stopTimer)
+    const threadId = handle.threadId
+    if (!threadId || this.activeRuns.get(threadId) !== handle) return
+    log.warn(isForced ? 'codex_stop_forced' : 'codex_stop_unanswered', { sessionId: threadId, turnId: handle.turnId, timeoutMs: this.stopConfirmTimeoutMs })
+    this.unansweredStops.set(threadId, handle.client)
+    if (isForced) void this.forceStopUnansweredTurn(threadId)
+    void this.finishCompletedTurn(handle, [], true, null, 'SIGINT', handle.turnId)
+  }
+
+  /** Unload a thread whose turn ignored Stop. Codex reloads it on the next `thread/resume`. */
+  private async forceStopUnansweredTurn(threadId: string): Promise<void> {
+    const client = this.unansweredStops.get(threadId)
+    if (!client) return
+    this.unansweredStops.delete(threadId)
+    try {
+      const { status } = await client.request('thread/unsubscribe', { threadId })
+      log.info('codex_stopped_thread_unloaded', { sessionId: threadId, status })
+    } catch (error) {
+      log.warn('codex_stopped_thread_unload_failed', { sessionId: threadId, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   async steerSession(
@@ -858,6 +932,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   /** Every way a run ends comes through here, so this is where a thread goes idle. */
   protected override finishRun(handle: CodexRunHandle): void {
+    clearTimeout(handle.stopTimer)
     super.finishRun(handle)
     if (handle.threadId) this.armThreadIdle(handle.client, handle.threadId)
   }
@@ -878,6 +953,25 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.client.shutdown()
   }
 
+  /** Read the reasoning levels Codex reports for each model, once per process.
+   *  A failed read is tried again on the next refresh. */
+  private readLiveModels(): void {
+    if (this.liveModelsRead) return
+    this.liveModelsRead = (async () => {
+      const models: Model[] = []
+      let cursor: string | null = null
+      do {
+        const page: CodexModelListResponse = await this.client.request('model/list', { cursor, includeHidden: false })
+        models.push(...page.data)
+        cursor = page.nextCursor
+      } while (cursor)
+      this.liveModels = models
+    })().catch((error) => {
+      this.liveModelsRead = null
+      log.warn('codex_model_list_failed', { error: error instanceof Error ? error.message : String(error) })
+    })
+  }
+
   private async refreshSessionIndex(): Promise<void> {
     if (this.sessionIndexRefresh) return this.sessionIndexRefresh
     this.sessionIndexRefresh = this.refreshSessionIndexOnce()
@@ -894,6 +988,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     // A refresh must not turn a Claude-only host into a two-process Codex host.
     // Codex work starts the client; its turn/completed then asks again.
     if (!this.client.hasStarted) return
+    this.readLiveModels()
     if (this.sessionIndexRefreshTimer) return
     this.sessionIndexRefreshTimer = setTimeout(() => {
       this.sessionIndexRefreshTimer = null
@@ -1235,6 +1330,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (this.completesBackgroundCommand(msg.method, params)) return
     if (this.deliversDetachedChild(msg)) return
+    if (this.isEarlierRunTurn(msg.method, params, client)) return
 
     if (!sessionId && msg.method === 'error' && this.activeRuns.size === 1) {
       sessionId = this.activeRuns.keys().next().value || null
@@ -1252,7 +1348,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     // Stop can interrupt the compaction, including Stop before turn/started.
     if (handle?.isCompaction && !handle.turnId && msg.method === 'turn/started' && msg.params.threadId === handle.threadId) {
       handle.turnId = msg.params.turn.id
-      if (handle.interrupted) this.cancelSession(sessionId)
+      this.turnOwners.set(handle.turnId, handle)
+      if (handle.interrupted) this.requestTurnInterrupt(handle)
     }
     if (msg.method === 'item/started' && params?.item?.type === 'commandExecution' && optionalString(params?.threadId) === sessionId) {
       this.runningCommands.set(params.item.id, {
@@ -1289,6 +1386,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
       const exitSignal = wasInterrupted ? 'SIGINT' : null
       if (handle) {
+        // Codex ended the turn, so no late event can come for it.
+        if (handle.turnId) this.turnOwners.delete(handle.turnId)
         void this.finishCompletedTurn(
           handle,
           normalized,
@@ -1306,6 +1405,23 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     for (const event of normalized) this.emit('normalized', sessionId, event)
+  }
+
+  /**
+   * An event of a turn whose run already ended or was replaced: a stopped turn
+   * that Codex completes late. It would otherwise end the thread's next run
+   * early and drop that run's own events (t3code #25224).
+   */
+  private isEarlierRunTurn(method: string, params: any, client: CodexAppServerClient): boolean {
+    const turnId = optionalString(params?.turnId) ?? optionalString(params?.turn?.id)
+    const owner = turnId ? this.turnOwners.get(turnId) : undefined
+    if (!turnId || !owner?.threadId || owner.client !== client || owner.threadId !== optionalString(params?.threadId)) return false
+    if (this.activeRuns.get(owner.threadId) === owner) return false
+    if (method === 'turn/completed') {
+      this.turnOwners.delete(turnId)
+      if (owner.client === this.unansweredStops.get(owner.threadId)) this.unansweredStops.delete(owner.threadId)
+    }
+    return true
   }
 
   /** A quota update names the account of the app-server it came from: only that server's runs hear it. */

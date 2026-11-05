@@ -1,3 +1,4 @@
+import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
@@ -72,7 +73,9 @@ export interface HostEventMap {
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.transcriptChanged': { sessionId: string }
-  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number }
+  /** `hasPendingQuestion` is set while a question that does not block the turn
+   *  waits for the person: the session needs input whatever its status. Absent means none. */
+  'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number; hasPendingQuestion?: true }
   'setup.statusChanged': SetupStatusEvent
   'setup.logAppended': SetupLogEvent
   'voice.modelStatusChanged': VoiceModelStatus
@@ -155,6 +158,8 @@ export interface HostEventMap {
   'host.sshProgress': SshAddProgress
   /** The hosts this host forwards to, and the state of each forward (D7). */
   'host.forwardedHostsChanged': { hosts: ForwardedHost[] }
+  /** The owner's host list changed (plans/031 D7). It names nothing: the owner reads it again with `hostListRead`. */
+  'host.listChanged': Record<string, never>
   /** An agent or user opened a device in a session; clients showing that session may reveal it. */
   'device.surfaceRequested': { sessionId: string; devicePreviewId: string; openedBy: 'user' | 'agent' }
   'atlassian.oauthCompleted': AtlassianOAuthCompleted
@@ -203,6 +208,8 @@ export interface HostEventMap {
   /** This host's standing changed: linked or unlinked, an organization shared or withdrawn, a policy edited, an opt-in
    *  changed. The whole status, as `hostOrganizations` answers it. */
   'host.organizationsChanged': HostOrganizationsStatus
+  /** The policies that govern work on this host changed (plans/030 §5.2). The whole summary, as `hostPolicy` answers it. */
+  'host.policyChanged': PolicySet
 }
 
 export type HostEventName = keyof HostEventMap
@@ -272,6 +279,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'browser.profilesChanged': { owner: 'browser', category: 'snapshot', recovery: 'reload', description: "One person's named browser profiles in a project changed." },
   'host.sshProgress': { owner: 'connections', category: 'targeted', recovery: 'reset', description: 'A step of adding a machine over SSH; the request id names the add.' },
   'host.forwardedHostsChanged': { owner: 'connections', category: 'snapshot', recovery: 'reload', description: 'The forwarded hosts, or the state of a forward, changed; the payload is the whole list.' },
+  'host.listChanged': { owner: 'connections', category: 'invalidation', recovery: 'reload', description: "The owner's host list changed; read it again." },
   'device.stateChanged': { owner: 'devices', category: 'snapshot', recovery: 'reload', description: 'Device inventory, helper status, previews or control changed; the payload is the bounded snapshot.' },
   'device.surfaceRequested': { owner: 'devices', category: 'targeted', recovery: 'reset', description: 'A device was opened in a session and its surface may be revealed.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },
@@ -292,9 +300,10 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
   'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's registration, its link, or its tunnel changed state." },
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
+  'host.policyChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: 'The policies that govern work on this host changed.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
-const hostEventEnvelopeSchema = z.object({
+export const hostEventEnvelopeSchema = z.object({
   type: z.string(),
   payload: z.unknown(),
   occurredAt: z.number(),

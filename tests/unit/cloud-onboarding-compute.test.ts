@@ -171,12 +171,12 @@ describe('cloud onboarding: the "Runs on" picker', () => {
     expect(serverIdOf('new-cloud')).toBeNull()
   })
 
-  test('the organization’s host policy removes what its owners turned off', () => {
+  test('the organization’s host rules remove what its owners turned off', () => {
     const choices = computeChoices([adaLaptop, { ...cloudHost, label: 'Acme' }, bobServer], ACCOUNT)
     // WHY: an invitee must not be offered a computer the organization will refuse to share.
-    const cloudOnly = { ...mayNot, policy: { allowsCloudHosts: true, allowsPersonalHosts: false } }
+    const cloudOnly = { ...mayNot, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false } }
     expect(runsOnOptions(choices, cloudOnly, catalog).map((option) => option.value)).toEqual(['host:cloud'])
-    const ownOnly = { ...mayNot, policy: { allowsCloudHosts: false, allowsPersonalHosts: true } }
+    const ownOnly = { ...mayNot, hostRules: { allowsCloudHosts: false, allowsPersonalHosts: true } }
     expect(runsOnOptions(choices, ownOnly, catalog).map((option) => option.value)).toEqual([
       'host:laptop',
       'host:bob',

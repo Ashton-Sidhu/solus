@@ -10,7 +10,6 @@
     List as ListIcon,
     Minimize2 as Minimize2Icon,
     Presentation as PresentationIcon,
-    Workflow as WorkflowIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import type { Message, Plan, WorkMeta } from "@solus/contracts/types";
@@ -37,12 +36,14 @@
   import AssistantAlert from "../../conversation/AssistantAlert.svelte";
   import FootnoteRef from "../../conversation/FootnoteRef.svelte";
   import FootnoteSection from "../../conversation/FootnoteSection.svelte";
+  import FileChipGroup from "../../conversation/FileChipGroup.svelte";
   import ArtifactView from "../../artifact/ArtifactView.svelte";
   import { planTypeLabel } from "../../plan/lib/plan-type-label";
   import {
     ALERT_TOKEN,
     FOOTNOTE_REF_TOKEN,
     FOOTNOTE_SECTION_TOKEN,
+    FILE_CHIP_GROUP_TOKEN,
   } from "../../conversation/lib/markdown-extensions";
   import { artifactIsReadable, recordDocuments, recordRows } from "./lib/record-transcript";
   import { hostPathBaseName } from "@solus/contracts/host-path";
@@ -83,6 +84,7 @@
     [ALERT_TOKEN]: AssistantAlert,
     [FOOTNOTE_REF_TOKEN]: FootnoteRef,
     [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,
+    [FILE_CHIP_GROUP_TOKEN]: FileChipGroup,
   };
 
   function togglePlan(planId: string) {
@@ -192,7 +194,7 @@
             skipMotion
           >
             {#snippet glyph()}
-              {#if document.workType === "slides"}<PresentationIcon />{:else if document.workType === "diagram"}<WorkflowIcon />{:else if document.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
+              {#if document.workType === "slides"}<PresentationIcon />{:else if document.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
             {/snippet}
             {#snippet rail()}{#if document.contentVersion}v{document.contentVersion}{/if}{/snippet}
           </TranscriptCard>

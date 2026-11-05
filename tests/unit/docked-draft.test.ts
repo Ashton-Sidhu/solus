@@ -4,7 +4,7 @@ import { leadingHomeRoute } from '@solus/workspace-ui/contexts/workspace/leading
 import { checkoutPlace, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
- * A page's docked composer (documents, artifacts, diagrams, pull requests)
+ * A page's docked composer (documents, artifacts, pull requests)
  * writes into a draft that no pane shows. The user is typing in it all the
  * same, so nothing else may claim it, and the words must outlive the page.
  */

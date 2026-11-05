@@ -1,5 +1,3 @@
-import { bindGoogleImages, planGoogleImages, replacementPng, refreshGoogleImages, validateGoogleImageDraft } from '../../google/docs-images'
-import { createLogger } from '../../logger'
 import { planGoogleDocStructure } from '../../google/docs-structure-plan'
 import { GoogleDocComments } from './comments'
 import { listGoogleComments } from '../../google/comments'
@@ -8,7 +6,6 @@ import type {
   DocDraft,
   DocPatch,
   DocProviderStatus,
-  DocReadHints,
   DocRef,
   DocScope,
   DocSummary,
@@ -17,7 +14,7 @@ import type {
 import { hasGoogleDriveReadScope } from '@solus/contracts/google-auth'
 import { getAccessToken, grantedGoogleScopes, isGoogleOAuthConfigured } from '../../google/oauth'
 import {
-  createEmptyDoc, deleteFile, fileContentUrl, shareByLink, uploadPng,
+  createEmptyDoc,
   docUrlFor,
   fileMetadata,
   listDocs,
@@ -32,7 +29,6 @@ import { documentIndexedText, planGoogleDocEdit } from '../../google/docs-edit-p
 import { documentToMarkdown } from '../../google/docs-markdown'
 import { writeNewDocsBody } from '../../google/docs-publish'
 import { DocProviderUnavailableError, DocVersionConflictError, type DocProviderAdapter } from '../types'
-import { validatedDiagramAssets } from '../diagram-assets'
 
 /**
  * Google Docs through Drive.
@@ -52,7 +48,6 @@ const DRIVE_READ_LIMITATION =
 // A checkpoint belongs to one document, including updates from separate work
 // links or direct tools. Serialize local writers so a rejected revision cannot
 // replace the checkpoint saved by the successful writer.
-const imageLog = createLogger('google', 'image-replacement')
 const pendingGoogleUpdates = new Map<string, Promise<void>>()
 
 export class GoogleDriveDocAdapter implements DocProviderAdapter {
@@ -110,30 +105,24 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
     })
   }
 
-  async read(ref: DocRef, hints?: DocReadHints): Promise<NormalizedDoc> {
+  async read(ref: DocRef): Promise<NormalizedDoc> {
     const token = await this.token()
     const [file, document] = await Promise.all([
       fileMetadata(token, ref.externalId),
       getDocument(token, ref.externalId),
     ])
-    const images = hints?.googleImages ? refreshGoogleImages(await getEditableDocument(token, ref.externalId), hints.googleImages) : undefined
-    const converted = documentToMarkdown(document, images ?? hints?.diagrams)
+    const converted = documentToMarkdown(document)
     const doc = this.normalize(file, ref.externalKey, converted.markdown)
-    if (images) doc.googleImages = images
     if (converted.lossyParts.length) doc.lossyParts = converted.lossyParts
     return doc
   }
 
   async create(scope: DocScope, doc: DocDraft): Promise<NormalizedDoc> {
     const token = await this.token()
-    const assets = validatedDiagramAssets(doc.diagramAssets)
-    validateGoogleImageDraft(doc.markdown, assets)
     const created = await createEmptyDoc(token, doc.title, scope)
-    await writeNewDocsBody(token, created.docId, doc.markdown, assets, scope)
+    await writeNewDocsBody(token, created.docId, doc.markdown)
     const file = await fileMetadata(token, created.docId)
-    const result = this.normalize(file, scope, doc.markdown)
-    if (assets.length) result.googleImages = bindGoogleImages(await getEditableDocument(token, created.docId), assets)
-    return result
+    return this.normalize(file, scope, doc.markdown)
   }
 
   async update(ref: DocRef, patch: DocPatch): Promise<NormalizedDoc> {
@@ -161,45 +150,18 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
         throw new DocVersionConflictError(current.version, current.modifiedTime)
       }
     }
-    const assets = validatedDiagramAssets(patch.diagramAssets)
     const document = await getEditableDocument(token, ref.externalId)
     const comments = await listGoogleComments(token, ref.externalId)
     const checkpoint = await commentCheckpoint(ref.externalId, document.tabs[0].tabProperties.tabId, documentIndexedText(document),
       comments.filter(comment => !comment.deleted && (!!comment.anchor || !!comment.quote)))
-    const images = planGoogleImages(document, patch.markdown, assets, patch.googleImages)
-    const imageBytes = images.replacements.map(image => replacementPng(image.asset, image.width, image.height))
-    const structure = planGoogleDocStructure(document, images.markdown, checkpoint.quotes)
-    const textRequests = planGoogleDocEdit(structure.document, images.markdown, checkpoint.quotes)
-    const requests = [...structure.requests, ...textRequests]
-    const staged: string[] = []
-    try {
-      for (let index = 0; index < images.replacements.length; index++) {
-        const image = images.replacements[index]
-        const fileId = await uploadPng(token, `${image.asset.title}.png`, imageBytes[index], ref.externalKey)
-        staged.push(fileId)
-        await shareByLink(token, fileId)
-        image.binding.sourceUri = fileContentUrl(fileId)
-        requests.push({ replaceImage: { imageObjectId: image.binding.objectId, tabId: image.binding.tabId, uri: image.binding.sourceUri, imageReplaceMethod: 'CENTER_CROP' } })
-      }
-      // Recheck after staging uploads; Docs guards any later body/image edit.
-      if (patch.expectedVersion !== undefined) {
-        const current = await fileMetadata(token, ref.externalId)
-        if (current.version !== patch.expectedVersion) throw new DocVersionConflictError(current.version ?? '', current.modifiedTime)
-      }
-      await checkpoint.save(textRequests, structure.edits)
-      await batchUpdateDocument(token, ref.externalId, requests, document.revisionId)
-      const updated = patch.title
-        ? await renameFile(token, ref.externalId, patch.title)
-        : await fileMetadata(token, ref.externalId)
-      const result = this.normalize(updated, ref.externalKey, patch.markdown)
-      if (images.bindings.length) result.googleImages = images.bindings
-      return result
-    } finally {
-      for (const fileId of staged) {
-        try { await deleteFile(token, fileId) }
-        catch (error) { imageLog.warn('docs_image_cleanup_failed', { fileId, error: error instanceof Error ? error.message : String(error) }) }
-      }
-    }
+    const structure = planGoogleDocStructure(document, patch.markdown, checkpoint.quotes)
+    const textRequests = planGoogleDocEdit(structure.document, patch.markdown, checkpoint.quotes)
+    await checkpoint.save(textRequests, structure.edits)
+    await batchUpdateDocument(token, ref.externalId, [...structure.requests, ...textRequests], document.revisionId)
+    const updated = patch.title
+      ? await renameFile(token, ref.externalId, patch.title)
+      : await fileMetadata(token, ref.externalId)
+    return this.normalize(updated, ref.externalKey, patch.markdown)
   }
 
   resolveUrl(url: string): DocRef | null {

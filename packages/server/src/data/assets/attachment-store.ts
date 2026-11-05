@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'crypto'
-import { chmod, copyFile, mkdir, open, unlink } from 'fs/promises'
+import { chmod, copyFile, mkdir, open, rm, unlink } from 'fs/promises'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
 import type { AttachmentUploadRequest } from '@solus/contracts/rpc'
@@ -65,6 +65,11 @@ export function uploadFolderName(bucketId: string): string {
   const label = bucketId.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 48) || 'session'
   const digest = createHash('sha256').update(bucketId).digest('hex').slice(0, 12)
   return `${label}-${digest}`
+}
+
+/** Remove the folder of one conversation's uploads, when the conversation is gone. */
+export async function removeAttachmentFolder(bucketId: string, attachmentsDir = attachmentsRoot()): Promise<void> {
+  await rm(join(attachmentsDir, uploadFolderName(bucketId)), { recursive: true, force: true })
 }
 
 function safeFileName(name: string): string {

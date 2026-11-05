@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { Marked, type Token } from 'marked'
+import { Marked, type Token, type Tokens } from 'marked'
 import {
   ALERT_TOKEN,
   FOOTNOTE_REF_TOKEN,
   FOOTNOTE_SECTION_TOKEN,
+  FILE_CHIP_GROUP_TOKEN,
   alertMarkedExtension,
   footnoteMarkedExtension,
   spacedImagePathMarkedExtension,
@@ -109,4 +110,18 @@ describe('extension choice', () => {
     expect(footnote).toEqual([footnoteMarkedExtension])
     expect(assistantMarkdownExtensions('> [!NOTE]\n> Hi.[^1]')).toEqual([alertMarkedExtension, footnoteMarkedExtension])
   })
+})
+
+test('a file chip and the punctuation right after it lex as one group, a web link does not', () => {
+  // WHY: a file chip is an inline block, so a browser can break the line
+  // between the chip and its `.` and leave the mark alone on the next line.
+  // The group renders on one line (t3code #26871).
+  const source = 'Open [`src/app.ts:12`](src/app.ts:12). Then [the docs](https://example.com), done.'
+  const extensions = assistantMarkdownExtensions(source)
+  const paragraph = new Marked(...extensions).lexer(source)[0] as Tokens.Paragraph
+  expect(paragraph.tokens.map((token) => token.type)).toEqual(['text', FILE_CHIP_GROUP_TOKEN, 'text', 'link', 'text'])
+  const group = paragraph.tokens[1] as Tokens.Generic
+  expect(group.tokens!.map((token) => [token.type, token.raw])).toEqual([['link', '[`src/app.ts:12`](src/app.ts:12)'], ['text', '.']])
+  // Prose with only web links keeps the stable parser configuration.
+  expect(assistantMarkdownExtensions('See [docs](https://example.com).')).toHaveLength(0)
 })

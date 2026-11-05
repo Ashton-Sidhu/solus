@@ -57,6 +57,15 @@ Decision 1 is approved by the user. Decisions 2–6 are proposed implementation 
    provisioning defaults stay in the cloud console. Decisions 4 and 6 and the new
    rules in §3.4 are replaced by this decision.
 
+   > **Reversed by plan 030 (2026-11-02)** for the limits and settings that plan names.
+   > An organization policy and a cloud host policy can now lock the session settings
+   > and set the session limits of plan 030 §4.3, and a host policy can lock the host
+   > keys of §4.4. `syncAllInsights` moves into the organization policy as
+   > `sessions.limits.insights.syncAll`. `organizationSettingsSchema` and
+   > `/v1/orgs/:id/settings` are removed. Host eligibility and the provisioning
+   > defaults stay host rules in the cloud console. See
+   > [030 Managed policy](030-managed-policy.md) and `docs/managed-policy.md`.
+
 8. **No compatibility — approved 2026-10-03:** Solus has no end users. Remove the
    migrations and compatibility paths in this plan: the legacy client blob import, the
    analytics consent migration, the mobile appearance migration, the host import offer,

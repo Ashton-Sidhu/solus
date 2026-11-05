@@ -12,7 +12,7 @@ import type { SettingsTab } from '../../../contexts/workspace/routing/route-regi
  * and mobile so every client exposes the same entry points.
  */
 
-interface DeviceShell {
+export interface DeviceShell {
   openDevices(sessionId?: string, serverId?: string, opts?: { automatic?: boolean }): void
   showSettings(tab: SettingsTab, via: Via): void
   focusedChatTabId: string | null
@@ -55,11 +55,13 @@ export function deviceCommands(shell: DeviceShell): Command[] {
  * conversation, never by switching to an unrelated one, and give typing focus
  * back to the composer. An agent's open respects the auto-show setting.
  */
-export function revealDeviceSurface(
+export async function revealDeviceSurface(
   shell: DeviceShell,
   serverId: string,
   payload: { sessionId: string; openedBy: 'user' | 'agent' },
-): void {
+): Promise<void> {
+  // The request can be what loaded the store: read the host's settings first.
+  if (!devicesStore.state(serverId)) await devicesStore.load(serverId)
   const settings = devicesStore.state(serverId)?.settings
   if (payload.openedBy === 'agent' && settings?.autoShowAgentDevices === false) return
   const focusedTabId = shell.focusedChatTabId

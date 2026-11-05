@@ -1,0 +1,24 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "machine": "AMD64",
+  "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+  "fixture": "whisper.cpp JFK, repeated for longer clips; artificial repetition is not an accuracy benchmark",
+  "paced": true,
+  "load_ms": 3220.04,
+  "results": [
+    {
+      "seconds": 120,
+      "repeat": 0,
+      "begin_ms": 3.59,
+      "stream_compute_ms": 120584.55,
+      "finish_ms": 463.28,
+      "feed_p95_ms": 402.31,
+      "offline_ms": 4531.57,
+      "partial_updates": 468,
+      "first_partial_ms": 3409.32,
+      "resident_mb": 121.9,
+      "transcript_words": 241,
+      "wait_after_stop_ms": 584.55
+    }
+  ]
+}

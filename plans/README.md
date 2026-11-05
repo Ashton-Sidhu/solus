@@ -1,5 +1,33 @@
 # Implementation plans
 
+## Data model — 2026-11-01
+
+**[029 Fresh database baseline](029-fresh-database-baseline.md)** is the one data
+model plan. The database is rebuilt from scratch and the existing one is wiped
+(user decision, reaffirmed: no backwards compatibility, host or cloud), so 029
+carries no migration, backfill, or compatibility step:
+one generated baseline per engine, every table a `defineTable`. It absorbs the
+first-stage consolidations (022–027), the query and storage findings (028), the
+relationship and thread models (`data-model-validation/README.md`), the cloud
+consolidations owned by the startup session, the creator-identity and
+organization-scope rules, and the eight structural principles. Section 4.2 of
+029 holds the session identity merger validation (fixture:
+`data-model-validation/session-merge-fixture.ts`).
+
+| Plan | Status |
+| --- | --- |
+| [022](022-remove-unused-saved-prompts.md) – [027](027-operation-receipts.md) | ABSORBED into 029 §3; kept as history, not executed on their own |
+| [028 Query and storage findings](028-query-and-storage-findings.md) | ABSORBED into 029 §6–§8; its tables remain the evidence record (file:line, plans, timings) |
+| [029 Fresh database baseline](029-fresh-database-baseline.md) | IMPLEMENTED on `main` (2026-11-02; not deployed; local databases must be deleted before the next start): one `0000_baseline.sql` per database, 74 → 60 tables in `solus.db` plus 3 in `metrics.db`; PostgreSQL concurrency gates and the live runtime not exercised |
+
+Validation record: `data-model-validation/README.md` (58 thread and 74
+relationship checks passed in SQLite fixtures; application integration and
+PostgreSQL concurrency are open gates). Baseline of existing behaviour: 59 tests
+across `browser-profiles`, `lead-sessions`, `task-snoozes`, `session-states`,
+`session-pull-requests` (2026-11-01).
+
+## Existing implementation plans
+
 | Plan | Status | Dependencies |
 | --- | --- | --- |
 | [001 Owned server installation](001-owned-server-installation.md) | IMPLEMENTED — verification evidence in .solus-local/owned-server-qa | Current working-tree server update implementation (baseline, no migration required) |
@@ -20,6 +48,7 @@
 | [017 Native mobile client](017-native-mobile-client.md) | IN PROGRESS (2026-10-03, uncommitted) — `apps/mobile` on Expo SDK 57 / React Native 0.86.3: stages 0–4 source done with focused logic tests, a disposable-host socket test, and Metro bundles for iOS and Android; NO native compile or device run (no Xcode or Android SDK on this machine); `solus-mobile` client registered in the solus-cloud working tree, not deployed. Milestone one is a conversation prototype, not a replacement: stages 5–6 gate retiring the mobile web shell | Existing client-core, host and record APIs; account integration from 010/013; coordinate notifications with 015 and device previews with 016; retain Android/browser access until replacement |
 | [019 Acting identity](019-acting-identity.md) | IMPLEMENTED in source (2026-10-07, uncommitted; not run on a cloud host) — every git, `gh` and provider process takes its environment from one `ActingIdentity` held in the acting scope; a member gets a clean environment whose `HOME` holds a standard `~/.gitconfig` that asks the Solus git helper first and `gh` only as a fallback, replacing `GitIdentityManager`, the `GIT_CONFIG_*` variables, askpass and the token-file hold; a missing scope is an error, never a host fallback; automations run as their creator and orchestrated children on the parent's seat; prevents mistakes, not attacks (per-member Unix users are a separate plan). Five stages; record and limits in §9 | 004 stage 3 (identity on the cloud machine); 012 actor on every request; replaces `vault/credential-scope.ts` |
 | [020 Agent profile](020-agent-profile.md) | IMPLEMENTED in source (2026-10-08, uncommitted; not run against a cloud host; record in §10) — one person's instructions, skills, and MCP servers as one account document with flat entry keys; pushed from the computer when not signed in, pulled by every host with a seat when signed in with sync on; the cloud is the OAuth client and only refresher for MCP servers, a host holds an access token in memory only, and a host-local connection is uploaded once then dropped (cloud-held wins); `AgentProfileManager` sequences three appliers (files, registry skills, personal integrations); `owner_user_id` on `integration`; six stages, open items in §9 | 018 sync engine and account routes; 010 delegations with new scopes; mcp-integrations plan; cloud half in `solus-cloud/docs/plans/agent-profile.md` |
+| [030 Managed policy](030-managed-policy.md) | PLAN (2026-11-02) — one `policy.json` schema for three sources: the MDM policy of a machine (file, macOS configuration profile, Windows registry value), cloud host policies an organization assigns to hosts, and one organization policy per organization; keyed by the active organization, MDM first; host keys from MDM or the host-owning organization; strict and fail closed; locks and limits enforced on the host, shown by clients; replaces plan 018 decision 7 for the named keys. Administrator docs in `docs/managed-policy.md` | 018 settings and standing; 009/010 organization attachment and delegations; solus-cloud policy tables and API |
 
 ## Refactor and feature execution order
 

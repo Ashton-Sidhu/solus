@@ -35,6 +35,13 @@ export function hostPathSegments(path: string): string[] {
   return path.split(SEPARATORS).filter(Boolean)
 }
 
+/**
+ * The random prefix the host puts before an uploaded file's name: 24 hex
+ * characters today (`attachmentUploadPath`), a slot and 12 hex characters in
+ * older uploads that history still names.
+ */
+export const UPLOAD_NAME_PREFIX = /^(?:\d+-[0-9a-f]{12}|[0-9a-f]{24})-/
+
 /** The last name in a path: its file or folder name. Empty for a root. */
 export function hostPathBaseName(path: string): string {
   const segments = hostPathSegments(path)

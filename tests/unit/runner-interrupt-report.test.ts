@@ -39,7 +39,7 @@ test('at boot every own published organization session is queued once, the one t
   const { RunnerDelivery } = await import('@solus/server/sync/runner-delivery')
 
   // The previous process: an organization session, published, mid-turn when it ended.
-  records.rememberSessionBirth('solus-killed', { organizationId: 'org_a', published: true, ownerKey: 'bob', admissionId: 'solus-killed' })
+  await (await import('@solus/server/data/sessions/session-identity')).claimSessionOwner('solus-killed', { ownerKey: 'bob', organizationId: 'org_a' }, { published: true, admittedAt: Date.now() })
   await records.upsertOwnSessionRecord({ sessionId: 'solus-killed', provider: 'codex', projectPath: '-repo', status: 'running', lastActivityAt: Date.now() })
   // A Local session left running is this machine's own: it is settled here and reported nowhere.
   await records.upsertOwnSessionRecord({ sessionId: 'solus-local', provider: 'codex', projectPath: '-repo', status: 'running', lastActivityAt: Date.now() })
@@ -51,6 +51,6 @@ test('at boot every own published organization session is queued once, the one t
   await delivery.reportStoredSessions(await records.ownPublishedSessionIds())
 
   const queued = queue.listDelivery({ organizationId: 'org_a', actorUserId: 'bob' }, 10)
-  expect(queued.map((item) => item.payload)).toEqual([expect.objectContaining({ sessionId: 'solus-killed', status: 'interrupted', runnerHostId: 'runner-host', admissionId: 'solus-killed' })])
+  expect(queued.map((item) => item.payload)).toEqual([expect.objectContaining({ sessionId: 'solus-killed', status: 'interrupted', runnerHostId: 'runner-host' })])
   expect(queue.listDelivery({ organizationId: 'local', actorUserId: '' }, 10)).toEqual([])
 })

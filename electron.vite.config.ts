@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { solusIconSubset } from './scripts/vite-icon-collections'
 import { devServeRoots } from './scripts/vite-fs-allow'
 import { workspaceStartupPreloads } from './scripts/vite-workspace-preloads'
+import { bootSplash } from './scripts/vite-boot-splash'
 
 const require = createRequire(import.meta.url)
 const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'fonts')
@@ -77,8 +78,7 @@ export default defineConfig(({ mode }) => {
           standalone: resolve(__dirname, 'apps/standalone-server/src/index.ts'),
           // The `solus` command that comes with the app runs this through
           // ELECTRON_RUN_AS_NODE (docs/plans/windows.md §5.12).
-          cli: resolve(__dirname, 'apps/cli/src/index.ts'),
-          'transcription-worker': resolve(__dirname, 'packages/server/src/transcription/worker.ts')
+          cli: resolve(__dirname, 'apps/cli/src/index.ts')
         },
         external: [
           'electron',
@@ -87,9 +87,6 @@ export default defineConfig(({ mode }) => {
           '@anthropic-ai/claude-agent-sdk',
           'electron-updater',
           '@homebridge/dbus-native',
-          'onnxruntime-node',
-          'socket.io',
-          'socket.io-client',
           // Optional, and resolved at runtime by the standalone server only.
           // Following it would pull a browser driver into the desktop bundle
           // and make an absent package a build failure instead of a state.
@@ -151,7 +148,8 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       // Vite's runtime preloads start the workspace graph only once main.ts has
       // set up the transport; the list in the HTML starts it as the page parses.
-      workspaceStartupPreloads(['/apps/desktop/src/renderer/App.svelte', '/packages/workspace-ui/src/components/layout/WorkspaceLayout.svelte'])
+      workspaceStartupPreloads(['/apps/desktop/src/renderer/App.svelte', '/packages/workspace-ui/src/components/layout/WorkspaceLayout.svelte']),
+      bootSplash()
     ],
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),

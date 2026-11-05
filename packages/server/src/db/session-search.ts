@@ -2,19 +2,13 @@ import { z } from 'zod'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import type { SessionSearchResult } from '@solus/contracts/types'
 import { SearchQuery } from '@solus/contracts/search-query'
-import { rankSessions, type RankedSession, type SessionCandidate } from '@solus/contracts/session-search'
+import { rankSessions, type RankedSession, type SessionCandidate, type SessionMessageEvidence as RankingEvidence } from '@solus/contracts/session-search'
 import { rowToSession, SESSION_ROW_SPAN, sessionRowSchema } from './session-indexer'
 import { getDb } from '.'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 
 /** How a session search is narrowed and paged. */
-export interface SessionSearchOptions {
-  /** Applied before scoring and paging, after the caller checks record visibility. */
-  sessionIds?: ReadonlySet<string>
-  /** Session id → when it was last read on any client, a sign of use. */
-  viewedAt?: ReadonlyMap<string, number>
-  /** The clock use is scored against. Now by default. */
-  now?: number
+export interface SessionSearchOptions extends SessionSearchPageOptions {
   providers?: string[]
   /** Only messages by one side of the conversation (the agent tool's filter). */
   role?: 'user' | 'assistant'
@@ -31,9 +25,6 @@ export interface SessionSearchOptions {
   namesOnly?: boolean
   /** More words a session is known by, keyed by its session id: its pull requests. */
   metadata?: ReadonlyMap<string, string>
-  /** One page of the answer: at most `limit` sessions after `offset`. */
-  limit?: number
-  offset?: number
 }
 
 /** One page of the sessions that match, best first, and how many match in all. */
@@ -108,42 +99,91 @@ function messageHits(db: ReturnType<typeof getDb>, term: string, options: Sessio
 
 /**
  * The sessions that match a query, one page at a time
- * (docs/plans/unified-search.md).
+ * (docs/plans/unified-search.md): `matchSessionIndex` then `pageSessionMatches`
+ * in one call, for a caller that knows what the reader may see before it asks.
+ */
+export function searchSessionIndex(text: string, options: SessionSearchOptions = {}): SessionSearchPage {
+  return pageSessionMatches(matchSessionIndex(text, options), options)
+}
+
+/** The sessions a query matched, before the caller checks which it may read: what one page is cut from. */
+export interface SessionSearchMatch {
+  query: SearchQuery
+  /** Every matching session, one entry each, its best thread's; scored without the reader's use. */
+  matched: RankedSession<IndexedCandidate>[]
+  evidence: SessionMessageEvidence | null
+}
+
+/** What cuts a page from a match: which of the matched sessions the reader may read, and their use. */
+export interface SessionSearchPageOptions {
+  /** The matched sessions the reader may read; every one when absent. */
+  sessionIds?: ReadonlySet<string>
+  /** Session id → when it was last read on any client, a sign of use. */
+  viewedAt?: ReadonlyMap<string, number>
+  /** The clock use is scored against. Now by default. */
+  now?: number
+  /** One page of the answer: at most `limit` sessions after `offset`. */
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Which sessions match a query (docs/plans/unified-search.md).
  *
  * A session matches when every word of the query starts a word of its name,
  * its metadata or any of its messages — not necessarily one message. The
  * session a message belongs to is read from its row id, so a common word costs
- * one pass over its postings and no join. Names rank before messages. Phrase
- * evidence ranks before words in one message, then words spread across messages.
- * Counts saturate within each tier. Recency breaks ties.
+ * one pass over its postings and no join. The reader is not known yet: which
+ * sessions they may read, and when they read each, is asked for the matched
+ * sessions alone, by the page.
  */
-export function searchSessionIndex(text: string, options: SessionSearchOptions = {}): SessionSearchPage {
+export function matchSessionIndex(text: string, options: SessionSearchOptions = {}): SessionSearchMatch {
   const query = new SearchQuery(text)
-  if (query.isEmpty) return { results: [], total: 0 }
-  const limit = Math.min(MAX_PAGE, Math.max(1, Math.trunc(options.limit ?? MAX_PAGE)))
-  const offset = Math.max(0, Math.trunc(options.offset ?? 0))
+  if (query.isEmpty) return { query, matched: [], evidence: null }
   const db = getDb()
-  // Resolve lineage once per candidate, including misses. A later pass must
-  // not issue a second database query for every unbound provider thread.
-  const candidates: IndexedCandidate[] = sessionsInScope(db, options).flatMap(row => {
+  const candidates: IndexedCandidate[] = sessionsInScope(db, options).map(row => {
     const sessionId = sessionIdOfThread(row.session_id)
-    if (options.sessionIds && !options.sessionIds.has(sessionId)) return []
-    return [{ row, sessionId, title: row.custom_title, branch: row.branch, pullRequest: options.metadata?.get(sessionId), lastActivity: row.last_timestamp ?? 0, viewedAt: options.viewedAt?.get(sessionId) }]
+    return { row, sessionId, title: row.custom_title, branch: row.branch, pullRequest: options.metadata?.get(sessionId), lastActivity: row.last_timestamp ?? 0 }
   })
   const hits = queryHits(db, query, options)
   const has = (map: Map<number, WordHits> | null, number: number | null) => number !== null && !!map?.has(number)
-  // A session that changed provider has a row per thread; it is one hit, its best thread's.
-  const matched = rankSessions(query, candidates, options.namesOnly ? null : {
+  const evidence: SessionMessageEvidence | null = options.namesOnly ? null : {
     counts: ({ row }) => hits.perWord.map(wordHits => row.number === null ? 0 : wordHits.get(row.number)?.count ?? 0),
     together: ({ row }) => has(hits.together, row.number),
     phrase: ({ row }) => has(hits.phrase, row.number),
-  }, options.now ?? Date.now())
-  const page = matched.slice(offset, offset + limit).map((session) => ({ ...session, passageIds: passageIdsOf(session.candidate.row.number, hits) }))
-  return { results: pageResults(db, page, query), total: matched.length }
+    passageIds: ({ row }) => passageIdsOf(row.number, hits),
+  }
+  // A session that changed provider has a row per thread; it is one hit, its best thread's.
+  return { query, matched: rankSessions(query, candidates, evidence, options.now ?? Date.now()), evidence }
+}
+
+/**
+ * One page of a match, best first, and how many match in all. Names rank
+ * before messages. Phrase evidence ranks before words in one message, then
+ * words spread across messages. Counts saturate within each tier. The reader's
+ * recent use reorders message matches; recency breaks ties. Read visibility is
+ * applied here, before paging and totals.
+ */
+export function pageSessionMatches(match: SessionSearchMatch, options: SessionSearchPageOptions = {}): SessionSearchPage {
+  const limit = Math.min(MAX_PAGE, Math.max(1, Math.trunc(options.limit ?? MAX_PAGE)))
+  const offset = Math.max(0, Math.trunc(options.offset ?? 0))
+  const readable = match.matched.flatMap(({ candidate }) => {
+    if (options.sessionIds && !options.sessionIds.has(candidate.sessionId)) return []
+    return [{ ...candidate, viewedAt: options.viewedAt?.get(candidate.sessionId) }]
+  })
+  // Ranked again with the reader's use, over the matched sessions alone: no message is read.
+  const ranked = rankSessions(match.query, readable, match.evidence, options.now ?? Date.now())
+  const page = ranked.slice(offset, offset + limit).map((session) => ({ ...session, passageIds: match.evidence?.passageIds(session.candidate) ?? [] }))
+  return { results: pageResults(getDb(), page, match.query), total: ranked.length }
 }
 
 /** One indexed thread of a session, as the shared ranking reads it. */
 interface IndexedCandidate extends SessionCandidate { row: z.infer<typeof nameRowSchema> }
+
+/** What the messages say about each candidate, and the passages its row shows. */
+interface SessionMessageEvidence extends RankingEvidence<IndexedCandidate> {
+  passageIds: (candidate: IndexedCandidate) => number[]
+}
 
 /** The sessions the scope and filters keep, with what they are called. */
 function sessionsInScope(db: ReturnType<typeof getDb>, options: SessionSearchOptions): z.infer<typeof nameRowSchema>[] {
@@ -156,7 +196,7 @@ function sessionsInScope(db: ReturnType<typeof getDb>, options: SessionSearchOpt
   if (options.activeSince !== undefined) { scope.push('s.last_timestamp >= ?'); params.push(options.activeSince) }
   return nameRowSchema.array().parse(db.prepare(`
     SELECT s.session_id, k.number, s.custom_title, s.branch, s.last_timestamp
-    FROM sessions s LEFT JOIN session_keys k ON k.session_id = s.session_id
+    FROM transcript_index s LEFT JOIN session_keys k ON k.session_id = s.session_id
     ${scope.length ? `WHERE ${scope.join(' AND ')}` : ''}
   `).all(...params))
 }
@@ -207,7 +247,7 @@ function pageResults(
       session_id, provider, cwd, project_path, is_worktree, slug, first_message, custom_title,
       last_timestamp, size, model, reasoning_effort, project_root, branch, parent_session_id, root_session_id,
       delegation_exchange_id, delegation_depth, delegation_intent, delegation_created_at
-    FROM sessions
+    FROM transcript_index
     WHERE session_id IN (${sessionIds.map(() => '?').join(', ')})
   `).all(...sessionIds)).map((row) => [row.session_id, row]))
   const passageIds = page.flatMap(({ passageIds }) => passageIds)

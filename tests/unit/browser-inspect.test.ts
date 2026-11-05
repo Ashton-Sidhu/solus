@@ -283,6 +283,26 @@ describe('browser web vitals', () => {
     }
   })
 
+  test('a span records the page address without its query or fragment', async () => {
+    // WHY: spans persist in metrics.db and can go to a collector. An OAuth
+    // redirect carries its `code` and `state` in the query or the fragment.
+    const recorded: BrowserSpan[] = []
+    setBrowserSpanRecorder((span) => recorded.push(span))
+    try {
+      const { registry, driver } = harness()
+      const page = registry.open({ target: { kind: 'url', url: `${TARGET.url}callback?code=secret#state=xyz` } }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+      driver.answers.set('elements', NO_ELEMENTS)
+
+      await registry.snapshot(page.browserPageId)
+
+      const span = recorded.find((entry) => entry.kind === 'browser_capture')
+      expect(span?.attrs.url).toBe(`${TARGET.url}callback`)
+    } finally {
+      setBrowserSpanRecorder(null)
+    }
+  })
+
   test('a metric nobody measured is not shipped as an attribute at all', async () => {
     // WHY: `undefined` in an attribute bag is a key OTel still exports, and a
     // column of nulls reads as "measured, and it was nothing".

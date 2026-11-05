@@ -24,7 +24,6 @@ export type Scope =
   | 'pr-review'
   | 'plan-action-bar'
   | 'attachment-preview'
-  | 'diagram'
   /** An artifact work open in a pane: the render with its comment pins. */
   | 'artifact'
   | 'command-palette'
@@ -47,6 +46,10 @@ export type Scope =
    *  it may fire, so the shortcuts stage can invite real key presses without
    *  the real commands running under the overlay. */
   | 'onboarding'
+  /** A modal dialog with no shortcuts of its own (a confirmation, a form, a
+   *  history viewer). Exclusive and empty: while it is open nothing behind it
+   *  fires, so ⌘K cannot open the palette over it. */
+  | 'modal-dialog'
 
 export type BindingDef = {
   /**

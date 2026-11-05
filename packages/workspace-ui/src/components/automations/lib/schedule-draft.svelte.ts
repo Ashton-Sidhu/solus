@@ -1,3 +1,4 @@
+import { Cron } from 'croner'
 import type { AutomationTrigger } from '@solus/contracts/types'
 import {
   type BuilderTriggerKind,
@@ -10,9 +11,34 @@ import {
   monthlyCron,
   intervalParts,
   INTERVAL_UNIT_MINUTES,
-  nextOccurrences,
   toLocalInputValue,
 } from './automation-format'
+
+/** The next `count` fire instants of a draft trigger, for the builder's schedule
+ *  preview. Returns null for an invalid cron expression (doubling as instant
+ *  client-side validation), and [] for triggers with nothing to preview
+ *  (manual, or a one-time instant that already passed). */
+export function nextOccurrences(trigger: AutomationTrigger, count: number, from = new Date()): Date[] | null {
+  switch (trigger.type) {
+    case 'manual':
+      return []
+    case 'once': {
+      const at = Date.parse(trigger.runAt)
+      return Number.isFinite(at) && at > from.getTime() ? [new Date(at)] : []
+    }
+    case 'interval': {
+      const ms = Math.max(1, Math.floor(trigger.everyMinutes)) * 60_000
+      return Array.from({ length: count }, (_, i) => new Date(from.getTime() + (i + 1) * ms))
+    }
+    case 'cron': {
+      try {
+        return new Cron(trigger.expr).nextRuns(count, from)
+      } catch {
+        return null
+      }
+    }
+  }
+}
 
 /** The editable schedule behind the detail view's Schedule block.
  *

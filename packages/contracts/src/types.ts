@@ -70,6 +70,8 @@ export interface HostCapabilities {
   skillsSearch?: boolean
   skillsManage?: boolean
   voiceModel?: boolean
+  /** This host accepts incremental 16 kHz PCM and returns partial text. */
+  voiceStreaming?: boolean
   automations?: boolean
   editors?: EditorId[]
   githubProvider?: boolean
@@ -343,6 +345,14 @@ export interface UsageData {
   cacheCreationTokens?: number
   reasoningTokens?: number
   contextWindowTokens?: number
+}
+
+/** The spend of a turn that ended without a success result. `costUsd` and
+ *  `durationMs` are present only when the provider reported them. */
+export interface PartialTurnUsage {
+  usage: UsageData
+  costUsd?: number
+  durationMs?: number
 }
 
 /**
@@ -620,9 +630,11 @@ export function modelLabelFor(
 export function isLegacyModel(
   provider: AgentId | null | undefined,
   modelId: string | null | undefined,
+  /** The run host's catalog, when known: a provider instance can move a model between the groups. */
+  profiles?: Record<string, ModelProfile>,
 ): boolean {
   if (!provider || !modelId) return false
-  return MODEL_PROFILES[provider]?.[modelId]?.isLegacy === true
+  return (profiles ?? MODEL_PROFILES[provider])?.[modelId]?.isLegacy === true
 }
 
 /**
@@ -990,7 +1002,7 @@ export type CloneStart =
  * (docs/plans/task-conversation.md, decision 8).
  *
  * Never reaches the backend: `SessionRunInput` has no task field, because task
- * membership is a `task_session_links` row written once the session exists.
+ * membership is the task's session edge (`resource_links`) written once the session exists.
  */
 export type TaskTarget =
   | { kind: 'existing'; taskId: string }
@@ -1186,8 +1198,8 @@ export interface Session {
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
   /**
-   * Where this session will be filed until a durable `task_session_links` row
-   * exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
+   * Where this session will be filed until a durable task→session edge
+   * (`resource_links`) exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
    * the agent can link an existing task before fallback minting runs.
    *
    * A fork carries `{ kind: 'existing', taskId }` for the source's exact task.
@@ -1285,14 +1297,10 @@ export interface PlanComment {
   /** Legacy private Google discussion reference. */
   googleThreadId?: string
   id: string
-  /** The anchor's display text: the quoted selection (docs/plans), the node label (diagrams), or the pin's label (artifacts). */
+  /** The anchor's display text: the quoted selection (docs/plans), or the pin's label (artifacts). */
   selectedText: string
   comment: string
   textOffset?: number
-  /** For diagram works: id of the node this comment is anchored to. Absent = whole diagram. */
-  nodeId?: string
-  /** For diagram works: id of the edge this comment is anchored to. Mutually exclusive with nodeId. */
-  edgeId?: string
   /** For artifact works: the point over the render this comment is pinned to. Absent = the whole artifact. */
   pin?: CommentPin
   /** Who wrote the thread, stamped by the host from the admitted actor; a client
@@ -1520,10 +1528,10 @@ export interface Message {
 
 // ─── Folio / Works ───
 
-/** How a work's `content` renders: markdown for `doc` and `slides`, serialized
- *  diagram JSON for `diagram`, and a self-contained HTML document for
- *  `artifact` (the `render_artifact` tool's output, shown in a sandbox). */
-export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact'
+/** How a work's `content` renders: markdown for `doc` and `slides`, and a
+ *  self-contained HTML document for `artifact` (the `render_artifact` tool's
+ *  output, shown in a sandbox). */
+export type WorkType = 'doc' | 'slides' | 'artifact'
 
 export interface WorkMeta {
   /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */
@@ -1606,7 +1614,7 @@ export interface WorkRevision extends WorkRevisionSummary {
 }
 
 /** `worksExport`: write a work's stored content to a path on the host that
- *  runs the call — Markdown for a document, JSON for a diagram or slides, HTML
+ *  runs the call — Markdown for a document, JSON for slides, HTML
  *  for an artifact. The work row stays where it is; the file is a copy. */
 export interface WorkExportRequest {
   workId: string
@@ -1646,7 +1654,7 @@ export interface PlanMessageRef {
   timestamp?: number;
   updatedAt?: string;
   contentVersion?: number;
-  /** Only set when kind === 'document' — distinguishes diagram from doc/slides */
+  /** Only set when kind === 'document' — distinguishes an artifact from doc/slides */
   workType?: WorkType;
   /** True while a create_work tool call is still streaming content into the card. */
   streaming?: boolean;
@@ -1704,11 +1712,15 @@ export interface PlanAnnotations {
   bookmarkedAt?: number
   /** The provider document this plan revision mirrors. */
   mirroredDoc?: WorkExternalLink
+  /** Epoch ms on the host's clock of the newest change to the plan's metadata
+   *  or threads. A client that saves the plan whole sends back the value it
+   *  loaded: the host reconciles the threads against that state, so a copy
+   *  that never saw a thread cannot delete it. */
   updatedAt: number
 }
 
-/** An agent wrote to a plan's or a work's comment threads. Broadcast so the open
- *  document's rail refreshes without being reopened. */
+/** A plan's or a work's comment threads changed on the host. Broadcast so every
+ *  open copy of the document re-reads its rail without being reopened. */
 export interface AnnotationsChanged {
   kind: 'plan' | 'work'
   /** `sessionId__planToolUseId` for a plan, the work id for a work. */
@@ -2003,7 +2015,10 @@ export type NormalizedEvent =
    *  nearly every turn, which is what keeps the usage store current enough to
    *  answer the moment a limit lands. */
   | { type: 'usage_limits'; windows: UsageWindowUpdate[] }
-  | { type: 'usage'; context?: ContextUsage; run?: UsageData }
+  /** `partialTurn`: what a turn spent when it ended without a success result
+   *  (stopped or failed), so insights and goals still count it. Clients
+   *  ignore it: the context meter does not read it. */
+  | { type: 'usage'; context?: ContextUsage; run?: UsageData; partialTurn?: PartialTurnUsage }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
   | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User; guestTurn?: true; supportsFeedback?: true }
@@ -2669,6 +2684,10 @@ export interface SessionRecord {
   listed?: boolean
   /** The pull requests the session works on, with what PR sync last saw. */
   pullRequests?: SessionPullRequestLink[]
+  /** A question that does not block the turn waits for the person, as the
+   *  host read it with the record. A client that has no live status since it
+   *  connected reads it here. Absent when none waits. */
+  hasPendingQuestion?: true
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
   /** Who shared another person's session with the reader directly — a person or team share — as a person key; absent otherwise (docs/plans/shared-with-you.md). */

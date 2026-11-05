@@ -9,9 +9,8 @@
   import type { WorkEmbedSource } from "./lib/work-embed";
 
   /**
-   * A live `artifact` work inside a document or a plan. The diagram embed's
-   * twin: same card, same header actions, same lazy load — the body is the
-   * sandbox frame instead of a canvas.
+   * A live `artifact` work inside a document or a plan, loaded when it nears
+   * the viewport. The body is the sandbox frame.
    */
   interface Props {
     workId: string;

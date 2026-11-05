@@ -16,7 +16,7 @@ const now = Date.UTC(2026, 9, 26)
 interface Case { query: string; target: string; projectRoot?: string; namesOnly?: boolean }
 const cases: Case[] = []
 function seed(sessionId: string, title: string, messages: string[], project = '/bench', timestamp = now) {
-  getDb().prepare(`INSERT INTO sessions(session_id, provider, cwd, project_path, project_root, custom_title, last_timestamp)
+  getDb().prepare(`INSERT INTO transcript_index(session_id, provider, cwd, project_path, project_root, custom_title, last_timestamp)
     VALUES (?, 'codex', ?, ?, ?, ?, ?)`).run(sessionId, project, project, project, title, timestamp)
   indexer.indexSessionMessages(sessionId, messages.map((content, index) => ({ role: index % 2 ? 'assistant' : 'user', content, timestamp: now - 1000 + index })))
 }
@@ -52,7 +52,7 @@ try {
   const outputIndex = process.argv.indexOf('--output')
   const output = outputIndex < 0 ? new URL('./session-search-quality-results.json', import.meta.url).pathname : process.argv[outputIndex + 1]
   if (!output) throw new Error('--output needs a path')
-  const report = { seed: 42, sessions: Number(getDb().prepare('SELECT COUNT(*) AS n FROM sessions').get()?.n), messages: Number(getDb().prepare('SELECT COUNT(*) AS n FROM session_messages').get()?.n), hitAt1: results.filter(result => result.rank === 1).length / results.length,
+  const report = { seed: 42, sessions: Number(getDb().prepare('SELECT COUNT(*) AS n FROM transcript_index').get()?.n), messages: Number(getDb().prepare('SELECT COUNT(*) AS n FROM session_messages').get()?.n), hitAt1: results.filter(result => result.rank === 1).length / results.length,
     mrr: results.reduce((sum, result) => sum + (result.rank ? 1 / result.rank : 0), 0) / results.length, results }
   console.log(JSON.stringify(report, null, 2))
   writeFileSync(output, JSON.stringify(report, null, 2))

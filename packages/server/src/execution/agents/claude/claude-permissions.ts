@@ -1,7 +1,10 @@
+import { isPermissionModeAbove } from '@solus/contracts/policy'
+import { SDK_TO_UI_PERMISSION_MODE } from './claude-event-normalizer'
 import { createLogger } from '../../../logger'
 import { z } from 'zod'
-import type { CanUseTool, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
-import type { NormalizedEvent, PermissionOption, PermissionToolInput } from '@solus/contracts/types'
+import type { CanUseTool, ElicitationResult, OnElicitation, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
+import type { NormalizedEvent, PermissionMode, PermissionOption, PermissionToolInput } from '@solus/contracts/types'
+import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../codex/codex-permissions'
 
 const log = createLogger('Permissions', 'permissions.ts')
 
@@ -34,17 +37,31 @@ export function maskSensitiveFields(input: PermissionToolInput): PermissionToolI
  * (a Bash prefix, one directory), but they usually target a settings file, so
  * they are rewritten to the session: a click in Solus never edits the user's
  * settings. Without suggestions the whole tool is allowed, except Bash, where
- * that would allow every command.
+ * that would allow every command. A suggestion to switch the session to a mode
+ * above a policy's ceiling is dropped (plans/030 §6.3).
  */
-export function sessionPermissionUpdates(toolName: string, suggestions: PermissionUpdate[] | undefined): PermissionUpdate[] | null {
-  if (suggestions?.length) return suggestions.map((update) => ({ ...update, destination: 'session' }))
+export function sessionPermissionUpdates(toolName: string, suggestions: PermissionUpdate[] | undefined, ceiling: PermissionMode | null = null): PermissionUpdate[] | null {
+  const allowed = suggestions?.filter((update) => !(update.type === 'setMode' && isPermissionModeAbove(uiModeOf(update.mode), ceiling)))
+  if (allowed?.length) return allowed.map((update) => ({ ...update, destination: 'session' }))
   if (toolName === 'Bash') return null
   return [{ type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination: 'session' }]
+}
+
+/** The Solus mode of an SDK mode; an unknown one counts as the broadest, so a ceiling never lets it through. */
+function uiModeOf(sdkMode: string): PermissionMode {
+  return Object.entries(SDK_TO_UI_PERMISSION_MODE).find(([mode]) => mode === sdkMode)?.[1] ?? 'full-access'
 }
 
 const ALLOW_ONCE: PermissionOption = { id: 'allow', label: 'Allow Once', kind: 'allow' }
 const ALLOW_SESSION: PermissionOption = { id: 'allow-session', label: 'Allow for Session', kind: 'allow' }
 const DENY: PermissionOption = { id: 'deny', label: 'Deny', kind: 'deny' }
+
+/** An MCP elicitation the card answers: `params` is the request in the shape the Codex helpers read. */
+interface PendingElicitation {
+  resolve: (result: ElicitationResult) => void
+  params: Parameters<typeof mcpElicitationResponse>[0]
+  sessionId: string | null
+}
 
 interface PendingPermission {
   resolve: (result: PermissionResult) => void
@@ -64,6 +81,7 @@ interface PendingPermission {
 export class PermissionManager {
   private pendingPermissions = new Map<string, PendingPermission>()
   private pendingQuestions = new Map<string, { resolve: (result: PermissionResult) => void; input: any; sessionId: string | null }>()
+  private pendingElicitations = new Map<string, PendingElicitation>()
   /**
    * Fallback sessionId for permissions created before session_init arrived
    * (first prompt of a new tab). SessionRuntime pushes the real id in here.
@@ -79,7 +97,7 @@ export class PermissionManager {
   /** Build a canUseTool callback bound to a specific run.
    * `sessionRef` is a mutable holder so the closure always reads the
    * up-to-date sessionId (updated by the backend after session_init). */
-  createCanUseTool(sessionRef: { current: string | null }, unattended = false): CanUseTool {
+  createCanUseTool(sessionRef: { current: string | null }, unattended = false, ceiling: PermissionMode | null = null): CanUseTool {
     return async (toolName, input: any, options) => {
       const sessionId = sessionRef.current
       // EnterPlanMode is denied too: nobody can approve the resulting plan, so a
@@ -154,7 +172,7 @@ export class PermissionManager {
       }
 
       const questionId = `perm-${crypto.randomUUID()}`
-      const sessionUpdates = sessionPermissionUpdates(toolName, options.suggestions)
+      const sessionUpdates = sessionPermissionUpdates(toolName, options.suggestions, ceiling)
       log.info('permission_prompt_shown', { questionId, toolName })
       this.onPermissionEvent?.(sessionId, {
         type: 'permission_request',
@@ -171,6 +189,32 @@ export class PermissionManager {
 
       return new Promise((resolve) => {
         this.pendingPermissions.set(questionId, { resolve, input, toolName, sessionId, sessionUpdates })
+      })
+    }
+  }
+
+  /** Build an onElicitation callback bound to a specific run. An MCP server's
+   * request shows the same question card as a Codex elicitation; without this
+   * the SDK declines every request. */
+  createOnElicitation(sessionRef: { current: string | null }, unattended = false): OnElicitation {
+    return async (request, { signal }) => {
+      if (unattended) return { action: 'decline' }
+      const params = { ...request, mode: request.mode ?? 'form' }
+      const normalized = normalizeMcpElicitationRequest(params)
+      if (!normalized) return { action: 'decline' }
+      const questionId = `elicitation-${crypto.randomUUID()}`
+      const sessionId = sessionRef.current ?? this.currentSessionId
+      log.info('mcp_elicitation_request', { questionId, kind: normalized.request.kind, serverName: request.serverName })
+      return new Promise((resolve) => {
+        if (signal.aborted) { resolve({ action: 'cancel' }); return }
+        this.pendingElicitations.set(questionId, { resolve, params, sessionId })
+        // The server or the SDK gave up on the request: take the card down.
+        signal.addEventListener('abort', () => {
+          if (!this.pendingElicitations.delete(questionId)) return
+          resolve({ action: 'cancel' })
+          this.onPermissionEvent?.(sessionId, { type: 'permission_resolved', questionId })
+        }, { once: true })
+        this.onPermissionEvent?.(sessionId, { type: 'question_request', questionId, questions: normalized.questions, ...normalized.request })
       })
     }
   }
@@ -214,6 +258,12 @@ export class PermissionManager {
   }
 
   respondToQuestion(questionId: string, answers: Record<string, string>): boolean {
+    const elicitation = this.pendingElicitations.get(questionId)
+    if (elicitation) {
+      this.pendingElicitations.delete(questionId)
+      elicitation.resolve(mcpElicitResult(mcpElicitationResponse(elicitation.params, answers)))
+      return true
+    }
     const pending = this.pendingQuestions.get(questionId)
     if (!pending) {
       log.info('question_response_no_pending', { questionId })
@@ -228,7 +278,7 @@ export class PermissionManager {
   }
 
   /**
-   * Deny all pending permissions/questions for a session when it exits.
+   * Deny all pending permissions/questions, and cancel its elicitations, for a session when it exits.
    */
   clearPendingForSession(sessionId: string): void {
     for (const [id, pending] of this.pendingPermissions) {
@@ -242,6 +292,12 @@ export class PermissionManager {
       if (pendingSession !== sessionId) continue
       pending.resolve({ behavior: 'deny', message: 'Run cancelled' })
       this.pendingQuestions.delete(id)
+    }
+    for (const [id, pending] of this.pendingElicitations) {
+      const pendingSession = pending.sessionId ?? this.currentSessionId
+      if (pendingSession !== sessionId) continue
+      pending.resolve({ action: 'cancel' })
+      this.pendingElicitations.delete(id)
     }
   }
 }

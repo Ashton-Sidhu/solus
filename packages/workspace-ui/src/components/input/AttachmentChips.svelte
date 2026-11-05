@@ -10,7 +10,7 @@
   import { portal } from '../portal'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { requestFilePreview } from '../../lib/filePreview'
-  import { attachmentLabel } from './lib/attachment-label'
+  import { attachmentLabel } from '../../lib/attachment-label'
   import { browserMarkChips } from '../../lib/browser-annotation'
   import MarkChip from '../browser/MarkChip.svelte'
   import VideoAttachmentChip from './VideoAttachmentChip.svelte'

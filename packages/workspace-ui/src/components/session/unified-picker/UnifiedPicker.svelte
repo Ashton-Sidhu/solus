@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { sessionSearchNavigation } from "@solus/client-core/session-search-navigation";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import VirtualList from "../../ui/list-page/VirtualList.svelte";
@@ -32,7 +32,7 @@
   import TaskContextMenu from "../TaskContextMenu.svelte";
   import PickerActionBar from "./PickerActionBar.svelte";
   import PickerResultMenu from "./PickerResultMenu.svelte";
-  import { PICKER_RESULT_LABELS } from "./lib/picker-preferences";
+  import { PICKER_RESULT_LABELS, type PickerResultType } from "./lib/picker-preferences";
   import PickerSearchOptions from "./PickerSearchOptions.svelte";
   import TaskPreviewPane from "./TaskPreviewPane.svelte";
   import UnifiedPickerRow from "./UnifiedPickerRow.svelte";
@@ -284,10 +284,10 @@
     if (open) void scrollSelectionIntoView();
   });
 
-  // The scope, the mode and the filters are read here too, so a change to any
-  // of them asks the hosts again. The keywords mode asks for names only.
-  $effect(() => {
-    if (!open) return;
+  // The hosts are asked by the commands that change what a search names, not
+  // by an effect: a search writes its own results, and an effect that read
+  // them asked again on every answer. The keywords mode asks for names only.
+  function searchHosts(): void {
     searches.update({
       query,
       scope: scopeProjectKey,
@@ -296,13 +296,18 @@
       filters: session.ui.pickerFilters,
       now: Date.now(),
     });
-  });
+  }
 
   // Read on open and on a new scope, not on each keystroke: a query lists
   // what it found instead.
-  $effect(() => {
-    if (open) searches.loadEverySession(scopeProjectKey, session.ui.pickerResultType);
-  });
+  function loadEverySession(): void {
+    searches.loadEverySession(scopeProjectKey, session.ui.pickerResultType);
+  }
+
+  function setQuery(value: string): void {
+    query = value;
+    searchHosts();
+  }
 
   $effect(() => {
     if (!open) {
@@ -313,6 +318,10 @@
     wasOpen = true;
     query = "";
     selectedKey = null;
+    untrack(() => {
+      searchHosts();
+      loadEverySession();
+    });
     void session.tasksStore.ensureLoaded();
     blurActiveTextInputOnMobile();
     tick().then(() => {
@@ -361,6 +370,7 @@
 
   function chooseSearchMode(mode: PickerSearchMode): void {
     session.ui.pickerSearchMode = mode;
+    searchHosts();
     selectedKey = null;
     void scrollSelectionIntoView();
     searchEl?.focus();
@@ -368,6 +378,7 @@
 
   function chooseFilters(filters: PickerFilters): void {
     session.ui.pickerFilters = filters;
+    searchHosts();
     selectedKey = null;
     void scrollSelectionIntoView();
     searchEl?.focus();
@@ -378,10 +389,18 @@
    *  resumes following it rather than pinning it — see `scopeForChoice`. */
   function chooseProject(projectKey: string | null): void {
     session.ui.pickerScope = scopeForChoice(projectKey, currentProjectKey);
+    searchHosts();
+    loadEverySession();
     scopeMenuOpen = false;
     selectedKey = null;
     void scrollSelectionIntoView();
     searchEl?.focus();
+  }
+
+  function chooseResultType(resultType: PickerResultType): void {
+    session.ui.pickerResultType = resultType;
+    searchHosts();
+    loadEverySession();
   }
 
   /** ⏎ on a task: open its task page. */
@@ -679,7 +698,8 @@
     }
     const where = scopeProject ? ` in ${scopeProject.label}` : "";
     if (isSearchingConversations) return "Searching conversations…";
-    if (searches.sessions.error) return `Search incomplete: ${searches.sessions.error}`;
+    // The toast names the hosts; the list only must not claim there is nothing.
+    if (searches.sessions.errors.length) return "Search incomplete: not every host answered";
     if (isIndexingConversations && session.ui.pickerResultType !== "tasks") return "Indexing sessions… Search again in a moment";
     if (session.ui.pickerResultType === "sessions") {
       return query.trim() ? `No sessions match “${query}”${where}` : `No sessions${where} yet`;
@@ -725,7 +745,7 @@
     <!-- The field inherits the surface's `text-menu` rung. -->
     <Input
       bind:ref={searchEl}
-      bind:value={query}
+      bind:value={() => query, setQuery}
       type="text"
       placeholder={session.ui.pickerResultType === "sessions" ? "Search sessions…" : session.ui.pickerResultType === "tasks" ? "Search tasks…" : "Search work in solus…"}
       class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-(--solus-accent) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
@@ -734,7 +754,7 @@
          they act on. The counts live under the list alone. -->
     <PickerResultMenu
       value={session.ui.pickerResultType}
-      onChange={(value) => { session.ui.pickerResultType = value; }}
+      onChange={chooseResultType}
       portalTarget={layer.el}
       bind:open={resultMenuOpen}
     />
@@ -792,8 +812,6 @@
         <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
           Searching conversations…
         </div>
-      {:else if searches.sessions.error && list.entries.length > 0}
-        <div class="shrink-0 px-2.5 py-1.5 text-micro text-destructive" aria-live="polite">Search incomplete: {searches.sessions.error}</div>
       {:else if isIndexingConversations && list.entries.length > 0}
         <!-- A machine's first index sweep: its hits are real but not all of them. -->
         <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">

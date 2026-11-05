@@ -11,8 +11,11 @@ import {
   HOST_CONFIG_FIELDS,
   isHostConfigKey,
   mergeHostConfig,
+  normalizeOtelSettings,
 } from '@solus/contracts/host-config'
-import type { HostConfig, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
+import type { HostConfig, HostConfigKey, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
+import type { ManagedHostKey } from '@solus/contracts/policy'
+import { enforce, hostPolicies } from './policy/host-policy-store'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
 import { hostCategory } from './host-category'
@@ -34,7 +37,6 @@ const persistedServerSettingsSchema = z.object({
   hostUser: z.object({
     localId: z.string().min(1),
     account: z.object({ accountId: z.string().min(1), displayName: z.string().optional(), email: z.string().optional() }).optional(),
-    adoptedAt: z.number().optional(),
   }).optional(),
 }).strip()
 
@@ -75,13 +77,11 @@ export interface ServerSettings {
 
 /**
  * The host's own user: the `local` id minted once for its owner, and the account
- * the owner's rows moved to when the host was linked (U4, U5). `adoptedAt` is when
- * the rows written before users had ids were moved to this user.
+ * the host is linked to, if any (U4, plans/031 D1).
  */
 export interface HostUserSettings {
   localId: string
   account?: { accountId: string; displayName?: string; email?: string }
-  adoptedAt?: number
 }
 
 const DEFAULT_SETTINGS: ServerSettings = {
@@ -157,7 +157,43 @@ export function getHostConfig(): HostConfigSnapshot {
   const config = hostCategory() === 'managed' && stored.continueSessionsAfterHostRestart
     ? { ...stored, continueSessionsAfterHostRestart: false }
     : stored
-  return { config }
+  return { config: withHostLocks(config) }
+}
+
+/** Host config keys a policy can lock (plans/030 §4.4), with the label a refusal names. */
+const LOCKABLE_HOST_CONFIG: ReadonlyArray<readonly [ManagedHostKey & HostConfigKey, string]> = [
+  ['solusTools', 'Solus tools'],
+  ['continueSessionsAfterHostRestart', 'Continue sessions after a restart'],
+  ['archivedAutomationRetentionDays', 'Archived automation retention'],
+  ['unfiledRecordingRetentionDays', 'Unfiled recording retention'],
+  ['otel', 'Telemetry export'],
+  ['analyticsEnabled', 'Analytics'],
+]
+
+/** The policies' locked host keys laid over the owner's config; the stored file never holds them. */
+function withHostLocks(config: HostConfig): HostConfig {
+  const policies = hostPolicies()
+  if (!LOCKABLE_HOST_CONFIG.some(([key]) => policies.hostSetting(key))) return config
+  const next: HostConfig = { ...config }
+  const otel = policies.hostSetting('otel')
+  if (otel) next.otel = normalizeOtelSettings({ ...config.otel, ...otel.value })
+  const solusTools = policies.hostSetting('solusTools')
+  if (solusTools) next.solusTools = { ...config.solusTools, ...solusTools.value }
+  next.continueSessionsAfterHostRestart = policies.hostSetting('continueSessionsAfterHostRestart')?.value ?? config.continueSessionsAfterHostRestart
+  next.archivedAutomationRetentionDays = policies.hostSetting('archivedAutomationRetentionDays')?.value ?? config.archivedAutomationRetentionDays
+  next.unfiledRecordingRetentionDays = policies.hostSetting('unfiledRecordingRetentionDays')?.value ?? config.unfiledRecordingRetentionDays
+  next.analyticsEnabled = policies.hostSetting('analyticsEnabled')?.value ?? config.analyticsEnabled
+  return next
+}
+
+/** Remote access as the policies allow it: a locked value wins over the owner's (plans/030 §6.7). */
+export function effectiveRemoteAccess(): boolean {
+  return hostPolicies().hostSetting('remoteAccess')?.value ?? getServerSettings().remoteAccess
+}
+
+export function effectiveTrustLocalNetwork(): boolean {
+  if (hostPolicies().hostSetting('remoteAccess')?.value === false) return false
+  return hostPolicies().hostSetting('trustLocalNetwork')?.value ?? getServerSettings().trustLocalNetwork === true
 }
 
 /** The organizations this machine's work is opted into for Insights while their policy is off (§6.1). */
@@ -193,7 +229,10 @@ export function setHostUserSettings(hostUser: HostUserSettings): void {
 }
 
 export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
-  const hostConfig = mergeHostConfig(getHostConfig().config, patch)
+  for (const [key, label] of LOCKABLE_HOST_CONFIG) {
+    if (key in patch) enforce(hostPolicies().settingChangeDenial(key, label))
+  }
+  const hostConfig = mergeHostConfig(getServerSettings().hostConfig, patch)
   if (hostCategory() === 'managed') hostConfig.continueSessionsAfterHostRestart = false
   _settings = { ...getServerSettings(), hostConfig }
   persistSettings(_settings)
@@ -203,6 +242,7 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
 }
 
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
+  enforce(hostPolicies().settingChangeDenial('remoteAccess', 'Remote access'))
   _settings = { ...getServerSettings(), remoteAccess }
   persistSettings(_settings)
   return _settings
@@ -215,6 +255,8 @@ export function setMetricsRetentionDays(metricsRetentionDays: number): ServerSet
 }
 
 export function setTrustLocalNetwork(trustLocalNetwork: boolean): ServerSettings {
+  enforce(hostPolicies().settingChangeDenial('trustLocalNetwork', 'Local network trust'))
+  if (hostPolicies().hostSetting('remoteAccess')?.value === false) enforce(hostPolicies().settingChangeDenial('remoteAccess', 'Local network trust'))
   _settings = { ...getServerSettings(), trustLocalNetwork }
   persistSettings(_settings)
   log.info('trust_local_network_changed', { trustLocalNetwork })

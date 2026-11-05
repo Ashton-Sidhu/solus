@@ -32,12 +32,51 @@ function parseRange(value: string | undefined): number {
   return value === undefined ? 1 : Number(value)
 }
 
+const GIT_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 }
+
+/** Decode a path git wrote in C-style quotes: `\"`, `\\`, `\t`, and octal
+ *  escapes, which carry the UTF-8 bytes of a non-ASCII name. */
+function unquoteGitPath(quoted: string): string {
+  const bytes: number[] = []
+  for (let index = 0; index < quoted.length; index++) {
+    const char = quoted[index]
+    if (char !== '\\') {
+      bytes.push(...Buffer.from(char, 'utf8'))
+      continue
+    }
+    const octal = /^[0-7]{3}/.exec(quoted.slice(index + 1))
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8))
+      index += 3
+      continue
+    }
+    const next = quoted[++index] ?? ''
+    bytes.push(...(next in GIT_ESCAPES ? [GIT_ESCAPES[next]] : Buffer.from(next, 'utf8')))
+  }
+  return Buffer.from(bytes).toString('utf8')
+}
+
 function cleanGitPath(value: string): string {
   const trimmed = value.trim()
   const unquoted = trimmed.startsWith('"') && trimmed.endsWith('"')
-    ? trimmed.slice(1, -1)
+    ? unquoteGitPath(trimmed.slice(1, -1))
     : trimmed
   return unquoted.replace(/^[ab]\//, '')
+}
+
+/** The new path of a `diff --git a/<old> b/<new>` line. Either side may be
+ *  quoted; an unquoted pair splits at the last ` b/`. */
+function headerPath(line: string | undefined): string | null {
+  if (!line?.startsWith('diff --git ')) return null
+  const sides = line.slice('diff --git '.length)
+  if (sides.startsWith('"')) {
+    const end = /^"(?:[^"\\]|\\.)*"/.exec(sides)?.[0].length
+    return end ? cleanGitPath(sides.slice(end)) : null
+  }
+  const quotedNew = sides.endsWith('"') ? sides.lastIndexOf(' "b/') : -1
+  if (quotedNew !== -1) return cleanGitPath(sides.slice(quotedNew))
+  const plain = sides.match(/^a\/(.+) b\/(.+)$/)
+  return plain?.[2] ?? null
 }
 
 function filePathFor(lines: string[]): string | null {
@@ -45,8 +84,7 @@ function filePathFor(lines: string[]): string | null {
   if (next && next !== '/dev/null') return cleanGitPath(next)
   const previous = lines.find((line) => line.startsWith('--- '))?.slice(4)
   if (previous && previous !== '/dev/null') return cleanGitPath(previous)
-  const diff = lines[0]?.match(/^diff --git a\/(.+) b\/(.+)$/)
-  return diff?.[2] ?? null
+  return headerPath(lines[0])
 }
 
 export function parsePatch(patch: string): ParsedFile[] {

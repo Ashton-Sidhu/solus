@@ -199,6 +199,15 @@ describe.serial('a running turn', () => {
     expect(byId.get('left-open')).toMatchObject({ status: 'interrupted', ended_at: 6_400, duration_ms: 400 })
     expect(byId.get('bare-open')).toMatchObject({ status: 'interrupted', ended_at: 7_000, duration_ms: 0 })
     expect(byId.get('finished')).toMatchObject({ status: 'ok', ended_at: 8_200 })
+
+    // WHY: the `turns` view reads a root's measures from the row, so a root
+    // closed here must get them as a root that ended normally does, or the
+    // interrupted turn shows no tool time and no provider wait for ever.
+    const measures = (spanId: string) => db
+      .prepare('SELECT tool_time_ms, provider_wait_ms FROM spans WHERE span_id = ?')
+      .get(spanId)
+    expect(measures('left-open')).toEqual({ tool_time_ms: 300, provider_wait_ms: 100 })
+    expect(measures('bare-open')).toEqual({ tool_time_ms: null, provider_wait_ms: 0 })
   })
 
   test('only a turn is written open — a tool call is recorded once, when it ends', () => {

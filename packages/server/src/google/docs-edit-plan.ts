@@ -77,7 +77,7 @@ function paragraphTargets(document: EditableDocument, markdown: string): Paragra
   parser.walkTokens(parser.lexer(markdown), token => {
     if (token.type === 'image' || token.type === 'html') throw new Error(UNSUPPORTED_GOOGLE_EDIT)
   })
-  const blocks = compileDocsBlocks(markdown, []).filter(block => block.kind !== 'paragraph' || block.text.text.trim())
+  const blocks = compileDocsBlocks(markdown).filter(block => block.kind !== 'paragraph' || block.text.text.trim())
   const targets: ParagraphTarget[] = []
   let index = 0
   for (const source of document.tabs[0].documentTab.body.content) {

@@ -1,3 +1,4 @@
+import { organizationOfSession } from '../../data/sessions/session-records'
 import type { IpcContext } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
@@ -59,8 +60,10 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
   rt.statuses.setStatus(sessionId, 'connecting')
   try {
     const seat = await rt.seatForTurn(actor, 'codex')
+    const organizationId = await organizationOfSession(sessionId)
     if (controller.signal.aborted || rt.isShuttingDown) throw new Error('Interrupted')
     const run = rt.runAgent({
+      organizationId,
       provider: 'codex', prompt: '', operation: 'compact', tools: [],
       cwd: resolveHomePath(input.workingDirectory),
       permissionMode: input.permissionMode, model: input.model,

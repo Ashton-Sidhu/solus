@@ -2,7 +2,7 @@ import type { Page, Locator } from '@playwright/test'
 
 const WORKSPACE = '[role="dialog"][aria-label="Workspace"]'
 
-/** Interactions with the Workspace page (the global docs + diagrams ledger). */
+/** Interactions with the Workspace page (the global docs ledger). */
 export class WorkspacePage {
   constructor(readonly page: Page) {}
 
@@ -38,7 +38,7 @@ export class WorkspacePage {
     return this.dialog.locator('[data-slot="empty-title"]')
   }
 
-  /** Every ledger row — docs and diagrams share the same row shape. */
+  /** Every ledger row. */
   items(): Locator {
     return this.dialog.locator('[role="option"]')
   }

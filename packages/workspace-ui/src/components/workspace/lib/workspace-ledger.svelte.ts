@@ -133,7 +133,7 @@ export class WorkspaceLedger {
   //    numbers stay live against the rest of the filter ──
   readonly typeCounts = $derived.by(() => {
     const base = applyFilter(this.items, { ...this.filter, type: 'all' })
-    const c = { all: base.length, doc: 0, diagram: 0, artifact: 0 }
+    const c = { all: base.length, doc: 0, artifact: 0 }
     for (const item of base) c[item.type]++
     return c
   })
@@ -161,7 +161,6 @@ export class WorkspaceLedger {
   readonly typeOptions = $derived<{ value: TypeFilter; label: string; count: number }[]>([
     { value: 'all', label: 'Everything', count: this.typeCounts.all },
     { value: 'doc', label: 'Docs', count: this.typeCounts.doc },
-    { value: 'diagram', label: 'Diagrams', count: this.typeCounts.diagram },
     { value: 'artifact', label: 'Artifacts', count: this.typeCounts.artifact },
   ])
   readonly timeOptions = $derived<{ value: TimeFilter; label: string; count?: number }[]>([

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import type { WorkRevisionSummary } from '@solus/contracts/types'
 import {
   comparisonBase,
-  diagramRevisionDiff,
   historyPoints,
   historyRows,
   markdownBlockDiff,
@@ -85,7 +84,7 @@ describe('source comparison', () => {
   })
 
   test('all work types use their source language and retain the complete bodies', () => {
-    for (const [type, extension] of [['doc', 'md'], ['slides', 'md'], ['artifact', 'html'], ['diagram', 'json']] as const) {
+    for (const [type, extension] of [['doc', 'md'], ['slides', 'md'], ['artifact', 'html']] as const) {
       const result = workSourceDiff(type, 'before\n', 'after\n')
       expect(result.file?.name).toBe(`content.${extension}`)
       expect(result.file?.isPartial).toBeFalsy()
@@ -109,22 +108,5 @@ describe('rendered document comparison', () => {
       { change: 'same', markdown: 'Second.' },
       { change: 'added', markdown: 'Third.' },
     ])
-  })
-})
-
-describe('diagram comparison', () => {
-  test('nodes and edges are added, removed, or changed by id', () => {
-    const before = JSON.stringify({ nodes: [{ id: 'a', label: 'API' }, { id: 'b', label: 'DB' }], edges: [{ id: 'e1', source: 'a', target: 'b' }] })
-    const after = JSON.stringify({ nodes: [{ id: 'a', label: 'Gateway' }, { id: 'c', label: 'Cache' }], edges: [{ id: 'e2', source: 'a', target: 'c' }] })
-    const diff = diagramRevisionDiff(before, after)
-    expect([...diff.added].sort()).toEqual(['c', 'e2'])
-    expect([...diff.removed].sort()).toEqual(['b', 'e1'])
-    expect([...diff.changed]).toEqual(['a'])
-    expect(diff.changes.find((change) => change.id === 'e2')?.label).toBe('Gateway → Cache')
-  })
-
-  test('an unreadable body compares as empty', () => {
-    const diff = diagramRevisionDiff('not json', JSON.stringify({ nodes: [{ id: 'a', label: 'A' }], edges: [] }))
-    expect([...diff.added]).toEqual(['a'])
   })
 })

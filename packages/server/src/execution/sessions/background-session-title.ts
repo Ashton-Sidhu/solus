@@ -1,3 +1,4 @@
+import { organizationOfSession } from '../../data/sessions/session-records'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { SessionMeta, SessionGeneratedMetadata, SessionTitleChangedEvent } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
@@ -29,10 +30,10 @@ export interface BackgroundSessionTitlePorts {
 const defaultPorts: BackgroundSessionTitlePorts = {
   read: getIndexedSession,
   save: setSessionGeneratedTitle,
-  generate: (runtime, prompt, cwd, request) => generateSessionMetadata(runtime, prompt, cwd, {
+  generate: async (runtime, prompt, cwd, request) => generateSessionMetadata(runtime, prompt, cwd, {
     sessionId: request.sessionId,
     executionPreferences: request.preferences,
-  }, (provider) => runtime.seatForTurn(request.actor, provider)),
+  }, (provider) => runtime.seatForTurn(request.actor, provider), await organizationOfSession(request.sessionId)),
   refresh: (sessionId) => emitSessionTasksChanged(ANY_ORGANIZATION, sessionId),
   renamePin: renamePinnedSession,
 }

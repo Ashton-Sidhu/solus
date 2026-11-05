@@ -368,3 +368,18 @@ export function setBrowserRecordingEncoderHost(host: BrowserRecordingEncoderHost
 export function browserRecordingEncoderHost(): BrowserRecordingEncoderHost | null {
   return recordingEncoderHost
 }
+
+/** A page address safe to write to a log. The query and fragment can carry a
+ *  site's OAuth `code` and `state`, and a data: URL is the whole page, inlined
+ *  images included, so neither is written. */
+export function browserUrlForLog(url: string): string {
+  if (url.startsWith('data:')) return `${url.slice(0, url.indexOf(',') + 1)}…`
+  try {
+    const parsed = new URL(url)
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.href
+  } catch {
+    return '(invalid url)'
+  }
+}

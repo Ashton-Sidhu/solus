@@ -64,6 +64,7 @@ import {
   type BrowserHeadlessHost,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
+  browserUrlForLog,
 } from './surface-driver'
 import type { BrowserFrameChannel } from './browser-frame-channel'
 
@@ -90,6 +91,12 @@ const DEFAULT_WAIT_TIMEOUT_MS = 5000
  *  of that wall clock (ADR 0024). Host-only: clients read presence, not time. */
 export const AGENT_USE_GRACE_MS = 45_000
 
+/** Open pages one agent session may hold, and the host may hold in all. Each
+ *  page is a live surface a client may host, so an agent in a loop must not
+ *  open pages without end. Idle pages are not closed for it. */
+export const BROWSER_PAGES_PER_SESSION = 8
+export const BROWSER_PAGES_PER_HOST = 32
+
 interface PageRecord {
   page: BrowserPage
   driver: BrowserSurfaceDriver | null
@@ -102,6 +109,8 @@ interface PageRecord {
    *  than something the next "it feels slow" has to reconstruct from RPC
    *  timestamps. Null between loads. */
   loadStartedAt: number | null
+  /** The agent session that opened the page, for its page limit. */
+  openedBySessionId?: string
 }
 
 /**
@@ -201,6 +210,7 @@ export class BrowserRegistry {
     // — the registry owns pages, not the durable list of identities.
     const profileId = request.profileId ?? BROWSER_DEFAULT_PROFILE_ID
     if (!isBrowserProfileId(profileId)) throw new Error(`Not a browser profile id: ${profileId}`)
+    this.assertPageRoom(requestingSessionId)
     const page: BrowserPage = {
       browserPageId: `browser_${randomUUID()}`,
       target: request.target,
@@ -231,6 +241,7 @@ export class BrowserRegistry {
       closing: false,
       livenessTimer: null,
       loadStartedAt: null,
+      openedBySessionId: requestingSessionId,
     })
     if (request.target.kind === 'url' && request.target.worktreePath && this.checkouts) {
       void this.checkouts.refresh(request.target.worktreePath).catch((error) => {
@@ -245,6 +256,21 @@ export class BrowserRegistry {
       profileId: page.profileId,
     })
     return page
+  }
+
+  /** The record is set in the same synchronous step as this check, so two
+   *  opens at once cannot both take the last place. A closing page still holds
+   *  its place until its surface is gone. */
+  private assertPageRoom(sessionId: string | undefined): void {
+    if (this.records.size >= BROWSER_PAGES_PER_HOST) {
+      throw new Error(`This host has ${BROWSER_PAGES_PER_HOST} browser pages open, the most it allows. Close a page with browser_close, then open again.`)
+    }
+    if (!sessionId) return
+    let opened = 0
+    for (const record of this.records.values()) if (record.openedBySessionId === sessionId) opened++
+    if (opened >= BROWSER_PAGES_PER_SESSION) {
+      throw new Error(`This session has ${BROWSER_PAGES_PER_SESSION} browser pages open, the most one session may open. Close one you no longer need with browser_close, or navigate an open page with browser_navigate.`)
+    }
   }
 
   /**
@@ -855,7 +881,7 @@ export class BrowserRegistry {
     page.loadState = 'loading'
     record.loadStartedAt = Date.now()
     this.publish(record)
-    log.info('browser_page_load', { browserPageId: page.browserPageId, stage: 'navigating', url: page.url })
+    log.info('browser_page_load', { browserPageId: page.browserPageId, stage: 'navigating', url: browserUrlForLog(page.url) })
     void driver.navigate({ kind: 'goto', url: page.url }).catch((error) => {
       // A load that fails still commits an error page, and the guest reports
       // that failure itself; this only records the reason it never started.

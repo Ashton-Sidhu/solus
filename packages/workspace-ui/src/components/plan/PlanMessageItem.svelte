@@ -6,14 +6,12 @@
     FileText as FileTextIcon,
     List as ListIcon,
     Presentation as PresentationIcon,
-    Workflow as WorkflowIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import TranscriptCard from "../conversation/TranscriptCard.svelte";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
-  import { summarizeDiagram, parseDiagram } from "@solus/contracts/diagram-types";
   import type { PlanMessageRef } from "@solus/contracts/types";
   import type { TaskLinkTarget } from "@solus/contracts/task-types";
   import TaskLinkControl from "../tasks/link-control/TaskLinkControl.svelte";
@@ -40,7 +38,6 @@
   // `permission_decided` activity beside the card (plans/012 §5).
   const planType = $derived(planTypeLabel(planStatus));
 
-  const isDiagram = $derived(ref.workType === "diagram");
   const isStreaming = $derived(ref.streaming ?? false);
   const workType = $derived(
     ref.workType === "slides"
@@ -48,17 +45,6 @@
       : ref.workType === "artifact"
         ? "artifact"
         : "doc",
-  );
-  const diagramSummary = $derived(
-    isDiagram && ref.content
-      ? (() => {
-          try {
-            return summarizeDiagram(parseDiagram(ref.content!));
-          } catch {
-            return "";
-          }
-        })()
-      : "",
   );
   const documentMeta = $derived(
     compactMeta(ref.contentVersion ? `v${ref.contentVersion}` : "", ref.updatedAt ? `edited ${formatDate(ref.updatedAt)}` : ""),
@@ -105,36 +91,6 @@
 
 {#if ref.kind === "document" && isStreaming}
   <WorkGeneratingSkeleton title={ref.title} workType={ref.workType} content={ref.content} />
-{:else if ref.kind === "document" && isDiagram}
-  <TranscriptCard
-    title={ref.title ?? "Untitled diagram"}
-    type="diagram"
-    actionLabel="Open"
-    ariaLabel={`Open diagram: ${ref.title ?? "Untitled diagram"}`}
-    onOpen={openWork}
-    onOpenSecondary={openWorkSecondary}
-    secondaryActionLabel="Open diagram in side pane"
-    open={isWorkOpen}
-    bodyLayout="media"
-    data-testid="diagram-card"
-    {skipMotion}
-  >
-    {#snippet glyph()}<WorkflowIcon />{/snippet}
-    {#snippet rail()}{#if ref.contentVersion}v{ref.contentVersion}{#if diagramSummary} · {/if}{/if}{diagramSummary}{/snippet}
-    {#snippet menu()}{@render taskLink()}{/snippet}
-    {#snippet body()}
-      {#if ref.content}
-        <div class="h-[9.375rem] overflow-hidden">
-          {#await import("../diagram/DiagramThumbnail.svelte")}
-            <ContentSkeleton label="Loading diagram preview" preview />
-          {:then diagramThumbnailModule}
-            {@const DiagramThumbnail = diagramThumbnailModule.default}
-            <DiagramThumbnail content={ref.content} />
-          {/await}
-        </div>
-      {/if}
-    {/snippet}
-  </TranscriptCard>
 {:else if ref.kind === "document"}
   <TranscriptCard
     title={ref.title ?? "Untitled document"}

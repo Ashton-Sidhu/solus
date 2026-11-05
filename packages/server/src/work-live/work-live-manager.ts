@@ -16,7 +16,8 @@ import { afterDatabaseCommit } from '../db/database'
 import { Work } from '../data/works/work'
 import type { WorkLiveBridge } from '../data/works/work-live-bridge'
 import { createLogger } from '../logger'
-import { absorbIntoLiveDoc, isLiveWorkType, liveSchemaVersion, projectLiveDoc, seedLiveDoc, type LiveWorkType } from './live-codec'
+import { DOCUMENT_SCHEMA_VERSION } from '@solus/document-model/schema'
+import { absorbIntoLiveDoc, isLiveWorkType, projectLiveDoc, seedLiveDoc } from './live-codec'
 import { hasLiveDoc, loadLiveDoc, saveLiveDoc } from './live-store'
 
 const log = createLogger('folio', 'work-live-manager.ts')
@@ -52,7 +53,6 @@ interface Room {
   workId: string
   bodyVersion: number
   organizationId: string
-  type: LiveWorkType
   doc: Y.Doc
   clientSeqs: Map<string, number>
   clients: Map<string, RoomClient>
@@ -106,11 +106,10 @@ export class WorkLiveManager {
   async open(input: { clientId: string; principal?: Principal; scope: RecordScope; request: WorkLiveOpenRequest; canEdit: boolean }): Promise<WorkLiveOpenResult> {
     const { clientId, request } = input
     const work = await Work.byId(input.scope, request.workId)
-    const type = work.type
-    if (!isLiveWorkType(type) || work.mirroredDoc?.provider === 'gdrive') return { mode: 'unsupported' }
+    if (!isLiveWorkType(work.type) || work.mirroredDoc?.provider === 'gdrive') return { mode: 'unsupported' }
     return this.serial(request.workId, async () => {
-      const room = this.rooms.get(request.workId) ?? await this.load(work.id, work.organizationId, type, work.content, work.contentVersion)
-      const schemaMatches = request.schemaVersion === liveSchemaVersion(room.type)
+      const room = this.rooms.get(request.workId) ?? await this.load(work.id, work.organizationId, work.content, work.contentVersion)
+      const schemaMatches = request.schemaVersion === DOCUMENT_SCHEMA_VERSION
       const mode = input.canEdit && schemaMatches ? 'edit' : 'read'
       room.clients.set(clientId, { principal: input.principal ?? null, mode, awareness: room.clients.get(clientId)?.awareness ?? null })
       const others = [...room.clients].filter(([id, client]) => id !== clientId && client.awareness)
@@ -215,7 +214,7 @@ export class WorkLiveManager {
     try {
       await saveLiveDoc(room.organizationId, room.workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs,
         lastAuthor: room.lastAuthor, bodyVersion: room.bodyVersion, needsProjection: true })
-      const content = projectLiveDoc(room.type, room.doc)
+      const content = projectLiveDoc(room.doc)
       const work = await Work.byId(room.organizationId, room.workId)
       await work.applyLiveProjection({ content, author: room.lastAuthor })
       room.bodyVersion = work.contentVersion
@@ -247,11 +246,11 @@ export class WorkLiveManager {
         Y.applyUpdate(doc, stored.state)
         if (stored.bodyVersion !== undefined && stored.bodyVersion < work.contentVersion) {
           // The body committed before the external-write callback could update the live state.
-          absorbIntoLiveDoc(work.type, doc, work.content, HOST_ORIGIN)
+          absorbIntoLiveDoc(doc, work.content, HOST_ORIGIN)
           await saveLiveDoc(work.organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs: stored.clientSeqs,
             lastAuthor: work.contentAuthor, bodyVersion: work.contentVersion, needsProjection: false })
         } else if (stored.needsProjection) {
-          await work.applyLiveProjection({ content: projectLiveDoc(work.type, doc), author: stored.lastAuthor ?? null })
+          await work.applyLiveProjection({ content: projectLiveDoc(doc), author: stored.lastAuthor ?? null })
         }
       } finally { doc.destroy() }
     })
@@ -322,7 +321,7 @@ export class WorkLiveManager {
     await this.serial(workId, async () => {
       const room = this.rooms.get(workId)
       if (room) {
-        const updates = captureUpdates(room.doc, () => absorbIntoLiveDoc(room.type, room.doc, content, HOST_ORIGIN))
+        const updates = captureUpdates(room.doc, () => absorbIntoLiveDoc(room.doc, content, HOST_ORIGIN))
         if (updates.length === 0) return
         const work = await Work.find(room.organizationId, workId)
         if (!work) return
@@ -341,7 +340,7 @@ export class WorkLiveManager {
       if (!work || !isLiveWorkType(work.type)) return
       const doc = new Y.Doc()
       Y.applyUpdate(doc, stored.state)
-      absorbIntoLiveDoc(work.type, doc, content, HOST_ORIGIN)
+      absorbIntoLiveDoc(doc, content, HOST_ORIGIN)
       await saveLiveDoc(stored.organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs: stored.clientSeqs, lastAuthor: by, bodyVersion: work.contentVersion, needsProjection: false })
     })
   }
@@ -349,7 +348,7 @@ export class WorkLiveManager {
   // ── Rooms ─────────────────────────────────────────────────────────────────
 
   /** The stored doc, or one the host seeds from the body: clients never seed. */
-  private async load(workId: string, organizationId: string, type: LiveWorkType, content: string, bodyVersion: number): Promise<Room> {
+  private async load(workId: string, organizationId: string, content: string, bodyVersion: number): Promise<Room> {
     const stored = await loadLiveDoc(workId)
     let doc: Y.Doc
     let clientSeqs: Map<string, number>
@@ -358,16 +357,16 @@ export class WorkLiveManager {
       Y.applyUpdate(doc, stored.state)
       clientSeqs = stored.clientSeqs
       if (stored.bodyVersion !== undefined && stored.bodyVersion < bodyVersion) {
-        absorbIntoLiveDoc(type, doc, content, HOST_ORIGIN)
+        absorbIntoLiveDoc(doc, content, HOST_ORIGIN)
         await saveLiveDoc(organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs, bodyVersion, needsProjection: false })
         stored.needsProjection = false
       }
     } else {
-      doc = seedLiveDoc(type, content)
+      doc = seedLiveDoc(content)
       clientSeqs = new Map()
       await saveLiveDoc(organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs, bodyVersion, needsProjection: false })
     }
-    const room: Room = { workId, bodyVersion, organizationId, type, doc, clientSeqs, clients: new Map(), dirty: stored?.needsProjection ?? false, lastAuthor: stored?.lastAuthor ?? null, cancelIdle: null, cancelMax: null }
+    const room: Room = { workId, bodyVersion, organizationId, doc, clientSeqs, clients: new Map(), dirty: stored?.needsProjection ?? false, lastAuthor: stored?.lastAuthor ?? null, cancelIdle: null, cancelMax: null }
     this.rooms.set(workId, room)
     if (room.dirty) this.markDirty(room)
     return room

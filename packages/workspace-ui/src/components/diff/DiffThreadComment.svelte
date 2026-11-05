@@ -150,7 +150,7 @@
               </span>
             </div>
             <div class="prose mt-0.5">
-              <GithubMarkdown source={comment.body} />
+              <GithubMarkdown source={comment.body} lineBreaks />
             </div>
           </div>
         </article>

@@ -22,6 +22,8 @@ export type DesktopUpdateState =
   /** Downloaded and on disk. Sticky: only a restart leaves it. */
   | { kind: 'ready'; release: DesktopUpdateRelease }
   | { kind: 'error'; message: string; release: DesktopUpdateRelease | null }
+  /** A host policy turns updates off (plans/030 §6.8); the message names who manages them. */
+  | { kind: 'managed'; message: string }
 
 export interface DesktopUpdateStatus {
   currentVersion: string

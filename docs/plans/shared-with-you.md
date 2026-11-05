@@ -246,10 +246,13 @@ Where the code differs from the sections above, the code and this section win.
   marking it active in the session picker returns it. A shared settle by its
   task or pull requests does not remove it from the reader's list.
 
-- **A client finds a shared session by its role.** A host answers `owner`
-  only to the session's owner (`standingOf`), so a role other than `owner`
+- **A client finds a shared session by its role.** A role other than `owner`
   or `none` means "another person owns it". No client needs the reader's
   person key. A record with no role, from an older host, is the reader's own.
+  Since plans/031 (2026-11-03) the owner of a personal host holds `owner` on
+  every record on it, so nothing on their own machine is in Shared with you;
+  Shared with you comes from what other people share on hosts the reader does
+  not own, and from Solus API reads. Mobile reads the same rule.
 - **Desktop and web: "not opened" is local.** The host does not say whether
   the reader opened a shared session. The client keeps the opened grants in
   `localStorage` (`solus:opened-shared-sessions`, at most 500).

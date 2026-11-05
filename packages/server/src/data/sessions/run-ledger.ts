@@ -6,6 +6,7 @@ import type { PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import { queueAttachmentSchema } from '@solus/contracts/session-queue'
 import { userSchema } from '@solus/contracts/user'
 import { getDb, withTx } from '../../db'
+import { pruneSettledAsyncQuestions } from './async-questions'
 
 /**
  * The run ledger: the one durable source for the lifecycle of a run on this
@@ -65,6 +66,8 @@ export const restartRunSchema = z.object({
   /** What to send again. Held only while the provider has certainly not got the prompt. */
   options: savedOptions.optional(),
   backgroundTools: z.array(z.object({ toolId: z.string(), name: z.string() })).max(32),
+  /** More tools started than `backgroundTools` holds, so the list is incomplete. */
+  moreToolsRunning: z.boolean().optional(),
 })
 export type RestartRun = z.infer<typeof restartRunSchema>
 
@@ -147,6 +150,7 @@ export class RunLedger {
     const db = getDb()
     db.prepare(`DELETE FROM run_exchanges WHERE state = 'settled' AND delivery_state IN ('accepted', 'disposed')
       AND COALESCE(settled_at, updated_at) < ?`).run(now - CLOSED_RECEIPT_MS)
+    pruneSettledAsyncQuestions(now)
     return db.prepare('SELECT payload, delivery_state, delivery_queue_id, report, reply FROM run_exchanges ORDER BY rowid').all().map((row) => {
       const columns = z.object({
         payload: z.string(), delivery_state: z.string().nullable(), delivery_queue_id: z.string().nullable(),

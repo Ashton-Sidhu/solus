@@ -1,13 +1,13 @@
 # Work history and review
 
-A work (a doc, a diagram, or an artifact) keeps every saved version. People in
+A work (a doc or an artifact) keeps every saved version. People in
 an organization, and people outside it, can review a work: approve it, request
 changes, or comment. The plan is
 [Work review and live editing](plans/work-review-and-live-editing.md).
 
 ## Save status
 
-Docs and diagrams save edits to the host as you work. A small check in the
+Docs save edits to the host as you work. A small check in the
 header, beside the title, means the host has confirmed all edits. Hover over it, or select it
 with the keyboard or touch, to see the save status. **Saving…** means edits
 are waiting for confirmation.
@@ -33,9 +33,7 @@ the body on screen when no version holds it yet.
 
 Select a version to compare it with the version before it. **Compared with**
 chooses any other version, or nothing. Docs show a rendered block comparison;
-**Markdown** shows the source diff. Diagrams mark added, removed, and changed
-nodes and edges on the canvas and list them. Artifacts show the two renders side
-by side.
+**Markdown** shows the source diff. Artifacts show the two renders side by side.
 
 **Restore this version** makes that body current again as a new version.
 Nothing is deleted: the body it replaced stays in the list, so a restore can be
@@ -134,12 +132,10 @@ on that one work, never the rest of the host (`work.presenceChanged`).
 
 ## Live editing
 
-Documents and diagrams are edited live: everyone who has the work open sees
-each edit as it happens, with teammates' carets (documents) and selected nodes
-(diagrams) in their colour. Concurrent edits merge to the same result on every
-client. Two edits to the same diagram field keep one of them; deleting a
-paragraph or a node removes a teammate's edit inside it. `mod+z` undoes only
-your own edits.
+Documents are edited live: everyone who has the work open sees each edit as it
+happens, with teammates' carets in their colour. Concurrent edits merge to the
+same result on every client. Deleting a paragraph removes a teammate's edit
+inside it. `mod+z` undoes only your own edits.
 
 The status beside the title says where your edits are:
 

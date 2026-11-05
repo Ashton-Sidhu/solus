@@ -45,11 +45,9 @@
   // opening a draft or sending it never flashes a route-loading skeleton.
   import SessionDraftPane from "../session-draft/SessionDraftPane.svelte";
   import ConversationPane from "../conversation/ConversationPane.svelte";
-  // Eager too: the pane is light (the document and diagram shells stay lazy
-  // inside it) and it owns one loading state — skeleton plus close control —
-  // for both the module and the content read, so a work never opens through
-  // a second skeleton that cannot be dismissed.
-  import WorkPane from "../work/WorkPane.svelte";
+  // A work's pane loads when a work opens. Its module load draws the same
+  // skeleton and close control as its content read, so the two read as one state.
+  import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   // The PR page's own loading state, drawn while its module loads. Eagerly
   // importing the page itself to avoid a second loading state cost the whole
   // review stack — PrDetailPanel -> PrReviewPane -> DiffPanel + DocumentEditor,
@@ -109,12 +107,23 @@
       {onScreenshot}
     />
   {:else if ref.name === "work"}
-    <WorkPane
-      params={ref.params}
-      paneId={pane.id}
-      {onAttachFile}
-      {onScreenshot}
-    />
+    {#key routeLoadAttempt}
+    {#await loadRoute("work", () => import("../work/WorkPane.svelte"))}
+      <div class="relative h-full min-h-0 w-full">
+        <DocumentModalSkeleton inline />
+        <PaneChrome onClose={actions.close} closeLabel="Close loading work" />
+      </div>
+    {:then { default: WorkPane }}
+      <WorkPane
+        params={ref.params}
+        paneId={pane.id}
+        {onAttachFile}
+        {onScreenshot}
+      />
+    {:catch error}
+      <RouteLoadError {error} onRetry={() => (routeLoadAttempt += 1)} />
+    {/await}
+    {/key}
   {:else if descriptor.component}
     <!-- An await block can keep its previous component until the next loader
          settles. Drop it before a different route supplies incompatible params.

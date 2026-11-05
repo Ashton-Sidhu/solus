@@ -484,7 +484,7 @@
     itemContextMenu = { item, x: event.clientX, y: event.clientY };
   }
 
-  function createNew(type: "doc" | "diagram") {
+  function createNew(type: "doc") {
     void session.createBlankWork(type);
   }
 
@@ -758,18 +758,15 @@
           {:else if ledger.items.length === 0}
             {#if ledger.tab === "shared-works"}
               <PageEmpty icon={SharedIcon} title="No works shared with you.">
-                A doc, diagram or artifact another person shares with you lands here.
+                A doc or artifact another person shares with you lands here.
               </PageEmpty>
             {:else}
               <PageEmpty icon={BooksIcon} title="Nothing here yet.">
-                Docs, diagrams and artifacts from every project land here.
+                Docs and artifacts from every project land here.
                 {#snippet actions()}
                   <button type="button" class={PAGE_PRIMARY_BTN} onclick={() => createNew("doc")}>
                     <PlusIcon size={13} weight="bold" />
                     <span>New document</span>
-                  </button>
-                  <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => createNew("diagram")}>
-                    New diagram
                   </button>
                 {/snippet}
               </PageEmpty>

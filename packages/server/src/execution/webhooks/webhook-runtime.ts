@@ -22,7 +22,7 @@ import { createWebhookReceiver, type WebhookReceiver, type WebhookReceiverDeps }
  */
 
 /** What the host's link and its organization facts say (plan §2.5, §2.7, §3.7). */
-export type WebhookHostFacts = Pick<WebhookReceiverDeps, 'hostId' | 'forwarderSecret' | 'isPausedByAdmin' | 'allowsUnverifiedWebhooks'>
+export type WebhookHostFacts = Pick<WebhookReceiverDeps, 'hostId' | 'forwarderSecret' | 'isPausedByAdmin' | 'organizationRefusal'>
 
 /** The person a webhook runs as: its owner (plan §2.7). The host's own user is the owner principal. */
 export function webhookActor(webhook: WebhookRecord): Actor {
@@ -38,12 +38,13 @@ export function webhookActionDeps(runtime: SessionRuntime, facts: Pick<WebhookHo
   return {
     actorFor: webhookActor,
     isPausedByAdmin: facts.isPausedByAdmin,
-    startSession: ({ prompt, action, actor, webhookId, deliveryId }) => withActorScope(actor, async () => {
+    startSession: ({ prompt, action, actor, webhookId, deliveryId, organizationId }) => withActorScope(actor, async () => {
       const cwd = action.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(crypto.randomUUID(), actor.principal) : expandHome(action.cwd)
       const gitContext = action.useWorktree
-        ? await runtime.checkouts.createNamed(cwd, prompt, runtime, new AbortController().signal, DEFAULT_EXECUTION_PREFERENCES)
+        ? await runtime.checkouts.createNamed(cwd, prompt, runtime, new AbortController().signal, DEFAULT_EXECUTION_PREFERENCES, organizationId)
         : null
       const session = await runtime.dispatch.startUnattendedSession({
+        organizationId,
         prompt,
         startedBy: { kind: 'webhook', webhookId, deliveryId },
         provider: action.agentProvider,

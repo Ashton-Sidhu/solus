@@ -42,6 +42,7 @@
   import { localApi } from "@solus/client-core/local-api";
 
   import BrowserWebviewLayer from "./shell/BrowserWebviewLayer.svelte";
+  import HistorySwipeIndicator from "@solus/workspace-ui/components/layout/HistorySwipeIndicator.svelte";
   import { uploadFileObjects } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
@@ -78,7 +79,21 @@
   let palette = $state.raw<ReturnType<typeof createDesktopPalette> | null>(null);
   void afterPaint()
     .then(() => import("./shell/desktop-palette.svelte"))
-    .then((module) => { palette = module.createDesktopPalette(core, ui, startOpenProject); });
+    .then((module) => {
+      palette = module.createDesktopPalette(core, ui, startOpenProject);
+      if (ui.commandPaletteOpen) palette.load();
+    });
+
+  /** Opens the palette, optionally drilled into one sub-page, and refreshes what its sub-pages list. */
+  function openCommandPalette(
+    initialPage: DesktopDialogs["paletteInitialPage"] = null,
+    gitTarget: DesktopDialogs["paletteGitTarget"] = null,
+  ) {
+    ui.paletteGitTarget = gitTarget;
+    ui.paletteInitialPage = initialPage;
+    ui.commandPaletteOpen = true;
+    palette?.load();
+  }
 
   let overlayEl: HTMLElement | null = $state(null);
   setPopoverLayer({
@@ -143,6 +158,7 @@
   installGlobalDispatcher(keybindings, () => settings.keybindings);
   installDesktopKeybindings(core, ui, {
     startOpenProject,
+    openCommandPalette,
     handleScreenshot,
     handleAttachFile,
   });
@@ -165,7 +181,7 @@
         detail?.cwd ??
         checkoutGit(targetSession?.run)?.repoRoot ??
         checkoutPlace(targetSession?.run)?.path;
-      ui.paletteGitTarget = {
+      openCommandPalette({ id: "review-pr", title: "Review PR" }, {
         tabId: targetTabId,
         ctx: detail?.cwd
           ? session.ctxForEnvironment(
@@ -175,9 +191,7 @@
             )
           : session.ctxFor(targetTabId),
         projectRoot: dir && dir !== "~" ? worktreeProjectRoot(dir) : null,
-      };
-      ui.paletteInitialPage = { id: "review-pr", title: "Review PR" };
-      ui.commandPaletteOpen = true;
+      });
     };
     window.addEventListener("solus:review-pr", reviewPrHandler);
     return () => window.removeEventListener("solus:review-pr", reviewPrHandler);
@@ -528,6 +542,11 @@
      whichever pane asks for it. It cannot live inside a pane: reparenting a
      `<webview>` reloads its guest and `display: none` stops it rendering. -->
     <BrowserWebviewLayer />
+
+    <!-- Two-finger trackpad swipes drive the same history as the buttons. -->
+    {#if window.solusNative?.onTrackpadScroll}
+      <HistorySwipeIndicator onTrackpadScroll={window.solusNative.onTrackpadScroll} />
+    {/if}
 
     {#if isDraggingFile}
       <div data-solus-ui class="drop-overlay">

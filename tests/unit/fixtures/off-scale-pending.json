@@ -1,8 +1,5 @@
 [
   "packages/workspace-ui/src/components/conversation/RateLimitCard.svelte",
-  "packages/workspace-ui/src/components/diagram/DiagramShell.css",
-  "packages/workspace-ui/src/components/diagram/DiagramThumbnail.svelte",
-  "packages/workspace-ui/src/components/diagram/inspector/EdgeRouteTab.svelte",
   "packages/workspace-ui/src/components/editor/EditorLinkPreview.svelte",
   "packages/workspace-ui/src/components/insights/SaveQueryDialog.svelte",
   "packages/workspace-ui/src/components/insights/TraceCoverage.svelte",

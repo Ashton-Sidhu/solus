@@ -13,7 +13,10 @@ import type { SessionRuntime } from '../../execution/session-runtime'
 import { compactSession } from '../../execution/sessions/session-compaction'
 import type { SessionOrchestrator } from '../../execution/orchestration/session-orchestrator'
 import { activityLeases } from '../../execution/activity-leases'
-import type { AgentId, AgentMetadata, IpcContext } from '@solus/contracts/types'
+import { PERMISSION_MODES, type AgentId, type AgentMetadata, type IpcContext } from '@solus/contracts/types'
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
+import { organizationOfSession } from '../../data/sessions/session-records'
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { findOnPath, launchProcess, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
@@ -175,8 +178,8 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
     const instances = snapshot.instances.filter((instance) => instance.provider === metadata.id).map((instance) => {
       const path = instance.binaryPath.startsWith('~/') && home ? join(home, instance.binaryPath.slice(2)) : instance.binaryPath
       const customBinary = path ? isAbsolute(path) ? existsSync(path) ? path : null : findOnPath(path, cliPath) : binaryPath
-      const { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder } = instance
-      return { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, binaryAvailable: !!customBinary }
+      const { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, modelGroups } = instance
+      return { id, provider, displayName, enabled, customModels, hiddenModels, favoriteModels, modelOrder, modelGroups, binaryAvailable: !!customBinary }
     })
     return agentForProject({ ...metadata, binaryPath: binaryPath ?? undefined, instancePreferences: { selected: snapshot.selected[metadata.id], instances, projects: snapshot.projects } })
   }
@@ -380,6 +383,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     if (request.imageAttachmentRefs?.length) origin.imageAttachmentRefs = request.imageAttachmentRefs
     // A link visitor's turn keeps tool approvals with the people on the session (host-sharing.md §4.1).
     if (handlerCtx.principal.kind === 'guest') origin.permissionMode = 'supervised'
+    const organizationId = await organizationOfSession(request.sessionId)
+    const mode = origin.permissionMode ?? sessionRuntime.sessionPermissionModes.get(request.sessionId)
+    const provider = sessionRuntime.activeSessions.get(request.sessionId)?.runInput?.provider
+    if (mode && provider) enforce(hostPolicies().forWork(organizationId).runDenial({ mode, provider }))
     return sessionRuntime.dispatch.promptSession(request.sessionId, request.prompt, request.delivery, origin)
   })
 
@@ -437,6 +444,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await claimSession(sessionId, handlerCtx, ctx.session.workingDirectory)
     await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
+    await checkTurnPolicy(ctx)
     // A recording sent to an agent is part of the transcript now, so the
     // retention sweep must not delete it. A failure here must not fail the turn.
     void recordingRetention().keepRecordingsSentIn(options.prompt).catch((error) => {
@@ -473,7 +481,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
     placeDispatchCheckout(ctx, handlerCtx)
     resolveChat(ctx, handlerCtx.principal)
+    if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
+    await checkTurnPolicy(ctx)
     return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor, handlerCtx.deviceId)
   })
 
@@ -513,7 +523,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('sessionQueue', ([ctx]) => sessionRuntime.scheduler.sessionQueue(ctx))
   server.register('sessionQueueChange', async ([ctx, mutation], handlerCtx) => {
+    if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
+    await checkTurnPolicy(ctx)
     return sessionRuntime.scheduler.sessionQueueChange(ctx, mutation, handlerCtx.actor)
   })
 
@@ -536,7 +548,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   })
 
   server.register('compactSession', async ([ctx], handlerCtx) => {
+    if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
+    await checkTurnPolicy(ctx)
     return compactSession(sessionRuntime, ctx, handlerCtx.actor)
   })
 
@@ -554,4 +568,17 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const [threadId, ctx, provider] = args
     return sessionRuntime.history.clearThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
   })
+}
+
+/**
+ * The policy check of a turn, before anything is queued (plans/030 §6.3). The
+ * provider start checks again, so this only makes the refusal early and clear.
+ * Runs after `admitTurn`, which decides the session's organization.
+ */
+async function checkTurnPolicy(ctx: IpcContext): Promise<void> {
+  const mode = z.enum(PERMISSION_MODES).optional().parse(ctx.session.permissionMode)
+  const organizationId = ctx.session.sessionId ? await organizationOfSession(ctx.session.sessionId) : ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID
+  const provider = ctx.session.provider ?? ctx.settings.activeAgent
+  // The model is checked where the provider starts: Auto routing chooses it later.
+  enforce(hostPolicies().forWork(organizationId).runDenial({ mode: mode ?? 'plan', provider }))
 }

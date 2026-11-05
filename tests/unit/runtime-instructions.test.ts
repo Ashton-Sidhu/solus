@@ -114,6 +114,8 @@ describe('runtime instructions', () => {
       expect(prompt).toContain(PR_LINKING_HEADING)
       expect(prompt).toContain('Call link with kind=pr')
       expect(prompt).toContain('link every layer')
+      // A stack is one call, not one call per layer.
+      expect(prompt).toContain('target_ids')
     }
   })
 
@@ -257,6 +259,13 @@ describe('runtime instructions', () => {
     expect(prompt).toContain('Never substitute an unsupported level')
     expect(prompt).toContain('copy the link returned by its tool')
     expect(prompt).toContain('Use start_session only for an independent conversation')
+  })
+
+  test('an agent is told to link the plan files it writes', () => {
+    // WHY: an agent writes a plan as a file without being told, but an unlinked
+    // file never reaches the session's Artifacts surface.
+    const instructions = runtimeInstructions({ harness: 'Codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' }, [linkTool])
+    expect(instructions).toContain('When you write a plan file, link it with kind=file and path.')
   })
 
   test('collaboration-mode text stays Codex-only', async () => {

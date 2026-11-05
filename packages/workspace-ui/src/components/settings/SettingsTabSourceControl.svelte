@@ -26,6 +26,7 @@
   import { Textarea } from "../ui/textarea";
   import * as TooltipUI from "../ui/tooltip";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import ProjectBranchNamingSetting from "./ProjectBranchNamingSetting.svelte";
   import ProjectCopiedFilesSetting from "./ProjectCopiedFilesSetting.svelte";
@@ -185,6 +186,7 @@
 <SettingsSection label="Text generation">
   <SettingsRow
     label="Source control writing style"
+    managed={managedSetting("sourceControlWriting")}
     description={styleOptions[style.mode].description}
     bodyVisible={style.mode === "custom"}
   >
@@ -263,6 +265,7 @@
 
   <SettingsRow
     label="Source-control writer model"
+    managed={managedSetting("sourceControlWriterModel")}
     bodyVisible={!!writerModel && !!snapshot && !isModelOffered(snapshot.agents, writerModel)}
     description="Model for commits, PRs, and branch names. Off uses the text-generation model."
   >
@@ -309,6 +312,7 @@
 <SettingsSection label="Worktrees">
   <WorktreeBranchNamingRow
     label="Branch names"
+    managed={managedSetting("worktreeBranchNaming")}
     naming={settings.worktreeBranchNaming}
     onSave={(naming) => settings.setPersonal("worktreeBranchNaming", naming)}
   />

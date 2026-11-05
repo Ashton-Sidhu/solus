@@ -23,6 +23,7 @@
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import { updateCommandFor, updateStatusLine } from "./lib/update-status-text";
+  import { deviceUpdatesLock } from "./policy/managed-setting.svelte";
 
   interface Props {
     visible?: boolean;
@@ -33,6 +34,8 @@
   const version = $derived(updatesStore.currentVersion ?? CLIENT_VERSION);
   const state = $derived(updatesStore.state);
   const command = $derived(updateCommandFor(state));
+  // A policy with `updates.mode: "off"`: the organization installs updates, so check, download, and restart are inert.
+  const updatesManaged = $derived(deviceUpdatesLock());
   const releaseNotes = $derived(updatesStore.release?.releaseNotes ?? null);
 
   function runCommand() {
@@ -48,6 +51,7 @@
     label="Version"
     description={updatesStore.isAvailable ? `Solus ${version} · ${updateStatusLine(state)}` : `Solus ${version}`}
     bodyVisible={updatesStore.isAvailable && (state.kind === "downloading" || !!releaseNotes)}
+    managed={updatesManaged}
   >
     {#snippet control()}
       {#if updatesStore.isAvailable}
@@ -106,6 +110,7 @@
     label="Download updates automatically"
     description="Download updates when found. You choose when to restart."
     visible={updatesStore.isAvailable && state.kind !== "manual"}
+    managed={updatesManaged ? { lockedEverywhere: true, lines: [] } : undefined}
   >
     {#snippet control()}
       <Switch

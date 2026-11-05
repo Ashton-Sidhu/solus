@@ -25,7 +25,7 @@ import { registerAssetHandlers } from '../handlers/asset-handlers'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { upsertSessionRecord } from '../../data/sessions/session-records'
 import { organizationForNew, type Principal } from '../../admission/principal'
-import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
+import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 import { getProvider } from '../../providers/registry'
 import { registerAuthHandlers } from '../handlers/auth-handlers'
 
@@ -89,17 +89,17 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     return { head: messages.slice(0, 5), tail: messages.slice(5).slice(-5), totalMessages: messages.length }
   })
   // The mirrored history with the activity its runner mirrored beside it, placed as a host places it (plans/012 §5).
-  const sessionActivity = (principal: Principal, sessionId: string) => activityFor(recordScopeOf(principal), { kind: 'session', id: sessionId })
+  const sessionActivity = (principal: Principal, sessionId: string, window: ActivityWindow) => activityFor(recordScopeOf(principal), { kind: 'session', id: sessionId }, { window })
   server.register('loadSession', async ([sessionId, _path, _context, _provider, limit, options], ctx) => {
     const history = await readTranscript(recordScopeOf(ctx.principal), sessionId, limit)
-    const messages = mergeWindowActivity(history, await sessionActivity(ctx.principal, sessionId), !!limit)
+    const messages = mergeWindowActivity(history, await sessionActivity(ctx.principal, sessionId, historyWindow(history, !!limit)), !!limit)
     return options?.deferToolInputs ? deferSessionToolInputs(messages) : messages
   })
   server.register('loadSessionPage', async ([input], ctx) => {
     const request = z.object({ sessionId: z.string().min(1), turnLimit: z.number().int().min(1).max(100), before: z.string().max(16384).optional() }).parse(input)
     const cursor = readActivityPageCursor(request.before)
     const page = await readTranscriptPage(recordScopeOf(ctx.principal), request.sessionId, request.turnLimit, cursor.before)
-    const { messages, before } = mergePageActivity(page, await sessionActivity(ctx.principal, request.sessionId), cursor.at)
+    const { messages, before } = mergePageActivity(page, await sessionActivity(ctx.principal, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
     return { messages: deferSessionToolInputs(messages), before }
   })
   server.register('loadSessionToolInputs', async ([request], ctx) => {

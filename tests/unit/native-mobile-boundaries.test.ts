@@ -45,7 +45,7 @@ function resolveSpecifier(from: string, specifier: string): { file: string } | {
     if (!file) throw new Error(`unresolved ${specifier} from ${fromRoot(from)}`)
     return { file }
   }
-  const workspace = /^@solus\/(contracts|client-core)\/(.+)$/.exec(specifier)
+  const workspace = /^@solus\/(contracts|client-core|document-model)\/(.+)$/.exec(specifier)
   if (workspace) {
     const file = resolveFile(join(root, 'packages', workspace[1]!, 'src', workspace[2]!.replace(/\.json$/, '.json')))
     if (!file) throw new Error(`unresolved ${specifier} from ${fromRoot(from)}`)
@@ -114,7 +114,8 @@ describe('native mobile import boundary', () => {
     expect(files).toContain('packages/client-core/src/ws-transport.ts')
     expect(files).toContain('packages/client-core/src/host-supervisor.ts')
     expect(files).toContain('packages/client-core/src/send-outbox.ts')
-    expect(graph.packages.has('socket.io-client')).toBe(true)
+    // The platform WebSocket carries the host socket; no socket library ships in the app.
+    expect(files).toContain('packages/client-core/src/host-socket.ts')
   })
 
   test('no Svelte, Electron, server, or browser-only client module is loaded', () => {

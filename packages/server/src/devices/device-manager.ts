@@ -165,7 +165,7 @@ export class DeviceManager {
   private watchCloudPreviews(): void {
     const hasCloud = this.settings().enabled && this.previews.some((preview) => {
       const kind = this.hosts.get(preview.deviceHostId)?.host.kind
-      return kind === 'eas' || kind === 'simlock'
+      return kind === 'simlock'
     })
     if (!hasCloud) { if (this.cloudRefreshTimer) clearInterval(this.cloudRefreshTimer); this.cloudRefreshTimer = null; return }
     if (this.cloudRefreshTimer) return
@@ -408,7 +408,7 @@ export class DeviceManager {
         && (request.agentAccessEnabled === true || (next.enabled && !before.enabled))
       if (!next.enabled && (before.enabled || request.enabled === false)) {
         // Turning the hub off stops owned helpers. Devices keep running.
-        for (const { host } of this.hosts.values()) await host.stop().catch(() => { if (host.kind === 'eas' || host.kind === 'simlock') cleanupFailures.push(host.deviceHostId) })
+        for (const { host } of this.hosts.values()) await host.stop().catch(() => { if (host.kind === 'simlock') cleanupFailures.push(host.deviceHostId) })
         this.agentEndpoints.clear()
         this.deps.revokeAgentBindings?.(() => true)
         this.control.forget(() => true)
@@ -472,15 +472,10 @@ export class DeviceManager {
 
   /** Save cloud source settings, retaining a redacted credential only for the same source. */
   async saveCloudHost(config: CloudDeviceHostConfig): Promise<DeviceState> {
-    if (config.kind === 'eas' && !config.appId) throw new Error('Choose an Expo project before saving this source.')
     await this.serially(async () => {
       const hosts = this.settings().cloudHosts ?? []
       const previous = hosts.find((host) => host.id === config.id)
-      let next = { ...config }
-      if (next.kind === 'eas' && next.accessToken === DEVICE_SECRET_SAVED) {
-        if (previous?.kind !== 'eas') throw new Error('Enter an Expo access token.')
-        next.accessToken = previous.accessToken
-      }
+      const next = { ...config }
       if (next.kind === 'simlock' && next.agentToken === DEVICE_SECRET_SAVED) {
         if (previous?.kind !== 'simlock' || previous.gatewayUrl !== next.gatewayUrl) throw new Error('Enter a token for the changed Simlock gateway.')
         next.agentToken = previous.agentToken
@@ -513,9 +508,9 @@ export class DeviceManager {
   private async reconcileCloudHosts(): Promise<void> {
     const wanted = new Map((this.settings().cloudHosts ?? []).map((config) => [config.id, config]))
     for (const [id, entry] of this.hosts) {
-      if (entry.host.kind !== 'eas' && entry.host.kind !== 'simlock') continue
+      if (entry.host.kind !== 'simlock') continue
       if (JSON.stringify(wanted.get(id)) === JSON.stringify(entry.config)) continue
-      // Confirm cleanup before replacing the source that owns billed sessions or leases.
+      // Confirm cleanup before replacing the source that owns leases.
       await entry.host.stop()
       this.removeHost(id, entry)
     }

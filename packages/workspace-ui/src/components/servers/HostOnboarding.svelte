@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
@@ -67,6 +68,8 @@
     requestInputFocus();
   }
 
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => store.isOpen && !!(store.host || store.pairingTarget) });
 </script>
 
 {#if store.isOpen && (store.host || store.pairingTarget)}

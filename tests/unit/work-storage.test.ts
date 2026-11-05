@@ -245,7 +245,7 @@ test('durable live edits are projected and archived after restart without reopen
   const work = await create()
   await work.flushStorage()
   const { seedLiveDoc, projectLiveDoc } = await import('@solus/server/work-live/live-codec')
-  const doc = seedLiveDoc('doc', 'Durable live edit')
+  const doc = seedLiveDoc('Durable live edit')
   const author = { kind: 'agent', sessionId: 'live-author' } as const
   await (await import('@solus/server/work-live/live-store')).saveLiveDoc('org-a', work.id, {
     state: Y.encodeStateAsUpdate(doc), clientSeqs: new Map([['client', 1]]), lastAuthor: author, bodyVersion: 1, needsProjection: true,
@@ -254,7 +254,7 @@ test('durable live edits are projected and archived after restart without reopen
   ;(await import('@solus/server/db')).closeDb()
   await f.writer.drain(work.id)
   const saved = await Work.byId('org-a', work.id)
-  expect(saved.content).toBe(projectLiveDoc('doc', doc))
+  expect(saved.content).toBe(projectLiveDoc(doc))
   expect(saved.contentAuthor).toEqual(author)
   expect((await mapping(work.id))!.generation).toBe((await mapping(work.id))!.archived_generation)
   doc.destroy()
@@ -279,9 +279,9 @@ test('native Git transport archives all work types and preserves exact bodies th
   const artifacts = new archive.GitWorkStorage(transport, workId => writer.drain(workId))
   const { databaseWorkStorage } = await import('@solus/server/data/works/database-work-storage')
   restores.push(storage.installWorkStorage({ database: databaseWorkStorage, artifacts, defaultProvider: 'cloudflare-artifacts' }))
-  for (const type of ['doc', 'diagram', 'slides', 'artifact'] as const) {
-    const before = type === 'diagram' ? '{"nodes":[],"edges":[]}' : 'Original\n\n'
-    const after = type === 'diagram' ? '{"nodes":[{"id":"a"}],"edges":[]}' : 'Changed\n\n'
+  for (const type of ['doc', 'slides', 'artifact'] as const) {
+    const before = 'Original\n\n'
+    const after = 'Changed\n\n'
     const created = await works.createWork('org-a', 'Native Git', type, before, '', undefined, 'codex')
     const work = await Work.byId('org-a', created.id)
     await work.flushStorage()
@@ -330,9 +330,9 @@ test.skipIf(process.env.ARTIFACTS_WORK_ADAPTER_CLOUD !== '1')('real Cloudflare s
   restores.push(storage.installWorkStorage({ database: databaseWorkStorage, artifacts, defaultProvider: 'cloudflare-artifacts' }))
   const owned: string[] = []
   try {
-    for (const type of ['doc', 'diagram', 'slides', 'artifact'] as const) {
-      const before = type === 'diagram' ? '{"nodes":[],"edges":[]}' : 'Cloud original\n\n'
-      const after = type === 'diagram' ? '{"nodes":[{"id":"cloud"}],"edges":[]}' : 'Cloud changed\n\n'
+    for (const type of ['doc', 'slides', 'artifact'] as const) {
+      const before = 'Cloud original\n\n'
+      const after = 'Cloud changed\n\n'
       const created = await works.createWork('proof-organization', 'Adapter proof', type, before, '', undefined, 'codex')
       owned.push(created.id)
       const work = await Work.byId('proof-organization', created.id)
@@ -416,7 +416,7 @@ test('restart cannot project an old live doc over a newer committed agent body',
   const f = await fixture({ flushLive: workId => manager.flushPersisted(workId) })
   const work = await create()
   const { seedLiveDoc } = await import('@solus/server/work-live/live-codec')
-  const doc = seedLiveDoc('doc', 'Original')
+  const doc = seedLiveDoc('Original')
   await (await import('@solus/server/work-live/live-store')).saveLiveDoc('org-a', work.id, {
     state: Y.encodeStateAsUpdate(doc), clientSeqs: new Map(), bodyVersion: 1, needsProjection: false,
   })
@@ -438,7 +438,7 @@ test('a live receipt arriving between projection and claim cannot be marked arch
   const { WorkLiveManager } = await import('@solus/server/work-live/work-live-manager')
   const { seedLiveDoc } = await import('@solus/server/work-live/live-codec')
   const manager = new WorkLiveManager({ publish: () => {} })
-  const doc = seedLiveDoc('doc', 'Late live edit')
+  const doc = seedLiveDoc('Late live edit')
   let injected = false
   const f = await fixture({ flushLive: async workId => {
     if (!injected) {
@@ -480,9 +480,9 @@ test('local Git archives all work types, survives reopen, and removes only its o
   const writer = new Writer(database.getDatabase, transport, Date.now, undefined, 'local-git')
   const localGit = new archive.GitWorkStorage(transport, id => writer.drain(id), Date.now, 'local', 'local-git')
   restores.push(storage.installWorkStorage({ database: databaseWorkStorage, localGit, defaultProvider: 'local-git' }))
-  for (const type of ['doc', 'diagram', 'slides', 'artifact'] as const) {
-    const before = type === 'diagram' ? '{"nodes":[],"edges":[]}' : 'Local original\n\n'
-    const after = type === 'diagram' ? '{"nodes":[{"id":"a"}],"edges":[]}' : 'Local changed\n\n'
+  for (const type of ['doc', 'slides', 'artifact'] as const) {
+    const before = 'Local original\n\n'
+    const after = 'Local changed\n\n'
     const created = await works.createWork('local', 'Offline Git', type, before, '', undefined, 'codex')
     const work = await Work.byId('local', created.id)
     await work.flushStorage()

@@ -15,7 +15,8 @@ const storedSettingsSchema = z.object({
   onboardingCompleted: z.boolean().catch(false),
   autoShowAgentDevices: z.boolean().catch(true),
   sshHosts: sshDeviceHostConfigsSchema.catch([]),
-  cloudHosts: z.array(cloudDeviceHostConfigSchema).max(16).catch([]),
+  // Ignore unsupported sources individually so saved pools keep their credentials.
+  cloudHosts: z.array(cloudDeviceHostConfigSchema.nullable().catch(null)).max(16).catch([]).transform((hosts) => hosts.filter((host) => host !== null)),
 })
 
 export const DEFAULT_DEVICE_SETTINGS: DeviceSettingsState = {

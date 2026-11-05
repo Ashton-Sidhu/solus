@@ -89,8 +89,14 @@ function rows(): SpanRow[] {
   return metricsDb.getMetricsDb().prepare('SELECT * FROM spans ORDER BY started_at, kind').all() as SpanRow[]
 }
 
+/** A span's attributes as the emitter recorded them. The table stores the long
+ *  texts (prompt, system prompt, response, thought) as `span_texts` rows, so
+ *  the record is the `attrs` JSON and those rows together. */
 function attrs(row: SpanRow): SpanAttrs {
-  return JSON.parse(row.attrs) as SpanAttrs
+  const texts = metricsDb.getMetricsDb()
+    .prepare('SELECT name, text FROM span_texts WHERE span_id = ?')
+    .all(row.span_id) as Array<{ name: string; text: string }>
+  return { ...JSON.parse(row.attrs), ...Object.fromEntries(texts.map((text) => [text.name, text.text])) } as SpanAttrs
 }
 
 describe.serial('session emitter', () => {
@@ -174,6 +180,33 @@ describe.serial('session emitter', () => {
     expect(spans.find((span) => span.kind === 'turn_settlement')).toMatchObject({
       name: 'Solus settlement', started_at: 1_045, ended_at: 1_050, duration_ms: 5,
     })
+  })
+
+  test('records the partial spend of a stopped Claude turn, and never over a success result', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    const dimensions = {
+      provider: 'claude-code', model: 'claude-sonnet-5', projectRoot: '/repo', origin: 'typed', branch: 'main', isResume: false,
+    } as const
+    emitter.beginTurn({ sessionId: 'stopped', prompt: 'fix it', promptSource: 'typed', startedAt: 1_000 })
+    emitter.completeSetup('stopped', dimensions, 1_010)
+    emitter.onEvent('stopped', { type: 'text_chunk', text: 'I will' }, 1_020)
+    emitter.onEvent('stopped', { type: 'usage', partialTurn: { usage: { inputTokens: 100, outputTokens: 20 } } }, 1_030)
+    emitter.recordTerminal('stopped', 'interrupted', 1_040)
+    emitter.finishTurn('stopped', 'interrupted', 1_041)
+
+    emitter.beginTurn({ sessionId: 'done', prompt: 'fix it', promptSource: 'typed', startedAt: 2_000 })
+    emitter.completeSetup('done', dimensions, 2_010)
+    emitter.onEvent('done', {
+      type: 'task_complete', result: 'done', costUsd: 0.25, durationMs: 50, numTurns: 1,
+      usage: { inputTokens: 300, outputTokens: 40 }, sessionId: 'provider-1',
+    }, 2_020)
+    emitter.onEvent('done', { type: 'usage', partialTurn: { usage: { inputTokens: 7, outputTokens: 7 }, costUsd: 0.01 } }, 2_030)
+    emitter.recordTerminal('done', 'ok', 2_040)
+    emitter.finishTurn('done', 'completed', 2_041)
+
+    const turns = rows().filter((span) => span.kind === 'turn')
+    expect(attrs(turns.find((span) => span.session_id === 'stopped')!)).toMatchObject({ inputTokens: 100, outputTokens: 20 })
+    expect(attrs(turns.find((span) => span.session_id === 'done')!)).toMatchObject({ inputTokens: 300, outputTokens: 40, costUsd: 0.25 })
   })
 
   test('records the instructions the turn ran under and the answer it returned', () => {

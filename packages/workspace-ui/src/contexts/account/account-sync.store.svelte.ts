@@ -1,5 +1,6 @@
 import { AgentProfileSync, type AgentProfileSyncPorts, type AgentProfileSyncStatus } from '@solus/client-core/agent-profile-sync'
 import { webAgentProfileRequests, type AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
+import { webHostListRequests, type HostListCloudRequests } from '@solus/client-core/host-list-requests'
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import {
   syncAccountKey,
@@ -50,7 +51,13 @@ export function accountSettingsRequests(): SettingsCloudRequests | null {
   // The desktop preload bridge has the account methods; a browser has no bridge.
   if (localApi.accountSettingsGet !== undefined) return localApi
   const account = cloudAccount()
-  return account ? webSettingsRequests(account.consoleUrl, account.session) : null
+  return account ? webSettingsRequests(account.consoleUrl, account.session, fetch, () => account.takeShellSettings()) : null
+}
+
+export function accountHostListRequests(): HostListCloudRequests | null {
+  if (localApi.accountHostListGet !== undefined) return localApi
+  const account = cloudAccount()
+  return account ? webHostListRequests(account.consoleUrl, account.session) : null
 }
 
 export function accountAgentProfileRequests(): AgentProfileCloudRequests | null {

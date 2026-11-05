@@ -220,8 +220,66 @@ describe('which identity a new page opens as', () => {
   })
 })
 
+describe('the default is a flag on the profile row (plans/029 §3.2)', () => {
+  test('one person’s choice in one project changes nothing for another person or another project', () => {
+    // WHY: the flag is unique per person and project. A default that leaked
+    // across either would open bob's pages, or alice's pages in beta, signed in
+    // as something nobody chose there.
+    profiles.createBrowserProfile(ALICE, ALPHA, 'Admin')
+    profiles.createBrowserProfile(BOB, ALPHA, 'Admin')
+    profiles.createBrowserProfile(ALICE, BETA, 'Admin')
+
+    profiles.setBrowserDefaultProfile(ALICE, ALPHA, 'admin')
+
+    expect(profiles.browserProfiles(ALICE, ALPHA).defaultProfileId).toBe('admin')
+    expect(profiles.browserProfiles(BOB, ALPHA).defaultProfileId).toBe(BROWSER_DEFAULT_PROFILE_ID)
+    expect(profiles.browserProfiles(ALICE, BETA).defaultProfileId).toBe(BROWSER_DEFAULT_PROFILE_ID)
+  })
+
+  test('choosing the built-in profile clears the flag, so no row is the default', () => {
+    // WHY: the built-in profile has no row. Its choice is the reverse state of
+    // every named default, not a flag of its own.
+    profiles.createBrowserProfile(ALICE, ALPHA, 'Admin')
+    profiles.setBrowserDefaultProfile(ALICE, ALPHA, 'admin')
+
+    const set = profiles.setBrowserDefaultProfile(ALICE, ALPHA, BROWSER_DEFAULT_PROFILE_ID)
+
+    expect(set.defaultProfileId).toBe(BROWSER_DEFAULT_PROFILE_ID)
+    expect(db.getDb().prepare('SELECT COUNT(*) AS flagged FROM browser_profiles WHERE is_default = 1').get()).toEqual({ flagged: 0 })
+  })
+
+  test('a profile the person does not have leaves the prior default standing', () => {
+    // WHY: the clear and the set are one transaction. A refused set that had
+    // already cleared the old flag would silently fall every new page back to
+    // the built-in jar.
+    profiles.createBrowserProfile(ALICE, ALPHA, 'Admin')
+    profiles.createBrowserProfile(BOB, ALPHA, 'Support')
+    profiles.setBrowserDefaultProfile(ALICE, ALPHA, 'admin')
+
+    expect(() => profiles.setBrowserDefaultProfile(ALICE, ALPHA, 'ghost')).toThrow('No browser profile ghost')
+    expect(() => profiles.setBrowserDefaultProfile(ALICE, ALPHA, 'support')).toThrow('No browser profile support')
+
+    expect(profiles.browserProfiles(ALICE, ALPHA).defaultProfileId).toBe('admin')
+    expect(db.getDb().prepare('SELECT created_by, profile_id FROM browser_profiles WHERE is_default = 1').all())
+      .toEqual([{ created_by: ALICE, profile_id: 'admin' }])
+  })
+
+  test('the database itself refuses two defaults for one person and project', () => {
+    // WHY: the application clears before it sets, but the invariant must not
+    // depend on that order. The partial unique index holds it whatever writes.
+    profiles.createBrowserProfile(ALICE, ALPHA, 'Admin')
+    profiles.createBrowserProfile(ALICE, ALPHA, 'Support')
+    profiles.setBrowserDefaultProfile(ALICE, ALPHA, 'admin')
+
+    expect(() => db.getDb()
+      .prepare('UPDATE browser_profiles SET is_default = 1 WHERE created_by = ? AND project_root = ? AND profile_id = ?')
+      .run(ALICE, ALPHA, 'support')).toThrow(/UNIQUE/)
+    expect(profiles.browserProfiles(ALICE, ALPHA).defaultProfileId).toBe('admin')
+  })
+})
+
 describe('deleting a profile', () => {
-  test('removes the row and takes the default pointer with it', () => {
+  test('removes the row, and the default with it: the default is a flag on that row', () => {
     // WHY: a default left pointing at a deleted profile would open every new page
     // on a jar that no longer exists.
     profiles.createBrowserProfile(ALICE, ALPHA, 'Admin')

@@ -13,14 +13,13 @@
   // Eager, unlike the shells they cover: these are what stand in for an async
   // boundary, so they cannot sit behind one themselves.
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
-  import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   // Eager: the sandbox it wraps is already in the conversation bundle.
   import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import { storedExportExtension, type WorkExportRequest } from "./lib/work-export";
   import { holdWorkForPane, unavailableMessage, type WorkPaneHold } from "./lib/work-draft.svelte";
   import { exportFileName } from "../pickers/lib/export-file-name";
-  import type { FilePayload } from "../diagram/lib/diagram-export";
+  import type { FilePayload } from "./lib/work-export";
   import { toasts } from "../../lib/toasts";
   import { recentCommentAuthors, type MentionScope } from "../mentions/lib/mentions";
   import { provideMentionScope } from "../mentions/lib/mention-scope.svelte";
@@ -28,7 +27,6 @@
   import { isLiveEditable } from "../../contexts/works/work-live.store.svelte";
   import type { WorkLiveDoc } from "../../contexts/works/work-live-doc.svelte";
   import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
-  import { diagramReadOnlyReason } from "../diagram/lib/reader-mode";
   import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   let { params, paneId, onAttachFile, onScreenshot }: RouteSurfaceProps<"work"> = $props();
@@ -68,24 +66,19 @@
   // none, and an empty editor must not stand in while the read is pending.
   const work = $derived(draft?.loaded ? (workMetadata ?? session.worksStore.savedWork(params.workId) ?? null) : null);
 
-  // Live editing (work review plan, phase 3b): documents and diagrams are
-  // edited in a shared doc on the work's host. A host from before live editing
+  // Live editing (work review plan, phase 3b): documents are edited in a
+  // shared doc on the work's host. A host from before live editing
   // answers `unsupported`, and the pane keeps saving whole bodies.
-  const liveType = $derived.by(() => {
-    const type = work?.type;
-    if (type !== "doc" && type !== "diagram") return null;
-    return isLiveEditable(type, work?.mirroredDoc?.provider === "gdrive") ? type : null;
-  });
+  const isLive = $derived(!!work && isLiveEditable(work.type, work.mirroredDoc?.provider === "gdrive"));
   let live = $state.raw<WorkLiveDoc | null>(null);
   // The live code could not load: the pane edits the saved body, as on a host without live editing.
   let hasLiveFailed = $state(false);
   $effect(() => {
     const serverId = workServerId;
     const workId = params.workId;
-    const type = liveType;
-    if (!serverId || !type) return;
+    if (!serverId || !isLive) return;
     return untrack(() => {
-      const lease = session.worksStore.live.acquire(serverId, workId, type, () => presenceStore.noteEditing(serverId, workId));
+      const lease = session.worksStore.live.acquire(serverId, workId, () => presenceStore.noteEditing(serverId, workId));
       let isHeld = true;
       lease.live.then(
         (doc) => { if (isHeld) live = doc; },
@@ -104,7 +97,7 @@
   });
   const liveActive = $derived(!!live && live.connection !== "unsupported");
   // The editor mounts once the shared doc has content, from the device or the host.
-  const liveReady = $derived(!liveType || hasLiveFailed || (!!live && (!liveActive || live.ready)));
+  const liveReady = $derived(!isLive || hasLiveFailed || (!!live && (!liveActive || live.ready)));
   const liveBinding = $derived<LiveEditorBinding | null>(
     live && liveActive ? { live, user: liveCaretUser(workServerId ? sharesStore.identities.get(workServerId)?.user ?? null : null) } : null,
   );
@@ -138,7 +131,7 @@
 
   let discardingShell = false;
   async function saveCopy(updates: Partial<Pick<Work, "title" | "preview" | "content">>) {
-    // DiagramShell flushes its draft on teardown. An explicit reload must not
+    // A shell can flush its draft on teardown. An explicit reload must not
     // save that discarded draft over the version we just loaded.
     if (discardingShell || !draft) return;
     // The host writes a live doc's body; only a rename is the pane's to save.
@@ -321,48 +314,8 @@
     {/if}
     {#key `${work.id}-${renderKey}-${liveBinding ? "live" : "saved"}-${liveReady}`}
       <div class="flex-1 min-h-0">
-        {#if work.type === "diagram" && !liveReady}
-          <DiagramShellSkeleton />
-        {:else if work.type === "diagram"}
-          {#await import("../diagram/DiagramShell.svelte")}
-            <DiagramShellSkeleton />
-          {:then diagramModule}
-            {@const DiagramShell = diagramModule.default}
-            <!-- A reader's canvas is set up once; the role arrives with the share
-                 list, after the shell may have mounted. -->
-            {#key viewerReadOnly}
-              <!-- See the note on the document branch below: workId is read from
-                   DOM handlers that can outlive `work` by a tick. -->
-              <DiagramShell
-                content={draft.content}
-                title={work.title}
-                workId={work?.id}
-                onSave={viewerReadOnly
-                  ? undefined
-                  : async (c) => {
-                      await saveCopy({ content: c });
-                    }}
-                onDirtyChange={(d) => draft?.setDirty(d)}
-                onClose={handleClose}
-                onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-                onRename={viewerReadOnly ? undefined : handleRename}
-                onDelete={canDelete ? handleDelete : undefined}
-                onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
-                onExport={exportStartPath ? handleExport : undefined}
-                {hostIsRemote}
-                live={liveBinding}
-                readOnlyReason={diagramReadOnlyReason(callerRole)}
-              />
-            {/key}
-          {:catch error}
-            <RouteLoadError
-              {error}
-              compact
-              onRetry={() => (renderKey += 1)}
-            />
-          {/await}
-        {:else if work.type === "artifact"}
-          <!-- Lazy like the document and diagram shells: the artifact frame, its
+        {#if work.type === "artifact"}
+          <!-- Lazy like the document shell: the artifact frame, its
                rail, and the header actions load when an artifact opens. -->
           {#await import("../artifact/ArtifactShell.svelte")}
             <DocumentModalSkeleton inline title={work.title} />
@@ -439,11 +392,7 @@
         destinationFixed={!!work.cwd && work.cwd !== "~"}
         {onAttachFile}
         {onScreenshot}
-        label={work.type === "diagram"
-          ? "Work with this diagram"
-          : work.type === "artifact"
-            ? "Work with this artifact"
-            : "Work with this document"}
+        label={work.type === "artifact" ? "Work with this artifact" : "Work with this document"}
       />
     {/if}
     {#if canOpenWorkspace}
@@ -451,11 +400,7 @@
         onClose={handleClose}
         onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
         maximized={pane.maximized}
-        closeLabel={work.type === "diagram"
-          ? "Close diagram"
-          : work.type === "artifact"
-            ? "Close artifact"
-            : "Close document"}
+        closeLabel={work.type === "artifact" ? "Close artifact" : "Close document"}
         closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
         raised="strong"
       />
@@ -470,11 +415,7 @@
     onRetry={() => openWork?.retry()}
   />
 {:else}
-  {#if workMetadata?.type === "diagram"}
-    <DiagramShellSkeleton />
-  {:else}
-    <DocumentModalSkeleton inline title={workMetadata?.title} />
-  {/if}
+  <DocumentModalSkeleton inline title={workMetadata?.title} />
 {/if}
 
 {#if !work && canOpenWorkspace}

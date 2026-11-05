@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { splitSentAttachments as desktopSplit } from '@solus/workspace-ui/contexts/workspace/session.utils'
 import {
   attachmentTypeLabel,
+  collageRows,
+  messageAttachmentLayout,
   promptImageAttachments,
   queuedMessageAttachments,
   splitAttachedFiles,
@@ -98,13 +100,12 @@ describe('native sent-prompt attachments', () => {
 describe('native attachment presentation', () => {
   const mobile = (path: string) => readFileSync(join(import.meta.dir, '../../apps/mobile', path), 'utf8')
 
-  test('pictures fill the user bubble\'s content box exactly: its max less its own horizontal padding', () => {
-    // WHY: a width computed from a stale inset clips the picture or leaves a
-    // double margin once the bubble's padding changes.
-    const feed = mobile('src/features/threads/ThreadFeed.tsx')
-    const padding = Number(/rounded-\[20px\] px-(\d+(?:\.\d+)?) py-/.exec(feed)![1]) * 4
-    const inset = Number(/width=\{props\.userBubbleMaxWidth - (\d+)\}/.exec(feed)![1])
-    expect(inset).toBe(padding * 2)
+  test('media above the bubble is capped at the bubble\'s own max width', () => {
+    // WHY: pictures and videos sit beside the bubble as their own shape, so a
+    // width narrower than the bubble's leaves them misaligned with its edge,
+    // and a wider one runs past the column.
+    const row = mobile('src/features/threads/ThreadUserMessageRow.tsx')
+    expect(row).toContain('maxWidth={props.userBubbleMaxWidth}')
   })
 
   test('a file shows its type icon from T3\'s bundled Pierre set, by name', () => {
@@ -116,5 +117,29 @@ describe('native attachment presentation', () => {
     expect(resolveFileIcon('report.pdf').token).toBe('default')
     const sources = mobile('src/lib/markdownFileIcons.generated.ts')
     for (const icon of ['markdown', 'image', 'video', 'zip', 'default']) expect(sources).toContain(`pierre_${icon}.png`)
+  })
+})
+
+describe('native message attachment layout', () => {
+  const image = { kind: 'image' as const, key: 'i', name: 'a.png', dataUrl: 'data:' }
+  const video = { kind: 'file' as const, key: 'v', name: 'clip.mp4', hostPath: '/h/clip.mp4', video: true }
+  const pdf = { kind: 'file' as const, key: 'f', name: 'spec.pdf', hostPath: '/h/spec.pdf', video: false }
+
+  test('media sits above the bubble; files are chips with words and cards without', () => {
+    const withText = messageAttachmentLayout([image, video, pdf], true)
+    expect(withText.images).toEqual([image])
+    expect(withText.videos).toEqual([video])
+    expect(withText.fileStyle).toBe('chips')
+    expect(withText.bubbleMeetsMedia).toBe(true)
+    const alone = messageAttachmentLayout([pdf], false)
+    expect(alone.fileStyle).toBe('cards')
+    expect(alone.bubbleMeetsMedia).toBe(false)
+    expect(messageAttachmentLayout([image, image], false).imageLayout).toBe('collage')
+  })
+
+  test('a collage of three leads with one tall picture; more go in pairs', () => {
+    expect(collageRows(3)).toEqual({ lead: true, rows: [[1], [2]] })
+    expect(collageRows(2)).toEqual({ lead: false, rows: [[0, 1]] })
+    expect(collageRows(5)).toEqual({ lead: false, rows: [[0, 1], [2, 3], [4]] })
   })
 })

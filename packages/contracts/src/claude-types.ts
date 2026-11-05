@@ -32,6 +32,17 @@ export interface ClaudeUsageData {
   cache_read_input_tokens?: number
   cache_creation_input_tokens?: number
   reasoning_output_tokens?: number
+  /** One entry per sampling step of the call. An `advisor_message` step ran the
+   *  advisor model, and its tokens are not in the totals above. */
+  iterations?: ClaudeUsageIteration[] | null
+}
+
+export interface ClaudeUsageIteration {
+  type?: string
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
 }
 
 export interface AssistantMessagePayload {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { untrack } from "svelte";
   import { Input } from "../ui/input";
   import { Button } from "../ui/button";
@@ -32,6 +33,9 @@
     void session.metadata.renameTab(tabId, value);
     close();
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

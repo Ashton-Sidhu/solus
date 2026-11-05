@@ -52,7 +52,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
       label: organization.name,
       group: "Organizations",
       icon: OrganizationIcon,
-      hint: organization.isActive ? "Active" : organization.policy.allowsPersonalHosts ? undefined : "Personal computers not allowed",
+      hint: organization.isActive ? "Active" : organization.hostRules.allowsPersonalHosts ? undefined : "Personal computers not allowed",
       keywords: ["organization", "org", organization.organizationId],
       run: () => serversStore.selectOrganization(organization.organizationId),
     })),

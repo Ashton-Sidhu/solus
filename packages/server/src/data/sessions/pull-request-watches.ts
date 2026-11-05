@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getDatabase } from '../../db/database'
-import { sessionPullRequestWatches } from './schema'
-import { organizationOfSession } from './session-records'
+import { resourceLinks } from '../links/schema'
 
 /**
- * The pull requests sessions watch (docs/plans/pr-watch.md). The watcher keeps
- * them in memory and reads this table only at start and when a change names a
- * session, so every write here goes through a function that emits one.
+ * The pull requests sessions watch (docs/plans/pr-watch.md): the watch fields
+ * of a session's pull request edge in `resource_links` (plans/029 §3.5). The
+ * four fields are set together and cleared together; a dismissed edge holds
+ * none. The watcher keeps the watches in memory and reads them only at start
+ * and when a change names a session, so every write here goes through a
+ * function that emits one.
  */
 
 /** What a watch told the agent, so the next read reports only what is new
@@ -50,10 +52,16 @@ const rowSchema = z.object({
   repository: z.string(),
   number: z.number(),
   watch_id: z.string(),
-  started_at: z.coerce.number(),
-  state: z.string(),
-  acting_user_key: z.string().nullable(),
+  watch_started_at: z.coerce.number(),
+  watch_state: z.string(),
+  watch_user_id: z.string().nullable(),
 })
+
+/** An active session→pull-request edge: the only row a watch can be on. */
+const WATCHABLE = sql`resource_links.source_kind = 'session' AND resource_links.target_kind = 'pr'
+  AND resource_links.relation = 'pull-request' AND resource_links.status = 'active'`
+
+const CLEARED = sql`watch_id = NULL, watch_started_at = NULL, watch_user_id = NULL, watch_state = NULL`
 
 type ChangeListener = (sessionId: string) => void
 const listeners = new Set<ChangeListener>()
@@ -64,12 +72,13 @@ export function onPullRequestWatchesChanged(listener: ChangeListener): () => voi
   return () => listeners.delete(listener)
 }
 
-function emitChanged(sessionId: string): void {
+export function emitPullRequestWatchesChanged(sessionId: string): void {
   for (const listener of listeners) listener(sessionId)
 }
 
 /** Start watching, or start over: a watch that exists gets a new id and a
- *  new state, so a read in flight for the old one writes nothing.
+ *  new state, so a read in flight for the old one writes nothing. The link
+ *  must be live: a session watches only a pull request it links.
  *  `actingUserKey` is the person whose account reads the pull request. */
 export async function startPullRequestWatch(
   sessionId: string,
@@ -82,44 +91,45 @@ export async function startPullRequestWatch(
   const watch: PullRequestWatch = {
     sessionId, repository: repository.toLowerCase(), number, watchId: randomUUID(), startedAt, state, actingUserKey,
   }
-  const organizationId = await organizationOfSession(sessionId)
-  await getDatabase().run(sql`
-    INSERT INTO ${sessionPullRequestWatches}(session_id, repository, number, watch_id, started_at, state, acting_user_key, organization_id)
-    VALUES (${sessionId}, ${watch.repository}, ${number}, ${watch.watchId}, ${startedAt}, ${JSON.stringify(state)}, ${actingUserKey}, ${organizationId})
-    ON CONFLICT(session_id, repository, number) DO UPDATE SET
-      watch_id = excluded.watch_id, started_at = excluded.started_at, state = excluded.state,
-      acting_user_key = excluded.acting_user_key
-  `)
-  emitChanged(sessionId)
+  const started = (await getDatabase().run(sql`
+    UPDATE ${resourceLinks} SET watch_id = ${watch.watchId}, watch_started_at = ${startedAt},
+      watch_user_id = ${actingUserKey}, watch_state = ${JSON.stringify(state)}
+    WHERE ${WATCHABLE} AND resource_links.source_id = ${sessionId}
+      AND resource_links.repository = ${watch.repository} AND resource_links.number = ${number}
+  `)).changes > 0
+  if (!started) throw new Error('A session watches only a pull request it links.')
+  emitPullRequestWatchesChanged(sessionId)
   return watch
 }
 
 /** Stop one watch. False when the session did not watch the pull request. */
 export async function stopPullRequestWatch(sessionId: string, repository: string, number: number): Promise<boolean> {
   const stopped = (await getDatabase().run(sql`
-    DELETE FROM ${sessionPullRequestWatches}
-    WHERE session_id = ${sessionId} AND repository = ${repository.toLowerCase()} AND number = ${number}
+    UPDATE ${resourceLinks} SET ${CLEARED}
+    WHERE resource_links.source_kind = 'session' AND resource_links.source_id = ${sessionId} AND resource_links.target_kind = 'pr'
+      AND resource_links.repository = ${repository.toLowerCase()} AND resource_links.number = ${number} AND resource_links.watch_id IS NOT NULL
   `)).changes > 0
-  if (stopped) emitChanged(sessionId)
+  if (stopped) emitPullRequestWatchesChanged(sessionId)
   return stopped
 }
 
 /** Stop every watch of a session: it settled or was stopped. */
 export async function stopSessionPullRequestWatches(sessionId: string): Promise<boolean> {
   const stopped = (await getDatabase().run(sql`
-    DELETE FROM ${sessionPullRequestWatches} WHERE session_id = ${sessionId}
+    UPDATE ${resourceLinks} SET ${CLEARED}
+    WHERE resource_links.source_kind = 'session' AND resource_links.source_id = ${sessionId} AND resource_links.watch_id IS NOT NULL
   `)).changes > 0
-  if (stopped) emitChanged(sessionId)
+  if (stopped) emitPullRequestWatchesChanged(sessionId)
   return stopped
 }
 
 /** End the watch the watcher read, unless it was stopped or started over
- *  while the read ran. */
+ *  while the read ran: the generation guard is the watch id. */
 export async function endPullRequestWatch(watch: PullRequestWatch): Promise<boolean> {
   const ended = (await getDatabase().run(sql`
-    DELETE FROM ${sessionPullRequestWatches} WHERE watch_id = ${watch.watchId}
+    UPDATE ${resourceLinks} SET ${CLEARED} WHERE resource_links.watch_id = ${watch.watchId}
   `)).changes > 0
-  if (ended) emitChanged(watch.sessionId)
+  if (ended) emitPullRequestWatchesChanged(watch.sessionId)
   return ended
 }
 
@@ -128,7 +138,7 @@ export async function endPullRequestWatch(watch: PullRequestWatch): Promise<bool
  *  watcher already holds the new state, so this emits no change. */
 export async function recordPullRequestWatchState(watch: PullRequestWatch, state: PullRequestWatchState): Promise<boolean> {
   return (await getDatabase().run(sql`
-    UPDATE ${sessionPullRequestWatches} SET state = ${JSON.stringify(state)} WHERE watch_id = ${watch.watchId}
+    UPDATE ${resourceLinks} SET watch_state = ${JSON.stringify(state)} WHERE resource_links.watch_id = ${watch.watchId}
   `)).changes > 0
 }
 
@@ -136,18 +146,20 @@ export async function recordPullRequestWatchState(watch: PullRequestWatch, state
 export async function readPullRequestWatches(sessionIds?: readonly string[]): Promise<PullRequestWatch[]> {
   if (sessionIds && !sessionIds.length) return []
   const onlySessions = sessionIds
-    ? sql` WHERE session_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})`
+    ? sql` AND resource_links.source_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})`
     : sql``
   const rows = rowSchema.array().parse(await getDatabase().all(sql`
-    SELECT session_id, repository, number, watch_id, started_at, state, acting_user_key FROM ${sessionPullRequestWatches}${onlySessions}
+    SELECT resource_links.source_id AS session_id, resource_links.repository, resource_links.number, resource_links.watch_id,
+      resource_links.watch_started_at, resource_links.watch_state, resource_links.watch_user_id
+    FROM ${resourceLinks} WHERE resource_links.watch_id IS NOT NULL${onlySessions}
   `))
   return rows.map((row) => ({
     sessionId: row.session_id,
     repository: row.repository,
     number: row.number,
     watchId: row.watch_id,
-    startedAt: row.started_at,
-    state: pullRequestWatchStateSchema.parse(JSON.parse(row.state)),
-    actingUserKey: row.acting_user_key,
+    startedAt: row.watch_started_at,
+    state: pullRequestWatchStateSchema.parse(JSON.parse(row.watch_state)),
+    actingUserKey: row.watch_user_id,
   }))
 }

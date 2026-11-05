@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as Y from 'yjs'
 import { base64ToBytes, bytesToBase64, type WorkLiveOpenResult } from '@solus/contracts/work-live'
-import { readDiagramFromY, writeDiagramToY } from '@solus/contracts/diagram-live'
 import { DOCUMENT_SCHEMA_VERSION } from '@solus/document-model/schema'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { ResourceRole } from '@solus/contracts/sharing'
@@ -97,7 +96,7 @@ function editTo(doc: Y.Doc, markdown: string): string {
   const updates: Uint8Array[] = []
   const listener = (update: Uint8Array) => updates.push(update)
   doc.on('update', listener)
-  codec.absorbIntoLiveDoc('doc', doc, markdown, 'client')
+  codec.absorbIntoLiveDoc(doc, markdown, 'client')
   doc.off('update', listener)
   return bytesToBase64(Y.mergeUpdates(updates))
 }
@@ -108,14 +107,14 @@ describe('pushes', () => {
     const { live, published } = manager()
     const alice = await openClient(live, 'alice', work.id)
     const bob = await openClient(live, 'bob', work.id)
-    expect(codec.projectLiveDoc('doc', bob.doc)).toBe('# Spec\n\nFirst.')
+    expect(codec.projectLiveDoc(bob.doc)).toBe('# Spec\n\nFirst.')
 
     const update = editTo(alice.doc, '# Spec\n\nFirst, edited.')
     expect(await live.push({ clientId: 'alice', author: null, request: { workId: work.id, clientKey: 'key-alice', seq: 1, update } })).toEqual({ status: 'accepted', seq: 1 })
     const relayed = published.filter((event) => event.type === 'workLive.update')
     expect(relayed.map((event) => event.clientIds)).toEqual([['bob']])
     Y.applyUpdate(bob.doc, base64ToBytes((relayed[0]!.payload as HostEventMap['workLive.update']).update))
-    expect(codec.projectLiveDoc('doc', bob.doc)).toBe('# Spec\n\nFirst, edited.')
+    expect(codec.projectLiveDoc(bob.doc)).toBe('# Spec\n\nFirst, edited.')
 
     // A lost answer makes the client send again: the host applies it once.
     expect(await live.push({ clientId: 'alice', author: null, request: { workId: work.id, clientKey: 'key-alice', seq: 1, update } })).toEqual({ status: 'duplicate', seq: 1 })
@@ -128,7 +127,7 @@ describe('pushes', () => {
       const stored = await store.loadLiveDoc(work.id)
       const doc = new Y.Doc()
       if (stored) Y.applyUpdate(doc, stored.state)
-      return codec.projectLiveDoc('doc', doc)
+      return codec.projectLiveDoc(doc)
     }
     expect(await storedState()).toBe('# Spec\n\nFirst.')
     await live.flushAll()
@@ -137,7 +136,7 @@ describe('pushes', () => {
     // A restarted host has the edit and the receipt.
     const restarted = manager()
     const again = await openClient(restarted.live, 'alice', work.id)
-    expect(codec.projectLiveDoc('doc', again.doc)).toBe('# Spec\n\nFirst, edited.')
+    expect(codec.projectLiveDoc(again.doc)).toBe('# Spec\n\nFirst, edited.')
     expect(again.result.mode !== 'unsupported' && again.result.lastSeq).toBe(1)
   })
 
@@ -220,22 +219,6 @@ describe('the readable body', () => {
     expect((await workModule.Work.byId('local', left.id)).content).toBe('Three')
   })
 
-  test('a diagram is edited field by field and stored as its JSON', async () => {
-    const work = await works.createWork('local', 'Map', 'diagram', JSON.stringify({ nodes: [{ id: 'a', label: 'A', position: { x: 0, y: 0 } }], edges: [] }), '', undefined, 'claude-code')
-    const { live } = manager()
-    const doc = new Y.Doc()
-    const opened = await live.open({ clientId: 'alice', scope: 'local', canEdit: true, request: { workId: work.id, clientKey: 'key-alice', schemaVersion: 1, stateVector: bytesToBase64(Y.encodeStateVector(doc)) } })
-    if (opened.mode === 'unsupported') throw new Error('diagram should open live')
-    expect(opened.mode).toBe('edit')
-    Y.applyUpdate(doc, base64ToBytes(opened.update))
-    const updates: Uint8Array[] = []
-    doc.on('update', (update: Uint8Array) => updates.push(update))
-    const diagram = readDiagramFromY(doc)
-    diagram.nodes[0]!.label = 'Gateway'
-    doc.transact(() => writeDiagramToY(doc, diagram))
-    await live.push({ clientId: 'alice', author: null, request: { workId: work.id, clientKey: 'key-alice', seq: 1, update: bytesToBase64(Y.mergeUpdates(updates)) } })
-    expect(JSON.parse((await works.loadWork('local', work.id))!.content).nodes[0].label).toBe('Gateway')
-  })
 })
 
 describe('writes from outside the live doc', () => {
@@ -249,7 +232,7 @@ describe('writes from outside the live doc', () => {
     // Rule 12: the person's edit reached the host after the agent's read.
     const stale = workModule.Work.byId('local', work.id).then((w) => w.updateContent({ content: '# Spec\n\nAgent rewrite.', expectedContentVersion: agentRead!.contentVersion, author: { kind: 'agent', sessionId: 's1' }, reason: 'agent' }))
     await expect(stale).rejects.toMatchObject({ precondition: 'content' })
-    expect(codec.projectLiveDoc('doc', alice.doc)).toContain('Alice typed this.')
+    expect(codec.projectLiveDoc(alice.doc)).toContain('Alice typed this.')
 
     const fresh = await works.loadWork('local', work.id)
     const agentBody = '# Spec\n\nFirst.\n\nAlice typed this.\n\nThe agent added this.'
@@ -261,7 +244,7 @@ describe('writes from outside the live doc', () => {
     for (const event of published.filter((event) => event.type === 'workLive.update' && event.clientIds.includes('alice'))) {
       Y.applyUpdate(alice.doc, base64ToBytes((event.payload as HostEventMap['workLive.update']).update))
     }
-    expect(codec.projectLiveDoc('doc', alice.doc)).toBe(agentBody)
+    expect(codec.projectLiveDoc(alice.doc)).toBe(agentBody)
     expect((await works.loadWork('local', work.id))?.content).toBe(agentBody)
   })
 
@@ -290,7 +273,7 @@ describe('writes from outside the live doc', () => {
     const saved = await workModule.Work.byId('local', work.id)
     await saved.updateContent({ content: 'Three', expectedContentVersion: saved.contentVersion, author: null, reason: 'agent' })
     const reopened = await openClient(live, 'bob', work.id)
-    expect(codec.projectLiveDoc('doc', reopened.doc)).toBe('Three')
+    expect(codec.projectLiveDoc(reopened.doc)).toBe('Three')
   })
 })
 

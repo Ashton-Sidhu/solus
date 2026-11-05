@@ -1,3 +1,4 @@
+import model from '../../../resources/transcription/model.json'
 import { createHash, randomUUID } from 'crypto'
 import { createWriteStream, existsSync } from 'fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
@@ -10,21 +11,17 @@ import { captureServerEvent } from './analytics'
 import type { VoiceModelStatus } from '@solus/contracts/types'
 
 const log = createLogger('main', 'model-downloader.ts')
-const MODEL_NAME = 'parakeet-tdt-0.6b-v3-int8'
-const MODEL_VERSION = 'v1'
+const MODEL_NAME = model.name
+const MODEL_VERSION = model.version
 const MODEL_BASE_URL = process.env.SOLUS_PARAKEET_MODEL_BASE_URL
   ?? `https://releases.solus.sh/models/${MODEL_NAME}/${MODEL_VERSION}`
 const INSTALL_MARKER = '.installed'
 
-const MODEL_FILES = [
-  { name: 'nemo128.onnx', sha256: 'a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f' },
-  { name: 'encoder-model.int8.onnx', sha256: '6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09' },
-  { name: 'decoder_joint-model.int8.onnx', sha256: 'eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70' },
-  { name: 'vocab.txt', sha256: 'd58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d' },
-] as const
+const MODEL_FILES = [{ name: model.file, sha256: model.sha256 }]
 
 // Intentionally global: this large, content-addressed, checksum-verified cache is shared across isolated runs.
 export const PARAKEET_MODEL_DIR = join(homedir(), '.solus', 'models', MODEL_NAME)
+export const PARAKEET_MODEL_FILE = join(PARAKEET_MODEL_DIR, model.file)
 
 let installPromise: Promise<string> | null = null
 let status: VoiceModelStatus = { state: 'checking' }

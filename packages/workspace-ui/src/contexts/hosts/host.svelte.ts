@@ -1,4 +1,5 @@
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import type { HostPolicies } from '@solus/contracts/host-policies'
 import type {
   AgentUsageLimits,
   HostCapabilities,
@@ -12,7 +13,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { createSubscriber } from 'svelte/reactivity'
 import { HostStanding } from './host-standing.svelte'
 
-const FACT_KEYS: readonly HostFactKey[] = ['capabilities', 'serverInfo', 'machine', 'usage', 'voiceModel', 'tools']
+const FACT_KEYS: readonly HostFactKey[] = ['capabilities', 'serverInfo', 'machine', 'usage', 'voiceModel', 'tools', 'policy']
 
 /**
  * The client's reactive view of one host (docs/plans/host-model.md §3.2). It
@@ -67,6 +68,14 @@ export class Host {
   get usage(): HostFact<AgentUsageLimits[]> { return this.#read('usage') }
   get voiceModel(): HostFact<VoiceModelStatus> { return this.#read('voiceModel') }
   get tools(): HostFact<DetectedTools> { return this.#read('tools') }
+  /** The policies that govern work here (plans/030 §7). */
+  get policy(): HostFact<HostPolicies> { return this.#read('policy') }
+
+  /** The policy summary once read; undefined while it loads or on a host that has none. */
+  get policies(): HostPolicies | undefined {
+    const fact = this.policy
+    return fact.state === 'ready' ? fact.value : undefined
+  }
 
   /** The capability record once read; undefined while it loads. */
   get capabilityRecord(): HostCapabilities | undefined {

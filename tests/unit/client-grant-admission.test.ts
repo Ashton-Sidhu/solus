@@ -63,6 +63,13 @@ describe('a Solus client token at admission', () => {
     expect(admitted(clientToken({ access: 'owner' }))).toMatchObject({ kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'grant_1' })
   })
 
+  test("the owner's token is the owner on their own host, even when the connection names an organization", () => {
+    // WHY (plans/031 D3): the account plane mints `access: 'owner'` for a host's owner
+    // whatever the client asks for, so a client that works in an organization still
+    // reads all of its own personal host. No host-side check of who the owner is.
+    expect(admitted(clientToken({ access: 'owner' }), 'org_a')).toMatchObject({ kind: 'owner', via: 'grant', userId: 'alice' })
+  })
+
   test('a member is admitted in the organization the connection names, with that standing', () => {
     expect(admitted(member(), 'org_b')).toMatchObject({ kind: 'org-member', organizationId: 'org_b', organizationRole: 'owner', teamIds: [] })
     expect(admitted(member(), 'org_a')).toMatchObject({ kind: 'org-member', organizationId: 'org_a', organizationRole: 'member', teamIds: ['t1'] })

@@ -378,6 +378,11 @@ function createMainWindow(): BrowserWindow {
   mainContents.on('render-process-gone', (_event, details) => {
     log.error('renderer_process_gone', { reason: details.reason, exitCode: details.exitCode })
   })
+  // The history swipe reads these as the fingers touching and lifting.
+  mainContents.on('input-event', (_event, input) => {
+    if (input.type === 'gestureScrollBegin') sendNativeEvent('solus:trackpad-scroll', 'begin')
+    else if (input.type === 'gestureScrollEnd') sendNativeEvent('solus:trackpad-scroll', 'end')
+  })
   mainWindow.on('unresponsive', () => log.warn('renderer_unresponsive'))
   mainWindow.on('responsive', () => log.info('renderer_responsive'))
 
@@ -796,7 +801,7 @@ if (isPairUrl) {
 
     // Loaded here rather than at module scope, and deliberately after the
     // window exists. `bootCore` reaches 279 of the main process's 342 eager
-    // modules and nearly every heavy dependency it has — socket.io, hono,
+    // modules and nearly every heavy dependency it has — ws, hono,
     // Octokit, google-auth-library, the Claude SDK — so a static import made
     // all of it evaluate before Electron was even ready, delaying the window
     // and therefore the renderer behind it. None of it is needed to open a
@@ -811,15 +816,22 @@ if (isPairUrl) {
       { bootCore },
       { prepareTranscriptionModel, transcribeAudio },
       { registerFileHandlers },
+      { readMdmPolicy },
+      { hostPolicyStore },
     ] = await Promise.all([
       import('@solus/server/boot-core'),
       import('@solus/desktop-main/transcription'),
       import('@solus/desktop-main/server/handlers/file-handlers'),
+      import('@solus/server/host/policy/mdm-policy'),
+      import('@solus/server/host/policy/host-policy-store'),
     ])
     log.info('server_graph_loaded', { elapsedMs: Math.round(performance.now() - serverGraphLoadStartedAt) })
 
     let bootedCore: BootCore
     try {
+      // A machine policy this build cannot enforce stops the app before the
+      // host opens anything; the boot-error card names the source (plans/030 §5.1).
+      await readMdmPolicy()
       bootedCore = await bootCore({
         windowDeps,
         registerHostHandlers: fileDeps
@@ -862,6 +874,11 @@ if (isPairUrl) {
 
       const updates = registerUpdateIpc({
         broadcast: sendNativeEvent,
+        // The embedded host runs in this process; its store holds the MDM and cloud host policies.
+        policy: {
+          current: () => hostPolicyStore().current(),
+          onChanged: (listener) => hostPolicyStore().onChanged(listener),
+        },
         onBeforeQuitAndInstall: () => {
           forceQuit = true
           void core?.shutdown()

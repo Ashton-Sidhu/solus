@@ -28,30 +28,6 @@ test.describe('Keyboard shortcuts modal', () => {
   })
 
   /**
-   * Intent test (Rule 6): the diagram canvas keys live in the shared manifest so
-   * they show up in this global reference even when no diagram is open (as an
-   * inactive scope). Before the migration they were a private keydown handler
-   * and invisible here — the exact gap a user hit. Searching the catalog must
-   * surface them, or the shortcuts are undiscoverable again.
-   */
-  test('diagram shortcuts are catalogued even with no diagram open', async ({ page }) => {
-    const app = new AppPage(page)
-    const shortcuts = new KeyboardShortcutsPage(page)
-    await app.waitForAppReady()
-
-    await shortcuts.open()
-    await shortcuts.waitForOpen()
-
-    // Narrow to the Diagram scope so the assertions don't collide with same-named
-    // rows in other scopes, then confirm the real canvas commands are listed.
-    await shortcuts.searchInput().fill('diagram')
-    await expect(shortcuts.scopeHeadings().filter({ hasText: 'Diagram' })).toBeVisible()
-    await expect(shortcuts.row('Add node')).toBeVisible()
-    await expect(shortcuts.row('Select all')).toBeVisible()
-    await expect(shortcuts.row('Nudge up')).toBeVisible()
-  })
-
-  /**
    * Intent test (Rule 6): the footer count is the user's signal that filtering
    * actually narrowed the list. If it stayed fixed (or showed the full catalog
    * while rows were hidden), the search would feel broken and users couldn't

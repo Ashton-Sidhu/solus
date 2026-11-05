@@ -64,9 +64,7 @@ configuration is global; `initialize` runs only when the theme changes.
 The security level is `strict`. Mermaid's own error graphic is suppressed;
 parse errors leave the source and an error message visible.
 
-A diagram that Mermaid draws is made to look like a Solus diagram work. The values come
-from the diagram canvas (`DiagramNode`, `DiagramGroupNode`, `DiagramEdge`,
-`DiagramShell.css`): a node is a container-coloured card with a hairline
+A diagram that Mermaid draws follows the Solus look: a node is a container-coloured card with a hairline
 `--solus-tool-border`, 10px radius and the faint ambient lift; a subgraph is
 the accent-washed group frame; edges are the parchment ink a step lighter than
 text (`#c3b7a6` / `#a89a88`, translucent white in dark mode) at 1.3px; edge

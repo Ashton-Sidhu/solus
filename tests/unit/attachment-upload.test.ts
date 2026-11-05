@@ -88,6 +88,7 @@ describe('attachment upload route', () => {
     expect(attachmentKind({ name: 'bug.mov', mimeType: '' })).toEqual({ type: 'file', mimeType: 'video/quicktime', isVideo: true })
     expect(attachmentKind({ name: 'shot.png', mimeType: 'image/png' })).toEqual({ type: 'image', mimeType: 'image/png', isVideo: false })
     expect(attachmentKind({ name: 'notes', mimeType: '' })).toEqual({ type: 'file', mimeType: 'application/octet-stream', isVideo: false })
+    expect(attachmentKind({ name: 'index.ts', mimeType: 'video/mp2t' })).toEqual({ type: 'file', mimeType: 'video/mp2t', isVideo: false })
   })
 
   test('a DNG is a file with the DNG type, whatever the browser calls it', () => {

@@ -4,6 +4,7 @@ import {
   type BrowserWebVitals,
 } from '@solus/contracts/browser-types'
 import { SPAN_KINDS, SPAN_SERVICES, type SpanAttributes, type SpanStatus } from '../data/insights/registries'
+import { browserUrlForLog } from './surface-driver'
 
 /**
  * The browser domain's half of the observability facade.
@@ -79,7 +80,8 @@ function emit(input: {
  *  without knowing which kind it is looking at. */
 function pageAttributes(page: BrowserPage): SpanAttributes {
   const attrs: SpanAttributes = {
-    url: page.url,
+    // Spans persist in metrics.db and may go to a collector; the query can hold a secret.
+    url: browserUrlForLog(page.url),
     viewport: snapshotViewportLabel(page.viewport),
     hostKind: page.hostKind,
   }

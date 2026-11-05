@@ -3,7 +3,7 @@
 
   interface Props {
     title?: string;
-    workType?: "doc" | "slides" | "diagram" | "artifact";
+    workType?: "doc" | "slides" | "artifact";
     /** The content written so far, for the word count. */
     content?: string;
   }

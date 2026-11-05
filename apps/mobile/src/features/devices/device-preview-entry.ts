@@ -1,5 +1,4 @@
 import { DeviceHubStream } from '@solus/client-core/device-hub-stream'
-import { cloudDeviceVideo } from '@solus/client-core/device-webrtc'
 import { DeviceVideoDecoder, browserVideoCodecs, framePlacement } from '@solus/client-core/device-video'
 import type { DeviceInput, DeviceScreenConfig } from '@solus/contracts/device-types'
 
@@ -7,7 +6,7 @@ declare global {
   interface Window {
     ReactNativeWebView?: { postMessage(message: string): void }
     solusDevice: {
-      start(platform: 'ios' | 'android', kind: 'local' | 'ssh' | 'eas' | 'simlock'): void
+      start(platform: 'ios' | 'android', kind: 'local' | 'ssh' | 'simlock'): void
       url(requestId: number, url: string | null): void
       input(input: DeviceInput): void
       enabled(value: boolean): void
@@ -64,9 +63,8 @@ window.solusDevice = {
     }
     hub = new DeviceHubStream({ platform, format, serveSimOnly: kind === 'simlock', video: false, openUrl, onPacket: (packet, data) => decoder.push(packet, data) })
     hub.start()
-    const stopCloud = kind === 'eas' ? cloudDeviceVideo({ openUrl, present: paint, status: (status, detail) => post({ kind: 'status', text: status === 'streaming' ? '' : detail ?? 'Connecting…' }), fallback: startVideo }) : null
-    if (kind !== 'eas') startVideo()
-    end = () => { stopCloud?.(); hub?.close(); videoStream?.close(); decoder.close() }
+    startVideo()
+    end = () => { hub?.close(); videoStream?.close(); decoder.close() }
   },
 }
 const canvas = document.querySelector('canvas')

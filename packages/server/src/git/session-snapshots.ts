@@ -664,7 +664,7 @@ export async function getEpisodeDiff(
     runAsync('git',
       ['-c', 'core.quotepath=false', 'diff', baseSha, ...diffFormatArgs()],
       workTree,
-      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     ),
   )
   return { patch: combined }
@@ -758,7 +758,7 @@ export async function getDiff(
       runAsync('git',
         ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...diffFormatArgs()],
         workTree,
-        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
       ),
     )
     return { patch: combined }
@@ -787,7 +787,7 @@ export async function getDiff(
     patch: await runAsync('git',
       ['-c', 'core.quotepath=false', 'diff', range.from, range.to, ...diffFormatArgs()],
       repoRoot,
-      { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+      { maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     ),
   }
 }

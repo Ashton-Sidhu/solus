@@ -13,7 +13,6 @@
   import { seatNoticeShown } from "../../contexts/seats/seat-need";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ProviderMark from "../ui/ProviderMark.svelte";
-  import SeatConnectPanel from "./SeatConnectPanel.svelte";
 
   interface Props {
     /** The host the draft will run on. */
@@ -65,6 +64,9 @@
         Connect to start chatting.
       </span>
     </div>
-    <SeatConnectPanel {serverId} provider={seatProvider} compact />
+    <!-- The connect flow loads only when a seat is needed. -->
+    {#await import("./SeatConnectPanel.svelte") then { default: SeatConnectPanel }}
+      <SeatConnectPanel {serverId} provider={seatProvider} compact />
+    {/await}
   </div>
 {/if}

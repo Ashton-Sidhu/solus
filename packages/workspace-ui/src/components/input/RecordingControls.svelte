@@ -5,6 +5,8 @@
   } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import WaveformVisualizer from './WaveformVisualizer.svelte'
+  import VoiceTranscriptPreview from './VoiceTranscriptPreview.svelte'
+  import type { VoicePartial } from '@solus/contracts/voice-stream'
   import type { VoiceState } from '../../lib/voice-recorder.svelte'
   import { comboHint } from '../../lib/keybindings/manifest'
 
@@ -26,6 +28,8 @@
     /** field: align the mic on the textarea's first line rather than on the whole box. */
     micTextarea?: boolean
     progressPct?: number | null
+    /** Live text for the field overlay; bar composers own their preview area. */
+    partial?: VoicePartial | null
   }
 
   let {
@@ -41,6 +45,7 @@
     showMic = true,
     micTextarea = false,
     progressPct = null,
+    partial = null,
   }: Props = $props()
 
   function handleWindowKeydown(event: KeyboardEvent): void {
@@ -114,7 +119,11 @@
     aria-label="Finish listening and transcribe"
   >
     <span class="rc-waveform">
-      <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
+      {#if partial && (partial.stable || partial.tentative)}
+        <VoiceTranscriptPreview {partial} compact />
+      {:else}
+        <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
+      {/if}
     </span>
     <span class="recording-stop recording-stop--field" aria-hidden="true"><MicrophoneIcon size={13} class="recording-mic-pulse" /></span>
   </button>
@@ -223,6 +232,7 @@
   }
   .rc-waveform {
     flex: 1;
+    min-width: 0;
     min-width: 0;
     display: flex;
     align-items: center;

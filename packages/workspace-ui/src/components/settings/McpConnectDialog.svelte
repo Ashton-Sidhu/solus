@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   /**
    * The connect dialog of the MCP page (docs/integrations.md): add the server
    * when it is new, sign in, then choose the tools agents may use, and a last
@@ -103,6 +104,9 @@
     pasted = "";
     if (!(await integrationsStore.submit(serverId, integration.id, value))) pasted = value;
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => open });
 </script>
 
 {#snippet pending(text: string)}

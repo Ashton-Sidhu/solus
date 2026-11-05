@@ -10,6 +10,8 @@ import { ServerIcon } from "./components/ServerIcon";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsSection } from "./components/SettingsSection";
+import { PolicyLockNote } from "../policy/PolicyLockNote";
+import { useManagedSettingLines } from "../policy/use-host-policy";
 import { urlHost, type InstalledStatus } from "./integrations";
 import { useIntegrations } from "./use-integrations";
 import {
@@ -39,6 +41,7 @@ export const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString(
 // ─── Instructions ───
 
 export function InstructionsSection({ profile }: { readonly profile: AgentProfileModel }) {
+  const extraInstructionsLines = useManagedSettingLines("extraInstructions");
   return (
     <View className="gap-3">
       <SettingsSection title="Instructions">
@@ -50,6 +53,7 @@ export function InstructionsSection({ profile }: { readonly profile: AgentProfil
           onSave={profile.saveExtraInstructions}
         />
       </SettingsSection>
+      <PolicyLockNote lines={extraInstructionsLines} />
       <SettingsNote>Your own instructions, sent with every prompt on every host. A project's CLAUDE.md or AGENTS.md stays with the project.</SettingsNote>
       <ModelInstructionsSection profile={profile} />
     </View>
@@ -60,6 +64,7 @@ export function InstructionsSection({ profile }: { readonly profile: AgentProfil
 function ModelInstructionsSection({ profile }: { readonly profile: AgentProfileModel }) {
   const choices = modelInstructionChoices(profile.modelInstructions);
   const [chosenModel, setChosenModel] = useState<string | null>(null);
+  const modelInstructionsLines = useManagedSettingLines("modelInstructions");
   const selected = choices.find((choice) => choice.model === chosenModel) ?? choices[0];
   if (!selected) return null;
   const stored = profile.modelInstructions[selected.model] ?? "";
@@ -86,6 +91,7 @@ function ModelInstructionsSection({ profile }: { readonly profile: AgentProfileM
           onSave={(text) => profile.saveModelInstructions(selected.model, text)}
         />
       </SettingsSection>
+      <PolicyLockNote lines={modelInstructionsLines} />
       <SettingsNote>Added after your extra instructions when this model runs.</SettingsNote>
     </View>
   );

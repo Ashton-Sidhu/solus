@@ -11,15 +11,18 @@
   import { Input } from "../ui/input";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSelect from "./SettingsSelect.svelte";
+  import type { ManagedSettingNote } from "./policy/lib/managed-setting-note";
 
   interface Props {
     label: string;
     naming: WorktreeBranchNaming;
     disabled?: boolean;
+    /** The personal default's policy note; a project override has none. */
+    managed?: ManagedSettingNote;
     onSave: (naming: WorktreeBranchNaming) => void;
   }
 
-  let { label, naming, disabled = false, onSave }: Props = $props();
+  let { label, naming, disabled = false, managed, onSave }: Props = $props();
 
   const modes: ReadonlyArray<{ value: WorktreeBranchNamingMode; label: string; description: string }> = [
     { value: "generated", label: "Name from title", description: "Starts on a short id, then takes a name made from the first prompt." },
@@ -59,7 +62,7 @@
   }
 </script>
 
-<SettingsRow {label} description={modes.find((mode) => mode.value === naming.mode)?.description}>
+<SettingsRow {label} {managed} description={modes.find((mode) => mode.value === naming.mode)?.description}>
   {#snippet control()}
     <SettingsSelect
       options={modes}

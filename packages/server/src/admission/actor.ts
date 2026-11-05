@@ -3,7 +3,7 @@ import { parseUserKey, userKey, type Attribution, type User } from '@solus/contr
 import type { AgentId } from '@solus/contracts/types'
 import { INTERNAL_PRINCIPAL, type Principal } from './principal'
 import { hostCategory } from '../host/host-category'
-import { hostUser, hostUserKey, isHostUserKey } from '../host/host-user'
+import { cloudAccountOf, hostUser, hostUserKey, isHostUserKey } from '../host/host-user'
 
 /**
  * Who a request or a turn is for (plans/012-user-actor-and-activity.md §4): the
@@ -156,5 +156,8 @@ export function memberSeat(accountId: string, name?: string): Seat {
 export function insightsAccountOf(actor: Actor | undefined): User | null {
   if (!actor) return null
   const user = actor.user ?? (actor.principal.kind === 'system' ? hostUser() : null)
-  return user?.id.kind === 'account' ? user : null
+  if (!user) return null
+  // The host's user is named by the account the host is linked to (plans/031 D4).
+  const accountId = cloudAccountOf(userKey(user.id))
+  return accountId ? { ...user, id: { kind: 'account', accountId } } : null
 }

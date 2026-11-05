@@ -1,7 +1,7 @@
 import { isLoopbackAddress } from './websocket'
 import { tailnetAddresses } from './endpoints'
 import { hostCategory } from '../host/host-category'
-import { getServerSettings } from '../host/settings'
+import { effectiveTrustLocalNetwork } from '../host/settings'
 import { isApiMode } from '../host/api-mode'
 
 /**
@@ -16,6 +16,9 @@ import { isApiMode } from '../host/api-mode'
  *   "trust my local network" server setting: a shared network is not an
  *   identity, so this is never the default.
  *
+ * Network position never speaks for a web page: a request a page on another site
+ * could have made is refused first (`couldBeForgedByWebPage`).
+ *
  * On a managed host (docs/plans/managed-hosts.md §1) and on the workspace service
  * (cloud-service-model.md §15) nobody is trusted by network position: loopback,
  * tailnet, and LAN are all strangers, and the setting is ignored.
@@ -24,7 +27,7 @@ export async function isTrustedRequesterAddress(address: string | undefined): Pr
   if (!address || hostCategory() === 'managed' || isApiMode()) return false
   if (isLoopbackAddress(address)) return true
   const normalized = address.startsWith('::ffff:') ? address.slice(7) : address
-  if (getServerSettings().trustLocalNetwork && isPrivateLanAddress(normalized)) return true
+  if (effectiveTrustLocalNetwork() && isPrivateLanAddress(normalized)) return true
   return (await tailnetAddresses()).has(normalized)
 }
 

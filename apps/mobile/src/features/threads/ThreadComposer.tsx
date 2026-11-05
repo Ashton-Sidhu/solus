@@ -58,6 +58,8 @@ import {
   type ComposerSendPresentation,
 } from "./composerSendPresentation";
 import { pastedComposerImages, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import type { ClipboardAttachmentRef } from "@solus/client-core/attachment-clipboard";
+import { withoutPastedText } from "../conversation/lib/pasted-attachments";
 import {
   composerUsesCard,
   measuredDraftText,
@@ -556,6 +558,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const onPickDraftMedia = useCallback(() => attach(pickComposerMedia), [attach]);
   const onPickDraftFiles = useCallback(() => attach(pickComposerFiles), [attach]);
   const onPasteDraftImages = useCallback((uris: string[]) => void attach(pastedComposerImages(uris)), [attach]);
+  // Files a desktop or web copy named, when this session's host holds them.
+  const onPasteAttachmentRefs = useCallback(
+    async (refs: ClipboardAttachmentRef[], pastedText: string | null) => {
+      if (locked || queuedEdit) return false;
+      const attached = await store.controller.attachHostFiles(refs);
+      if (attached && pastedText) onChangeDraftMessage(withoutPastedText(latestDraft.current, pastedText));
+      return attached;
+    },
+    [locked, onChangeDraftMessage, queuedEdit, store],
+  );
 
   // The settings are T3's root form-sheet route over this thread. The thread
   // regains focus when the sheet is dismissed, by Done, Cancel, or a swipe.
@@ -707,6 +719,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onFocus={handleFocus}
                 onBlur={handleBlur}
                 onPasteImages={onPasteDraftImages}
+                onPasteAttachmentRefs={onPasteAttachmentRefs}
                 onSelectionChange={(selection) => { selectionRef.current = selection; }}
                 scrollEnabled={isEditing}
                 // Android: a one-row line centers natively in a pill-height

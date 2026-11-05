@@ -3,7 +3,7 @@
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
-  import type { FilePayload } from "../diagram/lib/diagram-export";
+  import type { FilePayload } from "../work/lib/work-export";
   import ArtifactView from "./ArtifactView.svelte";
   import ArtifactCommentLayer from "./ArtifactCommentLayer.svelte";
   import * as Select from "../ui/select";
@@ -23,8 +23,7 @@
 
   /**
    * The pane surface for an `artifact` work: the works header the document
-   * and diagram shells share, over the same sandboxed render the conversation
-   * shows. There is no editor — an artifact is revised by the agent through
+   * shell shares, over the same sandboxed render the conversation shows. There is no editor — an artifact is revised by the agent through
    * `update_work`, and the header's History/Restore covers what it changed.
    */
   interface Props {
@@ -103,7 +102,7 @@
 
   // ─── Comments (docs/plans/multiplayer-comments.md §4) ───
   // Threads pinned to points over the render, on the same host-stamped model as
-  // a document's or a diagram's: the store sends commands, the host names who
+  // a document's: the store sends commands, the host names who
   // wrote what, and everyone who can open the work hears the change.
   const session = getSurfaceContext();
   const serverId = $derived(session.worksStore.hostFor(workId));
@@ -186,13 +185,13 @@
   class="flex h-full min-h-0 flex-col bg-(--solus-container-bg)"
   data-testid="artifact-shell"
 >
-  <!-- Same de-chromed control strip as the diagram shell: the pane's own
+  <!-- A de-chromed control strip: the pane's own
        close / split live in the floating PaneChrome cluster, which
        this row reserves room for on its right.
 
        The chrome row is a *floor*, not a fixed height. It used to be fixed with
        a `max-md:` escape hatch — but that reads the OS window, and this row
-       lives in a pane: a diagram in a 356px companion pane on a 1440px monitor
+       lives in a pane: an artifact in a 356px companion pane on a 1440px monitor
        kept the 40px height while its controls grew past it. Two different
        things enlarge this row and neither is the window. The hand does (touch
        targets are 44px), and so does the narrow layout, where the crumb becomes

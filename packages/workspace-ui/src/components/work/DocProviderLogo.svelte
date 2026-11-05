@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import type { DocProviderId } from "@solus/contracts/docs";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import { docProviderLabel, docProviderLogo } from "./lib/work-publish";
 
   interface Props {

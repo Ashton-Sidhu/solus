@@ -78,17 +78,23 @@ export function isRasterImage(path: string): boolean {
  *  file name count as evidence. */
 const GENERIC_MIME_TYPES = new Set(['', 'application/octet-stream', 'binary/octet-stream'])
 
+/** Video types an operating system gives a `.ts` file by its extension alone:
+ *  macOS reports `video/mp2t` and Windows `video/vnd.dlna.mpeg-tts`. A TypeScript
+ *  file gets them too, so they say nothing and the name decides. */
+const EXTENSION_GUESSED_VIDEO_TYPES = new Set(['video/mp2t', 'video/vnd.dlna.mpeg-tts'])
+
 /**
  * The video MIME type of a file, or null when it is not a video.
  *
  * A definite MIME type answers the question: a `.mp4` name on a PDF stays a PDF.
  * The extension is read only when the picker reported no type or a generic one,
- * which is what some pickers and drag sources do for video.
+ * which is what some pickers and drag sources do for video, or a type the
+ * operating system guessed from a `.ts` extension.
  */
 export function videoMimeType(file: { name: string; mimeType?: string | null }): string | null {
   const mimeType = (file.mimeType ?? '').split(';', 1)[0].trim().toLowerCase()
-  if (mimeType.startsWith('video/')) return mimeType
-  if (!GENERIC_MIME_TYPES.has(mimeType)) return null
+  if (mimeType.startsWith('video/') && !EXTENSION_GUESSED_VIDEO_TYPES.has(mimeType)) return mimeType
+  if (!GENERIC_MIME_TYPES.has(mimeType) && !EXTENSION_GUESSED_VIDEO_TYPES.has(mimeType)) return null
   const type = mediaTypeFor(file.name)
   return type?.kind === 'video' ? type.mime : null
 }

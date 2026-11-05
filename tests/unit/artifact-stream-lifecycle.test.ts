@@ -185,7 +185,7 @@ test('stale completions remove only their pending card and cannot add revisions'
   expect(messages[1].artifact?.updatedAt).toBe(update.updatedAt)
 })
 
-for (const workType of ['doc', 'slides', 'diagram'] as const) {
+for (const workType of ['doc', 'slides'] as const) {
   test(`${workType} updates add a card that opens the saved work`, async () => {
     const { tracker, session, messages } = await fixture()
     tracker.updateWork(session, { type: 'work_updated', workId: 'existing', title: 'Revised work', docType: workType, contentVersion: 2, content: 'Saved content', updatedAt: '2026-10-02T00:00:00Z' })

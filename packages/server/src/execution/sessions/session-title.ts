@@ -1,3 +1,4 @@
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { z } from 'zod'
 import { TextGenerator } from '../agents/text-generator'
 import type { AgentDispatcher } from '../agents/agent-runner'
@@ -158,11 +159,13 @@ export function generateSessionMetadata(
   dispatcher: AgentDispatcher,
   promptText: string,
   cwd: string,
-  context?: SessionMetadataGenerationContext,
-  seatFor?: SeatResolver,
+  context: SessionMetadataGenerationContext | undefined,
+  seatFor: SeatResolver | undefined,
+  /** The organization of the session the title is for; its policies govern the run (plans/030). */
+  organizationId: string,
 ): Promise<SessionGeneratedMetadata | null> {
   const sessionId = context?.sessionId
-  if (!sessionId) return runSessionMetadata(dispatcher, promptText, cwd, context, seatFor)
+  if (!sessionId) return runSessionMetadata(dispatcher, promptText, cwd, context, seatFor, organizationId)
   // The first-turn name and a regenerate, or two clients, can ask at the same
   // time. Two runs cost twice and the last to finish wins, so a second request
   // joins the run in flight and every caller gets the same answer.
@@ -171,7 +174,7 @@ export function generateSessionMetadata(
     log.info('session_metadata_joined_inflight', { sessionId })
     return running
   }
-  const run = runSessionMetadata(dispatcher, promptText, cwd, context, seatFor)
+  const run = runSessionMetadata(dispatcher, promptText, cwd, context, seatFor, organizationId)
     .finally(() => metadataRunsBySession.delete(sessionId))
   metadataRunsBySession.set(sessionId, run)
   return run
@@ -183,16 +186,17 @@ async function runSessionMetadata(
   dispatcher: AgentDispatcher,
   promptText: string,
   cwd: string,
-  context?: SessionMetadataGenerationContext,
-  seatFor?: SeatResolver,
+  context: SessionMetadataGenerationContext | undefined,
+  seatFor: SeatResolver | undefined,
+  organizationId: string,
 ): Promise<SessionGeneratedMetadata | null> {
   const trimmed = promptText.trim()
   if (!trimmed) return null
   // The requester's own writing model (plans/018 §3.3); the built-in default when the client sent none.
   const preferences = parseExecutionPreferences(context?.executionPreferences)
-  const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor)
+  const backend = await writingBackendFor(resolveTextGenerationModel(preferences), seatFor, organizationId)
   if (!backend) return null
-  return generateMetadataWith(dispatcher, backend.provider, trimmed, cwd, backend.model, context, backend.seat)
+  return generateMetadataWith(dispatcher, backend.provider, trimmed, cwd, backend.model, context, backend.seat, organizationId)
 }
 
 /** The metadata run itself, against an already-chosen backend. */
@@ -204,6 +208,7 @@ export async function generateMetadataWith(
   selectedModel?: string,
   context?: SessionMetadataGenerationContext,
   seat?: TurnSeat,
+  organizationId: string = LOCAL_ORGANIZATION_ID,
 ): Promise<SessionGeneratedMetadata | null> {
   const { model: defaultModel, reasoningEffort } = METADATA_MODELS[provider]
   const model = selectedModel ?? defaultModel
@@ -232,6 +237,7 @@ export async function generateMetadataWith(
     const startedAt = Date.now()
     try {
       await generator.generate({
+        organizationId,
         provider,
         cwd,
         prompt,

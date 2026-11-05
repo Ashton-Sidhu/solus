@@ -4,7 +4,6 @@ import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { isSessionBusyStatus, type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import { loadCachedStart, saveCachedStart } from './tab-persistence'
-import { extractChangedFilePaths, extractChangedFilePathsFromMessage } from '../../lib/changedFiles'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { AgentContext } from '../app/agent.context.svelte'
 import type { PlanStore } from '../plans/plan.store.svelte'
@@ -18,6 +17,20 @@ import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hosts } from '../hosts/hosts.svelte'
 import { checkoutGit, checkoutPlace, projectHome } from './run-location'
+
+
+type ChangedFilesScan = typeof import('../../lib/changedFiles')
+/**
+ * The changed-file scan brings the patch parser. It loads beside the
+ * workspace, not in its first chunks; a transcript that comes first is
+ * scanned when it arrives.
+ */
+let changedFilesScan: ChangedFilesScan | null = null
+const changedFilesScanLoad = import('../../lib/changedFiles').then((module) => (changedFilesScan = module))
+function withChangedFilesScan(run: (scan: ChangedFilesScan) => void): void {
+  if (changedFilesScan) run(changedFilesScan)
+  else void changedFilesScanLoad.then(run)
+}
 
 export interface WorkspaceLifecycleStoreDeps {
   registry: TabRegistry
@@ -300,9 +313,15 @@ export class WorkspaceLifecycleStore {
   }
 
   recomputeChangedFiles(tabId: string): void {
-    const session = this.deps.registry.sessionFor(tabId)
-    if (!session) return
-    session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...extractChangedFilePaths(session.messages))
+    const requested = this.deps.registry.sessionFor(tabId)
+    if (!requested) return
+    // A list written while the scan loaded (the host's own list) is newer: keep it.
+    const listAtRequest = requested.sessionChangedFiles.join('\n')
+    withChangedFilesScan(({ extractChangedFilePaths }) => {
+      const session = this.deps.registry.sessionFor(tabId)
+      if (!session || session.sessionChangedFiles.join('\n') !== listAtRequest) return
+      session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...extractChangedFilePaths(session.messages))
+    })
   }
 
   /**
@@ -312,11 +331,13 @@ export class WorkspaceLifecycleStore {
    * the full scan; the backend publishes authoritative net paths at turn completion.
    */
   addChangedFilesFromMessage(sessionId: string, message: Message): void {
-    const session = this.deps.sessions.byId[sessionId]
-    if (!session) return
-    for (const path of extractChangedFilePathsFromMessage(message)) {
-      if (!session.sessionChangedFiles.includes(path)) session.sessionChangedFiles.push(path)
-    }
+    withChangedFilesScan(({ extractChangedFilePathsFromMessage }) => {
+      const session = this.deps.sessions.byId[sessionId]
+      if (!session) return
+      for (const path of extractChangedFilePathsFromMessage(message)) {
+        if (!session.sessionChangedFiles.includes(path)) session.sessionChangedFiles.push(path)
+      }
+    })
   }
 
   /**

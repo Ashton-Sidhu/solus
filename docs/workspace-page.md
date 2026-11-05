@@ -1,6 +1,6 @@
 # The Workspace page
 
-The Workspace page is the ledger of every doc, diagram, slide deck, and HTML
+The Workspace page is the ledger of every doc, slide deck, and HTML
 artifact this window can read, from every project. Since 2026-10-27 it also
 lists what other people shared with the reader, in its own groups.
 

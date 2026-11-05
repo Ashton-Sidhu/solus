@@ -23,7 +23,7 @@ const log = createLogger('folio', 'artifact-tools.ts')
  * that renders flush in the conversation (charts, sliders, simulations).
  *
  * The HTML is persisted as an `artifact` work, so it has the same standing as
- * a document or diagram: a durable id, a place in the works gallery, a task
+ * a document: a durable id, a place in the works gallery, a task
  * link, `read_work`/`update_work`, and a copy that ships with a dispatched
  * task snapshot. The conversation still renders it inline from the event.
  *

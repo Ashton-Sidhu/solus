@@ -1,6 +1,6 @@
 import { SolusApiClient } from '@solus/contracts/solus-api/client'
 import { workspaceRecordMethods } from './workspace-records'
-import { io, type Socket } from 'socket.io-client'
+import { HostSocket, type HostEventEnvelope, type HostRequestHandler, type HostSocketClose } from './host-socket'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
@@ -19,6 +19,7 @@ import { randomId } from './random-id'
 import type { DialError } from './host-diagnostics'
 import type { DialOutcome } from './host-supervisor'
 import { type HandshakeCredential, type SocketHandshake } from '@solus/contracts/uplink'
+import type { EventResume, RefusedFrame, RpcResultFrame, WelcomeFrame } from '@solus/contracts/host-socket'
 
 /** WebSocket transport shared by the browser client, the Electron renderer,
  *  and the native mobile client. It holds no DOM behavior: the browser
@@ -27,7 +28,7 @@ import { type HandshakeCredential, type SocketHandshake } from '@solus/contracts
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked' | 'identity-mismatch'
 
 // The error lives beside HostRpcError so modules that classify a failure do
-// not load socket.io; existing importers keep this path.
+// not load the transport; existing importers keep this path.
 export { HostGoneError, HostUnreachableError, TransportDisconnectedError }
 
 export interface WsTransportOptions {
@@ -74,9 +75,6 @@ export interface WsTransportOptions {
   accountToken?: () => Promise<string | null>
 }
 
-/** A server request as Socket.IO delivers it: the payload, then the acknowledgement the server waits on. */
-type ServerRequestListener = Parameters<Socket['on']>[1]
-
 interface RequestEntry {
   method: RpcInvokeMethod
   args: unknown[]
@@ -85,23 +83,6 @@ interface RequestEntry {
   reject?: (err: Error) => void
   queuedAt: number
 }
-
-interface RpcResponse {
-  result?: RpcInvocationResult
-  error?: { message: string; code?: string }
-}
-
-// The ack envelope is wire input: parse it before touching `error`/`result`.
-// Tolerant on purpose — an unreadable error message degrades to the generic
-// one, and only a non-object ack fails the parse outright. The code is kept:
-// a refusal a surface has to act on (`SEAT_REQUIRED`) is named by it.
-const rpcResponseEnvelopeSchema = z.object({
-  result: z.unknown().optional(),
-  error: z.object({
-    message: z.string().optional().catch(undefined),
-    code: z.string().optional().catch(undefined),
-  }).optional().catch(undefined),
-})
 
 type RpcInvocationResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
 
@@ -156,12 +137,12 @@ export interface GrantRefusal {
 /**
  * How long a socket may take to open before its route counts as not answering. Route
  * choice (`chooseRoute`) already found a route that answers, so a slow open is a route
- * that stopped answering since, not one to wait out socket.io's 20 s for.
+ * that stopped answering since, not one to wait out.
  */
 export const SOCKET_CONNECT_TIMEOUT_MS = 5_000
 
 /** The work a dial needs besides the socket. It starts with the dial, so it runs
- *  while the WebSocket opens: socket.io asks for `auth` only after the open. */
+ *  while the WebSocket opens; the hello goes when the credential is ready. */
 interface DialPreparation {
   credential: Promise<DialCredential>
   identity: Promise<boolean>
@@ -192,8 +173,12 @@ export class WsTransport {
   /** Streamed browser frames for this host, routed by page id. Separate from
    *  `events`: binary bytes, not a typed-event envelope. */
   readonly frames = new BrowserFrameSubscriber()
-  /** Native device video for this host, routed by device host and device. */
-  private socket: Socket
+  /** The socket of the current dial; null between dials. */
+  private socket: HostSocket | null = null
+  /** Where this client is in the host's event stream, for the next hello. */
+  private resume: EventResume | null = null
+  /** The host replayed what the last socket missed. */
+  private recovered = false
   private readonly clientInstanceId = randomId()
   private nextId = 1
   private requests = new Map<string, RequestEntry>()
@@ -223,35 +208,15 @@ export class WsTransport {
   private dialPreparation: DialPreparation | null = null
   private dialTiming: DialTiming | null = null
   /** Requests the server sends and waits on, by event; installed on every socket this transport opens. */
-  private readonly serverRequests = new Map<string, ServerRequestListener>()
+  private readonly serverRequests = new Map<string, HostRequestHandler>()
   /** Presents the socket's next token before the current one ends (`presentToken`). */
   private presentationTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private opts: WsTransportOptions) {
-    this.socket = this.createSocket()
-    this.installSocketListeners()
-  }
+  constructor(private opts: WsTransportOptions) {}
 
-  private createSocket(): Socket {
-    return io(this.opts.serverUrl, {
-      path: '/ws',
-      transports: ['websocket'],
-      // The supervisor is the sole retry owner; the socket dials only when told.
-      reconnection: false,
-      autoConnect: false,
-      timeout: SOCKET_CONNECT_TIMEOUT_MS,
-      // The dial's one credential rides the handshake (docs/plans/simplify-auth-and-sync.md
-      // §3 rule 4), with the protocol this client speaks.
-      auth: (cb) => {
-        const preparation = this.dialPreparation
-        const proven = preparation?.proven ?? this.opts.proveRoute?.(this.opts.serverUrl) ?? Promise.resolve(true)
-        void Promise.all([preparation?.credential ?? this.dialCredential(), proven.catch(() => false)]).then(([dial, isProven]) => {
-          const handshake: SocketHandshake = { clientInstanceId: this.clientInstanceId }
-          if (isProven && dial.kind === 'present' && dial.credential) handshake.credential = dial.credential
-          cb(handshake)
-        })
-      },
-    })
+  /** True while the host has welcomed the current socket. */
+  private get isConnected(): boolean {
+    return this.socket?.isWelcomed ?? false
   }
 
   get serverUrl(): string {
@@ -266,33 +231,28 @@ export class WsTransport {
   switchServerUrl(serverUrl: string): void {
     if (this.destroyed || serverUrl === this.opts.serverUrl) return
     this.logConnection('switching route', { from: this.opts.serverUrl, to: serverUrl })
-    this.socket.removeAllListeners()
-    this.socket.disconnect()
+    this.socket?.close()
+    this.socket = null
     this.cancelPresentation()
     this.connectedGeneration += 1
     this.isAcceptedConnection = false
     this.dialPreparation = null
     this.requeueSentRequests()
     this.opts.serverUrl = serverUrl
-    this.socket = this.createSocket()
-    this.installSocketListeners()
   }
 
   /** Answers one kind of request the server sends down this socket and waits on
    *  (the Solus API's shared prompts to a runner). The payload is wire input: one
    *  the schema refuses is answered with `unreadable`, and the handler never runs. */
   onServerRequest<Payload, Reply>(event: string, payload: z.ZodType<Payload>, handle: (payload: Payload) => Promise<Reply>, unreadable: Reply): () => void {
-    const listener: ServerRequestListener = (wire, reply) => {
+    const listener: HostRequestHandler = (wire, reply) => {
       const parsed = payload.safeParse(wire)
       if (!parsed.success) { reply(unreadable); return }
       void handle(parsed.data).then(reply)
     }
     this.serverRequests.set(event, listener)
-    this.socket.on(event, listener)
     return () => {
-      if (this.serverRequests.get(event) !== listener) return
-      this.serverRequests.delete(event)
-      this.socket.off(event, listener)
+      if (this.serverRequests.get(event) === listener) this.serverRequests.delete(event)
     }
   }
 
@@ -307,14 +267,21 @@ export class WsTransport {
       this.authRefreshAttempted = false
       this.attempt = 0
     }
-    if (!this.socket.connected) {
+    if (!this.isConnected) {
       this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
       this.dialSocket(options.hostConfirmed ?? false)
     }
   }
 
-  /** One dial: the credential and the identity check start now, beside the socket open. */
+  /**
+   * One dial: the socket opens now, and the credential and the identity check run
+   * beside the open. The hello goes when the credential (and the proof of the route)
+   * is ready, so the host is ready one round trip after both.
+   */
   private dialSocket(hostConfirmed = false): void {
+    this.socket?.close()
+    const socket = this.openSocket()
+    this.socket = socket
     const timing: DialTiming = { startedAt: Date.now(), serverUrl: this.opts.serverUrl }
     this.dialTiming = timing
     const proof = hostConfirmed ? null : this.opts.proveRoute?.(this.opts.serverUrl)?.catch(() => false) ?? null
@@ -330,7 +297,48 @@ export class WsTransport {
       if (dial.kind === 'missing') this.refuseDial(preparation, dial.missing)
     })
     void preparation.identity.then(() => { timing.identityMs = Date.now() - timing.startedAt })
-    this.socket.connect()
+    // The dial's one credential rides the hello (docs/plans/simplify-auth-and-sync.md
+    // §3 rule 4). A route that needed a proof of the host and did not give one gets none.
+    void Promise.all([preparation.credential, preparation.proven.catch(() => false)]).then(([dial, isProven]) => {
+      if (this.socket !== socket || dial.kind === 'missing') return
+      const handshake: SocketHandshake = { clientInstanceId: this.clientInstanceId }
+      if (isProven && dial.credential) handshake.credential = dial.credential
+      socket.hello(handshake, this.resume ?? undefined)
+    })
+  }
+
+  /** A socket whose reports count only while it is the current one. */
+  private openSocket(): HostSocket {
+    const socket: HostSocket = new HostSocket(this.opts.serverUrl, {
+      welcome: (welcome) => { if (this.socket === socket) this.handleWelcome(welcome) },
+      refused: (refused) => { if (this.socket === socket) this.handleRefused(refused) },
+      closed: (close) => {
+        if (this.socket !== socket) return
+        this.socket = null
+        if (close.welcomed) this.handleDrop(close.reason || String(close.code))
+        else this.handleDialError(close)
+      },
+      result: (result) => { if (this.socket === socket) this.handleResult(result) },
+      event: (seq, event) => { if (this.socket === socket) this.receiveEvent(seq, event) },
+      // Frames are not buffered pre-accept the way events are: a frame is a moving
+      // picture, so a stale one held through a reconnect is worse than a dropped
+      // one. The host only streams to a subscribed client anyway, and subscribing
+      // needs a live connection, so frames arrive only once accepted.
+      frame: (header, data) => { if (this.socket === socket && this.isAcceptedConnection) this.frames.receive(header, data) },
+      request: (event) => this.socket === socket ? this.serverRequests.get(event) : undefined,
+      inbound: () => { this.lastInboundAt = Date.now() },
+    }, { openTimeoutMs: SOCKET_CONNECT_TIMEOUT_MS })
+    return socket
+  }
+
+  /** Ends the current socket from this side. A welcomed one is a drop, as when the host ends it. */
+  private hangUp(reason: string): void {
+    const socket = this.socket
+    if (!socket) return
+    this.socket = null
+    const wasConnected = socket.isWelcomed
+    socket.close()
+    if (wasConnected) this.handleDrop(reason)
   }
 
   /**
@@ -342,9 +350,10 @@ export class WsTransport {
    */
   private refuseDial(preparation: DialPreparation, missing: MissingGrant): void {
     if (this.dialPreparation !== preparation) return
-    if (this.destroyed || this.blocked || this.socket.connected) return
+    if (this.destroyed || this.blocked || this.isConnected) return
     this.dialPreparation = null
-    this.socket.disconnect()
+    this.socket?.close()
+    this.socket = null
     if (missing.kind === 'signed-out') {
       this.logDialAttempt('failed', 'signed-out')
       this.blockAuthFailure()
@@ -375,7 +384,7 @@ export class WsTransport {
     this.cancelPresentation()
     if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
     this.authRefreshResetTimer = null
-    this.socket.disconnect()
+    this.hangUp('destroyed')
     this.rejectAllRequests()
     this.events.clear()
     this.pendingHostEvents = []
@@ -487,67 +496,71 @@ export class WsTransport {
     this.presentationTimer = null
   }
 
-  private installSocketListeners(): void {
-    for (const [event, listener] of this.serverRequests) this.socket.on(event, listener)
-    const markInbound = () => { this.lastInboundAt = Date.now() }
-    this.socket.io.on('packet', markInbound)
-    this.socket.io.on('ping', markInbound)
-    this.socket.on('connect', () => {
-      if (this.dialTiming) this.dialTiming.socketOpenMs = Date.now() - this.dialTiming.startedAt
-      const generation = ++this.connectedGeneration
-      void this.acceptConnectedSocket(generation)
-    })
-    this.socket.on('disconnect', (reason) => {
-      this.cancelPresentation()
-      this.connectedGeneration += 1
-      this.isAcceptedConnection = false
-      this.pendingHostEvents = []
-      this.logConnection('socket closed', { reason, pendingRequests: this.pendingRequestSummary() })
-      this.requeueSentRequests()
-      if (this.destroyed || this.blocked) return
-      this.setStatus('reconnecting')
-      this.opts.onDialOutcome?.({ kind: 'dropped' })
-    })
-    this.socket.on('connect_error', (error: Error & { data?: { code?: string } }) => {
-      const code = error.data?.code ?? null
-      this.dialError = { message: error.message, code, at: Date.now() }
-      this.logConnection('socket connection error', { message: error.message, code })
-      this.logDialAttempt('failed', code === 'UNAUTHORIZED' ? 'unauthorized' : 'socket-error')
-      if (code !== 'UNAUTHORIZED') {
-        // With auto-reconnection off nobody else will ever dial again: the
-        // failed dial is the supervisor's cue to schedule the next one.
-        if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
-        return
-      }
-      if (this.opts.grants || this.opts.guest) {
-        // The host refused the token (it was linked again since, or the person lost
-        // their reach) or the share secret (the link was turned off or regenerated).
-        // A retry asks the account for another token.
-        void this.dialPreparation?.credential.then((dial) => {
-          if (dial.kind === 'present' && dial.credential?.kind === 'access-token') this.refusedGrant = dial.credential.token
-        })
-        this.blockAuthFailure()
-        return
-      }
-      if (this.authRefreshAttempted) {
-        this.blockAuthFailure()
-        return
-      }
-      this.authRefreshAttempted = true
-      void this.recoverAuthentication()
-    })
-    this.socket.on('host-event', (event) => {
-      if (!isHostEvent(event)) return
-      if (this.isAcceptedConnection) this.events.receive(event)
-      else this.pendingHostEvents.push(event)
-    })
-    // Frames are not buffered pre-accept the way events are: a frame is a moving
-    // picture, so a stale one held through a reconnect is worse than a dropped
-    // one. The host only streams to a subscribed client anyway, and subscribing
-    // needs a live connection, so frames arrive only once accepted.
-    this.socket.on('browser-frame', (header, data) => {
-      if (this.isAcceptedConnection) this.frames.receive(header, data)
-    })
+  private handleWelcome(welcome: WelcomeFrame): void {
+    if (this.dialTiming) this.dialTiming.socketOpenMs = Date.now() - this.dialTiming.startedAt
+    this.recovered = welcome.recovered
+    this.resume = { epoch: welcome.epoch, seq: welcome.seq }
+    const generation = ++this.connectedGeneration
+    void this.acceptConnectedSocket(generation)
+  }
+
+  private receiveEvent(seq: number, event: HostEventEnvelope): void {
+    if (this.resume) this.resume.seq = seq
+    if (!isHostEvent(event)) return
+    if (this.isAcceptedConnection) this.events.receive(event)
+    else this.pendingHostEvents.push(event)
+  }
+
+  private handleDrop(reason: string): void {
+    this.cancelPresentation()
+    this.connectedGeneration += 1
+    this.isAcceptedConnection = false
+    this.pendingHostEvents = []
+    this.logConnection('socket closed', { reason, pendingRequests: this.pendingRequestSummary() })
+    this.requeueSentRequests()
+    if (this.destroyed || this.blocked) return
+    this.setStatus('reconnecting')
+    this.opts.onDialOutcome?.({ kind: 'dropped' })
+  }
+
+  /** The socket did not open, or closed before the host answered the hello. */
+  private handleDialError(close: HostSocketClose): void {
+    const message = close.opened ? `socket closed before welcome (${close.code})` : close.reason || 'websocket error'
+    this.dialError = { message, code: null, at: Date.now() }
+    this.logConnection('socket connection error', { message, code: null })
+    this.logDialAttempt('failed', 'socket-error')
+    // Nobody else will ever dial again: the failed dial is the supervisor's cue to schedule the next one.
+    if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+  }
+
+  private handleRefused(refused: RefusedFrame): void {
+    // The host closes the socket after the refusal; the refusal is the whole answer.
+    this.socket?.close()
+    this.socket = null
+    const { code, message } = refused
+    this.dialError = { message, code, at: Date.now() }
+    this.logConnection('socket connection error', { message, code })
+    this.logDialAttempt('failed', code === 'UNAUTHORIZED' ? 'unauthorized' : 'socket-error')
+    if (code !== 'UNAUTHORIZED') {
+      if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+      return
+    }
+    if (this.opts.grants || this.opts.guest) {
+      // The host refused the token (it was linked again since, or the person lost
+      // their reach) or the share secret (the link was turned off or regenerated).
+      // A retry asks the account for another token.
+      void this.dialPreparation?.credential.then((dial) => {
+        if (dial.kind === 'present' && dial.credential?.kind === 'access-token') this.refusedGrant = dial.credential.token
+      })
+      this.blockAuthFailure()
+      return
+    }
+    if (this.authRefreshAttempted) {
+      this.blockAuthFailure()
+      return
+    }
+    this.authRefreshAttempted = true
+    void this.recoverAuthentication()
   }
 
   private async acceptConnectedSocket(generation: number): Promise<void> {
@@ -557,7 +570,7 @@ export class WsTransport {
     const credential = this.dialPreparation?.credential
     this.dialPreparation = null
     const accepted = await identity
-    if (this.destroyed || generation !== this.connectedGeneration || !this.socket.connected) return
+    if (this.destroyed || generation !== this.connectedGeneration || !this.isConnected) return
     if (!accepted) {
       this.logDialAttempt('failed', 'identity-mismatch')
       this.destroy('identity-mismatch')
@@ -580,17 +593,17 @@ export class WsTransport {
     this.dialError = null
     this.isAcceptedConnection = true
     for (const event of this.pendingHostEvents.splice(0)) this.events.receive(event)
-    const shouldReset = this.hasOpened && !this.socket.recovered
+    const shouldReset = this.hasOpened && !this.recovered
     this.hasOpened = true
     this.attempt = 0
     this.setStatus('connected')
     this.logConnection('socket opened', {
-      recovered: this.socket.recovered,
+      recovered: this.recovered,
       pendingRequests: this.pendingRequestSummary(),
     })
     this.logDialAttempt('connected', null)
     if (shouldReset) this.onResetCallback?.()
-    this.opts.onDialOutcome?.({ kind: 'accepted', recovered: this.socket.recovered })
+    this.opts.onDialOutcome?.({ kind: 'accepted', recovered: this.recovered })
     this.flushQueuedRequests()
   }
 
@@ -685,7 +698,7 @@ export class WsTransport {
         queuedAt: Date.now(),
       }
       this.requests.set(id, entry)
-      if (this.socket.connected) this.sendRequest(id, entry)
+      if (this.isConnected) this.sendRequest(id, entry)
     })
   }
 
@@ -712,26 +725,21 @@ export class WsTransport {
 
   private sendRequest(id: string, request: RequestEntry): void {
     request.state = 'sent'
-    this.socket.emit('rpc', id, request.method, request.args, (response: RpcResponse) => {
-      const current = this.requests.get(id)
-      if (!current) return
-      this.requests.delete(id)
-      // This ack runs inside socket.io's packet loop: a malformed ack must
-      // settle this one request as a failed call, never throw into the
-      // transport or leave a hung promise replayed on every reconnect.
-      const envelope = rpcResponseEnvelopeSchema.safeParse(response)
-      if (!envelope.success) {
-        current.reject?.(new Error(`rpc ack for ${request.method} was malformed`))
-        return
-      }
-      if (envelope.data.error) {
-        current.reject?.(new HostRpcError(envelope.data.error.message ?? 'rpc error', envelope.data.error.code))
-      } else {
-        // SAFETY: The result carries the invoked method's return type, which
-        // the wire cannot prove and callers' TS types already assumed pre-parse.
-        current.resolve?.(envelope.data.result as RpcInvocationResult)
-      }
-    })
+    this.socket?.rpc(id, request.method, request.args)
+  }
+
+  /** The host's answer to one request. The frame was parsed: a malformed one never reaches here. */
+  private handleResult({ id, result, error }: RpcResultFrame): void {
+    const current = this.requests.get(id)
+    if (!current) return
+    this.requests.delete(id)
+    if (error) {
+      current.reject?.(new HostRpcError(error.message ?? 'rpc error', error.code))
+    } else {
+      // SAFETY: The result carries the invoked method's return type, which
+      // the wire cannot prove and callers' TS types already assumed pre-parse.
+      current.resolve?.(result as RpcInvocationResult)
+    }
   }
 
   private requeueSentRequests(): void {
@@ -762,7 +770,7 @@ export class WsTransport {
   private blockAuthFailure(): void {
     if (this.blocked) return
     this.blocked = true
-    this.socket.disconnect()
+    this.hangUp('auth blocked')
     this.setStatus('blocked')
     this.rejectAllRequests()
     this.opts.onDialOutcome?.({ kind: 'auth-blocked' })
@@ -776,7 +784,7 @@ export class WsTransport {
    */
   reconnectNow(): void {
     if (this.destroyed || this.blocked) return
-    this.socket.disconnect()
+    this.hangUp('reconnect now')
     this.setStatus(this.hasOpened ? 'reconnecting' : 'connecting')
     this.dialSocket()
   }
@@ -830,7 +838,7 @@ export class WsTransport {
    *  not a dead socket: the socket is kept (T3 Code #14518). */
   async probe(): Promise<void> {
     if (this.destroyed || this.blocked || this.wakeProbeInFlight) return
-    if (!this.socket.connected) {
+    if (!this.isConnected) {
       throw new Error('socket is not connected')
     }
     this.wakeProbeInFlight = true
@@ -838,11 +846,11 @@ export class WsTransport {
     try {
       await withTimeout(this.invoke(WAKE_PROBE_METHOD, []), WAKE_PROBE_TIMEOUT_MS)
     } catch (error) {
-      if (this.socket.connected && this.lastInboundAt >= startedAt) {
+      if (this.isConnected && this.lastInboundAt >= startedAt) {
         this.logConnection('wake probe late, socket still receiving', { waitedMs: Date.now() - startedAt })
         return
       }
-      this.socket.disconnect()
+      this.hangUp('wake probe failed')
       throw error
     } finally {
       this.wakeProbeInFlight = false
