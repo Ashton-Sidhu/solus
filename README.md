@@ -69,7 +69,7 @@ Then press `⌥Space` to summon the window (`⌘⇧K` if that's taken), pick a p
 
 | | |
 |---|---|
-| OS | macOS 12 Monterey or later, Apple Silicon |
+| OS | macOS 13 Ventura or later, Apple Silicon |
 | Agent | [Claude Code](https://github.com/anthropics/claude-code) CLI, installed and authenticated |
 | Optional | [Codex](https://github.com/openai/codex) CLI, for Codex sessions |
 
