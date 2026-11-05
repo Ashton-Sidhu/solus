@@ -5,8 +5,10 @@ import { desktopUpdateMode } from './update-mode'
 import { app, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
+import type { HostPolicies } from '@solus/contracts/host-policies'
 import { createLogger } from '@solus/server/logger'
 import { reduceUpdateState, releaseFromUpdateInfo, type UpdateEvent } from './update-status'
+import { updatePolicyOf, type UpdatePolicy } from './update-policy'
 
 const log = createLogger('main', 'updates/ipc.ts')
 const requireCjs = createRequire(import.meta.url)
@@ -59,6 +61,11 @@ interface UpdateIpcDeps {
   onBeforeQuitAndInstall(): void
   /** Every status change, for main-process surfaces such as the tray. */
   onStatusChange?(status: DesktopUpdateStatus): void
+  /** The embedded host's policies, with the update feed (plans/030 §6.8). */
+  policy: {
+    current(): HostPolicies
+    onChanged(listener: () => void): () => void
+  }
 }
 
 /**
@@ -75,10 +82,12 @@ interface UpdateIpcDeps {
 export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
   const mode = desktopUpdateMode(process.platform, app.isPackaged, process.env.APPIMAGE)
   const openDownloads = () => shell.openExternal('https://github.com/Ashton-Sidhu/solus/releases/latest')
+  const unmanagedState = (): DesktopUpdateStatus['state'] => (mode === 'manual' ? { kind: 'manual' } : { kind: 'idle' })
+  let policy: UpdatePolicy = updatePolicyOf(deps.policy.current())
   let status: DesktopUpdateStatus = {
     currentVersion: app.getVersion(),
     autoDownload: mode === 'automatic' && loadSettings().autoDownload,
-    state: mode === 'manual' ? { kind: 'manual' } : { kind: 'idle' },
+    state: policy.managedMessage ? { kind: 'managed', message: policy.managedMessage } : unmanagedState(),
   }
   let updater: AutoUpdater | null = null
 
@@ -108,7 +117,8 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
         debug: (msg: string) => log.debug('electron_updater_log', { message: msg }),
       }
       autoUpdater.autoDownload = status.autoDownload
-      autoUpdater.autoInstallOnAppQuit = true
+      autoUpdater.autoInstallOnAppQuit = !policy.managedMessage
+      if (policy.feedUrl) autoUpdater.setFeedURL({ provider: 'generic', url: policy.feedUrl })
       autoUpdater.on('checking-for-update', () => apply({ type: 'checking' }))
       autoUpdater.on('update-not-available', () => apply({ type: 'not-available', at: Date.now() }))
       autoUpdater.on('update-available', (info) => {
@@ -127,7 +137,30 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
     }
   }
 
+  /** A policy with updates off: the status says who manages them, and nothing is checked, fetched, or installed. */
+  const managed = (): boolean => {
+    if (!policy.managedMessage) return false
+    if (status.state.kind !== 'managed' || status.state.message !== policy.managedMessage) {
+      publish({ ...status, state: { kind: 'managed', message: policy.managedMessage } })
+    }
+    return true
+  }
+
+  deps.policy.onChanged(() => {
+    const previousFeedUrl = policy.feedUrl
+    policy = updatePolicyOf(deps.policy.current())
+    log.info('update_policy_changed', { managed: !!policy.managedMessage, customFeed: !!policy.feedUrl })
+    if (updater) {
+      updater.autoInstallOnAppQuit = !policy.managedMessage
+      // The package.json feed comes back only at the next start: electron-updater cannot unset a feed.
+      if (policy.feedUrl && policy.feedUrl !== previousFeedUrl) updater.setFeedURL({ provider: 'generic', url: policy.feedUrl })
+    }
+    if (managed()) return
+    if (status.state.kind === 'managed') publish({ ...status, state: unmanagedState() })
+  })
+
   const check = async (): Promise<void> => {
+    if (managed()) return
     if (mode === 'manual') { await openDownloads(); return }
     const instance = loadUpdater()
     if (!instance) {
@@ -144,6 +177,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
   }
 
   const download = async (): Promise<void> => {
+    if (managed()) return
     if (mode === 'manual') { await openDownloads(); return }
     const instance = loadUpdater()
     if (!instance || status.state.kind !== 'available') return
@@ -156,6 +190,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
   }
 
   const restart = (): void => {
+    if (managed()) return
     if (!updater || status.state.kind !== 'ready') return
     log.info('update_restart_requested', { version: status.state.release.version })
     // Set forceQuit before quitAndInstall so the window close handler doesn't

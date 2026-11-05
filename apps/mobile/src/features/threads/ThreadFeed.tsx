@@ -68,6 +68,7 @@ import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
 import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionStarterFromHost } from "@solus/contracts/types";
+import { TurnArtifactChips } from "./AgentArtifactChips";
 import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
@@ -444,6 +445,10 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
     return <WorktreeOfferRow store={context.store} id={row.id} />;
   }
 
+  if (row.type === "turn-artifacts") {
+    return <TurnArtifactChips store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} imageIds={row.imageIds} />;
+  }
+
   if (row.type === "turn-images") {
     return <ThreadTurnImages itemIds={row.itemIds} store={context.store} />;
   }
@@ -468,6 +473,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
     <UserTurnRow
       store={context.store}
       id={row.id}
+      groupedWithNext={row.groupedWithNext === true}
       userBubbleColor={context.userBubbleColor}
       userBubbleMaxWidth={context.userBubbleMaxWidth}
       iconSubtleColor={context.iconSubtleColor}
@@ -603,6 +609,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         const kind = item.kind === "tool" && item.subagent ? "agent" : item.kind;
         if (item.kind === "notice") return [{ id, kind, tone: item.tone }];
         if (item.kind === "artifact") return [{ id, kind, workId: item.workId }];
+        if (item.kind === "user" && item.delivery === "sent" && (pullRequestWatchWake(item.text) || backgroundCommandWake(item.text))) {
+          return [{ id, kind, hostNotice: true }];
+        }
         return [{ id, kind }];
       }),
     [order, store],

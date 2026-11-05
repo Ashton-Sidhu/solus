@@ -20,6 +20,8 @@
   import UplinkSection from "./UplinkSection.svelte";
   import OrganizationsSection from "./OrganizationsSection.svelte";
   import ForwardedHostsSection from "./ForwardedHostsSection.svelte";
+  import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
+  import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
 
   interface Props {
     serverId: string;
@@ -28,6 +30,10 @@
   let { serverId }: Props = $props();
 
   const connections = connectionsStore;
+  // Machine-wide keys a policy locks on this host (plans/030 §6.7).
+  const remoteAccessLock = $derived(hostLock(serverId, "remoteAccess"));
+  const trustLocalNetworkLock = $derived(hostLock(serverId, "trustLocalNetwork"));
+  const pairingLocked = $derived(pairingLock(serverId));
   let addressCopied = $state(false);
 
   const info = $derived(connections.serverInfo);
@@ -79,6 +85,7 @@
     <SettingsRow
       label="Allow remote connections"
       description="Bind to your network interfaces. Remote devices must pair before connecting."
+      managed={remoteAccessLock}
     >
       {#snippet control()}
         <Switch
@@ -95,6 +102,7 @@
       label="Trust my local network"
       description="Devices on your local network connect without a pairing code. Only enable on a network you control."
       visible={info?.remoteAccess ?? false}
+      managed={trustLocalNetworkLock}
     >
       {#snippet control()}
         <Switch
@@ -132,7 +140,11 @@
 
   {#if canChangeNetwork}
     <SettingsSection label="Pairing">
-      <PairCodePanel {serverId} />
+      {#if pairingLocked}
+        <div class="px-4 py-3.5"><ManagedSettingNote note={pairingLocked} /></div>
+      {:else}
+        <PairCodePanel {serverId} />
+      {/if}
       <SettingsRow
         label="Approve new devices"
         description="Ask before a paired device is allowed to connect."

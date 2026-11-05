@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { tick } from "svelte";
   import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import Kbd from "../ui/Kbd.svelte";
@@ -135,6 +136,9 @@
       insert(name);
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 {#snippet navRow(label: string, count: string, isSelected: boolean, onSelect: () => void)}

@@ -1,235 +1,221 @@
-import { existsSync } from 'fs'
-import { join } from 'path'
-import { utilityProcess, type UtilityProcess } from 'electron'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { app, powerSaveBlocker } from 'electron'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
+import type { VoiceTranscript, VoicePartial } from '@solus/contracts/voice-stream'
 import { createLogger } from '@solus/server/logger'
+import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady, PARAKEET_MODEL_FILE } from '@solus/server/model-downloader'
 import { recordOtelDuration } from '@solus/server/otel'
-import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady } from '@solus/server/model-downloader'
+import { NativeVoiceWorker } from './native-worker'
 
 const log = createLogger('main', 'transcription/index.ts')
-
-/**
- * The worker is a build entry, so it lands at the root of the main output
- * directory. This module does not: the desktop entry imports it dynamically,
- * which makes the bundler emit it into a `chunks/` directory one level below.
- * Resolve against both instead of trusting where this module happens to sit.
- */
-export function resolveWorkerPath(moduleDir: string): string {
-  const sibling = join(moduleDir, 'transcription-worker.js')
-  if (existsSync(sibling)) return sibling
-  return join(moduleDir, '..', 'transcription-worker.js')
-}
-
-const WORKER_PATH = resolveWorkerPath(__dirname)
-const BACKEND = 'Parakeet ONNX INT8'
-
-type PhaseMetrics = Record<string, number>
-
-type WorkerResponse =
-  | { id: number; type: 'result'; transcript: string; phaseMs: PhaseMetrics }
-  | { id: number; type: 'error'; message: string; phaseMs: PhaseMetrics }
-
-type PendingTranscription = {
-  worker: UtilityProcess
-  samplesLength: number
-  startedAt: number
-  timer: ReturnType<typeof setTimeout>
-  resolve: (value: { error: string | null; transcript: string | null }) => void
-}
-
-let worker: UtilityProcess | null = null
-let nextRequestId = 1
-let pending = new Map<number, PendingTranscription>()
-let workerIdleTimer: ReturnType<typeof setTimeout> | null = null
-const idleStoppingWorkers = new Set<UtilityProcess>()
-
-// ONNX keeps roughly the entire model resident inside the utility process.
-// Keep it warm across a short dictation burst, then release it instead of
-// charging every subsequent idle hour for a feature that may not be used again.
 export const TRANSCRIPTION_WORKER_IDLE_MS = 2 * 60_000
-const TRANSCRIPTION_TIMEOUT_MIN_MS = 2 * 60_000
-const TRANSCRIPTION_TIMEOUT_MAX_MS = 30 * 60_000
+const STREAM_IDLE_MS = 30_000
+let worker: NativeVoiceWorker | null = null
+let idleTimer: ReturnType<typeof setTimeout> | null = null
+let batchBusy = false
+
+type Capture = {
+  streamId: string
+  owner: string
+  worker: NativeVoiceWorker
+  samples: number
+  feeding: boolean
+  finishing: boolean
+  timer: ReturnType<typeof setTimeout>
+  blocker: number
+  onEnd: () => void
+}
+let capture: Capture | null = null
 
 export function transcriptionRequestTimeoutMs(samplesLength: number): number {
-  const audioDurationMs = samplesLength / 16
-  return Math.max(
-    TRANSCRIPTION_TIMEOUT_MIN_MS,
-    Math.min(TRANSCRIPTION_TIMEOUT_MAX_MS, audioDurationMs * 2),
-  )
+  return Math.max(120_000, Math.min(30 * 60_000, samplesLength / 16 * 2))
 }
 
-function clearWorkerIdleTimer(): void {
-  if (!workerIdleTimer) return
-  clearTimeout(workerIdleTimer)
-  workerIdleTimer = null
+export function transcriptionBinaryPath(): string {
+  const name = process.platform === 'win32' ? 'solus-transcription.exe' : 'solus-transcription'
+  return app.isPackaged
+    ? join(process.resourcesPath, 'transcription', name)
+    : join(app.getAppPath(), 'build', 'transcription', 'bin', name)
 }
 
-function scheduleWorkerIdleStop(): void {
-  clearWorkerIdleTimer()
-  if (!worker || pending.size > 0) return
-  workerIdleTimer = setTimeout(() => {
-    workerIdleTimer = null
-    if (!worker || pending.size > 0) return
-    const idleWorker = worker
-    idleStoppingWorkers.add(idleWorker)
-    if (!idleWorker.kill()) {
-      idleStoppingWorkers.delete(idleWorker)
-      log.warn('transcription_worker_idle_stop_failed')
-      scheduleWorkerIdleStop()
-      return
-    }
-    // Detach only after the process accepted the stop request. A new request
-    // may now start a successor while this generation finishes exiting.
-    if (worker === idleWorker) worker = null
-    log.info('transcription_worker_stopped_idle')
+function clearIdleTimer(): void {
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = null
+}
+
+function scheduleIdleStop(): void {
+  clearIdleTimer()
+  if (capture || batchBusy || !worker) return
+  const current = worker
+  idleTimer = setTimeout(() => {
+    if (worker !== current || capture || batchBusy) return
+    worker = null
+    current.stop()
   }, TRANSCRIPTION_WORKER_IDLE_MS)
-  workerIdleTimer.unref?.()
+  idleTimer.unref?.()
 }
 
-function ensureWorker(): UtilityProcess {
-  clearWorkerIdleTimer()
-  if (worker) return worker
-  if (!existsSync(WORKER_PATH)) {
-    log.warn('transcription_worker_entry_missing', { workerPath: WORKER_PATH })
-  }
-  const child = utilityProcess.fork(WORKER_PATH, [], { serviceName: 'solus-transcription' })
-  // SAFETY: this utility process runs our worker entry, whose only messages implement WorkerResponse.
-  child.on('message', (message) => handleWorkerMessage(child, message as WorkerResponse))
-  child.once('exit', (code) => {
-    const stoppedForIdle = idleStoppingWorkers.delete(child)
-    if (!stoppedForIdle) log.warn('transcription_worker_exited', { code })
-    for (const [id, request] of pending) {
-      if (request.worker !== child) continue
-      pending.delete(id)
-      clearTimeout(request.timer)
-      recordOtelDuration('transcribe_audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
-      request.resolve({ error: `Transcription stopped unexpectedly (exit code ${code})`, transcript: null })
-    }
-    if (worker === child) {
-      clearWorkerIdleTimer()
-      worker = null
-    }
+function ensureWorker(): NativeVoiceWorker {
+  clearIdleTimer()
+  if (worker && !worker.stopped) return worker
+  const binaryPath = transcriptionBinaryPath()
+  if (!existsSync(binaryPath)) throw new Error('Voice runtime is missing. Run bun run voice:build before using voice in development.')
+  const current = new NativeVoiceWorker(binaryPath, PARAKEET_MODEL_FILE, () => {
+    if (worker === current) worker = null
+    if (capture?.worker === current) endCapture(capture)
   })
-  worker = child
-  return child
+  worker = current
+  return current
 }
 
-function handleWorkerMessage(sourceWorker: UtilityProcess, message: WorkerResponse): void {
-  const request = pending.get(message.id)
-  if (!request || request.worker !== sourceWorker) return
-  pending.delete(message.id)
-  clearTimeout(request.timer)
-  const durationMs = Date.now() - request.startedAt
-  const success = message.type === 'result'
-  recordOtelDuration('transcribe_audio', durationMs, {
-    ...message.phaseMs,
-    audio_duration_ms: Math.round(request.samplesLength / 16),
-    speedup_x: durationMs > 0 ? Math.round((request.samplesLength / 16) / durationMs * 10) / 10 : null,
-    backend: BACKEND,
-    success,
-  })
-  if (message.type === 'result') {
-    request.resolve({ error: null, transcript: message.transcript })
-  } else {
-    log.error('transcription_failed', { error: message.message })
-    request.resolve({ error: `Transcription failed: ${message.message}`, transcript: null })
-  }
-  scheduleWorkerIdleStop()
+function endCapture(current: Capture): void {
+  if (capture !== current) return
+  capture = null
+  clearTimeout(current.timer)
+  if (powerSaveBlocker.isStarted(current.blocker)) powerSaveBlocker.stop(current.blocker)
+  current.onEnd()
+  scheduleIdleStop()
+}
+
+function touchCapture(current: Capture): void {
+  clearTimeout(current.timer)
+  current.timer = setTimeout(() => {
+    if (capture !== current) return
+    // A disconnected or discarded renderer must not hold the model or the
+    // power assertion. Only stop the child that belongs to this capture.
+    current.worker.stop('Voice stream disconnected')
+    if (worker === current.worker) worker = null
+    endCapture(current)
+  }, STREAM_IDLE_MS)
+  current.timer.unref?.()
+}
+
+function ownedCapture(owner: string, streamId: string, allowFinishing = false): Capture {
+  if (!capture || capture.owner !== owner || capture.streamId !== streamId || (capture.finishing && !allowFinishing))
+    throw new Error('Voice stream is no longer active')
+  return capture
 }
 
 function modelNotReadyMessage(): string {
   const status = getVoiceModelStatus()
-  if (status.state === 'downloading' && status.receivedBytes !== undefined && status.totalBytes) {
-    const pct = Math.max(0, Math.min(99, Math.round(status.receivedBytes / status.totalBytes * 100)))
-    return `Voice model is still downloading (${pct}%)`
-  }
   if (status.state === 'error') return `Voice model failed to download: ${status.error ?? 'Unknown error'}`
+  if (status.state === 'downloading' && status.totalBytes)
+    return `Voice model is still downloading (${Math.floor((status.receivedBytes ?? 0) / status.totalBytes * 100)}%)`
   return 'Voice model is still preparing'
 }
 
-/** Prepare/download the model without loading ONNX sessions into memory. */
+async function requireModel(): Promise<void> {
+  if (await isParakeetModelReady()) return
+  void ensureParakeetModel().catch(() => {})
+  throw new Error(modelNotReadyMessage())
+}
+
 export async function prepareTranscriptionModel(): Promise<void> {
-  try {
-    await ensureParakeetModel()
-  } catch (err: any) {
-    log.warn('transcription_model_prepare_failed', { error: err instanceof Error ? err.message : String(err) })
-  }
+  try { await ensureParakeetModel() }
+  catch (error) { log.warn('transcription_model_prepare_failed', { error: String(error) }) }
 }
 
-/**
- * Fork the worker and load its ONNX sessions ahead of the transcription that
- * follows a recording. Called at record start so the ~1s model load overlaps
- * the recording instead of adding to post-stop latency.
- */
 export async function warmTranscription(): Promise<void> {
-  if (pending.size > 0) return
-  if (!(await isParakeetModelReady())) {
-    void ensureParakeetModel().catch(() => {})
-    return
+  if (batchBusy || capture) return
+  await requireModel()
+  const current = ensureWorker()
+  try { await current.request('warm') }
+  finally { scheduleIdleStop() }
+}
+
+export async function startVoiceStream(owner: string, onEnd: () => void): Promise<string> {
+  await requireModel()
+  if (batchBusy || capture) throw new Error('Voice transcription is already in progress')
+  const current = ensureWorker()
+  const active: Capture = {
+    streamId: randomUUID(), owner, worker: current, samples: 0,
+    feeding: false, finishing: false, timer: setTimeout(() => {}, 0),
+    blocker: powerSaveBlocker.start('prevent-app-suspension'), onEnd,
   }
-  const transcriptionWorker = ensureWorker()
+  capture = active
+  touchCapture(active)
   try {
-    transcriptionWorker.postMessage({ id: 0, type: 'warm' })
-  } catch {
-    return
+    const result = await current.request('begin')
+    if (result.error) throw new Error(result.error)
+    if (capture !== active) throw new Error('Voice stream was cancelled')
+    touchCapture(active)
+    return active.streamId
+  } catch (error) {
+    endCapture(active)
+    throw error
   }
-  log.info('transcription_worker_warmed')
-  scheduleWorkerIdleStop()
 }
 
-export async function transcribeAudio(samples: Float32Array): Promise<{ error: string | null; transcript: string | null }> {
+export async function feedVoiceStream(owner: string, streamId: string, samples: Float32Array): Promise<VoicePartial> {
+  const active = ownedCapture(owner, streamId)
+  if (active.feeding) throw new Error('Voice stream is still processing its previous chunk')
+  if (active.samples + samples.length > MAX_VOICE_SAMPLES) throw new Error('Voice recording exceeds the 60 minute limit')
+  active.samples += samples.length
+  active.feeding = true
+  touchCapture(active)
+  try {
+    const result = await active.worker.request('feed', samples)
+    if (result.error) throw new Error(result.error)
+    return { stable: result.stable, tentative: result.tentative }
+  } finally {
+    active.feeding = false
+    if (capture === active) touchCapture(active)
+  }
+}
+
+export async function finishVoiceStream(owner: string, streamId: string): Promise<VoiceTranscript> {
+  const active = ownedCapture(owner, streamId)
+  if (active.feeding) throw new Error('Voice stream is still processing its previous chunk')
   const startedAt = Date.now()
-  if (samples.length === 0) {
-    return { error: 'Voice recording contains no audio', transcript: null }
+  let success = false
+  active.finishing = true
+  clearTimeout(active.timer)
+  try {
+    const result = await active.worker.request('finish', undefined, transcriptionRequestTimeoutMs(active.samples))
+    success = !result.error
+    return { error: result.error, transcript: result.transcript }
+  } finally {
+    recordOtelDuration('transcribe_audio', Date.now() - startedAt, { backend: 'Parakeet GGUF Q8', success, source: 'stream' })
+    endCapture(active)
   }
-  if (samples.length > MAX_VOICE_SAMPLES) {
-    return { error: 'Voice recording exceeds the 60 minute limit', transcript: null }
-  }
-  if (!(await isParakeetModelReady())) {
-    void ensureParakeetModel().catch(() => {})
-    const error = modelNotReadyMessage()
-    recordOtelDuration('transcribe_audio', Date.now() - startedAt, { backend: BACKEND, success: false })
-    return { error, transcript: null }
-  }
-
-  await ensureParakeetModel()
-  if (pending.size > 0) {
-    return { error: 'Voice transcription is already in progress', transcript: null }
-  }
-  return new Promise((resolve) => {
-    const id = nextRequestId++
-    const transcriptionWorker = ensureWorker()
-    const timer = setTimeout(() => {
-      const request = pending.get(id)
-      if (!request || request.worker !== transcriptionWorker) return
-      pending.delete(id)
-      recordOtelDuration('transcribe_audio', Date.now() - request.startedAt, {
-        backend: BACKEND,
-        success: false,
-        timeout: true,
-      })
-      request.resolve({ error: 'Transcription timed out', transcript: null })
-      if (worker === transcriptionWorker) {
-        clearWorkerIdleTimer()
-        if (transcriptionWorker.kill()) worker = null
-        else {
-          log.warn('transcription_worker_timeout_stop_failed')
-          scheduleWorkerIdleStop()
-        }
-      }
-    }, transcriptionRequestTimeoutMs(samples.length))
-    timer.unref?.()
-    pending.set(id, { worker: transcriptionWorker, samplesLength: samples.length, startedAt, timer, resolve })
-    try {
-      transcriptionWorker.postMessage({ id, type: 'transcribe', samples })
-    } catch (err) {
-      pending.delete(id)
-      clearTimeout(timer)
-      scheduleWorkerIdleStop()
-      resolve({
-        error: `Transcription failed: ${err instanceof Error ? err.message : String(err)}`,
-        transcript: null,
-      })
-    }
-  })
 }
+
+export function cancelVoiceStream(owner: string, streamId: string): void {
+  const active = ownedCapture(owner, streamId, true)
+  // Stop immediately, including a native feed currently in progress.
+  active.worker.stop()
+  if (worker === active.worker) worker = null
+  endCapture(active)
+}
+
+export async function transcribeAudio(samples: Float32Array): Promise<VoiceTranscript> {
+  const startedAt = Date.now()
+  let success = false
+  if (!samples.length) return { error: 'Voice recording contains no audio', transcript: null }
+  if (samples.length > MAX_VOICE_SAMPLES) return { error: 'Voice recording exceeds the 60 minute limit', transcript: null }
+  if (batchBusy || capture) return { error: 'Voice transcription is already in progress', transcript: null }
+  batchBusy = true
+  try {
+    await requireModel()
+    const result = await ensureWorker().request('batch', samples, transcriptionRequestTimeoutMs(samples.length))
+    success = !result.error
+    return { error: result.error, transcript: result.transcript }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), transcript: null }
+  } finally {
+    batchBusy = false
+    recordOtelDuration('transcribe_audio', Date.now() - startedAt, { backend: 'Parakeet GGUF Q8', success, source: 'offline' })
+    scheduleIdleStop()
+  }
+}
+
+export function disposeTranscription(): void {
+  clearIdleTimer()
+  worker?.stop()
+  worker = null
+  if (capture) endCapture(capture)
+}
+
+app.once('will-quit', disposeTranscription)

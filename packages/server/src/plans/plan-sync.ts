@@ -30,7 +30,6 @@ export async function publishPlan(scope: RecordScope, request: PlanPublishReques
       content: request.content,
       link: annotations.mirroredDoc,
       destination: request.destination,
-      diagramAssets: request.diagramAssets,
       force: request.force,
     })
     if (result.link) await saveLink(scope, request.sessionId, request.planToolUseId, result.link)

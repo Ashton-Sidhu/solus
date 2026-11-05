@@ -16,10 +16,12 @@ export function isWindowsAbsolutePath(value: string): boolean {
 
 const SLASH_PREFIXED_WINDOWS_DRIVE_PATTERN = /^\/[A-Za-z]:[\\/]/;
 const RELATIVE_PATH_PREFIX_PATTERN = /^(~\/|\.{1,2}\/)/;
+// Names may use routing punctuation: `posts.$id.tsx`, `(group)/[id]/+page.svelte`, `@scope/pkg`.
 const RELATIVE_FILE_PATH_PATTERN =
-  /^(?:[A-Za-z0-9._-]+(?: +[A-Za-z0-9._-]+)*\/)+[A-Za-z0-9._-]+(?: +[A-Za-z0-9._-]+)*(?::\d+){0,2}$/;
+  /^(?:[A-Za-z0-9._$+@()[\]-]+(?: +[A-Za-z0-9._$+@()[\]-]+)*\/)+[A-Za-z0-9._$+@()[\]-]+(?: +[A-Za-z0-9._$+@()[\]-]+)*(?::\d+){0,2}$/;
+// No `@` here: `me@example.com` is an address, not a file.
 const RELATIVE_FILE_NAME_PATTERN =
-  /^[A-Za-z0-9._-]+(?: +[A-Za-z0-9._-]+)*\.[A-Za-z0-9_-]+(?::\d+){0,2}$/;
+  /^[A-Za-z0-9._$+()[\]-]+(?: +[A-Za-z0-9._$+()[\]-]+)*\.[A-Za-z0-9_-]+(?::\d+){0,2}$/;
 const EXTERNAL_SCHEME_PATTERN = /^([A-Za-z][A-Za-z0-9+.-]*):(.*)$/;
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 const POSITION_SUFFIX_CAPTURE_PATTERN = /:(\d+)(?::(\d+))?$/;

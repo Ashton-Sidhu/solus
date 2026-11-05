@@ -359,6 +359,7 @@ export class SessionOpening {
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
     const provider = meta.provider ?? this.workspace.settings.activeAgent
+    const thread = { provider, model: meta.model, reasoningEffort: meta.reasoningEffort }
     if (!intoTabId) {
       const openTabId = findOpenTabForSession(
         resumedSessionId,
@@ -414,12 +415,12 @@ export class SessionOpening {
         // A session never moves between machines: resuming one the picker found
         // on another host has to open against that host, not this client's.
         serverId: meta.serverId,
+        thread,
       })
       measureOpenStep('createTab', createTabStart)
       const session = this.workspace.sessionFor(tabId)
       const tab = this.workspace.tabs[tabId]
       if (!session || !tab) throw new Error('The resumed session tab was not created')
-      session.run.provider = provider
       session.threadProvider = provider
       session.agentSessionId = activeProviderSessionId
       session.handoffPending = !!handoff && !activeProviderSessionId
@@ -438,7 +439,6 @@ export class SessionOpening {
       }
     } else {
       const session = targetSession!
-      session.run.provider = provider
       session.threadProvider = provider
       session.agentSessionId = activeProviderSessionId
       session.handoffPending = !!handoff && !activeProviderSessionId
@@ -446,6 +446,8 @@ export class SessionOpening {
       // because takeover already requires a tab that has started nothing.
       // The session's folder is its own project there, not the tab's old one.
       session.run.location = folderLocation({ serverId: meta.serverId ?? runHost(session.run), path: workingDirectory })
+      // The empty tab's draft model is not the session's.
+      Object.assign(session.run, this.workspace.config.threadRunFor(thread, session.run))
       session.messages.splice(0, session.messages.length)
       this.workspace.eventReducer.rebuildAgentConversations(session)
       session.readOnlyReason = null

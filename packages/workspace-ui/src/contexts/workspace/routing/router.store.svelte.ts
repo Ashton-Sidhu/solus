@@ -135,6 +135,9 @@ export class RouterStore {
   private unreadSurfaceKeys = new SvelteSet<string>()
   private shownDestinationKey: string
   private history: RouteHistory
+  /** Bumped on every history change, so `canGoBack` and `canGoForward` stay
+   *  reactive: the history itself is a plain object. */
+  private historyRevision = $state(0)
   private detachHistory: (() => void) | null = null
   private resolved = new SvelteMap<string, PrReviewTarget>()
   private resolving = new Map<string, Promise<PrReviewTarget>>()
@@ -477,10 +480,12 @@ export class RouterStore {
   // ─── History ───
 
   get canGoBack(): boolean {
+    void this.historyRevision
     return this.history.canGoBack
   }
 
   get canGoForward(): boolean {
+    void this.historyRevision
     return this.history.canGoForward
   }
 
@@ -668,7 +673,11 @@ export class RouterStore {
   private attachHistory(history: RouteHistory): void {
     this.detachHistory?.()
     this.history = history
-    this.detachHistory = history.subscribe((location) => this.applyHistoryLocation(location))
+    this.historyRevision += 1
+    this.detachHistory = history.subscribe((location) => {
+      this.historyRevision += 1
+      this.applyHistoryLocation(location)
+    })
   }
 
   private applyHistoryLocation(serialized: string): void {

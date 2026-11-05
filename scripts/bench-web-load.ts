@@ -9,7 +9,9 @@
  * both engines see the same network: each request waits one round trip, and all
  * responses share one bandwidth limit. Every run is a fresh browser context with
  * an empty cache. The timer ends at the `solus:workspace-code` mark, which
- * apps/client/src/main.ts sets when the workspace code has loaded and run.
+ * apps/client/src/main.ts sets when the workspace code has loaded and run. The
+ * same run reads first contentful paint: before the mark when the HTML holds
+ * the first screen, after it when the page draws nothing until its code has run.
  *
  * It measures code loading only: no sign-in and no host. Requests outside the
  * build answer 404 after one round trip.
@@ -103,6 +105,8 @@ async function serve(files: Map<string, Served>, tls: Tls): Promise<{ server: Ht
   let send = bandwidthLimit(profile.megabitsPerSecond)
   const server = createSecureServer(tls)
   server.on('stream', (stream: ServerHttp2Stream, headers) => {
+    // A run ends at its mark and closes the page while later chunks still stream.
+    stream.on('error', () => {})
     const path = String(headers[':path'] ?? '/').split('?')[0]
     const file = files.get(path === '/' ? '/index.html' : path)
     setTimeout(() => {
@@ -122,7 +126,7 @@ async function serve(files: Map<string, Served>, tls: Tls): Promise<{ server: Ht
   return { server, origin: `https://localhost:${address.port}`, reset: () => { send = bandwidthLimit(profile.megabitsPerSecond) } }
 }
 
-interface Sample { workspaceCodeMs: number; requests: number; transferredKb: number }
+interface Sample { firstPaintMs: number; stylesMs: number; workspaceCodeMs: number; requests: number; transferredKb: number }
 
 async function measure(browser: Browser, engine: string, origin: string): Promise<Sample> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
@@ -133,10 +137,16 @@ async function measure(browser: Browser, engine: string, origin: string): Promis
   }
   await page.goto(origin, { waitUntil: 'commit' })
   await page.waitForFunction(() => performance.getEntriesByName('solus:workspace-code').length > 0, undefined, { timeout: 180_000, polling: 50 })
+  // A page with no first screen in its HTML paints only after the mark (the page that follows it).
+  await page.waitForFunction(() => performance.getEntriesByName('first-contentful-paint').length > 0, undefined, { timeout: 60_000, polling: 50 })
   const sample = await page.evaluate(() => {
     // SAFETY: entries of type 'resource' are PerformanceResourceTiming by the Resource Timing spec.
     const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
     return {
+      firstPaintMs: Math.round(performance.getEntriesByName('first-contentful-paint')[0].startTime),
+      // The stylesheets the HTML links hold the first paint: when the last of them has arrived.
+      stylesMs: Math.round(Math.max(0, ...[...document.querySelectorAll<HTMLLinkElement>('head > link[rel="stylesheet"]')]
+        .map((link) => resources.find((entry) => entry.name === link.href)?.responseEnd ?? 0))),
       workspaceCodeMs: Math.round(performance.getEntriesByName('solus:workspace-code')[0].startTime),
       requests: resources.length + 1,
       transferredKb: Math.round(resources.reduce((sum, entry) => sum + entry.encodedBodySize, 0) / 1000),
@@ -149,7 +159,7 @@ async function measure(browser: Browser, engine: string, origin: string): Promis
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
 
 const tls = certificate()
-interface BuildResult { build: string; engine: string; medianMs: number; minMs: number; maxMs: number; requests: number; transferredKb: number }
+interface BuildResult { build: string; engine: string; firstPaintMedianMs: number; stylesMedianMs: number; medianMs: number; minMs: number; maxMs: number; requests: number; transferredKb: number }
 const results: BuildResult[] = []
 for (const engine of ['chromium', 'webkit'] as const) {
   const browser = await (engine === 'chromium' ? chromium : webkit).launch()
@@ -163,7 +173,7 @@ for (const engine of ['chromium', 'webkit'] as const) {
     server.close()
     const times = samples.map((sample) => sample.workspaceCodeMs)
     results.push({
-      build: build.label, engine, medianMs: median(times), minMs: Math.min(...times), maxMs: Math.max(...times),
+      build: build.label, engine, firstPaintMedianMs: median(samples.map((sample) => sample.firstPaintMs)), stylesMedianMs: median(samples.map((sample) => sample.stylesMs)), medianMs: median(times), minMs: Math.min(...times), maxMs: Math.max(...times),
       requests: median(samples.map((sample) => sample.requests)), transferredKb: median(samples.map((sample) => sample.transferredKb)),
     })
   }
@@ -171,8 +181,8 @@ for (const engine of ['chromium', 'webkit'] as const) {
 }
 
 console.log(`profile ${profileName}: ${profile.roundTripMs} ms round trip, ${profile.megabitsPerSecond} Mbit/s, CPU ÷${profile.cpuSlowdown} (Chromium only); ${runs} runs each`)
-console.log('engine    build              median     min     max  requests  KB (br)')
+console.log('engine    build            FCP median  CSS median  code median     min     max  requests  KB (br)')
 for (const result of results) {
-  console.log(`${result.engine.padEnd(9)} ${result.build.padEnd(16)} ${String(result.medianMs).padStart(8)} ${String(result.minMs).padStart(7)} ${String(result.maxMs).padStart(7)} ${String(result.requests).padStart(9)} ${String(result.transferredKb).padStart(8)}`)
+  console.log(`${result.engine.padEnd(9)} ${result.build.padEnd(16)} ${String(result.firstPaintMedianMs).padStart(10)} ${String(result.stylesMedianMs).padStart(11)} ${String(result.medianMs).padStart(12)} ${String(result.minMs).padStart(7)} ${String(result.maxMs).padStart(7)} ${String(result.requests).padStart(9)} ${String(result.transferredKb).padStart(8)}`)
 }
 if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify({ profile, runs, results }, null, 2)}\n`)

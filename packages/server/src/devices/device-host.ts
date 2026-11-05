@@ -62,7 +62,7 @@ export class DeviceHostError extends Error {
 
 export interface DeviceHost {
   readonly deviceHostId: string
-  readonly kind: 'local' | 'ssh' | 'eas' | 'simlock'
+  readonly kind: 'local' | 'ssh' | 'simlock'
   /** Recover resources owned by a previous process before admitting new work. */
   recover?(): Promise<void>
   /** Inventory and tool versions. Never installs or starts anything. */

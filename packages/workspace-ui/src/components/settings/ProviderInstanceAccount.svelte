@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { providerStatusCheckedLabel, providerStatusLabel } from "@solus/client-core/provider-instances";
   import type { ProviderInstancesClient, ProviderInstancesView } from "@solus/client-core/provider-instances";
   import { Button } from "../ui/button";
@@ -16,6 +17,9 @@
   let code = $state("");
   let revealAccount = $state(false);
   let confirmSignOut = $state(false);
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => confirmSignOut });
 </script>
 
 <SettingsSection label="Status and account">

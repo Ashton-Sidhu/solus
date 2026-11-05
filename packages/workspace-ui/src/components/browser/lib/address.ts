@@ -18,6 +18,30 @@ export interface AddressParts {
 }
 
 /**
+ * Schemes that never name a page. Each is listed because a digit after it reads
+ * as a port (`tel:5551234`) or because it must not run (`javascript://`).
+ * `about:blank` is here too: it is the guest's mount scaffolding, its report is
+ * dropped, and a page sent there would stay loading.
+ */
+const NON_WEB_SCHEME = /^(?:about|blob|data|javascript|mailto|sms|tel|vbscript|view-source):/i
+
+/**
+ * Why a typed address cannot open, or null when it can.
+ *
+ * `mailto:alice@example.com` would otherwise gain `https://` and open
+ * example.com with `mailto` and `alice` as credentials. `localhost:3000` and
+ * `example.com:8080` look like schemes too; the port is what clears them.
+ */
+export function addressProblem(input: string): string | null {
+  const address = input.trim()
+  const scheme = /^[a-z][a-z\d+.-]*:/i.exec(address)?.[0]
+  if (!scheme) return null
+  const rest = address.slice(scheme.length)
+  const isWeb = !NON_WEB_SCHEME.test(scheme) && /^(?:\/\/|\d*(?:[/?#]|$))/.test(rest)
+  return isWeb ? null : `${scheme} is not a web address.`
+}
+
+/**
  * Turn what a person types into an address Electron can navigate to.
  *
  * Chromium's address bar accepts `twitter.com`; `WebContents.loadURL` does not

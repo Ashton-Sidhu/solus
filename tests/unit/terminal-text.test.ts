@@ -33,6 +33,37 @@ describe('terminal text', () => {
     expect(plainTerminalText('\u001b[31mred\u001b[0m\r\nnext')).toBe('red\nnext')
   })
 
+  test('consumes every control sequence form, whatever its parameters', () => {
+    // WHY: only digits and semicolons used to match, so these left their tail
+    // on screen as text.
+    for (const sequence of ['?25l', '>4;2m', '?1m', '1$J', '1$m', '1.5A', '1:2A', '=1c', ' q']) {
+      expect(plainTerminalText(`before\u001b[${sequence}after`)).toBe('beforeafter')
+    }
+  })
+
+  test('a private or intermediate form ending in m changes no style', () => {
+    const lines = terminalLines('\u001b[31mred\u001b[?0m\u001b[0$m still red')
+    expect(lines[0]!.spans).toEqual([{ text: 'red still red', color: 'red', bright: false, bold: false, dim: false }])
+  })
+
+  test('colon colours are consumed like their semicolon forms', () => {
+    const lines = terminalLines('\u001b[31mred\u001b[38:2::1:2:3;1mtrue\u001b[0m\u001b[32;48:5:1mgreen\u001b[4:3m curly')
+    expect(plainTerminalText('\u001b[38:2::1:2:3mtrue')).toBe('true')
+    expect(lines[0]!.spans).toEqual([
+      { text: 'red', color: 'red', bright: false, bold: false, dim: false },
+      { text: 'true', color: null, bright: false, bold: true, dim: false },
+      { text: 'green curly', color: 'green', bright: false, bold: false, dim: false },
+    ])
+  })
+
+  test('a colon field never splits into separate codes, and an empty SGR still resets', () => {
+    const lines = terminalLines('\u001b[1mbold\u001b[mplain\u001b[0:1mstill')
+    expect(lines[0]!.spans).toEqual([
+      { text: 'bold', color: null, bright: false, bold: true, dim: false },
+      { text: 'plainstill', color: null, bright: false, bold: false, dim: false },
+    ])
+  })
+
   test('reads a line for an error or a warning by its words, whatever its colour', () => {
     const lines = terminalLines('src/a.ts:3:1: error: oops\nsrc/b.ts:9:2: warning: unused\nall good')
     expect(lines.map((line) => line.tone)).toEqual(['error', 'warning', null])

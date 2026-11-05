@@ -1,3 +1,5 @@
+import { lockedReviewSettings } from './guide-warmer'
+import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import type { IpcContext, AgentId } from '@solus/contracts/types'
 import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
 import { getDiff, getEpisodeDiff, getSessionSnapshotRange } from '../git/session-snapshots'
@@ -125,12 +127,13 @@ export async function changeSnapshotFor(
 ): Promise<{ patch: string | null; changeFingerprint: string }> {
   try {
     const diff = target.scope === 'pr' && target.head
-      ? { patch: await runAsync('git', ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', target.base, target.head, '--'], workTree, { maxBuffer: 50 * 1024 * 1024 }) }
+      ? { patch: await runAsync('git', ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', target.base, target.head, '--'], workTree, { maxBuffer: 50 * 1024 * 1024, raw: true }) }
       : target.scope === 'session' && target.sessionId
       ? await getDiff(null, review.repoRoot, { kind: 'session' }, target.sessionId, [])
       : await getEpisodeDiff(workTree, review.repoRoot, target.base)
     if (!diff) throw new Error('Session snapshot is unavailable.')
-    const patch = diff.patch.trim()
+    // Kept raw: a blank last context line or trailing spaces are part of the change.
+    const patch = diff.patch.trim() ? diff.patch : ''
     return { patch, changeFingerprint: fingerprintReviewPatch(patch) }
   } catch (error) {
     log.warn('episode_diff_failed', { guideKey: target.guideKey, error: String(error) })
@@ -211,6 +214,7 @@ async function produceGuide(
   if (patch) emit('analyzing')
   const draft = patch
     ? await runReviewAgent(dispatcher, {
+      organizationId: ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
       workTree,
       base,
       head: target.head,
@@ -220,7 +224,7 @@ async function produceGuide(
       // The guide runs on the requester's own provider login, as their turns do.
       seat: await seatFor?.(agent) ?? undefined,
       reasoningEffort: opts.reasoningEffort ?? null,
-      reviewGuideInstructions: ctx.settings.reviewGuideInstructions,
+      reviewGuideInstructions: lockedReviewSettings(ctx).reviewGuideInstructions,
       executionPreferences: contextPreferences(ctx),
       requestInstructions: opts.instructions,
       inlineDiff,

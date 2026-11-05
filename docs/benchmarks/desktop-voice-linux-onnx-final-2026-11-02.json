@@ -1,0 +1,79 @@
+{
+  "runtime": "current Parakeet v3 INT8 ONNX worker; model/runtime path overrides and export only",
+  "platform": "linux",
+  "cpu": "Intel(R) Core(TM) i5-9300H CPU @ 2.40GHz",
+  "threads": 4,
+  "load_ms": 2444.6860920000004,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "inference_ms": 790.2413489999999,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 16.6,
+        "encode_ms": 734.6,
+        "decode_ms": 36.8,
+        "tokenize_ms": 1.3
+      },
+      "resident_mb": 1141.40625,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 1,
+      "inference_ms": 725.9080289999997,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 27.2,
+        "encode_ms": 661.5,
+        "decode_ms": 37,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 1214.875,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 2,
+      "inference_ms": 704.6751209999998,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 15.9,
+        "encode_ms": 649.8,
+        "decode_ms": 38.9,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1216.125,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 3,
+      "inference_ms": 651.3128319999996,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 15.6,
+        "encode_ms": 606,
+        "decode_ms": 29.6,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1216.125,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 4,
+      "inference_ms": 681.3261999999995,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 17.5,
+        "encode_ms": 625.7,
+        "decode_ms": 38,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1219.125,
+      "words": 22
+    }
+  ]
+}

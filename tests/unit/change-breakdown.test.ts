@@ -6,6 +6,8 @@ test('sorts a changed file by its path, first match winning', () => {
     'bun.lock': 'generated',
     'packages/contracts/src/generated/codex.ts': 'generated',
     'dist/app.min.js': 'generated',
+    // Convex writes its client bindings here.
+    'convex/_generated/api.d.ts': 'generated',
     // Test support is not a test: a large fixture must not read as test logic.
     'tests/fixtures/session.json': 'mocks',
     'src/__snapshots__/app.test.ts.snap': 'mocks',
@@ -14,6 +16,9 @@ test('sorts a changed file by its path, first match winning', () => {
     'src/app.test.ts': 'tests',
     'internal/app_test.go': 'tests',
     'AppTests.swift': 'tests',
+    // Evals check a model's behaviour the way tests check code.
+    'src/summary.eval.ts': 'tests',
+    'evals/summary.ts': 'tests',
     'docs/plans/plan.md': 'docs',
     'README.md': 'docs',
     // Text that tools read is config, not prose.

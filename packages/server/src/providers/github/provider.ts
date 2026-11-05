@@ -118,6 +118,7 @@ interface GithubDiffFile {
   previous_filename?: string
   status: string
   patch?: string
+  changes?: number
 }
 
 function diffPath(path: string): string {
@@ -144,8 +145,10 @@ export function githubFilesToUnifiedPatch(files: GithubDiffFile[]): UnifiedGithu
     if (file.status === 'added') lines.push('new file mode 100644')
     if (file.status === 'removed') lines.push('deleted file mode 100644')
     if (file.status === 'renamed') {
+      // GitHub gives no score. @pierre/diffs reads the rename type from this
+      // line, so a changed rename needs one too.
+      lines.push(`similarity index ${file.patch || file.changes ? 0 : 100}%`)
       lines.push(`rename from ${oldPath}`, `rename to ${file.filename}`)
-      if (!file.patch) lines.push('similarity index 100%')
     }
     lines.push(`--- ${diffPath(oldLabel)}`, `+++ ${diffPath(newLabel)}`)
     if (file.patch) lines.push(file.patch)

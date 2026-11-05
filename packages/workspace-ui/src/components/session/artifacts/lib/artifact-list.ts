@@ -55,7 +55,6 @@ const KIND_LABELS = {
 const WORK_TYPE_LABELS = {
   doc: 'Doc',
   slides: 'Slides',
-  diagram: 'Diagram',
   artifact: 'Artifact',
 } satisfies { [Type in WorkType]: string }
 

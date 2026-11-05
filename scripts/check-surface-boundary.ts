@@ -36,7 +36,6 @@ const PORTABLE_FOLDERS = [
   'work/',
   'workspace/',
   'document-shell/',
-  'diagram/',
   'session/record/',
   'insights/',
 ]
@@ -52,7 +51,6 @@ const RECORD_SURFACE_FOLDERS = [
   'artifact/',
   'document-shell/',
   'document-modal/',
-  'diagram/',
   'session/record/',
   'comments/',
   'github-markdown/',

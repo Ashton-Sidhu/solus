@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { onMount } from "svelte";
   import type { Task } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
@@ -72,6 +73,9 @@
       linkingTaskId = null;
     }
   }
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true, active: () => !anchor });
 </script>
 
 {#snippet taskList()}

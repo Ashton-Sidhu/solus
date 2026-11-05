@@ -88,6 +88,10 @@ export function createFieldDictation(options: FieldDictationOptions) {
     get rmsRef() {
       return dictation.rmsRef
     },
+    get partialTranscript() {
+      return enabled() && dictation.mode === 'insert' && dictation.target === options.getRef()
+        ? dictation.partialTranscript : null
+    },
     handleKeydown,
     handleFocus,
     handleBlur,

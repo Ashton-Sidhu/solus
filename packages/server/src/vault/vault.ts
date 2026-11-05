@@ -22,7 +22,7 @@ import {
 } from '@solus/contracts/vault'
 import { isApiMode } from '../host/api-mode'
 import { hostCategory } from '../host/host-category'
-import { currentHostUser, isHostUserKey } from '../host/host-user'
+import { cloudAccountOf, currentHostUser, isHostUserKey } from '../host/host-user'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore, type SecretStore } from '../platform/secrets'
@@ -103,8 +103,9 @@ export function credentialLocationOf(personKey: string | null): CredentialLocati
     const account = currentHostUser()?.account
     return account ? { kind: 'account', accountId: account.accountId } : { kind: 'host' }
   }
-  const person = parseUserKey(personKey)
-  return person.kind === 'account' ? { kind: 'account', accountId: person.accountId } : { kind: 'none' }
+  // Any other person's logins are their account's; the host's user on a managed host is the account it is linked to.
+  const accountId = cloudAccountOf(personKey)
+  return accountId ? { kind: 'account', accountId } : { kind: 'none' }
 }
 
 /** The current person's logins are not this host's to change: they are in their account, or they have none here. */

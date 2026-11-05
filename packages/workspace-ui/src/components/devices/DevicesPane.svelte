@@ -63,7 +63,7 @@
   });
   const device = $derived(preview ? devicesStore.device(serverId, preview) : undefined);
   const sourceKind = $derived(deviceState?.hosts.find((host) => host.deviceHostId === preview?.deviceHostId)?.kind ?? "local");
-  const cloud = $derived(sourceKind === "eas" || sourceKind === "simlock");
+  const cloud = $derived(sourceKind === "simlock");
   const control = $derived(preview ? devicesStore.control(serverId, preview) : null);
   const holdsControl = $derived(preview ? devicesStore.holdsControl(serverId, preview) : false);
   const hostStatus = $derived(preview ? deviceState?.hostStatuses.find((entry) => entry.deviceHostId === preview.deviceHostId) : undefined);
@@ -151,7 +151,7 @@
   async function shutdown() {
     if (!preview || !device) return;
     const others = othersUsing > 0 ? ` ${othersUsing} other session${othersUsing === 1 ? " is" : "s are"} using it.` : "";
-    if (!confirm(`${sourceKind === "simlock" ? "Return" : sourceKind === "eas" ? "Stop" : "Power off"} ${device.name}?${others}`)) return;
+    if (!confirm(`${sourceKind === "simlock" ? "Return" : "Power off"} ${device.name}?${others}`)) return;
     await run(() => devicesStore.shutdown(serverId, { ...preview, platform: device.platform }), "Couldn't power off the device");
   }
 

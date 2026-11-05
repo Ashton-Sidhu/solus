@@ -7,7 +7,6 @@ import type { Schema } from '@tiptap/pm/model'
 import { DOCUMENT_SCHEMA_VERSION, documentExtensions, markdownExtensions } from '@solus/document-model/schema'
 import { createMarkdownParser, parseDocumentMarkdown, serializeDocumentMarkdown } from '@solus/document-model/markdown'
 import { editorSchemaExtensions } from '@solus/workspace-ui/components/editor/lib/editor-schema'
-import { createDiagramEmbedExtension } from '@solus/workspace-ui/components/editor/diagramEmbedExtension'
 import { createArtifactEmbedExtension } from '@solus/workspace-ui/components/editor/artifactEmbedExtension'
 import { createHtmlBlockExtension } from '@solus/workspace-ui/components/editor/htmlBlockExtension'
 import { createMermaidBlockExtension } from '@solus/workspace-ui/components/editor/mermaidBlockExtension'
@@ -58,7 +57,6 @@ function rendererDocumentExtensions(): AnyExtension[] {
   const embed = { worksStore: { works: {}, ensureContent: async () => null }, onOpen() {}, onOpenSecondary() {} }
   return editorSchemaExtensions(neverResolves, {
     personReference: createPersonRefExtension(() => ({ kind: 'unknown' })),
-    diagramEmbed: createDiagramEmbedExtension({ ...embed, contexts: new Map() }),
     artifactEmbed: createArtifactEmbedExtension({ ...embed, isDark: () => false }),
     htmlBlock: createHtmlBlockExtension({ isDark: () => false }),
     mermaidBlock: createMermaidBlockExtension({ isDark: () => false }),
@@ -83,7 +81,7 @@ const CANONICAL: { [name: string]: string } = {
   html: '```html\n<style>b{color:red}</style>\n<b>Hi</b>\n```\n\n```html render\n<div>plain</div>\n```',
   'html snippet stays code': '```html\n<div>plain</div>\n```',
   'code block': '```ts\nconst a = 1\n```',
-  'diagram and artifact embeds': '[Auth flow](work://embed?workId=w1&type=diagram)\n\n[Latency](work://embed?workId=w2&type=artifact)',
+  'artifact embeds': '[Latency](work://embed?workId=w2&type=artifact)',
   'person mention': 'Ask [@Ann \\[Ops\\] Lee](person://ref?userId=u_ann) today.',
   'escaped text': 'Not \\*em\\*, not \\[a link\\], snake\\_case, and a literal \\`tick.',
   'structure': '> A quote\n\n---\n\nLine one  \nline two',
@@ -134,13 +132,13 @@ describe('the document schema', () => {
     // attribute changed without a new version would pass that check and then
     // delete content. Update both together.
     const { nodes, marks } = describeSchema(getSchema(documentExtensions()))
-    expect(DOCUMENT_SCHEMA_VERSION).toBe(2)
+    expect(DOCUMENT_SCHEMA_VERSION).toBe(3)
     expect(Object.fromEntries(nodes.map((node) => [node.name, Object.keys(node.attrs)]))).toEqual({
       paragraph: [], blockquote: [], bulletList: [], doc: [], hardBreak: [], heading: ['level'], horizontalRule: [],
       listItem: [], orderedList: ['start', 'type'], text: [], frontMatter: ['yaml'], codeBlock: ['language'], callout: ['kind'],
       taskList: [], taskItem: ['checked'], image: ['src', 'alt', 'title', 'width', 'height'], table: [], tableRow: [],
       tableHeader: ['colspan', 'rowspan', 'colwidth', 'align'], tableCell: ['colspan', 'rowspan', 'colwidth', 'align'],
-      personReference: ['userId', 'name'], diagramEmbed: ['workId', 'title'], artifactEmbed: ['workId', 'title'],
+      personReference: ['userId', 'name'], artifactEmbed: ['workId', 'title'],
       htmlBlock: ['html', 'explicit'], mermaidBlock: ['source'],
     })
     expect(Object.fromEntries(marks.map((mark) => [mark.name, Object.keys(mark.attrs)]))).toEqual({
@@ -233,8 +231,7 @@ describe('the markdown codec', () => {
       ['htmlBlock', { html: '<div>plain</div>', explicit: true }],
     ])
     expect(blocks(CANONICAL['html snippet stays code'])[0][0]).toBe('codeBlock')
-    expect(blocks(CANONICAL['diagram and artifact embeds'])).toEqual([
-      ['diagramEmbed', { workId: 'w1', title: 'Auth flow' }],
+    expect(blocks(CANONICAL['artifact embeds'])).toEqual([
       ['artifactEmbed', { workId: 'w2', title: 'Latency' }],
     ])
     expect(blocks(NON_CANONICAL['bare embed URL'])).toEqual([['artifactEmbed', { workId: 'w9', title: '' }]])

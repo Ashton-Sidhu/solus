@@ -7,7 +7,6 @@
   import { formatPeekAge, rowStatus } from "./lib/workspace-items";
   import { highlightRuns } from "../../lib/searchHighlight";
   import { peekBody, peekBox, peekOutline } from "./lib/workspace-peek";
-  import { parseDiagram, summarizeDiagram } from "@solus/contracts/diagram-types";
   import { getSurfaceContext } from "../../contexts";
   import { portal } from "../portal";
   import { BottomSheet } from "../ui/bottom-sheet";
@@ -65,7 +64,7 @@
 
   const session = getSurfaceContext();
 
-  const KIND_LABELS = { doc: "Doc", diagram: "Diagram", artifact: "Artifact" } as const;
+  const KIND_LABELS = { doc: "Doc", artifact: "Artifact" } as const;
 
   // The artifact's own text, loaded once the card is already open. Until it
   // lands the ledger snippet stands in — a hover card never shows a spinner.
@@ -92,15 +91,6 @@
   const body = $derived(peekBody(item, content, query));
   const bodyRuns = $derived(highlightRuns(body, query));
   const outline = $derived(peekOutline(item, content));
-  /** Counts are not structure — on a diagram they ride the meta line. */
-  const diagramCounts = $derived.by(() => {
-    if (item.type !== "diagram" || !content) return "";
-    try {
-      return summarizeDiagram(parseDiagram(content));
-    } catch {
-      return "";
-    }
-  });
   const statusLabel = $derived(rowStatus(item)?.label ?? "");
 
   // ── Anchoring ──
@@ -141,30 +131,9 @@
       <span class="opacity-35" aria-hidden="true">·</span>
       <span class="shrink-0">{statusLabel}</span>
     {/if}
-    {#if diagramCounts}
-      <span class="opacity-35" aria-hidden="true">·</span>
-      <span class="truncate">{diagramCounts}</span>
-    {/if}
   </div>
 
-  {#if item.type === "diagram"}
-    <!-- The one place imagery appears: the graph fit to the card's width, in
-         place of the body. The frame is reserved at rest rather than inserted
-         when the JSON lands, so the card does not jump its own height — and it
-         holds an empty wash, never a spinner. -->
-    <div class="h-[240px] overflow-hidden rounded-lg bg-[var(--wash-1)]">
-      {#if content}
-        {#await import("../diagram/DiagramThumbnail.svelte")}
-          <ContentSkeleton label="Loading diagram" preview />
-        {:then thumbModule}
-          {@const DiagramThumbnail = thumbModule.default}
-          <DiagramThumbnail {content} />
-        {/await}
-      {:else}
-        <ContentSkeleton label="Loading diagram" preview />
-      {/if}
-    </div>
-  {:else if body}
+  {#if body}
     <div class="peek-body leading-[1.6] text-muted-foreground text-pretty">
       {#each bodyRuns as run, i (i)}{#if run.hit}<mark
             class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"

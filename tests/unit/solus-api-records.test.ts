@@ -38,6 +38,9 @@ test('create retries return one task; conflicting input and stale writes cannot 
   const replay = await operations.createTask(context, input, 'create-task-key-001')
   expect(replay.id).toBe(first.id)
   await expect(operations.createTask(context, { title: 'Different' }, 'create-task-key-001')).rejects.toThrow('different input')
+  // The receipt's namespace carries the kind: the same authority and key create a work of their own.
+  const sameKeyWork = await operations.createWork(context, { title: 'Same key', type: 'doc', content: '' }, 'create-task-key-001')
+  expect(sameKeyWork.id).not.toBe(first.id)
   const updated = await operations.updateTask(context, first.id, { title: 'Updated' }, first.version)
   expect(updated.version).not.toBe(first.version)
   await expect(operations.updateTask(context, first.id, { title: 'Lost update' }, first.version)).rejects.toThrow('latest version')
@@ -77,7 +80,7 @@ test('task reads expose only readable session IDs and artifacts retain their ses
   const task = await operations.createTask(context, { title: 'Session context' }, 'task-session-context')
   const db = database.getDatabase()
   for (const [sessionId, owner] of [['task-session-alice', 'alice'], ['task-session-bob', 'bob']]) {
-    await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A',${owner},'codex','/project','idle',1,2,100)`)
+    await db.run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${sessionId},'A',${owner},'codex','/project','idle',1,2,100,1)`)
     await (await Task.byId('A', task.id)).linkSession(sessionId)
   }
   const read = workspaceTaskSchema.parse(await operations.getTask(context, task.id))
@@ -94,7 +97,7 @@ test('task reads expose only readable session IDs and artifacts retain their ses
 
 test('transcript paging reconstructs Unicode text without loading an unbounded message', async () => {
   const db = database.getDatabase(), sessionId = 'text-session'
-  await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100)`)
+  await db.run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100,1)`)
   const content = 'Hello 😃 '.repeat(14000)
   await db.run(sql`INSERT INTO session_transcripts(organization_id,session_id,position,runner_host_id,message,updated_at) VALUES ('A',${sessionId},0,'host',${JSON.stringify({ messageId: 'message-1', role: 'assistant', content, timestamp: 1000 })},1)`)
   let cursor: string | undefined, result = '', offset = 0
@@ -123,7 +126,7 @@ test('HTTP works without a socket; the bearer binds scope and strict inputs reje
       return bearer === 'paired-source' ? { principal: context.principal, home: context.home, scopes: ['tasks:read', 'tasks:write'] } : null
     },
   }
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   const app = new Hono().route('/v1', router)
   expect((await app.request('/v1/tasks')).status).toBe(401)
   const headers = { Authorization: 'Bearer paired-source', 'Content-Type': 'application/json', 'Idempotency-Key': 'http-create-key-001' }
@@ -166,7 +169,7 @@ test('records over a socket take its principal as authority and never exchange a
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   revokeDevice('revoked-device')
   const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true }))
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
   const http = new Hono().route('/v1', router)
   const requests = (request: SolusApiRequest, principal: Principal) => answerSocketRequest(router, request, principal)
@@ -271,7 +274,7 @@ test('a link guest opens only its shared work with the secret alone, with the li
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   const resolveShareSecret = (secret: string) => shares.resolveLinkSecret(secret)
   const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true, resolveShareSecret }))
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   const guestOf = async (shareSecret: string) => {
     const admitted = await guestPrincipalFor(resolveShareSecret, shareSecret, 'maya-guest-0000001', 'Maya')
     if (!admitted.ok) return null

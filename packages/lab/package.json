@@ -8,7 +8,7 @@
   "dependencies": {
     "@solus/contracts": "workspace:*",
     "postgres": "^3.4.9",
-    "socket.io-client": "^4.8.1",
+    "@solus/client-core": "workspace:*",
     "zod": "^4.5.4"
   },
   "devDependencies": { "typescript": "^5.9.3" }

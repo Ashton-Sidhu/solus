@@ -1,4 +1,3 @@
-import { parseDiagram, summarizeDiagram } from './diagram-types'
 import type { WorkType } from './types'
 
 /**
@@ -7,13 +6,6 @@ import type { WorkType } from './types'
  * recreation so a work always previews identically wherever it's produced.
  */
 export function workPreview(type: WorkType, content: string): string {
-  if (type === 'diagram') {
-    try {
-      return summarizeDiagram(parseDiagram(content))
-    } catch {
-      return 'Architecture diagram'
-    }
-  }
   if (type === 'artifact') return artifactPreview(content)
   return content.slice(0, 200).replace(/[#*_`]/g, '').trim()
 }

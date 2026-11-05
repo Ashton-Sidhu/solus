@@ -16,7 +16,7 @@ import {
 // row must never be dropped because the list moved under the pointer.
 
 // Runes only exist in compiled Svelte, so the module is compiled the way the
-// app compiles it (see diagram-history.test.ts).
+// app compiles it.
 const root = new URL('../../', import.meta.url)
 const directory = mkdtempSync(join(tmpdir(), 'folding-toolbar-'))
 afterAll(() => rmSync(directory, { recursive: true, force: true }))

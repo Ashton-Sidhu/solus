@@ -15,7 +15,7 @@ import {
 } from '@solus/contracts/vault'
 import type { AccountAgentProfileResult, AccountVaultConnectResult, AccountVaultResult, NativeSolusAPI, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
-import type { OAuthSession } from './oauth-session'
+import type { WebTokenSession } from './web-token-session'
 
 /**
  * The account agent profile calls (plans/020-agent-profile.md §3), one typed
@@ -119,7 +119,7 @@ export async function accountAgentProfileResult(response: Response): Promise<Acc
 }
 
 /** The web client's adapter: an account-plane access token from the page's sign-in, at the account origin. */
-export function webAgentProfileRequests(origin: string, session: Pick<OAuthSession, 'accessToken'>, fetchImpl: typeof fetch = fetch): AgentProfileCloudRequests {
+export function webAgentProfileRequests(origin: string, session: Pick<WebTokenSession, 'accessToken'>, fetchImpl: typeof fetch = fetch): AgentProfileCloudRequests {
   return agentProfileCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'

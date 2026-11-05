@@ -86,7 +86,7 @@ function changeParagraphStructure(plan: GoogleStructurePlan, blocks: DocsBlock[]
 /** Predict structural changes without sending them. Text/style planning runs on
  * the resulting document, and the adapter sends both parts in one atomic batch. */
 export function planGoogleDocStructure(document: EditableDocument, markdown: string, quotes: string[]): GoogleStructurePlan {
-  const blocks = compileDocsBlocks(markdown, []).filter(block => block.kind !== 'paragraph' || block.text.text.trim())
+  const blocks = compileDocsBlocks(markdown).filter(block => block.kind !== 'paragraph' || block.text.text.trim())
   const elements = visibleElements(document)
   const needsStructure = elements.length !== blocks.length || elements.some((element, index) => {
     const block = blocks[index]

@@ -83,8 +83,9 @@ checkout of its repository. See
 The Sessions group holds `link`, `list_links`,
 `unlink`, and `watch_pull_request`. `link` attaches a work,
 automation, pull request, or file to the calling session. It does not accept
-`task_id`, task session membership, or Solus plan links. Markdown plan files use
-`kind=file` and `path`. Task links remain available through the task interface.
+`task_id`, task session membership, or Solus plan links. An agent that writes a
+plan file links it with `kind=file` and `path`. Task links remain available
+through the task interface.
 `unlink` removes a link using the same `kind`, `target_id`, or `path` as `link`;
 it does not delete the target. It can remove a file link after the file is gone.
 `list_links` lists this session's works, automations, files, and pull requests.

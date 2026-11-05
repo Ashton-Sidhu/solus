@@ -1,4 +1,4 @@
-import { SessionSearch, SESSION_SEARCH_PAGE_SIZE, type SessionSearchHome } from '@solus/client-core/session-search'
+import { SessionSearch, SESSION_SEARCH_PAGE_SIZE, searchFailureSummary, type SessionSearchHome, type SessionSearchState } from '@solus/client-core/session-search'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers, type SavedServer } from '@solus/client-core/server-registry'
@@ -12,6 +12,8 @@ import { isChat } from '@solus/contracts/chat'
 import { localProjectParts } from '@solus/client-core/project-identity'
 import { projectsStore } from '../../../../contexts/projects/projects.store.svelte'
 import { hosts } from '../../../../contexts/hosts/hosts.svelte'
+import { serversStore } from '../../../../contexts/connections/servers.store.svelte'
+import { toasts } from '../../../../lib/toasts'
 import { activeSince, type PickerFilters } from './picker-filters'
 import type { PickerResultType } from './picker-preferences'
 import type { PickerSearchMode } from './picker-search'
@@ -104,6 +106,8 @@ function openOnRunner(session: SessionMeta, serviceId: string, hosts: Pick<Conve
 }
 
 const DEBOUNCE_MS = 180
+/** Every failed search shares one toast: a new failure replaces it in place. */
+const SEARCH_FAILURE_TOAST_ID = 'session-search-incomplete'
 /** A chat belongs to no project, so a project scope lists the chats as well:
  *  a chat another person shared is otherwise found only in every project. */
 const CHATS = { chats: true } as const
@@ -134,8 +138,12 @@ export class ConversationSearch {
   total = $state(0)
   remaining = $state(0)
   indexing = $state(false)
-  error = $state<string | null>(null)
+  /** One entry per host that did not answer. */
+  errors = $state<SessionSearchState['errors']>([])
   private readonly pages: SessionSearch
+  /** The hosts the toast already named since the last reset: each keystroke
+   *  searches again, and a host that is down would raise it on every one. */
+  private readonly reportedFailures = new Set<string>()
   private readonly mapped = new WeakMap<import('@solus/contracts/types').SessionRecordSearchResult, SessionSearchResult>()
 
   constructor(
@@ -158,7 +166,10 @@ export class ConversationSearch {
     this.pages.search(query, homes, { namesOnly: options.namesOnly, activeSince: options.activeSince, provider: options.provider })
   }
 
-  reset(): void { this.pages.reset() }
+  reset(): void {
+    this.pages.reset()
+    this.reportedFailures.clear()
+  }
   async loadMore(): Promise<void> { await this.pages.loadMore() }
 
   private apply(): void {
@@ -168,7 +179,10 @@ export class ConversationSearch {
     this.total = state.total
     this.remaining = state.remaining
     this.indexing = state.indexing
-    this.error = state.errors.length ? state.errors.map(error => `${error.serverId}: ${error.message}`).join('; ') : null
+    if (this.errors.length !== state.errors.length) {
+      this.errors = [...state.errors]
+      this.reportFailures()
+    }
     const next = state.hits.map(({ serverId, result }) => {
       const held = this.mapped.get(result)
       if (held) return held
@@ -187,6 +201,17 @@ export class ConversationSearch {
     })
     if (this.results.length <= next.length && this.results.every((result, index) => result === next[index])) this.results.push(...next.slice(this.results.length))
     else this.results = next
+  }
+
+  /** Name every host that did not answer in one toast, when one of them is new. */
+  private reportFailures(): void {
+    const failed = this.errors.map(failure => failure.serverId)
+    if (failed.every(serverId => this.reportedFailures.has(serverId))) return
+    for (const serverId of failed) this.reportedFailures.add(serverId)
+    toasts.error('Search incomplete', {
+      id: SEARCH_FAILURE_TOAST_ID,
+      description: searchFailureSummary(failed.map(serverId => serversStore.hostFor(serverId)?.label ?? serverId)),
+    })
   }
 }
 

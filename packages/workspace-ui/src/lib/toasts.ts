@@ -1,5 +1,7 @@
 import type { Component } from "svelte"
 import { toast, type ExternalToast } from "svelte-sonner"
+import ToastDetail from "../components/ui/sonner/toast-detail.svelte"
+import { cn } from "./tw"
 
 export type ToastId = string | number
 
@@ -87,6 +89,22 @@ export async function copyText(text: string): Promise<void> {
   }
 }
 
+/** About how many characters fit on one wrapped line of a toast description. */
+const TOAST_LINE_CHARACTERS = 40
+/** A description that wraps to more lines than this opens in the toast message
+ *  dialog: a 356px toast is too narrow to read a command or a hook's output. */
+const TOAST_INLINE_LINES = 3
+
+/** Whether a description is too long to open inside its toast. */
+export function isLongToastMessage(text: string): boolean {
+  let lines = 0
+  for (const line of text.split("\n")) {
+    lines += Math.max(1, Math.ceil(line.length / TOAST_LINE_CHARACTERS))
+    if (lines > TOAST_INLINE_LINES) return true
+  }
+  return false
+}
+
 /** App-wide Sonner adapter preserving Solus deferred-commit semantics. */
 class ToastService {
   /** Every toast on screen, keyed by its Sonner ID. Sonner stacks them, and each
@@ -98,6 +116,7 @@ class ToastService {
     if (spec.id !== undefined) this.#settle(this.#active.get(spec.id), true)
 
     const actions = spec.actions?.length ? spec.actions : spec.action ? [spec.action] : []
+    const description = spec.description
     const active: ActiveToast = { onDismiss: spec.onDismiss, settled: false }
 
     const toastOptions: ExternalToast = {
@@ -105,7 +124,17 @@ class ToastService {
       class: spec.class,
       icon: spec.icon,
       closeButton: spec.closeButton,
-      description: spec.description,
+      // A long description is cut to one line; the reader can open it in place.
+      description: description === undefined ? undefined : ToastDetail,
+      componentProps:
+        description === undefined
+          ? undefined
+          : {
+              title: spec.message,
+              text: description,
+              opensDialog: isLongToastMessage(description),
+              onExpand: () => this.#expand(active, spec, description),
+            },
       duration: spec.duration,
       onDismiss: () => this.#settle(active, true),
       onAutoClose: () => this.#settle(active, true),
@@ -123,18 +152,7 @@ class ToastService {
         : undefined,
     }
 
-    const id = (() => {
-      switch (spec.variant) {
-        case "success":
-          return toast.success(spec.message, toastOptions)
-        case "error":
-          return toast.error(spec.message, toastOptions)
-        case "info":
-          return toast.info(spec.message, toastOptions)
-        default:
-          return toast(spec.message, toastOptions)
-      }
-    })()
+    const id = this.#render(spec.variant, spec.message, toastOptions)
     active.id = id
     this.#active.set(id, active)
     return id
@@ -247,6 +265,34 @@ class ToastService {
     const id = active.id
     this.#settle(active, true)
     if (id !== undefined) toast.dismiss(id)
+  }
+
+  /** Show the whole of a short description and keep the toast until the
+   *  reader closes it (a long one opens in the toast message dialog instead).
+   *  The description changes from the one-line component to the full string
+   *  because Sonner measures a toast's height again only when its title or
+   *  description changes. */
+  #expand(active: ActiveToast, spec: ToastSpec, description: string): void {
+    if (active.settled || active.id === undefined) return
+    this.#render(spec.variant, spec.message, {
+      id: active.id,
+      description,
+      duration: Number.POSITIVE_INFINITY,
+      class: cn(spec.class, "solus-toast-expanded"),
+    })
+  }
+
+  #render(variant: ToastVariant | undefined, message: string, options: ExternalToast): ToastId {
+    switch (variant) {
+      case "success":
+        return toast.success(message, options)
+      case "error":
+        return toast.error(message, options)
+      case "info":
+        return toast.info(message, options)
+      default:
+        return toast(message, options)
+    }
   }
 
   #runAction(active: ActiveToast, action: ToastAction): void {

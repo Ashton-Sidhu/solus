@@ -12,7 +12,7 @@ import { fileMentionPath } from "./fileMentions";
 import { resolveFileIcon, type FileIconToken } from "@solus/client-core/file-icons";
 
 // T3 #21403: `src/`, `docs/My Folder/`. A bare `docs` stays a plain link, as on web.
-const RELATIVE_FOLDER_LINK_PATTERN = /^(?:[A-Za-z0-9._-]+(?: +[A-Za-z0-9._-]+)*\/)+$/;
+const RELATIVE_FOLDER_LINK_PATTERN = /^(?:[A-Za-z0-9._$+@()[\]-]+(?: +[A-Za-z0-9._$+@()[\]-]+)*\/)+$/;
 
 export type MarkdownLinkPresentation =
   | {

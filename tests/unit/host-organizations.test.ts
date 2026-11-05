@@ -1,13 +1,17 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, existsSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
-import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
 import { HostCredentialError } from '@solus/server/host/host-credential'
 
 // docs/plans/organization-scope.md §3, §3.1, §6.1: the host's standing — who
 // linked it and which organizations it may deliver to, each with its policy —
 // is read from the control plane with the host's own control token (client
 // credentials with its key, ADR 0001 §2.2 rule 8), kept between reads, and
-// refreshed on a timer so a policy change reaches the host without a restart.
+// refreshed every minute with an ETag so a policy change reaches the host within
+// about a minute. The last answer is kept on disk, so a host that restarts offline
+// keeps enforcing what it last saw (plans/030 §5.2).
 
 let organizations: typeof import('@solus/server/host/organizations')
 let hostCategory: typeof import('@solus/server/host/host-category')
@@ -30,16 +34,17 @@ const STANDING: HostOrganizationsResponse = {
   category: 'personal',
   owner: { userId: 'alice', email: 'alice@example.test', name: 'Alice' },
   organizations: [
-    { organizationId: 'A', name: 'Acme', shared: true, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: true } },
-    { organizationId: 'B', name: 'Bolt', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: false, syncAllInsights: false } },
+    { organizationId: 'A', name: 'Acme', shared: true, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true }, policy: { schemaVersion: 1, organization: { name: 'Acme' } }, hostPolicy: null },
+    { organizationId: 'B', name: 'Bolt', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: false }, policy: { schemaVersion: 1, organization: { name: 'Bolt' } }, hostPolicy: null },
   ],
+  hostOwnerOrganizationId: null,
 }
 
-type Answer = { status: number; body: unknown } | 'unreachable'
+type Answer = { status: number; body: unknown; etag?: string } | 'unreachable'
 
 /** The control plane, one answer at a time, and the timers the registry set. */
-function registry(answers: Answer[], linked = true, key: { refused: boolean } = { refused: false }) {
-  const requests: Array<{ url: string; authorization: string | null }> = []
+function registry(answers: Answer[], linked = true, key: { refused: boolean } = { refused: false }, cachePath?: string) {
+  const requests: Array<{ url: string; authorization: string | null; ifNoneMatch?: string }> = []
   const timers: number[] = []
   const changes: Array<HostStanding | null> = []
   const refusals: number[] = []
@@ -54,14 +59,17 @@ function registry(answers: Answer[], linked = true, key: { refused: boolean } = 
     }),
     fetchImpl: async (url, init) => {
       const headers = new Headers(init?.headers)
-      requests.push({ url: String(url), authorization: headers.get('authorization') })
+      const ifNoneMatch = headers.get('if-none-match')
+      requests.push({ url: String(url), authorization: headers.get('authorization'), ...(ifNoneMatch ? { ifNoneMatch } : {}) })
       const answer = answers.shift()
       if (!answer) throw new Error('The test gave no answer for this request.')
       if (answer === 'unreachable') throw new Error('connect ECONNREFUSED')
-      return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json' } })
+      if (answer.status === 304) return new Response(null, { status: 304 })
+      return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json', ...(answer.etag ? { etag: answer.etag } : {}) } })
     },
     setTimeoutFn: ((_fn: () => void, ms: number) => { timers.push(ms); return { unref() {} } }) as unknown as typeof setTimeout,
     clearTimeoutFn: (() => {}) as typeof clearTimeout,
+    ...(cachePath ? { cachePath } : {}),
   })
   instance.onChanged((standing) => changes.push(standing))
   return { instance, requests, timers, changes, refusals }
@@ -78,13 +86,10 @@ describe('the host\'s standing', () => {
     expect(instance.organizations().map((entry) => entry.organizationId)).toEqual(['A', 'B'])
     expect(instance.organization('A')).toMatchObject({ name: 'Acme', shared: true })
     expect(instance.organization('Z')).toBeNull()
-    expect(instance.policyFor('B')).toEqual({ allowsCloudHosts: true, allowsPersonalHosts: false, syncAllInsights: false })
-    // An organization the host has not heard of has the defaults; Local has no policy at all.
-    expect(instance.policyFor('Z')).toEqual(DEFAULT_ORGANIZATION_POLICY)
-    expect(instance.policyFor('local')).toBeNull()
+    expect(instance.organization('B')?.hostRules).toEqual({ allowsCloudHosts: true, allowsPersonalHosts: false })
     expect(instance.owner()).toEqual({ userId: 'alice', email: 'alice@example.test', name: 'Alice' })
     // A good answer schedules the periodic refresh.
-    expect(timers).toEqual([5 * 60_000])
+    expect(timers).toEqual([60_000])
   })
 
   test('onChanged fires only when the standing changed, not on every refresh', async () => {
@@ -106,7 +111,7 @@ describe('the host\'s standing', () => {
     expect(instance.organizations()).toEqual([])
     expect(instance.owner()).toBeNull()
     expect(changes.map((standing) => standing?.hostId ?? null)).toEqual(['H', null])
-    expect(timers).toEqual([5 * 60_000])
+    expect(timers).toEqual([60_000])
   })
 
   test('a refused registration is reported, so the registrar forgets it and the owner\'s client registers the host again', async () => {
@@ -154,7 +159,7 @@ describe('the host\'s standing', () => {
     await instance.refresh()
     expect(instance.organizations().map((entry) => entry.organizationId)).toEqual(['A', 'B'])
     expect(changes).toHaveLength(1)
-    expect(timers).toEqual([5 * 60_000, 30_000, 30_000])
+    expect(timers).toEqual([60_000, 30_000, 30_000])
   })
 
   test('an unlinked host stands in no organization and asks nothing; a link change forgets the standing and asks again', async () => {
@@ -173,5 +178,51 @@ describe('the host\'s standing', () => {
     expect(linked.requests).toHaveLength(2)
     expect(linked.instance.organizations()).toHaveLength(2)
     expect(linked.changes).toHaveLength(3)
+  })
+})
+
+describe('policy delivery (plans/030 §5.2)', () => {
+  test('an unchanged standing answers 304 to the ETag: the host keeps what it has and asks again in a minute', async () => {
+    // WHY: hosts poll every minute; an idle poll must cost the control plane almost nothing.
+    const { instance, requests, timers, changes } = registry([{ status: 200, body: STANDING, etag: '"r1"' }, { status: 304, body: null }])
+    await instance.refresh()
+    await instance.refresh()
+    expect(requests[0]?.ifNoneMatch).toBeUndefined()
+    expect(requests[1]?.ifNoneMatch).toBe('"r1"')
+    expect(instance.organizations()).toHaveLength(2)
+    expect(changes).toHaveLength(1)
+    expect(timers).toEqual([60_000, 60_000])
+  })
+
+  test('the last answer is kept on disk and loaded before the first read, so an offline restart keeps its policies', async () => {
+    // WHY: without the copy, a host restarted offline would run with no cloud host policy until it reached the cloud.
+    const dir = mkdtempSync(join(tmpdir(), 'solus-standing-'))
+    const cachePath = join(dir, 'organization-standing.json')
+    try {
+      const online = registry([{ status: 200, body: STANDING, etag: '"r1"' }], true, { refused: false }, cachePath)
+      await online.instance.refresh()
+      expect(statSync(cachePath).mode & 0o777).toBe(0o600)
+      const restarted = registry(['unreachable'], true, { refused: false }, cachePath)
+      expect(restarted.instance.organizations().map((entry) => entry.organizationId)).toEqual(['A', 'B'])
+      await restarted.instance.refresh()
+      expect(restarted.instance.organizations()).toHaveLength(2)
+      expect(restarted.requests[0]?.ifNoneMatch).toBe('"r1"')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a refused registration deletes the copy: a host that is no longer registered keeps no organization policies', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-standing-'))
+    const cachePath = join(dir, 'organization-standing.json')
+    try {
+      const { instance } = registry([{ status: 200, body: STANDING }, { status: 401, body: {} }], true, { refused: false }, cachePath)
+      await instance.refresh()
+      expect(existsSync(cachePath)).toBe(true)
+      await instance.refresh()
+      expect(existsSync(cachePath)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

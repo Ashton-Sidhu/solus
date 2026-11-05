@@ -1,7 +1,10 @@
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
+import { isPermissionModeAbove } from '@solus/contracts/policy'
+import type { PermissionMode } from '@solus/contracts/types'
+import type { WorkPolicy } from '@solus/contracts/host-policies'
 
 /** What the refused person can do next. */
-export type TurnRefusalAction = 'choose-organization' | 'sign-in' | 'none'
+export type TurnRefusalAction = 'choose-organization' | 'sign-in' | 'lower-mode' | 'none'
 
 export interface TurnRefusalCopy {
   title: string
@@ -35,5 +38,34 @@ export function turnRefusalCopy(code: TurnRefusal, input: { signedIn: boolean; a
       return { title: 'This machine cannot act for you yet', hint: 'Sign in to Solus again so this machine can act for you, then send again.', action: 'sign-in' }
     case 'WORKSPACE_PREPARING':
       return { title: 'Setting up your workspace for the first time', hint: 'Send again in a moment.', action: 'none' }
+    // A policy refusal (plans/030 §6.1): the host's message names the policy and its rule.
+    case 'PERMISSION_MODE_ABOVE_LIMIT':
+      return { title: 'This permission mode is not allowed', hint: 'Lower the mode, then send again.', action: 'lower-mode' }
+    case 'PROVIDER_NOT_ALLOWED':
+      return { title: 'This agent is not allowed', hint: 'Choose another agent, then send again.', action: 'none' }
+    case 'MODEL_NOT_ALLOWED':
+      return { title: 'This model is not allowed', hint: 'Choose another model, then send again.', action: 'none' }
+    case 'SETTING_MANAGED':
+      return { title: 'This setting is managed', hint: 'The policy sets this value. You cannot change it here.', action: 'none' }
+    case 'REMOTE_ACCESS_NOT_ALLOWED':
+      return { title: 'Remote access is not allowed', hint: 'Use Solus on the machine that runs this host.', action: 'none' }
+    case 'CLOUD_TUNNEL_NOT_ALLOWED':
+      return { title: 'The Solus Cloud tunnel is not allowed', hint: 'Connect to this host in a different way.', action: 'none' }
+    case 'UPDATES_MANAGED':
+      return { title: 'Updates are managed', hint: 'Your organization installs Solus updates.', action: 'none' }
+    case 'POLICY_UNAVAILABLE':
+      return { title: 'This host has no policy for this work yet', hint: '', action: 'none' }
+    case 'POLICY_UNENFORCEABLE':
+      return { title: 'This host cannot apply the policy', hint: '', action: 'none' }
   }
+}
+
+/**
+ * The mode "Lower the mode" sets after a PERMISSION_MODE_ABOVE_LIMIT refusal:
+ * the ceiling, the highest mode the policy allows. Null when the client does
+ * not know a ceiling that `current` is above, so the card offers no action.
+ */
+export function loweredPermissionMode(policy: WorkPolicy, current: PermissionMode): PermissionMode | null {
+  const ceiling = policy.ceiling()
+  return ceiling && isPermissionModeAbove(current, ceiling.value) ? ceiling.value : null
 }

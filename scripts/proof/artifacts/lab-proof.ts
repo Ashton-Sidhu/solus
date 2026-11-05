@@ -14,7 +14,8 @@ import { SOLUS_API_AUDIENCE } from '../../../packages/contracts/src/uplink'
 import { createHash } from 'node:crypto'
 const artifactsRepositoryName = (organizationId: string, workId: string) => `work-${createHash('sha256').update(JSON.stringify([organizationId,workId])).digest('hex').slice(0,48)}`
 import { bytesToBase64, base64ToBytes } from '../../../packages/contracts/src/work-live'
-import { writeDiagramToY } from '../../../packages/contracts/src/diagram-live'
+import { DOCUMENT_SCHEMA_VERSION } from '../../../packages/document-model/src/schema'
+import { absorbIntoLiveDoc } from '../../../packages/server/src/work-live/live-codec'
 const evidence = join(process.cwd(), '.solus-local/lab-cloud/evidence/artifacts')
 mkdirSync(evidence, { recursive: true })
 const authHome = process.env.SOLUS_LAB_AUTH_HOME ?? homedir()
@@ -42,10 +43,10 @@ try {
  for (const c of [alice,bob,carol]) check(`${c.persona.id} admitted`, (await c.connect()).ok)
  const db = new Database(join(service.dataDir, 'solus.db'), { readonly: true })
  const archived = async (id: string, generation?: number) => until(async () => z.object({commit_id:z.string().nullable(),generation:z.number(),archived_generation:z.number()}).nullable().parse(db.query('SELECT commit_id, generation, archived_generation FROM work_storage WHERE work_id = ?').get(id)), row => !!row?.commit_id && row.generation === row.archived_generation && (generation === undefined || row.generation >= generation))
- const workTypes: ('doc'|'diagram'|'slides'|'artifact')[] = process.env.PUBLICATION_ONLY === '1' ? [] : ['doc','diagram','slides','artifact']
+ const workTypes: ('doc'|'slides'|'artifact')[] = process.env.PUBLICATION_ONLY === '1' ? [] : ['doc','slides','artifact']
  for (const type of workTypes) {
-  const before = type === 'diagram' ? '{"nodes":[],"edges":[]}' : type === 'artifact' ? '<html><body>Original</body></html>' : '# Original\n\n'
-  const after = type === 'diagram' ? '{"nodes":[{"id":"a","label":"Edited"}],"edges":[]}' : type === 'artifact' ? '<html><body>Changed</body></html>' : '# Changed\n\n'
+  const before = type === 'artifact' ? '<html><body>Original</body></html>' : '# Original\n\n'
+  const after = type === 'artifact' ? '<html><body>Changed</body></html>' : '# Changed\n\n'
   const work = await alice.records.createWork(`Lab ${type}`,type,before,'',undefined,'codex')
   owned.push(work.id); const repo = artifactsRepositoryName(ORGANIZATION_ID,work.id)
   const first = await archived(work.id)
@@ -60,20 +61,20 @@ try {
   await alice.rpc('restoreWorkRevision',work.id,initial.revisionId,current.contentVersion)
   check(`${type}: bob sees restored content`, (await bob.records.loadWork(work.id))?.content === before)
   await archived(work.id)
-  if (type === 'diagram') {
+  if (type === 'doc') {
    const docs = [new Y.Doc(),new Y.Doc()]
-   const opened = await Promise.all([alice,bob].map((c,i)=>c.rpc('workLiveOpen',{workId:work.id,clientKey:`lab-client-${i}`,schemaVersion:1,stateVector:bytesToBase64(Y.encodeStateVector(docs[i]!))})))
-   for(let i=0;i<2;i++) { const o=opened[i]!; check(`diagram: client ${i} live edit allowed`,o.mode==='edit'); if(o.mode!=='unsupported') Y.applyUpdate(docs[i]!,base64ToBytes(o.update)) }
-   const vector=Y.encodeStateVector(docs[0]!); writeDiagramToY(docs[0]!,{nodes:[{id:'live',label:'Alice live edit'}],edges:[]})
+   const opened = await Promise.all([alice,bob].map((c,i)=>c.rpc('workLiveOpen',{workId:work.id,clientKey:`lab-client-${i}`,schemaVersion:DOCUMENT_SCHEMA_VERSION,stateVector:bytesToBase64(Y.encodeStateVector(docs[i]!))})))
+   for(let i=0;i<2;i++) { const o=opened[i]!; check(`doc: client ${i} live edit allowed`,o.mode==='edit'); if(o.mode!=='unsupported') Y.applyUpdate(docs[i]!,base64ToBytes(o.update)) }
+   const vector=Y.encodeStateVector(docs[0]!); absorbIntoLiveDoc(docs[0]!,'# Alice live edit\n\n','lab-client-0')
    const event=bob.waitForEvent('workLive.update',e=>e.payload.workId===work.id)
    const receipt=await alice.rpc('workLivePush',{workId:work.id,clientKey:'lab-client-0',seq:1,update:bytesToBase64(Y.encodeStateAsUpdate(docs[0]!,vector))})
-   check('diagram: live push acknowledged',receipt.status==='accepted')
-   check('diagram: bob receives live update',(await event).payload.workId===work.id)
+   check('doc: live push acknowledged',receipt.status==='accepted')
+   check('doc: bob receives live update',(await event).payload.workId===work.id)
    await until(()=>bob.records.loadWork(work.id),w=>!!w?.content?.includes('Alice live edit'))
-   check('diagram: bob reads live body',true)
+   check('doc: bob reads live body',true)
    const final=await archived(work.id)
-   const content=await (await request(repo,`/file?${new URLSearchParams({ref:final!.commit_id!,path:'content.json'})}`)).text()
-   check('diagram: Cloudflare archives live edit',content.includes('Alice live edit'))
+   const content=await (await request(repo,`/file?${new URLSearchParams({ref:final!.commit_id!,path:'content.md'})}`)).text()
+   check('doc: Cloudflare archives live edit',content.includes('Alice live edit'))
   }
   check(`${type}: another organization cannot read`,(await carol.records.loadWork(work.id))===null)
  }

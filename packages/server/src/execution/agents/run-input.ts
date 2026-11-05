@@ -1,3 +1,5 @@
+import { hostPolicies, EXECUTION_SETTING_KEYS } from '../../host/policy/host-policy-store'
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import type { ProviderConversation } from './agent-runner'
 import type { AgentId, IpcContext, SessionRunInput } from '@solus/contracts/types'
 import { MODEL_PROFILES } from '@solus/contracts/types'
@@ -58,9 +60,14 @@ export function parseExecutionPreferences(sent: ExecutionPreferences | undefined
   return parsed.data
 }
 
-/** The preferences a client sent with its context. */
-export function contextPreferences(ctx: Pick<IpcContext, 'settings'>): ExecutionPreferences {
-  return parseExecutionPreferences(ctx.settings.executionPreferences) ?? {}
+/**
+ * The preferences a client sent with its context, with the settings a policy of
+ * the user's active organization locks laid over them (plans/030 §6.6). The
+ * person's stored settings never change.
+ */
+export function contextPreferences(ctx: Pick<IpcContext, 'settings'> & { session?: Pick<IpcContext['session'], 'organizationId'> }): ExecutionPreferences {
+  const sent = parseExecutionPreferences(ctx.settings.executionPreferences) ?? {}
+  return hostPolicies().forWork(ctx.session?.organizationId ?? LOCAL_ORGANIZATION_ID).withLocks(sent, EXECUTION_SETTING_KEYS)
 }
 
 /**

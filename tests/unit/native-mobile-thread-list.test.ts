@@ -196,6 +196,24 @@ describe('thread list rows', () => {
     expect(resolveThreadListV2Status({ status: 'interrupted' }, undefined)).toBe('ready')
   })
 
+  test('a waiting non-blocking question shows input whether the run works or has finished', () => {
+    // WHY: a Codex message-mode question leaves the status at running or
+    // completed; the person must still see that the session needs them.
+    expect(resolveThreadListV2Status({ status: 'running' }, 'running', true)).toBe('input')
+    expect(resolveThreadListV2Status({ status: 'idle' }, 'completed', true)).toBe('input')
+    expect(resolveThreadListV2Status({ status: 'idle' }, 'completed', false)).toBe('ready')
+    expect(resolveThreadListV2Status({ status: 'idle' }, 'awaiting_plan', true)).toBe('approval')
+  })
+
+  test('after a reconnect the record says a question waits until a live status says more', () => {
+    // WHY: a reset drops the live statuses; the list read again is all the
+    // client knows. A live status that follows carries its own question fact.
+    expect(resolveThreadListV2Status({ status: 'running', hasPendingQuestion: true }, undefined)).toBe('input')
+    expect(resolveThreadListV2Status({ status: 'idle', hasPendingQuestion: true }, undefined)).toBe('input')
+    expect(resolveThreadListV2Status({ status: 'idle', hasPendingQuestion: true }, 'completed')).toBe('ready')
+    expect(resolveThreadListV2Status({ status: 'running' }, undefined)).toBe('working')
+  })
+
   test('an archived row swipes to Return to List and offers no snooze', () => {
     expect(resolveThreadListV2SwipeActions({ variant: 'slim', snoozable: true, archived: true })).toEqual({ primary: 'unarchive', secondary: null })
     expect(resolveThreadListV2SwipeActions({ variant: 'card', snoozable: true })).toEqual({ primary: 'settle', secondary: 'snooze' })
@@ -404,6 +422,25 @@ describe('thread list state', () => {
     host.events.receive({ type: 'session.statusChanged', payload: { sessionId: 's2', agentSessionId: 'p2', status: 'awaiting_input', at: NOW }, occurredAt: NOW })
     expect(list.facts().liveStatus.get(threadKey('h', 's2'))).toBe('awaiting_input')
     expect(list.facts().liveStatus.get(threadKey('h', 'p2'))).toBe('awaiting_input')
+  })
+
+  test('a reset ends a Working row the host finished while away, and a later live status wins', () => {
+    // WHY: the completion event was missed while disconnected. After a reset
+    // the record read again decides; a status heard after it is newer.
+    const host = fakeConnection()
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    list.follow('h')
+    const thread = shell('h', 's1', { status: 'idle' })
+    // The row's status as `buildThreadListV2ListItems` reads it.
+    const statusOf = () => [resolveThreadListV2Status(thread.record, list.facts().liveStatus.get(thread.key), list.facts().pendingQuestions?.has(thread.key) || undefined)]
+    host.events.receive({ type: 'session.statusChanged', payload: { sessionId: 's1', agentSessionId: null, status: 'running', at: NOW }, occurredAt: NOW })
+    expect(statusOf()).toEqual(['working'])
+
+    for (const reset of host.resets) reset()
+    expect(statusOf()).toEqual(['ready'])
+
+    host.events.receive({ type: 'session.statusChanged', payload: { sessionId: 's1', agentSessionId: null, status: 'running', at: NOW + 1 }, occurredAt: NOW + 1 })
+    expect(statusOf()).toEqual(['working'])
   })
 
   test('a state event moves one row and reads nothing back', () => {

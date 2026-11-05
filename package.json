@@ -52,11 +52,11 @@
     "generate:icon": "bun scripts/generate-icon.ts",
     "generate:app-icons": "bun scripts/generate-app-icons.ts",
     "dist:linux": "bun run build:desktop && bun run build:client && electron-builder --linux --x64",
-    "dist:win": "bun run build:desktop && bun run build:client && electron-builder --win --x64"
+    "dist:win": "bun run build:desktop && bun run build:client && electron-builder --win --x64",
+    "voice:build": "bun scripts/build-transcription.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.316",
-    "@dagrejs/dagre": "^3.1.1",
     "@ff-labs/fff-node": "^0.11.0",
     "@homebridge/dbus-native": "^0.7.9",
     "@hono/node-server": "^2.1.1",
@@ -76,12 +76,9 @@
     "google-auth-library": "^11.0.2",
     "hono": "^4.13.7",
     "marked": "^18.0.11",
-    "onnxruntime-node": "^1.29.0",
     "pngjs": "^7.0.0",
     "postgres": "^3.4.9",
     "posthog-node": "^5.51.7",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
     "ws": "^8.21.0",
     "zod": "^4.5.4"
   },
@@ -89,7 +86,6 @@
     "fast-uri": "3.1.7",
     "prosemirror-model": "1.25.11",
     "qs": "6.16.0",
-    "socket.io-parser": "4.2.7",
     "react-native": "0.88.0",
     "react-native-screens": "file:deps/react-native-screens-5.0.0-t3.27.tgz",
     "react-native-worklets": "0.13.0"
@@ -113,8 +109,7 @@
     ],
     "asarUnpack": [
       "node_modules/@ff-labs/fff-bin-*/**/*",
-      "node_modules/@yuuang/ffi-rs-*/**/*",
-      "node_modules/onnxruntime-node/bin/**/*"
+      "node_modules/@yuuang/ffi-rs-*/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -152,9 +147,7 @@
         "package.json",
         "!**/*.map",
         "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/!(darwin)/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/!(${arch})/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/*/libonnxruntime.*.*.dylib"
+        "!node_modules/onnxruntime-node/**/*"
       ]
     },
     "dmg": {
@@ -183,6 +176,10 @@
       ],
       "extraResources": [
         {
+          "from": "build/transcription/bin",
+          "to": "transcription"
+        },
+        {
           "from": "packaging/windows/path-entry.ps1",
           "to": "path-entry.ps1"
         }
@@ -196,9 +193,8 @@
         "package.json",
         "!**/*.map",
         "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/!(win32)/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/win32/!(${arch})/**/*",
-        "!node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**/*"
+        "!node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**/*",
+        "!node_modules/onnxruntime-node/**/*"
       ]
     },
     "nsis": {
@@ -236,12 +232,18 @@
         "package.json",
         "!**/*.map",
         "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/!(linux)/**/*",
-        "!node_modules/onnxruntime-node/bin/napi-v6/linux/!(${arch})/**/*",
         "!node_modules/@ff-labs/fff-bin-*-musl/**/*",
-        "!node_modules/@yuuang/ffi-rs-*-musl/**/*"
+        "!node_modules/@yuuang/ffi-rs-*-musl/**/*",
+        "!node_modules/onnxruntime-node/**/*"
       ]
-    }
+    },
+    "beforePack": "./scripts/beforePack.js",
+    "extraResources": [
+      {
+        "from": "build/transcription/bin",
+        "to": "transcription"
+      }
+    ]
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -307,7 +309,6 @@
     "@types/hast": "^3.0.5",
     "@types/mdast": "^4.0.4",
     "@types/pngjs": "^6.0.5",
-    "@xyflow/svelte": "^1.6.6",
     "bits-ui": "^2.19.0",
     "bun-types": "^1.3.14",
     "clsx": "^2.1.1",
@@ -317,13 +318,12 @@
     "dompurify": "^3.4.15",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
-    "electron": "^42.11.16",
+    "electron": "^44.10.2",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "embla-carousel-svelte": "^8.6.0",
     "geist": "^1.7.2",
     "hast-util-to-html": "^9.0.5",
-    "html-to-image": "1.11.11",
     "jsdom": "^29.1.1",
     "layerchart": "^2.4.0",
     "lowlight": "^3.3.0",

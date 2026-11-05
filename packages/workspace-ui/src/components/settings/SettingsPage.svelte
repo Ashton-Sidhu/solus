@@ -13,7 +13,8 @@
     Keyboard as KeyboardIcon,
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
-    Bot as ProvidersIcon,
+    Cpu as ProvidersIcon,
+    MessagesSquare as SessionsIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
@@ -24,6 +25,7 @@
     UserRound as PersonIcon,
     Contact as AgentProfileIcon,
     Building2 as OrganizationIcon,
+    ShieldCheck as PolicyIcon,
     Server as HostIcon,
     Plug as PlugIcon,
     Blocks as McpIcon,
@@ -74,6 +76,7 @@
   import { agentProfileSearchWords } from "./agent-profile/lib/agent-profile-entries";
   import SettingsTabHost, { searchWords as hostSearch } from "./SettingsTabHost.svelte";
   import SettingsTabOrganization, { searchWords as organizationSearch } from "./SettingsTabOrganization.svelte";
+  import PolicyPage, { searchWords as policySearch } from "./policy/PolicyPage.svelte";
   import DeviceSettings from "../devices/DeviceSettings.svelte";
   import SettingsTabWebhooks, { searchWords as webhooksSearch } from "../webhooks/SettingsTabWebhooks.svelte";
   import { settingsHost } from "./lib/settings-host.svelte";
@@ -171,7 +174,7 @@
       id: "sessions",
       label: "Sessions",
       description: "New-session defaults, model routing, and agent behavior.",
-      icon: ProvidersIcon,
+      icon: SessionsIcon,
       group: "Agents",
     },
     {
@@ -248,8 +251,15 @@
     {
       id: "organization",
       label: "Organization",
-      description: "Whether your organization syncs all Insights of its work.",
+      description: "Your organization's projects in Solus Cloud.",
       icon: OrganizationIcon,
+      group: "Connections",
+    },
+    {
+      id: "policy",
+      label: "Policy",
+      description: "What sessions may do and which settings are locked, on this host and for your organization's work.",
+      icon: PolicyIcon,
       group: "Connections",
     },
     {
@@ -296,6 +306,7 @@
     account: accountSearch,
     "agent-profile": agentProfileSearch,
     organization: organizationSearch,
+    policy: policySearch,
     general: keywordsOf(generalSearch),
     chat: keywordsOf(chatSearch),
     sessions: keywordsOf(sessionsSearch),
@@ -539,6 +550,8 @@
     <SettingsTabAgentProfile searchQuery={pageQuery} />
   {:else if session.settingsTab === "organization"}
     <SettingsTabOrganization searchQuery={pageQuery} />
+  {:else if session.settingsTab === "policy"}
+    <PolicyPage searchQuery={pageQuery} serverId={selectedSettingsHost?.serverId ?? null} />
   {:else if session.settingsTab === "host" && selectedSettingsHost}
     <SettingsTabHost searchQuery={pageQuery} serverId={selectedSettingsHost.serverId} />
   {:else if session.settingsTab === "appearance"}

@@ -116,7 +116,7 @@ interface SessionTranscriptLoadResult {
 // field, not the whole tool-input record (the card would lose its title).
 const createWorkInputSchema = z.object({
   title: z.string().optional(),
-  doc_type: z.enum(['doc', 'slides', 'diagram']).optional().catch(undefined),
+  doc_type: z.enum(['doc', 'slides']).optional().catch(undefined),
 })
 
 const automationInputSchema = z.object({
@@ -385,7 +385,7 @@ export function materializeSessionTranscript(
       // work card. The real id lived in the dropped tool result, so resolve by title.
       messages.push(msg)
       let title = 'Untitled'
-      let docType: 'doc' | 'slides' | 'diagram' = 'doc'
+      let docType: 'doc' | 'slides' = 'doc'
       try {
         const input = createWorkInputSchema.parse(JSON.parse(m.toolInput || '{}'))
         if (input.title) title = input.title

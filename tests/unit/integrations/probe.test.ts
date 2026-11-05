@@ -21,8 +21,17 @@ function rpcResult(id: number | undefined, result: object): Response {
   return Response.json({ jsonrpc: '2.0', id, result })
 }
 
+/** The chunks of one event, on a stream that stays open after the answer. */
+function openEventStream(chunks: string[]): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk))
+    },
+  })
+}
+
 /** A working MCP server: JSON for initialize, an event stream for tools/list. */
-async function anonymousServer(request: Request): Promise<Response> {
+async function anonymousServer(request: Request, frame?: (event: string) => string[]): Promise<Response> {
   const message = await request.json() as RpcMessage
   if (message.method === 'initialize') {
     return new Response(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'fake' } } }), {
@@ -32,7 +41,7 @@ async function anonymousServer(request: Request): Promise<Response> {
   if (message.method === 'notifications/initialized') return new Response(null, { status: 202 })
   if (request.headers.get('mcp-session-id') !== 'session-1') return new Response('no session', { status: 400 })
   const event = `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools: TOOLS } })}\n\n`
-  return new Response(event, { headers: { 'content-type': 'text/event-stream' } })
+  return new Response(frame ? openEventStream(frame(event)) : event, { headers: { 'content-type': 'text/event-stream' } })
 }
 
 beforeAll(() => {
@@ -45,6 +54,12 @@ beforeAll(() => {
         case '/anonymous/mcp':
           if (request.method === 'DELETE') return new Response(null, { status: 204 })
           return anonymousServer(request)
+        case '/cr-events/mcp':
+          if (request.method === 'DELETE') return new Response(null, { status: 204 })
+          return anonymousServer(request, (event) => [event.replaceAll('\n', '\r')])
+        case '/split-crlf-events/mcp':
+          if (request.method === 'DELETE') return new Response(null, { status: 204 })
+          return anonymousServer(request, (event) => event.replaceAll('\n', '\r\n').split(/(?<=\r)/))
         case '/oauth/mcp':
           return new Response('sign in', { status: 401, headers: { 'www-authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/oauth/mcp"` } })
         case '/.well-known/oauth-protected-resource/oauth/mcp':
@@ -96,6 +111,13 @@ describe('MCP probe', () => {
       { kind: 'request', method: 'initialize', status: 200, media: 'json', answer: 'result' },
       { kind: 'request', method: 'tools/list', status: 200, media: 'event-stream', answer: 'result' },
     ])
+  })
+
+  // WHY: the answer is the last thing on a stream that stays open. A reader that
+  // waits for LF, or for the byte after a CR, never returns it.
+  test.each(['/cr-events/mcp', '/split-crlf-events/mcp'])('an event stream that ends its lines another way still answers: %s', async (path) => {
+    const result = await probeMcpServer(`${base}${path}`, { ...options, timeoutMs: 1_000 })
+    expect(result).toMatchObject({ outcome: 'anonymous', tools: [{ name: 'read_wiki' }, { name: 'delete_page' }] })
   })
 
   test('a 401 whose challenge names resource metadata with dynamic registration is oauth/dynamic', async () => {

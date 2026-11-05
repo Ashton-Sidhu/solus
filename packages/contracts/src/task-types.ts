@@ -320,9 +320,9 @@ export interface TaskComment {
 
 /** What a task can be linked to. `work` is the storage noun for what the
  *  picker labels "Docs" (the `works` table, `WorkReference`); the renderer maps
- *  at that one boundary. `session` is deliberately absent: session bindings
- *  keep living in `task_session_links`, which carries role/branch/injection
- *  state a plain link cannot. */
+ *  at that one boundary. `session` is deliberately absent: a session binding is
+ *  the task's `works-on` or `reference` edge, which carries a role a plain link
+ *  cannot (`TaskSessionLink`). */
 export type TaskLinkKind = 'work' | 'plan' | 'pr' | 'automation'
 
 /** An explicit edge from a task to another workspace object.
@@ -404,7 +404,7 @@ export interface TaskLinkInput {
 
 /** What a `task_changed` activity says changed. Interleaved with
  *  `TaskComment[]` to build the feed. Comments deliberately have no activity of
- *  their own — `task_comments` already is that log, and a mirrored row would be
+ *  their own — their `comment_threads` rows already are that log, and a mirrored row would be
  *  a second thing to keep in sync. */
 export type TaskEventKind =
   | 'created'
@@ -510,8 +510,12 @@ export interface TaskSnapshot {
   linked?: TaskLinkedItemSnapshot[]
 }
 
+/** A task as a list shows it: every field of `Task` but the body and the epic,
+ *  which only the detail read carries (plans/029 §8). */
+export type TaskSummary = Omit<Task, 'body' | 'epic'>
+
 export interface TaskSidebarSnapshot {
-  tasks: Task[]
+  tasks: TaskSummary[]
   sessionsByTask: Record<string, TaskSessionLink[]>
   /** Every durable PR edge, newest first. The first entry is the newest link. */
   prLinkListsByTask?: Record<string, TaskSidebarPrLink[]>
@@ -697,7 +701,6 @@ export interface TaskSessionLink {
    *  about the session. Only an isolated one may claim a pull request.
    *  Undefined where the session is not indexed yet, which claims nothing. */
   isolatedCheckout?: boolean
-  pr?: TaskPr
   /** Epoch ms the link was recorded; drives "most recent session" ordering. */
   linkedAt: number
   /** Who started the session. Absent when nobody recorded it. */

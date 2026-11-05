@@ -143,7 +143,7 @@ bun scripts/test-unit.ts \
   markdown-image.test.ts \
   runtime-instructions.test.ts \
   session-transcript-rehydration.test.ts \
-  socket-io-transport.test.ts
+  host-socket-transport.test.ts
 ```
 
 Expected: **17 passed, 0 failed files**. The runner isolates each test file and uses disposable data. This command excludes the real Chromium encoder test and does not launch the app.

@@ -28,7 +28,7 @@ const MAX_PENDING_MESSAGES = 64
 const IOS_MSG_HARDWARE_KEYBOARD = 0x0d
 
 /** The proxy's own routes. The client never sees a hub path. */
-export type DeviceHubRoute = 'video.avcc' | 'video.mjpeg' | 'socket' | 'config' | 'offer' | 'close'
+export type DeviceHubRoute = 'video.avcc' | 'video.mjpeg' | 'socket'
 
 const tokenSchema = z.object({
   purpose: z.literal('device-hub'),
@@ -52,30 +52,6 @@ export interface DeviceHubProxyDeps {
   holdsControl: (target: DeviceControlTarget, clientId: string) => boolean
   secret?: () => Buffer
   now?: () => number
-}
-
-/** Only a bounded SDP offer or close request may reach a preview host. */
-async function readPeerBody(request: Request | undefined, route: string): Promise<string | undefined> {
-  if (!request?.body) return undefined
-  const reader = request.body.getReader()
-  const chunks: Uint8Array[] = []
-  let size = 0
-  try {
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      size += value.byteLength
-      if (size > 128 * 1024) { await reader.cancel(); return undefined }
-      chunks.push(value)
-    }
-    const bytes = new Uint8Array(size)
-    let offset = 0
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
-    const schema = route === 'offer'
-      ? z.object({ type: z.literal('offer'), sdp: z.string().max(120_000), sessionId: z.string().max(128), codec: z.literal('h264') })
-      : z.object({ sessionId: z.string().max(128) })
-    return JSON.stringify(schema.parse(JSON.parse(new TextDecoder().decode(bytes))))
-  } catch { return undefined } finally { reader.releaseLock() }
 }
 
 export class DeviceHubProxy {
@@ -132,24 +108,13 @@ export class DeviceHubProxy {
   async serve(token: string, route: string, signal: AbortSignal, request?: Request): Promise<Response> {
     const payload = this.read(token)
     if (!payload) return new Response('This device link expired.', { status: 403 })
-    const mutation = route === 'offer' || route === 'close'
-    if (!['video.avcc', 'video.mjpeg', 'config', 'offer', 'close'].includes(route)
-      || (request?.method ?? 'GET') !== (mutation ? 'POST' : 'GET')) return new Response('Not found', { status: 404 })
-    const body = mutation ? await readPeerBody(request, route) : undefined
-    if (mutation && !body) return new Response('Invalid offer', { status: 400 })
+    if (!['video.avcc', 'video.mjpeg'].includes(route)
+      || (request?.method ?? 'GET') !== 'GET') return new Response('Not found', { status: 404 })
     const endpoint = await this.endpoint(payload, route, this.upstreamPath(payload, route)).catch(() => null)
     if (!endpoint) return new Response('This device route is unavailable.', { status: 404 })
     const requestHeaders = new Headers(endpoint.headers)
-    if (mutation) requestHeaders.set('content-type', 'application/json')
-    const upstream = await fetch(endpoint.url, { signal, method: mutation ? 'POST' : 'GET', headers: requestHeaders, body }).catch(() => null)
+    const upstream = await fetch(endpoint.url, { signal, headers: requestHeaders }).catch(() => null)
     if (!upstream) return new Response('The device hub did not answer.', { status: 502 })
-    if (route === 'config') {
-      // The preview /api can contain shell credentials. Forward only WebRTC settings.
-      const ice = z.object({ urls: z.union([z.string(), z.array(z.string())]), username: z.string().optional(), credential: z.string().optional() })
-      const settings = z.object({ transport: z.literal('webrtc'), iceServers: z.array(ice).optional(), iceTransportPolicy: z.enum(['all', 'relay']).optional() })
-      const api = z.object({ stream: settings.optional(), streamSettings: settings.optional() }).safeParse(await upstream.json().catch(() => null))
-      return Response.json(api.success ? api.data : {}, { headers: { 'cache-control': 'no-store' } })
-    }
     // Long-lived video must not be buffered or compressed on the way.
     const headers = new Headers({ 'cache-control': 'no-store, no-transform' })
     const type = upstream.headers.get('content-type')

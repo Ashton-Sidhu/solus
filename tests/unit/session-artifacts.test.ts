@@ -23,13 +23,13 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = directory
   const { getDatabase } = await import('@solus/server/db/database')
   await getDatabase().run(sql`
-    INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, cwd, status, title, custom_title, parent_session_id, created_at, last_activity_at)
+    INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, cwd, status, title, custom_title, parent_session_id, created_at, last_activity_at, started_at)
     VALUES
-      ('lead', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Lead', NULL, NULL, 1, 9),
-      ('child-b', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Generated B', 'Second helper', 'lead', 3, 3),
-      ('child-a', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'First helper', NULL, 'lead', 2, 2),
-      ('grandchild', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Nested helper', NULL, 'child-a', 4, 4),
-      ('other', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Other', NULL, NULL, 1, 1)
+      ('lead', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Lead', NULL, NULL, 1, 9, 1),
+      ('child-b', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Generated B', 'Second helper', 'lead', 3, 3, 1),
+      ('child-a', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'First helper', NULL, 'lead', 2, 2, 1),
+      ('grandchild', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Nested helper', NULL, 'child-a', 4, 4, 1),
+      ('other', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'Other', NULL, NULL, 1, 1, 1)
   `)
 })
 
@@ -49,7 +49,7 @@ test("a session's own list joins its pull requests, works, files, images, and au
 
   const made = await createWork('local', 'Made here', 'doc', '', '', 'lead', 'codex')
   // A work another session made, linked to this one afterwards.
-  const linked = await createWork('local', 'Linked later', 'diagram', '{"nodes":[],"edges":[]}', '', 'other', 'codex')
+  const linked = await createWork('local', 'Linked later', 'slides', '# Deck', '', 'other', 'codex')
   await linkSessionItem('lead', { target: { kind: 'work', targetId: linked.id } }, SYSTEM)
   // A work of an unrelated session is not this session's.
   await createWork('local', 'Not ours', 'doc', '', '', 'other', 'codex')
@@ -61,7 +61,7 @@ test("a session's own list joins its pull requests, works, files, images, and au
   const { own } = await readSessionArtifacts('local', 'lead')
   expect(own.map((item) => item.kind).sort()).toEqual(['automation', 'file', 'image', 'pull-request', 'work', 'work'])
   expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: made.id, title: 'Made here', workType: 'doc' }))
-  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: linked.id, workType: 'diagram' }))
+  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: linked.id, workType: 'slides' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'image', path: '/tmp/Shot.PNG', title: 'Shot.PNG', hostId: 'host-1' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'file', path: '/tmp/notes.md' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'automation', automationId: 'auto-1', title: 'Nightly' }))

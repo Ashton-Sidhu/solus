@@ -1,9 +1,13 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from "bun:test";
-import type { AgentMetadata } from "@solus/contracts/types";
+import type { AgentMetadata, ModelProfile, ReasoningEffort } from "@solus/contracts/types";
 import {
   defaultModelIdFor,
+  modelPickerFocusTarget,
   modelPickerNavigationTarget,
+  pickClosesModelPicker,
+  reasoningLevelsFor,
+  reservedReasoningRows,
   isSessionSettingsShortcutTarget,
   splitLegacyModels,
   supportsFastModeFor,
@@ -174,5 +178,99 @@ describe("model picker provider defaults", () => {
   test("Auto is only selected where a first prompt can route it", () => {
     expect(defaultModelIdFor("codex", {}, "auto")).toBe("auto");
     expect(defaultModelIdFor("codex", {}, "auto", false)).toBe("gpt-6-astra");
+  });
+});
+
+function profile(label: string, reasoningLevels: ReasoningEffort[], supportsFastMode = false): ModelProfile {
+  return {
+    label,
+    reasoningLevels,
+    defaultReasoningEffort: reasoningLevels[0] ?? "high",
+    supportsFastMode,
+    contextWindows: [200_000],
+    defaultContextWindow: 200_000,
+  };
+}
+
+function agent(id: "claude-code" | "codex", profiles: Record<string, ModelProfile>): AgentMetadata {
+  return {
+    id,
+    label: id,
+    models: Object.entries(profiles).map(([modelId, { label }]) => ({ id: modelId, label })),
+    modelProfiles: profiles,
+  };
+}
+
+const PICKER_METADATA = {
+  "claude-code": agent("claude-code", {
+    big: profile("Big", ["low", "medium", "high", "xhigh", "max", "ultracode"]),
+    small: profile("Small", ["low", "medium", "high"]),
+  }),
+  codex: agent("codex", {
+    quick: profile("Quick", ["low", "medium", "high"], true),
+    deep: profile("Deep", ["low", "medium", "high", "xhigh"]),
+  }),
+};
+
+describe("model picker levels", () => {
+  test("the Reasoning column offers the model's own levels", () => {
+    // WHY: a level the model does not take would be sent and silently clamped.
+    expect(reasoningLevelsFor("claude-code", "small", PICKER_METADATA["claude-code"])).toEqual(["low", "medium", "high"]);
+    expect(reasoningLevelsFor("claude-code", "big", PICKER_METADATA["claude-code"])).toHaveLength(6);
+  });
+
+  test("reserves the deepest column any agent's model needs, Fast mode included", () => {
+    // WHY: the popup keeps one size. Switching agent or crossing models must not
+    // resize it under the cursor, so the reservation spans every agent on offer.
+    expect(reservedReasoningRows(["claude-code", "codex"], PICKER_METADATA, true)).toBe(6);
+    // Quick has 3 levels and Fast mode, Deep has 4 levels: both fill 4 rows.
+    expect(reservedReasoningRows(["codex"], PICKER_METADATA, true)).toBe(4);
+    expect(reservedReasoningRows(["codex"], { codex: agent("codex", { quick: profile("Quick", ["low", "medium", "high", "xhigh"], true) }) }, true)).toBe(5);
+    // A host that cannot send Fast mode never shows the switch, so reserves no row for it.
+    expect(reservedReasoningRows(["codex"], { codex: agent("codex", { quick: profile("Quick", ["low", "medium", "high", "xhigh"], true) }) }, false)).toBe(4);
+  });
+});
+
+describe("model picker focus", () => {
+  const levels: ReasoningEffort[] = ["low", "medium", "high"];
+
+  test("opening lands on the current model, one → away from its levels", () => {
+    expect(modelPickerFocusTarget({ reason: "open", modelId: "big", effort: "medium", levels })).toEqual({ column: "model", value: "big" });
+  });
+
+  test("picking a model keeps the picker on that model's current level", () => {
+    // WHY: model then effort is one flow; the pick must not drop focus back to
+    // the top of the list or close the picker.
+    expect(modelPickerFocusTarget({ reason: "model-picked", modelId: "small", effort: "high", levels })).toEqual({ column: "reasoning", value: "high" });
+  });
+
+  test("the shortcut while open jumps to the current level", () => {
+    expect(modelPickerFocusTarget({ reason: "shortcut", modelId: "big", effort: "low", levels })).toEqual({ column: "reasoning", value: "low" });
+  });
+
+  test("an effort the new model does not offer lands on its first level, never on nothing", () => {
+    expect(modelPickerFocusTarget({ reason: "model-picked", modelId: "small", effort: "ultracode", levels })).toEqual({ column: "reasoning", value: "low" });
+  });
+
+  test("a model with no levels to pick keeps focus on the model", () => {
+    // WHY: Auto routes with fixed options, so its levels are disabled; focus on
+    // a disabled row would strand the keyboard.
+    expect(modelPickerFocusTarget({ reason: "model-picked", modelId: "auto", effort: "medium", levels: [] })).toEqual({ column: "model", value: "auto" });
+  });
+});
+
+describe("model picker closing", () => {
+  test("an effort is the final choice: it closes the picker", () => {
+    // WHY: once the effort is chosen the next step is typing, so the picker gets
+    // out of the way and focus returns to the input bar.
+    expect(pickClosesModelPicker("effort")).toBe(true);
+  });
+
+  test("a model, Fast mode, or an agent is a step on the way and keeps it open", () => {
+    // WHY: model then effort is one flow. Closing on the model pick would make
+    // the person reopen the picker to choose the effort that goes with it.
+    expect(pickClosesModelPicker("model")).toBe(false);
+    expect(pickClosesModelPicker("fast-mode")).toBe(false);
+    expect(pickClosesModelPicker("agent")).toBe(false);
   });
 });

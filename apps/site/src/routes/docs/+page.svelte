@@ -632,7 +632,7 @@
 				</p>
 				<ul class="mt-5 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Open the workspace', `Press ${kbdHtml('⌥⇧L')} or click <strong class="text-[#1A1714] font-medium">Folio</strong> in the sidebar — plans, documents, and diagrams in one searchable gallery.`],
+						['Open the workspace', `Press ${kbdHtml('⌥⇧L')} or click <strong class="text-[#1A1714] font-medium">Folio</strong> in the sidebar — plans and documents in one searchable gallery.`],
 						['Edit in place', 'Open a Work to edit it in the Document Editor; saving updates the stored Work.'],
 						['Copy or reuse', `Press ${kbdHtml('⌥C')} while a Work is open to copy its Markdown.`],
 						['Storage', 'Works are stored locally under your Solus data directory. Documents are fully editable; slides are tracked so the app can surface and expand them.'],
@@ -1129,7 +1129,7 @@ solus pair</div>
 				{@render kbTable([
 					['⌥⇧D', 'Toggle diff panel'],
 					['⌥M', 'Toggle project panel'],
-					['⌥⇧L', 'Open workspace (plans, documents, diagrams)'],
+					['⌥⇧L', 'Open workspace (plans, documents)'],
 					['⌥⇧O', 'Open files pane'],
 					['⌥⇧\\', 'Open pane in split'],
 					['⌥⇧V', 'Open automations'],

@@ -9,6 +9,7 @@ import { forwardCompatibleArray } from '@solus/client-core/forward-compat'
 import { savedServerFromDirectory } from '@solus/client-core/uplink-session'
 import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore, SecretStore } from '../../platform/ports'
+import type { HostListing } from '@solus/contracts/host-list'
 
 /**
  * The hosts this device knows (plan 017 stage 1). Metadata is kept in plain
@@ -72,10 +73,24 @@ const hostsSchema = forwardCompatibleArray(hostSchema)
  *  connection, queued sends, drafts, and caches leave with it. */
 export type HostRemovedListener = (hostId: string) => void
 
+/** A host the person paired or forgot on this device, for the account host list (plans/031 D7). */
+export type HostListingChange = { kind: 'put'; listing: HostListing } | { kind: 'remove'; hostId: string }
+
+/** A host the person paired on this device, as the account host list holds it: never its token. */
+export function listingOfHost(host: NativeHost): HostListing | null {
+  if (!host.paired || host.uplink?.kind === 'managed') return null
+  const listing: HostListing = { id: host.id, label: host.label, installationId: host.id, routes: host.routes.filter((route) => route.source !== 'directory'), lastConnected: host.lastConnected }
+  if (host.hasUserLabel) listing.hasUserLabel = true
+  if (host.os) listing.os = host.os
+  if (host.identityKey) listing.identityKey = host.identityKey
+  return listing
+}
+
 export class HostRegistry {
   private list: readonly NativeHost[] = []
   private readonly tokens = new Map<string, string>()
   private readonly removedListeners = new Set<HostRemovedListener>()
+  private readonly listingListeners = new Set<(change: HostListingChange) => void>()
   private loaded: Promise<void> | null = null
   readonly changes = new Listeners()
 
@@ -134,6 +149,60 @@ export class HostRegistry {
     return () => { this.removedListeners.delete(listener) }
   }
 
+  /** Hears each host the person pairs or forgets here, for the account host list. */
+  onListingChange(listener: (change: HostListingChange) => void): () => void {
+    this.listingListeners.add(listener)
+    return () => { this.listingListeners.delete(listener) }
+  }
+
+  /**
+   * Folds the account host list into this device's hosts (plans/031 D7), as
+   * `reconcileHostList` does on desktop and web. `synced` is the ids the device and
+   * the list agreed on before: a paired host in it that the list no longer has was
+   * forgotten on another device; one not in it is new here and goes to the list. A
+   * host only the list has joins without a token, held for the account: signing out
+   * removes it again. Answers what to write to the list and the agreed ids.
+   */
+  async applyHostList(accountUserId: string, listings: readonly HostListing[], synced: ReadonlySet<string>): Promise<{ toPut: HostListing[]; synced: string[] }> {
+    const byId = new Map(listings.map((listing) => [listing.id, listing]))
+    const next: NativeHost[] = []
+    const toPut: HostListing[] = []
+    const forgotten: string[] = []
+    for (const host of this.list) {
+      const listed = byId.get(host.id)
+      if (listed) {
+        byId.delete(host.id)
+        const known = new Set(host.routes.map((route) => route.url))
+        next.push({ ...host, label: listed.label, hasUserLabel: listed.hasUserLabel ?? host.hasUserLabel, routes: [...host.routes, ...listed.routes.filter((route) => !known.has(route.url))], os: listed.os ?? host.os, identityKey: host.identityKey ?? listed.identityKey })
+        continue
+      }
+      const own = listingOfHost(host)
+      if (own && synced.has(host.id)) {
+        if (host.uplink) next.push({ ...host, paired: false })
+        forgotten.push(host.id)
+        continue
+      }
+      if (own) toPut.push(own)
+      next.push(host)
+    }
+    for (const listing of byId.values()) {
+      next.push({ id: listing.id, label: listing.label, hasUserLabel: listing.hasUserLabel, routes: listing.routes, os: listing.os, lastConnected: listing.lastConnected, paired: false, accountUserId, identityKey: listing.identityKey })
+    }
+    this.list = next
+    this.write()
+    for (const hostId of forgotten) {
+      this.tokens.delete(hostId)
+      await this.secrets.delete(tokenKey(hostId))
+      if (!this.host(hostId)) this.cleanUp(hostId)
+    }
+    this.changes.notify()
+    return { toPut, synced: [...listings.map((listing) => listing.id), ...toPut.map((listing) => listing.id)] }
+  }
+
+  private announceListing(change: HostListingChange): void {
+    for (const listener of Array.from(this.listingListeners)) listener(change)
+  }
+
   /** Saves a host paired on this device. Other hosts are kept. */
   async savePaired(input: { id: string; label: string; hasUserLabel?: boolean; url: string; os?: HostOperatingSystem; identityKey?: string }, sessionToken: string): Promise<NativeHost> {
     await this.secrets.set(tokenKey(input.id), sessionToken)
@@ -152,6 +221,8 @@ export class HostRegistry {
       paired: true,
     }
     this.replace(host)
+    const listing = listingOfHost(host)
+    if (listing) this.announceListing({ kind: 'put', listing })
     return host
   }
 
@@ -235,8 +306,10 @@ export class HostRegistry {
 
   /** Forget a host: its credential, queued work, drafts, caches, and connection. */
   async forget(hostId: string): Promise<void> {
-    if (!this.host(hostId)) return
-    this.list = this.list.filter((host) => host.id !== hostId)
+    const host = this.host(hostId)
+    if (!host) return
+    if (listingOfHost(host)) this.announceListing({ kind: 'remove', hostId })
+    this.list = this.list.filter((candidate) => candidate.id !== hostId)
     this.write()
     this.tokens.delete(hostId)
     await this.secrets.delete(tokenKey(hostId))

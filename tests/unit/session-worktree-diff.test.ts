@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { getDiff, getDiffStats, getSessionSnapshotRange, initSessionBase, prepareTurnSnapshot, snapshotTurn } from '@solus/server/git/session-snapshots'
@@ -114,6 +114,73 @@ describe('session-scoped diff', () => {
     expect(diff?.patch).toContain('from-shell.txt')
     expect(diff?.patch).not.toContain('other-session.txt')
     expect(diff?.patch).not.toContain('tracked.txt')
+  })
+
+  // WHY: one file an agent writes outside the sparse cone made git refuse the
+  // add, so the whole working-tree diff and its totals failed.
+  test('an untracked file outside the sparse cone keeps the diff, totals, and turn snapshot', async () => {
+    const { repoRoot } = createRepo()
+    mkdirSync(join(repoRoot, 'included'))
+    mkdirSync(join(repoRoot, 'excluded'))
+    writeFileSync(join(repoRoot, 'included', 'in.txt'), 'in\n')
+    writeFileSync(join(repoRoot, 'excluded', 'out.txt'), 'out\n')
+    git(repoRoot, ['add', '.'])
+    git(repoRoot, ['commit', '-m', 'folders'])
+    git(repoRoot, ['sparse-checkout', 'set', '--cone', 'included'])
+    await initSessionBase(repoRoot, 'session-sparse', git(repoRoot, ['rev-parse', 'HEAD']))
+    await prepareTurnSnapshot(repoRoot, repoRoot, 'session-sparse')
+    mkdirSync(join(repoRoot, 'excluded'), { recursive: true })
+    writeFileSync(join(repoRoot, 'excluded', 'new.txt'), 'outside the cone\n')
+
+    const diff = await getDiff(repoRoot, repoRoot, { kind: 'working-tree' }, null)
+    expect(diff?.patch).toContain('+outside the cone')
+    const stats = await getDiffStats(repoRoot, repoRoot, { kind: 'working-tree' }, null)
+    expect(stats.map((file) => file.path)).toContain('excluded/new.txt')
+
+    await snapshotTurn(repoRoot, repoRoot, 'session-sparse', {})
+    const range = getSessionSnapshotRange(repoRoot, 'session-sparse')!
+    expect(git(repoRoot, ['show', `${range.headSha}:excluded/new.txt`])).toBe('outside the cone')
+  })
+
+  // WHY: core.safecrlf=true refuses an LF file that CRLF conversion applies to.
+  // The fallback then took the path out of the index, so a new file vanished
+  // from the turn and a tracked one read as deleted.
+  test('a turn snapshot keeps LF files that core.safecrlf would refuse', async () => {
+    const { repoRoot } = createRepo()
+    writeFileSync(join(repoRoot, '.gitattributes'), '*.txt text eol=crlf\n')
+    git(repoRoot, ['add', '.'])
+    git(repoRoot, ['commit', '-m', 'line endings'])
+    git(repoRoot, ['config', 'core.safecrlf', 'true'])
+    await initSessionBase(repoRoot, 'session-crlf', git(repoRoot, ['rev-parse', 'HEAD']))
+    await prepareTurnSnapshot(repoRoot, repoRoot, 'session-crlf')
+    writeFileSync(join(repoRoot, 'tracked.txt'), 'changed\n')
+    writeFileSync(join(repoRoot, 'new.txt'), 'new\n')
+
+    await snapshotTurn(repoRoot, repoRoot, 'session-crlf', {})
+
+    const range = getSessionSnapshotRange(repoRoot, 'session-crlf')!
+    expect(git(repoRoot, ['show', `${range.headSha}:tracked.txt`])).toBe('changed')
+    expect(git(repoRoot, ['show', `${range.headSha}:new.txt`])).toBe('new')
+  })
+
+  // WHY: under diff.submodule=log the moved submodule is in the file list, but
+  // its summary line has no `diff --git` header for the renderer to parse.
+  test.each(['log', 'diff'])('a moved submodule keeps its diff entry under diff.submodule=%s', async (format) => {
+    const { repoRoot } = createRepo()
+    const nested = join(repoRoot, 'sub')
+    mkdirSync(nested)
+    git(nested, ['init'])
+    git(nested, ['config', 'user.email', 'test@example.com'])
+    git(nested, ['config', 'user.name', 'Test'])
+    git(nested, ['commit', '--allow-empty', '-m', 'first'])
+    git(repoRoot, ['add', 'sub'])
+    git(repoRoot, ['commit', '-m', 'add nested repository'])
+    git(nested, ['commit', '--allow-empty', '-m', 'moved'])
+    git(repoRoot, ['config', 'diff.submodule', format])
+
+    const diff = await getDiff(repoRoot, repoRoot, { kind: 'working-tree' }, null)
+    expect(diff?.patch).toContain('diff --git a/sub b/sub')
+    expect(diff?.patch).toContain('+Subproject commit ')
   })
 
   test('a shared checkout shows nothing before the session\'s first turn', async () => {

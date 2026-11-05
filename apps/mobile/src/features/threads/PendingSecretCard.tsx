@@ -86,7 +86,7 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
               <View className="flex-row items-start gap-2">
                 <View className="min-w-0 flex-1 gap-0.5">
                   {isGroup ? <Text className="font-t3-bold text-sm text-foreground">{prompt.name}</Text> : null}
-                  <Text className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
+                  <Text selectable className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
                 </View>
                 {isGroup && canRespond ? (
                   <Pressable

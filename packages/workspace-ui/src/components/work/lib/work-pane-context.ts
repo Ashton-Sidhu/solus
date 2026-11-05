@@ -4,7 +4,7 @@ import { getContext, setContext } from 'svelte'
  * What the work pane knows about its draft, for the header controls several
  * components below it (History, Review): the body version the pane is based
  * on, and the commands that must name that version. A context, because each
- * shell (document, diagram, artifact) renders the header, and none of them
+ * shell (document, artifact) renders the header, and none of them
  * owns the draft. Outside a work pane there is none.
  */
 export interface WorkPaneContext {

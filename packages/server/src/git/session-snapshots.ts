@@ -503,6 +503,11 @@ function chunkPathspecs(paths: string[]): string[][] {
   return chunks
 }
 
+// Each add writes a disposable index, so a path outside the sparse cone and an
+// LF file core.safecrlf refuses are recorded instead of failing the add. The
+// user's index stays as it was, and line-ending conversion still applies.
+const DISPOSABLE_ADD_CONFIG = ['-c', 'core.sparseCheckout=false', '-c', 'core.safecrlf=false']
+
 /**
  * Stage each path's current worktree state into the temp index. One batched
  * `git add` (chunked under the arg-length limit) replaces the per-path spawn that
@@ -522,7 +527,7 @@ async function stagePaths(
 ): Promise<void> {
   try {
     for (const chunk of chunkPathspecs(paths)) {
-      await runAsync('git', [...treeArgs, 'add', '--', ...chunk], repoRoot, { env: indexEnv })
+      await runAsync('git', [...treeArgs, ...DISPOSABLE_ADD_CONFIG, 'add', '--', ...chunk], repoRoot, { env: indexEnv })
     }
     return
   } catch {
@@ -530,7 +535,7 @@ async function stagePaths(
   }
   for (const file of paths) {
     try {
-      await runAsync('git', [...treeArgs, 'add', '--', file], repoRoot, { env: indexEnv })
+      await runAsync('git', [...treeArgs, ...DISPOSABLE_ADD_CONFIG, 'add', '--', file], repoRoot, { env: indexEnv })
     } catch {
       try {
         await runAsync('git', [...treeArgs, 'rm', '--cached', '--ignore-unmatch', '--', file], repoRoot, { env: indexEnv })
@@ -611,9 +616,10 @@ async function resolveSessionBase(repoRoot: string, sessionId: string): Promise<
 const COMBINED_DIFF_MAX_BUFFER = 256 * 1024 * 1024
 
 // Explicit prefixes + quotepath off keep renderer-side @pierre/diffs parsing
-// stable against the user's gitconfig.
+// stable against the user's gitconfig. So does --submodule=short: under
+// diff.submodule=log or diff, a moved submodule has no `diff --git` entry.
 function diffFormatArgs(): string[] {
-  return ['--no-ext-diff', '--unified=3', '--src-prefix=a/', '--dst-prefix=b/']
+  return ['--no-ext-diff', '--unified=3', '--src-prefix=a/', '--dst-prefix=b/', '--submodule=short']
 }
 
 const EMPTY_DIFF: DiffResult = { patch: '' }
@@ -634,7 +640,7 @@ async function withWorkingTreeIndex<T>(
   const env: NodeJS.ProcessEnv = { GIT_INDEX_FILE: tmpIndex }
   try {
     await runAsync('git', ['read-tree', 'HEAD'], workTree, { env })
-    await runAsync('git', ['add', '-N', '--', '.'], workTree, { env })
+    await runAsync('git', [...DISPOSABLE_ADD_CONFIG, 'add', '-N', '--', '.'], workTree, { env })
     return await fn(env)
   } finally {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
@@ -658,7 +664,7 @@ export async function getEpisodeDiff(
     runAsync('git',
       ['-c', 'core.quotepath=false', 'diff', baseSha, ...diffFormatArgs()],
       workTree,
-      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     ),
   )
   return { patch: combined }
@@ -752,7 +758,7 @@ export async function getDiff(
       runAsync('git',
         ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...diffFormatArgs()],
         workTree,
-        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+        { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
       ),
     )
     return { patch: combined }
@@ -781,7 +787,7 @@ export async function getDiff(
     patch: await runAsync('git',
       ['-c', 'core.quotepath=false', 'diff', range.from, range.to, ...diffFormatArgs()],
       repoRoot,
-      { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
+      { maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     ),
   }
 }

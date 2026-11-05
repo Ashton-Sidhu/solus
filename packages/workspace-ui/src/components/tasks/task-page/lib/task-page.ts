@@ -369,7 +369,7 @@ export function linkFilters(links: TaskLink[]): LinkFilter[] {
 // ── Activity ──
 
 /** The feed is comments and the task's activity merged by time. Comments have
- *  no mirrored activity — `task_comments` is already that log — so the merge
+ *  no mirrored activity — their `comment_threads` rows are already that log — so the merge
  *  happens here. */
 type ActivityEntry =
   | { type: 'comment'; at: number; key: string; comment: TaskComment }

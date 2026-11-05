@@ -6,6 +6,8 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from '../../lib/inputFocus'
   import * as DropdownMenu from '../ui/dropdown-menu'
+  import { workPolicy } from '../../contexts/policy/work-policy.svelte'
+  import { runHost } from '../../contexts/workspace/run-location'
 
   const session = getWorkspaceContext()
   const agent = getAgentContext()
@@ -41,6 +43,9 @@
     if (activeAgent === 'claude-code' && permissionMode === 'plan') return 'Claude plan mode'
     return 'Permission mode'
   })
+  // The work's policy: its record organization, else the window's (plans/030 §7).
+  const tabSession = $derived(onRun ? undefined : session.sessionFor(tabId ?? session.activeTabId))
+  const policy = $derived(workPolicy(runHost((onRun ? run : tabSession?.run) ?? session.defaultRunConfig), tabSession?.organizationId))
   const permissionOptions = $derived(PERMISSION_MODES.filter((mode) => mode !== 'plan' || supportsPlan))
 
   function handleToggle() {
@@ -115,13 +120,14 @@
       {#each permissionOptions as mode (mode)}
         {@const option = PERMISSION_MODE_DISPLAY[mode]}
         {@const isChecked = permissionMode === mode}
-        <DropdownMenu.RadioItem value={mode} class="h-auto gap-3 py-1.5 pl-1.5" onSelect={() => selectPermissionMode(mode)}>
+        {@const denial = policy.modeDenial(mode)?.message ?? null}
+        <DropdownMenu.RadioItem value={mode} disabled={denial !== null} title={denial ?? undefined} class="h-auto gap-3 py-1.5 pl-1.5" onSelect={() => selectPermissionMode(mode)}>
           <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
             <option.icon class="size-3.5" />
           </span>
           <span class="flex min-w-0 flex-col gap-0.5">
             <span class="leading-tight {isChecked ? 'text-(--solus-text-primary)' : ''}">{option.label}</span>
-            <span class="truncate text-xs leading-tight text-(--solus-text-tertiary)">{option.description}</span>
+            <span class="text-xs leading-tight text-(--solus-text-tertiary) {denial ? 'text-pretty' : 'truncate'}">{denial ?? option.description}</span>
           </span>
         </DropdownMenu.RadioItem>
       {/each}

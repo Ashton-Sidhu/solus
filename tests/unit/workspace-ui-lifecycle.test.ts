@@ -184,16 +184,25 @@ test('revealing a conversation clears unread across its tabs without selecting i
   const selected = ['trackVisibleConversations', 'isSessionVisible', 'showsConversation']
   const methods = workspace.members.filter((node) => node.name && selected.includes(node.name.getText(ast)))
   expect(methods).toHaveLength(selected.length)
+  const reactivityClient = new URL('node_modules/svelte/src/reactivity/index-client.js', root).href
   const harness = `
     import assert from 'node:assert/strict';
     import { flushSync } from 'svelte';
+    import { SvelteSet } from ${JSON.stringify(reactivityClient)};
     class Workspace {
       shell = $state({ visible: false, hasCompanionPanes: false });
       tabs = $state({ first: { sessionId: 'one', hasUnread: true }, duplicate: { sessionId: 'one', hasUnread: true }, second: { sessionId: 'two', hasUnread: true } });
       tabOrder = $state(['first', 'duplicate', 'second']);
       activeTabId = $state('first');
       router = $state({ destination: { name: 'chat' }, companionPane: null, chatSessionIn(id) { return id; } });
-      metadata = { publishSessionViewed() {} };
+      published = [];
+      metadata = {
+        heldUnreadSessionIds: new SvelteSet(),
+        publishSessionViewed: (sessionId) => {
+          this.metadata.heldUnreadSessionIds.delete(sessionId);
+          this.published.push(sessionId);
+        },
+      };
       ${methods.map(node => node.getText(ast)).join('\n')}
     }
     const workspace = new Workspace();
@@ -213,9 +222,71 @@ test('revealing a conversation clears unread across its tabs without selecting i
     assert.equal(workspace.tabs.second.hasUnread, true);
     workspace.shell.hasCompanionPanes = true; flushSync();
     assert.equal(workspace.tabs.second.hasUnread, false);
+
+    // Mark Unread on the open conversation stays, and the host is not told it
+    // was read, until the reader leaves and comes back.
+    workspace.published.length = 0;
+    workspace.metadata.heldUnreadSessionIds.add('one');
+    workspace.tabs.first.hasUnread = true; flushSync();
+    assert.equal(workspace.tabs.first.hasUnread, true);
+    assert.deepEqual(workspace.published, []);
+    workspace.router.destination = { name: 'tasks' }; flushSync();
+    assert.equal(workspace.metadata.heldUnreadSessionIds.has('one'), false);
+    workspace.router.destination = { name: 'chat' }; flushSync();
+    assert.equal(workspace.tabs.first.hasUnread, false);
+    assert.deepEqual(workspace.published, ['one']);
+
+    // New activity reads a held session through the same publish.
+    workspace.metadata.heldUnreadSessionIds.add('one');
+    workspace.tabs.first.hasUnread = true; flushSync();
+    workspace.metadata.publishSessionViewed('one');
+    workspace.tabs.first.hasUnread = true; flushSync();
+    assert.equal(workspace.tabs.first.hasUnread, false);
+
+    // A hold for a session with no tab on screen does not stay behind.
+    workspace.metadata.heldUnreadSessionIds.add('closed'); flushSync();
+    assert.equal(workspace.metadata.heldUnreadSessionIds.size, 0);
     destroy();
   `
   await run('unread-visibility', executable(compileModule(transpiler.transformSync(harness), { filename: 'unread.svelte.js', generate: 'client' }).js.code))
+})
+
+test('opening a tab marked unread reads it on the host, also when it is already open', async () => {
+  // WHY: selectTab clears the flag before the visibility effect runs, so
+  // nothing else tells the host. It would stay unread on every other device,
+  // and a hold on the open session would outlive the reader's return to it.
+  const source = readFileSync(new URL('packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts', root), 'utf8')
+  const ast = ts.createSourceFile('workspace.ts', source, ts.ScriptTarget.Latest, true)
+  const workspace = ast.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === 'WorkspaceContext')!
+  const selectTab = workspace.members.find((node) => node.name?.getText(ast) === 'selectTab')!
+  const harness = `
+    import assert from 'node:assert/strict';
+    const prioritizeTabHydration = () => {};
+    const track = () => {};
+    class Workspace {
+      tabs = { open: { sessionId: 'open-session', hasUnread: true }, other: { sessionId: 'other-session', hasUnread: true }, read: { sessionId: 'read-session', hasUnread: false } };
+      activeTabId = 'open';
+      showsConversation = true;
+      published = [];
+      router = { companionPane: null };
+      settings = {};
+      metadata = { publishSessionViewed: (sessionId) => this.published.push(sessionId) };
+      sessionFor() { return undefined; }
+      setActiveTab(tabId) { this.activeTabId = tabId; this.tabs[tabId].hasUnread = false; }
+      revealConversation() {}
+      ${selectTab.getText(ast)}
+    }
+    const workspace = new Workspace();
+    workspace.selectTab('open');
+    assert.deepEqual(workspace.published, ['open-session']);
+    assert.equal(workspace.tabs.open.hasUnread, false);
+    workspace.selectTab('other');
+    assert.deepEqual(workspace.published, ['open-session', 'other-session']);
+    workspace.selectTab('read');
+    workspace.selectTab('read');
+    assert.deepEqual(workspace.published, ['open-session', 'other-session']);
+  `
+  await run('unread-select', executable(transpiler.transformSync(harness)))
 })
 
 test('session review guides are probed once per session, not per tab, settings change, or change set', async () => {

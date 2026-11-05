@@ -11,7 +11,7 @@ import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelt
 import { accountAgentProfileRequests, accountSyncStore } from '../account/account-sync.store.svelte'
 import { browserSyncClock } from '../account/lib/browser-sync-ports'
 import { agentProfileStore } from '../seats/agent-profile.store.svelte'
-import { integrationsStore } from '../../components/settings/integrations.store.svelte'
+import { afterPaint } from '../../lib/after-paint'
 import { accountVaultStore } from '../../components/seats/account-vault.store.svelte'
 import { hostSettingsStore } from './host-settings.store.svelte'
 import { accountStore } from '../account/account.store.svelte'
@@ -81,16 +81,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   agentProfileStore.attachLocalCopy(agentProfileLocalStore)
   onDestroy(accountSyncStore.followAccount(accountStore))
   onDestroy(answerAgentPersonalOnEveryHost(settings, agentProfileLocalStore))
-  // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
-  integrationsStore.useCloudSignIn({
-    requests: accountAgentProfileRequests,
-    accountUserId: () => (accountStore.state.kind === 'signed-in' ? accountStore.state.identity.sub : null),
-    pullHosts: async (serverId) => {
-      await agentProfileStore.pull(serverId)
-      agentProfileStore.pullEverywhere()
-    },
-    setTimer: browserSyncClock.setTimer,
-  })
   // The Settings rows that point to the account read its status through the same requests.
   accountVaultStore.usePort({ requests: accountAgentProfileRequests })
   onDestroy(hostSettingsStore.start())
@@ -128,14 +118,36 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   statusBar.bind(session)
   statusBar.bindAgent(agent)
 
-  // A sign-in that expires while the app runs is told at once; Settings counts the rest.
-  onDestroy(integrationsStore.listen((_serverId, integrationName) => {
-    toasts.error(`${integrationName} needs you to sign in again`, {
-      description: 'Its sign-in expired, so agents cannot use its tools.',
-      duration: 10_000,
-      action: { label: 'Open MCP settings', onAction: () => session.showSettings('mcp') },
+  // The MCP sign-ins load after the first paint, not with the workspace. The
+  // store then watches every host for the life of the app and reads each one
+  // in full (`listen`), so a sign-in that expires while the app runs is told
+  // at once, and Settings counts the rest.
+  let stopIntegrations: (() => void) | null = null
+  let isDestroyed = false
+  onDestroy(() => {
+    isDestroyed = true
+    stopIntegrations?.()
+  })
+  void afterPaint().then(() => import('../../components/settings/integrations.store.svelte')).then(({ integrationsStore }) => {
+    if (isDestroyed) return
+    // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
+    integrationsStore.useCloudSignIn({
+      requests: accountAgentProfileRequests,
+      accountUserId: () => (accountStore.state.kind === 'signed-in' ? accountStore.state.identity.sub : null),
+      pullHosts: async (serverId) => {
+        await agentProfileStore.pull(serverId)
+        agentProfileStore.pullEverywhere()
+      },
+      setTimer: browserSyncClock.setTimer,
     })
-  }))
+    stopIntegrations = integrationsStore.listen((_serverId, integrationName) => {
+      toasts.error(`${integrationName} needs you to sign in again`, {
+        description: 'Its sign-in expired, so agents cannot use its tools.',
+        duration: 10_000,
+        action: { label: 'Open MCP settings', onAction: () => session.showSettings('mcp') },
+      })
+    })
+  })
 
   const unsubscribeReviewGuideReady = reviewGuideStore.onReady((serverId, event) => {
     if (!notificationsStore.wants('review_guide_ready')) return
@@ -231,3 +243,4 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     keybindings,
   }
 }
+

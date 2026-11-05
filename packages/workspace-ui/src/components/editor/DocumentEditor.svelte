@@ -33,7 +33,6 @@
     slashMenuIsOpen,
     askSolusCommand,
     embedArtifactCommand,
-    embedDiagramCommand,
     type EditorBlockCommand,
   } from "./slashCommands";
   import EditorSlashMenu from "./EditorSlashMenu.svelte";
@@ -86,7 +85,6 @@
     /** When set, the slash menu offers "Ask Solus to draft…". Surfaces without
      *  an agent behind them simply don't pass it. */
     onAskSolus?: () => void;
-    diagramChoices?: WorkEmbedChoice[];
     artifactChoices?: WorkEmbedChoice[];
     class?: string;
     style?: string;
@@ -117,7 +115,6 @@
     onFocus,
     onBlur,
     onAskSolus,
-    diagramChoices,
     artifactChoices,
     class: klass = "",
     style = "",
@@ -174,13 +171,10 @@
     href: string;
     pos: number;
   } | null>(null);
-  // Which member of the embed family the picker is choosing, or null when it
-  // is closed. One picker, so the two can never be open at once.
-  let embedPicker = $state<"diagram" | "artifact" | null>(null);
+  let isEmbedPickerOpen = $state(false);
 
   const slashExtras = $derived([
-    ...(diagramChoices ? [embedDiagramCommand(() => (embedPicker = "diagram"))] : []),
-    ...(artifactChoices ? [embedArtifactCommand(() => (embedPicker = "artifact"))] : []),
+    ...(artifactChoices ? [embedArtifactCommand(() => (isEmbedPickerOpen = true))] : []),
     ...(onAskSolus ? [askSolusCommand(onAskSolus)] : []),
   ]);
   const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
@@ -813,14 +807,13 @@
   }
 
   function insertEmbed(choice: WorkEmbedChoice) {
-    if (!editorInstance || !embedPicker) return;
-    const type = embedPicker === "diagram" ? "diagramEmbed" : "artifactEmbed";
-    embedPicker = null;
+    if (!editorInstance || !isEmbedPickerOpen) return;
+    isEmbedPickerOpen = false;
     editorInstance
       .chain()
       .focus()
       .insertContent([
-        { type, attrs: { workId: choice.workId, title: choice.title } },
+        { type: "artifactEmbed", attrs: { workId: choice.workId, title: choice.title } },
         { type: "paragraph" },
       ])
       .run();
@@ -878,13 +871,12 @@
     />
   {/if}
 
-  {#if embedPicker}
+  {#if isEmbedPickerOpen}
     <WorkEmbedPicker
-      type={embedPicker}
-      choices={(embedPicker === "diagram" ? diagramChoices : artifactChoices) ?? []}
+      choices={artifactChoices ?? []}
       onSelect={insertEmbed}
       onClose={() => {
-        embedPicker = null;
+        isEmbedPickerOpen = false;
         editorInstance?.commands.focus();
       }}
     />

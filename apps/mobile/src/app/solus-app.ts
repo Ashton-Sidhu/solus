@@ -5,13 +5,7 @@ import type { WsTransportOptions } from '@solus/client-core/ws-transport'
 import { replaceModelProfiles, type AgentId, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
-import {
-  OrganizationSettingsClient,
-} from '@solus/client-core/settings-sync'
-import {
-  syncAccountKey,
-  type DocumentSyncEnvironment,
-} from '@solus/client-core/document-sync'
+import type { DocumentSyncEnvironment } from '@solus/client-core/document-sync'
 import type { BrowserAuthorizer, OAuthSessionDeps } from '@solus/client-core/oauth-session'
 import { DEFAULT_CLOUD_ORIGIN } from '../features/account/account-client'
 import { AccountSession } from '../features/account/account-session'
@@ -38,7 +32,6 @@ import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
-import { OrganizationSettingsStore } from '../features/settings/organization-settings'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
 import { PullRequestDiffs } from '../features/prs/pull-request-diffs'
 import { PullRequestGuides } from '../features/prs/pull-request-guides'
@@ -129,8 +122,6 @@ export class SolusApp {
   readonly agentProfile: AgentProfileLocalStore
   /** The account's sync of both, signed in, and the profile's copy on each host (plans/018 decision 9). */
   readonly accountSync: AccountSync
-  /** Organization rules and host policy, read for everyone and edited by owners. */
-  readonly organizationSettings: OrganizationSettingsStore
   /** The personal light or dark choice, as this device applies it. */
   readonly appearance: AppearancePreference
   /** Each host's own, host-owned settings. */
@@ -154,7 +145,6 @@ export class SolusApp {
   private readonly conversations = new Map<string, ConversationStore>()
   /** Each host's model list, read once per host per app run. */
   private readonly modelProfiles = new Map<string, Promise<void>>()
-  private accountKey: string | null = null
 
   constructor(readonly platform: PlatformAdapters) {
     const { storage, secrets } = platform
@@ -212,7 +202,6 @@ export class SolusApp {
       environment: platform.settingsSyncEnvironment ?? alwaysOnlineEnvironment,
       clock: timerClock,
     }, () => this.reachableHosts())
-    this.organizationSettings = new OrganizationSettingsStore(new OrganizationSettingsClient(this.account.settingsRequests()))
     this.account.changes.subscribe(() => this.followAccount())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
@@ -406,14 +395,11 @@ export class SolusApp {
     return this.personal.runSettings()
   }
 
-  /** Personal settings, sync, and organization views follow who is signed in. */
+  /** Personal settings and sync follow who is signed in. */
   private followAccount(): void {
     this.threads.selectOrganization(this.account.organizationId)
     const account = this.account.syncAccount
     this.accountSync.followAccount(account)
-    const accountKey = account ? syncAccountKey(account) : null
-    if (accountKey !== this.accountKey) this.organizationSettings.clear()
-    this.accountKey = accountKey
   }
 
   /** The hosts this device is connected to now, each with its API: the ones a profile nudge can reach. */

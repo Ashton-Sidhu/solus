@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { higherResourceRole, shareResourceKindSchema, type ResourceRole, type ShareResourceKind, type ShareRole } from '@solus/contracts/sharing'
 import type { ResourceKind, ResourceStanding, SessionActionLeaf } from '@solus/contracts/permissions'
 import { ownerKeyOf, type Actor } from './actor'
-import { isAnyOrganization, isHostAdmin, recordScopeOf, scopeAdmits, type RecordScope } from './principal'
+import { isAnyOrganization, isHostAdmin, isHostOwner, recordScopeOf, scopeAdmits, type RecordScope } from './principal'
 import { aclEntry } from '../sharing/schema'
 
 /**
@@ -87,6 +87,9 @@ export function standingOf(actor: Actor, resource: ResourceRow, now = Date.now()
   if (!scopeAdmits(scope, resource.organizationId)) return { role: 'none' }
   if (resource.ownerKey === ownerKeyOf(actor)) return { role: 'owner' }
   if (PERSONAL.has(resource.kind)) return { role: 'none' }
+  // The disk is the host owner's: every record on it is theirs, whichever key it
+  // holds, so a record of theirs never reads as shared after a sign-in or sign-out.
+  if (isHostOwner(principal)) return { role: 'owner' }
   let role: ResourceRole = isHostAdmin(principal) ? 'editor' : 'none'
   const actions = new Set<SessionActionLeaf>()
   for (const entry of resource.acl) {

@@ -1,3 +1,4 @@
+import { parsePatchFiles } from '@pierre/diffs'
 import { describe, expect, test } from 'bun:test'
 import {
   GitHubProvider,
@@ -69,6 +70,23 @@ describe('GitHub pull request diff conversion', () => {
 
     expect(result.truncated).toBe(false)
     expect(result.patch).toContain('similarity index 100%')
+  })
+
+  test('a renamed and edited file stays a rename for the diff parser', () => {
+    // WHY: @pierre/diffs takes the rename type only from the similarity line,
+    // so without one the file reads as an ordinary change under its new name.
+    const renamed = { filename: 'src/current.ts', previous_filename: 'src/previous.ts', status: 'renamed' }
+    const { patch } = githubFilesToUnifiedPatch([
+      { ...renamed, patch: '@@ -1 +1 @@\n-old\n+new', changes: 2 },
+      { ...renamed, filename: 'src/too-large.ts', changes: 4000 },
+      { ...renamed, filename: 'src/pure.ts', changes: 0 },
+    ])
+
+    expect(parsePatchFiles(patch).flatMap((part) => part.files).map((file) => file.type)).toEqual([
+      'rename-changed',
+      'rename-changed',
+      'rename-pure',
+    ])
   })
 })
 

@@ -152,12 +152,16 @@ rule reads, and they are the only places outside `roleOf` that touch a role:
   host is every member's to edit". On the Solus API a record always has a
   person (the runner's or the caller's); with none it would be the `host-owner`
   key, which no person holds.
-- **The host owner is an administrator.** `owner` only on what is theirs (the
-  host user's), `editor` on everything else in their scope. This replaces "the
-  host owner holds every role on the disk". A pairing connection to a machine
+- **The host owner owns the disk** (plans/031 rule 1, 2026-11-03). The owner of
+  a personal host holds `owner` on every record in their scope, whatever its
+  `created_by`; a personal resource (an integration, a notification, a browser
+  profile) stays its person's. This replaces "the host owner is an
+  administrator" (`editor` on what is not theirs). An organization owner on a
+  managed host or the Solus API is still an administrator with `editor`. A pairing connection to a machine
   attached for organization work has the Local scope, so `roleOf` line 1 keeps
-  it out of the organization's records. A host administrator still reaches
-  `shareTransfer` for what a departed member owned (plan 004 item 10).
+  it out of the organization's records. Ownership never transfers (plans/029
+  decision 2): what a departed member owned keeps its `created_by`, and the
+  organization entry keeps it readable to the members who remain.
 - **A session before its record.** The person who starts a session owns it.
   The first claim (`claimSessionOwner`: a client's watch or prompt, and every
   turn admission for the turn's person, so a child session or an automation's

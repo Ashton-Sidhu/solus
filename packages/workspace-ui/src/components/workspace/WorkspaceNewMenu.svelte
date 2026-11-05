@@ -2,7 +2,6 @@
   import {
     ChevronDown as CaretDownIcon,
     FileText as FileTextIcon,
-    Network as ArchitectureIcon,
     Plus as PlusIcon,
     Upload as UploadSimpleIcon,
     Link2 as LinkIcon,
@@ -11,12 +10,12 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { docProviderLabel } from "../work/lib/work-publish";
 
-  /** The page's one creating action: a document, a diagram, a Markdown file,
+  /** The page's one creating action: a document, a Markdown file,
    *  or a page imported from a connected document provider. */
   interface Props {
     triggerClass: string;
     iconSize: number;
-    onCreate: (type: "doc" | "diagram") => void;
+    onCreate: (type: "doc") => void;
     onImportFile: () => void;
     onImportFrom: (provider: DocProviderId) => void;
     /** A provider the user could sign in to is a route, not a dead end. */
@@ -56,9 +55,6 @@
     <DropdownMenu.Label>Create</DropdownMenu.Label>
     <DropdownMenu.Item class="text-workspace-chrome" onSelect={() => onCreate("doc")}>
       <FileTextIcon size={14} /><span class="flex-1 text-left">Document</span>
-    </DropdownMenu.Item>
-    <DropdownMenu.Item class="text-workspace-chrome" onSelect={() => onCreate("diagram")}>
-      <ArchitectureIcon size={14} /><span class="flex-1 text-left">Diagram</span>
     </DropdownMenu.Item>
     <DropdownMenu.Separator />
     <DropdownMenu.Item class="text-workspace-chrome" onSelect={onImportFile}>

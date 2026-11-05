@@ -1,7 +1,9 @@
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { TextGenerator } from '../../execution/agents/text-generator'
 import { contextPreferences } from '../../execution/agents/run-input'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { productionLogFilePath } from '../../logger'
+import { distinctValuesSql } from '../../data/insights/distinct-values'
 import { metricsSchema } from '../../data/insights/field-registry'
 import { compileNlToSql, nlCompileSystemPrompt } from '../../data/insights/nl-compile'
 import { compileQuerySpec } from '../../data/insights/query-compiler'
@@ -18,38 +20,22 @@ import type { InsightPull } from '../../sync/insight-pull'
 import { createLogger } from '../../logger'
 import { clearTurnFlag, listTurnFlags, setTurnFlag } from '../../data/insights/turn-flags'
 import { turnPage, turnListingSummary } from '../../data/insights/turn-page'
-import { traceVisible, visibleInsights, type InsightFilter } from '../../data/insights/visibility'
+import { traceVisible, visibleInsights } from '../../data/insights/visibility'
 import type { SolusServer } from '../server'
 import { RpcAccessError } from '../../admission/access-policy'
-
-/** Registered low-cardinality columns `metricsDistinctValues` may enumerate,
- *  with the condition each reads under. `tool` scopes to tool_call spans so
- *  unrelated span names never pollute it. */
-const DISTINCT_COLUMNS = {
-  tool: { expression: 'name', where: "kind = 'tool_call'" },
-  model: { expression: 'model', where: 'model IS NOT NULL' },
-  provider: { expression: 'provider', where: 'provider IS NOT NULL' },
-  status: { expression: 'status', where: '1 = 1' },
-  service: { expression: 'service', where: '1 = 1' },
-  kind: { expression: 'kind', where: '1 = 1' },
-  origin: { expression: 'origin', where: 'origin IS NOT NULL' },
-  user_email: { expression: 'user_email', where: 'user_email IS NOT NULL' },
-  organization_id: { expression: 'organization_id', where: 'organization_id IS NOT NULL' },
-} as const
-
-/** The distinct values of a registered column among the spans the reader may see. */
-function distinctValuesSql(column: string, visible: InsightFilter): InsightFilter | undefined {
-  if (!Object.hasOwn(DISTINCT_COLUMNS, column)) return undefined
-  // SAFETY: the guard above accepted only keys `DISTINCT_COLUMNS` declares.
-  const { expression, where } = DISTINCT_COLUMNS[column as keyof typeof DISTINCT_COLUMNS]
-  return {
-    sql: `SELECT DISTINCT ${expression} AS value FROM spans WHERE ${where} AND (${visible.sql}) ORDER BY ${expression} LIMIT 200`,
-    params: visible.params,
-  }
-}
+import { ownerKeyOf, type Actor } from '../../admission/actor'
 
 const NL_TIMEOUT_MS = 60_000
 const log = createLogger('main', 'observability-handlers')
+
+/** The person a saved query or a turn flag belongs to: the actor's user key,
+ *  the key `automations.owner_key` holds. The host itself and a runner own
+ *  neither (plans/029 P8). */
+function createdBy(actor: Actor): string {
+  const key = ownerKeyOf(actor)
+  if (key === null) throw new Error("The host's own work has no saved queries or turn flags.")
+  return key
+}
 
 export function registerObservabilityHandlers(server: SolusServer, deps: {
   sessionRuntime: SessionRuntime
@@ -106,6 +92,7 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
     const seat = await deps.sessionRuntime.seatForTurn(handlerCtx.actor, provider) ?? undefined
     return compileNlToSql(question, {
       generate: (prompt) => textGenerator.generate({
+        organizationId: ctx.session.organizationId ?? LOCAL_ORGANIZATION_ID,
         provider,
         model: ctx.statusBar.model,
         seat,
@@ -132,17 +119,17 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
     return runCompiledSql(query.sql, query.params).rows.map((row) => row[0])
   })
 
-  server.register('metricsListSavedQueries', () => listSavedMetricsQueries())
+  server.register('metricsListSavedQueries', (_args, ctx) => listSavedMetricsQueries(createdBy(ctx.actor)))
 
-  server.register('metricsSaveQuery', (args) => {
+  server.register('metricsSaveQuery', (args, ctx) => {
     const [query] = args
-    return saveMetricsQuery(query)
+    return saveMetricsQuery(createdBy(ctx.actor), query)
   })
 
-  server.register('metricsDeleteQuery', (args) => {
+  server.register('metricsDeleteQuery', (args, ctx) => {
     const [id] = args
     if (!id.trim()) throw new Error('metricsDeleteQuery requires an id')
-    return deleteSavedMetricsQuery(id)
+    return deleteSavedMetricsQuery(createdBy(ctx.actor), id)
   })
 
   server.register('metricsSessionSummary', (args) => {
@@ -169,17 +156,17 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
     return turnTrace(traceId)
   })
 
-  server.register('metricsListTurnFlags', () => listTurnFlags())
+  server.register('metricsListTurnFlags', (_args, ctx) => listTurnFlags(createdBy(ctx.actor)))
 
-  server.register('metricsSetTurnFlag', (args) => {
+  server.register('metricsSetTurnFlag', (args, ctx) => {
     const [flag] = args
-    return setTurnFlag(flag)
+    return setTurnFlag(createdBy(ctx.actor), flag)
   })
 
-  server.register('metricsClearTurnFlag', (args) => {
+  server.register('metricsClearTurnFlag', (args, ctx) => {
     const [traceId] = args
     if (!traceId.trim()) throw new Error('metricsClearTurnFlag requires a trace id')
-    return clearTurnFlag(traceId)
+    return clearTurnFlag(createdBy(ctx.actor), traceId)
   })
 
   server.register('logFilePath', () => productionLogFilePath())

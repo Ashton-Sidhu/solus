@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { SavedWorkspace } from '@solus/client-core/workspace-registry'
 import { notificationSources } from '@solus/client-core/notifications/sources'
 import { ambiguousOrganizationIds, savedWorkspaceFor, saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
-import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
+import { DEFAULT_HOST_RULES } from '@solus/contracts/uplink'
 
 // plans/015-notifications-hub.md §4, stage 4: the hub reads every host and every
 // organization home the directory lists, not the window's organization alone. A
@@ -24,9 +24,9 @@ const originalLocalStorage = globalThis.localStorage
 beforeEach(() => { Object.defineProperty(globalThis, 'localStorage', { value: new MemoryStorage(), configurable: true }) })
 afterEach(() => { Object.defineProperty(globalThis, 'localStorage', { value: originalLocalStorage, configurable: true }) })
 
-const policy = DEFAULT_ORGANIZATION_POLICY
+const hostRules = DEFAULT_HOST_RULES
 const workspace = (organizationId: string, directoryUrl: string, label = organizationId): SavedWorkspace => ({
-  organizationId, label, routes: [{ kind: 'tunnel', url: `${directoryUrl}/tunnel` }], isActive: false, policy, directoryUrl,
+  organizationId, label, routes: [{ kind: 'tunnel', url: `${directoryUrl}/tunnel` }], isActive: false, hostRules, directoryUrl,
 })
 
 describe('notification sources', () => {

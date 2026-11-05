@@ -34,8 +34,7 @@
   } from "@solus/workspace-ui/contexts";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
-  import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
-  import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+  import { followDeviceRequests } from "@solus/workspace-ui/contexts/devices/device-feature";
   import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
@@ -58,9 +57,11 @@
     identifyInstallation,
     initAnalytics,
     registerSuperProps,
+    setAnalyticsBlockedByPolicy,
+  setAnalyticsEnabled,
     track,
   } from "@solus/workspace-ui/lib/analytics";
-  import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
+    import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteModules = afterPaint().then(() => Promise.all([
     import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"),
@@ -104,21 +105,38 @@
   });
   const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
 
-  initAnalytics({
-    // Undecided consent stays off until the person chooses (plans/018 §3.1).
-    enabled: settings.clientAnalyticsEnabled === true,
-    platform: "web-desktop",
-    viewMode: "wide",
+  // Analytics starts only once the policy of the host that served this client is
+  // read: a policy that turns analytics off wins over the person's consent
+  // (plans/030 §5.4). A remote host's policy does not change this choice.
+  let analyticsStarted = $state(false);
+  $effect(() => {
+    const fact = hosts.get(serverConnections.defaultServerId())?.policy;
+    if (fact?.state !== "ready") return;
+    const managedOff = fact.value.hostSetting("analyticsEnabled")?.value === false;
+    setAnalyticsBlockedByPolicy(managedOff);
+    untrack(() => {
+      // Undecided consent stays off until the person chooses (plans/018 §3.1).
+      const consented = settings.clientAnalyticsEnabled === true;
+      if (analyticsStarted) {
+        setAnalyticsEnabled(consented && !managedOff);
+        return;
+      }
+      if (managedOff) return;
+      analyticsStarted = true;
+      initAnalytics({ enabled: consented, platform: "web-desktop", viewMode: "wide" });
+      track("app_opened", {});
+    });
   });
-  track("app_opened", {});
 
   $effect(() => {
+    if (!analyticsStarted) return;
     // The version of the host that served this client: the window's primary.
     const appVersion = hosts.get(serverConnections.defaultServerId())?.capabilityRecord?.version;
     if (appVersion) registerSuperProps({ app_version: appVersion });
   });
 
   $effect(() => {
+    if (!analyticsStarted) return;
     const installationId = serversStore.activeTarget?.installationId;
     if (installationId) identifyInstallation(installationId);
   });
@@ -274,8 +292,8 @@
       browserStore.onRecordingSaved = (serverId, result) =>
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
-      devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
-      const unsubDevices = devicesStore.subscribe();
+      // Devices load on first use; their first event loads them (device-feature.ts).
+      const unsubDevices = followDeviceRequests(session);
       return () => {
         unsubSessionStatuses();
         unsubProjectDirectory();
@@ -417,6 +435,10 @@
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
     },
   );
+  // The browser binds the same keys to its own history; the binding claims
+  // them so a press navigates once, and the router follows the browser.
+  useKeybinding("global.history-back", () => void session.router.back());
+  useKeybinding("global.history-forward", () => void session.router.forward());
   // In the companion pane the tab keys move between its surfaces.
   useKeybinding("global.next-tab", () => {
     if (session.moveBetweenSurfaces(1)) return;

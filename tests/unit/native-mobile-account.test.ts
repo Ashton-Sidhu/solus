@@ -27,7 +27,7 @@ const host = (installationId: string, organizationIds: string[] = []): Directory
   organizationIds,
 })
 
-const ORGANIZATION = { organizationId: 'org-1', name: 'Acme', role: 'member', mayCreateManagedHost: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false } }
+const ORGANIZATION = { organizationId: 'org-1', name: 'Acme', role: 'member', mayCreateManagedHost: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true } }
 
 interface CloudScript {
   hosts: DirectoryHost[]
@@ -55,7 +55,7 @@ function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretSt
         if (script.directoryStatus) return json(script.directoryStatus, { error: 'unavailable' })
         return json(200, {
           hosts: script.hosts,
-          workspaces: [{ organizationId: 'org-1', label: 'Acme', routes: [], isActive: false, policy: ORGANIZATION.policy }],
+          workspaces: [{ organizationId: 'org-1', label: 'Acme', routes: [], isActive: false, hostRules: ORGANIZATION.hostRules }],
         })
     }
     return json(404, {})
@@ -148,7 +148,7 @@ describe('native Solus account', () => {
   test('the first directory after sign-in comes from the login response; a refresh asks the website', async () => {
     const w = await signedIn({
       hosts: [host('inst-1', ['org-1'])],
-      startupDirectory: { hosts: [host('inst-1', ['org-1'])], workspaces: [{ organizationId: 'org-1', label: 'Acme at login', routes: [], isActive: false, policy: ORGANIZATION.policy }] },
+      startupDirectory: { hosts: [host('inst-1', ['org-1'])], workspaces: [{ organizationId: 'org-1', label: 'Acme at login', routes: [], isActive: false, hostRules: ORGANIZATION.hostRules }] },
     })
     expect(w.apiCalls).toEqual([])
     expect(w.session.directory).toMatchObject({ kind: 'loaded', workspaces: [{ label: 'Acme at login' }] })

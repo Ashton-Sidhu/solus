@@ -298,8 +298,8 @@ the content version; `revertWork` takes the record version the reader saw
 op and the shipped work copy carry `expectedContentVersion`/`contentVersion`;
 a stale or unversioned op dead-letters. A shipped work copy
 (`TaskLinkedItemSnapshot` of kind `work`) always carries its type and version. The host outbox receipt
-(`applied_ops`) now commits in the applier's transaction, so a redelivery never
-re-runs a committed op; no second receipt table. The pull reads the version
+(`operation_receipts`, namespace `applied-operation`) is claimed in the applier's
+transaction, so a redelivery never re-runs a committed op; no second receipt table. The pull reads the version
 before the provider call and writes through `Work.applyUpstream` (body, title,
 and link in one transaction); the public `upstream` reason is gone.
 `validateWorkContent` (`parseDiagram`) guards creation and every body change.

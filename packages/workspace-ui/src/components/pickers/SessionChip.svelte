@@ -1,8 +1,9 @@
 <script lang="ts">
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { agentForProject } from "@solus/contracts/provider-instance-models";
+  import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import { solusToolsStore } from "../settings/solus-tools.store.svelte";
   import {
@@ -17,6 +18,8 @@
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
   import { getSettingsContext, getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../../lib/agentAvailability";
+  import { workPolicy } from "../../contexts/policy/work-policy.svelte";
+  import { modelPolicyDenial, withProviderPolicy } from "./lib/policy-locks";
   import {
     REASONING_EFFORT_LABELS,
     isLegacyModel,
@@ -35,13 +38,17 @@
     defaultModelIdFor,
     defaultReasoningFor,
     isSessionSettingsShortcutTarget,
+    modelPickerFocusTarget,
+    pickClosesModelPicker,
     modelPickerNavigationTarget,
     modelOptionsFor,
+    reservedReasoningRows,
     reasoningLevelsFor,
     splitLegacyModels,
     supportsFastModeFor,
     LEGACY_SECTION_VALUE,
     type ModelPickerColumn,
+    type ModelPickerFocusReason,
     type PickerSelection,
   } from "./lib/picker-selection";
 
@@ -119,8 +126,12 @@
 
   const activeAgent = $derived(selection?.provider ?? ctx.activeAgent);
 
+  // The work's policy on its host: the session's record organization, else the window's (plans/030 §7).
+  const policyHostId = $derived(serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined));
+  const policy = $derived(policyHostId ? workPolicy(policyHostId, sess?.organizationId) : null);
+
   const metadata = $derived.by(() => {
-    const hostId = serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined);
+    const hostId = policyHostId;
     const hostAgents = agents ?? (hostId ? hosts.get(hostId).machineInfo?.agents : undefined);
     if (!hostAgents) return agentContext.metadata;
     const entries = hostAgents.map((agent) => [agent.id, agentForProject(agent, modelOnly ? undefined : checkoutGit(sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined))?.repoRoot ?? ctx.workingDirectory)] as const);
@@ -131,7 +142,7 @@
     metadata[activeAgent] ?? (detached ? null : agentContext.activeMetadata),
   );
   const models = $derived(
-    modelOnly && modelMeta?.available === false
+    !isModelPickerAgentVisible(activeAgent, Boolean(import.meta.env.DEV)) || (modelOnly && modelMeta?.available === false)
       ? []
       : detached
         ? modelOptionsFor(activeAgent, metadata)
@@ -139,7 +150,7 @@
   );
   // Superseded models stay selectable but sit behind a disclosure, so the column
   // reads as the generation we expect people to pick.
-  const modelSections = $derived(splitLegacyModels(activeAgent, models));
+  const modelSections = $derived(splitLegacyModels(activeAgent, models, modelMeta?.modelProfiles));
   let legacyExpanded = $state(false);
   const canRoute = $derived(!modelOnly && isPrimary && !sess?.agentSessionId && !sess?.forked);
   // A model-only picker hides the reasoning column Auto normally sits in, so its
@@ -178,7 +189,7 @@
   // flyout blank whenever a binary probe came back empty, with nothing on screen
   // to say why there was nothing to pick.
   const agentRows = $derived(
-    buildAgentAvailabilityRows(agents ?? agentContext.agents, metadata),
+    withProviderPolicy(buildAgentAvailabilityRows(agents ?? agentContext.agents, metadata, Boolean(import.meta.env.DEV)), policy),
   );
   const agentName = $derived(agentLabel(activeAgent, metadata));
 
@@ -215,16 +226,19 @@
   const shownReasoningLevels = $derived(
     hoveredModelId ? reasoningLevelsFor(activeAgent, hoveredModelId, modelMeta) : reasoningLevels,
   );
-  // Models offer different numbers of levels (Haiku 4, Sonnet 5, Opus 7), so the
-  // column is held at the deepest set on offer. Without the reservation the menu
-  // resizes — and, being top-anchored, repositions — under the cursor on every
-  // model you pass over.
+  const showsFastMode = $derived(
+    allowFastMode && isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId, modelMeta),
+  );
+  // Models offer different numbers of levels (Haiku 4, Sonnet 5, Opus 7), and
+  // only some offer Fast mode, so the column is held at the deepest set any
+  // agent's model offers. Without the reservation the menu resizes — and, being
+  // top-anchored, repositions — under the cursor on every model you pass over
+  // and on every agent switch.
   const reservedLevelRows = $derived(
-    models.reduce(
-      (deepest, model) =>
-        Math.max(deepest, reasoningLevelsFor(activeAgent, model.id, modelMeta).length),
-      reasoningLevels.length,
-    ),
+    Math.max(
+      reservedReasoningRows(agentRows.map((agent) => agent.id), metadata, allowFastMode),
+      reasoningLevels.length + (showsFastMode ? 1 : 0),
+    ) - (showsFastMode ? 1 : 0),
   );
 
   function openFromShortcut(targetTabId?: string) {
@@ -235,10 +249,36 @@
     // receive this shortcut. Only the one in the visible layout should open
     // (a display:none ancestor reports offsetParent === null).
     if (triggerEl && triggerEl.offsetParent === null) return;
-    open = true;
+    // Already open: the shortcut jumps to the levels, the way → does.
+    if (open) focusPickerRow("shortcut");
+    else open = true;
   }
 
-  // Clicking a level commits the previewed model with it — the levels on offer
+  // Focus by value, not index: the row moves when the legacy list opens or the
+  // agent changes. Auto sits in the Reasoning column when this picker can
+  // route, so a value missing from its column is looked up in the other.
+  function focusPickerRow(reason: ModelPickerFocusReason) {
+    const target = modelPickerFocusTarget({
+      reason,
+      modelId: currentModelId,
+      effort: reasoningEffort,
+      levels: modelOnly || isAuto ? [] : reasoningLevels,
+    });
+    const rows = [...pickerItems(target.column), ...pickerItems(target.column === "model" ? "reasoning" : "model")];
+    (rows.find((row) => row.dataset.pickerValue === target.value) ?? pickerItems("model")[0])?.focus();
+  }
+
+  // The picker stays up after a model pick, on that model's current level, so
+  // model then effort is one flow. Wait a tick: the levels on screen are still
+  // the previous model's until the new config lands.
+  async function pickModel(modelId: string) {
+    selectModel(modelId);
+    await tick();
+    focusPickerRow("model-picked");
+  }
+
+  // Clicking a level commits the previewed model with it and closes the picker:
+  // an effort is the final choice (pickClosesModelPicker). The levels on offer
   // are that model's own, so no clamping is needed. The model patch has to ride
   // along in the same call: updateModelConfig's model branch would otherwise
   // overwrite the effort with the model's default.
@@ -283,7 +323,7 @@
   function selectAgent(id: AgentId) {
     // The menu stays up across the switch, so the disclosure has to follow the
     // model the new agent lands on rather than keep the old agent's answer.
-    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn));
+    legacyExpanded = isLegacyModel(id, defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn), metadata[id]?.modelProfiles);
     if (selection && !draftId) {
       const modelId = defaultModelIdFor(id, metadata, settings.defaultModels[id], canRoute || routeInModelColumn);
       selection.provider = id;
@@ -425,7 +465,7 @@
     hoveredLevel = null;
     // Open on the section holding the current choice: a session already running
     // a superseded model must not have to go looking for what it is running.
-    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId);
+    if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId, modelMeta?.modelProfiles);
   }}
 >
   <DropdownMenu.Trigger {disabled} bind:ref={triggerEl}>
@@ -503,6 +543,10 @@
         ? "w-[min(21.5rem,calc(100vw-2rem))]"
         : "w-[min(28.25rem,calc(100vw-2rem))]",
     )}
+    onOpenAutoFocus={(event) => {
+      event.preventDefault();
+      focusPickerRow("open");
+    }}
     onCloseAutoFocus={handleCloseAutoFocus}
     onkeydown={handlePickerKeyDown}
     onpointerleave={() => {
@@ -511,7 +555,11 @@
     }}
   >
     <div class="flex items-stretch">
-      <div class="min-w-0 flex-1 p-1.5">
+      <!-- Beside the Reasoning column the model list takes no height of its
+           own: it scrolls inside the column's reserved height, so opening the
+           legacy list or switching agent never resizes the popup. -->
+      <div class="relative min-w-0 flex-1">
+      <div class={cn("p-1.5", !modelOnly && "absolute inset-0 overflow-y-auto")}>
         <!-- The preview clears on the way out of the whole surface, never on a
              row: row-level leave/enter pairs flash the column back to the
              current model between every two rows you sweep across, and clearing
@@ -529,11 +577,15 @@
             <span class="min-w-0 truncate">{agentName}</span>
           </DropdownMenu.GroupHeading>
           {#each modelSections.current as model (model.id)}
+            {@const denial = modelPolicyDenial(policy, activeAgent, model.id)}
             <DropdownMenu.RadioItem
               value={model.id}
+              disabled={denial !== null}
+              title={denial ?? undefined}
               data-picker-column="model"
               data-picker-value={model.id}
-              onSelect={() => selectModel(model.id)}
+              closeOnSelect={pickClosesModelPicker("model")}
+              onSelect={() => pickModel(model.id)}
               onfocus={() => {
                 hoveredModelId = model.id;
                 hoveredLevel = null;
@@ -546,7 +598,8 @@
               }}
               data-menu-preview={previewedModelId === model.id ? "" : undefined}
             >
-              <span class="min-w-0 flex-1 truncate">{model.label}</span>
+              <span class="min-w-0 flex-1 truncate" title={model.label}>{model.label}</span>
+              {#if denial}<span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not allowed</span>{/if}
               <!-- The same faded check the Reasoning column shows on a previewed
                    level: both halves of the pending pair are marked the same way. -->
               {#if previewedModelId === model.id && model.id !== currentModelId}
@@ -573,11 +626,15 @@
             </DropdownMenu.Item>
             {#if legacyExpanded}
               {#each modelSections.legacy as model (model.id)}
+                {@const denial = modelPolicyDenial(policy, activeAgent, model.id)}
                 <DropdownMenu.RadioItem
                   value={model.id}
+                  disabled={denial !== null}
+                  title={denial ?? undefined}
                   data-picker-column="model"
                   data-picker-value={model.id}
-                  onSelect={() => selectModel(model.id)}
+                  closeOnSelect={pickClosesModelPicker("model")}
+                  onSelect={() => pickModel(model.id)}
                   onfocus={() => {
                     hoveredModelId = model.id;
                     hoveredLevel = null;
@@ -588,7 +645,8 @@
                   }}
                   data-menu-preview={previewedModelId === model.id ? "" : undefined}
                 >
-                  <span class="min-w-0 flex-1 truncate">{model.label}</span>
+                  <span class="min-w-0 flex-1 truncate" title={model.label}>{model.label}</span>
+                  {#if denial}<span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not allowed</span>{/if}
                   {#if previewedModelId === model.id && model.id !== currentModelId}
                     <CheckIcon size={12} class="absolute right-2 shrink-0 text-(--solus-accent) opacity-40" />
                   {/if}
@@ -603,7 +661,8 @@
               disabled={autoNeedsKey}
               data-picker-column="model"
               data-picker-value={AUTO_MODEL_ID}
-              onSelect={() => selectModel(AUTO_MODEL_ID)}
+              closeOnSelect={pickClosesModelPicker("model")}
+              onSelect={() => pickModel(AUTO_MODEL_ID)}
               onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
               onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
             >
@@ -614,6 +673,7 @@
             </DropdownMenu.RadioItem>
           {/if}
         </DropdownMenu.RadioGroup>
+      </div>
       </div>
 
       {#if !modelOnly}
@@ -635,6 +695,7 @@
                   disabled={isAuto && !hoveredModelId}
                   data-picker-column="reasoning"
                   data-picker-value={level}
+                  closeOnSelect={pickClosesModelPicker("effort")}
                   onSelect={() => selectReasoning(level)}
                   onfocus={() => (hoveredLevel = level)}
                   onpointerenter={() => (hoveredLevel = level)}
@@ -651,7 +712,7 @@
           </DropdownMenu.RadioGroup>
           <div class="min-h-2 flex-1"></div>
           <DropdownMenu.Separator />
-          {#if allowFastMode && isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId, modelMeta)}
+          {#if showsFastMode}
             <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary)">
               <span class="min-w-0 flex-1 text-(--solus-text-tertiary)">Fast mode</span>
               <Switch
@@ -670,7 +731,8 @@
                 disabled={autoNeedsKey}
                 data-picker-column="reasoning"
                 data-picker-value={AUTO_MODEL_ID}
-                onSelect={() => selectModel(AUTO_MODEL_ID)}
+                closeOnSelect={pickClosesModelPicker("model")}
+                onSelect={() => pickModel(AUTO_MODEL_ID)}
                 onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
                 onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
               >
@@ -693,10 +755,10 @@
                      the menu stays up so its models and levels can follow. The
                      flyout closes on its own once the pointer reaches them. -->
                 {#each agentRows as agent (agent.id)}
-                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
+                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
                     <span class="min-w-0 flex-1 truncate">{agent.label}</span>
                     {#if !agent.enabled}
-                      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not installed</span>
+                      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{agent.policyDenial ? "Not allowed" : "Not installed"}</span>
                     {/if}
                   </DropdownMenu.RadioItem>
                 {/each}
@@ -710,7 +772,7 @@
           <DropdownMenu.RadioGroup value={activeAgent}>
             <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
             {#each agentRows as agent (agent.id)}
-              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
+              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
                 <span class="min-w-0 flex-1 truncate">{agent.label}</span>
               </DropdownMenu.RadioItem>
             {/each}

@@ -1,0 +1,54 @@
+{
+  "runtime": "current Parakeet v3 INT8 ONNX worker; model/runtime path overrides and export only",
+  "platform": "linux",
+  "cpu": "Intel(R) Core(TM) i5-9300H CPU @ 2.40GHz",
+  "threads": 4,
+  "load_ms": 2670.48414,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "inference_ms": 804.3108619999998,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 25.1,
+        "encode_ms": 738.4,
+        "decode_ms": 38,
+        "tokenize_ms": 1.7
+      },
+      "resident_mb": 1126.078125,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 1,
+      "inference_ms": 765.3713639999996,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 24.8,
+        "encode_ms": 701.9,
+        "decode_ms": 38.2,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 1199.203125,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 2,
+      "inference_ms": 692.6146550000003,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 24.4,
+        "encode_ms": 624,
+        "decode_ms": 44.1,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1200.078125,
+      "words": 22
+    }
+  ],
+  "baseline_commit": "c4c64aff22b87a99472ea8054c911138d6352a11",
+  "onnxruntime_version": "1.29.0",
+  "audio_sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+}

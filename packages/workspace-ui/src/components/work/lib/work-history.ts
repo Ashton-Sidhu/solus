@@ -1,4 +1,3 @@
-import { parseDiagram, type DiagramDoc } from '@solus/contracts/diagram-types'
 import type { WorkRevisionReason, WorkRevisionSummary } from '@solus/contracts/types'
 
 /** What a history row says a checkpoint is. */
@@ -99,63 +98,6 @@ export function markdownBlockDiff(before: string, after: string): MarkdownBlockD
   while (i < a.length) out.push({ change: 'removed', markdown: a[i++]! })
   while (j < b.length) out.push({ change: 'added', markdown: b[j++]! })
   return out
-}
-
-export interface DiagramItemChange {
-  change: Exclude<BlockChange, 'same'> | 'changed'
-  kind: 'node' | 'edge'
-  id: string
-  label: string
-}
-
-export interface DiagramRevisionDiff {
-  changes: DiagramItemChange[]
-  /** Node and edge ids per change, for marking them on the canvas. */
-  added: Set<string>
-  removed: Set<string>
-  changed: Set<string>
-}
-
-/**
- * What changed between two diagram bodies, by node and edge id. A node whose
- * fields differ (label, position, detail, …) is `changed`. A body that does
- * not parse compares as empty.
- */
-export function diagramRevisionDiff(before: string, after: string): DiagramRevisionDiff {
-  const a = safeDiagram(before)
-  const b = safeDiagram(after)
-  const result: DiagramRevisionDiff = { changes: [], added: new Set(), removed: new Set(), changed: new Set() }
-  const compare = <T extends { id: string }>(kind: 'node' | 'edge', from: T[], to: T[], label: (item: T) => string) => {
-    const old = new Map(from.map((item) => [item.id, item]))
-    const next = new Map(to.map((item) => [item.id, item]))
-    for (const item of to) {
-      const prior = old.get(item.id)
-      if (!prior) {
-        result.changes.push({ change: 'added', kind, id: item.id, label: label(item) })
-        result.added.add(item.id)
-      } else if (JSON.stringify(prior) !== JSON.stringify(item)) {
-        result.changes.push({ change: 'changed', kind, id: item.id, label: label(item) })
-        result.changed.add(item.id)
-      }
-    }
-    for (const item of from) {
-      if (next.has(item.id)) continue
-      result.changes.push({ change: 'removed', kind, id: item.id, label: label(item) })
-      result.removed.add(item.id)
-    }
-  }
-  const nodeLabels = new Map([...a.nodes, ...b.nodes].map((node) => [node.id, node.label || node.id]))
-  compare('node', a.nodes, b.nodes, (node) => node.label || node.id)
-  compare('edge', a.edges, b.edges, (edge) => edge.label || `${nodeLabels.get(edge.source) ?? edge.source} → ${nodeLabels.get(edge.target) ?? edge.target}`)
-  return result
-}
-
-function safeDiagram(content: string): DiagramDoc {
-  try {
-    return parseDiagram(content)
-  } catch {
-    return { nodes: [], edges: [] }
-  }
 }
 
 /** A point in history a reader can pick: a checkpoint, or the current body. */

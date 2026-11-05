@@ -35,10 +35,7 @@ function themeVariables(isDark: boolean) {
   };
 }
 
-// A Mermaid diagram is drawn to look like a Solus diagram work. Every value
-// below is lifted from the diagram canvas — `DiagramNode.svelte`,
-// `DiagramGroupNode.svelte`, `DiagramEdge.svelte`, `DiagramShell.css` — so
-// the two read as one artifact family: a node is a container-coloured card
+// A Mermaid diagram follows the Solus look: a node is a container-coloured card
 // with a hairline border and the faint ambient lift; a group is the
 // accent-washed frame; edges are parchment ink a step lighter than text, with
 // a label pill on the pane. The rules go in through `themeCSS`, which Mermaid
@@ -46,7 +43,7 @@ function themeVariables(isDark: boolean) {
 // `!important`, and the SVG is inline in the document so the theme variables
 // resolve in both modes. The edge ink is literal because Mermaid namespaces
 // every rule under the SVG id, so a variable declared here could not reach a
-// root the diagram canvas would set it on.
+// root a surrounding page would set it on.
 function solusMermaidCss(isDark: boolean): string {
   const edgeStroke = isDark ? "rgba(255, 255, 255, 0.34)" : "#c3b7a6";
   const edgeArrow = isDark ? "rgba(255, 255, 255, 0.5)" : "#a89a88";

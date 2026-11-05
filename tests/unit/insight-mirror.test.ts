@@ -112,6 +112,26 @@ describe('insight mirror', () => {
     expect(queue.listDelivery(bobIn('org2'), 10).map((item) => item.kind)).toEqual(['insights'])
     expect(queue.listDelivery(bobIn('org1'), 10)).toEqual([])
   })
+
+  test('a mirrored span carries its long texts as texts, beside an attrs without them', async () => {
+    // WHY (plans/029 §6): the service stores a span's prompt, system prompt,
+    // response, and thought as `insight_span_texts`, as the host stores its own
+    // in `span_texts`, so its `attrs` stay small and the cross-host trace view
+    // still shows every text.
+    insightMirror.useInsightsPolicy({ syncAllInsights: () => true, optedIn: () => false, attached: () => false })
+    await sessionIn('session-texts', 'org1')
+    const root = { ...turnSpan('trace-texts', 'session-texts', 'org1'), attrs: { costUsd: 1, prompt: 'fix it', response: 'Done.', systemPrompt: 'You are Solus.' } }
+    const thought = { ...root, spanId: 'think-texts', parentSpanId: 'trace-texts', kind: registries.SPAN_KINDS.thinking, name: 'thinking', endedAt: 50, attrs: { thought: 'Reading the test.' } }
+    expect(await insightMirror.mirrorInsightSpan(thought, [], [])).toBe(0)
+    expect(await insightMirror.mirrorInsightSpan(root, [], [])).toBe(1)
+    const [item] = queue.listDelivery(bobIn('org1'), 10)
+    expect(item?.payload).toEqual({
+      spans: [
+        { span: { ...thought, attrs: {}, texts: { thought: 'Reading the test.' } }, events: [] },
+        { span: { ...root, attrs: { costUsd: 1 }, texts: { prompt: 'fix it', response: 'Done.', systemPrompt: 'You are Solus.' } }, events: [] },
+      ],
+    })
+  })
 })
 
 

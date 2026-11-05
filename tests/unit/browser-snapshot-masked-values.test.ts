@@ -60,6 +60,15 @@ describe('element snapshot values', () => {
     expect(raw).not.toContain('synthetic-css-mask-marker')
   })
 
+  test('a cut label or value does not end on half of an emoji', () => {
+    // WHY: a lone surrogate is not valid Unicode, and a provider that reads
+    // strict JSON rejects the whole message that holds it.
+    const fields = [new FieldFixture('INPUT', 'text', `${'v'.repeat(199)}😀`, null, `${'l'.repeat(119)}😀`)]
+    const { label, value } = snapshot(fields, () => visible).elements[0]!
+    expect(label).toBe('l'.repeat(119))
+    expect(value).toBe('v'.repeat(199))
+  })
+
   test('a mask set through the standard property name is honored too', () => {
     const fields = [new FieldFixture('INPUT', 'text', 'synthetic-css-mask-marker', 'circle', 'Code')]
     const result = snapshot(fields, (field) => ({

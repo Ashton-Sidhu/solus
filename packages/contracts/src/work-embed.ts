@@ -2,18 +2,17 @@
  * A live work rendered inside another work's markdown.
  *
  * `[title](work://embed?workId=…&type=…)` on a line of its own is the token. A
- * document or a plan turns it into the work's own render — a diagram canvas, an
- * artifact frame — and writes it back out unchanged, so the markdown stays
- * portable and a round trip through the editor is lossless.
+ * document or a plan turns it into the work's own render, an artifact frame,
+ * and writes it back out unchanged, so the markdown stays portable and a round
+ * trip through the editor is lossless.
  *
- * `type` names which member of the family a token is. Every reader must check
- * it: a Confluence adapter that draws diagrams has nothing to draw for an
- * artifact, and must leave that token alone rather than mis-rendering it.
+ * `type` names what a token embeds. A token of any other type is not an embed:
+ * it stays a plain link.
  */
-export type WorkEmbedType = 'diagram' | 'artifact'
+export type WorkEmbedType = 'artifact'
 
 function toEmbedType(value: string | null): WorkEmbedType | null {
-  return value === 'diagram' || value === 'artifact' ? value : null
+  return value === 'artifact' ? value : null
 }
 
 export interface WorkEmbedReference {

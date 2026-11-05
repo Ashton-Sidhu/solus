@@ -18,6 +18,7 @@ export function updateStatusLine(state: DesktopUpdateState): string {
     case 'ready':
       return `Solus ${state.release.version} is ready. Restart to finish the update.`
     case 'error':
+    case 'managed':
       return state.message
   }
 }
@@ -40,6 +41,7 @@ export function updateCommandFor(state: DesktopUpdateState): { command: UpdateCo
       return { command: 'restart', label: 'Restart to update' }
     case 'checking':
     case 'downloading':
+    case 'managed':
       return null
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
@@ -88,6 +88,41 @@ describe('pull request authoring', () => {
 
   // GitHub accepts a template in any letter case and as text, so the draft
   // must follow every template GitHub itself would show.
+  // WHY: with log.showSignature=true git prints the verification text in the
+  // log, and the writers read each stdout line as a commit subject.
+  test('a signed commit gives its subject, not its verification text', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pr-signature-'))
+    const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' })
+    const signer = join(cwd, '.fake-signer')
+    writeFileSync(signer, [
+      '#!/bin/sh',
+      'case "$*" in',
+      '  *--verify*) echo "No signature" >&2 ;;',
+      '  *) echo "[GNUPG:] SIG_CREATED D 1 8 00 1 F" >&2',
+      '     printf -- "-----BEGIN PGP SIGNATURE-----\\n\\nfake\\n-----END PGP SIGNATURE-----\\n" ;;',
+      'esac',
+    ].join('\n'))
+    chmodSync(signer, 0o755)
+    try {
+      git('init', '-q', '-b', 'main')
+      git('config', 'user.name', 't')
+      git('config', 'user.email', 't@t')
+      git('config', 'gpg.program', signer)
+      git('commit', '-q', '--allow-empty', '-m', 'base')
+      git('checkout', '-qb', 'feature')
+      git('commit', '-q', '--allow-empty', '-S', '-m', 'fix(git): a signed change')
+      git('config', 'log.showSignature', 'true')
+
+      expect((await readPullRequestAuthoringContext(cwd, 'main', 'feature')).commitSummary).toBe('fix(git): a signed change')
+      const { resolveSourceControlWritingPolicy } = await import('@solus/server/git/source-control-writing')
+      const policy = await resolveSourceControlWritingPolicy(cwd, { mode: 'repo_conventions', customInstructions: '', followPullRequestTemplate: false })
+      expect(policy.commitInstructions).toContain('fix(git): a signed change')
+      expect(policy.commitInstructions).not.toContain('No signature')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   describe('repository template', () => {
     function repoWith(files: Record<string, string>): string {
       const cwd = mkdtempSync(join(tmpdir(), 'pr-template-'))

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ActivityIndicator, FlatList, Pressable, View } from 'react-native'
-import { SessionSearch, type HostSessionSearchHit } from '@solus/client-core/session-search'
+import { SessionSearch, searchFailureSummary, type HostSessionSearchHit } from '@solus/client-core/session-search'
 import { sessionSearchNavigation } from '@solus/client-core/session-search-navigation'
 import { snippetRuns } from '@solus/contracts/search-snippet'
 import { useApp, useListened } from '../../app/app-context'
@@ -44,7 +44,7 @@ export function SessionSearchResults(props: {
     keyExtractor={hit => `${hit.serverId}:${hit.result.record.sessionId}`}
     keyboardShouldPersistTaps="handled"
     contentInsetAdjustmentBehavior="automatic"
-    ListHeaderComponent={<>{props.header}{state.errors.map((error, index) => <Text key={`${error.serverId}:${index}`} className="px-5 py-2 text-sm text-danger-foreground">Search incomplete: {error.message}</Text>)}{state.errors.length > 0 ? <Pressable accessibilityRole="button" className="px-5 py-3" onPress={() => search.search(props.query, homes)}><Text className="text-primary">Retry search</Text></Pressable> : null}</>}
+    ListHeaderComponent={<>{props.header}{state.errors.length > 0 ? <Text className="px-5 py-2 text-sm text-danger-foreground">Search incomplete: {searchFailureSummary(state.errors.map(error => app.registry.host(error.serverId)?.label ?? error.serverId))}</Text> : null}{state.errors.length > 0 ? <Pressable accessibilityRole="button" className="px-5 py-3" onPress={() => search.search(props.query, homes)}><Text className="text-primary">Retry search</Text></Pressable> : null}</>}
     ListEmptyComponent={!state.loading ? <Text className="px-5 py-6 text-sm text-foreground-muted">No matching sessions.</Text> : undefined}
     ListFooterComponent={state.loading || state.loadingMore ? <View className="p-5"><ActivityIndicator accessibilityLabel="Searching sessions" /></View> : state.remaining > 0 ? <Pressable accessibilityRole="button" className="p-5" onPress={() => void search.loadMore()}><Text className="text-primary">Show more matches</Text></Pressable> : undefined}
     onEndReached={() => void search.loadMore()}

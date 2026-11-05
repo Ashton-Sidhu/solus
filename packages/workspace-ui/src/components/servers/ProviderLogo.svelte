@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import type { ProviderLogoId } from "./lib/host-onboarding";

@@ -8,7 +8,7 @@ export const SOLUS_TIPS: readonly string[] = [
   "Use Plan mode to agree on an approach before the agent writes any code.",
   "Turn a prompt you repeat into an automation that runs on a schedule.",
   "Track work across sessions on the Tasks board.",
-  "Ask the agent to make a Work — a document, slide deck, or diagram you can keep.",
+  "Ask the agent to make a Work — a document or slide deck you can keep.",
   "Drop screenshots or files into the prompt to give the agent context.",
   "Change the project a session runs in from the chip below the prompt.",
   "Review the branch diff before you open a pull request.",

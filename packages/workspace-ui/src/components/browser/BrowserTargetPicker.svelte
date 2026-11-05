@@ -11,7 +11,7 @@
   import { Skeleton } from "../ui/skeleton";
   import * as TooltipUI from "../ui/tooltip";
   import { MiddleTruncate } from "../ui/middle-truncate";
-  import { navigableAddress } from "./lib/address";
+  import { addressProblem, navigableAddress } from "./lib/address";
 
   /**
    * Where a page is created: the pane's empty state, and the `+` in the page
@@ -28,6 +28,8 @@
     onRefresh: () => void;
     onOpen: (target: BrowserDiscoveredTarget) => void;
     onOpenUrl: (url: string) => void;
+    /** A typed address that cannot open, with the reason. */
+    onRefused: (problem: string) => void;
     /** The address being opened, while the page loads offscreen behind this
      *  list. The picker stays up for that whole load, so without it a chosen
      *  offer looks like a click that did nothing. */
@@ -47,6 +49,7 @@
     onRefresh,
     onOpen,
     onOpenUrl,
+    onRefused,
     openingUrl = null,
     onCancel,
     profile,
@@ -57,6 +60,11 @@
   function submitManual(event: SubmitEvent) {
     event.preventDefault();
     if (openingUrl) return;
+    const problem = addressProblem(manualUrl);
+    if (problem) {
+      onRefused(problem);
+      return;
+    }
     const url = navigableAddress(manualUrl);
     if (!url) return;
     manualUrl = "";

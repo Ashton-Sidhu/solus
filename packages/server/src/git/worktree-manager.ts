@@ -392,8 +392,11 @@ export async function createWorktree(
         fn: 'runAsync',
         file: 'worktree-manager.ts',
       },
+      // No deadline: a large checkout or a slow post-checkout hook can take
+      // minutes. Stop still cancels it through the signal.
       () => runStreamed('git', checkoutArgs, projectPath, {
         signal: options.signal,
+        timeout: 0,
         env: GIT_PROGRESS_ENV,
         onStderrLine: checkoutProgress(options.onStage),
       }),
@@ -410,6 +413,7 @@ export async function createWorktree(
           { worktreePath, startPoint, fn: 'runAsync', file: 'worktree-manager.ts' },
           () => runStreamed('git', [...checkoutConfig, 'reset', '--hard', latestCommit], worktreePath, {
             signal: options.signal,
+            timeout: 0,
             env: GIT_PROGRESS_ENV,
             onStderrLine: checkoutProgress(options.onStage),
           }),
@@ -670,9 +674,11 @@ export async function restoreWorktree(worktreePath: string): Promise<GitCheckout
 
 /** Make a Solus worktree again after its folder was deleted, so the session's
  *  next turn starts instead of failing. A branch that still exists comes back
- *  with its commits. A deleted branch is made again from the branch the
- *  project folder is on now; its earlier commits are not restored. The error
- *  names the branch and path, not git's output, which goes to the log. */
+ *  with its commits. A deleted branch that was pushed comes back from its
+ *  cached `origin` tip and tracks it. Otherwise it is made again from the
+ *  branch the project folder is on now, the cached remote default branch, or
+ *  a detached HEAD; its earlier commits are not restored. The error names the
+ *  branch and path, not git's output, which goes to the log. */
 export async function recreateMissingWorktree(checkout: GitCheckout): Promise<GitCheckout> {
   const { repoRoot, branch, worktreePath } = checkout
   if (!worktreePath || !branch || !isSolusWorktreePath(worktreePath) || !existsSync(repoRoot)) {
@@ -682,20 +688,24 @@ export async function recreateMissingWorktree(checkout: GitCheckout): Promise<Gi
     log.error('worktree_recreate_failed', { worktreePath, branch, error: error.message })
     throw new Error(`Could not recreate the worktree for branch '${branch}' at ${worktreePath}.`)
   })
-  await gitOrFail(['worktree', 'prune'])
-  const branchExists = await runAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], repoRoot)
+  const refExists = (ref: string) => runAsync('git', ['show-ref', '--verify', '--quiet', ref], repoRoot)
     .then(() => true, () => false)
-  let baseBranch: string | null = null
-  if (branchExists) {
+  await gitOrFail(['worktree', 'prune'])
+  let baseRef: string | null = null
+  if (await refExists(`refs/heads/${branch}`)) {
     await gitOrFail(['worktree', 'add', worktreePath, branch])
+  } else if (await refExists(`refs/remotes/origin/${branch}`)) {
+    baseRef = `refs/remotes/origin/${branch}`
+    await gitOrFail(['worktree', 'add', '--track', '-b', branch, worktreePath, baseRef])
   } else {
-    baseBranch = await getWorkingBranch(repoRoot)
-    if (!baseBranch) {
-      throw new Error(`Could not recreate branch '${branch}' at ${worktreePath}: the project folder has no current branch to start it from (detached HEAD?).`)
-    }
-    await gitOrFail(['worktree', 'add', '-b', branch, worktreePath, `refs/heads/${baseBranch}`])
+    const currentBranch = await getWorkingBranch(repoRoot)
+    const remoteDefault = currentBranch
+      ? null
+      : await runAsync('git', ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], repoRoot).catch(() => null)
+    baseRef = currentBranch ? `refs/heads/${currentBranch}` : remoteDefault || 'HEAD'
+    await gitOrFail(['worktree', 'add', '--no-track', '-b', branch, worktreePath, baseRef])
   }
-  log.info('worktree_recreated', { worktreePath, branch, baseBranch })
+  log.info('worktree_recreated', { worktreePath, branch, baseRef })
   return checkout
 }
 

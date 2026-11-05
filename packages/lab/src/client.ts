@@ -1,8 +1,7 @@
 import { randomBytes } from 'node:crypto'
-import { io, type Socket } from 'socket.io-client'
-import { z } from 'zod'
 import { SolusApiClient, SolusApiHttp } from '@solus/contracts/solus-api/client'
 import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
+import { dialHostSocket, type DialedHostSocket } from '@solus/client-core/host-socket'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { HostEvent } from '@solus/contracts/host-events'
@@ -17,12 +16,6 @@ import type { Persona } from './personas'
  * secret with its id and name. RPC answers and host events come back typed; a
  * refusal keeps its code so a scenario can assert it.
  */
-
-const envelopeSchema = z.object({
-  result: z.unknown().optional(),
-  error: z.object({ message: z.string().optional(), code: z.string().optional() }).optional(),
-})
-type RpcEnvelopeInput = z.input<typeof envelopeSchema>
 
 export class LabRpcError extends Error {
   constructor(readonly method: string, readonly code: string | undefined, message: string) {
@@ -84,7 +77,7 @@ export class LabClient {
   readonly api: SolusApiClient
   /** The record methods as the clients call them, over `api`. */
   readonly records: ReturnType<typeof workspaceRecordMethods>
-  private socket: Socket | null = null
+  private socket: DialedHostSocket | null = null
   private readonly events: HostEvent[] = []
   private readonly eventWaiters: Array<(event: HostEvent) => void> = []
   private disconnectedAt: number | null = null
@@ -106,7 +99,7 @@ export class LabClient {
   }
 
   get connected(): boolean {
-    return this.socket?.connected ?? false
+    return this.socket?.isOpen ?? false
   }
 
   /** The persona's access token; null for a guest, who holds none. */
@@ -142,64 +135,44 @@ export class LabClient {
   }
 
   /** Dials with the credential given (a scenario may present one by hand). */
-  dial(credential: HandshakeCredential | undefined): Promise<DialOutcome> {
+  async dial(credential: HandshakeCredential | undefined): Promise<DialOutcome> {
     const handshake: SocketHandshake = credential ? { credential, clientInstanceId: this.clientInstanceId } : { clientInstanceId: this.clientInstanceId }
     this.disconnectedAt = null
-    const socket = io(this.options.hostUrl, {
-      path: '/ws',
-      transports: ['websocket'],
-      reconnection: false,
-      auth: handshake,
-    })
-    socket.on('host-event', (event: HostEvent) => {
+    const dialed = await dialHostSocket(this.options.hostUrl, handshake, { timeoutMs: 10_000 })
+    const outcome: DialOutcome = dialed.ok ? { ok: true } : { ok: false, stage: 'socket', code: dialed.code ?? dialed.message }
+    this.timeline({ kind: 'dial', ok: outcome.ok, code: outcome.ok ? undefined : outcome.code ?? undefined })
+    if (!dialed.ok) return outcome
+    const socket = dialed.socket
+    this.socket = socket
+    socket.onEvent((wire) => {
+      // SAFETY: the host sends typed host events; a scenario reads only the ones it waits for.
+      const event = wire as HostEvent
       this.events.push(event)
       this.timeline({ kind: 'event', method: event.type, detail: event.payload })
       // A satisfied waiter removes itself, so iterate a copy.
       for (const waiter of Array.from(this.eventWaiters)) waiter(event)
     })
-    socket.on('disconnect', (reason) => {
+    socket.onClose((close) => {
       this.disconnectedAt = Date.now()
-      this.timeline({ kind: 'disconnect', detail: reason })
+      this.timeline({ kind: 'disconnect', detail: close.reason || close.code })
       for (const waiter of this.disconnectWaiters.splice(0)) waiter()
     })
-    return new Promise((resolveOutcome) => {
-      const timeout = setTimeout(() => finish({ ok: false, stage: 'socket', code: 'timeout' }), 10_000)
-      const finish = (outcome: DialOutcome) => {
-        clearTimeout(timeout)
-        socket.off('connect', onConnect)
-        socket.off('connect_error', onError)
-        if (outcome.ok) this.socket = socket
-        else socket.disconnect()
-        this.timeline({ kind: 'dial', ok: outcome.ok, code: outcome.ok ? undefined : outcome.code ?? undefined })
-        resolveOutcome(outcome)
-      }
-      const onConnect = () => finish({ ok: true })
-      const onError = (error: Error & { data?: { code?: string } }) => finish({ ok: false, stage: 'socket', code: error.data?.code ?? error.message ?? null })
-      socket.once('connect', onConnect)
-      socket.once('connect_error', onError)
-    })
+    return outcome
   }
 
   async rpc<M extends RpcInvokeMethod>(method: M, ...args: RpcArgs<M>): Promise<RpcResult<M>> {
     const socket = this.socket
-    if (!socket?.connected) throw new LabRpcError(method, 'DISCONNECTED', `${this.persona.id} is not connected`)
-    return new Promise<RpcResult<M>>((resolveResult, reject) => {
-      const requestId = randomBytes(8).toString('hex')
-      const timeout = setTimeout(() => reject(new LabRpcError(method, 'TIMEOUT', `${method} timed out`)), 30_000)
-      socket.emit('rpc', requestId, method, args, (raw: RpcEnvelopeInput) => {
-        clearTimeout(timeout)
-        const envelope = envelopeSchema.safeParse(raw)
-        if (!envelope.success) return reject(new LabRpcError(method, 'BAD_ENVELOPE', `${method} answered with an unreadable envelope`))
-        if (envelope.data.error) {
-          this.timeline({ kind: 'rpc', method, ok: false, code: envelope.data.error.code })
-          return reject(new LabRpcError(method, envelope.data.error.code, envelope.data.error.message ?? `${method} failed`))
-        }
-        this.timeline({ kind: 'rpc', method, ok: true })
-        // SAFETY: the host answered method M, so the result has M's return type; the wire cannot prove it and the scenario's generic already assumed it.
-        const result = envelope.data.result as RpcResult<M>
-        resolveResult(result)
-      })
+    if (!socket?.isOpen) throw new LabRpcError(method, 'DISCONNECTED', `${this.persona.id} is not connected`)
+    const envelope = await socket.call(method, args, 30_000).catch((error: Error) => {
+      throw new LabRpcError(method, 'TIMEOUT', error.message)
     })
+    if (envelope.error) {
+      this.timeline({ kind: 'rpc', method, ok: false, code: envelope.error.code })
+      throw new LabRpcError(method, envelope.error.code, envelope.error.message ?? `${method} failed`)
+    }
+    this.timeline({ kind: 'rpc', method, ok: true })
+    // SAFETY: the host answered method M, so the result has M's return type; the wire cannot prove it and the scenario's generic already assumed it.
+    return envelope.result as RpcResult<M>
   }
 
   /** The events received so far, of one type. */
@@ -241,7 +214,7 @@ export class LabClient {
   }
 
   close(): void {
-    this.socket?.disconnect()
+    this.socket?.close()
     this.socket = null
   }
 

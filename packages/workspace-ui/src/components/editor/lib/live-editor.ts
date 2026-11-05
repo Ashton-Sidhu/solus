@@ -12,7 +12,7 @@ export interface LiveEditorBinding {
 
 /**
  * The presence palette (`presenceTint`, `oklch(0.66 0.15 hue)`) in sRGB hex:
- * the caret extension takes only `#rrggbb`, and so does the diagram outline check.
+ * the caret extension takes only `#rrggbb`.
  */
 const CARET_COLORS = ['#df6862', '#cb7f00', '#879f18', '#00ae7b', '#00abbd', '#3e96ea', '#9a7de3', '#cd6aaf'] as const
 

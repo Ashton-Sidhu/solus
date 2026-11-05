@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { configureUplinkAccountSource } from '@solus/client-core/uplink-account'
-import { oauthUplinkAccountSource, type UplinkAccountSource } from '@solus/client-core/uplink-session'
+import { webUplinkAccountSource, type UplinkAccountSource } from '@solus/client-core/uplink-session'
 
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', info: () => '', dismiss: () => {} }) }))
 mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
@@ -150,7 +150,7 @@ describe('adding a host', () => {
 describe('removing a host from the web client', () => {
   test('deletes the host on the serving origin with the account token', async () => {
     const calls: Array<{ url: string; method: string | undefined; authorization: string | null }> = []
-    const source = oauthUplinkAccountSource('https://app.solus.test', { accessToken: async () => 'account-token' }, (async (input: string | URL | Request, init?: RequestInit) => {
+    const source = webUplinkAccountSource('https://app.solus.test', { accessToken: async () => 'account-token' }, (async (input: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(input), method: init?.method, authorization: new Headers(init?.headers).get('authorization') })
       return new Response(null, { status: 204 })
     }) as typeof fetch)
@@ -160,12 +160,12 @@ describe('removing a host from the web client', () => {
   })
 
   test('a host the account no longer lists is already removed', async () => {
-    const source = oauthUplinkAccountSource('https://app.solus.test', { accessToken: async () => 'account-token' }, (async () => new Response('{}', { status: 404 })) as typeof fetch)
+    const source = webUplinkAccountSource('https://app.solus.test', { accessToken: async () => 'account-token' }, (async () => new Response('{}', { status: 404 })) as typeof fetch)
     expect(await source.removeHost('host_omarchy')).toBe(true)
   })
 
   test('a refusal reads as not removed', async () => {
-    const source = oauthUplinkAccountSource('https://app.solus.test', { accessToken: async () => 'account-token' }, (async () => new Response('{}', { status: 403 })) as typeof fetch)
+    const source = webUplinkAccountSource('https://app.solus.test', { accessToken: async () => 'account-token' }, (async () => new Response('{}', { status: 403 })) as typeof fetch)
     expect(await source.removeHost('host_omarchy')).toBe(false)
   })
 })

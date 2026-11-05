@@ -3,10 +3,10 @@ import type { Session, Tab } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { SessionMetadata } from '@solus/workspace-ui/contexts/workspace/session-metadata.svelte'
 
-type MetadataHarness = Pick<SessionMetadata, 'markSessionUnread' | 'applySessionReadState'> & {
+type MetadataHarness = Pick<SessionMetadata, 'markSessionUnread' | 'applySessionReadState' | 'publishSessionViewed' | 'heldUnreadSessionIds'> & {
   workspace: {
     tabs: Record<string, Tab>
-    sessions: { byId: Record<string, Pick<Session, 'run'>> }
+    sessions: { byId: Record<string, { run: { location: { checkout: { serverId: string } } } }> }
     tabIdsForSession: (sessionId: string) => string[]
   }
 }
@@ -17,13 +17,14 @@ afterEach(() => { for (const spy of spies.splice(0)) spy.mockRestore() })
 function fixture() {
   // Supply only the fields read by the two metadata methods under test.
   const metadata = Object.create(SessionMetadata.prototype) as MetadataHarness
+  Object.defineProperty(metadata, 'heldUnreadSessionIds', { value: new Set<string>() })
   metadata.workspace = {
     tabs: {
       lead: { id: 'lead', sessionId: 'lead-session', hasUnread: false },
       worker: { id: 'worker', sessionId: 'worker-session', hasUnread: false },
       duplicate: { id: 'duplicate', sessionId: 'worker-session', hasUnread: false },
     },
-    sessions: { byId: { 'worker-session': { run: { serverId: 'worker-host' } } } },
+    sessions: { byId: { 'worker-session': { run: { location: { checkout: { serverId: 'worker-host' } } } } } },
     tabIdsForSession: (sessionId) => Object.values(metadata.workspace.tabs)
       .filter((tab) => tab.sessionId === sessionId).map((tab) => tab.id),
   }
@@ -59,6 +60,20 @@ describe('mark a session unread', () => {
 
     await expect(metadata.markSessionUnread('worker-host', 'worker-session')).rejects.toThrow('Disconnected')
     expect(metadata.workspace.tabs.worker.hasUnread).toBe(false)
+  })
+
+  test('a mark holds until something reads the session', async () => {
+    // WHY: the visibility effect skips a held session. A hold nothing releases
+    // would leave a session unread on screen after the reader came back to it.
+    const metadata = fixture()
+    metadata.applySessionReadState('worker-session', null)
+    expect(metadata.heldUnreadSessionIds.has('worker-session')).toBe(true)
+    metadata.applySessionReadState('worker-session', 123)
+    expect(metadata.heldUnreadSessionIds.has('worker-session')).toBe(false)
+
+    metadata.applySessionReadState('worker-session', null)
+    metadata.publishSessionViewed('worker-session')
+    expect(metadata.heldUnreadSessionIds.has('worker-session')).toBe(false)
   })
 
   test('a closed session can be marked unread without opening a tab', async () => {

@@ -8,6 +8,12 @@ export interface ConversationFindMatch {
 
 export const CONVERSATION_BREADCRUMB_OFFSET = 58;
 
+/** The text find compares. A phone keyboard types the curly apostrophe. Each
+ *  one folds to one UTF-16 unit, so an offset in the fold is one in the text. */
+export function foldConversationFindText(text: string): string {
+  return text.toLocaleLowerCase().replace(/[\u2018\u2019]/g, "'");
+}
+
 export function conversationFindTopInset(hasFloatingBreadcrumb: boolean): number {
   // The primary transcript is paint-contained below its floating breadcrumb, so
   // z-index cannot lift the find bar over that sibling stacking layer.
@@ -56,7 +62,7 @@ export function findConversationMatches(
   query: string,
   visibleCounts: ReadonlyMap<string, VisibleMatchCount> = new Map(),
 ): ConversationFindMatch[] {
-  const needle = query.trim().toLocaleLowerCase();
+  const needle = foldConversationFindText(query.trim());
   if (!needle) return [];
 
   const matches: ConversationFindMatch[] = [];
@@ -66,7 +72,7 @@ export function findConversationMatches(
     const count =
       visible?.content === message.content
         ? visible.count
-        : countOccurrences(message.content.toLocaleLowerCase(), needle);
+        : countOccurrences(foldConversationFindText(message.content), needle);
     for (let occurrence = 0; occurrence < count; occurrence++) {
       matches.push({ messageId: message.id, occurrence });
     }

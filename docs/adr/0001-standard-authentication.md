@@ -73,6 +73,12 @@ standard exists.
    (app.solus.sh), as today. On any other origin (a host, a tunnel, a self-hosted
    server) it uses local access only, as today. The CLI uses the device grant, and the
    grant gives OAuth tokens, never a session token.
+   **Amended 2026-10-31** (docs/plans/fast-secure-startup.md, decision 1): the web
+   client on the account origin runs no OAuth flow and holds no refresh token. Its
+   grant is the website session (docs/plans/web-session-tokens.md): the account origin
+   signs its access tokens from that session. This is the backend for frontend of the
+   IETF guidance for browser-based apps. The page gets its access tokens from
+   `POST /api/web/tokens`. Desktop and mobile keep their own grant with PKCE.
 2. **Identity is OIDC.** The ID token and `/userinfo` give `sub`, `email`,
    `email_verified`, `name`, and `picture`. Organizations are API data
    (`GET /v1/account`), not identity.
@@ -89,7 +95,9 @@ standard exists.
 5. **Sign-out ends one client grant.** The client revokes its refresh token
    (RFC 7009). The cloud marks the grant revoked. Every delegation made from that
    grant fails at its next refresh. Other clients of the same person continue.
-   Signing out of the website ends only the website's browser session.
+   Signing out of the website ends only the website's browser session, and the web
+   client's grant with it: on the account origin, that session is the web client's
+   sign-in (amended 2026-10-31).
 6. **A host acts for a person only through a delegation.** The host exchanges the
    client's access token for that host (RFC 8693). The delegation carries the
    client grant's `grant_id`, and the cloud refuses it when that grant is revoked. It is
@@ -103,7 +111,11 @@ standard exists.
    sign-out, a removal, or deleting the host refuses the next token.
 7. **Every call to the account plane for a person uses `Authorization: Bearer`**:
    the person's own token for our servers, or a host's delegated token. No token goes
-   in a body. No host token or service key goes beside it.
+   in a body. No host token or service key goes beside it. **The cookie is never the
+   credential**, with one exception (amended 2026-10-31): the account origin's own page
+   sends its website session cookie to `POST /api/web/tokens`, and only there. That
+   endpoint checks the exact `Origin` and answers access tokens. Every other call, at
+   `/v1` and at every host, takes a bearer token, and a host never sees the cookie.
 8. **A host has one credential, from registration.** A host registers with its
    owner's account the first time a signed-in owner presents a token to it (the
    desktop on sign-in; any signed-in owner client for a standalone host). Registration
@@ -156,7 +168,7 @@ service-key path for connection credentials; guest grant JWTs (dead code).
 
 What stays: signed asset URLs, share links, local access (pairing and host session
 tokens), and the tunnel token. WebSocket tickets are gone (2026-10-23): a socket
-presents its one credential in the socket.io handshake, the socket's first message and
+presents its one credential in the `hello` of the host socket, the socket's first message and
 never a header or a URL — an access token, a pairing session token, or a share secret
 with the guest's name — and the server builds the principal from it directly
 (`admission/doors.ts`).
@@ -443,7 +455,7 @@ these decisions where the text above was not exact:
   ends after 10 minutes, or when it is cancelled.
 - **`OAuthSession` has more than §3.2 lists.** `cancelSignIn()`; `reload()` (the
   desktop keychain can be read only after `ready`); `beginSignIn()` and
-  `completeSignIn()`, which the web client calls itself around one fetch;
+  `completeSignIn()`, which `signIn()` calls around the browser step;
   `adoptTokens()` for the CLI's device grant; and `accessToken(resource, { fresh })`
   after a host refuses a kept token. All refreshes run one at a time, for every
   resource, and each one saves the rotated refresh token before it gives out the
@@ -456,29 +468,32 @@ these decisions where the text above was not exact:
   endpoint over TLS, so it does not check the signature (OIDC Core §3.1.3.7, rule 6).
   It checks `iss`, `aud`, `exp`, and `nonce`. This keeps client-core free of a JWT
   library, which mobile cannot load as is.
-- **Web storage.** Every tab of the account origin shares one sign-in in
-  `localStorage`: the grant and the access tokens any tab minted
-  (docs/plans/instant-share-open.md, decided 2026-10-21). A new tab is signed in at
-  once and dials a host with a token another tab already has. Because the refresh
-  token rotates and a replay ends the grant (above), a refresh runs under one Web
-  Lock (`navigator.locks`) across the tabs, and starts from the grant as stored,
-  which another tab may have rotated (`GrantSharing` in `oauth-session.ts`); the
-  token another tab minted meanwhile is used without a refresh. A sign-in or a
-  sign-out in one tab reaches the others through the `storage` event. This replaces
-  the per-tab grant in page memory and `sessionStorage`, which cost each new tab a
-  silent sign-in. What a script on the page can reach is the same: page memory was
-  readable by it too. A page with no sign-in makes one silent sign-in (`prompt=none`)
-  with the website's cookie, as a same-origin fetch that accepts JSON: the provider
-  answers the callback address `/auth/callback` instead of redirecting to it, and the
-  page completes the code itself, so no page loads. The callback is the registered
-  redirect URI only; no route serves it. With no cookie, a member goes to the sign-in
-  page and a guest of a share link stays a guest. A grant that ends while the page is
-  open (its refresh token expired, or was revoked) is made again the same way
-  (`keepWebSignIn`), and the hosts refused meanwhile dial again. While an account
-  holds no sign-in, on the web or the desktop, a host reached with its tokens shows
-  "Sign-in required" and does not redial. Sign-out on the web ends the grant
-  and then the cookie, because on the account origin the page and the website are
-  one, and the cookie would sign the page in again.
+- **Web sign-in** (amended 2026-10-31, docs/plans/fast-secure-startup.md and
+  docs/plans/web-session-tokens.md). This replaces the grant in `localStorage` and the
+  silent sign-in from the page. The page keeps no grant and runs no OAuth flow.
+  - The shell says who is signed in (`solus-account-identity`: `sub`, name, email,
+    picture) and carries the first screen's directory, account, and settings as JSON
+    data blocks. It carries no token. So the workspace mounts with no request, and the
+    page asks no account route at boot.
+  - The page asks `POST /api/web/tokens` for the servers token and the tokens of its
+    hosts, in one request. Only the session cookie authenticates it, and the `Origin`
+    must be the account origin. The answer is `no-store` and carries tokens only.
+  - The website session is the web grant. On every call, on any instance, the account
+    origin checks that the session row is alive and signs the servers token with the
+    provider's key and the claims the provider gives a `solus-web` token. Its
+    `grant_id` (and `sid`) is the session row's `id`, never the session's secret token.
+    Nothing is kept or written for the session, so instances share nothing.
+  - A host token is the token exchange (rule 3) of that servers token, run in the
+    server. It lasts one hour; desktop and mobile host tokens keep eight hours.
+  - The grant is alive while its session row exists and has not expired. The account
+    plane, the host token exchange, and the delegations check that one rule
+    (`liveGrant`). So a sign-out, the Devices page, a password reset, or expiry ends the
+    web grant at once. Then the endpoint answers 401, the page goes to the sign-in, and
+    every other tab of the origin signs out too (a `BroadcastChannel` message). A guest
+    of a share link stays a guest.
+  - Each tab holds its own tokens, with one request in flight, and asks again only when
+    a token is asked for within a minute of its end.
+
 - **The CLI keeps no sign-in.** `solus connect` signs in with the device grant, uses
   account-plane tokens for its two calls, and revokes the grant at the end.
 - **The account API with a token has no active organization.** A token caller has no

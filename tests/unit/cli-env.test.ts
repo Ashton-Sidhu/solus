@@ -135,3 +135,20 @@ test.skipIf(process.platform === 'win32')('importing the login shell environment
     for (const name of names) delete process.env[name]
   }
 })
+
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('a shell that ignores SIGTERM does not hang the probe', async () => {
+  // WHY: startup and every turn await this probe. A signal the shell ignores
+  // left it waiting for a `close` that never came.
+  const stuck = "trap '' TERM; while :; do sleep 1; done"
+  const path = await computeCliPathAsync([stuck, 'echo /probe/bin'], 100)
+  expect(path.split(':')).toContain('/probe/bin')
+}, 3_000)
+
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('a process that keeps stdout open does not cost the answer the shell printed', async () => {
+  // WHY: a profile can start a daemon that inherits stdout. The shell has exited
+  // and said what we asked, but `close` waits for every holder of the pipe.
+  const path = await computeCliPathAsync(['sleep 6 & echo /probe/bin'], 100)
+  expect(path.split(':')).toContain('/probe/bin')
+}, 3_000)

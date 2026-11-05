@@ -32,6 +32,8 @@ async function edit(scope: string, workId: string, write: { content: string; tit
 }
 let annotations: typeof import('@solus/server/data/works/work-annotations')
 let service: typeof import('@solus/server/data/works/work-comments')
+/** The host itself, writing a private thread. */
+const SYSTEM_ACTOR = { by: { kind: 'system' as const }, canModerate: true, now: 1 }
 let closeDb: () => void
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-google-comments-unit-'))
@@ -51,13 +53,14 @@ async function work() {
 
 test('refresh preserves private edits made during Google request; private saves cannot replace shared state', async () => {
   const workId = await work()
-  onList = async () => { await annotations.saveWorkAnnotations('local', { version: 1, workId, updatedAt: 0, comments: [{ id: 'private', selectedText: 'hello', comment: 'For agent only' }] }) }
+  onList = async () => { await annotations.applyWorkComment('local', workId, { kind: 'add', comment: { id: 'private', selectedText: 'hello', comment: 'For agent only' } }, SYSTEM_ACTOR) }
   await service.refreshWorkExternalComments('local', workId)
   onList = undefined
   const saved = await annotations.loadWorkAnnotations('local', workId)
   expect(saved?.comments[0].comment).toBe('For agent only')
   expect(saved?.externalComments?.documentId).toBe('test-doc')
-  await annotations.saveWorkAnnotations('local', { ...saved!, externalComments: { provider: 'gdrive', externalKey: 'root', documentId: 'fake', threads: [], operations: [] } })
+  // A private edit is one thread's row; the shared state is not in its reach.
+  await annotations.applyWorkComment('local', workId, { kind: 'edit', commentId: 'private', text: 'Still for the agent' }, SYSTEM_ACTOR)
   expect((await annotations.loadWorkAnnotations('local', workId))?.externalComments?.documentId).toBe('test-doc')
   expect(postCount).toBe(0)
 })
@@ -86,7 +89,8 @@ test('unlink during refresh prevents stale snapshot from being installed', async
 
 test('only the explicit draft is posted; private history stays local', async () => {
   const workId = await work()
-  await annotations.saveWorkAnnotations('local', { version: 1, workId, updatedAt: 0, comments: [{ id: 'private', selectedText: 'hello', comment: 'SECRET PRIVATE INSTRUCTION', replies: [{ id: 'reply', author: 'solus', text: 'PRIVATE AGENT ANALYSIS', createdAt: 1 }] }] })
+  await annotations.applyWorkComment('local', workId, { kind: 'add', comment: { id: 'private', selectedText: 'hello', comment: 'SECRET PRIVATE INSTRUCTION' } }, SYSTEM_ACTOR)
+  await annotations.applyWorkComment('local', workId, { kind: 'reply', commentId: 'private', reply: { id: 'reply', text: 'PRIVATE AGENT ANALYSIS' } }, SYSTEM_ACTOR)
   const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Public response', quote: 'hello', sourceMessageId: 'private' }
   await service.sendWorkExternalComment('local', workId, command)
   expect((await service.readWorkExternalComments('local', workId)).operations[0].command).toEqual(command)
@@ -196,7 +200,7 @@ test('Confluence snapshots and sends use the linked site and preserve private co
   try {
     const workId = await work()
     await (await workModule.Work.byId('local', workId)).setMirroredDoc({ provider: 'confluence', externalId: '123', externalKey: 'site/SPACE', scope: 'SPACE', url: 'https://example.atlassian.net/wiki/pages/123', syncState: 'ok' })
-    await annotations.saveWorkAnnotations('local', { version: 1, workId, updatedAt: 0, comments: [{ id: 'private', selectedText: 'hello', comment: 'Private instructions' }] })
+    await annotations.applyWorkComment('local', workId, { kind: 'add', comment: { id: 'private', selectedText: 'hello', comment: 'Private instructions' } }, SYSTEM_ACTOR)
     const snapshot = await service.refreshWorkExternalComments('local', workId)
     expect(snapshot).toMatchObject({ provider: 'confluence', externalKey: 'site/SPACE', documentId: '123', threads: [thread] })
     expect((await annotations.loadWorkAnnotations('local', workId))?.comments[0].comment).toBe('Private instructions')
@@ -212,18 +216,14 @@ test('Confluence snapshots and sends use the linked site and preserve private co
   } finally { adapter.list = originalList; adapter.mutate = originalMutate }
 })
 
-test('legacy Google receipts migrate without posting again', async () => {
+test('a refresh that read an older external state is refused; the newer state stands', async () => {
+  // WHY (plans/029 §5.2): the external state has its own version. Two refreshes
+  // in flight must not let the slower one put back what the faster one replaced.
   const workId = await work()
-  const command = { kind: 'share' as const, requestId: randomUUID(), text: 'Already posted' }
-  const { getDatabase } = await import('@solus/server/db/database')
-  const { workAnnotations } = await import('@solus/server/data/works/schema')
-  const { sql } = await import('drizzle-orm')
-  const legacy = JSON.stringify({ version: 1, workId, comments: [], updatedAt: 0, googleComments: { documentId: 'test-doc', threads: [], operations: [{ requestId: command.requestId, command, status: 'sent' }] } })
-  await getDatabase().run(sql`INSERT INTO ${workAnnotations} (work_id, data, updated_at) VALUES (${workId}, ${legacy}, 0)`)
-  const before = postCount
-  expect((await service.readWorkExternalComments('local', workId)).provider).toBe('gdrive')
-  await service.sendWorkExternalComment('local', workId, command)
-  expect(postCount).toBe(before)
-  await service.refreshWorkExternalComments('local', workId)
-  expect((await annotations.loadWorkAnnotations('local', workId))?.externalComments?.operations[0].status).toBe('sent')
+  const { version } = await annotations.readExternalComments('local', workId)
+  const state = { provider: 'gdrive' as const, externalKey: 'root', documentId: 'test-doc', threads: [], operations: [] }
+  const next = await annotations.saveExternalComments('local', workId, { ...state, checkedAt: 2 }, version)
+  expect(next).toBe(version + 1)
+  await expect(annotations.saveExternalComments('local', workId, { ...state, checkedAt: 1 }, version)).rejects.toThrow('changed')
+  expect((await annotations.readExternalComments('local', workId)).state?.checkedAt).toBe(2)
 })

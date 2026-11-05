@@ -123,9 +123,11 @@ surface says so instead of printing a zero.
   that failed, preferring the tool that was refused over the stream that
   failed after it. `firstFailingSpanId`.
 - **turn flag** — a person's mark on a turn: `good`, `bad_answer`,
-  `too_slow`, or `expensive`, with a note. One per turn; a second replaces the
-  first and keeps its creation time. Durable in solus.db beside the saved
-  queries (`turn_flags`), host-local like the spans it points at. RPC:
+  `too_slow`, or `expensive`, with a note. One per turn per person; a second
+  replaces the first and keeps its creation time. Durable in solus.db beside
+  the saved queries (`turn_flags`), host-local like the spans it points at, and
+  the marker's alone: the row carries `created_by` and a list read is scoped
+  to it, as a saved query's is. RPC:
   `metricsListTurnFlags`, `metricsSetTurnFlag`, `metricsClearTurnFlag`.
   Each kind has a glyph and a colour: thumbs up in green, thumbs down in
   red, snail in amber, dollar in plum. The turn

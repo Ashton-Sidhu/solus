@@ -90,7 +90,7 @@ on a local host it opens the save picker; on a remote host the browser
 downloads the file. The overflow menu keeps the same HTML format under Save
 as and Download, and adds Export…, which has the work's host write the stored
 work to a path chosen in the same picker (`worksExport`). Every work type has
-Export…: Markdown for a document, JSON for a diagram or slides, HTML for an
+Export…: Markdown for a document, JSON for slides, HTML for an
 artifact.
 
 HTML file panes retain the source editor after its first use. Preview reads
@@ -163,3 +163,12 @@ A frame that a document editor mounts outside the component tree has no
 workspace and no keybindings. Its links open in the system browser, and it
 forwards no shortcuts. On mobile, the web view opens `http` and `https` links
 in the system browser and has no shortcuts to forward.
+
+On mobile, a reply shows a fenced HTML block in the same web view as an agent
+render (`ArtifactPage`), between the Markdown parts of the reply. The shared
+fence rules (`@solus/document-model/fences`) decide which fences are pages, as
+on desktop and web. Only a closed fence at the top level of the reply is a
+page. A fence that is still streaming, or a fence inside a list, a quote, or
+another fence, stays code. Mobile does not yet connect fence revisions by their
+`artifact=` identity, and a snippet has no Render action: Enriched code blocks
+have no action slot.

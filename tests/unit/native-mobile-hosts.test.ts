@@ -108,6 +108,35 @@ describe('native host registry', () => {
   })
 })
 
+describe('the account host list on the phone (plans/031 D7)', () => {
+  test('a pair and a forget here reach the list, and a token never does', async () => {
+    const { registry } = createHostWorld()
+    await registry.load()
+    const changes: string[] = []
+    registry.onListingChange((change) => changes.push(change.kind === 'put' ? `put ${change.listing.id} ${JSON.stringify(change.listing)}` : `remove ${change.hostId}`))
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'secret-token')
+    await registry.forget('inst-a')
+    expect(changes.map((change) => change.split(' ').slice(0, 2).join(' '))).toEqual(['put inst-a', 'remove inst-a'])
+    expect(changes.join('\n')).not.toContain('secret-token')
+  })
+
+  test('a host another device paired joins without a token and leaves at sign-out; one forgotten elsewhere leaves here', async () => {
+    const { secrets, registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ id: 'mine', label: 'Mine', url: 'http://mine:1' }, 'tm')
+    await registry.savePaired({ id: 'gone', label: 'Gone', url: 'http://gone:1' }, 'tg')
+    const theirs = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan' as const, source: 'pairing' as const, seenAt: 1 }] }
+    // `gone` was on the list before, and another device removed it.
+    const result = await registry.applyHostList('acct', [theirs], new Set(['gone']))
+    expect(registry.hosts().map((host) => [host.id, host.paired])).toEqual([['mine', true], ['theirs', false]])
+    expect(registry.credential('theirs')).toBe('')
+    expect(secrets.values.has('solus.mobile.host.gone.token')).toBe(false)
+    expect(result.toPut.map((listing) => listing.id)).toEqual(['mine'])
+    registry.forgetAccount('acct')
+    expect(registry.hosts().map((host) => host.id)).toEqual(['mine'])
+  })
+})
+
 describe('native host connections', () => {
   test('one transport and supervisor per host, however often it is asked for', async () => {
     const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })

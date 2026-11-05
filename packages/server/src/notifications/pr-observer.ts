@@ -54,7 +54,7 @@ export class PrObserver {
     }
     const authority = `${repo.host.toLowerCase()}:${login}`
     const previousRow = observationSchema.nullish().parse(getDb().prepare(
-      'SELECT pending, observed_at FROM notification_pr_observations WHERE authority = ? AND repo = ? AND recipient_key = ?',
+      'SELECT pending, observed_at FROM notification_pr_observations WHERE authority = ? AND repo = ? AND user_id = ?',
     ).get(authority, repoKey, recipient))
 
     if (previousRow) {
@@ -81,8 +81,8 @@ export class PrObserver {
       })
     }
     getDb().prepare(`
-      INSERT INTO notification_pr_observations (authority, repo, recipient_key, pending, observed_at) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT (authority, repo, recipient_key) DO UPDATE SET pending = excluded.pending, observed_at = excluded.observed_at
+      INSERT INTO notification_pr_observations (authority, repo, user_id, pending, observed_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (authority, repo, user_id) DO UPDATE SET pending = excluded.pending, observed_at = excluded.observed_at
     `).run(authority, repoKey, recipient, JSON.stringify(current), this.deps.now?.() ?? Date.now())
   }
 }

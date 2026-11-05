@@ -136,7 +136,7 @@ export const KEYBINDINGS = {
   'files-pane.toggle-markdown':   { combo: { alt: true, code: 'KeyR' },                    scope: 'files-pane',         label: 'Toggle Markdown view',     group: 'Editor' },
   'files-pane.find-in-pdf':       { combo: { mod: true, code: 'KeyF' }, aliases: [{ alt: true, code: 'KeyF' }], scope: 'files-pane', label: 'Find in PDF', group: 'Navigate' },
 
-  // ── Workspace (plans + docs + diagrams ledger) ─────────────────────────────
+  // ── Workspace (plans + docs ledger) ─────────────────────────────
   'workspace.close':              { combo: { code: 'Escape' },                             scope: 'workspace',          label: 'Close',                    group: 'Workspace' },
   'workspace.focus-search':       { combo: { code: 'Slash' },                              scope: 'workspace',          label: 'Focus search',             group: 'Workspace' },
   'workspace.open':               { combo: { code: 'Enter' },                              scope: 'workspace',          label: 'Open item',                group: 'Workspace' },
@@ -209,37 +209,8 @@ export const KEYBINDINGS = {
   'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },
   'pr-review.copy-link':          { combo: { mod: true, ctrl: true, code: 'KeyC' }, nonMac: { mod: true, shift: true, code: 'KeyC' }, scope: 'pr-review',          label: 'Copy GitHub link',         group: 'Pull Requests' },
 
-  // ── Diagram ────────────────────────────────────────────────────────────────
-  // Bare keys (Delete/Arrows) and ⌘ combos are intentional canvas
-  // conventions (Figma/Miro), gated to fire only when the canvas is focused.
-  'diagram.undo':                 { combo: { mod: true, code: 'KeyZ' },                     scope: 'diagram',            label: 'Undo',                     group: 'Edit' },
-  'diagram.redo':                 { combo: { mod: true, shift: true, code: 'KeyZ' },        scope: 'diagram',            label: 'Redo',                     group: 'Edit' },
-  'diagram.select-all':           { combo: { mod: true, code: 'KeyA' },                     scope: 'diagram',            label: 'Select all',               group: 'Edit' },
-  'diagram.copy':                 { combo: { mod: true, code: 'KeyC' },                     scope: 'diagram',            label: 'Copy selection',           group: 'Edit' },
-  'diagram.paste':                { combo: { mod: true, code: 'KeyV' },                     scope: 'diagram',            label: 'Paste',                    group: 'Edit' },
-  'diagram.duplicate':            { combo: { mod: true, code: 'KeyD' },                     scope: 'diagram',            label: 'Duplicate selection',      group: 'Edit' },
-  'diagram.delete-forward':       { combo: { code: 'Delete' }, aliases: [{ code: 'Backspace' }], scope: 'diagram',            label: 'Delete selection',         group: 'Edit' },
-  'diagram.add-node':             { combo: { alt: true, code: 'KeyN' },                     scope: 'diagram',            label: 'Add node',                 group: 'Canvas' },
-  'diagram.add-group':            { combo: { alt: true, code: 'KeyG' },                     scope: 'diagram',            label: 'Add group',                group: 'Canvas' },
-  'diagram.send-to-back':         { combo: { mod: true, shift: true, code: 'BracketLeft' }, scope: 'diagram',            label: 'Send to back',             group: 'Canvas' },
-  'diagram.bring-to-front':       { combo: { mod: true, shift: true, code: 'BracketRight' }, scope: 'diagram',           label: 'Bring to front',           group: 'Canvas' },
-  'diagram.search':               { combo: { mod: true, code: 'KeyF' },                     scope: 'diagram',            label: 'Search nodes',             group: 'Canvas' },
-  'diagram.comments':             { combo: { alt: true, code: 'KeyC' },                     scope: 'diagram',            label: 'Toggle comments',          group: 'Canvas' },
-  'diagram.toggle-inspector':     { combo: { mod: true, code: 'Backslash' },                scope: 'diagram',            label: 'Toggle inspector',         group: 'Canvas' },
-  'diagram.dismiss':              { combo: { code: 'Escape' },                              scope: 'diagram',            label: 'Close search / drawer / focus', group: 'Canvas' },
-  'diagram.zoom-in':              { combo: { code: 'PageUp' },                              scope: 'diagram',            label: 'Zoom in',                  group: 'Canvas' },
-  'diagram.zoom-out':             { combo: { code: 'PageDown' },                            scope: 'diagram',            label: 'Zoom out',                 group: 'Canvas' },
-  'diagram.nudge-up':             { combo: { code: 'ArrowUp' },                             scope: 'diagram',            label: 'Nudge up',                 group: 'Move' },
-  'diagram.nudge-down':           { combo: { code: 'ArrowDown' },                           scope: 'diagram',            label: 'Nudge down',               group: 'Move' },
-  'diagram.nudge-left':           { combo: { code: 'ArrowLeft' },                           scope: 'diagram',            label: 'Nudge left',               group: 'Move' },
-  'diagram.nudge-right':          { combo: { code: 'ArrowRight' },                          scope: 'diagram',            label: 'Nudge right',              group: 'Move' },
-  'diagram.nudge-up-fine':        { combo: { shift: true, code: 'ArrowUp' },                scope: 'diagram',            label: 'Nudge up (1px)',           group: 'Move' },
-  'diagram.nudge-down-fine':      { combo: { shift: true, code: 'ArrowDown' },              scope: 'diagram',            label: 'Nudge down (1px)',         group: 'Move' },
-  'diagram.nudge-left-fine':      { combo: { shift: true, code: 'ArrowLeft' },              scope: 'diagram',            label: 'Nudge left (1px)',         group: 'Move' },
-  'diagram.nudge-right-fine':     { combo: { shift: true, code: 'ArrowRight' },             scope: 'diagram',            label: 'Nudge right (1px)',        group: 'Move' },
-
   // ── Artifact pane (docs/plans/multiplayer-comments.md §4) ──────────────────
-  // The same ⌥C the diagram gives its comments: arms the pin tool, Esc disarms.
+  // ⌥C arms the pin tool, Esc disarms.
   'artifact.comment':             { combo: { alt: true, code: 'KeyC' },                     scope: 'artifact',           label: 'Comment on the render',    group: 'Artifact' },
   'artifact.dismiss':             { combo: { code: 'Escape' },                              scope: 'artifact',           label: 'Close thread / disarm',    group: 'Artifact' },
   // The same ⌥↵ the diff panel sends its comments with.

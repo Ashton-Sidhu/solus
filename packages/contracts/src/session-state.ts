@@ -3,8 +3,9 @@
 // machine for a personal one.
 
 /** What settled a session: a person, its pull requests ending, or its task
- *  finishing. `idle` is on sessions settled before idle sessions left the
- *  list by rule. A person's settle is in their own view, never in the shared
+ *  finishing. `idle` is on a session the host found on disk and never ran
+ *  (plans/031 D6), and on sessions settled before idle sessions left the list
+ *  by rule. A person's settle is in their own view, never in the shared
  *  state. */
 export type SessionSettledBy = 'person' | 'pull-request' | 'task' | 'idle'
 

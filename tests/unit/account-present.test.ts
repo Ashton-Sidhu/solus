@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { io, type Socket } from 'socket.io-client'
+import type { DialedHostSocket } from '@solus/client-core/host-socket'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 import { WsTransport, GRANT_RENEWAL_LEAD_MS } from '@solus/client-core/ws-transport'
 import { hostAudience, tokenEndpoint, type AccessTokenClaims } from '@solus/contracts/uplink'
@@ -14,7 +14,7 @@ import { LocalClientDoor } from '@solus/server/transport/local-client'
 import { AccountReads } from '@solus/server/vault/account-reads'
 import { VAULT_PATH } from '@solus/contracts/vault'
 import type { HandshakeCredential } from '@solus/contracts/uplink'
-import { handshake } from './helpers/socket-handshake'
+import { dialTestSocket, handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -127,14 +127,15 @@ async function host(plane: ReturnType<typeof accountPlane>, options: { requireAu
   return { url: `http://127.0.0.1:${address.port}`, transport, verified }
 }
 
-function connect(url: string, credential: HandshakeCredential): Socket {
-  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake(credential) })
-  cleanups.push(() => socket.disconnect())
-  return socket
+async function connect(url: string, credential: HandshakeCredential): Promise<DialedHostSocket> {
+  const dialed = await dialTestSocket(url, handshake(credential), cleanups)
+  if (!dialed.ok) throw new Error(dialed.message)
+  return dialed.socket
 }
 
-function call<T>(socket: Socket, method: string, args: unknown[]): Promise<{ result?: T; error?: { message: string } }> {
-  return new Promise((resolve) => socket.emit('rpc', crypto.randomUUID(), method, args, resolve))
+async function call<T>(socket: DialedHostSocket, method: string, args: unknown[]): Promise<{ result?: T; error?: { message?: string } }> {
+  // SAFETY: the test names the result type of the method it calls.
+  return await socket.call(method, args) as { result?: T; error?: { message?: string } }
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -151,8 +152,7 @@ describe('accountPresent on the host', () => {
   test("on a paired socket, the owner's token makes their personal delegation when none is held, and nothing again when it is; the socket stays local", async () => {
     const plane = accountPlane()
     const { url, transport } = await host(plane)
-    const socket = connect(url, paired())
-    await waitFor(() => socket.connected)
+    const socket = await connect(url, paired())
 
     const token = jwt({})
     expect((await call(socket, 'accountPresent', [{ accessToken: token }])).result).toEqual({ delegated: true })
@@ -166,8 +166,7 @@ describe('accountPresent on the host', () => {
   test("a token for another host, a host's delegated token, and a token that names no scope here make no delegation", async () => {
     const plane = accountPlane()
     const { url } = await host(plane)
-    const socket = connect(url, paired())
-    await waitFor(() => socket.connected)
+    const socket = await connect(url, paired())
 
     const refused = [
       jwt({ aud: hostAudience('qrstuvwxyzabcdef') }),
@@ -190,8 +189,7 @@ describe('accountPresent on the host', () => {
     expect(plane.delegations.holders()).toEqual([])
 
     // The web client is connected with its own account token.
-    const socket = connect(url, { kind: 'access-token', token: jwt({ grant_id: 'grant_web' }) })
-    await waitFor(() => socket.connected)
+    const socket = await connect(url, { kind: 'access-token', token: jwt({ grant_id: 'grant_web' }) })
     const next = jwt({ grant_id: 'grant_web' })
     expect((await call<{ expiresAt: number }>(socket, 'authRenew', [{ accessToken: next }])).result?.expiresAt).toBeGreaterThan(Date.now())
     expect(plane.delegations.holders()).toEqual([{ userId: 'alice', scope: 'personal' }])

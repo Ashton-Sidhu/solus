@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Attachment } from "@solus/contracts/types";
-import { attachmentLabel } from "../../packages/workspace-ui/src/components/input/lib/attachment-label";
+import { attachmentLabel } from "../../packages/workspace-ui/src/lib/attachment-label";
 
 function attachment(name: string, type: Attachment["type"] = "image"): Attachment {
   return { id: "attachment", type, name, path: name };

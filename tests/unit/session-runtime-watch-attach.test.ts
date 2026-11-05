@@ -6,9 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
-import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
+// Imported after the node:sqlite mock below: the normalizer's imports reach the database.
+let CodexTurnNormalizer: typeof import('@solus/server/execution/agents/codex/codex-event-normalizer').CodexTurnNormalizer
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -25,6 +26,7 @@ let db: DbModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-watch-attach-'))
   process.env.SOLUS_DATA_DIR = dataDir
+  CodexTurnNormalizer = (await import('@solus/server/execution/agents/codex/codex-event-normalizer')).CodexTurnNormalizer
   sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
   metricsDb = await import('@solus/server/data/insights/metrics-db')
   db = await import('@solus/server/db')
@@ -62,12 +64,14 @@ class Backend extends EventEmitter implements AgentBackend {
   allowSteering = false
   steeredPrompts: string[] = []
 
-  startRun(request: AgentRunRequest): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const threadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? `thread-${this.starts + 1}`
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
       agentSessionId: (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? null,
+      // A real backend names the Solus session on its handle; session_init reads it.
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -201,6 +205,43 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       expect(events.filter((event) => event.type === 'question_request')).toHaveLength(questionEventsBeforeReplay)
       expect(await plane.inputRequests.respondToQuestion('async-question-session', question.questionId, { '0': 'npm' }, HOST_ACTOR)).toBe(false)
       backend.complete('thread-1')
+    } finally { plane.shutdown() }
+  })
+
+  test('the status feed says a non-blocking question waits on the person until it is dismissed', async () => {
+    // WHY: a sidebar row or mobile list item has no transcript. A message-mode
+    // question leaves the status at running or completed, so only this fact on
+    // `session.statusChanged` tells those readers the session needs input.
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    type StatusEvent = import('@solus/contracts/host-events').HostEventMap['session.statusChanged']
+    const feed: Array<{ via: string; event: StatusEvent }> = []
+    plane.on('session-status', (event: StatusEvent) => feed.push({ via: 'status', event }))
+    plane.on('session-question', (event: StatusEvent) => feed.push({ via: 'question', event }))
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'new-session' }, sessionId: 'pending-fact-session', input: input(), tools: [],
+        options: { prompt: 'inspect it', promptSource: 'typed' },
+      })
+      await lifecycle.agentSessionId
+      feed.length = 0
+      backend.emit('normalized', 'thread-1', {
+        type: 'question_request', questionId: 'codex-async:thread-1:pending-fact', responseMode: 'message',
+        questions: [{ id: '0', question: 'Which package?', options: [], multiSelect: false }],
+      } satisfies NormalizedEvent)
+      expect(feed).toEqual([{ via: 'question', event: expect.objectContaining({ sessionId: 'pending-fact-session', status: 'running', hasPendingQuestion: true }) }])
+
+      backend.complete('thread-1')
+      await lifecycle.done
+      expect(feed.at(-1)).toEqual({ via: 'status', event: expect.objectContaining({ status: 'completed', hasPendingQuestion: true }) })
+
+      // An empty answer dismisses the question; the fact goes with it.
+      expect(await plane.inputRequests.respondToQuestion('pending-fact-session', 'codex-async:thread-1:pending-fact', {}, HOST_ACTOR)).toBe(true)
+      const cleared = feed.at(-1)
+      expect(cleared?.via).toBe('question')
+      expect(cleared?.event.status).toBe('completed')
+      expect(cleared?.event.hasPendingQuestion).toBeUndefined()
     } finally { plane.shutdown() }
   })
 

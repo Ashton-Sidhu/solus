@@ -11,6 +11,21 @@ describe('the restart continuation prompt', () => {
     expect(prompt).toContain('running: Bash, Child agent (Explore).')
   })
 
+  // WHY: a command that ran to completion before the restart has already
+  // changed the workspace; running it again can repeat a deploy or a push.
+  test('tells the agent to confirm a command did not already take effect', () => {
+    const prompt = restartContinuationPrompt({ backgroundTools: [{ toolId: 'a', name: 'Bash' }] })
+    expect(prompt).toContain('A command may already have finished and taken effect, so confirm its result before you run it again.')
+    expect(prompt).not.toContain('More tools were running')
+  })
+
+  // WHY: the list holds at most 32 tools. Without this, the agent would read
+  // the list as complete and miss the work that did not fit.
+  test('says the list is incomplete when more tools ran than it holds', () => {
+    const prompt = restartContinuationPrompt({ backgroundTools: [{ toolId: 'a', name: 'Bash' }], moreToolsRunning: true })
+    expect(prompt).toContain('running: Bash. More tools were running than this list shows.')
+  })
+
   test('a run with nothing in flight is only continued', () => {
     expect(restartContinuationPrompt({ backgroundTools: [] })).toBe('Continue where you left off')
   })

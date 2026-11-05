@@ -16,7 +16,7 @@ Source: the "Conversation Cards Spec" design project (turns 2b, 3a, 3b, 4a, 4b).
 3. **Same slots as `ActivityRow`.** A 22px glyph slot, a title, a target, and a
    rail. All sans: mono is kept for code, such as file paths in a diff tree and ids.
 4. **Name the type once.** A lowercase type word after the title (`plan`, `doc`,
-   `diagram`). No uppercase kicker and no status chip. The glyph and the type word
+   `artifact`). No uppercase kicker and no status chip. The glyph and the type word
    carry state.
 5. **Raise only what blocks.** Passive cards use the quiet shell. Only a card that
    stops the turn until the user acts uses the attention shell.
@@ -329,7 +329,7 @@ because the fill does the lifting.
   question in the design and is not built.
 
 
-Successful `update_work` calls add a work card for documents, slides, and diagrams.
+Successful `update_work` calls add a work card for documents and slides.
 The card shows the version saved by that call (`v1`, `v2`, and so on).
 The title stays unchanged. Open loads the current saved work. The card is
 restored from the successful tool receipt after a reload on every client and for
@@ -378,6 +378,7 @@ The copy includes the tool name, status, full available input, and error head.
 Ordinary tool output is not sent to the client and is not included.
 Historical inputs load on demand; a failed load reports an error instead of
 copying an incomplete summary. Formatting runs only on click, with no new
-streaming derivations, row timers, or history prefetch.
+streaming derivations or history prefetch. The shared copy button shows a check
+for 1.5 seconds after a successful copy; its reset timer starts only on copy.
 
 On mobile, long-press a tool row to copy its full detail.

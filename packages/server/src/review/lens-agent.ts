@@ -19,6 +19,8 @@ export interface LensEditInput {
 }
 
 export interface LensAgentInput {
+  /** The organization the review is for; its policies govern the run (plans/030). */
+  organizationId: string
   workTree: string
   base: string
   head: string | null
@@ -48,6 +50,7 @@ export async function runLensAgent(dispatcher: AgentDispatcher, input: LensAgent
   })
   try {
     const run = dispatcher.runAgent({
+      organizationId: input.organizationId,
       provider: input.agent,
       prompt: buildLensPrompt(input),
       cwd: input.workTree,

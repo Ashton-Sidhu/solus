@@ -85,7 +85,9 @@ Extend the existing endpoints. Do not add a sync endpoint.
   The reader reads the rows, with a prompt
   preview, and every turn's full tree. The organization is the boundary. A
   row leaves out the response and the system prompt only to keep the pull
-  small; the tree has them.
+  small; the tree has them. On the service a span's long texts are rows of
+  `insight_span_texts`, as they are rows of `span_texts` on the host
+  (plans/029 §6); the tree read joins them back into `attrs`.
 - No `received_seq` and no saved cursor. Section 3 explains how late turns
   are found.
 

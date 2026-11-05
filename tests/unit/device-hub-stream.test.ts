@@ -390,7 +390,7 @@ test('a Simlock Android lease uses AVCC video and serve-sim input, including Bac
   stream.close()
 })
 
-test('an EAS Android WebRTC view opens an input-only socket', async () => {
+test('an Android input-only view opens a socket without video', async () => {
   const { hub, stream } = harness({ platform: 'android', video: false })
   await flush()
   expect(hub.sockets[0]?.url).toBe(`${BASE.replace(/^http/, 'ws')}/socket?video=0`)

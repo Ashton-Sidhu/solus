@@ -110,3 +110,33 @@ test('several open questions can be answered in reverse order', () => {
   store.restoreAsyncQuestionAnswers(sessionId, messages)
   expect(messages.map((message) => message.questionAnswer)).toEqual(answers.toReversed())
 })
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+test('a settled question is kept thirty days, then pruned with the exchange receipts', async () => {
+  // WHY: `async_questions` had no delete path, and the boot reset scanned a
+  // table that only grew. A settled question is still needed for a while — a
+  // reload rebuilds its receipt from it — so it carries the date it may go,
+  // and the one sweep that already prunes `run_exchanges` removes it.
+  const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
+  const retained = save('retained')
+  const reopened = save('reopened')
+  const before = Date.now()
+  store.settleAsyncQuestion(retained.questionId, 'answered')
+  store.settleAsyncQuestion(reopened.questionId, 'pending')
+
+  const retainedUntil = (questionId: string) => (db.getDb().prepare('SELECT retained_until FROM async_questions WHERE question_id = ?')
+    .get(questionId) as { retained_until: number | null }).retained_until
+  const until = retainedUntil(retained.questionId)
+  expect(until).toBeGreaterThanOrEqual(before + 30 * DAY_MS)
+  expect(until).toBeLessThanOrEqual(Date.now() + 30 * DAY_MS)
+  // Reopened: the clock never started.
+  expect(retainedUntil(reopened.questionId)).toBeNull()
+
+  new RunLedger().loadExchanges(until! - 1)
+  expect(retainedUntil(retained.questionId)).toBe(until)
+
+  new RunLedger().loadExchanges(until!)
+  expect(db.getDb().prepare('SELECT question_id FROM async_questions WHERE question_id IN (?, ?)').all(retained.questionId, reopened.questionId))
+    .toEqual([{ question_id: reopened.questionId }])
+})

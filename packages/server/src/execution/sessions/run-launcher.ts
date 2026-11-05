@@ -1,3 +1,4 @@
+import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { providerAvailableForProject } from '../seats/provider-availability'
 import { captureServerEvent } from '../../analytics'
 import { startRun, credentialScopedAgentTools, type PendingStart, type StartedRun } from './run-lifecycle'
@@ -16,7 +17,7 @@ import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { tasksForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
-import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
+import { organizationOfSession, sessionIsOrganizationWork } from '../../data/sessions/session-records'
 import { isLeadSession, markSessionLead } from '../../data/sessions/lead-sessions'
 import { formatLeadContract } from '../../data/sessions/lead-contract'
 import { workspaceToolContext } from '../../data/workspace/tool-context'
@@ -126,6 +127,9 @@ export class RunLauncher {
     session: BackendSession,
   ): Promise<SessionRunLifecycle | null> {
     const backend = this.rt.backendFor(session.backendId)
+    // A steer joins a running turn; a policy changed since it started can put that turn above its ceiling (plans/030 §6.3).
+    const activeMode = session.runInput?.permissionMode
+    if (activeMode) enforce(hostPolicies().forWork(await organizationOfSession(session.sessionId)).runDenial({ mode: activeMode, provider: session.backendId }))
     const handle = await backend.steerSession(agentSessionId, {
       prompt: request.options.prompt,
       imageAttachments: await resolvePromptImages(request.options),
@@ -158,7 +162,7 @@ export class RunLauncher {
     session.lastActivityAt = Date.now()
     const userMessage = this.userMessageEvent(request.options, 'steer', request.actor)
     if (backend.isSessionRunning(agentSessionId)) {
-      this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId))
+      this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId), 'running')
     }
     this.rt.publish(session.sessionId, userMessage)
 
@@ -209,8 +213,9 @@ export class RunLauncher {
     const releaseRun = turn.onStop(() => {
       const session = this.rt.activeSessions.get(sessionId)
       // Stop is the way out of a task that never settles: cancelling the query
-      // is what ends the work the agent left running, held or not.
-      if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session))
+      // is what ends the work the agent left running, held or not. A run that
+      // is still live after a first Stop takes the second one (a force stop).
+      if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session) || backend.isSessionRunning(session.agentSessionId))
         && backend.cancelSession(session.agentSessionId)) return true
       // Before `session_init` the run has no thread to cancel by.
       if (!backend.getPendingHandles().includes(handle)) return false
@@ -253,8 +258,11 @@ export class RunLauncher {
             const metadata = await installedRoutingProviders([...this.rt.backends.values()].map(backend => backend.metadata))
             controller.signal.throwIfAborted()
             const available: typeof metadata = []
+            const routedOrganizationId = await organizationOfSession(sessionId)
             for (const agent of metadata) {
               if (!providerAvailableForProject(agent.id, input.projectPath)) continue
+              // A provider the policies do not allow is never routed to (plans/030 §6.5).
+              if (!!hostPolicies().forWork(routedOrganizationId).providerDenial(agent.id)) continue
               try { await this.rt.seatForTurn(request.actor, agent.id); available.push(agent) }
               catch (error) { if (!(error instanceof SeatRequiredError)) throw error }
             }
@@ -882,6 +890,8 @@ export class RunLauncher {
       // Resolved again here, not only at submit: a queued prompt drains later, and
       // the author's seat may have been removed or expired in between.
       const seat = await this.rt.seatForTurn(request.actor, provider)
+      // The session's organization: its policies are checked again where the provider starts (plans/030 §6.3).
+      const organizationId = await organizationOfSession(sessionId)
       // A member's transcripts written from here on are shared with the server when the turn ends.
       const turnStartedAt = Date.now()
       // The MCP servers' tools are listed here, for the run's person, so every run —
@@ -893,7 +903,8 @@ export class RunLauncher {
       releaseLaunch()
       const savedRestart = this.rt.restarts.restartRuns?.get(sessionId)
       if (savedRestart && savedRestart.runId === request.runId) {
-        this.rt.restarts.restartRuns?.save({ ...savedRestart, input: effectiveInput, state: 'running' })
+        // From here the provider may hold the prompt, so it is never sent again.
+        this.rt.restarts.restartRuns?.save({ ...savedRestart, input: effectiveInput, state: 'running', options: undefined })
       }
       // Spawning the provider is where the run input, the tool list, and the
       // transport are assembled — the last thing the turn does before it stops
@@ -916,6 +927,7 @@ export class RunLauncher {
         fn: 'runAgent',
         file: 'run-launcher.ts',
       }, () => this.rt.runAgent({
+        organizationId,
         provider,
         prompt: options.prompt,
         cwd: effectiveCwd,

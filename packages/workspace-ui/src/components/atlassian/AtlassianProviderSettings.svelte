@@ -3,7 +3,7 @@
   import { LogOut as SignOutIcon } from "@lucide/svelte";
   import { atlassianStore } from "../../contexts/atlassian/atlassian.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";

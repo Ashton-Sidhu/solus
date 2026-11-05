@@ -91,7 +91,7 @@ export async function readPullRequestAuthoringContext(
   const range = `${baseRef}..HEAD`
   const diffRange = `${baseRef}...HEAD`
   const [commitSummary, diffStat, diffPatch, template] = await Promise.all([
-    runAsync('git', ['log', '--no-merges', '--pretty=format:%s', range], cwd),
+    runAsync('git', ['log', '--no-merges', '--no-show-signature', '--pretty=format:%s', range], cwd),
     runAsync('git', ['diff', '--stat', diffRange], cwd),
     runAsync('git', ['diff', '--no-ext-diff', '--unified=3', diffRange], cwd, {
       maxBuffer: MAX_DIFF_PATCH_BYTES,
@@ -234,6 +234,7 @@ export async function authorPullRequest(
   if (!backend) return fallbackPullRequestDraft(context)
   let submitted: PullRequestDraft | null = null
   await writer.textGenerator.generate({
+    organizationId: backend.organizationId,
     provider: backend.provider,
     model: backend.model,
     seat: backend.seat,

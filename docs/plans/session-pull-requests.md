@@ -64,9 +64,12 @@ The Completed shelf is the name of the place in the list.
 4. **Unlink is a tombstone.** Unlinking a session link sets `dismissed`.
    Unlinking a pull request on a task deletes the task link; when the task has
    none, it dismisses the link on each session of the task that owns it.
-5. **Each link stores the last observation** (`pr_state`, `pr_draft`,
-   `pr_updated_at`, `title`), so a row draws its pull request with no network
-   read. PR sync writes it to task links and session links alike.
+5. **The last observation is stored once** per organization and source
+   authority (`pull_request_observations`: `state`, `draft`, `title`,
+   `updated_at`), and each link names the observation it reads, so a row
+   draws its pull request with no network read. PR sync writes the observation
+   and the `keeps_session` bit of every link that names it in one transaction,
+   task links and session links alike (plans/029 §5.1).
 6. **A merged pull request completes the task** that reads it, through a task
    link or a session link, when every pull request of the task is merged.
 7. **The host holds the state of a session** (`session_states`), so every
@@ -151,6 +154,8 @@ a task link. There is one agent tool for links, `link` (it was `link_task`):
 a separate tool for the session case would be a second name for one question.
 An agent removes a session link with `unlink` with `kind=pr` (by number or URL), as a person does in the list; the row stays a tombstone, so PR sync does not link it again (2026-10-27).
 
+Several pull requests are one call (2026-11-01). `link` with `kind=pr` takes `target_ids`, a list of numbers or URLs such as the layers of a stack; it links each one the session does not show yet and returns them by repository as linked, already linked, or invalid, and an invalid name does not stop the others. `unlink` with `kind=pr` takes `states` (`open`, `closed`, `merged`) instead of `target_id`; it removes every link whose state, as PR sync last saw it on the link row, is one of them. A draft is open. A link that PR sync has not answered for, or that the code host says is gone, has no known state and stays. The transcript names such a call by its count ("Link 6 pull requests").
+
 Every session that has the `link` tool gets a "Pull request linking" block in
 its runtime instructions (`execution/agents/runtime-instructions.ts`), for Claude
 and Codex alike. The block tells the agent to link each pull request that it
@@ -198,10 +203,12 @@ the task applier makes a session link when the origin session works on the task.
 
 ## Data
 
-`packages/server/src/data/sessions/schema.ts`: `session_pull_requests`
-(`session_id`, `repository`, `number`, `url`, `title`, `source`, `created_by`,
-`linked_at`, `pr_state`, `pr_draft`, `pr_updated_at`, `organization_id`).
-Migrations `0026` (SQLite) and `0015` (Postgres).
+`packages/server/src/data/links/schema.ts`: a session link is a session→pr
+`pull-request` edge of `resource_links` (`repository`, `number`, `url`,
+`title`, `source`, `status` with the `dismissed` tombstone, `author`,
+`created_by`, `created_at`, the watch fields, and `keeps_session`); what PR
+sync saw is in `pull_request_observations` (docs/database-schema.md,
+Relationships).
 
 `session_states` (`session_id`, `settled_at`, `settled_by`, `unsettled_at`,
 `snoozed_until`, `snooze_note`, `last_prompt_at`, `organization_id`).
@@ -219,7 +226,8 @@ reads from a session.
 - `data/sessions/session-pull-requests.ts` — link, unlink, read, PR sync's
   interest (`readSessionPullRequestInterests`) and the observation write.
 - `data/tasks/task-links.ts` — the two task reads include session links;
-  `recordPullRequestObservation` writes both tables.
+  `recordPullRequestObservation` writes the observation and binds every edge
+  (`data/links/pull-request-observations.ts`).
 - `data/tasks/sync-engine.ts` — `completeTasksForMergedPullRequest` finds a
   task through either link.
 - `prs/pr-sync.ts` — live checkouts come from live tasks and from the session

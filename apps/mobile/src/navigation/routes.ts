@@ -52,8 +52,8 @@ export type RootStackParamList = {
   ChatSettings: undefined
   AgentDefaults: undefined
   NotificationSettings: undefined
-  /** One organization's settings; `organizationId` preselects it. */
-  OrganizationSettings: { organizationId?: string } | undefined
+  /** The effective policy of work on a host (plans/030 §7), read-only; the params preselect the host and the organization. */
+  Policy: { hostId?: string; organizationId?: string } | undefined
   HostSettings: { hostId: string }
   DeviceSettings: { hostId: string }
   Devices: { hostId: string; sessionId?: string }

@@ -7,8 +7,8 @@ import type { WorkReviewerSummary, WorkReviewState, WorkReviewStateEntry } from 
 import { projectKeyLabel } from '@solus/client-core/project-identity'
 
 /** Facet type of a ledger item. Slides works fold into `doc` — the Workspace
- *  ledger distinguishes docs, diagrams, and HTML artifacts. */
-export type WorkspaceItemType = 'doc' | 'diagram' | 'artifact'
+ *  ledger distinguishes docs and HTML artifacts. */
+export type WorkspaceItemType = 'doc' | 'artifact'
 
 /**
  * The row's leading mark. Type keys the facet; the glyph keys the artifact's
@@ -16,7 +16,7 @@ export type WorkspaceItemType = 'doc' | 'diagram' | 'artifact'
  * already uses for them in the project panel, slides included, even though
  * slides file under the Docs facet.
  */
-export type WorkspaceGlyph = 'doc' | 'slides' | 'diagram' | 'artifact'
+export type WorkspaceGlyph = 'doc' | 'slides' | 'artifact'
 
 /** One row of the Workspace ledger — a work, normalized to a single shape so
  *  grouping, filtering, and keyboard nav treat every artifact identically.
@@ -140,10 +140,10 @@ export function workItem(w: WorkListing, project: { key: string; label: string }
     projectLabel: project.label,
     id: w.id,
     rowKey: `work:${w.id}`,
-    type: w.type === 'diagram' || w.type === 'artifact' ? w.type : 'doc',
+    type: w.type === 'artifact' ? w.type : 'doc',
     glyph: w.type === 'doc' ? 'doc' : w.type,
     title: w.title || 'Untitled document',
-    snippet: w.type === 'diagram' ? '' : w.preview,
+    snippet: w.preview,
     timestamp: updated,
     createdAt: new Date(w.createdAt).getTime() || updated,
     sessionId: origin,
@@ -454,7 +454,7 @@ export function isDefaultFilter(f: WorkspaceFilter): boolean {
   return f.type === 'all' && !f.pinnedOnly && !f.awaitingMyReview && f.time === 'all' && !f.project && !f.text.trim()
 }
 
-const TYPE_TOKENS = new Map<string, TypeFilter>([['doc', 'doc'], ['diagram', 'diagram'], ['artifact', 'artifact']])
+const TYPE_TOKENS = new Map<string, TypeFilter>([['doc', 'doc'], ['artifact', 'artifact']])
 const TIME_TOKENS = new Map<string, TimeFilter>([['today', 'today'], ['yesterday', 'yesterday'], ['week', 'week'], ['older', 'older']])
 
 /** Parse one `key:value` word into a filter patch, or null when it isn't a

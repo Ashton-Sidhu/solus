@@ -1,11 +1,21 @@
 import type { Message } from '@solus/contracts/types'
-import { messageReplyImages, replyImage, type ReplyImage } from '@solus/client-core/reply-images'
+import { messageReplyImages, replyImage, toolResultImages, type ReplyImage } from '@solus/client-core/reply-images'
 
 /** The images a message adds to its turn's gallery: an image artifact, or the
  *  images its reply links. A tool row adds none. */
 export function messageImages(message: Message): ReplyImage[] {
   if (message.artifact?.kind === 'image' && message.artifact.path) return [replyImage(message.artifact.path)]
   return message.role === 'tool' ? [] : messageReplyImages(message)
+}
+
+/** The images an open tool row shows. A call still running has none to decode. */
+export function toolRowImages(tool: Message): ReplyImage[] {
+  return tool.toolStatus === 'running' ? [] : toolResultImages(tool.toolImages)
+}
+
+/** The images a turn's gallery shows, as its replies name them. */
+export function galleryHrefs(messages: Message[]): string[] {
+  return messages.flatMap((message) => messageImages(message).map((image) => image.href))
 }
 
 /** Whether a turn's gallery has a slide. The carousel mounts only then: an

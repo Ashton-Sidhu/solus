@@ -40,13 +40,16 @@ describe('actorFor', () => {
     expect(insightsAccountOf(actor)).toBeNull()
   })
 
-  test('the owner of a linked host is their account, locally and over the tunnel, still on the host login', () => {
+  test('the owner of a linked host keeps the local key, locally and over the tunnel, and carries the account\'s name', () => {
+    // WHY (plans/031 D1): the owner's key never changes at a sign-in or sign-out, so no
+    // row is rewritten and nothing they own reads as another person's. The account is
+    // named only at the cloud boundary.
     useHostUser({ localId: 'mac-1', account: { accountId: 'acct-ashton', displayName: 'Ashton', email: 'a@example.com' } })
     const local = actorFor(LOCAL_OWNER)
     const remote = actorFor(REMOTE_OWNER)
-    expect(local.user).toEqual({ id: { kind: 'account', accountId: 'acct-ashton' }, displayName: 'Ashton', email: 'a@example.com' })
+    expect(local.user).toEqual({ id: { kind: 'local', localId: 'mac-1' }, displayName: 'Ashton', email: 'a@example.com' })
     // The grant names the person; it wins over the name the host stored.
-    expect(remote.user).toEqual({ id: { kind: 'account', accountId: 'acct-ashton' }, displayName: 'Ashton Sidhu', email: 'a@example.com' })
+    expect(remote.user).toEqual({ id: { kind: 'local', localId: 'mac-1' }, displayName: 'Ashton Sidhu', email: 'a@example.com' })
     expect(seatFor(local)).toEqual(HOST_LOGIN_SEAT)
     expect(seatFor(remote)).toEqual(HOST_LOGIN_SEAT)
     // WHY: signed in means the account (docs/plans/cloud-vault.md §2.5): the linked owner's connections are their account's.
@@ -98,9 +101,10 @@ describe('ownerKeyOf as the person behind MCP servers and sign-ins', () => {
   test('every person is their user key: the owner by the host\'s user, a member by their account, a guest by their guest id', () => {
     useHostUser({ localId: 'mac-1' })
     expect(ownerKeyOf(actorFor(LOCAL_OWNER))).toBe('local:mac-1')
+    // Signed in, the owner is still the host's user, through every door (plans/031 D1).
     useHostUser({ localId: 'mac-1', account: { accountId: 'acct-ashton' } })
-    expect(ownerKeyOf(actorFor(LOCAL_OWNER))).toBe('acct-ashton')
-    expect(ownerKeyOf(actorFor(REMOTE_OWNER))).toBe('acct-ashton')
+    expect(ownerKeyOf(actorFor(LOCAL_OWNER))).toBe('local:mac-1')
+    expect(ownerKeyOf(actorFor(REMOTE_OWNER))).toBe('local:mac-1')
     expect(ownerKeyOf(actorFor(BOB))).toBe('bob')
     // A guest never borrows the sharer's sign-ins: they have their own key and no connections.
     expect(ownerKeyOf(actorFor(guestOf('bob')))).toBe('guest:g1')

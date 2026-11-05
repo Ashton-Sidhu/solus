@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { browserProfilePartition, type BrowserPage } from '@solus/contracts/browser-types'
+import { BROWSER_UNSAVED_PARTITION_PREFIX, browserProfilePartition, type BrowserPage } from '@solus/contracts/browser-types'
 import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
 
 /**
@@ -51,6 +51,7 @@ class FakeContext {
   closed = false
   cookieClears = 0
   readonly sessions: FakeCdpCall[][] = []
+  readonly cdpListeners = new Map<string, (params: object) => void>()
   private readonly open: FakePage[] = []
 
   constructor(readonly userDataDir: string) {}
@@ -67,16 +68,18 @@ class FakeContext {
 
   async newCDPSession(_page: FakePage): Promise<{
     send(method: string, params?: FakeCdpCall['params']): Promise<Record<string, never>>
-    on(): void
+    on(event: string, listener: (params: object) => void): void
     off(): void
     detach(): Promise<void>
   }> {
+    if (failCdpSession) throw new Error('Target closed')
     const calls: FakeCdpCall[] = []
     let screencastActive = false
     this.sessions.push(calls)
     return {
       send: async (method, params) => {
         if (this.closed) throw new Error('Target closed')
+        if (method === failCdpMethod) throw new Error(`${method} failed`)
         calls.push({ method, params })
         if (method === 'Page.startScreencast') {
           if (screencastActive) throw new Error('Screencast is already active')
@@ -85,7 +88,7 @@ class FakeContext {
         if (method === 'Page.stopScreencast') screencastActive = false
         return {}
       },
-      on: () => {},
+      on: (event, listener) => { this.cdpListeners.set(event, listener) },
       off: () => {},
       detach: async () => {},
     }
@@ -102,6 +105,10 @@ class FakeContext {
     for (const page of this.open) page.closed = true
   }
 }
+
+/** Set to fail one setup step of a guest. */
+let failCdpSession = false
+let failCdpMethod: string | null = null
 
 const contexts: FakeContext[] = []
 const launchExecutables: (string | undefined)[] = []
@@ -146,6 +153,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   chromiumMissing = false
+  failCdpSession = false
+  failCdpMethod = null
   await disposeHost?.()
   disposeHost = null
   contexts.length = 0
@@ -171,6 +180,45 @@ async function harness(executable: () => Promise<string | undefined> = async () 
   }, new BrowserFrameChannel())
   return { registry, published }
 }
+
+async function openGuest() {
+  await harness()
+  const open = surface.browserHeadlessHost()?.open
+  if (!open) throw new Error('the Playwright host did not register')
+  return open({
+    url: 'http://localhost:5173/',
+    partition: `${BROWSER_UNSAVED_PARTITION_PREFIX}leak`,
+    emulation: { viewport: { mode: 'custom', orientation: 'landscape', width: 800, height: 600, deviceScaleFactor: 1, hasTouch: false }, appearance: 'light' },
+    report: () => {},
+  })
+}
+
+describe('a guest whose setup fails', () => {
+  // WHY: the caller gets no driver to close, so a page left open here is one
+  // leaked page for every retry.
+  test('closes the page when no CDP session starts', async () => {
+    failCdpSession = true
+    await expect(openGuest()).rejects.toThrow('Target closed')
+    expect(contexts[0]?.pages()).toEqual([])
+  })
+
+  for (const method of ['Network.enable', 'Emulation.setDeviceMetricsOverride']) {
+    test(`closes the page when ${method} fails`, async () => {
+      failCdpMethod = method
+      await expect(openGuest()).rejects.toThrow(`${method} failed`)
+      expect(contexts[0]?.pages()).toEqual([])
+    })
+  }
+})
+
+test('a cut console entry does not end on half of an emoji', async () => {
+  // WHY: a snapshot carries this text to an agent, and a provider that reads
+  // strict JSON rejects a message with a lone surrogate.
+  const driver = await openGuest()
+  contexts[0]?.cdpListeners.get('Runtime.consoleAPICalled')?.({ type: 'log', args: [{ value: `${'a'.repeat(1999)}😀` }] })
+  expect(driver.consoleEntries().map((entry) => entry.text)).toEqual(['a'.repeat(1999)])
+  await driver.dispose()
+})
 
 test('resizing a streamed Playwright page replaces the active screencast', async () => {
   // WHY: opening or resizing a remote pane changes the frame caps. Chromium

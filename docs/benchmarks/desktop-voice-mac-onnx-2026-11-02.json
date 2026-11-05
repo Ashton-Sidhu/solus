@@ -1,0 +1,222 @@
+{
+  "runtime": "current Parakeet v3 INT8 ONNX worker; model/runtime path overrides and export only",
+  "platform": "darwin",
+  "cpu": "Apple M4",
+  "threads": 4,
+  "load_ms": 2876.8444999999997,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "inference_ms": 1428.86625,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 16.4,
+        "encode_ms": 1256.2,
+        "decode_ms": 154.7,
+        "tokenize_ms": 0.8
+      },
+      "resident_mb": 1636.21875,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 1,
+      "inference_ms": 1369.3523750000004,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 28.7,
+        "encode_ms": 1257.4,
+        "decode_ms": 82.7,
+        "tokenize_ms": 0.3
+      },
+      "resident_mb": 1538.859375,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 2,
+      "inference_ms": 968.3367500000004,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 28.1,
+        "encode_ms": 906,
+        "decode_ms": 34.2,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1347.984375,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 3,
+      "inference_ms": 697.4371250000004,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 13.8,
+        "encode_ms": 604.6,
+        "decode_ms": 78.9,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1348.859375,
+      "words": 22
+    },
+    {
+      "seconds": 11,
+      "repeat": 4,
+      "inference_ms": 574.9942919999994,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 25.3,
+        "encode_ms": 509.2,
+        "decode_ms": 40.4,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 1354.078125,
+      "words": 22
+    },
+    {
+      "seconds": 60,
+      "repeat": 0,
+      "inference_ms": 3232.961459,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 56.1,
+        "encode_ms": 3042.7,
+        "decode_ms": 133.9,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 1887.625,
+      "words": 117
+    },
+    {
+      "seconds": 60,
+      "repeat": 1,
+      "inference_ms": 2618.9977499999986,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 53.3,
+        "encode_ms": 2444.7,
+        "decode_ms": 120.9,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 2120.546875,
+      "words": 117
+    },
+    {
+      "seconds": 60,
+      "repeat": 2,
+      "inference_ms": 2584.370959,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 51.2,
+        "encode_ms": 2417.1,
+        "decode_ms": 115.9,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 2124.0625,
+      "words": 117
+    },
+    {
+      "seconds": 60,
+      "repeat": 3,
+      "inference_ms": 2444.9840829999994,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 51.1,
+        "encode_ms": 2339.4,
+        "decode_ms": 54.4,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 2128.453125,
+      "words": 117
+    },
+    {
+      "seconds": 60,
+      "repeat": 4,
+      "inference_ms": 1713.9154159999998,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 44.5,
+        "encode_ms": 1623.2,
+        "decode_ms": 46.1,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 2132.890625,
+      "words": 117
+    },
+    {
+      "seconds": 120,
+      "repeat": 0,
+      "inference_ms": 4127.806332999997,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 79,
+        "encode_ms": 3961.9,
+        "decode_ms": 86.8,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 2665.875,
+      "words": 241
+    },
+    {
+      "seconds": 120,
+      "repeat": 1,
+      "inference_ms": 4133.195583000001,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 85.1,
+        "encode_ms": 3961.2,
+        "decode_ms": 86.7,
+        "tokenize_ms": 0.1
+      },
+      "resident_mb": 3142.453125,
+      "words": 241
+    },
+    {
+      "seconds": 120,
+      "repeat": 2,
+      "inference_ms": 4150.273916999999,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 81.1,
+        "encode_ms": 3959.3,
+        "decode_ms": 109.8,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 3142.171875,
+      "words": 241
+    },
+    {
+      "seconds": 120,
+      "repeat": 3,
+      "inference_ms": 3990.1837499999965,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 78.6,
+        "encode_ms": 3823.5,
+        "decode_ms": 88.1,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 3120.46875,
+      "words": 241
+    },
+    {
+      "seconds": 120,
+      "repeat": 4,
+      "inference_ms": 3995.1237910000054,
+      "phase_ms": {
+        "model_load_ms": 0,
+        "preprocess_ms": 80.2,
+        "encode_ms": 3830.2,
+        "decode_ms": 84.7,
+        "tokenize_ms": 0
+      },
+      "resident_mb": 3120.484375,
+      "words": 241
+    }
+  ],
+  "baseline_commit": "c4c64aff22b87a99472ea8054c911138d6352a11",
+  "onnxruntime_version": "1.29.0",
+  "audio_sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e"
+}

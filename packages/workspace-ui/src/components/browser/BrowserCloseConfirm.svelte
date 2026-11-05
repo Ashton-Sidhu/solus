@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Bot } from "@lucide/svelte";
   import type { BrowserAgentUse } from "@solus/contracts/browser-types";
   import { Button } from "../ui/button";
@@ -15,6 +16,9 @@
   }
 
   let { pageLabel, use, onCancel, onConfirm }: Props = $props();
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <!-- Escape belongs on the dialog itself: the pane below is a browser guest, and

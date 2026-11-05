@@ -72,6 +72,7 @@
   import type { PickerSelection } from "../pickers/lib/picker-selection";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
   import { isModelOffered } from "./lib/text-generation-models";
   import type { TextGenerationModelSelection } from "@solus/contracts/types";
@@ -280,6 +281,7 @@
   </SettingsRow>
   <SettingsRow
     label="Text-generation model"
+    managed={managedSetting("textGenerationModel")}
     description="Session names and short background writing for your work."
     visible={isVisible("text-generation-model")}
     bodyVisible={!!textGenerationError || (!!textGenerationSnapshot && !isModelOffered(textGenerationSnapshot.agents, theme.textGenerationModel))}

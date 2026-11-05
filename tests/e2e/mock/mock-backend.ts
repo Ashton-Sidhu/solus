@@ -155,7 +155,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   readonly permissions: PermissionResponder
 
   private permissionSeq = 0
-  private pendingPermissions = new Map<string, { handle: RunHandle; sessionId: string | null; workUpdate?: { workId: string; title: string; docType: 'doc' | 'slides' | 'diagram'; content: string } }>()
+  private pendingPermissions = new Map<string, { handle: RunHandle; sessionId: string | null; workUpdate?: { workId: string; title: string; docType: 'doc' | 'slides'; content: string } }>()
 
   /** Override per-test via mockResponses map: prompt substring → response text */
   static responses = new Map<string, string>([
@@ -292,47 +292,6 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
         ].join('\n'),
         completion: 'Created the document.',
         slow: prompt.includes('__MOCK_DOCUMENT_SLOW__'),
-      })
-      return
-    }
-
-    // Same streaming create flow for diagrams.
-    if (prompt.includes('__MOCK_DIAGRAM__')) {
-      void this._streamCreateWork(handle, {
-        workId: 'mock-diagram-001',
-        title: 'Mock Architecture',
-        docType: 'diagram',
-        content: JSON.stringify({
-          nodes: [
-            { id: 'web', label: 'Web Client', icon: 'client' },
-            { id: 'api', label: 'API Server', icon: 'service' },
-            { id: 'db', label: 'Database', icon: 'logos:postgresql' },
-            // Pre-built subflow: a sized group with one child nested inside it,
-            // so the subflow nesting/detach e2e tests don't depend on flaky
-            // drag math. Explicit positions keep the pair deterministic.
-            {
-              id: 'cluster',
-              label: 'Kubernetes',
-              icon: 'logos:kubernetes',
-              group: true,
-              position: { x: 120, y: 420 },
-              width: 320,
-              height: 220,
-            },
-            {
-              id: 'worker',
-              label: 'Worker',
-              icon: 'service',
-              parentId: 'cluster',
-              position: { x: 40, y: 80 },
-            },
-          ],
-          edges: [
-            { id: 'e1', source: 'web', target: 'api', label: 'HTTPS' },
-            { id: 'e2', source: 'api', target: 'db', label: 'SQL' },
-          ],
-        }),
-        completion: 'Created the diagram.',
       })
       return
     }
@@ -515,7 +474,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
    *  to finalize. Mirrors the real Claude/Codex create flow. */
   private async _streamCreateWork(
     handle: RunHandle,
-    opts: { workId: string; title: string; docType: 'doc' | 'slides' | 'diagram'; content: string; completion: string; slow?: boolean },
+    opts: { workId: string; title: string; docType: 'doc' | 'slides'; content: string; completion: string; slow?: boolean },
   ): Promise<void> {
     if (handle.abortController.signal.aborted) return
     const pace = () => (opts.slow ? new Promise((r) => setTimeout(r, 100)) : Promise.resolve())

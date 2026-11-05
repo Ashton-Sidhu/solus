@@ -38,8 +38,8 @@ async function getLocalConnection(nativeApi: NativeSolusAPI): Promise<LocalConne
 }
 
 async function boot(): Promise<void> {
-  // First paint is the static #solus-boot-shell baked into index.html (branded,
-  // themed, painted before this module even evaluates), so there's nothing to
+  // First paint is the boot splash that scripts/vite-boot-splash.ts writes into
+  // index.html (themed, painted before this module even evaluates), so there's nothing to
   // render here up front — it stays until the app mounts and clears #root.
 
   // Boot marks. The renderer is roughly two thirds of the app's startup time,

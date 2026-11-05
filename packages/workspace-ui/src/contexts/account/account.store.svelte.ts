@@ -7,7 +7,7 @@ import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
  * Mirrors the account state the client shell owns. On desktop the main process holds
  * the sign-in and pushes every change here. On web there is no shell capability, so
  * `isAvailable` is false; but a web client served by the account origin holds its own
- * sign-in (`web-sign-in.ts`), and the store follows that one so surfaces show who is
+ * sign-in (`web-token-session.ts`), and the store follows that one so surfaces show who is
  * signed in and can sign out. This store carries no UI of its own: surfaces
  * that render account state read it and call its commands, and decide their own feedback.
  */

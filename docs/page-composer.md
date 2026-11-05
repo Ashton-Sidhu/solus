@@ -1,6 +1,6 @@
 # Page composer
 
-Documents, artifacts, diagrams, and pull requests have a docked composer. Use
+Documents, artifacts, and pull requests have a docked composer. Use
 it to start an agent on the page you are reading.
 
 ## Behavior

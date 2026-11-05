@@ -26,6 +26,7 @@ import type {
   ThreadResumeResponse,
   ThreadStartParams,
   ThreadStartResponse,
+  ThreadUnarchiveResponse,
   ThreadUnsubscribeResponse,
   TurnInterruptResponse,
   TurnSteerParams,
@@ -102,6 +103,7 @@ export interface CodexResponseByMethod {
   'thread/fork': CodexThreadForkResponse
   'thread/list': CodexThreadListResponse
   'thread/read': CodexThreadReadResponse
+  'thread/unarchive': ThreadUnarchiveResponse
   'thread/unsubscribe': ThreadUnsubscribeResponse
   'thread/goal/get': ThreadGoalGetResponse
   'thread/goal/set': ThreadGoalSetResponse

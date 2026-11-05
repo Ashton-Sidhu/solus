@@ -44,8 +44,9 @@
     parseAnnotationAttachmentId,
     removeMarkFromAttachment,
   } from "../browser/lib/annotation-attachment";
-  import PromptEditor from "../ui/PromptEditor.svelte";
+  import DeferredPromptEditor from "../ui/DeferredPromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
+  import VoiceTranscriptPreview from "./VoiceTranscriptPreview.svelte";
   import RecordingControls from "./RecordingControls.svelte";
   import { dictation } from "../../lib/dictation.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -303,7 +304,7 @@
     if (!active) frozenText = untrack(() => prompt.text);
   });
   const editorValue = $derived(active ? prompt.text : frozenText);
-  let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
+  let composerEl: ReturnType<typeof DeferredPromptEditor> | null = $state(null);
   // The draft route stays mounted while its draft id changes. The editor then
   // receives a different prompt object without an input event, so explicitly
   // retire any trigger state that belonged to the previous draft.
@@ -347,6 +348,11 @@
   const voiceState = $derived(composerVoice.state);
   const hasMountedWaveform = $derived(composerVoice.hasMountedWaveform);
   const showWaveform = $derived(composerVoice.showWaveform);
+  const hasPartialTranscript = $derived(
+    ownsVoice && voice.mode === "message" && voiceState !== "idle" &&
+      !!(voice.partialTranscript.stable || voice.partialTranscript.tentative),
+  );
+  const showVoicePreview = $derived(showWaveform || hasPartialTranscript);
   const voiceControlState = $derived(composerVoice.controlState);
   const micHoldsBarOpen = $derived(composerVoice.holdsBarOpen);
   const claimVoice = composerVoice.claim;
@@ -532,7 +538,7 @@
     const metadata = agent.metadata[activeProvider] ?? agent.activeMetadata;
     const models = metadata?.models;
     if (!models || models.length === 0) return;
-    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null, activeProvider);
+    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null, activeProvider, metadata?.modelProfiles);
     if (!nextModelId) return;
     const nextConfig = session.config.configureModel(run.modelConfig, { modelId: nextModelId }, run.provider ?? theme.activeAgent);
     if (onRun) onRun({ ...run, modelConfig: { ...run.modelConfig, ...nextConfig } });
@@ -817,14 +823,18 @@
     {#if hasMountedWaveform}
       <div
         class="flex items-center gap-2 [padding:var(--plain-editor-padding,0.9375rem_0_0.9375rem_0.25rem)]"
-        style:display={showWaveform ? null : "none"}
+        style:display={showVoicePreview ? null : "none"}
       >
         <div class="min-w-0 flex-1">
-          <WaveformVisualizer
-            rmsRef={voice.rmsRef}
-            color="var(--solus-accent)"
-            active={showWaveform}
-          />
+          {#if hasPartialTranscript}
+            <VoiceTranscriptPreview partial={voice.partialTranscript} />
+          {:else}
+            <WaveformVisualizer
+              rmsRef={voice.rmsRef}
+              color="var(--solus-accent)"
+              active={showWaveform}
+            />
+          {/if}
         </div>
       </div>
     {/if}
@@ -833,9 +843,9 @@
          keeps the corner clear and the hint runs under mic and send. -->
     <div
       class="[&_.cm-content]:min-w-0 [&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
-      style:display={showWaveform ? "none" : null}
+      style:display={showVoicePreview ? "none" : null}
     >
-      <PromptEditor
+      <DeferredPromptEditor
         bind:this={composerEl}
         value={editorValue}
         onValueChange={handlePromptChange}
@@ -867,7 +877,7 @@
        on send, and only once there is something to send. Stop is a light red,
        the lightest that keeps 3:1 with its white square. A click on a folded
        bar sends without taking the keyboard, so the bar stays folded. -->
-  {#if !showWaveform}
+  {#if !showVoicePreview}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}

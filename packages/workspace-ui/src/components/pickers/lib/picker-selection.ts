@@ -1,7 +1,7 @@
 import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
 import { modelProfileForAgent } from '@solus/contracts/provider-instance-models'
 import { MODEL_PROFILES, isLegacyModel } from "@solus/contracts/types";
-import type { AgentId, AgentMetadata, ReasoningEffort } from "@solus/contracts/types";
+import type { AgentId, AgentMetadata, ModelProfile, ReasoningEffort } from "@solus/contracts/types";
 
 /**
  * A local agent/model/effort choice a detached SessionChip reads and mutates in
@@ -103,11 +103,12 @@ export const LEGACY_SECTION_VALUE = "solus:legacy-models";
 export function splitLegacyModels(
   provider: AgentId,
   models: readonly ModelOption[],
+  profiles?: Record<string, ModelProfile>,
 ): { current: ModelOption[]; legacy: ModelOption[] } {
   const current: ModelOption[] = [];
   const legacy: ModelOption[] = [];
   for (const model of models) {
-    (isLegacyModel(provider, model.id) ? legacy : current).push(model);
+    (isLegacyModel(provider, model.id, profiles) ? legacy : current).push(model);
   }
   return { current, legacy };
 }
@@ -156,4 +157,70 @@ export function clampReasoningEffort(
   if (!profile) return effort;
   if (profile.reasoningLevels.includes(effort)) return effort;
   return profile.defaultReasoningEffort ?? "high";
+}
+
+/** A choice made inside the model picker. */
+export type ModelPickerPick = "model" | "effort" | "fast-mode" | "agent";
+
+/**
+ * Only an effort is the final choice: it closes the picker and focus returns to
+ * the input bar. A model pick moves on to that model's effort, and Fast mode and
+ * the agent are steps on the way, so they keep the picker open. Escape and a
+ * click outside close it at any step.
+ */
+export function pickClosesModelPicker(pick: ModelPickerPick): boolean {
+  return pick === "effort";
+}
+
+/** Why the picker is placing focus: it just opened, a model was picked, or the
+ *  shortcut fired while the picker was already open. */
+export type ModelPickerFocusReason = "open" | "model-picked" | "shortcut";
+
+/** The row to focus: a column and the `data-picker-value` of a row in it. */
+export interface ModelPickerFocus {
+  column: ModelPickerColumn;
+  value: string | null;
+}
+
+/**
+ * The row that takes focus. Opening lands on the current model, so → reaches
+ * its levels in one key. A model pick, or the shortcut while open, lands on the
+ * current level, so model then effort is one flow. A model with no levels to
+ * pick (Auto, a model-only picker) keeps focus on the model itself.
+ */
+export function modelPickerFocusTarget({
+  reason,
+  modelId,
+  effort,
+  levels,
+}: {
+  reason: ModelPickerFocusReason;
+  modelId: string | null;
+  effort: ReasoningEffort;
+  levels: readonly ReasoningEffort[];
+}): ModelPickerFocus {
+  if (reason === "open" || levels.length === 0) return { column: "model", value: modelId };
+  return { column: "reasoning", value: levels.includes(effort) ? effort : levels[0] };
+}
+
+/**
+ * Rows the Reasoning column holds for its levels and the Fast mode switch,
+ * taken over every model of every agent on offer. The model column scrolls
+ * inside this height, so the popup keeps one size while the cursor crosses
+ * models, the legacy list opens, or the agent changes.
+ */
+export function reservedReasoningRows(
+  agentIds: readonly AgentId[],
+  metadataByAgent: Record<string, AgentMetadata | null>,
+  allowFastMode: boolean,
+): number {
+  let deepest = 0;
+  for (const agentId of agentIds) {
+    const metadata = metadataByAgent[agentId];
+    for (const model of modelOptionsFor(agentId, metadataByAgent)) {
+      const fastRow = allowFastMode && agentId === "codex" && supportsFastModeFor(agentId, model.id, metadata) ? 1 : 0;
+      deepest = Math.max(deepest, reasoningLevelsFor(agentId, model.id, metadata).length + fastRow);
+    }
+  }
+  return deepest;
 }

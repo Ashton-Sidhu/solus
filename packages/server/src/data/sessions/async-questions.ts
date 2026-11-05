@@ -6,6 +6,14 @@ import { getDb } from '../../db'
 
 let recoveredAfterStart = false
 
+/** How long an answered or dismissed question is kept, so a reload can still rebuild its receipt (plan 029 §7). */
+const SETTLED_QUESTION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+/** Remove settled questions past their retention. Run beside the `run_exchanges` prune. */
+export function pruneSettledAsyncQuestions(now = Date.now()): void {
+  questionDb().prepare('DELETE FROM async_questions WHERE retained_until IS NOT NULL AND retained_until <= ?').run(now)
+}
+
 function questionDb() {
   const db = getDb()
   if (!recoveredAfterStart) {
@@ -52,6 +60,21 @@ export function pendingAsyncQuestions(sessionId: string): AsyncQuestionEvent[] {
   }))
 }
 
+/** Whether the session has a message-mode question the person has not answered. */
+export function hasPendingAsyncQuestion(sessionId: string): boolean {
+  return questionDb().prepare("SELECT 1 FROM async_questions WHERE session_id = ? AND state = 'pending' LIMIT 1").get(sessionId) != null
+}
+
+/** The sessions, of those named, that have a message-mode question the person has not answered. */
+export function sessionsWithPendingAsyncQuestion(sessionIds: readonly string[]): Set<string> {
+  if (sessionIds.length === 0) return new Set()
+  const rows = z.array(z.object({ session_id: z.string() })).parse(questionDb().prepare(`
+    SELECT DISTINCT session_id FROM async_questions
+    WHERE state = 'pending' AND session_id IN (${sessionIds.map(() => '?').join(', ')})
+  `).all(...sessionIds))
+  return new Set(rows.map((row) => row.session_id))
+}
+
 export function claimAsyncQuestion(sessionId: string, questionId: string): { agentSessionId: string; questions: AsyncQuestionEvent['questions'] } | null {
   const db = questionDb()
   const claimed = db.prepare(`
@@ -66,8 +89,11 @@ export function claimAsyncQuestion(sessionId: string, questionId: string): { age
   return { agentSessionId: row.agent_session_id, questions: questionsSchema.parse(JSON.parse(row.questions_json)) }
 }
 
+/** `answered` and `dismissed` are final and start the retention clock; `pending` reopens the question. */
 export function settleAsyncQuestion(questionId: string, state: 'pending' | 'answered' | 'dismissed'): void {
-  questionDb().prepare("UPDATE async_questions SET state = ? WHERE question_id = ? AND state = 'delivering'").run(state, questionId)
+  const retainedUntil = state === 'pending' ? null : Date.now() + SETTLED_QUESTION_RETENTION_MS
+  questionDb().prepare("UPDATE async_questions SET state = ?, retained_until = ? WHERE question_id = ? AND state = 'delivering'")
+    .run(state, retainedUntil, questionId)
 }
 
 /** Save the answer before delivery so a reload can reconstruct the receipt. */

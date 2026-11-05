@@ -29,7 +29,7 @@ export function reconcileComments(target: PlanComment[], next: readonly PlanComm
 /** Every field a thread can carry. Listed, not read off an object, so the
  *  reconcile touches exactly the contract and nothing a stale host added. */
 const COMMENT_FIELDS: readonly (keyof PlanComment)[] = [
-  'externalThreadId', 'googleThreadId', 'id', 'selectedText', 'comment', 'textOffset', 'nodeId', 'edgeId', 'pin',
+  'externalThreadId', 'googleThreadId', 'id', 'selectedText', 'comment', 'textOffset', 'pin',
   'author', 'createdAt', 'resolvedAt', 'resolvedBy', 'replies', 'readAt', 'readBy',
 ]
 

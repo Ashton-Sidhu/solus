@@ -6,9 +6,14 @@
  * compute keys here, so two machines agree on what one repository is called.
  */
 
+/** `host:owner/repo`, the SCP form that leaves its user to ssh config. Git
+ *  reads it as SSH. One letter is a Windows drive, `::` names a remote helper,
+ *  and a slash or backslash before the colon makes it a local path. */
+export const USERLESS_SCP_REMOTE = /^([^@:/\\\s]{2,}):(?!:)\/?([^/\s]+(?:\/[^/\s]+)+)\/?$/
+
 /** A remote's URL reduced to `host/path`, lowercase, without `.git`. SSH,
- *  HTTPS, and SCP (`git@host:owner/repo`) forms of one repository give one
- *  key. The whole path is kept, so GitLab subgroups stay distinct. Null for a
+ *  HTTPS, and SCP (`git@host:owner/repo`, `host:owner/repo`) forms of one
+ *  repository give one key. The whole path is kept, so GitLab subgroups stay distinct. Null for a
  *  URL with no host or no owner segment, such as a local path remote. */
 export function repositoryKeyFromRemoteUrl(remoteUrl: string): string | null {
   const normalized = remoteUrl.trim().replace(/\/+$/g, '').replace(/\.git$/i, '').toLowerCase()
@@ -24,7 +29,7 @@ export function repositoryKeyFromRemoteUrl(remoteUrl: string): string | null {
     }
   }
 
-  const scp = /^[a-z0-9._-]+@([^:/\s]+):\/?([^/\s]+(?:\/[^/\s]+)+)$/.exec(normalized)
+  const scp = /^[a-z0-9._-]+@([^:/\s]+):\/?([^/\s]+(?:\/[^/\s]+)+)$/.exec(normalized) ?? USERLESS_SCP_REMOTE.exec(normalized)
   return scp ? `${scp[1]}/${scp[2]}` : null
 }
 

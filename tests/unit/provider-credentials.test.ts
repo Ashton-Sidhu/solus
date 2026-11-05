@@ -105,8 +105,9 @@ describe('account integration identity', () => {
       expect(calls).toEqual([])
       useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
       for (const owner of [localOwner, remoteOwner]) {
+        // The owner keeps the host user's key (plans/031 D1); the vault names the account.
         const personKey = credentialKeyFor(owner)
-        expect(personKey).toBe('alice')
+        expect(personKey).toBe('local:mac')
         expect(credentialLocationOf(personKey)).toEqual({ kind: 'account', accountId: 'alice' })
         expect(await vault().read(personKey, GOOGLE, token)).toEqual({ accessToken: 'account-copy' })
       }

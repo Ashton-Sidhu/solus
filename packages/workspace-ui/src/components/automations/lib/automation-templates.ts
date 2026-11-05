@@ -81,7 +81,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     prompt: [
       'Keep this project\'s architecture diagram current.',
       '',
-      'Walk the repository and map its services, data flow and entry points — how a request or user action travels from the outermost boundary through to storage. Compare that against the existing architecture diagram work if one exists.',
+      'Walk the repository and map its services, data flow and entry points — how a request or user action travels from the outermost boundary through to storage. Compare that against the existing architecture diagram if one exists.',
       '',
       'If nothing structural has changed since the last run, say so and stop without editing anything. Otherwise update the diagram to match, and note in your summary exactly which structures moved and why.',
     ].join('\n'),

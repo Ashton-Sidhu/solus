@@ -13,7 +13,7 @@ const MAX_MAC_ARM64_APP_BYTES = 600_000_000
 
 /**
  * Runs inside the packaged app in node mode. Arguments are the fff entry point,
- * a scratch directory, the ONNX entry point, and the Claude SDK entry point.
+ * a scratch directory and the Claude SDK entry point.
  *
  * `findBinary()` is the function our fff-node patch rewrites: unpatched, it
  * hands back the path inside app.asar, which cannot be dlopen'd. Asserting the
@@ -24,7 +24,6 @@ const RUNTIME_PROBE_SOURCE = `
 const { pathToFileURL } = await import('node:url')
 const { sep, dirname, join } = await import('node:path')
 const { readdirSync } = await import('node:fs')
-const { createRequire } = await import('node:module')
 const fff = await import(pathToFileURL(process.argv[1]).href)
 const binaryPath = fff.findBinary()
 if (!binaryPath) throw new Error('findBinary() resolved nothing inside the packaged app')
@@ -40,23 +39,9 @@ if (!created.ok) throw new Error('FileFinder.create failed: ' + String(created.e
 created.value.destroy()
 console.log('fff-probe-ok ' + binaryPath)
 
-// A float[1] Identity graph, ONNX IR 8 / opset 13. Exercise real inference
-// without downloading a speech model or reading the user's model cache.
-const model = Buffer.from('CAg6VwoZCgVpbnB1dBIGb3V0cHV0IghJZGVudGl0eRIPcGFja2FnaW5nLXByb2JlWhMKBWlucHV0EgoKCAgBEgQKAggBYhQKBm91dHB1dBIKCggIARIECgIIAUICEA0=', 'base64')
-const require = createRequire(process.argv[3])
-const ort = require(process.argv[3])
-const session = await ort.InferenceSession.create(model, { executionProviders: ['cpu'] })
-try {
-  const result = await session.run({ input: new ort.Tensor('float32', Float32Array.of(42), [1]) })
-  if (result.output.data[0] !== 42) throw new Error('Packaged ONNX inference returned the wrong value')
-} finally {
-  await session.release()
-}
-console.log('onnx-probe-ok')
-
-const sdk = await import(pathToFileURL(process.argv[4]).href)
+const sdk = await import(pathToFileURL(process.argv[3]).href)
 if (typeof sdk.query !== 'function') throw new Error('Packaged Claude SDK could not load')
-const anthropicPackages = readdirSync(join(dirname(process.argv[4]), '..'))
+const anthropicPackages = readdirSync(join(dirname(process.argv[3]), '..'))
 if (anthropicPackages.some(name => name.startsWith('claude-agent-sdk-')))
   throw new Error('Bundled Claude executable packages must not ship; setup installs Claude on the host')
 console.log('claude-sdk-probe-ok')
@@ -95,8 +80,11 @@ function probePackagedRuntime(context) {
   }
 
   const fffEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@ff-labs', 'fff-node', 'dist', 'index.js')
-  const onnxEntry = path.join(resourcesDir, 'app.asar', 'node_modules', 'onnxruntime-node', 'dist', 'index.js')
   const claudeEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'sdk.mjs')
+  const voiceBinary = path.join(resourcesDir, 'transcription', process.platform === 'win32' ? 'solus-transcription.exe' : 'solus-transcription')
+  const voiceVersion = execFileSync(voiceBinary, ['--probe'], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS })
+  if (!voiceVersion.startsWith('solus-transcription/1 transcribe.cpp/'))
+    throw new Error('[afterPack] Packaged voice runtime failed its protocol check')
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'solus-runtime-probe-'))
 
   // ELECTRON_NO_ASAR would let the probe read straight through the archive and
@@ -108,7 +96,7 @@ function probePackagedRuntime(context) {
   try {
     const output = execFileSync(
       executable,
-      ['--no-global-search-paths', '--input-type=module', '--eval', RUNTIME_PROBE_SOURCE, fffEntry, probeRoot, onnxEntry, claudeEntry],
+      ['--no-global-search-paths', '--input-type=module', '--eval', RUNTIME_PROBE_SOURCE, fffEntry, probeRoot, claudeEntry],
       { env, timeout: PROBE_TIMEOUT_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     )
     console.log(`[afterPack] ${output.trim()}`)

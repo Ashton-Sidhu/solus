@@ -20,7 +20,7 @@ import { solusServerFor } from './solus-servers'
 import { solusMcpServer } from './solus-servers/solus-server'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
-import { mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
+import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
 import { answerToolQuestionWith } from '../execution/sessions/input-requests'
 import type { IntegrationCredentials } from './connections'
 import type { IntegrationStore } from './integration-store'
@@ -70,9 +70,6 @@ export interface IntegrationAppCapture {
 type ElicitationAnswers = Parameters<typeof mcpElicitationResponse>[1]
 /** A `tools/call` input as the SDK takes it. */
 export type ToolArguments = NonNullable<CallToolRequest['params']['arguments']>
-
-/** One value of an accepted elicitation form, as the MCP SDK takes it. */
-const elicitValueSchema = z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 
 interface ActiveCall {
   integrationName: string
@@ -519,7 +516,7 @@ export class IntegrationGateway {
       })
       if (!answers) return { action: 'cancel' }
       call.context.emit({ type: 'permission_resolved', questionId })
-      return elicitResult(mcpElicitationResponse(params, answers))
+      return mcpElicitResult(mcpElicitationResponse(params, answers))
     } finally {
       call.resumeTimeout()
     }
@@ -643,16 +640,4 @@ function toolNames(tools: UpstreamTool[]): string {
 function errorText(cause: unknown): string {
   const text = cause instanceof Error ? cause.message : String(cause)
   return text.replace(/(https?:\/\/[^\s?#]+)[?#]\S*/g, '$1').slice(0, 300)
-}
-
-/** The Codex answer shape as the MCP SDK's: no null content, only the value kinds a form may hold. */
-function elicitResult(response: ReturnType<typeof mcpElicitationResponse>): ElicitResult {
-  const fields = z.record(z.string(), z.json()).safeParse(response.content)
-  if (response.action !== 'accept' || !fields.success) return { action: response.action }
-  const content: NonNullable<ElicitResult['content']> = {}
-  for (const [name, value] of Object.entries(fields.data)) {
-    const parsed = elicitValueSchema.safeParse(value)
-    if (parsed.success) content[name] = parsed.data
-  }
-  return { action: 'accept', content }
 }

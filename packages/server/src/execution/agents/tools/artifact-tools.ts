@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
+import { cutText } from '@solus/contracts/text-cut'
 import { join } from 'node:path'
 import { createLogger } from '../../../logger'
 import { writeAssetUpload } from '../../../data/assets/assets'
@@ -22,7 +23,7 @@ const log = createLogger('folio', 'artifact-tools.ts')
  * that renders flush in the conversation (charts, sliders, simulations).
  *
  * The HTML is persisted as an `artifact` work, so it has the same standing as
- * a document or diagram: a durable id, a place in the works gallery, a task
+ * a document: a durable id, a place in the works gallery, a task
  * link, `read_work`/`update_work`, and a copy that ships with a dispatched
  * task snapshot. The conversation still renders it inline from the event.
  *
@@ -110,7 +111,7 @@ function consoleLines(entries: HtmlPreview['console'], levels: ReadonlySet<strin
   return entries
     .filter((entry) => levels.has(entry.level))
     .slice(0, MAX_REPORTED_CONSOLE_ENTRIES)
-    .map((entry) => `  [${entry.level}] ${entry.text.slice(0, 300)}`)
+    .map((entry) => `  [${entry.level}] ${cutText(entry.text, 300)}`)
 }
 
 const ALL_LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug'])

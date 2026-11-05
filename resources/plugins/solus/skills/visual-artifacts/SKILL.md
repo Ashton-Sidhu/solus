@@ -1,6 +1,6 @@
 ---
 name: visual-artifacts
-description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, and render as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose, slides, and editable architecture or data diagrams; use web-building skills for deployed apps.
+description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, and render as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use web-building skills for deployed apps.
 ---
 
 # Visual artifacts
@@ -137,4 +137,4 @@ Use authorized browser tools when available; do not start a server without agree
 
 For a document containing a reusable interactive visual, render the artifact first and copy its returned embed token onto its own line in the document. Use `create_work` for a new document or slides; read and version-check updates to existing works. Revise the embedded artifact by its own work ID.
 
-Preserve live `work://embed` links and rendered HTML fences. Use the `diagrams` skill for editable architecture, system, data-flow, or ER diagrams. Use image generation for raster images and Markdown links for public web images. Google-linked works are read-only in Solus; edit upstream and pull rather than making duplicates.
+Preserve live `work://embed` links and rendered HTML fences. Use image generation for raster images and Markdown links for public web images. Google-linked works are read-only in Solus; edit upstream and pull rather than making duplicates.

@@ -22,7 +22,7 @@ describe('desktop package contents', () => {
     expect(appIncludes(join(root, '.solus-local/solus.db'), fileStat)).toBe(false)
     const rules = [build.files, build.linux?.files].flat().filter((rule): rule is string => typeof rule === 'string' && rule.startsWith('!'))
     const includes = new FileMatcher(root, '/package', expandLinux, ['**/*', ...rules]).createFilter()
-    for (const name of ['onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node', 'onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1', '@ff-labs/fff-bin-linux-x64-gnu/libfff_c.so']) {
+    for (const name of ['@ff-labs/fff-bin-linux-x64-gnu/libfff_c.so']) {
       expect(includes(join(root, 'node_modules', name), fileStat)).toBe(true)
     }
     for (const name of ['onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.dylib', 'onnxruntime-node/bin/napi-v6/linux/arm64/libonnxruntime.so.1', '@anthropic-ai/claude-agent-sdk-linux-x64/claude']) {
@@ -49,16 +49,13 @@ describe('desktop package contents', () => {
     }
   })
 
-  test('native filters keep the Mac binding and linked library without extra runtimes', () => {
+  test('native filters keep the file finder and exclude the removed ONNX runtime', () => {
     // electron-builder's node-module collector applies the negative file rules
     // to its production dependency tree separately from the app file allowlist.
     const rules = [build.files, build.mac?.files].flat().filter((rule): rule is string => typeof rule === 'string' && rule.startsWith('!'))
     const includes = new FileMatcher(root, '/package', expandMacros, ['**/*', ...rules]).createFilter()
     for (const name of [
       '@anthropic-ai/claude-agent-sdk/sdk.mjs',
-      'onnxruntime-node/dist/index.js',
-      'onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node',
-      'onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.dylib',
       '@ff-labs/fff-bin-darwin-arm64/libfff_c.dylib',
     ]) {
       expect(includes(join(root, 'node_modules', name), fileStat)).toBe(true)
@@ -71,9 +68,23 @@ describe('desktop package contents', () => {
       'onnxruntime-node/bin/napi-v6/linux/arm64/libonnxruntime.so.1',
       'onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1',
       'onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll',
+      'onnxruntime-node/dist/index.js',
+      'onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node',
+      'onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.dylib',
       'onnxruntime-node/dist/index.js.map',
     ]) {
       expect(includes(join(root, 'node_modules', name), fileStat)).toBe(false)
     }
   })
+})
+
+// Every desktop target receives the built helper outside app.asar, where the
+// OS can execute it and load its optional backend modules.
+test('all desktop packages include the native voice runtime', () => {
+  const voiceFiles = { from: 'build/transcription/bin', to: 'transcription' }
+  expect(build.extraResources).toContainEqual(voiceFiles)
+  expect(build.win?.extraResources).toContainEqual(voiceFiles)
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  expect(manifest.dependencies['onnxruntime-node']).toBeUndefined()
+  expect(build.beforePack).toBe('./scripts/beforePack.js')
 })

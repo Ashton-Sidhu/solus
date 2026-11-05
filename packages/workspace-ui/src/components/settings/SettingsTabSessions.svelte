@@ -64,6 +64,7 @@
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import { managedSetting } from "./policy/managed-setting.svelte";
   import RateLimitSetting from "./RateLimitSetting.svelte";
   import ModelRoutingSection from "./ModelRoutingSection.svelte";
   import LeadSessionsSection from "./LeadSessionsSection.svelte";
@@ -89,6 +90,7 @@
 
   <SettingsRow
     label="Default permission mode"
+    managed={managedSetting("defaultPermissionMode")}
     description="Mode for new sessions. Existing sessions keep theirs."
     visible={isVisible("default-permission")}
   >

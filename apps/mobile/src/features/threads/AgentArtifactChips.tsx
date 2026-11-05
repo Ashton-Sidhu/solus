@@ -4,13 +4,14 @@ import {
   cardChips,
   chipTotals,
   sessionArtifactItems,
+  turnArtifacts,
   type ArtifactChipTone,
   type PullRequestChipState,
 } from "@solus/client-core/session-artifact-chips";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import type { ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -21,6 +22,9 @@ import type { RootStackParamList } from "../../navigation/routes";
 import { artifactKey } from "./artifacts/session-artifacts";
 import { useOpenArtifact } from "./artifacts/use-open-artifact";
 import { sessionArtifactsFeed, useSessionArtifacts } from "./artifacts/use-session-artifacts";
+import type { ConversationStore } from "../conversation/conversation-store";
+import { threadTurnImages } from "./thread-turn-images";
+import { useTranscriptItems } from "./use-transcript-items";
 
 // The type tints of desktop's ArtifactChip.svelte. A pull request's chip is
 // plain; its icon takes the colour of its state.
@@ -194,6 +198,40 @@ export function AgentRowArtifacts(props: {
     </ChipsFrame>
   ) : null;
 }
+
+/** What the session linked during a finished turn, under its reply and images. */
+export const TurnArtifactChips = memo(function TurnArtifactChips(props: {
+  readonly store: ConversationStore;
+  readonly promptId: string | null;
+  readonly nextPromptId: string | null;
+  readonly imageIds: readonly string[];
+}) {
+  const { hostId, run } = props.store.controller;
+  const { snapshot } = useSessionArtifacts(hostId, run.sessionId, false);
+  const ids = useMemo(
+    () => [props.promptId, props.nextPromptId, ...props.imageIds].filter((id) => id !== null),
+    [props.imageIds, props.nextPromptId, props.promptId],
+  );
+  const transcript = useTranscriptItems(props.store, ids);
+  if (snapshot.state.kind !== "ready") return null;
+  const timestampOf = (id: string | null) => {
+    const item = transcript.find((entry) => entry.id === id);
+    return item?.kind === "user" ? (item.timestamp ?? null) : null;
+  };
+  const startedAt = props.promptId === null ? 0 : timestampOf(props.promptId);
+  if (startedAt === null) return null;
+  const items = turnArtifacts(
+    snapshot.state.artifacts.own,
+    { startedAt, nextStartedAt: timestampOf(props.nextPromptId) },
+    () => threadTurnImages(transcript.filter((item) => props.imageIds.includes(item.id))).map((image) => image.href),
+  );
+  if (items.length === 0) return null;
+  return (
+    <View className="my-1 self-stretch">
+      <AgentArtifactChips hostId={hostId} sessionId={run.sessionId} items={items} />
+    </View>
+  );
+});
 
 function OwnAgentArtifacts(props: { readonly hostId: string; readonly sessionId: string; readonly className: string; readonly onOpenSession: () => void }) {
   const { snapshot } = useSessionArtifacts(props.hostId, props.sessionId, false);

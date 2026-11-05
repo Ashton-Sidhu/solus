@@ -1,3 +1,4 @@
+import { organizationOfSession } from '../../data/sessions/session-records'
 import { createLogger } from '../../logger'
 import { type ExecutionPreferences } from '@solus/contracts/settings'
 import { setSessionBranch } from '../../db/session-indexer'
@@ -52,7 +53,7 @@ export class SessionCheckouts {
   async nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined, preferences?: ExecutionPreferences): Promise<void> {
     if (!checkout.worktreePath) return
     this.setSessionGitEnvironment(sessionId, checkout.worktreePath, checkout)
-    await this.rt.checkouts.name(checkout.worktreePath, prompt, this.rt, (provider) => this.rt.seatForTurn(actor, provider), preferences)
+    await this.rt.checkouts.name(checkout.worktreePath, prompt, this.rt, (provider) => this.rt.seatForTurn(actor, provider), preferences, await organizationOfSession(sessionId))
   }
 
   /** Register a worktree move so Stop can abort it. Call the returned

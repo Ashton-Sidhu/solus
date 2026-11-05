@@ -1,0 +1,23 @@
+{
+  "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+  "machine": "x86_64",
+  "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+  "fixture": "whisper.cpp JFK, repeated for longer clips; artificial repetition is not an accuracy benchmark",
+  "paced": false,
+  "load_ms": 172.61,
+  "results": [
+    {
+      "seconds": 11,
+      "repeat": 0,
+      "begin_ms": 0.17,
+      "stream_compute_ms": 25714.68,
+      "finish_ms": 3619.51,
+      "feed_p95_ms": 3128.8,
+      "offline_ms": 4830.67,
+      "partial_updates": 32,
+      "first_partial_ms": 2155.55,
+      "resident_mb": 1066.1,
+      "transcript_words": 22
+    }
+  ]
+}

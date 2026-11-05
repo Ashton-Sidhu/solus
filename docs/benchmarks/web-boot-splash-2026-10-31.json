@@ -1,0 +1,111 @@
+{
+  "note": "before = 837faba6f (the empty workspace in the HTML, blocking stylesheet); after = the boot splash in the HTML, stylesheet as a preload, surfaces mount after it applies. node scripts/bench-web-load.ts, 5 runs, medians.",
+  "slow": {
+    "profile": {
+      "roundTripMs": 300,
+      "megabitsPerSecond": 1.5,
+      "cpuSlowdown": 4
+    },
+    "runs": 5,
+    "results": [
+      {
+        "build": "before",
+        "engine": "chromium",
+        "firstPaintMedianMs": 1100,
+        "stylesMedianMs": 4373,
+        "medianMs": 4483,
+        "minMs": 4483,
+        "maxMs": 4502,
+        "requests": 72,
+        "transferredKb": 702
+      },
+      {
+        "build": "after",
+        "engine": "chromium",
+        "firstPaintMedianMs": 352,
+        "stylesMedianMs": 4360,
+        "medianMs": 4476,
+        "minMs": 4473,
+        "maxMs": 4494,
+        "requests": 72,
+        "transferredKb": 702
+      },
+      {
+        "build": "before",
+        "engine": "webkit",
+        "firstPaintMedianMs": 4412,
+        "stylesMedianMs": 4377,
+        "medianMs": 4434,
+        "minMs": 4434,
+        "maxMs": 4445,
+        "requests": 72,
+        "transferredKb": 702
+      },
+      {
+        "build": "after",
+        "engine": "webkit",
+        "firstPaintMedianMs": 336,
+        "stylesMedianMs": 4364,
+        "medianMs": 4421,
+        "minMs": 4418,
+        "maxMs": 4422,
+        "requests": 72,
+        "transferredKb": 702
+      }
+    ]
+  },
+  "fast": {
+    "profile": {
+      "roundTripMs": 40,
+      "megabitsPerSecond": 20,
+      "cpuSlowdown": 1
+    },
+    "runs": 5,
+    "results": [
+      {
+        "build": "before",
+        "engine": "chromium",
+        "firstPaintMedianMs": 224,
+        "stylesMedianMs": 372,
+        "medianMs": 399,
+        "minMs": 398,
+        "maxMs": 421,
+        "requests": 73,
+        "transferredKb": 709
+      },
+      {
+        "build": "after",
+        "engine": "chromium",
+        "firstPaintMedianMs": 56,
+        "stylesMedianMs": 373,
+        "medianMs": 400,
+        "minMs": 399,
+        "maxMs": 403,
+        "requests": 72,
+        "transferredKb": 702
+      },
+      {
+        "build": "before",
+        "engine": "webkit",
+        "firstPaintMedianMs": 400,
+        "stylesMedianMs": 371,
+        "medianMs": 426,
+        "minMs": 425,
+        "maxMs": 438,
+        "requests": 73,
+        "transferredKb": 708
+      },
+      {
+        "build": "after",
+        "engine": "webkit",
+        "firstPaintMedianMs": 55,
+        "stylesMedianMs": 371,
+        "medianMs": 420,
+        "minMs": 418,
+        "maxMs": 429,
+        "requests": 73,
+        "transferredKb": 708
+      }
+    ]
+  }
+}

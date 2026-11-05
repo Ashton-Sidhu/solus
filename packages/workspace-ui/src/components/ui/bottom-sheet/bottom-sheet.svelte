@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
   import type { Snippet } from "svelte";
   import { portal } from "../../portal";
 
@@ -44,6 +45,9 @@
   }
   let { label, onClose, header, footer, portalTarget = null, children }: Props = $props();
   const mountIn = $derived(portalTarget ?? document.body);
+
+  // A modal: shortcuts behind it stay quiet while it is open.
+  useScope("modal-dialog", { exclusive: true, pre: true });
 </script>
 
 <svelte:window

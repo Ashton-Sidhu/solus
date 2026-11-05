@@ -1,6 +1,6 @@
 import type { RpcMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/docs'
+import type { PlanPublishRequest } from '@solus/contracts/docs'
 import { createLogger, isDebugEnabled } from '../logger'
 import { assertRpcAccess, type ResourceAccess } from '../admission/access-policy'
 import type { Principal } from '../admission/principal'
@@ -68,18 +68,11 @@ export class SolusServer {
     await assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
-      if (method === 'typeSafeKeySet' || method === 'atlassianConnectApiToken' || method === 'transcribeAudio' || method === 'integrationUpdate' || method === 'integrationConnectSubmit' || method === 'mcpAppCallTool' || method === 'authRenew' || method === 'accountPresent' || method === 'solusApiRequest') {
+      if (method === 'typeSafeKeySet' || method === 'atlassianConnectApiToken' || method === 'transcribeAudio' || method === 'voiceStreamFeed' || method === 'integrationUpdate' || method === 'integrationConnectSubmit' || method === 'mcpAppCallTool' || method === 'authRenew' || method === 'accountPresent' || method === 'solusApiRequest') {
         // These carry a secret (an API key, an OAuth client secret, an access token) or a large payload, such as a work's content; only the call is logged.
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
       } else if (method === 'publishWork') {
-        // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.
-        const request = args[1] as WorkPublishRequest | undefined
-        log.debug('rpc_method_invoked', {
-          method,
-          clientId: ctx.clientId,
-          workId: args[0],
-          diagrams: request?.diagramAssets?.map((asset) => ({ workId: asset.workId, bytes: asset.base64.length })),
-        })
+        log.debug('rpc_method_invoked', { method, clientId: ctx.clientId, workId: args[0] })
       } else if (method === 'publishPlan') {
         // SAFETY: Runtime dispatch pairs this method with publishPlan's tuple.
         const request = args[0] as PlanPublishRequest
@@ -89,7 +82,6 @@ export class SolusServer {
           sessionId: request.sessionId,
           planToolUseId: request.planToolUseId,
           contentLength: request.content.length,
-          diagrams: request.diagramAssets?.map((asset) => ({ workId: asset.workId, bytes: asset.base64.length })),
         })
       } else {
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId, args })

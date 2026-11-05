@@ -15,7 +15,7 @@ import { ChromiumBrowserDriver } from '../../apps/desktop/src/main/browser/chrom
 const PAGE_PNG = `data:image/png;base64,${Buffer.from('page-png').toString('base64')}`
 
 type FrameEmitter = (method: string, params: { data: string; sessionId: number }) => void
-type MessageListener = (event: object, method: string, params: { data: string; sessionId: number }) => void
+type MessageListener = (event: object, method: string, params: object) => void
 
 /** A guest whose window copy and own frame differ, recording every CDP command it is sent. */
 function fakeGuest() {
@@ -50,7 +50,7 @@ function fakeGuest() {
     capturePage: async () => ({ isEmpty: () => false, toDataURL: () => 'data:image/png;base64,V0lORE9X' }),
   }
   // SAFETY: the fixture implements every WebContents and Debugger member that attach and capture read.
-  return { contents: contents as unknown as WebContents, commands }
+  return { contents: contents as unknown as WebContents, commands, listeners }
 }
 
 async function attached(kind: 'webview' | 'headless') {
@@ -83,6 +83,21 @@ describe('capturing a page in the browser pane', () => {
     const restart = commands.findLast((command) => command.method === 'Page.startScreencast')
     expect(restart?.params).toMatchObject({ format: 'jpeg', quality: 60, maxWidth: 800, maxHeight: 600 })
     expect(commands.some((command) => command.method === 'Page.stopScreencast')).toBe(false)
+  })
+})
+
+describe('console text', () => {
+  test('a cut entry does not end on half of an emoji', async () => {
+    // WHY: a snapshot carries this text to an agent, and a provider that reads
+    // strict JSON rejects a message with a lone surrogate.
+    const guest = fakeGuest()
+    const driver = await ChromiumBrowserDriver.attach(guest.contents, { kind: 'headless', releaseGuest: async () => {} })
+    const long = `${'a'.repeat(1999)}😀`
+    for (const listener of guest.listeners) {
+      listener({}, 'Runtime.consoleAPICalled', { type: 'log', args: [{ value: long }] })
+      listener({}, 'Log.entryAdded', { entry: { level: 'error', text: long } })
+    }
+    expect(driver.consoleEntries().map((entry) => entry.text)).toEqual(['a'.repeat(1999), 'a'.repeat(1999)])
   })
 })
 

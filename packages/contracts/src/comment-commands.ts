@@ -21,8 +21,6 @@ export const newWorkCommentSchema = z.object({
   selectedText: z.string(),
   comment: z.string().min(1),
   textOffset: z.number().int().min(0).optional(),
-  nodeId: z.string().min(1).optional(),
-  edgeId: z.string().min(1).optional(),
   pin: commentPinSchema.optional(),
   externalThreadId: z.string().min(1).optional(),
 })

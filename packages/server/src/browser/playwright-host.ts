@@ -12,6 +12,7 @@ import {
   type BrowserNetworkEntry,
   type BrowserSurfaceReport,
 } from '@solus/contracts/browser-types'
+import { cutText } from '@solus/contracts/text-cut'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { browserGuestStyleScript } from './guest-style'
@@ -33,6 +34,7 @@ import {
   type BrowserProfileCookie,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
+  browserUrlForLog,
 } from './surface-driver'
 
 /**
@@ -389,21 +391,25 @@ async function openPlaywrightGuest(
 ): Promise<BrowserSurfaceDriver> {
   const context = await contextFor(chromium, contexts, request.partition)
   const page = await context.newPage()
-  const cdp = await context.newCDPSession(page)
+  const cdp = await context.newCDPSession(page).catch(async (error) => {
+    await page.close().catch(() => {})
+    throw error
+  })
   const driver = new PlaywrightBrowserDriver(page, cdp)
-  await driver.enableDomains()
-  await driver.readChromeIdentity()
-  // Set before the navigation below, so the first real page — and every one
-  // after it — carries Solus's scrollbar rather than Chromium's default bar.
-  await driver.installGuestStyle()
 
   try {
+    await driver.enableDomains()
+    await driver.readChromeIdentity()
+    // Set before the navigation below, so the first real page — and every one
+    // after it — carries Solus's scrollbar rather than Chromium's default bar.
+    await driver.installGuestStyle()
     // Emulation before the navigation, for the same reason the desktop headless
     // host does it: the page lays out once, at the size that was asked for, and
     // the console and network rings cover its own load rather than starting
     // mid-life.
     await driver.applyEmulation(request.emulation)
   } catch (error) {
+    // The caller gets no driver to close, so a failed setup closes its own page.
     await driver.dispose().catch(() => {})
     throw error
   }
@@ -423,10 +429,7 @@ async function openPlaywrightGuest(
   }
   report()
 
-  // A data: URL is the whole page, inlined images included; logging it would
-  // write megabytes per line.
-  const loggedUrl = request.url.startsWith('data:') ? `${request.url.slice(0, request.url.indexOf(',') + 1)}…` : request.url
-  log.info('browser_playwright_opened', { url: loggedUrl, partition: request.partition })
+  log.info('browser_playwright_opened', { url: browserUrlForLog(request.url), partition: request.partition })
   return driver
 }
 
@@ -737,10 +740,12 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   private onConsoleApi = (params: CdpEventParams): void => {
     const parsed = consoleApiSchema.safeParse(params)
     if (!parsed.success) return
-    const text = parsed.data.args
-      .map((arg) => (arg.value === undefined ? arg.description ?? '' : String(arg.value)))
-      .join(' ')
-      .slice(0, MAX_ENTRY_CHARS)
+    const text = cutText(
+      parsed.data.args
+        .map((arg) => (arg.value === undefined ? arg.description ?? '' : String(arg.value)))
+        .join(' '),
+      MAX_ENTRY_CHARS,
+    )
     if (!text) return
     this.push(this.console, { at: Date.now(), level: consoleLevel(parsed.data.type), text })
   }

@@ -12,6 +12,7 @@ import { isInteractive, terminalPrompter } from './lib/prompts'
 import { renderQrAscii } from './lib/qr'
 import { DESKTOP_USAGE, desktopRefusal, isDesktopCli } from './lib/desktop-commands'
 import { defaultDataDir, defaultRuntimeDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type RuntimePaths, type ServerLock } from './lib/runtime'
+import { checkPolicyFile, showPolicy, systemPolicyShowDeps } from './lib/policy'
 import { runUpdate } from './lib/remote-update-client'
 import { runSetup, serviceEnvFor } from './lib/setup'
 import { reportStatus } from './lib/status'
@@ -110,6 +111,9 @@ async function main(argv: string[]): Promise<void> {
     case 'service':
       await service(rest)
       return
+    case 'policy':
+      await policy(rest)
+      return
     default:
       throw new Error(`Unknown command: ${command}`)
   }
@@ -138,6 +142,8 @@ Usage:
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
   solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID | --member-home]
   solus update [--data-dir PATH]
+  solus policy check FILE
+  solus policy show [--data-dir PATH]
   solus --version
   solus --help`)
 }
@@ -206,6 +212,23 @@ async function service(args: string[]): Promise<void> {
     default:
       throw new Error('Unknown service command. Expected: solus service <start|stop|restart|uninstall|status>')
   }
+}
+
+/** Managed policy for administrators (plans/030 §7). */
+async function policy(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args
+  if (subcommand === 'check') {
+    const [file, ...extra] = rest
+    if (!file || file.startsWith('-') || extra.length) throw new Error('Usage: solus policy check FILE')
+    process.exitCode = checkPolicyFile(file, (line) => console.log(line))
+    return
+  }
+  if (subcommand === 'show') {
+    const paths = runtimePaths(parseCommonOptions(rest).dataDir)
+    process.exitCode = await showPolicy(systemPolicyShowDeps(paths), (line) => console.log(line))
+    return
+  }
+  throw new Error('Unknown policy command. Expected: solus policy <check FILE|show>')
 }
 
 /** The linking steps of `solus setup`, for a server that is already running. */

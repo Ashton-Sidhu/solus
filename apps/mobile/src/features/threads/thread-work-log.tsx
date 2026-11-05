@@ -27,10 +27,12 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import type { ConversationStore } from "../conversation/conversation-store";
+import { ThreadToolImages } from "./ThreadTurnImages";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
   summarizeToolGroup,
   toolActivitySummary,
+  toolDetailImages,
   toolFullDetail,
   toolGroupAction,
   toolGroupSummaryKind,
@@ -428,10 +430,11 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
   const row: ToolTranscriptItem = item;
   const { expanded } = props;
   const fullDetail = toolFullDetail(row);
-  const canExpand = fullDetail !== null;
-  const displayText = toolRowLabel(row, expanded);
   const failed = row.status === "error";
   const live = row.status === "running";
+  const images = toolDetailImages(row);
+  const canExpand = fullDetail !== null || images.length > 0;
+  const displayText = toolRowLabel(row, expanded);
   const icon = toolGroupSummarySymbolName(toolGroupAction(row.toolName));
   const copyText = fullDetail ?? displayText;
   const accessiblePreview = row.childCount
@@ -515,24 +518,27 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
         </View>
       </WorkLogPressable>
 
-      {expanded && fullDetail ? (
+      {expanded && canExpand ? (
         <Animated.View
           entering={WORK_LOG_DETAIL_ENTER_TRANSITION}
           exiting={WORK_LOG_DETAIL_EXIT_TRANSITION}
           layout={WORK_LOG_LAYOUT_TRANSITION}
           className="pb-1 pt-0.5"
         >
-          <Animated.ScrollView
-            nestedScrollEnabled
-            directionalLockEnabled
-            showsVerticalScrollIndicator
-            className="max-h-60"
-            contentContainerStyle={{ paddingRight: 8 }}
-          >
-            <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
-              {fullDetail}
-            </Text>
-          </Animated.ScrollView>
+          {fullDetail ? (
+            <Animated.ScrollView
+              nestedScrollEnabled
+              directionalLockEnabled
+              showsVerticalScrollIndicator
+              className="max-h-60"
+              contentContainerStyle={{ paddingRight: 8 }}
+            >
+              <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
+                {fullDetail}
+              </Text>
+            </Animated.ScrollView>
+          ) : null}
+          {images.length > 0 ? <ThreadToolImages images={images} store={props.store} /> : null}
         </Animated.View>
       ) : null}
     </Animated.View>

@@ -309,7 +309,7 @@
               </span>
             </div>
             <div class="mt-1 [&_.prose]:[--prose-size:calc(0.8125rem*var(--solus-font-scale,1))]">
-              <CommentMarkdown source={comment.body} />
+              <CommentMarkdown source={comment.body} lineBreaks />
             </div>
           </div>
         </article>

@@ -12,7 +12,7 @@ export interface PullRequestArtifact {
   link: SessionPullRequestLink
 }
 
-/** One work (document, slides, diagram, or artifact) linked to the session. */
+/** One work (document, slides, or artifact) linked to the session. */
 export interface WorkArtifact {
   kind: 'work'
   workId: string
@@ -55,6 +55,11 @@ export interface SessionArtifacts {
   own: SessionArtifact[]
   /** The artifacts of the sessions this session started, in the order they were started. */
   children: SessionArtifactGroup[]
+}
+
+/** When the session linked an item. */
+export function artifactLinkedAt(artifact: SessionArtifact): number {
+  return artifact.kind === 'pull-request' ? artifact.link.linkedAt : artifact.linkedAt
 }
 
 /** Every artifact in a list, own first, then each child's. */

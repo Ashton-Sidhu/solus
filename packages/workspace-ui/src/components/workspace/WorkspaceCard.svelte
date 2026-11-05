@@ -4,7 +4,6 @@
     MessageCircle as ChatCircleIcon,
     Columns3 as ColumnsIcon,
     FileText as FileTextIcon,
-    Network as ArchitectureIcon,
     AppWindow as ArtifactIcon,
     Presentation as PresentationIcon,
     Cloud as CloudIcon,
@@ -88,7 +87,7 @@
   /** Who else may open the reader's own work; null when its host did not say. */
   const shareState = $derived(shared ? null : shareStateLabel(item.share));
 
-  const KIND_LABEL = { doc: "Doc", slides: "Slides", diagram: "Diagram", artifact: "Artifact" } as const;
+  const KIND_LABEL = { doc: "Doc", slides: "Slides", artifact: "Artifact" } as const;
   // Works take two Solus hues that carry no lifecycle meaning: teal for written
   // artifacts, purple for drawn ones, as a session card's chips draw them. Amber
   // and sage are spoken for elsewhere — they read as "needs you" and "done" on
@@ -96,7 +95,6 @@
   const GLYPH_COLOR = {
     doc: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
     slides: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
-    diagram: "text-[color-mix(in_oklab,var(--solus-art-6)_66%,var(--foreground))]",
     artifact: "text-[color-mix(in_oklab,var(--solus-art-6)_66%,var(--foreground))]",
   } as const;
 </script>
@@ -128,9 +126,7 @@
        far edge. Pin stays visible once set; delete only ever under the pointer. -->
   <span class="flex h-4 min-w-0 items-center gap-1.5 text-muted-foreground">
     <span class="flex shrink-0 items-center {GLYPH_COLOR[item.glyph]}" aria-hidden="true">
-      {#if item.glyph === "diagram"}
-        <ArchitectureIcon size={14} />
-      {:else if item.glyph === "artifact"}
+      {#if item.glyph === "artifact"}
         <ArtifactIcon size={14} />
       {:else if item.glyph === "slides"}
         <PresentationIcon size={14} />

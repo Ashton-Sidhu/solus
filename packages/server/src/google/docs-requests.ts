@@ -1,7 +1,4 @@
 import { Marked, type MarkedToken, type Token, type Tokens } from 'marked'
-import { parseDiagramEmbed } from '@solus/contracts/diagram-embed'
-import { fitToPage } from '@solus/contracts/diagram-page'
-import type { ImageSize } from '../docs/png'
 import type {
   DocsBulletPreset,
   DocsColor,
@@ -20,7 +17,7 @@ import type {
  * Two stages, because the Docs API addresses everything by character index
  * and a table's indices are only knowable after it exists. `compileDocsBlocks`
  * turns markdown into a flat list of blocks, pure and testable. The publisher
- * then walks the blocks: runs of paragraphs and images become one batch whose
+ * then walks the blocks: runs of paragraphs become one batch whose
  * indices are computed here, and each table is inserted, read back, and filled
  * by `tableRequests` before the walk continues.
  */
@@ -28,16 +25,12 @@ import type {
 /** A Google Font Docs ships with; Courier New is the one thing that makes a
  *  document look like 1998. */
 export const CODE_FONT = 'Roboto Mono'
-const PT_PER_PX = 0.75
 
 /** The body's content starts after the section break the document is born with. */
 export const BODY_START = 1
-/** An inserted section break is two indices: the newline the API adds before it, and the break. */
-const SECTION_BREAK_LENGTH = 2
 
-/** The document's own margins, and the tighter ones a figure page gets. */
+/** The document's own margins. */
 const PAGE_MARGIN_PT = 72
-const FIGURE_MARGIN_PT = 36
 
 function pt(magnitude: number): DocsDimension {
   return { magnitude, unit: 'PT' }
@@ -72,8 +65,6 @@ const PARAGRAPH_FIELDS =
 
 const NORMAL: DocsWrittenParagraphStyle = { namedStyleType: 'NORMAL_TEXT', spaceBelow: pt(8) }
 const QUOTE: DocsWrittenParagraphStyle = { ...NORMAL, indentStart: pt(36) }
-const CAPTION: DocsWrittenParagraphStyle = { namedStyleType: 'NORMAL_TEXT', alignment: 'CENTER', spaceBelow: pt(12) }
-const IMAGE: DocsWrittenParagraphStyle = { namedStyleType: 'NORMAL_TEXT', alignment: 'CENTER', spaceBelow: pt(4) }
 const RULE_PARAGRAPH: DocsWrittenParagraphStyle = {
   namedStyleType: 'NORMAL_TEXT',
   spaceBelow: pt(8),
@@ -116,24 +107,21 @@ const CELL_PARAGRAPH: DocsWrittenParagraphStyle = { namedStyleType: 'NORMAL_TEXT
  */
 const TABLE_EDGE: DocsTableCellBorder = { width: pt(1), dashStyle: 'SOLID', color: RULE }
 const ROW_RULE: DocsTableCellBorder = { width: pt(0.5), dashStyle: 'SOLID', color: ROW_RULE_COLOR }
-const CAPTION_TEXT: DocsWrittenTextStyle = { fontSize: pt(9), foregroundColor: MUTED }
 
 const SECTION_FIELDS = 'flipPageOrientation,marginTop,marginBottom,marginLeft,marginRight'
 
-/** A document is portrait prose; a diagram gets a landscape page of its own. */
-export type PageOrientation = 'portrait' | 'landscape'
-
-function sectionStyle(orientation: PageOrientation): DocsWrittenSectionStyle {
-  const margin = pt(orientation === 'landscape' ? FIGURE_MARGIN_PT : PAGE_MARGIN_PT)
-  return { flipPageOrientation: orientation === 'landscape', marginTop: margin, marginBottom: margin, marginLeft: margin, marginRight: margin }
+/** A document is portrait prose. */
+function sectionStyle(): DocsWrittenSectionStyle {
+  const margin = pt(PAGE_MARGIN_PT)
+  return { flipPageOrientation: false, marginTop: margin, marginBottom: margin, marginLeft: margin, marginRight: margin }
 }
 
 /** Style the section that holds `index`. */
-export function sectionStyleRequest(index: number, orientation: PageOrientation): DocsRequest {
+export function sectionStyleRequest(index: number): DocsRequest {
   return {
     updateSectionStyle: {
       range: { startIndex: index, endIndex: index + 1 },
-      sectionStyle: sectionStyle(orientation),
+      sectionStyle: sectionStyle(),
       fields: SECTION_FIELDS,
     },
   }
@@ -160,16 +148,6 @@ export interface RichText {
   runs: StyledRun[]
 }
 
-/** A diagram's figure: the whole graph, on a landscape page of its own. */
-export interface DocsImage {
-  workId: string
-  /** The caption written under the figure. */
-  title: string
-  uri: string
-  widthPt: number
-  heightPt: number
-}
-
 export interface ParagraphBlock {
   kind: 'paragraph'
   text: RichText
@@ -179,25 +157,12 @@ export interface ParagraphBlock {
   bullet?: { preset: DocsBulletPreset; level: number }
 }
 
-export interface ImageBlock {
-  kind: 'image'
-  image: DocsImage
-}
-
 export interface TableBlock {
   kind: 'table'
   rows: RichText[][]
 }
 
-/** Starts a new page section in this orientation; everything after it is on that page kind. */
-export interface SectionBlock {
-  kind: 'section'
-  orientation: PageOrientation
-}
-
-export type DocsBlock = ParagraphBlock | ImageBlock | SectionBlock | TableBlock
-/** The blocks one batch of requests can place without reading the document back. */
-export type RunBlock = Exclude<DocsBlock, TableBlock>
+export type DocsBlock = ParagraphBlock | TableBlock
 
 function unescapeEntities(value: string): string {
   return value
@@ -302,52 +267,10 @@ interface BlockContext {
 class BlockCompiler {
   readonly blocks: DocsBlock[] = []
 
-  /** The figure prepared for each embedded diagram, by work id. */
-  constructor(private readonly figures: Map<string, DocsImage>) {}
-
   markdown(source: string): void {
     const marked = new Marked()
     marked.setOptions({ gfm: true })
     this.tokens(marked.lexer(source), { quote: false })
-  }
-
-  embed(workId: string, title: string): void {
-    const image = this.figures.get(workId)
-    if (!image) throw new Error(`Diagram “${title}” was not prepared for upload.`)
-    // The heading that introduces a diagram travels onto the figure page with
-    // it: left behind, it is the last line of the previous page and the
-    // reader meets the drawing with nothing naming it. The figure area keeps
-    // room for it, so it never pushes the figure off.
-    const heading = this.takeTrailingHeading()
-    this.openFigurePage()
-    if (heading) this.blocks.push(heading)
-    this.blocks.push({ kind: 'image', image })
-    this.blocks.push({ kind: 'paragraph', text: plainText(image.title), style: CAPTION, baseText: CAPTION_TEXT })
-    this.blocks.push({ kind: 'section', orientation: 'portrait' })
-  }
-
-  /** The heading immediately before an embed, lifted out of the prose. */
-  private takeTrailingHeading(): ParagraphBlock | null {
-    const last = this.blocks[this.blocks.length - 1]
-    if (last?.kind !== 'paragraph' || !last.style.namedStyleType?.startsWith('HEADING_')) return null
-    this.blocks.pop()
-    return last
-  }
-
-  /** A landscape figure page. Two in a row share one section, or the return
-   *  to portrait between them would be a blank page. */
-  private openFigurePage(): void {
-    const last = this.blocks[this.blocks.length - 1]
-    if (last?.kind === 'section' && last.orientation === 'portrait') this.blocks.pop()
-    else this.blocks.push({ kind: 'section', orientation: 'landscape' })
-  }
-
-  /** A document that ends on a figure page ends there: a return to portrait
-   *  with nothing on it would be a blank last page. */
-  finish(): DocsBlock[] {
-    const last = this.blocks[this.blocks.length - 1]
-    if (last?.kind === 'section' && last.orientation === 'portrait') this.blocks.pop()
-    return this.blocks
   }
 
   private paragraph(text: RichText, context: BlockContext): void {
@@ -440,45 +363,10 @@ class BlockCompiler {
   }
 }
 
-/** `images` carries one prepared figure per embedded diagram. */
-export function compileDocsBlocks(markdown: string, images: DocsImage[]): DocsBlock[] {
-  const compiler = new BlockCompiler(new Map(images.map((image) => [image.workId, image])))
-  let pending: string[] = []
-  const flush = () => {
-    if (pending.length) compiler.markdown(pending.join('\n'))
-    pending = []
-  }
-  for (const line of markdown.split(/\r?\n/)) {
-    const reference = parseDiagramEmbed(line)
-    if (!reference) {
-      pending.push(line)
-      continue
-    }
-    flush()
-    compiler.embed(reference.workId, reference.title)
-  }
-  flush()
-  return compiler.finish()
-}
-
-// ─── images ───
-
-export interface ImagePlacement {
-  widthPt: number
-  heightPt: number
-}
-
-/**
- * Size a figure for its landscape page, in points: it fills the figure area.
- * Only the PNG's aspect is read — how many pixels the client spent on it is
- * the client's business, and is decided by the resolution the page asks for.
- */
-export function fitImageToPage(png: ImageSize): ImagePlacement {
-  const scale = fitToPage(png)
-  return {
-    widthPt: Math.max(1, Math.round(png.width * scale * PT_PER_PX)),
-    heightPt: Math.max(1, Math.round(png.height * scale * PT_PER_PX)),
-  }
+export function compileDocsBlocks(markdown: string): DocsBlock[] {
+  const compiler = new BlockCompiler()
+  compiler.markdown(markdown)
+  return compiler.blocks
 }
 
 // ─── requests ───
@@ -521,12 +409,12 @@ export interface BatchPlan {
 }
 
 /**
- * Requests for a run of paragraph, image and section blocks appended at
+ * Requests for a run of paragraph blocks appended at
  * `startIndex`. Indices are tracked through every insert; a bullet request
  * removes the leading tabs that encode nesting, so the cursor steps back by
  * that count when a list closes.
  */
-export function blockRequests(blocks: RunBlock[], startIndex: number): BatchPlan {
+export function blockRequests(blocks: ParagraphBlock[], startIndex: number): BatchPlan {
   const requests: DocsRequest[] = []
   let cursor = startIndex
   let bullets: { preset: DocsBulletPreset; start: number; end: number; tabs: number } | null = null
@@ -539,33 +427,6 @@ export function blockRequests(blocks: RunBlock[], startIndex: number): BatchPlan
   }
 
   for (const block of blocks) {
-    if (block.kind === 'section') {
-      closeBullets()
-      // The body's first section already exists, so it is styled in place: a
-      // break there would leave the first page blank.
-      if (cursor !== BODY_START) {
-        requests.push({ insertSectionBreak: { location: { index: cursor }, sectionType: 'NEXT_PAGE' } })
-        cursor += SECTION_BREAK_LENGTH
-      }
-      requests.push(sectionStyleRequest(cursor, block.orientation))
-      continue
-    }
-
-    if (block.kind === 'image') {
-      closeBullets()
-      requests.push({
-        insertInlineImage: {
-          location: { index: cursor },
-          uri: block.image.uri,
-          objectSize: { width: pt(block.image.widthPt), height: pt(block.image.heightPt) },
-        },
-      })
-      requests.push({ insertText: { location: { index: cursor + 1 }, text: '\n' } })
-      requests.push({ updateParagraphStyle: { range: { startIndex: cursor, endIndex: cursor + 2 }, paragraphStyle: IMAGE, fields: PARAGRAPH_FIELDS } })
-      cursor += 2
-      continue
-    }
-
     // A list closes before the next block is placed: the bullet request
     // shortens the text, and the cursor must follow before anything lands.
     if (!block.bullet || (bullets && bullets.preset !== block.bullet.preset)) closeBullets()

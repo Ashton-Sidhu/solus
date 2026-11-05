@@ -104,8 +104,8 @@ the synced preset on that device, and "Use synced font" removes it.
 - Engine: `packages/client-core/src/document-sync.ts`, bound to settings by
   `settings-sync.ts`. One account sync owner per client holds this engine and the agent
   profile's: `contexts/account/account-sync.store.svelte.ts` on desktop and web,
-  `features/account/account-sync.ts` on mobile. The web client calls the account API with an access token from its own
-  sign-in (`web-sign-in.ts`), not with the website's cookie. Desktop calls the account
+  `features/account/account-sync.ts` on mobile. The web client calls the account API with an access token from
+  `POST /api/web/tokens` (`web-token-session.ts`), not with the website's cookie. Desktop calls the account
   API from the main process, so the credential never reaches the renderer. Mobile calls
   it with an access token from its own sign-in, got for each call
   (docs/adr/0001-standard-authentication.md).
@@ -145,25 +145,35 @@ A confirmed write makes every connected host the profile applies to pull it.
 
 ## Organization settings
 
-An organization can enforce only the settings that have an enforcement point. Today
-this is one setting:
+Organizations lock settings and set limits with **managed policy**. The full guide for
+administrators is [Managed policy](managed-policy.md).
 
-| Setting | Effect |
-| --- | --- |
-| `syncAllInsights` | When on, every session of the organization sends its Insights, and members cannot turn this off. When off, Insights go only from managed machines, from explicit shares, and from a host's opt-in. |
-
-A member can read the setting in Settings → Organization. Only an owner can change it.
-The change uses a revision check, so two owners cannot overwrite each other without
-seeing it. The control plane stores the value in the organization's host policy. Hosts
-receive it in their standing, and Insights delivery applies it.
+- A policy is one `policy.json` document. It comes from the MDM policy of the machine,
+  from a cloud host policy that an organization assigns to the host, or from the
+  organization policy of the organization.
+- A key in a policy is locked to its value. A key that is not in any policy belongs to
+  the person. Policy values are never written into personal settings, host settings,
+  or records. When a policy goes away, the stored values come back.
+- Session settings and limits follow the organization of the work: first the MDM
+  policy, then the cloud host policy of that organization, then its organization
+  policy. Personal work gets only the MDM policy. The policies of one organization
+  never apply to the work of another.
+- Host keys are one value for the machine: first the MDM policy, then the host policy
+  of the host-owning organization, then the value of the host owner.
+- Only keys with an enforcement point on the host are manageable: the models,
+  instructions, git conventions, agent autonomy, and review settings, the limits on
+  permission mode, providers, models, Insights, and webhooks, and the host keys of
+  [Managed policy](managed-policy.md#host-keys-host). Comfort settings are not
+  manageable.
+- Each lock names its source, for example "Lead model is managed by Globex." The host
+  refuses a change to a locked key with `SETTING_MANAGED`, and refuses a run above a
+  limit with a message that names the source.
+- `syncAllInsights` is now `sessions.limits.insights.syncAll` in the organization
+  policy. Owners edit it in Settings → Policy, not in Settings → Organization.
 
 Host eligibility (cloud hosts, personal hosts) and the provisioning defaults for new
-managed hosts stay in the cloud console. A client cannot change them.
-
-Organizations cannot set personal choices, such as the permission mode, the task
-lifecycle, Solus tools, fonts, or models. A new organization setting needs a product
-decision, an enforcement point on the host, and tests before it goes into
-`organizationSettingsSchema`.
+managed hosts are host rules, not policy. They stay in the cloud console. A client
+cannot change them.
 
 ### Execution preferences
 

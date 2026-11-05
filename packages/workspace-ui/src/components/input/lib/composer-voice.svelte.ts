@@ -186,7 +186,9 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
     if (!options.active()) return;
     if (becameVisible && options.isPrimary() && !session.ui.unifiedPickerOpen && !options.isReadOnly())
       requestInputFocus();
-    if (!visible && ownsVoice && (voiceState === "recording" || voice.starting))
+    // Desktop keeps an activated microphone running while minimized. Browser
+    // clients retain their existing visibility behavior.
+    if (!visible && !hosts.device && ownsVoice && (voiceState === "recording" || voice.starting))
       voice.cancel();
   });
 

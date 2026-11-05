@@ -12,7 +12,7 @@ import {
   queueSessionFacts,
   type DeliveryDestination,
 } from './delivery-queue'
-import { admissionIdFor, getSessionRecord, isOrganizationWork, onSessionRecordChanged } from '../data/sessions/session-records'
+import { getSessionRecord, isOrganizationWork, onSessionRecordChanged } from '../data/sessions/session-records'
 import { isChat } from '@solus/contracts/chat'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
@@ -183,10 +183,9 @@ export class RunnerDelivery {
     const registration = this.deps.registration()
     if (!registration) return
     if (!isOrganizationWork(record)) return
-    // A session the API admitted before its provider started names that admission, which is where its owner comes from (organization-vms §3).
+    // The API already holds the session's owner, from its admission (organization-vms §3): the
+    // admission id is the session id, so the facts need not name it.
     const facts: SessionRecordUpsert = { ...record, runnerHostId: registration.hostId }
-    const admissionId = admissionIdFor(record.sessionId)
-    if (admissionId) facts.admissionId = admissionId
     // A chat is organization work, but not the organization's to open until its owner shares it (plan 004 D14).
     if (isChat(record.cwd)) facts.privateToOwner = true
     queueSessionFacts({ organizationId: record.organizationId, actorUserId: deliveryActorOf(record.ownerKey) }, facts)

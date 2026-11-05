@@ -32,6 +32,7 @@ const FEATURE_WORDING = {
   skillsSearch: 'skills',
   skillsManage: 'global skill management',
   voiceModel: 'voice',
+  voiceStreaming: null,
   automations: 'automations',
   githubProvider: 'GitHub',
   atlassianProvider: 'Atlassian',

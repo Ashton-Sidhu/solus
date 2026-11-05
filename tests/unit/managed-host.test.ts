@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { io as connect } from 'socket.io-client'
+import { dialHostSocket } from '@solus/client-core/host-socket'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even
 // though these tests never open it. Same seam tunnel-listener.test.ts uses.
@@ -146,12 +146,9 @@ describe('managed host', () => {
     const address = http.address()
     const url = `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`
     try {
-      const outcome = await new Promise<string>((resolve) => {
-        const socket = connect(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { clientInstanceId: 'test0123456789abcdef' } })
-        socket.once('connect', () => { socket.disconnect(); resolve('connected') })
-        socket.once('connect_error', (error: Error & { data?: { code?: string } }) => resolve(error.data?.code ?? error.message))
-      })
-      expect(outcome).toBe('UNAUTHORIZED')
+      const dialed = await dialHostSocket(url, { clientInstanceId: 'test0123456789abcdef' })
+      if (dialed.ok) dialed.socket.close()
+      expect(dialed.ok ? 'connected' : dialed.code).toBe('UNAUTHORIZED')
     } finally {
       transport.close()
       http.close()

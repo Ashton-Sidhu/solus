@@ -3,18 +3,14 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import {
-  OrganizationSettingsClient,
-} from '@solus/client-core/settings-sync'
-import {
   type DocumentSyncClock,
 } from '@solus/client-core/document-sync'
-import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
+import { POLICY_REQUEST_METHODS, type PolicyCloudRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 import {
   EXECUTION_PREFERENCE_KEYS,
   executionPreferencesSchema,
   type AccountSettingsResponse,
-  type OrganizationSettingsResponse,
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import type { IpcContext, PromptOptions } from '@solus/contracts/types'
@@ -23,7 +19,6 @@ import { ConversationController } from '../../apps/mobile/src/features/conversat
 import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
 import { AppearancePreference, type AppearanceMode } from '../../apps/mobile/src/features/settings/appearance'
 import { HostSettings } from '../../apps/mobile/src/features/settings/host-settings'
-import { OrganizationSettingsStore } from '../../apps/mobile/src/features/settings/organization-settings'
 import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
 import { AccountSync, alwaysOnlineEnvironment } from '../../apps/mobile/src/features/account/account-sync'
 import { AgentProfileLocalStore } from '../../apps/mobile/src/features/settings/agent-profile-local'
@@ -35,8 +30,8 @@ import { identityKeyFor } from './helpers/signing-host'
 // plans/018 stage 5 on the phone. The rules pinned here are the ones a person
 // would notice going wrong: their light or dark choice has one writer; signing in uploads nothing until they turn sync on; their
 // agent defaults never land on a shared host; every prompt carries their own
-// preferences; and an organization's Sync all Insights is edited only by
-// owners, against the revision they read, with nothing queued offline.
+// preferences. Organization rules are policy now (plans/030), which the phone
+// only shows: it sends no policy request.
 
 const ACCOUNT = { origin: 'https://app.solus.sh', userId: 'user-1' }
 
@@ -55,10 +50,17 @@ function fakeCloud(initial: PersonalSettingsDocument | null = null) {
       return { kind: 'ok', settings: structuredClone(document) }
     },
     accountSettingsDelete: async () => { calls.push('delete'); return { kind: 'ok', settings: document } },
-    organizationSettingsGet: async () => ({ kind: 'offline' }),
-    organizationSettingsPatch: async () => ({ kind: 'offline' }),
+    ...noPolicyRequests(calls),
   }
   return { requests, calls, document: () => document }
+}
+
+/** The phone reads policies from its hosts and never calls the policy API: a call is recorded, so a test can see it. */
+function noPolicyRequests(calls: string[]): PolicyCloudRequests {
+  return Object.fromEntries(POLICY_REQUEST_METHODS.map((method) => [method, async () => {
+    calls.push(method)
+    return { kind: 'offline' }
+  }])) as unknown as PolicyCloudRequests
 }
 
 /** An account with no agent profile, for tests about the settings alone. */
@@ -321,95 +323,6 @@ describe('prompts carry the person\'s execution preferences', () => {
   })
 })
 
-function organizationSettings(overrides: Partial<OrganizationSettingsResponse> = {}): OrganizationSettingsResponse {
-  return {
-    organizationId: 'org-acme',
-    name: 'Acme',
-    canManageSettings: true,
-    revision: 3,
-    settings: { syncAllInsights: false },
-    ...overrides,
-  }
-}
-
-function organizationStore(read: OrganizationSettingsResponse, patch: (revision: number) => Awaited<ReturnType<SettingsCloudRequests['organizationSettingsPatch']>>) {
-  const patches: Array<{ expectedRevision: number; settings: object }> = []
-  const client = new OrganizationSettingsClient({
-    organizationSettingsGet: async () => ({ kind: 'ok', settings: read }),
-    organizationSettingsPatch: async (_id, request) => {
-      patches.push(request)
-      return patch(request.expectedRevision)
-    },
-  })
-  return { store: new OrganizationSettingsStore(client), patches }
-}
-
-describe('organization settings', () => {
-  test('an owner edits a draft, cancels it, and saves Sync all Insights against the revision read', async () => {
-    const saved = organizationSettings({ revision: 4, settings: { syncAllInsights: true } })
-    const { store, patches } = organizationStore(organizationSettings(), () => ({ kind: 'ok', settings: saved }))
-    await store.load('org-acme')
-    store.edit('org-acme', { syncAllInsights: true })
-    store.cancel('org-acme')
-    const cancelled = store.viewOf('org-acme')
-    expect(cancelled.kind === 'loaded' && cancelled.draft).toBeNull()
-
-    store.edit('org-acme', { syncAllInsights: true })
-    await store.save('org-acme')
-    expect(patches).toEqual([{ expectedRevision: 3, settings: { syncAllInsights: true } }])
-    const view = store.viewOf('org-acme')
-    expect(view.kind === 'loaded' && { draft: view.draft, revision: view.settings.revision, on: view.settings.settings.syncAllInsights }).toEqual({ draft: null, revision: 4, on: true })
-  })
-
-  test('turning a setting back to its saved value leaves no draft', async () => {
-    const { store } = organizationStore(organizationSettings(), () => ({ kind: 'offline' }))
-    await store.load('org-acme')
-    store.edit('org-acme', { syncAllInsights: true })
-    store.edit('org-acme', { syncAllInsights: false })
-    const view = store.viewOf('org-acme')
-    expect(view.kind === 'loaded' && view.draft).toBeNull()
-  })
-
-  test('a conflict shows the other owner\'s save and keeps the draft; a second save is against their revision', async () => {
-    const theirs = organizationSettings({ revision: 7, settings: { syncAllInsights: false } })
-    const { store, patches } = organizationStore(organizationSettings(), (revision) => revision === 7
-      ? { kind: 'ok', settings: organizationSettings({ revision: 8, settings: { syncAllInsights: true } }) }
-      : { kind: 'conflict', current: theirs })
-    await store.load('org-acme')
-    store.edit('org-acme', { syncAllInsights: true })
-    await store.save('org-acme')
-    const conflicted = store.viewOf('org-acme')
-    expect(conflicted.kind === 'loaded' && { conflict: conflicted.conflict, revision: conflicted.settings.revision, draft: conflicted.draft?.syncAllInsights }).toEqual({ conflict: true, revision: 7, draft: true })
-    await store.save('org-acme')
-    expect(patches.map((request) => request.expectedRevision)).toEqual([3, 7])
-  })
-
-  test('a member reads Sync all Insights and cannot make a draft or a save', async () => {
-    const { store, patches } = organizationStore(organizationSettings({ canManageSettings: false, settings: { syncAllInsights: true } }), () => ({ kind: 'offline' }))
-    await store.load('org-acme')
-    store.edit('org-acme', { syncAllInsights: false })
-    await store.save('org-acme')
-    const view = store.viewOf('org-acme')
-    expect(view.kind === 'loaded' && view.draft).toBeNull()
-    expect(patches).toEqual([])
-  })
-
-  test('an offline save is not queued, and lost permission ends editing', async () => {
-    let answer: 'offline' | 'forbidden' = 'offline'
-    const { store, patches } = organizationStore(organizationSettings(), () => ({ kind: answer }))
-    await store.load('org-acme')
-    store.edit('org-acme', { syncAllInsights: true })
-    await store.save('org-acme')
-    const offline = store.viewOf('org-acme')
-    expect(offline.kind === 'loaded' && { saveError: offline.saveError, kept: offline.draft !== null }).toEqual({ saveError: 'Solus Cloud did not answer. Nothing was saved.', kept: true })
-    await flushPromises()
-    expect(patches).toHaveLength(1)
-    answer = 'forbidden'
-    await store.save('org-acme')
-    expect(store.viewOf('org-acme').kind).toBe('forbidden')
-  })
-})
-
 describe('settings navigation', () => {
   const mobile = resolve(import.meta.dir, '../../apps/mobile/src')
   const navigator = readFileSync(join(mobile, 'navigation/RootNavigator.tsx'), 'utf8')
@@ -422,7 +335,7 @@ describe('settings navigation', () => {
       for (const match of readFileSync(join(settingsDir, file), 'utf8').matchAll(/navigate\(\s*["']([A-Za-z]+)["']/g)) targets.add(match[1]!)
     }
     expect([...targets]).toContain('AccountSync')
-    expect([...targets]).toContain('OrganizationSettings')
+    expect([...targets]).toContain('Policy')
     for (const target of targets) expect(navigator).toContain(`name="${target}"`)
   })
 

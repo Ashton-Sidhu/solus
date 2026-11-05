@@ -1,1 +1,0 @@
-ALTER TABLE `session_states` ADD `viewed_at` integer;

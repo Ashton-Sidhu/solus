@@ -4,7 +4,6 @@ import { preserveConfluenceMarkers } from './inline-markers'
 import { z } from 'zod'
 import type {
   DocDestination,
-  DocDiagramAsset,
   DocDraft,
   DocPatch,
   DocProviderId,
@@ -23,13 +22,6 @@ import {
 import { loadCredential, type AtlassianStoredCredential } from '../../atlassian/token-store'
 import { DocProviderUnavailableError, DocVersionConflictError, type DocProviderAdapter } from '../types'
 import { markdownToStorage, storageToMarkdown } from './storage-format'
-import {
-  ATTACHMENT_SCOPE_MISSING,
-  canAttachDiagrams,
-  diagramAttachments,
-  uploadDiagramAttachments,
-} from './diagram-attachments'
-import { validatedDiagramAssets } from '../diagram-assets'
 
 /**
  * Confluence Cloud, reached through the site connection made in phase 1.
@@ -142,11 +134,7 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
         connectable: false,
       }
     }
-    const status: DocProviderStatus = { provider: this.id, connected: true }
-    // An older grant publishes prose perfectly well and cannot carry a
-    // picture. Saying so beats a refusal halfway through a publish.
-    if (!canAttachDiagrams(credential)) status.limitation = ATTACHMENT_SCOPE_MISSING
-    return status
+    return { provider: this.id, connected: true }
   }
 
   async destinations(): Promise<DocDestination[]> {
@@ -193,17 +181,11 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
     const credential = await this.credential()
     const { spaceKey, parentId } = scopeParts(scope)
     const spaceId = await this.spaceId(credential.cloudId, spaceKey)
-    // Everything about the diagrams that can be refused is refused now, before
-    // the page exists. An attachment belongs to a page, so the upload can only
-    // follow creation — and a create that fails afterwards leaves a page whose
-    // title then blocks every retry, since Confluence titles are unique per
-    // space and Solus has no permission to delete one.
-    const assets = this.publishableDiagrams(credential, doc.diagramAssets)
     const body: CreatePageBody = {
       spaceId,
       status: 'current',
       title: doc.title,
-      body: { representation: 'storage', value: markdownToStorage(doc.markdown, diagramAttachments(assets)) },
+      body: { representation: 'storage', value: markdownToStorage(doc.markdown) },
     }
     if (parentId) body.parentId = parentId
 
@@ -211,7 +193,6 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
       method: 'POST',
       body,
     })
-    await this.uploadDiagrams(credential, page.id, assets)
     return this.normalize(credential, page, spaceKey)
   }
 
@@ -230,12 +211,9 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
         throw new DocVersionConflictError(String(currentVersion), current.version?.createdAt)
       }
 
-      // Plan marker preservation before uploads. Never adopt a newer revision
-      // after staging attachments: it may also contain a collaborator's edit.
-      const assets = this.publishableDiagrams(credential, patch.diagramAssets)
       if (!current.body?.storage) throw new Error('Confluence did not return the current page body. Refresh before publishing.')
-      const storage = preserveConfluenceMarkers(current.body.storage.value, markdownToStorage(patch.markdown, diagramAttachments(assets)))
-      await this.uploadDiagrams(credential, ref.externalId, assets)
+      const storage = preserveConfluenceMarkers(current.body.storage.value, markdownToStorage(patch.markdown))
+      // Never adopt a newer revision here: it may hold a collaborator's edit.
       const latest = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}?body-format=storage`, pageSchema)
       if (latest.version?.number !== currentVersion || latest.body?.storage?.value !== current.body.storage.value) {
         throw new DocVersionConflictError(String(latest.version?.number ?? currentVersion))
@@ -253,30 +231,6 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
       })
       return this.normalize(credential, page, spaceKey)
     })
-  }
-
-  /** The diagrams this publish may carry: valid images, and a grant that can
-   *  actually put them on a page. Answered before the first write. */
-  private publishableDiagrams(
-    credential: AtlassianStoredCredential,
-    assets: DocDiagramAsset[] | undefined,
-  ): DocDiagramAsset[] {
-    const validated = validatedDiagramAssets(assets)
-    if (validated.length && !canAttachDiagrams(credential)) {
-      throw new DocProviderUnavailableError(this.id, ATTACHMENT_SCOPE_MISSING)
-    }
-    return validated
-  }
-
-  /** Every diagram this publish carries, put on the page under a name derived
-   *  from its work id, so a republish replaces rather than accumulates. */
-  private async uploadDiagrams(
-    credential: AtlassianStoredCredential,
-    pageId: string,
-    assets: DocDiagramAsset[],
-  ): Promise<void> {
-    if (!assets.length) return
-    await uploadDiagramAttachments(credential.cloudId, pageId, assets, (failure) => docFailure(this.id, failure))
   }
 
   async resolveUrl(url: string): Promise<DocRef | null> {

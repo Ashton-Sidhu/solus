@@ -6,6 +6,7 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import RecordingControls from "./RecordingControls.svelte";
+  import VoiceTranscriptPreview from "./VoiceTranscriptPreview.svelte";
 
   interface Props {
     onTranscript: (transcript: string) => void;
@@ -69,17 +70,24 @@
   onDestroy(() => dictation.releaseMessageConsumer(voiceOwnerId));
 </script>
 
-<RecordingControls
-  variant="bar"
-  state={voiceState}
-  rmsRef={dictation.rmsRef}
-  disabled={!voiceReady || disabled}
-  showMic={micShown}
-  progressPct={voiceReady ? null : voiceHost?.voiceProgressPct ?? null}
-  idleTooltip={voiceReady
-    ? `Voice input (${comboHint("voice.toggle-recorder")})`
-    : "Voice model is preparing"}
-  onCancel={() => dictation.cancel()}
-  onConfirm={() => dictation.stop()}
-  onToggle={toggle}
-/>
+<div class="relative flex shrink-0 items-center">
+  {#if voiceState !== "idle" && (dictation.partialTranscript.stable || dictation.partialTranscript.tentative)}
+    <div class="absolute bottom-full right-0 z-20 mb-2 w-64 max-w-[80vw] rounded-lg border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3 text-workspace-chrome shadow-(--solus-popover-shadow)">
+      <VoiceTranscriptPreview partial={dictation.partialTranscript} />
+    </div>
+  {/if}
+  <RecordingControls
+    variant="bar"
+    state={voiceState}
+    rmsRef={dictation.rmsRef}
+    disabled={!voiceReady || disabled}
+    showMic={micShown}
+    progressPct={voiceReady ? null : voiceHost?.voiceProgressPct ?? null}
+    idleTooltip={voiceReady
+      ? `Voice input (${comboHint("voice.toggle-recorder")})`
+      : "Voice model is preparing"}
+    onCancel={() => dictation.cancel()}
+    onConfirm={() => dictation.stop()}
+    onToggle={toggle}
+  />
+</div>

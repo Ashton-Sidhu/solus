@@ -3,21 +3,18 @@ import {
   CLIENT_DEVICE_LAYOUT_KEYS,
   type AccountSettingsPatchRequest,
   type AccountSettingsResponse,
-  type OrganizationSettingsResponse,
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
 import { DEFAULT_PERSONAL_SETTINGS } from '@solus/contracts/settings'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
-import type { OrganizationSettingsClient } from '@solus/client-core/settings-sync'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 // plans/018 Stage 5 and decision 9, the shared desktop and web stores: signed
 // in is synced, with no switch; signed out, nothing is sent; client analytics
 // consent is this device's own; choosing another host changes no personal
-// value; and an owner's Sync all Insights draft saves against the revision
-// read, keeping the draft on a conflict.
+// value.
 
 const hostConfigs = new Map<string, HostConfigSnapshot>()
 const hostWrites: Array<{ serverId: string; patch: unknown }> = []
@@ -265,108 +262,6 @@ describe('hosts', () => {
     await hostSettingsStore.setHostAnalyticsEnabled('host-a', false)
     expect(hostWrites).toEqual([{ serverId: 'host-a', patch: { analyticsEnabled: false } }])
     expect(settings.clientAnalyticsEnabled).toBeNull()
-  })
-})
-
-describe('organization settings', () => {
-  function response(overrides: Partial<OrganizationSettingsResponse> = {}): OrganizationSettingsResponse {
-    return {
-      organizationId: 'org-a',
-      name: 'Acme',
-      canManageSettings: true,
-      revision: 4,
-      settings: { syncAllInsights: false },
-      ...overrides,
-    }
-  }
-
-  async function storeWith(client: Partial<OrganizationSettingsClient>) {
-    installDom(memoryStorage())
-    const { OrganizationSettingsStore } = await import('@solus/workspace-ui/components/settings/organization-settings.store.svelte')
-    return new OrganizationSettingsStore(() => client as OrganizationSettingsClient)
-  }
-
-  test('a member reads Sync all Insights and cannot edit it', async () => {
-    const store = await storeWith({ read: async () => ({ kind: 'ok', settings: response({ canManageSettings: false, settings: { syncAllInsights: true } }) }) })
-    await store.load('https://solus.test', 'org-a')
-    store.edit('https://solus.test', 'org-a', { syncAllInsights: false })
-    const view = store.viewFor('https://solus.test', 'org-a')
-    expect(view?.status === 'ready' && view.draft.syncAllInsights).toBe(true)
-  })
-
-  test('an owner saves the changed setting against the revision read', async () => {
-    const saved: Array<{ revision: number; settings: unknown }> = []
-    const store = await storeWith({
-      read: async () => ({ kind: 'ok', settings: response() }),
-      save: async (_organizationId, revision, settings) => {
-        saved.push({ revision, settings })
-        return { kind: 'ok', settings: response({ revision: 5, settings: { syncAllInsights: true } }) }
-      },
-    })
-    await store.load('https://solus.test', 'org-a')
-    store.edit('https://solus.test', 'org-a', { syncAllInsights: true })
-    await store.save('https://solus.test', 'org-a')
-    expect(saved).toEqual([{ revision: 4, settings: { syncAllInsights: true } }])
-    const view = store.viewFor('https://solus.test', 'org-a')
-    expect(view?.status === 'ready' && view.settings.revision).toBe(5)
-    expect(view?.status === 'ready' && view.draft.syncAllInsights).toBe(true)
-  })
-
-  test('an unchanged draft sends nothing', async () => {
-    let saves = 0
-    const store = await storeWith({
-      read: async () => ({ kind: 'ok', settings: response() }),
-      save: async () => { saves += 1; return { kind: 'offline' } },
-    })
-    await store.load('https://solus.test', 'org-a')
-    store.edit('https://solus.test', 'org-a', { syncAllInsights: true })
-    store.edit('https://solus.test', 'org-a', { syncAllInsights: false })
-    await store.save('https://solus.test', 'org-a')
-    expect(saves).toBe(0)
-  })
-
-  test('a conflict keeps the draft beside what the other owner saved; nothing is retried offline', async () => {
-    let saves = 0
-    const theirs = response({ revision: 5, settings: { syncAllInsights: true } })
-    let next: 'conflict' | 'offline' = 'conflict'
-    const store = await storeWith({
-      read: async () => ({ kind: 'ok', settings: response({ settings: { syncAllInsights: true } }) }),
-      save: async () => {
-        saves += 1
-        return next === 'conflict' ? { kind: 'conflict', current: theirs } : { kind: 'offline' }
-      },
-    })
-    await store.load('https://solus.test', 'org-a')
-    store.edit('https://solus.test', 'org-a', { syncAllInsights: false })
-    await store.save('https://solus.test', 'org-a')
-    let view = store.viewFor('https://solus.test', 'org-a')
-    expect(view?.status === 'ready' && view.conflict?.revision).toBe(5)
-    expect(view?.status === 'ready' && view.draft.syncAllInsights).toBe(false)
-
-    store.resolveConflict('https://solus.test', 'org-a', 'keep-mine')
-    next = 'offline'
-    await store.save('https://solus.test', 'org-a')
-    view = store.viewFor('https://solus.test', 'org-a')
-    expect(view?.status === 'ready' && view.error).toContain('Nothing was saved')
-    expect(view?.status === 'ready' && view.draft.syncAllInsights).toBe(false)
-    await flush()
-    expect(saves).toBe(2)
-
-    store.resolveConflict('https://solus.test', 'org-a', 'use-theirs')
-    store.cancel('https://solus.test', 'org-a')
-    view = store.viewFor('https://solus.test', 'org-a')
-    expect(view?.status === 'ready' && view.draft.syncAllInsights).toBe(true)
-  })
-
-  test('permission lost during a save ends the edit and says so', async () => {
-    const store = await storeWith({
-      read: async () => ({ kind: 'ok', settings: response() }),
-      save: async () => ({ kind: 'forbidden' }),
-    })
-    await store.load('https://solus.test', 'org-a')
-    store.edit('https://solus.test', 'org-a', { syncAllInsights: true })
-    await store.save('https://solus.test', 'org-a')
-    expect(store.viewFor('https://solus.test', 'org-a')).toEqual({ status: 'forbidden' })
   })
 })
 

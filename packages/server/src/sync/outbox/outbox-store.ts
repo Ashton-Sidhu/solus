@@ -1,5 +1,6 @@
 import { getDb, withTx } from '../../db'
 import { getDatabase } from '../../db/database'
+import { claimAppliedOperation } from '../../data/receipts/operation-receipts'
 import { ulid } from '@solus/contracts/ulid'
 import { createLogger } from '../../logger'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
@@ -174,10 +175,10 @@ export function markOutboxOpsFailed(failures: Array<{ id: string; error: string 
 }
 
 /**
- * Owner-side apply. An op whose id is already guarded reports `applied` without
- * re-running — that is what makes redelivery and concurrent couriers safe. The
- * guard check, the applier's writes, and the guard row commit in one
- * transaction, so an op either applied and is guarded or did neither: a
+ * Owner-side apply. An op whose id is already receipted reports `applied`
+ * without re-running — that is what makes redelivery and concurrent couriers
+ * safe. The receipt claim and the applier's writes commit in one records
+ * transaction, so an op either applied and is receipted or did neither: a
  * redelivery never re-runs a committed op, which a versioned write (a work
  * update) would otherwise refuse against its own version advance.
  */
@@ -185,13 +186,12 @@ export async function applyOutboxOps(ops: OutboxOp[]): Promise<OutboxApplyResult
   const result: OutboxApplyResult = { applied: [], failed: [] }
   for (const op of ops) {
     try {
-      await getDatabase().transaction(async () => {
-        if (getDb().prepare('SELECT 1 FROM applied_ops WHERE op_id = ?').get(op.id)) return
+      await getDatabase().transaction(async (tx) => {
+        // The claim comes first: a failed apply rolls it back with the applier's writes.
+        if (!(await claimAppliedOperation(tx, op.id, op.resourceId))) return
         const applier = appliers.get(op.domain)
         if (!applier) throw new Error(`No applier registered for domain "${op.domain}".`)
         await applier(op, { organizationId: LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() })
-        getDb().prepare('INSERT OR IGNORE INTO applied_ops(op_id, resource_id, applied_at) VALUES (?, ?, ?)')
-          .run(op.id, op.resourceId, Date.now())
       })
       result.applied.push(op.id)
     } catch (error) {

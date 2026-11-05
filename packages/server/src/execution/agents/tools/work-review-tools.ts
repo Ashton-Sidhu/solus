@@ -12,7 +12,7 @@ const requestWorkReviewFields = {
 }
 
 const REQUEST_REVIEW_DESC = [
-  'Ask members of the work\'s organization to review a document, diagram, or artifact. Each reviewer can approve it, request changes, or comment.',
+  'Ask members of the work\'s organization to review a document or artifact. Each reviewer can approve it, request changes, or comment.',
   'Review is information only: it does not block publishing or editing. Use it when the user asks for a review or sign-off.',
   'Call read_work first and pass its content_version as expected_content_version. Reviewers are named by user id; a Local work has no organization to ask.',
 ].join('\n')

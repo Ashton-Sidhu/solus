@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Db } from '../../db/database'
 import { workStorage, workStorageBodies, workRevisions, works, workLiveDocs } from '../../data/works/schema'
-import { WORK_COLUMNS, REVISION_COLUMNS, workRowSchema, workFromRow, revisionRowSchema, revisionSummaryFromRow } from '../../data/works/work-rows'
+import { workColumns, REVISION_COLUMNS, workRowSchema, workFromRow, revisionRowSchema, revisionSummaryFromRow } from '../../data/works/work-rows'
 import { workArchiveOperationSchema, type WorkArchiveOperation, type WorkArchiveTransport, type WorkArchiveBody } from '../../data/works/git-work-storage'
 import { documentContentHash } from '../../docs/content-hash'
 
@@ -116,7 +116,7 @@ export class WorkArchiveWriter {
           return null
         }
         // The work row is locked for a consistent body/metadata/revision snapshot.
-        const row = workRowSchema.parse(await db.get(sql`SELECT ${WORK_COLUMNS} FROM ${works}
+        const row = workRowSchema.parse(await db.get(sql`SELECT ${workColumns(db.engine)} FROM ${works}
           WHERE id = ${workId} AND organization_id = ${mapping.organization_id} ${db.engine === 'postgres' ? sql`FOR UPDATE` : sql``}`))
         const { content: _projection, ...work } = workFromRow(row)
         const revisions = revisionRowSchema.array().parse(await db.all(sql`SELECT ${REVISION_COLUMNS} FROM ${workRevisions} WHERE work_id = ${workId} ORDER BY rev`)).map(revisionSummaryFromRow)

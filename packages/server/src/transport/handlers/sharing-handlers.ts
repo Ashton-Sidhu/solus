@@ -1,4 +1,4 @@
-import { shareResourceSchema, shareSetLinkRequestSchema, shareSetRequestSchema, shareTransferRequestSchema } from '@solus/contracts/sharing'
+import { shareResourceSchema, shareSetLinkRequestSchema, shareSetRequestSchema } from '@solus/contracts/sharing'
 import type { ShareManager } from '../../sharing/share-manager'
 import { timeShareCall } from '../../sharing/share-timing'
 import type { SolusServer } from '../server'
@@ -15,7 +15,7 @@ export function registerSharingHandlers(server: SolusServer, deps: { shares: Sha
     const resource = shareResourceSchema.parse(args[0].resource)
     return timeShareCall('shareGet', resource, () => deps.shares.list(resource, ctx.principal))
   })
-  // The three writes below answer the share manager's own promise.
+  // The two writes below answer the share manager's own promise.
   server.register('shareSet', (args, ctx) => {
     const request = shareSetRequestSchema.parse(args[0])
     return timeShareCall('shareSet', request.resource, () => deps.shares.setEntries(request, ctx.principal))
@@ -23,9 +23,5 @@ export function registerSharingHandlers(server: SolusServer, deps: { shares: Sha
   server.register('shareSetLink', (args, ctx) => {
     const request = shareSetLinkRequestSchema.parse(args[0])
     return timeShareCall('shareSetLink', request.resource, () => deps.shares.setLink(request, ctx.principal))
-  })
-  server.register('shareTransfer', (args, ctx) => {
-    const request = shareTransferRequestSchema.parse(args[0])
-    return timeShareCall('shareTransfer', request.resource, () => deps.shares.transfer(request, ctx.principal))
   })
 }

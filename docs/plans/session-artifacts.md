@@ -66,7 +66,7 @@ Do not call the surface a tab, a panel, or a page.
    another host, or one the caller did not start, is read on its own. One
    model draws the chips on every client
    (`packages/client-core/src/session-artifact-chips.ts`):
-   - The tint is the type: teal for docs and slides, purple for diagrams and
+   - The tint is the type: teal for docs and slides, purple for
      artifacts, blue for files, rose for images, the Solus accent for
      automations. A pull request's chip is plain, and its icon takes the
      colour and glyph of its state, as `prStatusBadge` draws them.
@@ -78,6 +78,14 @@ Do not call the surface a tab, a panel, or a page.
      Artifacts surface. An open group shows each row's chips instead.
    - The phone opens a pull request, file, or image from its chip. A work or
      automation has no screen there, so its chip opens the Artifacts screen.
+9. **A finished turn shows what it linked.** Under the reply and the image
+   gallery, a chip row lists the session's own items linked during that turn,
+   with the same model and overflow as a card (`turnArtifacts`,
+   `TurnArtifacts.svelte`, `TurnArtifactChips` on the phone). Nothing is stored:
+   a link belongs to the turn that started at or before its `linkedAt` and before
+   the next turn started, so the last turn also takes later links. A running
+   turn shows no row, and a delegate's links stay on its card. An image the
+   turn's gallery shows gets no chip, so it shows once.
 
 ## Verification
 

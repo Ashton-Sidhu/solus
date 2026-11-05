@@ -1030,6 +1030,7 @@
           >
             <GithubMarkdown
               source={detail.body}
+              lineBreaks
             />
           </section>
         {/if}

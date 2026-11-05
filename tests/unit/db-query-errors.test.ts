@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
-import { sessionStates } from '@solus/server/data/sessions/schema'
+import { session } from '@solus/server/data/sessions/schema'
 import { resetTestDatabase } from './helpers/test-db'
 
 // WHY: a failed query's message is what a failed turn shows a person. Drizzle's
@@ -34,7 +34,7 @@ afterAll(async () => {
 
 test('a failed write reports the driver reason, not the statement and its values', async () => {
   const write = database.getDatabase().run(sql`
-    UPDATE ${sessionStates} SET no_such_preference = ${'{"leadInstructions":"a private document"}'}
+    UPDATE ${session} SET no_such_preference = ${'{"leadInstructions":"a private document"}'}
     WHERE session_id = ${'session-1'}
   `)
 

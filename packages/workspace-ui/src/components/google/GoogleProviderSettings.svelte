@@ -6,7 +6,7 @@
   import { LogOut as SignOutIcon } from "@lucide/svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
-  import { ensureIconCollections } from "../diagram/iconify";
+  import { ensureIconCollections } from "../../lib/iconify";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";

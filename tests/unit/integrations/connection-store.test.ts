@@ -3,6 +3,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
 import { resetTestDatabase } from '../helpers/test-db'
+import { StatementLog } from '../helpers/statement-log'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -78,5 +79,19 @@ describe('integration connection store', () => {
     expect(store.remove('int-1', 'account:alice', 'second')).toBe(true)
     expect(store.accounts('int-1', 'account:alice').map((row) => row.accountId)).toEqual(['default'])
     expect(store.removeAllFor('int-1')).toEqual([{ personKey: 'account:alice', accountId: 'default' }])
+  })
+
+  test("one integration's accounts are one primary-key range, not the person's whole list filtered", () => {
+    // WHY (plans/029 §8): the row is keyed by integration and person; the read
+    // asks the database for that range instead of every row of the person.
+    const store = new IntegrationConnectionStore()
+    store.upsert('int-1', 'account:alice', { status: 'connected' })
+    store.upsert('int-2', 'account:alice', { status: 'connected' })
+    const log = new StatementLog(db.getDb())
+    expect(store.accounts('int-1', 'account:alice').map((row) => row.integrationId)).toEqual(['int-1'])
+    const [read] = log.of('SELECT', 'integration_connection')
+    expect(read?.text).toMatch(/WHERE integration_id = \? AND user_id = \?/)
+    const plan = (db.getDb().prepare(`EXPLAIN QUERY PLAN ${read!.text}`).all() as Array<{ detail: string }>).map((row) => row.detail).join('\n')
+    expect(plan).toMatch(/SEARCH integration_connection USING (INDEX|PRIMARY KEY).*integration_id=\? AND user_id=\?/)
   })
 })

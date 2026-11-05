@@ -3,7 +3,6 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import type { AutomationAction } from '@solus/contracts/types'
 import { resetTestDatabase } from './helpers/test-db'
@@ -87,43 +86,5 @@ describe.skipIf(Boolean(process.env.DATABASE_URL))('automation results', () => {
     await database.closeDatabase()
     legacy.closeDb()
     expect((await inbox('dana')).map((row) => row.facts)).toEqual([{ kind: 'automation.finished', status: 'cancelled' }])
-  })
-})
-
-describe('the v1 to v2 upgrade', () => {
-  test('a file in v1\'s shape converges to one table, and its rows survive', async () => {
-    const { readMigrationFiles } = await import('drizzle-orm/migrator')
-    const { migrationsFolder } = await import('@solus/server/db/migration-files')
-    const { runSqliteSchemaMigrations } = await import('@solus/server/db/sqlite-migrations')
-    const { migrations, runMigrations } = await import('@solus/server/db/migrations')
-    const file = new Database(':memory:')
-    // SAFETY: bun:sqlite answers the calls the migration runners make on a node:sqlite handle.
-    const db = file as unknown as import('node:sqlite').DatabaseSync
-
-    // The host-local slots, then v1's intent table as v1's slot left it.
-    // Later host-local slots are not v1's, so the file stops before the slot that drops its table.
-    const v2Slot = migrations.findIndex((sql) => sql.includes('DROP TABLE IF EXISTS notification_intents'))
-    for (const sql of migrations.slice(0, v2Slot)) file.exec(sql)
-    file.exec('CREATE TABLE notification_intents (id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT)')
-    file.exec(`PRAGMA user_version = ${v2Slot}`)
-
-    // The generated migrations through v1's 0003, recorded as the runner records them.
-    file.exec('CREATE TABLE "__drizzle_migrations" (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC)')
-    for (const migration of readMigrationFiles({ migrationsFolder: migrationsFolder('sqlite') }).slice(0, 4)) {
-      for (const statement of migration.sql) file.exec(statement)
-      file.prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)').run(migration.hash, migration.folderMillis)
-    }
-    file.exec(`INSERT INTO notifications (id, organization_id, recipient_key, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at, revision, position)
-      VALUES ('n1', 'local', 'dana', 'e1', 'task.assigned', 'task:t', '{}', '{}', '{}', '{}', 1, 5, 3, 9)`)
-
-    runMigrations(db)
-    runSqliteSchemaMigrations(db)
-
-    const tables = (file.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'notification%' ORDER BY name").all() as { name: string }[]).map((row) => row.name)
-    expect(tables).toEqual(['notification_pr_observations', 'notifications'])
-    const columns = (file.prepare('PRAGMA table_info(notifications)').all() as { name: string }[]).map((row) => row.name)
-    expect(columns).toEqual(['id', 'organization_id', 'recipient_key', 'event_id', 'activity_id', 'kind', 'resource_key', 'facts', 'resource', 'by', 'summary', 'created_at', 'read_at', 'archived_at'])
-    expect(file.prepare('SELECT id, recipient_key, read_at FROM notifications').all()).toEqual([{ id: 'n1', recipient_key: 'dana', read_at: 5 }])
-    file.close()
   })
 })

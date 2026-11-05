@@ -66,9 +66,9 @@ const viewer = (sessionId: string, personKey: string) => new states.SessionViewe
 const ALICE = 'user:alice'
 const BOB = 'user:bob'
 
-/** A session record last active at `lastActivityAt`, owned by `ownerKey` (docs/plans/access-model.md §2.2). */
+/** A session Solus started, last active at `lastActivityAt`, owned by `ownerKey` (docs/plans/access-model.md §2.2). */
 async function recorded(sessionId: string, lastActivityAt: number, parentSessionId: string | null = null, ownerKey = ALICE) {
-  await records.upsertSessionRecord('local', { sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt, parentSessionId }, { organizationId: 'local', ownerKey })
+  await records.upsertSessionRecord('local', { sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt, parentSessionId, startedBy: { kind: 'person', personKey: ownerKey } }, { organizationId: 'local', ownerKey })
 }
 
 /** Link a pull request and record what PR sync saw of it. */

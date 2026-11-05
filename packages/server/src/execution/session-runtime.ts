@@ -18,7 +18,7 @@ import { ResponseTextBuffer } from './sessions/response-text-buffer'
 import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { organizationOfSession } from '../data/sessions/session-records'
-import { inheritSessionOrganization, pendingOrganizationFor } from './sessions/turn-organization'
+import { inheritSessionOrganization } from './sessions/turn-organization'
 import { getIndexedSession } from '../db/session-indexer'
 import { cancelProvisionalSessionHandoff, resolveSessionLineageById, sessionIdOfThread } from '../data/sessions/session-lineage'
 import { type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
@@ -272,12 +272,11 @@ export class SessionRuntime extends EventEmitter {
     return this.activeSessions.get(sessionId)?.agentSessionId ?? undefined
   }
 
-  /** The organization the session's spans carry (organization-scope §6.1); undefined for Local work. */
+  /** The organization the session's spans carry (organization-scope §6.1); undefined for Local work.
+   *  The row says it from the turn's admission on, before the provider starts. */
   async turnOrganization(sessionId: string): Promise<string | undefined> {
     const organizationId = await organizationOfSession(sessionId)
-    if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
-    // A new session has no record yet; the admission already decided its organization.
-    return pendingOrganizationFor(sessionId) ?? undefined
+    return organizationId !== LOCAL_ORGANIZATION_ID ? organizationId : undefined
   }
 
   /**
@@ -681,7 +680,11 @@ export class SessionRuntime extends EventEmitter {
 
     // The turn's open phase says what its work is: the launch, a setup, the
     // provider run, or the background work the run left (docs/plans/turn-stop.md).
-    if (this.turnStops.get(sessionId)?.stop()) {
+    const turn = this.turnStops.get(sessionId)
+    // A second Stop on the same turn force stops it; the turn was already recorded as stopped.
+    const isRepeatedStop = !!turn?.signal.aborted
+    if (turn?.stop()) {
+      if (isRepeatedStop) return true
       this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
       stopped()
       return true
@@ -691,6 +694,14 @@ export class SessionRuntime extends EventEmitter {
     // the sessions it sent work to stops waiting.
     if (this.orchestration?.cancelSentBy(sessionId)) {
       stopped()
+      return true
+    }
+
+    // A session parked on a rate limit has no run, only a prompt held for the
+    // reset. Stop releases nothing at the reset.
+    if (this.activeSessions.get(sessionId)?.status === 'rate_limited') {
+      if (actor.user || agent) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' }, undefined, agent)
+      this.rateLimitPark.stopParked(sessionId)
       return true
     }
 

@@ -6,7 +6,6 @@ import { z } from 'zod'
 import { searchText } from '@solus/contracts/search-query'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentId, ReasoningEffort, SessionMeta, SessionStarter } from '@solus/contracts/types'
-import { parseStoredStarter } from '@solus/contracts/session-starter'
 import { placeOfFolder } from '@solus/contracts/chat'
 import {
   encodePathAsFolder,
@@ -42,6 +41,9 @@ import { recordSessionChange } from '../data/tasks/task-revisions'
 const log = createLogger('main', 'session-indexer')
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects')
 const WATCH_DEBOUNCE_MS = 2_000
+/** A transcript last written before this process started is history this host
+ *  did not run: a record the indexer makes for it starts settled (plans/031 D6). */
+const PROCESS_STARTED_AT = Date.now()
 const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
 const CLAUDE_SWEEP_COMPLETED_KEY = 'claude-session-index-swept-at'
 /** Set by the migration that re-reads every message; cleared by the next full sweep. */
@@ -76,11 +78,12 @@ export const sessionRowSchema = z.object({
   delegation_depth: z.number().nullable(),
   delegation_intent: z.string().nullable(),
   delegation_created_at: z.number().nullable(),
-  started_by: z.string().nullable().optional(),
   place: z.enum(['chat', 'project']).nullable().optional().catch(null),
 })
 const numberRowSchema = z.object({ number: z.number() })
 const lastIdRowSchema = z.object({ last: z.number().nullable() })
+const storedMessageCountSchema = z.object({ count: z.number(), last: z.number().nullable() })
+const lastStoredMessageSchema = z.object({ uuid: z.string().nullable(), role: z.string(), ts: z.number().nullable(), text: z.string() })
 const offsetRowSchema = z.object({ last_offset: z.number() })
 const pathRowSchema = z.object({ path: z.string() })
 const storedMessageRowSchema = z.object({
@@ -144,7 +147,7 @@ function deleteSessionFile(filePath: string): void {
     db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
     db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
     db.prepare(`
-      DELETE FROM sessions
+      DELETE FROM transcript_index
       WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
     `).run(sessionId)
     db.prepare('DELETE FROM session_files WHERE path = ?').run(filePath)
@@ -163,7 +166,7 @@ function deleteSessionFile(filePath: string): void {
  *  transcript is gone is not in the picker either. An earlier thread of the
  *  session leaves the record alone. */
 function forgetSessionRecordWithRow(threadId: string): void {
-  const row = getDb().prepare('SELECT 1 AS present FROM sessions WHERE session_id = ?').get(threadId)
+  const row = getDb().prepare('SELECT 1 AS present FROM transcript_index WHERE session_id = ?').get(threadId)
   if (row || !isActiveThread(threadId)) return
   const sessionId = sessionIdOfThread(threadId)
   deleteSessionRecord(ANY_ORGANIZATION, sessionId).catch((error) => {
@@ -244,9 +247,25 @@ export function indexSessionMessages(
 
   withTx(() => {
     const db = getDb()
-    db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
-    db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
-    insertSessionMessageRows(sessionId, storedMessages)
+    // A thread's messages are append-only, so a refresh adds the ones after
+    // the stored count. The whole set is written again only when the thread
+    // shrank or its last stored message is not where the refresh has it: a
+    // forked or edited thread.
+    const first = sessionNumber(sessionId) * SESSION_ROW_SPAN
+    const stored = storedMessageCountSchema.parse(db.prepare(`
+      SELECT COUNT(*) AS count, MAX(id) AS last FROM session_messages WHERE id >= ? AND id < ?
+    `).get(first, first + SESSION_ROW_SPAN))
+    const lastStored = stored.last === null ? null : lastStoredMessageSchema.parse(
+      db.prepare('SELECT uuid, role, ts, text FROM session_messages WHERE id = ?').get(stored.last))
+    const lastRefreshed = storedMessages[stored.count - 1]
+    const appends = lastStored !== null && lastRefreshed !== undefined && lastStored.uuid === lastRefreshed.uuid
+      && lastStored.role === lastRefreshed.role && lastStored.ts === lastRefreshed.ts && lastStored.text === lastRefreshed.text
+    if (!appends && stored.count > 0) {
+      db.prepare('DELETE FROM session_fts WHERE rowid IN (SELECT id FROM session_messages WHERE session_id = ?)').run(sessionId)
+      db.prepare('DELETE FROM session_messages WHERE session_id = ?').run(sessionId)
+    }
+    const added = appends ? storedMessages.slice(stored.count) : storedMessages
+    if (added.length) insertSessionMessageRows(sessionId, added)
   })
 }
 
@@ -260,8 +279,10 @@ function upsertSession(
   lastTimestamp: number,
   size: number,
 ): void {
-  getDb().prepare(`
-    INSERT INTO sessions(
+  // A pass over a file that did not grow writes nothing: the row and its
+  // indexes stay as they are, and no task row is told of a change.
+  const { changes } = getDb().prepare(`
+    INSERT INTO transcript_index(
       session_id, provider, cwd, project_path, project_root, is_worktree,
       slug, first_message, last_timestamp, size
     )
@@ -276,6 +297,7 @@ function upsertSession(
       first_message = excluded.first_message,
       last_timestamp = excluded.last_timestamp,
       size = excluded.size
+    WHERE transcript_index.last_timestamp IS NOT excluded.last_timestamp OR transcript_index.size IS NOT excluded.size
   `).run(
     sessionId,
     cwd,
@@ -288,7 +310,7 @@ function upsertSession(
     size,
   )
   // A task row shows this session's title and activity (docs/plans/task-snapshot-resume.md).
-  recordSessionChange(sessionId)
+  if (changes > 0) recordSessionChange(sessionId)
 }
 
 /** The collaboration plane's record of a session, fed by the same sweep that
@@ -314,7 +336,7 @@ async function recordIndexedClaudeSession(
     isWorktree,
     projectRoot: projectRootFor(meta.cwd) ?? undefined,
     projectRemote: await projectRemoteFor(projectRootFor(meta.cwd)),
-  })
+  }, { bornSettled: mtime < PROCESS_STARTED_AT })
 }
 
 /** Resolves true when the file needed work, so a sweep can report how much of
@@ -358,7 +380,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
     // transiently fail head validation, so (like deleteSessionFile) never drop
     // a row carrying the model config persisted at session_init.
     getDb().prepare(`
-      DELETE FROM sessions
+      DELETE FROM transcript_index
       WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
     `).run(sessionId)
     getDb().prepare('UPDATE session_files SET last_offset = ? WHERE path = ?').run(fileStat.size, filePath)
@@ -606,7 +628,7 @@ export function rowToSession(row: SessionRow): SessionMeta {
       }
     : undefined
   // The index row is one thread's; what it describes is named by its session id.
-  return {
+  const meta: SessionMeta = {
     provider,
     sessionId: sessionIdOfThread(row.session_id),
     slug: row.slug,
@@ -623,41 +645,25 @@ export function rowToSession(row: SessionRow): SessionMeta {
     serverId: row.server_id ?? undefined,
     branch: row.branch ?? undefined,
     delegation,
-    ...startFactsOf(row),
   }
-}
-
-/** What the index row says about how the session started; absent for a session made before it did. */
-function startFactsOf(row: SessionRow): Pick<SessionMeta, 'startedBy' | 'place'> {
-  const facts: Pick<SessionMeta, 'startedBy' | 'place'> = {}
-  const startedBy = parseStoredStarter(row.started_by ?? null)
-  if (startedBy) facts.startedBy = startedBy
-  if (row.place) facts.place = row.place
-  return facts
+  // The place is the thread's folder's; what started the session is on its record alone.
+  if (row.place) meta.place = row.place
+  return meta
 }
 
 const SESSION_SELECT = `
   session_id, provider, cwd, project_path, is_worktree, slug, first_message,
   custom_title, last_timestamp, size, model, reasoning_effort, project_root,
   server_id, branch, parent_session_id, root_session_id, delegation_exchange_id,
-  delegation_depth, delegation_intent, delegation_created_at, started_by, place
+  delegation_depth, delegation_intent, delegation_created_at, place
 `
 
 /** The index row of a session's active thread. A thread id reads its own row. */
 export function getIndexedSession(sessionId: string): SessionMeta | null {
   const row = sessionRowSchema.nullish().parse(
-    getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE session_id = ?`).get(activeThreadOf(sessionId) ?? sessionId),
+    getDb().prepare(`SELECT ${SESSION_SELECT} FROM transcript_index WHERE session_id = ?`).get(activeThreadOf(sessionId) ?? sessionId),
   )
   return row ? rowToSession(row) : null
-}
-
-/** The sessions these sessions started, by the parent session id. */
-export function getChildSessions(parentSessionIds: readonly string[]): SessionMeta[] {
-  if (!parentSessionIds.length) return []
-  const placeholders = parentSessionIds.map(() => '?').join(', ')
-  return sessionRowSchema.array().parse(
-    getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE parent_session_id IN (${placeholders}) ORDER BY last_timestamp DESC`).all(...parentSessionIds),
-  ).map(rowToSession)
 }
 
 export function getSessionMessages(sessionId: string): Array<{ role: string; ts: number | null; text: string }> {
@@ -669,7 +675,7 @@ export function getSessionMessages(sessionId: string): Array<{ role: string; ts:
   `).all(sessionId))
 }
 
-/** The six delegation columns of a `sessions` row, in insert order; all null
+/** The six delegation columns of a `transcript_index` row, in insert order; all null
  *  for a session nobody delegated. */
 function delegationRowValues(delegation: SessionDelegationStart | undefined): [string | null, string | null, string | null, number | null, string | null, number | null] {
   if (!delegation) return [null, null, null, null, null, null]
@@ -698,27 +704,26 @@ export function persistIndexedSessionStart(
   // unknown: record nothing, and keep a model an earlier run recorded.
   const knownModel = model || null
   getDb().prepare(`
-    INSERT INTO sessions(
+    INSERT INTO transcript_index(
       session_id, provider, cwd, project_path, project_root, is_worktree,
       slug, first_message, last_timestamp, size, model, reasoning_effort, branch,
       parent_session_id, root_session_id, delegation_exchange_id, delegation_depth,
-      delegation_intent, delegation_created_at, started_by, place
+      delegation_intent, delegation_created_at, place
     )
-    VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
-      project_root = COALESCE(sessions.project_root, excluded.project_root),
-      first_message = COALESCE(sessions.first_message, excluded.first_message),
-      model = COALESCE(sessions.model, excluded.model),
-      reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort),
-      branch = COALESCE(sessions.branch, excluded.branch),
-      parent_session_id = COALESCE(sessions.parent_session_id, excluded.parent_session_id),
-      root_session_id = COALESCE(sessions.root_session_id, excluded.root_session_id),
-      delegation_exchange_id = COALESCE(sessions.delegation_exchange_id, excluded.delegation_exchange_id),
-      delegation_depth = COALESCE(sessions.delegation_depth, excluded.delegation_depth),
-      delegation_intent = COALESCE(sessions.delegation_intent, excluded.delegation_intent),
-      delegation_created_at = COALESCE(sessions.delegation_created_at, excluded.delegation_created_at),
-      started_by = COALESCE(sessions.started_by, excluded.started_by),
-      place = COALESCE(sessions.place, excluded.place)
+      project_root = COALESCE(transcript_index.project_root, excluded.project_root),
+      first_message = COALESCE(transcript_index.first_message, excluded.first_message),
+      model = COALESCE(transcript_index.model, excluded.model),
+      reasoning_effort = COALESCE(transcript_index.reasoning_effort, excluded.reasoning_effort),
+      branch = COALESCE(transcript_index.branch, excluded.branch),
+      parent_session_id = COALESCE(transcript_index.parent_session_id, excluded.parent_session_id),
+      root_session_id = COALESCE(transcript_index.root_session_id, excluded.root_session_id),
+      delegation_exchange_id = COALESCE(transcript_index.delegation_exchange_id, excluded.delegation_exchange_id),
+      delegation_depth = COALESCE(transcript_index.delegation_depth, excluded.delegation_depth),
+      delegation_intent = COALESCE(transcript_index.delegation_intent, excluded.delegation_intent),
+      delegation_created_at = COALESCE(transcript_index.delegation_created_at, excluded.delegation_created_at),
+      place = COALESCE(transcript_index.place, excluded.place)
   `).run(
     threadId,
     provider === 'claude-code' ? 'claude' : provider,
@@ -732,7 +737,6 @@ export function persistIndexedSessionStart(
     reasoningEffort,
     branch,
     ...parent,
-    startedBy ? JSON.stringify(startedBy) : null,
     place,
   )
   recordSessionChange(threadId)
@@ -765,7 +769,7 @@ export function persistIndexedSessionStart(
     // The record owns the session's name. The index row keeps a copy for
     // local reads, and a thread that joins a named session takes it.
     if (record.customTitle) {
-      getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(record.customTitle, threadId)
+      getDb().prepare('UPDATE transcript_index SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(record.customTitle, threadId)
       recordSessionChange(threadId)
     }
   }).catch((error) => {
@@ -805,14 +809,14 @@ export function persistRemoteSessionStart(
   projectRoot: string | null,
 ): void {
   getDb().prepare(`
-    INSERT INTO sessions(
+    INSERT INTO transcript_index(
       session_id, provider, cwd, project_path, project_root,
       is_worktree, slug, first_message, last_timestamp, size, server_id
     )
     VALUES (?, ?, NULL, NULL, ?, 0, NULL, NULL, ?, 0, ?)
     ON CONFLICT(session_id) DO UPDATE SET
-      project_root = COALESCE(sessions.project_root, excluded.project_root),
-      server_id = COALESCE(excluded.server_id, sessions.server_id)
+      project_root = COALESCE(transcript_index.project_root, excluded.project_root),
+      server_id = COALESCE(excluded.server_id, transcript_index.server_id)
   `).run(
     sessionId,
     provider === 'claude-code' ? 'claude' : provider,
@@ -837,7 +841,7 @@ export function persistRemoteSessionStart(
  * session initialization (or by `persistRemoteSessionStart` on a task host),
  * so metadata never creates a session or any task relationship. */
 export function setSessionBranch(sessionId: string, branch: string): void {
-  getDb().prepare('UPDATE sessions SET branch = ? WHERE session_id = ?').run(branch, activeThreadOf(sessionId) ?? sessionId)
+  getDb().prepare('UPDATE transcript_index SET branch = ? WHERE session_id = ?').run(branch, activeThreadOf(sessionId) ?? sessionId)
   recordSessionChange(sessionId)
   void setSessionRecordBranch(sessionId, branch).catch((error) => {
     log.warn('session_record_branch_failed', { sessionId, error: String(error) })
@@ -848,14 +852,14 @@ export function setSessionBranch(sessionId: string, branch: string): void {
  *  ever an UPDATE: every session that can be renamed is already a row (live
  *  sessions land one at session_init, history sessions come from the index). */
 export async function setSessionCustomTitle(sessionId: string, title: string | null): Promise<void> {
-  getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, activeThreadOf(sessionId) ?? sessionId)
+  getDb().prepare('UPDATE transcript_index SET custom_title = ? WHERE session_id = ?').run(title, activeThreadOf(sessionId) ?? sessionId)
   recordSessionChange(sessionId)
   await setSessionRecordTitle(ANY_ORGANIZATION, sessionId, title)
 }
 
 /** Set a generated name only while the indexed session has no custom name. */
 export async function setSessionGeneratedTitle(sessionId: string, title: string): Promise<boolean> {
-  const result = getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(title, activeThreadOf(sessionId) ?? sessionId)
+  const result = getDb().prepare('UPDATE transcript_index SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(title, activeThreadOf(sessionId) ?? sessionId)
   if (result.changes === 0) return false
   recordSessionChange(sessionId)
   await setSessionRecordGeneratedTitle(sessionId, title)
@@ -866,7 +870,7 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
   if (sessions.length === 0) return
   withTx(() => {
     const upsert = getDb().prepare(`
-      INSERT INTO sessions(
+      INSERT INTO transcript_index(
         session_id, provider, cwd, project_path, project_root, is_worktree,
         slug, first_message, last_timestamp, size, branch
       )
@@ -881,7 +885,7 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
         first_message = excluded.first_message,
         last_timestamp = excluded.last_timestamp,
         size = excluded.size,
-        branch = COALESCE(excluded.branch, sessions.branch)
+        branch = COALESCE(excluded.branch, transcript_index.branch)
     `)
     for (const session of sessions) {
       upsert.run(
@@ -915,7 +919,7 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
       branch: session.branch,
       projectRoot: projectRootFor(session.cwd) ?? undefined,
       projectRemote: await projectRemoteFor(projectRootFor(session.cwd)),
-    })
+    }, { bornSettled: new Date(session.lastTimestamp).getTime() < PROCESS_STARTED_AT })
   }
 }
 
@@ -942,7 +946,7 @@ export function getIndexedCodexSessionTimestamps(sessionIds: string[]): Map<stri
     const placeholders = batch.map(() => '?').join(', ')
     const rows = timestampRowSchema.array().parse(getDb().prepare(`
       SELECT session_id, last_timestamp
-      FROM sessions
+      FROM transcript_index
       WHERE provider = 'codex' AND session_id IN (${placeholders})
     `).all(...batch))
     for (const row of rows) timestamps.set(row.session_id, row.last_timestamp ?? 0)
@@ -974,7 +978,7 @@ export function getCodexSessionsWithMessages(sessionIds: string[]): Set<string> 
 export function listProjectRoots(): Array<{ projectRoot: string; name: string; count: number }> {
   const rows = projectRootRowSchema.array().parse(getDb().prepare(`
     SELECT project_root, COUNT(*) AS count
-    FROM sessions
+    FROM transcript_index
     WHERE project_root IS NOT NULL AND project_root <> ''
     GROUP BY project_root
     ORDER BY MAX(last_timestamp) DESC

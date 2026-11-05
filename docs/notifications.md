@@ -148,3 +148,5 @@ Choose **Mark Unread** from a session context menu on desktop or web, or from
 the session row menu on mobile. The action marks only that session unread.
 Task context menus do not offer this action. The host stores the read state
 and sends changes to connected clients. Open the session to mark it read again.
+A session on screen stays unread until you leave it and come back, select its
+tab, or the agent finishes new work in it.

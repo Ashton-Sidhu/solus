@@ -33,7 +33,7 @@
     /**
      * `anchored` places each card on the line of its highlight, the way the
      * margin of a marked-up page does. `stacked` is for surfaces whose
-     * comments have no y in a scroll container — a diagram's node anchors.
+     * comments have no y in a scroll container.
      */
     placement?: 'stacked' | 'anchored'
     /** Measured mark geometry. Anchored placement only. */

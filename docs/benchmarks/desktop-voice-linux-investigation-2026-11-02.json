@@ -1,0 +1,1354 @@
+{
+  "date": "2026-11-02",
+  "host": "omarchy",
+  "hardware": "KVM VM, eight vCPUs reporting i5-9300H, virtual VGA 1234:1111, no compute GPU",
+  "native_commit": "7045d1c0fe7cee37747b2792977421d435e75fca",
+  "baseline_commit": "c4c64aff22b87a99472ea8054c911138d6352a11",
+  "gcc": "16.2.1 20260810",
+  "clang": "22.1.8",
+  "unified_model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+  "v3_control_model_sha256": "5859f77944efcd8eafa23a6350731960b2b55b2203df51f319665c807d802cc7",
+  "notes": [
+    "Serial CLI benchmarks; no Solus application started.",
+    "sweep arrays contain one excluded warm-up at repeat 0 for each thread count.",
+    "The static control uses the Solus helper protocol with Hex CPU build/session settings; it is not the Hex application.",
+    "The static CPU control omits Vulkan because the VM has no compute GPU.",
+    "The Clang control replaces only the Haswell CPU module; the rest of the runtime remains GCC-built.",
+    "Later runs varied substantially. Duration and model controls are diagnostic; do not claim a universal speed ratio."
+  ],
+  "control_cmake": "cmake_minimum_required(VERSION 3.24)\nproject(hex_cpu_control LANGUAGES C CXX)\nset(CMAKE_CXX_STANDARD 17)\nset(CMAKE_EXPORT_COMPILE_COMMANDS ON)\nset(GGML_NATIVE OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_USE_SYSTEM_BLAS OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_USE_OPENMP OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_BUILD_SHARED OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_BUILD_TESTS OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_BUILD_EXAMPLES OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_BUILD_TOOLS OFF CACHE BOOL \"\" FORCE)\nset(TRANSCRIBE_INSTALL OFF CACHE BOOL \"\" FORCE)\nadd_subdirectory(\"${TRANSCRIBE_SOURCE}\" upstream)\ntarget_include_directories(transcribe PUBLIC \"${TRANSCRIBE_SOURCE}/include\")\nadd_executable(hex-cpu-control hex-control.cpp)\ntarget_link_libraries(hex-cpu-control PRIVATE transcribe)\n",
+  "experiments": {
+    "linux-cpu-profiler-verified": {
+      "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+      "version": "0.4.1",
+      "seconds": 11,
+      "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+      "kv": "auto",
+      "environment": {},
+      "results": [
+        {
+          "threads": 4,
+          "repeat": 0,
+          "warmup": true,
+          "total_ms": 1333.9149826206267,
+          "mel_ms": 8.484999656677246,
+          "encode_ms": 1256.47998046875,
+          "decode_ms": 60.970001220703125,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 4,
+          "repeat": 1,
+          "warmup": false,
+          "total_ms": 1445.369465276599,
+          "mel_ms": 7.586999893188477,
+          "encode_ms": 1363.7440185546875,
+          "decode_ms": 63.5890007019043,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 4,
+          "repeat": 2,
+          "warmup": false,
+          "total_ms": 1503.9337589405477,
+          "mel_ms": 7.196000099182129,
+          "encode_ms": 1412.2679443359375,
+          "decode_ms": 78.9489974975586,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 4,
+          "repeat": 3,
+          "warmup": false,
+          "total_ms": 1212.832988705486,
+          "mel_ms": 5.921000003814697,
+          "encode_ms": 1152.803955078125,
+          "decode_ms": 48.96200180053711,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 4,
+          "repeat": 4,
+          "warmup": false,
+          "total_ms": 1412.1514968574047,
+          "mel_ms": 5.806000232696533,
+          "encode_ms": 1343.0799560546875,
+          "decode_ms": 57.93000030517578,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 4,
+          "repeat": 5,
+          "warmup": false,
+          "total_ms": 1281.6291791386902,
+          "mel_ms": 6.01800012588501,
+          "encode_ms": 1210.738037109375,
+          "decode_ms": 59.8120002746582,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 0,
+          "repeat": 0,
+          "warmup": true,
+          "total_ms": 9931.692549027503,
+          "mel_ms": 6.085000038146973,
+          "encode_ms": 8272.953125,
+          "decode_ms": 1647.217041015625,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 0,
+          "repeat": 1,
+          "warmup": false,
+          "total_ms": 966.79751528427,
+          "mel_ms": 5.548999786376953,
+          "encode_ms": 906.323974609375,
+          "decode_ms": 49.948001861572266,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 0,
+          "repeat": 2,
+          "warmup": false,
+          "total_ms": 6656.565472949296,
+          "mel_ms": 4.817999839782715,
+          "encode_ms": 6590.30810546875,
+          "decode_ms": 56.51499938964844,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 0,
+          "repeat": 3,
+          "warmup": false,
+          "total_ms": 2693.3763423003256,
+          "mel_ms": 4.885000228881836,
+          "encode_ms": 2625.970947265625,
+          "decode_ms": 57.560001373291016,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 0,
+          "repeat": 4,
+          "warmup": false,
+          "total_ms": 2519.4054981693625,
+          "mel_ms": 4.710000038146973,
+          "encode_ms": 2456.4619140625,
+          "decode_ms": 53.183998107910156,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        },
+        {
+          "threads": 0,
+          "repeat": 5,
+          "warmup": false,
+          "total_ms": 9247.731254901737,
+          "mel_ms": 4.831999778747559,
+          "encode_ms": 8379.25390625,
+          "decode_ms": 859.0349731445312,
+          "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+        }
+      ]
+    },
+    "linux-hex-static-control": {
+      "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+      "machine": "x86_64",
+      "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+      "fixture": "whisper.cpp JFK, repeated for longer clips; artificial repetition is not an accuracy benchmark",
+      "paced": false,
+      "load_ms": 170.82,
+      "results": [
+        {
+          "seconds": 11,
+          "repeat": 0,
+          "begin_ms": 0.13,
+          "stream_compute_ms": 991.24,
+          "finish_ms": 985.78,
+          "feed_p95_ms": 0.15,
+          "offline_ms": 961.55,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.0,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 985.78
+        },
+        {
+          "seconds": 11,
+          "repeat": 1,
+          "begin_ms": 0.13,
+          "stream_compute_ms": 860.28,
+          "finish_ms": 855.08,
+          "feed_p95_ms": 0.14,
+          "offline_ms": 948.53,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.0,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 855.08
+        },
+        {
+          "seconds": 11,
+          "repeat": 2,
+          "begin_ms": 0.13,
+          "stream_compute_ms": 880.9,
+          "finish_ms": 875.28,
+          "feed_p95_ms": 0.15,
+          "offline_ms": 937.93,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.0,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 875.28
+        },
+        {
+          "seconds": 11,
+          "repeat": 3,
+          "begin_ms": 0.08,
+          "stream_compute_ms": 882.68,
+          "finish_ms": 876.52,
+          "feed_p95_ms": 0.19,
+          "offline_ms": 1022.14,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.0,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 876.52
+        },
+        {
+          "seconds": 11,
+          "repeat": 4,
+          "begin_ms": 0.14,
+          "stream_compute_ms": 965.15,
+          "finish_ms": 960.36,
+          "feed_p95_ms": 0.13,
+          "offline_ms": 977.45,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.0,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 960.36
+        }
+      ]
+    },
+    "linux-native-duration-study": {
+      "platform": "Linux-7.2.5-3-omarchy-x86_64-with-glibc2.44",
+      "machine": "x86_64",
+      "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+      "fixture": "whisper.cpp JFK, repeated for longer clips; artificial repetition is not an accuracy benchmark",
+      "paced": false,
+      "load_ms": 3106.14,
+      "results": [
+        {
+          "seconds": 11,
+          "repeat": 0,
+          "begin_ms": 0.16,
+          "stream_compute_ms": 1769.03,
+          "finish_ms": 1764.73,
+          "feed_p95_ms": 0.1,
+          "offline_ms": 1736.62,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.7,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 1764.73
+        },
+        {
+          "seconds": 11,
+          "repeat": 1,
+          "begin_ms": 0.15,
+          "stream_compute_ms": 1518.49,
+          "finish_ms": 1512.94,
+          "feed_p95_ms": 0.15,
+          "offline_ms": 1633.58,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.7,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 1512.94
+        },
+        {
+          "seconds": 11,
+          "repeat": 2,
+          "begin_ms": 0.16,
+          "stream_compute_ms": 1661.47,
+          "finish_ms": 1654.91,
+          "feed_p95_ms": 0.15,
+          "offline_ms": 1673.31,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1063.7,
+          "transcript_words": 22,
+          "wait_after_stop_ms": 1654.91
+        },
+        {
+          "seconds": 60,
+          "repeat": 0,
+          "begin_ms": 0.18,
+          "stream_compute_ms": 9402.24,
+          "finish_ms": 9375.22,
+          "feed_p95_ms": 0.16,
+          "offline_ms": 9180.47,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1057.5,
+          "transcript_words": 117,
+          "wait_after_stop_ms": 9375.22
+        },
+        {
+          "seconds": 60,
+          "repeat": 1,
+          "begin_ms": 0.14,
+          "stream_compute_ms": 7875.46,
+          "finish_ms": 7847.46,
+          "feed_p95_ms": 0.17,
+          "offline_ms": 8546.65,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1058.6,
+          "transcript_words": 117,
+          "wait_after_stop_ms": 7847.46
+        },
+        {
+          "seconds": 60,
+          "repeat": 2,
+          "begin_ms": 0.15,
+          "stream_compute_ms": 7005.18,
+          "finish_ms": 6969.86,
+          "feed_p95_ms": 0.19,
+          "offline_ms": 7081.74,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1058.6,
+          "transcript_words": 117,
+          "wait_after_stop_ms": 6969.86
+        },
+        {
+          "seconds": 120,
+          "repeat": 0,
+          "begin_ms": 0.15,
+          "stream_compute_ms": 18986.45,
+          "finish_ms": 18939.85,
+          "feed_p95_ms": 0.11,
+          "offline_ms": 21940.82,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1062.4,
+          "transcript_words": 242,
+          "wait_after_stop_ms": 18939.85
+        },
+        {
+          "seconds": 120,
+          "repeat": 1,
+          "begin_ms": 0.15,
+          "stream_compute_ms": 22989.27,
+          "finish_ms": 22933.57,
+          "feed_p95_ms": 0.14,
+          "offline_ms": 23857.26,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1062.4,
+          "transcript_words": 242,
+          "wait_after_stop_ms": 22933.57
+        },
+        {
+          "seconds": 120,
+          "repeat": 2,
+          "begin_ms": 0.15,
+          "stream_compute_ms": 22288.71,
+          "finish_ms": 22225.96,
+          "feed_p95_ms": 0.16,
+          "offline_ms": 19784.43,
+          "partial_updates": 0,
+          "first_partial_ms": null,
+          "resident_mb": 1062.4,
+          "transcript_words": 242,
+          "wait_after_stop_ms": 22225.96
+        }
+      ]
+    },
+    "linux-onnx-duration-study": {
+      "runtime": "current Parakeet v3 INT8 ONNX worker; model/runtime path overrides and export only",
+      "platform": "linux",
+      "cpu": "Intel(R) Core(TM) i5-9300H CPU @ 2.40GHz",
+      "threads": 4,
+      "load_ms": 3529.24848,
+      "results": [
+        {
+          "seconds": 11,
+          "repeat": 0,
+          "inference_ms": 830.5662539999998,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 19.7,
+            "encode_ms": 741.8,
+            "decode_ms": 65.8,
+            "tokenize_ms": 2.3
+          },
+          "resident_mb": 1161.53515625,
+          "words": 22
+        },
+        {
+          "seconds": 11,
+          "repeat": 1,
+          "inference_ms": 768.5351,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 30.3,
+            "encode_ms": 694.4,
+            "decode_ms": 43.5,
+            "tokenize_ms": 0.1
+          },
+          "resident_mb": 1235.98046875,
+          "words": 22
+        },
+        {
+          "seconds": 11,
+          "repeat": 2,
+          "inference_ms": 760.3372420000005,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 26.8,
+            "encode_ms": 693.2,
+            "decode_ms": 40.3,
+            "tokenize_ms": 0.1
+          },
+          "resident_mb": 1237.10546875,
+          "words": 22
+        },
+        {
+          "seconds": 60,
+          "repeat": 0,
+          "inference_ms": 5872.866980999999,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 101.7,
+            "encode_ms": 5525.5,
+            "decode_ms": 245.4,
+            "tokenize_ms": 0.2
+          },
+          "resident_mb": 1728.3359375,
+          "words": 117
+        },
+        {
+          "seconds": 60,
+          "repeat": 1,
+          "inference_ms": 5144.571234999998,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 118.3,
+            "encode_ms": 4844.9,
+            "decode_ms": 181,
+            "tokenize_ms": 0.3
+          },
+          "resident_mb": 1962.6796875,
+          "words": 117
+        },
+        {
+          "seconds": 60,
+          "repeat": 2,
+          "inference_ms": 5446.137451999999,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 85.8,
+            "encode_ms": 5122.9,
+            "decode_ms": 237.1,
+            "tokenize_ms": 0
+          },
+          "resident_mb": 1964.0546875,
+          "words": 117
+        },
+        {
+          "seconds": 120,
+          "repeat": 0,
+          "inference_ms": 13972.522898999996,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 247.1,
+            "encode_ms": 13451.2,
+            "decode_ms": 274,
+            "tokenize_ms": 0.1
+          },
+          "resident_mb": 2422.71875,
+          "words": 242
+        },
+        {
+          "seconds": 120,
+          "repeat": 1,
+          "inference_ms": 13325.485404,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 226.2,
+            "encode_ms": 12722.8,
+            "decode_ms": 376.3,
+            "tokenize_ms": 0.1
+          },
+          "resident_mb": 2878.5703125,
+          "words": 242
+        },
+        {
+          "seconds": 120,
+          "repeat": 2,
+          "inference_ms": 14579.271208999999,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 199.8,
+            "encode_ms": 14010,
+            "decode_ms": 369.4,
+            "tokenize_ms": 0.1
+          },
+          "resident_mb": 2884.3515625,
+          "words": 242
+        }
+      ]
+    },
+    "linux-onnx-short-recheck": {
+      "runtime": "current Parakeet v3 INT8 ONNX worker; model/runtime path overrides and export only",
+      "platform": "linux",
+      "cpu": "Intel(R) Core(TM) i5-9300H CPU @ 2.40GHz",
+      "threads": 4,
+      "load_ms": 20017.175938,
+      "results": [
+        {
+          "seconds": 11,
+          "repeat": 0,
+          "inference_ms": 859.9535700000015,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 29.2,
+            "encode_ms": 785.9,
+            "decode_ms": 41.8,
+            "tokenize_ms": 1.7
+          },
+          "resident_mb": 1166.81640625,
+          "words": 22
+        },
+        {
+          "seconds": 11,
+          "repeat": 1,
+          "inference_ms": 847.8058859999983,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 24.1,
+            "encode_ms": 780.9,
+            "decode_ms": 42.5,
+            "tokenize_ms": 0.1
+          },
+          "resident_mb": 1240.37109375,
+          "words": 22
+        },
+        {
+          "seconds": 11,
+          "repeat": 2,
+          "inference_ms": 1159.8412729999982,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 17.5,
+            "encode_ms": 1103.5,
+            "decode_ms": 38.7,
+            "tokenize_ms": 0
+          },
+          "resident_mb": 1240.37109375,
+          "words": 22
+        },
+        {
+          "seconds": 11,
+          "repeat": 3,
+          "inference_ms": 1130.435376999998,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 23,
+            "encode_ms": 1065,
+            "decode_ms": 42.2,
+            "tokenize_ms": 0
+          },
+          "resident_mb": 1240.37109375,
+          "words": 22
+        },
+        {
+          "seconds": 11,
+          "repeat": 4,
+          "inference_ms": 1191.0591389999972,
+          "phase_ms": {
+            "model_load_ms": 0,
+            "preprocess_ms": 28.3,
+            "encode_ms": 1114,
+            "decode_ms": 48.6,
+            "tokenize_ms": 0
+          },
+          "resident_mb": 1245.76953125,
+          "words": 22
+        }
+      ]
+    },
+    "sweep-clang": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 983.0533950589597,
+        "mel_ms": 4.748000144958496,
+        "encode_ms": 929.3800048828125,
+        "decode_ms": 43.47800064086914,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 996.8207711353898,
+        "mel_ms": 5.065999984741211,
+        "encode_ms": 939.2310180664062,
+        "decode_ms": 44.867000579833984,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 964.3523348495364,
+        "mel_ms": 4.742000102996826,
+        "encode_ms": 907.8519897460938,
+        "decode_ms": 46.803001403808594,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 1007.6474267989397,
+        "mel_ms": 5.684999942779541,
+        "encode_ms": 951.8109741210938,
+        "decode_ms": 45.257999420166016,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 966.6840257123113,
+        "mel_ms": 4.659999847412109,
+        "encode_ms": 908.1719970703125,
+        "decode_ms": 49.22200012207031,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 1030.443946365267,
+        "mel_ms": 4.589000225067139,
+        "encode_ms": 955.5910034179688,
+        "decode_ms": 65.7750015258789,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-default": [
+      {
+        "threads": 1,
+        "repeat": 0,
+        "total_ms": 3390.810925979167,
+        "mel_ms": 4.854000091552734,
+        "encode_ms": 3303.2529296875,
+        "decode_ms": 77.41000366210938,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 1,
+        "repeat": 1,
+        "total_ms": 3150.711216032505,
+        "mel_ms": 4.665999889373779,
+        "encode_ms": 3061.760986328125,
+        "decode_ms": 76.60199737548828,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 1,
+        "repeat": 2,
+        "total_ms": 3161.896777804941,
+        "mel_ms": 4.591000080108643,
+        "encode_ms": 3076.18408203125,
+        "decode_ms": 76.37899780273438,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 1,
+        "repeat": 3,
+        "total_ms": 3154.9475346691906,
+        "mel_ms": 4.742000102996826,
+        "encode_ms": 3070.076904296875,
+        "decode_ms": 75.46600341796875,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 1,
+        "repeat": 4,
+        "total_ms": 3149.134373292327,
+        "mel_ms": 4.741000175476074,
+        "encode_ms": 3064.0048828125,
+        "decode_ms": 75.69599914550781,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 1,
+        "repeat": 5,
+        "total_ms": 3135.7301427051425,
+        "mel_ms": 4.589000225067139,
+        "encode_ms": 3051.368896484375,
+        "decode_ms": 75.197998046875,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 2,
+        "repeat": 0,
+        "total_ms": 1639.150635804981,
+        "mel_ms": 4.622000217437744,
+        "encode_ms": 1577.178955078125,
+        "decode_ms": 52.29899978637695,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 2,
+        "repeat": 1,
+        "total_ms": 1638.6129441671073,
+        "mel_ms": 5.230000019073486,
+        "encode_ms": 1574.416015625,
+        "decode_ms": 53.167999267578125,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 2,
+        "repeat": 2,
+        "total_ms": 1651.5982798300683,
+        "mel_ms": 4.671999931335449,
+        "encode_ms": 1590.06494140625,
+        "decode_ms": 52.16600036621094,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 2,
+        "repeat": 3,
+        "total_ms": 1615.8068072982132,
+        "mel_ms": 4.64900016784668,
+        "encode_ms": 1553.7139892578125,
+        "decode_ms": 52.7239990234375,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 2,
+        "repeat": 4,
+        "total_ms": 1632.4424538761377,
+        "mel_ms": 4.613999843597412,
+        "encode_ms": 1570.553955078125,
+        "decode_ms": 52.57500076293945,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 2,
+        "repeat": 5,
+        "total_ms": 1630.7042972184718,
+        "mel_ms": 4.5980000495910645,
+        "encode_ms": 1569.177001953125,
+        "decode_ms": 52.202999114990234,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 3,
+        "repeat": 0,
+        "total_ms": 1160.8408628962934,
+        "mel_ms": 4.584000110626221,
+        "encode_ms": 1105.030029296875,
+        "decode_ms": 46.54999923706055,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 3,
+        "repeat": 1,
+        "total_ms": 1119.8703390546143,
+        "mel_ms": 4.714000225067139,
+        "encode_ms": 1055.9300537109375,
+        "decode_ms": 54.57099914550781,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 3,
+        "repeat": 2,
+        "total_ms": 1181.3995060510933,
+        "mel_ms": 4.580999851226807,
+        "encode_ms": 1111.60400390625,
+        "decode_ms": 60.46900177001953,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 3,
+        "repeat": 3,
+        "total_ms": 1141.211207024753,
+        "mel_ms": 6.2210001945495605,
+        "encode_ms": 1080.822021484375,
+        "decode_ms": 49.3380012512207,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 3,
+        "repeat": 4,
+        "total_ms": 1132.4856719002128,
+        "mel_ms": 5.188000202178955,
+        "encode_ms": 1075.9969482421875,
+        "decode_ms": 46.66600036621094,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 3,
+        "repeat": 5,
+        "total_ms": 1144.5761970244348,
+        "mel_ms": 4.830999851226807,
+        "encode_ms": 1088.654052734375,
+        "decode_ms": 46.41600036621094,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 986.3490588031709,
+        "mel_ms": 4.604000091552734,
+        "encode_ms": 933.3499755859375,
+        "decode_ms": 43.72999954223633,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 885.8625199645758,
+        "mel_ms": 5.234000205993652,
+        "encode_ms": 831.6160278320312,
+        "decode_ms": 44.176998138427734,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 909.5390872098505,
+        "mel_ms": 4.814000129699707,
+        "encode_ms": 855.885009765625,
+        "decode_ms": 44.073001861572266,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 925.7592521607876,
+        "mel_ms": 4.910999774932861,
+        "encode_ms": 868.6190185546875,
+        "decode_ms": 47.404998779296875,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 923.0268653482199,
+        "mel_ms": 4.6479997634887695,
+        "encode_ms": 867.4849853515625,
+        "decode_ms": 46.05699920654297,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 937.453840393573,
+        "mel_ms": 4.8979997634887695,
+        "encode_ms": 879.7109985351562,
+        "decode_ms": 48.01100158691406,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 6,
+        "repeat": 0,
+        "total_ms": 969.984392169863,
+        "mel_ms": 7.6570000648498535,
+        "encode_ms": 909.5399780273438,
+        "decode_ms": 46.888999938964844,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 6,
+        "repeat": 1,
+        "total_ms": 989.7913057357073,
+        "mel_ms": 4.769999980926514,
+        "encode_ms": 934.4169921875,
+        "decode_ms": 45.845001220703125,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 6,
+        "repeat": 2,
+        "total_ms": 952.8856086544693,
+        "mel_ms": 4.72599983215332,
+        "encode_ms": 897.7020263671875,
+        "decode_ms": 45.87900161743164,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 6,
+        "repeat": 3,
+        "total_ms": 954.4674740172923,
+        "mel_ms": 4.738999843597412,
+        "encode_ms": 900.3200073242188,
+        "decode_ms": 44.46699905395508,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 6,
+        "repeat": 4,
+        "total_ms": 981.9312510080636,
+        "mel_ms": 4.807000160217285,
+        "encode_ms": 919.219970703125,
+        "decode_ms": 52.97200012207031,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 6,
+        "repeat": 5,
+        "total_ms": 964.5526232197881,
+        "mel_ms": 6.109000205993652,
+        "encode_ms": 908.2100219726562,
+        "decode_ms": 45.07500076293945,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 8,
+        "repeat": 0,
+        "total_ms": 1033.330632839352,
+        "mel_ms": 5.058000087738037,
+        "encode_ms": 970.4660034179688,
+        "decode_ms": 52.6150016784668,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 8,
+        "repeat": 1,
+        "total_ms": 889.3491309136152,
+        "mel_ms": 4.929999828338623,
+        "encode_ms": 827.35498046875,
+        "decode_ms": 52.27799987792969,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 8,
+        "repeat": 2,
+        "total_ms": 974.8057667165995,
+        "mel_ms": 4.681000232696533,
+        "encode_ms": 908.8150024414062,
+        "decode_ms": 56.35499954223633,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 8,
+        "repeat": 3,
+        "total_ms": 942.6989359781146,
+        "mel_ms": 4.802999973297119,
+        "encode_ms": 839.3759765625,
+        "decode_ms": 93.67500305175781,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 8,
+        "repeat": 4,
+        "total_ms": 956.1806009151042,
+        "mel_ms": 5.571000099182129,
+        "encode_ms": 892.6580200195312,
+        "decode_ms": 52.875,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 8,
+        "repeat": 5,
+        "total_ms": 1109.945768956095,
+        "mel_ms": 4.75,
+        "encode_ms": 1049.9940185546875,
+        "decode_ms": 50.305999755859375,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 0,
+        "repeat": 0,
+        "total_ms": 935.202568769455,
+        "mel_ms": 4.6519999504089355,
+        "encode_ms": 839.0800170898438,
+        "decode_ms": 86.53600311279297,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 0,
+        "repeat": 1,
+        "total_ms": 905.5600692518055,
+        "mel_ms": 4.826000213623047,
+        "encode_ms": 808.9669799804688,
+        "decode_ms": 86.82499694824219,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 0,
+        "repeat": 2,
+        "total_ms": 937.4567260965705,
+        "mel_ms": 4.729000091552734,
+        "encode_ms": 874.8619995117188,
+        "decode_ms": 53.016998291015625,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 0,
+        "repeat": 3,
+        "total_ms": 958.2341844215989,
+        "mel_ms": 5.0320000648498535,
+        "encode_ms": 894.8560180664062,
+        "decode_ms": 53.08399963378906,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 0,
+        "repeat": 4,
+        "total_ms": 974.522165954113,
+        "mel_ms": 5.026000022888184,
+        "encode_ms": 886.7930297851562,
+        "decode_ms": 77.93000030517578,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 0,
+        "repeat": 5,
+        "total_ms": 906.6517958417535,
+        "mel_ms": 4.665999889373779,
+        "encode_ms": 845.416015625,
+        "decode_ms": 51.90599822998047,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-kv-f32": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 964.6965400315821,
+        "mel_ms": 4.73199987411499,
+        "encode_ms": 908.3250122070312,
+        "decode_ms": 46.750999450683594,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 907.2081609629095,
+        "mel_ms": 4.888999938964844,
+        "encode_ms": 847.5339965820312,
+        "decode_ms": 46.902000427246094,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 903.3266929909587,
+        "mel_ms": 4.794000148773193,
+        "encode_ms": 848.97998046875,
+        "decode_ms": 44.994998931884766,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 913.4445507079363,
+        "mel_ms": 4.824999809265137,
+        "encode_ms": 858.3920288085938,
+        "decode_ms": 45.3120002746582,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 877.3292908445001,
+        "mel_ms": 4.885000228881836,
+        "encode_ms": 820.1859741210938,
+        "decode_ms": 47.604000091552734,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 934.9439800716937,
+        "mel_ms": 5.447999954223633,
+        "encode_ms": 876.780029296875,
+        "decode_ms": 47.76100158691406,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-no-direct-dw": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 1071.8635329976678,
+        "mel_ms": 4.701000213623047,
+        "encode_ms": 1008.4099731445312,
+        "decode_ms": 53.694000244140625,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 1043.151990044862,
+        "mel_ms": 5.868000030517578,
+        "encode_ms": 984.1580200195312,
+        "decode_ms": 45.4640007019043,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 1047.4037630483508,
+        "mel_ms": 4.7129998207092285,
+        "encode_ms": 981.7789916992188,
+        "decode_ms": 56.215999603271484,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 1007.9092499800026,
+        "mel_ms": 8.086999893188477,
+        "encode_ms": 951.7050170898438,
+        "decode_ms": 43.94599914550781,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 1010.095878969878,
+        "mel_ms": 4.685999870300293,
+        "encode_ms": 955.10400390625,
+        "decode_ms": 46.130001068115234,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 1009.9886311218143,
+        "mel_ms": 4.74399995803833,
+        "encode_ms": 950.0679931640625,
+        "decode_ms": 51.17399978637695,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-no-flash": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 1011.0631608404219,
+        "mel_ms": 4.794000148773193,
+        "encode_ms": 953.530029296875,
+        "decode_ms": 48.8120002746582,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 963.1982101127505,
+        "mel_ms": 4.708000183105469,
+        "encode_ms": 907.02001953125,
+        "decode_ms": 45.25400161743164,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 864.9163548834622,
+        "mel_ms": 5.710000038146973,
+        "encode_ms": 810.3389892578125,
+        "decode_ms": 44.90800094604492,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 936.39249028638,
+        "mel_ms": 4.6579999923706055,
+        "encode_ms": 883.0159912109375,
+        "decode_ms": 44.667999267578125,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 959.9676048383117,
+        "mel_ms": 4.915999889373779,
+        "encode_ms": 889.2429809570312,
+        "decode_ms": 61.900001525878906,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 912.9898161627352,
+        "mel_ms": 5.184000015258789,
+        "encode_ms": 859.781005859375,
+        "decode_ms": 44.02399826049805,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-no-fusion": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 1020.1252610422671,
+        "mel_ms": 4.9070000648498535,
+        "encode_ms": 965.8740234375,
+        "decode_ms": 44.12799835205078,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 893.0613920092583,
+        "mel_ms": 4.618000030517578,
+        "encode_ms": 835.6320190429688,
+        "decode_ms": 44.98099899291992,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 1158.8033153675497,
+        "mel_ms": 5.53000020980835,
+        "encode_ms": 1105.958984375,
+        "decode_ms": 42.439998626708984,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 891.5232280269265,
+        "mel_ms": 4.619999885559082,
+        "encode_ms": 837.3330078125,
+        "decode_ms": 44.9119987487793,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 886.6418418474495,
+        "mel_ms": 5.742000102996826,
+        "encode_ms": 832.6300048828125,
+        "decode_ms": 43.2599983215332,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 946.1950836703181,
+        "mel_ms": 4.833000183105469,
+        "encode_ms": 890.8460083007812,
+        "decode_ms": 45.5880012512207,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-unified-recheck": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 1209.068349096924,
+        "mel_ms": 4.885000228881836,
+        "encode_ms": 1142.425048828125,
+        "decode_ms": 56.7130012512207,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 1201.6725530847907,
+        "mel_ms": 6.335000038146973,
+        "encode_ms": 1141.5069580078125,
+        "decode_ms": 45.32899856567383,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 1246.0712636820972,
+        "mel_ms": 4.669000148773193,
+        "encode_ms": 1146.551025390625,
+        "decode_ms": 90.11900329589844,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 1154.8303980380297,
+        "mel_ms": 11.836000442504883,
+        "encode_ms": 1076.154052734375,
+        "decode_ms": 61.2859992980957,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 1560.697263572365,
+        "mel_ms": 8.654999732971191,
+        "encode_ms": 1494.0400390625,
+        "decode_ms": 49.29800033569336,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 1247.1408029086888,
+        "mel_ms": 7.040999889373779,
+        "encode_ms": 1184.10205078125,
+        "decode_ms": 48.487998962402344,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country."
+      }
+    ],
+    "sweep-v3-model": [
+      {
+        "threads": 4,
+        "repeat": 0,
+        "total_ms": 1340.757619123906,
+        "mel_ms": 4.9070000648498535,
+        "encode_ms": 1260.135009765625,
+        "decode_ms": 70.2770004272461,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 1,
+        "total_ms": 1353.0764430761337,
+        "mel_ms": 4.98799991607666,
+        "encode_ms": 1270.9639892578125,
+        "decode_ms": 70.45700073242188,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 2,
+        "total_ms": 1001.9364892505109,
+        "mel_ms": 5.769000053405762,
+        "encode_ms": 924.031005859375,
+        "decode_ms": 67.66100311279297,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 3,
+        "total_ms": 1058.572756126523,
+        "mel_ms": 4.936999797821045,
+        "encode_ms": 982.2529907226562,
+        "decode_ms": 66.75399780273438,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 4,
+        "total_ms": 1013.2499900646508,
+        "mel_ms": 4.632999897003174,
+        "encode_ms": 934.4329833984375,
+        "decode_ms": 69.77400207519531,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+      },
+      {
+        "threads": 4,
+        "repeat": 5,
+        "total_ms": 1043.3475272729993,
+        "mel_ms": 6.431000232696533,
+        "encode_ms": 963.18701171875,
+        "decode_ms": 68.3030014038086,
+        "transcript": "And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
+      }
+    ]
+  }
+}

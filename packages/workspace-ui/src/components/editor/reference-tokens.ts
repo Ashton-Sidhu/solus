@@ -105,7 +105,7 @@ function isPlanStatus(value: string): value is PlanReference["status"] {
 }
 
 export function isWorkType(value: string): value is WorkReference["type"] {
-  return value === "doc" || value === "slides" || value === "diagram" || value === "artifact";
+  return value === "doc" || value === "slides" || value === "artifact";
 }
 
 export function isAgentId(value: string): value is AgentId {

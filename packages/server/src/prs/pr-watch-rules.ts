@@ -1,5 +1,6 @@
 import type { CheckConclusion, CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PullRequest } from '@solus/contracts/providers'
+import { cutText } from '@solus/contracts/text-cut'
 import type { PullRequestWatchState } from '../data/sessions/pull-request-watches'
 
 /**
@@ -90,10 +91,11 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   if (pullRequest.state === 'merged') return { next: state, news: [], end: 'merged' }
   if (pullRequest.state === 'closed') return { next: state, news: [{ kind: 'closed' }], end: 'closed' }
 
-  // A new head is new work: what was said about the old head's checks is void.
+  // A new head is new work: what was said about the old head's checks and
+  // conflict is void, so a conflict a push did not fix is news again.
   const headMoved = pullRequest.headSha !== state.headSha
   const next: PullRequestWatchState = headMoved
-    ? { ...state, headSha: pullRequest.headSha, failedChecks: [], passReported: false, passedChecks: [], owedChecks: [] }
+    ? { ...state, headSha: pullRequest.headSha, failedChecks: [], passReported: false, passedChecks: [], owedChecks: [], conflicting: false }
     : { ...state }
   const news: WatchNews[] = []
 
@@ -103,7 +105,8 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   next.failedChecks = failed.map((check) => check.id)
   if (newlyFailed.length) news.push({ kind: 'checks-failed', checks: newlyFailed })
 
-  news.push(...passNews(next, read))
+  const gate = read.checks.required.length ? read.checks.required : checks
+  news.push(...(gate.some(isFailed) ? failedGateNews(next, checks, failed, newlyFailed) : passNews(next, read)))
   news.push(...noChecksNews(next, read, headMoved))
 
   // Unknown mergeability keeps the last answer.
@@ -129,6 +132,16 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   if (!news.length) return { next, news, end: null }
   next.remarkOnlyWakes = news.every((item) => item.kind === 'remarks') ? state.remarkOnlyWakes + 1 : 0
   return { next, news, end: next.remarkOnlyWakes >= REMARK_ONLY_WAKE_LIMIT ? 'remark-limit' : null }
+}
+
+/** A failed gate never reports a pass, so the agent told of a failure would
+ *  wait forever on the checks still running. They are owed one more wake when
+ *  the last of them finishes. A check that starts after that wake owes none. */
+function failedGateNews(next: PullRequestWatchState, checks: CheckItem[], failed: CheckItem[], newlyFailed: CheckItem[]): WatchNews[] {
+  const running = checks.filter((check) => check.inFlight).map((check) => check.name)
+  const owed = next.owedChecks.length > 0 && !newlyFailed.length
+  next.owedChecks = owed || newlyFailed.length ? running : []
+  return owed && !running.length ? [{ kind: 'checks-failed', checks: failed }] : []
 }
 
 /** What passed that the agent was not told: the checks that gate the merge,
@@ -247,5 +260,5 @@ function limited(lines: string[]): string[] {
 
 function excerpt(body: string): string {
   const text = body.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ').trim()
-  return text.length <= EXCERPT_LENGTH ? `"${text}"` : `"${text.slice(0, EXCERPT_LENGTH - 1)}…"`
+  return text.length <= EXCERPT_LENGTH ? `"${text}"` : `"${cutText(text, EXCERPT_LENGTH - 1)}…"`
 }

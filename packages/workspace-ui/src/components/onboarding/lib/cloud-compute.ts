@@ -7,7 +7,7 @@ import {
   type ManagedHostCatalog,
   type ManagedHostSize,
   type ManagedHostSpecRequest,
-  type OrganizationPolicy,
+  type HostRules,
 } from '@solus/contracts/uplink'
 import { CLOUD_HOST_LABEL } from '../../../contexts/connections/host-label'
 import { managedHostStateLabel } from '../../servers/lib/managed-host'
@@ -154,15 +154,15 @@ export function serverIdOf(value: RunsOnValue): string | null {
 export interface RunsOnOrganization {
   name: string
   mayCreateManagedHost: boolean
-  /** The organization's host policy (organization-scope §3.1); an older Solus Cloud sends none, which allows both. */
-  policy?: Pick<OrganizationPolicy, 'allowsCloudHosts' | 'allowsPersonalHosts'>
+  /** The organization's host rules (organization-scope §3.1); an older Solus Cloud sends none, which allows both. */
+  hostRules?: Pick<HostRules, 'allowsCloudHosts' | 'allowsPersonalHosts'>
 }
 
 /**
  * Everything the account can run agents on, grouped as the picker shows it: the
  * organization's cloud host (or one to create, when the person may and Solus Cloud
  * can make one), the person's computers, the ones others shared, and a computer
- * to link — less whatever the organization's host policy turns off. Unless the policy
+ * to link — less whatever the organization's host rules turn off. Unless the rules
  * keeps the organization to its cloud host, "Link a computer" is always there.
  */
 export function runsOnOptions<T extends ComputeHost>(
@@ -173,8 +173,8 @@ export function runsOnOptions<T extends ComputeHost>(
   const cloud = 'Solus Cloud'
   const options: RunsOnOption[] = []
   // The organization's owners may keep it to one of the two; an older Solus Cloud says nothing, which allows both.
-  const allowsCloud = organization?.policy?.allowsCloudHosts !== false
-  const allowsOwn = organization?.policy?.allowsPersonalHosts !== false
+  const allowsCloud = organization?.hostRules?.allowsCloudHosts !== false
+  const allowsOwn = organization?.hostRules?.allowsPersonalHosts !== false
   if (!allowsCloud) {
     // Nothing from Solus Cloud is offered.
   } else if (choices.cloudHost) {

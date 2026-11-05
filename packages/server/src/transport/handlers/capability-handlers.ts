@@ -45,6 +45,7 @@ export function registerCapabilityHandlers(
       skillsSearch: server.hasHandler('skillsSearch'),
       skillsManage: server.hasHandler('skillsList') && server.hasHandler('skillsRemove'),
       voiceModel: server.hasHandler('voiceModelStatus'),
+      voiceStreaming: server.hasHandler('voiceStreamStart'),
       automations: server.hasHandler('automationList'),
       githubProvider: server.hasHandler('providerStatus'),
       browser: server.hasHandler('browserListPages'),

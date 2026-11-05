@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Editor, AnyExtension, Node } from "@tiptap/core";
   import type { Snippet } from "svelte";
-  import { getAllContexts, tick, untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import {
@@ -44,7 +44,6 @@
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import type { Scope } from "../../lib/keybindings/types";
-  import { createDiagramEmbedExtension } from "../editor/diagramEmbedExtension";
   import { createArtifactEmbedExtension } from "../editor/artifactEmbedExtension";
   import { createHtmlBlockExtension } from "../editor/htmlBlockExtension";
   import { createMermaidBlockExtension } from "../editor/mermaidBlockExtension";
@@ -199,7 +198,6 @@
   // builds its schema from the document model's list.
   const documentBlocks = {
     personReference: untrack(() => personReferenceView),
-    diagramEmbed: createDiagramEmbedExtension({ ...embedOptions, contexts: getAllContexts() }),
     // A node view is mounted outside the component tree, so it reads the theme
     // through this getter rather than the settings context.
     artifactEmbed: createArtifactEmbedExtension({ ...embedOptions, isDark: () => theme.isDark }),
@@ -210,11 +208,9 @@
     const works = session.worksStore.visibleWorks.sort((a, b) =>
       b.updatedAt.localeCompare(a.updatedAt),
     );
-    const pick = (type: string) =>
-      works
-        .filter((work) => work.type === type)
-        .map((work) => ({ workId: work.id, title: work.title, updatedAt: work.updatedAt }));
-    return { diagram: pick("diagram"), artifact: pick("artifact") };
+    return works
+      .filter((work) => work.type === "artifact")
+      .map((work) => ({ workId: work.id, title: work.title, updatedAt: work.updatedAt }));
   });
 
   $effect(() => {
@@ -934,8 +930,7 @@
           onAskSolus={onAskSolus ? () => onAskSolus("") : undefined}
           {extraExtensions}
           {documentBlocks}
-          diagramChoices={embedChoices.diagram}
-          artifactChoices={embedChoices.artifact}
+          artifactChoices={embedChoices}
           {placeholder}
           class={editorClass}
         />

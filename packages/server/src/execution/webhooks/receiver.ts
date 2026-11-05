@@ -1,19 +1,18 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   WEBHOOK_DELIVERIES_PER_MINUTE,
-  WEBHOOK_DELIVERY_ID_TTL_MS,
   WEBHOOK_ID_PATTERN,
   WEBHOOK_TOKEN_PATTERN,
   WEBHOOK_MAX_BODY_BYTES,
-  WEBHOOK_REPLAY_KEY_TTL_MS,
   type WebhookAnswerOutcome,
   type WebhookDeliveryOutcome,
   type WebhookVerificationFailure,
 } from '@solus/contracts/webhooks'
-import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { createLogger } from '../../logger'
 import type { FetchLike } from '../../admission/access-tokens'
-import { claimSeenKey, insertDelivery, loadWebhook, type NewDelivery, type WebhookRecord } from '../../data/webhooks/webhook-store'
+import { afterDatabaseCommit, getDatabase } from '../../db/database'
+import { claimWebhookKey } from '../../data/receipts/operation-receipts'
+import { insertDelivery, loadWebhook, type NewDelivery, type WebhookRecord } from '../../data/webhooks/webhook-store'
 import { readWebhookSecrets, verificationSecretOf } from '../../data/webhooks/webhook-secrets'
 import { readDeliveryProof, type ProvenDelivery } from './delivery-proof'
 import { renderKey, requestData, storedRequest, type WebhookRequestData } from './request-data'
@@ -70,8 +69,8 @@ export interface WebhookReceiverDeps {
   forwarderSecret(): Buffer | null
   /** An organization admin paused this webhook (plan §2.7), as the host's organization facts say. */
   isPausedByAdmin(webhookId: string): boolean
-  /** The organization's `allowsUnverifiedWebhooks` policy (plan §3.7). */
-  allowsUnverifiedWebhooks(organizationId: string): boolean
+  /** Why the policies refuse this webhook's work now, or null (plan §3.7; plans/030 §6.9). Checked on every delivery, not only on save. */
+  organizationRefusal(organizationId: string, work: { unverified: boolean }): string | null
   /** Runs the actions of an accepted delivery. Called after the answer; it must not throw. */
   runDelivery(delivery: AcceptedDelivery): Promise<void>
   now?: () => number
@@ -89,11 +88,6 @@ function tokenMatches(presented: string, stored: string): boolean {
   const a = createHash('sha256').update(presented).digest()
   const b = createHash('sha256').update(stored).digest()
   return timingSafeEqual(a, b)
-}
-
-/** True when an organization's policy refuses this webhook because it is unverified. */
-export function refusedAsUnverified(webhook: Pick<WebhookRecord, 'verification' | 'organizationId'>, allowsUnverified: (organizationId: string) => boolean): boolean {
-  return webhook.verification.scheme === 'none' && webhook.organizationId !== LOCAL_ORGANIZATION_ID && !allowsUnverified(webhook.organizationId)
 }
 
 export function createWebhookReceiver(deps: WebhookReceiverDeps) {
@@ -125,8 +119,11 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
       actions: [],
     }
     await insertDelivery(delivery)
-    emitWebhookDelivery({ id: delivery.id, webhookId: webhook.id, receivedAt: delivery.receivedAt, arrivedAt, source: delivery.source, outcome, reason, replayOf: null })
-    log.info('webhook_delivery_refused', { webhookId: webhook.id, deliveryId: delivery.id, outcome, step: failure?.step ?? null })
+    // A duplicate is logged inside the claim transaction: the event waits for its commit.
+    await afterDatabaseCommit(async () => {
+      emitWebhookDelivery({ id: delivery.id, webhookId: webhook.id, receivedAt: delivery.receivedAt, arrivedAt, source: delivery.source, outcome, reason, replayOf: null })
+      log.info('webhook_delivery_refused', { webhookId: webhook.id, deliveryId: delivery.id, outcome, step: failure?.step ?? null })
+    })
     return delivery.id
   }
 
@@ -150,9 +147,10 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
       return answer(401, 'unverified', { error: 'Verification failed.' })
     }
 
-    if (refusedAsUnverified(webhook, deps.allowsUnverifiedWebhooks)) {
-      await logRefused(webhook, proven, arrivedAt, data, 'not_allowed', 'The organization does not allow unverified webhooks.')
-      return answer(403, 'not_allowed', { error: 'The organization does not allow unverified webhooks.' })
+    const refusal = deps.organizationRefusal(webhook.organizationId, { unverified: webhook.verification.scheme === 'none' })
+    if (refusal) {
+      await logRefused(webhook, proven, arrivedAt, data, 'not_allowed', refusal)
+      return answer(403, 'not_allowed', { error: refusal })
     }
     const pausedByAdmin = deps.isPausedByAdmin(webhook.id)
     if (!webhook.enabled || pausedByAdmin) {
@@ -160,35 +158,42 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
       return answer(409, 'paused', { error: 'This webhook is paused.' })
     }
 
-    if (proven.deliveryId && !(await claimSeenKey('delivery', webhook.id, proven.deliveryId, WEBHOOK_DELIVERY_ID_TTL_MS, arrivedAt))) {
-      const id = await logRefused(webhook, proven, arrivedAt, data, 'duplicate', 'This delivery ID came before.')
-      return answer(202, 'duplicate', { deliveryId: id })
-    }
     const replayKey = webhook.replayKey ? renderKey(webhook.replayKey, data) : null
-    if (replayKey !== null && !(await claimSeenKey('replay', webhook.id, replayKey, WEBHOOK_REPLAY_KEY_TTL_MS, arrivedAt))) {
-      const id = await logRefused(webhook, proven, arrivedAt, data, 'duplicate', 'This replay key came before.')
-      return answer(202, 'duplicate', { deliveryId: id })
-    }
+    // The key claims and the delivery row commit together: a failed insert
+    // releases the claims, and a duplicate answer keeps the IDs it consumed.
+    // A duplicate is a decision, not an error, so the transaction commits.
+    const decision = await getDatabase().transaction(async (tx) => {
+      if (proven.deliveryId && !(await claimWebhookKey(tx, webhook.id, 'delivery', proven.deliveryId, arrivedAt))) {
+        return { outcome: 'duplicate' as const, deliveryId: await logRefused(webhook, proven, arrivedAt, data, 'duplicate', 'This delivery ID came before.') }
+      }
+      if (replayKey !== null && !(await claimWebhookKey(tx, webhook.id, 'replay', replayKey, arrivedAt))) {
+        return { outcome: 'duplicate' as const, deliveryId: await logRefused(webhook, proven, arrivedAt, data, 'duplicate', 'This replay key came before.') }
+      }
 
-    const deliveryId = randomUUID()
-    await insertDelivery({
-      id: deliveryId,
-      webhookId: webhook.id,
-      receivedAt: proven.receivedAt,
-      arrivedAt,
-      source: proven.source,
-      outcome: 'pending',
-      reason: null,
-      replayOf: null,
-      request: storedRequest(data),
-      verificationFailure: null,
-      actions: [],
+      const deliveryId = randomUUID()
+      await insertDelivery({
+        id: deliveryId,
+        webhookId: webhook.id,
+        receivedAt: proven.receivedAt,
+        arrivedAt,
+        source: proven.source,
+        outcome: 'pending',
+        reason: null,
+        replayOf: null,
+        request: storedRequest(data),
+        verificationFailure: null,
+        actions: [],
+      }, tx)
+      // The event and the actions wait for the outermost commit: a rolled-back delivery runs nothing.
+      await afterDatabaseCommit(async () => {
+        emitWebhookDelivery({ id: deliveryId, webhookId: webhook.id, receivedAt: proven.receivedAt, arrivedAt, source: proven.source, outcome: 'pending', reason: null, replayOf: null })
+        log.info('webhook_delivery_accepted', { webhookId: webhook.id, deliveryId, source: proven.source })
+        // The sender does not wait for an agent.
+        setImmediate(() => void deps.runDelivery({ webhook, deliveryId, data }))
+      })
+      return { outcome: 'accepted' as const, deliveryId }
     })
-    emitWebhookDelivery({ id: deliveryId, webhookId: webhook.id, receivedAt: proven.receivedAt, arrivedAt, source: proven.source, outcome: 'pending', reason: null, replayOf: null })
-    log.info('webhook_delivery_accepted', { webhookId: webhook.id, deliveryId, source: proven.source })
-    // The sender does not wait for an agent.
-    setImmediate(() => void deps.runDelivery({ webhook, deliveryId, data }))
-    return answer(202, 'accepted', { deliveryId })
+    return answer(202, decision.outcome, { deliveryId: decision.deliveryId })
   }
 
   return { receive }

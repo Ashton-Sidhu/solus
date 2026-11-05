@@ -19,7 +19,7 @@ function normalized(
 async function recentCommitSubjects(cwd: string): Promise<string[]> {
   const output = await runAsync(
     'git',
-    ['log', '-n', '20', '--no-merges', '--pretty=format:%s'],
+    ['log', '-n', '20', '--no-merges', '--no-show-signature', '--pretty=format:%s'],
     cwd,
   ).catch(() => '')
   return output

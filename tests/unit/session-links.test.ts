@@ -32,7 +32,7 @@ beforeAll(async () => {
   operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(new ShareManager({ db: getDatabase() }))
   const { installWorkspaceToolOperations } = await import('@solus/server/data/workspace/tool-context')
   stopTools = installWorkspaceToolOperations(operations, 'host-1')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, cwd, status, created_at, last_activity_at) VALUES ('session-1', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, cwd, status, created_at, last_activity_at, started_at) VALUES ('session-1', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2, 1)`)
 })
 afterAll(async () => {
   stopTools()
@@ -42,12 +42,19 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previous
 })
 
+/** A session's file and automation edges, as the link input spells their targets. */
 async function storedLinks(sessionId: string) {
   const { getDatabase } = await import('@solus/server/db/database')
-  const rows = z.array(z.object({ link_id: z.string(), target: z.string(), title: z.string(), organization_id: z.string(), linked_at: z.number() })).parse(
-    await getDatabase().all(sql`SELECT link_id, target, title, organization_id, linked_at FROM session_links WHERE session_id = ${sessionId}`),
+  const rows = z.array(z.object({ target_kind: z.enum(['file', 'automation']), target_scope: z.string(), target_key: z.string(), title: z.string(), organization_id: z.string(), linked_at: z.number() })).parse(
+    await getDatabase().all(sql`SELECT target_kind, target_scope, target_key, title, organization_id, created_at AS linked_at FROM resource_links
+      WHERE source_kind = 'session' AND source_id = ${sessionId} AND target_kind IN ('file', 'automation')`),
   )
-  return rows.map(row => ({ ...row, target: sessionLinkInputSchema.shape.target.parse(JSON.parse(row.target)) }))
+  return rows.map(({ target_kind, target_scope, target_key, ...row }) => ({
+    ...row,
+    target: sessionLinkInputSchema.shape.target.parse(target_kind === 'file'
+      ? { kind: 'file', path: target_key, hostId: target_scope }
+      : { kind: 'automation', targetId: target_key, hostId: target_scope }),
+  }))
 }
 
 test('the existing link tool stores a project plan as a host file and resolves equivalent relative paths once', async () => {
@@ -59,7 +66,6 @@ test('the existing link tool stores a project plan as a host file and resolves e
   const links = (await storedLinks('session-1')).filter(link => link.target.kind === 'file')
   expect(links).toHaveLength(1)
   expect(links[0]).toMatchObject({ target: { kind: 'file', path, hostId: 'host-1' }, title: 'plan.md', organization_id: 'local' })
-  expect(links[0].link_id.length).toBeLessThan(100)
 })
 
 test('works use their existing session membership; a repeated link changes nothing', async () => {
@@ -107,7 +113,7 @@ test('a caller cannot link items to a session it cannot edit', async () => {
 
 test("the link route stores a session's file reference once, on its execution host, and removes it", async () => {
   const { getDatabase } = await import('@solus/server/db/database')
-  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, runner_host_id, status, created_at, last_activity_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2)`)
+  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, runner_host_id, status, created_at, last_activity_at, started_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2, 1)`)
   const inA: WorkspaceRequestContext = { ...context, home: { kind: 'organization', organizationId: 'organization-A', serviceId: 'api' } }
   const link = { from: { kind: 'session' as const, id: 'remote-session' }, to: { kind: 'file' as const, path: 'C:\\runner\\plan.md', hostId: 'runner-A' }, title: 'Runner plan' }
   await operations.putLink(inA, link)
@@ -177,4 +183,83 @@ test('unlink and list_links reject invalid inputs and unauthorized sessions', as
   expect((await withWorkspaceToolAuthority(principal, () => unlinkAgentTool.execute({ kind: 'file', path: 'plan.md' }, tools))).ok).toBe(false)
   expect((await withWorkspaceToolAuthority(principal, () => listLinksAgentTool.execute({}, tools))).ok).toBe(false)
   expect(await storedLinks('session-1')).toEqual(before)
+})
+
+async function batchSession(sessionId: string): Promise<AgentToolContext> {
+  const { getDatabase } = await import('@solus/server/db/database')
+  await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, cwd, status, created_at, last_activity_at, started_at) VALUES (${sessionId}, 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 1, 2, 1)`)
+  return { ...tools, sessionId: () => sessionId }
+}
+
+async function linkedNumbers(sessionId: string): Promise<string[]> {
+  const { readSessionPullRequests } = await import('@solus/server/data/sessions/session-pull-requests')
+  const links = (await readSessionPullRequests('local', [sessionId]))[sessionId] ?? []
+  return links.map(link => `${link.repository}#${link.number}`).sort()
+}
+
+// WHY: agents link a whole stack, or a pasted list, of pull requests. One call
+// must link them all, tell apart what was new, already linked, or not a pull
+// request, and one bad name must not lose the others.
+test('link with target_ids links new pull requests once, reports already linked ones, and survives invalid names', async () => {
+  const batchTools = await batchSession('session-batch-link')
+  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
+  expect((await linkAgentTool.execute({ kind: 'pr', target_id: 'https://github.com/acme/app/pull/1' }, batchTools)).ok).toBe(true)
+  const result = await linkAgentTool.execute({ kind: 'pr', target_ids: [
+    'https://github.com/acme/app/pull/1',
+    'https://github.com/acme/app/pull/2',
+    'https://github.com/acme/app/pull/3',
+    'https://github.com/acme/web/pull/9',
+    'https://github.com/acme/app/pull/2',
+    'https://example.com/not-a-pull-request',
+  ] }, batchTools)
+  expect(result.ok).toBe(true)
+  expect(result.text).toContain('Linked 3 pull requests')
+  expect(result.text).toContain('linked: github.com/acme/app #2, #3; github.com/acme/web #9')
+  expect(result.text).toContain('already linked: github.com/acme/app #1, #2')
+  expect(result.text).toContain('invalid (not a pull request number or URL): "https://example.com/not-a-pull-request"')
+  expect(await linkedNumbers('session-batch-link')).toEqual(['github.com/acme/app#1', 'github.com/acme/app#2', 'github.com/acme/app#3', 'github.com/acme/web#9'])
+  // Only invalid names link nothing, and the call says so.
+  expect((await linkAgentTool.execute({ kind: 'pr', target_ids: ['nope'] }, batchTools)).ok).toBe(false)
+  // target_ids is for pull requests, and is not mixed with target_id.
+  expect((await linkAgentTool.execute({ kind: 'work', target_ids: ['work-1'] }, batchTools)).ok).toBe(false)
+  expect((await linkAgentTool.execute({ kind: 'pr', target_id: 'https://github.com/acme/app/pull/4', target_ids: ['https://github.com/acme/app/pull/5'] }, batchTools)).ok).toBe(false)
+  expect(await linkedNumbers('session-batch-link')).toHaveLength(4)
+})
+
+// WHY: "unlink every merged PR" must remove only the pull requests PR sync saw
+// in those states. A closed one stays when only merged was asked for, and a
+// link with no synced state is never guessed at.
+test('unlink with states removes only the links whose last synced state matches', async () => {
+  const batchTools = await batchSession('session-batch-unlink')
+  const { linkAgentTool, unlinkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
+  const { recordSessionPullRequestObservation } = await import('@solus/server/data/sessions/session-pull-requests')
+  const urls = [1, 2, 3, 4, 5].map(number => `https://github.com/acme/stack/pull/${number}`)
+  expect((await linkAgentTool.execute({ kind: 'pr', target_ids: [...urls, 'https://github.com/acme/other/pull/7'] }, batchTools)).ok).toBe(true)
+  const observed = (state: 'open' | 'closed' | 'merged') => ({ title: 'PR', state, draft: false, updatedAt: '2026-10-30T10:00:00Z' }) as never
+  await recordSessionPullRequestObservation('github.com/acme/stack', 1, observed('merged'))
+  await recordSessionPullRequestObservation('github.com/acme/other', 7, observed('merged'))
+  await recordSessionPullRequestObservation('github.com/acme/stack', 2, observed('closed'))
+  await recordSessionPullRequestObservation('github.com/acme/stack', 3, observed('open'))
+  await recordSessionPullRequestObservation('github.com/acme/stack', 4, null)
+  // stack #5 has no synced state.
+
+  const merged = await unlinkAgentTool.execute({ kind: 'pr', states: ['merged'] }, batchTools)
+  expect(merged.ok).toBe(true)
+  expect(merged.text).toContain('Removed 2 pull requests in state merged')
+  expect(merged.text).toMatch(/^merged: .*github\.com\/acme\/stack #1/m)
+  expect(merged.text).toMatch(/^merged: .*github\.com\/acme\/other #7/m)
+  expect(merged.text).toContain('4 pull requests stay linked, 2 with no synced state.')
+  expect(await linkedNumbers('session-batch-unlink')).toEqual(['github.com/acme/stack#2', 'github.com/acme/stack#3', 'github.com/acme/stack#4', 'github.com/acme/stack#5'])
+
+  const ended = await unlinkAgentTool.execute({ kind: 'pr', states: ['closed', 'merged'] }, batchTools)
+  expect(ended.text).toContain('Removed 1 pull request in state closed or merged')
+  expect(ended.text).toContain('closed: github.com/acme/stack #2')
+  expect(await linkedNumbers('session-batch-unlink')).toEqual(['github.com/acme/stack#3', 'github.com/acme/stack#4', 'github.com/acme/stack#5'])
+  // A removed link is a tombstone, so PR sync does not link it again.
+  const { linkSessionPullRequest } = await import('@solus/server/data/sessions/session-pull-requests')
+  expect(await linkSessionPullRequest('session-batch-unlink', { url: urls[0], source: 'branch', by: actor })).toBe(false)
+  // states is for pull requests, and is not mixed with target_id.
+  expect((await unlinkAgentTool.execute({ kind: 'work', states: ['open'] }, batchTools)).ok).toBe(false)
+  expect((await unlinkAgentTool.execute({ kind: 'pr', target_id: urls[2], states: ['open'] }, batchTools)).ok).toBe(false)
+  expect(await linkedNumbers('session-batch-unlink')).toHaveLength(3)
 })

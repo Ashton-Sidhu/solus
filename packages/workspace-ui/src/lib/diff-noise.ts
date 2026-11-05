@@ -28,7 +28,7 @@ const LOCKFILE_NAMES = new Set([
 ])
 
 const GENERATED_PATH_PATTERNS = [
-  /(^|\/)(?:dist|build|coverage|generated|vendor)\//i,
+  /(^|\/)(?:dist|build|coverage|_?generated|vendor)\//i,
   /(?:^|\.)generated\.[^/]+$/i,
   /(?:\.min\.(?:css|js)|\.map|\.snap)$/i,
   /(?:^|\/)(?:bindings|schema)\.g\.[^/]+$/i,

@@ -1,4 +1,4 @@
-import type { ConversationFindMatch } from "./find";
+import { foldConversationFindText, type ConversationFindMatch } from "./find";
 
 const ALL_HIGHLIGHT = "solus-conversation-find";
 const ACTIVE_HIGHLIGHT = "solus-conversation-find-active";
@@ -76,8 +76,8 @@ function searchableTextNodes(root: HTMLElement): Text[] {
 function rangesFor(root: HTMLElement, query: string): Range[] {
   const nodes = searchableTextNodes(root);
   const text = nodes.map((node) => node.data).join("");
-  const haystack = text.toLocaleLowerCase();
-  const needle = query.toLocaleLowerCase();
+  const haystack = foldConversationFindText(text);
+  const needle = foldConversationFindText(query);
   if (!needle) return [];
 
   const starts: number[] = [];

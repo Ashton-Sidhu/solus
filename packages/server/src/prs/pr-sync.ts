@@ -487,7 +487,7 @@ export class PrSync {
     sync?.records.set(pullRequest.number, { result: 'found', pullRequest })
     seedIndex(host, pullRequest)
     const scopes = this.taskInterests.get(key)?.scopes ?? new Set([key])
-    await recordPullRequestObservation([...scopes], pullRequest.number, pullRequest)
+    await recordPullRequestObservation(key, [...scopes], pullRequest.number, pullRequest)
     this.deps.publish({ repo: key, pullRequests: [pullRequest], missing: [], checks: [] })
   }
 
@@ -636,7 +636,7 @@ export class PrSync {
     const task = this.taskInterests.get(key)
     if (task) {
       for (const { number, pullRequest } of observations) {
-        if (task.linked.has(number)) await recordPullRequestObservation([...task.scopes], number, pullRequest)
+        if (task.linked.has(number)) await recordPullRequestObservation(key, [...task.scopes], number, pullRequest)
       }
     }
     const published = wanted.clientsListening ? observations : observations.filter(({ isNews }) => isNews)

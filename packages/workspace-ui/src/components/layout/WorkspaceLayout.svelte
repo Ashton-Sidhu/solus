@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../../contexts";
   import EditorInputCard from "../input/EditorInputCard.svelte";
+  import VoiceModelNotice from "../input/VoiceModelNotice.svelte";
   import WorkspaceBody from "./WorkspaceBody.svelte";
   import {
     FILE_PREVIEW_EVENT,
@@ -70,6 +71,7 @@
 </script>
 
 <div class="workspace-layout flex flex-col h-full w-full overflow-hidden">
+  <VoiceModelNotice />
   <div class="flex flex-1 min-h-0">
     <WorkspaceBody
       active

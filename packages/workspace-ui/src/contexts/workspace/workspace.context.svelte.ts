@@ -49,7 +49,7 @@ import { SessionOpening } from './session-opening'
 import { SessionDrafts } from './session-drafts.svelte'
 import { PromptDispatch } from './prompt-dispatch'
 import type { SessionRecords } from './session-records.svelte'
-import { SessionConfigController } from './session-config.svelte'
+import { SessionConfigController, type SessionThread } from './session-config.svelte'
 import { WorkspaceLifecycleStore } from './workspace-lifecycle.store.svelte'
 import { SessionEventReducer } from './session-event-reducer.svelte'
 import { type SettingsContext } from '../app/settings.context.svelte'
@@ -82,6 +82,7 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { hostKey } from '@solus/client-core/host-key'
+import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
@@ -173,6 +174,9 @@ export interface CreateTabOptions {
   /** The tab or draft the gesture came from. The new run inherits this focused
    *  source, not whichever hidden tab happens to be active. */
   sourceId?: string
+  /** The recorded session this tab opens. Its provider and model are the
+   *  session's own, so they never come from the source. */
+  thread?: SessionThread
   via?: Via
 }
 
@@ -631,9 +635,15 @@ export class WorkspaceContext implements SurfaceContext {
    *  page, and restoring a companion pane all reveal chats. */
   trackVisibleConversations(): void {
     $effect(() => {
+      const heldUnread = this.metadata.heldUnreadSessionIds
+      // A mark-unread holds only while its session stays on screen: leaving
+      // lets this effect read it on the way back.
+      for (const sessionId of heldUnread) {
+        if (!this.isSessionVisible(sessionId)) heldUnread.delete(sessionId)
+      }
       for (const tabId of this.tabOrder) {
         const tab = this.tabs[tabId]
-        if (tab?.hasUnread && this.isSessionVisible(tab.sessionId)) {
+        if (tab?.hasUnread && this.isSessionVisible(tab.sessionId) && !heldUnread.has(tab.sessionId)) {
           tab.hasUnread = false
           // Seeing it here is what "read" means, so the host hears about it and
           // every other device clears the same session.
@@ -1066,6 +1076,7 @@ export class WorkspaceContext implements SurfaceContext {
       gitContext: options.gitContext,
       serverId: options.serverId,
     }, this.settings.modelOptionsByProvider)
+    if (options.thread) Object.assign(run, this.config.threadRunFor(options.thread, run))
     // Isolation belongs to one piece of work, so a fresh tab only branches a
     // worktree when the gesture that opened it asked for one.
     const worktreeRequested = options.worktreeRequested ?? false
@@ -1190,7 +1201,8 @@ export class WorkspaceContext implements SurfaceContext {
     return {
       location: folderLocation({ serverId: project.serverId, path: project.directory }),
       modelConfig: defaults.modelConfig,
-      permissionMode: defaults.permissionMode,
+      // New work takes the window's organization; the policy on its host lowers the default (plans/030 §7).
+      permissionMode: workPolicy(project.serverId).defaultMode(defaults.permissionMode),
       provider: configuredAgent(this.settings.activeAgent),
       sessionSkills: [],
     }
@@ -1246,6 +1258,9 @@ export class WorkspaceContext implements SurfaceContext {
     const tab = this.tabs[tabId]
     const session = this.sessionFor(tabId)
     const previousTabId = this.activeTabId
+    // The two paths below clear the flag themselves, which the visibility
+    // effect cannot see, so opening an unread tab tells the host here.
+    if (tab?.hasUnread) this.metadata.publishSessionViewed(tab.sessionId)
     if (tabId === this.activeTabId) {
       // If a page covers the active conversation, selecting its tab reveals the
       // conversation again. Otherwise it is a no-op apart from read state.
@@ -1531,7 +1546,7 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   async approvePlanWithModel(planId: string, mode: PlanApprovalMode, opts: ApprovePlanOptions = {}): Promise<void> {
-    return approvePlanWithModel(this, planId, mode, opts)
+    return approvePlanWithModel(this, planId, mode, opts, (session) => workPolicy(runHost(session.run), session.organizationId))
   }
 
   async rejectPlan(planId: string, comment?: string): Promise<void> {
@@ -1619,15 +1634,13 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** Create an empty user-authored work and open it. Persisted immediately so it
    *  behaves like any other work; the editor opens focused for typing. */
-  async createBlankWork(type: 'doc' | 'slides' | 'diagram'): Promise<void> {
-    const title = type === 'diagram' ? 'Untitled diagram' : 'Untitled document'
-    const content = type === 'diagram' ? '{"nodes":[],"edges":[]}' : ''
-    await this.createWorkFromContent(title, type, content)
+  async createBlankWork(type: 'doc' | 'slides'): Promise<void> {
+    await this.createWorkFromContent('Untitled document', type, '')
   }
 
   /** Create a user-authored work from existing content (blank or imported) and
    *  open it. Uses the active session's cwd/provider for origin context. */
-  async createWorkFromContent(title: string, type: 'doc' | 'slides' | 'diagram', content: string): Promise<void> {
+  async createWorkFromContent(title: string, type: 'doc' | 'slides', content: string): Promise<void> {
     const sessionRun = this.sessionFor(this.activeTabId)?.run
     const run = sessionRun ?? this.defaultRunConfig
     const provider: AgentId = sessionRun?.provider ?? 'claude-code'
@@ -1820,7 +1833,7 @@ export class WorkspaceContext implements SurfaceContext {
     return true
   }
 
-  // ─── Folio (plans + docs + diagrams ledger) ───
+  // ─── Folio (plans + docs ledger) ───
 
   toggleFolio(via: Via = 'click'): void {
     this.togglePage({ name: 'folio', params: {} }, via, 'workspace')

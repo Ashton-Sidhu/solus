@@ -13,11 +13,12 @@ a session that leaves takes them. This is the same rule as for pull requests
   records its session id (`docs/plans/session-identity.md`): a work in
   `session_id`, a plan in `indexed_plans.session_id`, an automation in
   `createdBy`.
-- **output link** — a row of `task_links` that is on the task because a working
-  session of the task made the item. `output_session_id` names that session.
-  `TaskLink.ownerSessionId` carries it to the clients.
-- **deliberate link** — a row of `task_links` that a person or an agent made to
-  say that the item belongs to the task. `output_session_id` is null.
+- **output link** — an `output` edge of `resource_links` that is on the task
+  because a working session of the task made the item. `via_session_id` names
+  that session. `TaskLink.ownerSessionId` carries it to the clients.
+- **deliberate link** — a `reference` edge of `resource_links` that a person or
+  an agent made to say that the item belongs to the task. `via_session_id` is
+  null.
 
 Do not say "automatic link" for an output link, and do not say that an output
 is "linked to a session". A session makes an output. A task links it.
@@ -29,7 +30,7 @@ is "linked to a session". A session makes an output. A task links it.
    their state settles the session. An output already records its session.
 2. **The task keeps a row for each output.** The row is a copy that Solus keeps
    in step with the session, not a live read. The reason is access: the
-   workspace API gives read access to a work through its `task_links` row
+   workspace API gives read access to a work through its task's edge
    (`data/tasks/resource-visibility.ts`), and access to a task reaches the
    works that have a row (`data/tasks/task-sharing.ts`). A live read would
    move that access rule into a join over the session's outputs, so it would
@@ -53,7 +54,7 @@ is "linked to a session". A session makes an output. A task links it.
 
 ## Data
 
-`task_links.output_session_id` (migrations SQLite `0031`, Postgres `0020`). Its
+`resource_links.via_session_id` on an `output` edge (plans/029 §5.1). Its
 value is the `session_id` of the task's session link, so a leave is one
 delete.
 

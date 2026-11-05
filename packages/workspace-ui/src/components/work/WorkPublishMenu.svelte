@@ -7,7 +7,6 @@
     Link2Off as UnlinkIcon,
     UploadCloud as UploadIcon,
   } from "@lucide/svelte";
-  import { getAllContexts } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as TooltipUI from "../ui/tooltip";
@@ -17,8 +16,6 @@
   import DocProviderLogo from "./DocProviderLogo.svelte";
   import { docProviderLabel, docSyncChip, docSyncTooltip, destinationNoun } from "./lib/work-publish";
   import { copyText, toasts } from "../../lib/toasts";
-  import { buildDiagramAssets } from "../document-shell/lib/diagram-assets";
-  import { renderDiagramAsAuthored, renderDiagramForPage } from "../diagram/lib/offscreen-export";
 
   interface Props {
     workId?: string;
@@ -40,10 +37,6 @@
   const session = getSurfaceContext();
   const store = session.worksStore;
   const planStore = getPlanStore();
-  // A publish renders each embedded diagram on an off-screen canvas mounted
-  // outside this tree, and that canvas reads the theme from context. Read
-  // here, during init, because a click handler has no contexts to hand on.
-  const stageContexts = getAllContexts();
 
   let open = $state(false);
   let busy = $state(false);
@@ -128,21 +121,10 @@
     try {
       await flushSave?.();
       const content = getCurrentContent?.() ?? savedContent ?? plan?.content ?? "";
-      // A Google Doc paginates, so a diagram is laid out again to fill one
-      // page; a Confluence page scrolls, so the drawing goes up as the canvas
-      // has it.
-      const renderDiagram = provider === "confluence" ? renderDiagramAsAuthored : renderDiagramForPage;
-      const diagramAssets = provider
-        ? await buildDiagramAssets(
-            content,
-            (id) => store.ensureContent(id, "document-publish"),
-            (diagram) => renderDiagram(diagram.content, diagram.title, stageContexts),
-          )
-        : [];
       const result = workId
-        ? await store.publish(workId, { ...options, diagramAssets })
+        ? await store.publish(workId, options)
         : planId
-          ? await planStore.publish(planId, { ...options, content, diagramAssets })
+          ? await planStore.publish(planId, { ...options, content })
           : { ok: false as const, error: "The document is no longer available." };
       if (result.ok) {
         progress.success(`Published to ${docProviderLabel(result.link.provider)}`, {

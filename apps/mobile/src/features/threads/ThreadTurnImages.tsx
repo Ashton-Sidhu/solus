@@ -1,3 +1,5 @@
+import { toolResultImages } from "@solus/client-core/reply-images";
+import type { ToolResultImage } from "@solus/contracts/types";
 import { memo, useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useApp } from "../../app/app-context";
@@ -54,5 +56,30 @@ export const ThreadTurnImages = memo(function ThreadTurnImages(props: {
         <ThreadMarkdown markdown={`![${current.label.replaceAll("[", "").replaceAll("]", "")}](<${current.href}>)`} tone="assistant" store={props.store} imageLabel={current.label} imagesOnly />
       </FilePreviewGallery>
     </View>
+  );
+});
+
+/** An open tool call's images: thumbnails that open the native file gallery. */
+export const ThreadToolImages = memo(function ThreadToolImages(props: {
+  readonly images: readonly ToolResultImage[];
+  readonly store: ConversationStore;
+}) {
+  const app = useApp();
+  const images = useMemo(() => toolResultImages(props.images), [props.images]);
+  const connection = app.connections.connection(props.store.controller.hostId);
+  const gallery = useMemo<readonly FilePreviewItem[]>(() => images.map((image) => ({
+    key: image.href,
+    kind: "image" as const,
+    name: image.label,
+    resolveUri: async () => connection ? resolveHostMediaUrl(connection, { assetId: image.href.slice(8) }) : null,
+  })), [connection, images]);
+  return (
+    <FilePreviewGallery value={gallery}>
+      <View className="flex-row flex-wrap gap-2">
+        {images.map((image) => (
+          <ThreadMarkdown key={image.href} markdown={`![${image.label}](<${image.href}>)`} tone="assistant" store={props.store} imageLabel={image.label} imagesOnly />
+        ))}
+      </View>
+    </FilePreviewGallery>
   );
 });

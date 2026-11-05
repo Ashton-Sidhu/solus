@@ -29,8 +29,7 @@ import { localApi } from "@solus/client-core/local-api";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications/notification-hub.store.svelte";
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
-import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
-import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+import { followDeviceRequests } from "@solus/workspace-ui/contexts/devices/device-feature";
 import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
 import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
 import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
@@ -66,6 +65,8 @@ import {
   identifyInstallation,
   initAnalytics,
   registerSuperProps,
+  setAnalyticsBlockedByPolicy,
+  setAnalyticsEnabled,
   track,
 } from "@solus/workspace-ui/lib/analytics";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
@@ -89,16 +90,31 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   session.lifecycle.hydrateAgentsFromCache();
   materializeTabs(session);
 
-  // Electron-only: analytics is desktop-side.
-  initAnalytics({
-    // Undecided consent stays off until the person chooses (plans/018 §3.1).
-    enabled: settings.clientAnalyticsEnabled === true,
-    platform: "desktop",
-    viewMode: "wide",
+  // Electron-only: analytics is desktop-side. It starts only once the embedded
+  // host's policy is read: a policy that turns analytics off wins over the
+  // person's consent, and then nothing starts (plans/030 §5.4).
+  let analyticsStarted = $state(false);
+  $effect(() => {
+    const fact = hosts.device?.policy;
+    if (fact?.state !== "ready") return;
+    const managedOff = fact.value.hostSetting("analyticsEnabled")?.value === false;
+    setAnalyticsBlockedByPolicy(managedOff);
+    untrack(() => {
+      // Undecided consent stays off until the person chooses (plans/018 §3.1).
+      const consented = settings.clientAnalyticsEnabled === true;
+      if (analyticsStarted) {
+        setAnalyticsEnabled(consented && !managedOff);
+        return;
+      }
+      if (managedOff) return;
+      analyticsStarted = true;
+      initAnalytics({ enabled: consented, platform: "desktop", viewMode: "wide" });
+      track("app_opened", {});
+    });
   });
-  track("app_opened", {});
 
   $effect(() => {
+    if (!analyticsStarted) return;
     const installationId = serversStore.activeTarget?.installationId;
     const appVersion = hosts.get(serversStore.activeServerId)?.capabilityRecord?.version;
     if (!installationId || !appVersion) return;
@@ -306,8 +322,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
       // A device an agent opens is revealed beside its own conversation only.
-      devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
-      const unsubDevices = devicesStore.subscribe();
+      // Devices load on first use; their first event loads them (device-feature.ts).
+      const unsubDevices = followDeviceRequests(session);
       const unsubGuideStatus = pullRequests.guides.subscribe();
       // An agent can need an account before any surface that would show its
       // status has been opened, so the request is heard app-wide, not by the card.

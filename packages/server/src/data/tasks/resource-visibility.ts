@@ -3,8 +3,8 @@ import type { ShareResourceKind } from '@solus/contracts/sharing'
 import { visibleTo, type ResourceColumns } from '../../admission/access'
 import { actorFor } from '../../admission/actor'
 import type { Principal } from '../../admission/principal'
-import { taskLinks, taskSessionLinks, tasks } from './schema'
-import { getDatabase } from '../../db/database'
+import { resourceLinks } from '../links/schema'
+import { tasks } from './schema'
 import { visibleThroughSession } from '../works/session-access'
 
 /**
@@ -16,14 +16,11 @@ export function workspaceResourceVisibility(principal: Principal, kind: ShareRes
   const actor = actorFor(principal)
   const direct = visibleTo(actor, kind, columns)
   if (kind === 'task') return direct
-  const taskVisible = visibleTo(actor, 'task', { id: sql`api_parent.id`, organization: sql`api_parent.organization_id`, owner: sql`api_parent.owner_key` })
-  const link = kind === 'work'
-    ? sql`SELECT 1 FROM ${taskLinks} AS api_link JOIN ${tasks} AS api_parent ON api_parent.id = api_link.task_id
-        WHERE api_link.kind = 'work' AND api_link.target_key = ${columns.id}`
-    : sql`SELECT 1 FROM ${taskSessionLinks} AS api_link JOIN ${tasks} AS api_parent ON api_parent.id = api_link.task_id
-        WHERE api_link.session_id = ${columns.id}`
+  const taskVisible = visibleTo(actor, 'task', { id: sql`api_parent.id`, organization: sql`api_parent.organization_id`, owner: sql`api_parent.created_by` })
+  const link = sql`SELECT 1 FROM ${resourceLinks} AS api_link JOIN ${tasks} AS api_parent ON api_parent.id = api_link.source_id
+        WHERE api_link.source_kind = 'task' AND api_link.target_kind = ${kind === 'work' ? 'work' : 'session'} AND api_link.target_key = ${columns.id}`
   const throughTask = sql`EXISTS (${link} AND api_parent.organization_id = ${columns.organization}
     AND api_link.organization_id = ${columns.organization} AND (${taskVisible}))`
   if (kind === 'session') return sql`((${direct}) OR ${throughTask})`
-  return sql`((${direct}) OR ${throughTask} OR ${visibleThroughSession(getDatabase(), actor, columns.id)})`
+  return sql`((${direct}) OR ${throughTask} OR ${visibleThroughSession(actor, columns.id)})`
 }

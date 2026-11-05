@@ -91,7 +91,7 @@
   async function encode(format: WorkExportFormat) {
     try {
       const payload = await format.produce();
-      // An empty diagram encodes to nothing; silence would be indistinguishable
+      // An empty work encodes to nothing; silence would be indistinguishable
       // from a save that quietly failed.
       if (!payload) toasts.info("Nothing to export — this work is empty");
       return payload;

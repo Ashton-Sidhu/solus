@@ -4,7 +4,7 @@
   import type { DocCommentThread } from '@solus/contracts/work-comments'
   import { uuid } from '@solus/contracts/uuid'
   import { getSurfaceContext } from '../../contexts'
-  import { ensureIconCollections } from '../diagram/iconify'
+  import { ensureIconCollections } from '../../lib/iconify'
   import { CommentComposer } from '../ui/comment-composer'
   import { clearMentionScope } from '../mentions/lib/mention-scope.svelte'
   import { externalCommentDate, externalCommentBody, externalCommentQuote } from './lib/external-comments-view'

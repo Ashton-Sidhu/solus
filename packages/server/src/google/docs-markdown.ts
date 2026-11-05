@@ -1,4 +1,3 @@
-import { serializeDiagramEmbed, type DiagramEmbedReference } from '@solus/contracts/diagram-embed'
 import type { DocsDocument, DocsParagraph, DocsStructuralElement, DocsTextStyle } from './docs-api'
 
 /**
@@ -6,7 +5,7 @@ import type { DocsDocument, DocsParagraph, DocsStructuralElement, DocsTextStyle 
  *
  * The document says outright which paragraph is a heading, a bullet, or code,
  * so nothing here is guessed from spacing or glyphs. What markdown cannot
- * carry — an image that is not a Solus diagram — is named in `lossyParts`.
+ * carry — an image — is named in `lossyParts`.
  */
 
 export interface DocsMarkdown {
@@ -100,11 +99,8 @@ function inlineMarkdown(runs: Run[], options: InlineOptions): string {
 class MarkdownWriter {
   readonly items: Item[] = []
   readonly lossy = new Set<string>()
-  private readonly byTitle: Map<string, DiagramEmbedReference>
 
-  constructor(private readonly doc: DocsDocument, diagrams: DiagramEmbedReference[]) {
-    this.byTitle = new Map(diagrams.map((diagram) => [diagram.title, diagram]))
-  }
+  constructor(private readonly doc: DocsDocument) {}
 
   content(elements: DocsStructuralElement[]): void {
     for (let index = 0; index < elements.length; index += 1) {
@@ -116,7 +112,7 @@ class MarkdownWriter {
       const paragraph = element.paragraph
       if (!paragraph) continue
       if (paragraph.elements.some((part) => part.inlineObjectElement)) {
-        index = this.image(paragraph, elements, index)
+        this.image(paragraph, elements, index)
         continue
       }
       this.paragraph(paragraph)
@@ -152,26 +148,17 @@ class MarkdownWriter {
     this.items.push({ kind: 'paragraph', text: quoted ? text.split('\n').map((line) => `> ${line}`).join('\n') : text })
   }
 
-  /** An image paragraph, and the caption paragraph Solus wrote after it. */
-  private image(paragraph: DocsParagraph, elements: DocsStructuralElement[], index: number): number {
+  /** An image paragraph: named as lost, by its own text or the caption after it. */
+  private image(paragraph: DocsParagraph, elements: DocsStructuralElement[], index: number): void {
     const own = paragraphRuns(paragraph).map((run) => run.text).join('').trim()
-    let captionIndex = index + 1
     let caption = ''
-    while (captionIndex < elements.length) {
-      const next = elements[captionIndex].paragraph
-      if (!next) break
-      caption = paragraphRuns(next).map((run) => run.text).join('').trim()
-      if (caption) break
-      captionIndex += 1
-    }
-    const diagram = this.byTitle.get(own) ?? this.byTitle.get(caption)
-    if (diagram) {
-      this.items.push({ kind: 'paragraph', text: serializeDiagramEmbed(diagram) })
-      return this.byTitle.get(caption) === diagram ? captionIndex : index
+    for (let next = index + 1; next < elements.length && !caption; next += 1) {
+      const following = elements[next].paragraph
+      if (!following) break
+      caption = paragraphRuns(following).map((run) => run.text).join('').trim()
     }
     this.lossy.add(`image: ${own || caption || 'untitled'}`)
     if (own) this.items.push({ kind: 'paragraph', text: own })
-    return index
   }
 
   private table(rows: DocsStructuralElement[][][]): void {
@@ -228,8 +215,8 @@ class MarkdownWriter {
   }
 }
 
-export function documentToMarkdown(doc: DocsDocument, diagrams: DiagramEmbedReference[] = []): DocsMarkdown {
-  const writer = new MarkdownWriter(doc, diagrams)
+export function documentToMarkdown(doc: DocsDocument): DocsMarkdown {
+  const writer = new MarkdownWriter(doc)
   writer.content(doc.body?.content ?? [])
   return writer.result()
 }

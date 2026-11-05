@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { markSessionUnread } from '../../../data/sessions/session-states'
+import { sessionIdentityOf } from '../../../data/sessions/session-identity'
 import { settleFor } from '@solus/contracts/session-state'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
+import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
+import { actorFor, ownerKeyOf } from '../../../admission/actor'
 import type { WorkspaceOperations } from '../../../data/workspace/operations'
 import type { WorkspaceRequestContext } from '../../../admission/workspace-credentials'
 import type { AgentTool, AgentToolResult } from './agent-tool'
@@ -36,7 +39,11 @@ export async function organizeSession(input: OrganizeInput, callerSessionId: str
   }
   const label = sessionId === callerSessionId ? 'This session' : `Session ${sessionId}`
   if (input.action === 'mark_unread') {
-    await markSessionUnread(sessionId)
+    // Read state is a person's own: the run's person, else the session's owner.
+    const authority = workspaceToolAuthority()
+    const personKey = (authority ? ownerKeyOf(actorFor(authority)) : null) ?? (await sessionIdentityOf(sessionId))?.ownerKey
+    if (!personKey) return { ok: false, text: `${label} has no person to mark it unread for.` }
+    await markSessionUnread(sessionId, personKey)
     return { ok: true, text: `${label} is marked unread.` }
   }
   // The session's home keeps where it is in the list: its organization's Solus
