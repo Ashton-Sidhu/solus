@@ -13,8 +13,8 @@ import type { SolusAPI } from '../../src/preload'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import { readWav } from '@solus/server/transcription/wav'
-import { HOST_SOCKET_CLOSE, HOST_SOCKET_PROTOCOL_VERSION, serverFrameSchema, type ServerFrame } from '@solus/contracts/host-socket'
-import type { HostSocket } from '@solus/client-core/host-socket'
+import { HOST_SOCKET_CLOSE, HOST_SOCKET_PING_INTERVAL_MS, HOST_SOCKET_PING_TIMEOUT_MS, HOST_SOCKET_PROTOCOL_VERSION, serverFrameSchema, splitTextFrame, TEXT_FRAME_PART_MARK, type ServerFrame } from '@solus/contracts/host-socket'
+import { HostSocket } from '@solus/client-core/host-socket'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -629,6 +629,129 @@ describe('the host socket protocol', () => {
     expect(received).toEqual([{ seq: 4, bytes: [255, 216, 1, 2] }])
   })
 })
+
+describe('large text frames', () => {
+  const emoji = '😀'
+  const largeAnswer = { installationId: `é€${emoji}x`.repeat(40_000) }
+
+  test('a frame comes apart on any boundary and joins to the same text, within the part size', () => {
+    // WHY: half a surrogate pair turns into a replacement character on the wire.
+    for (const lead of ['', 'a']) {
+      const frame = lead + emoji.repeat(50_000)
+      const parts = splitTextFrame(frame)
+      expect(parts.length).toBeGreaterThan(1)
+      expect(parts.slice(0, -1).every((part) => part.startsWith(TEXT_FRAME_PART_MARK))).toBe(true)
+      expect(parts.at(-1)?.startsWith(TEXT_FRAME_PART_MARK)).toBe(false)
+      expect(parts.every((part) => Buffer.byteLength(part) <= 48 * 1024 + 1)).toBe(true)
+      expect(parts.map((part) => part.replace(TEXT_FRAME_PART_MARK, '')).join('')).toBe(frame)
+    }
+    expect(splitTextFrame('{"t":"ping"}')).toEqual(['{"t":"ping"}'])
+  })
+
+  test('a client that joins parts gets a large answer in parts, and an older client gets it whole', async () => {
+    // WHY: a client from before parts would drop every part as unreadable.
+    const harness = await createHarness(false)
+    harness.server.register('connectionsGetServerInfo', async () => largeAnswer)
+    const whole = await messagesAfterRpc(harness.url, {})
+    expect(whole).toHaveLength(1)
+    const parted = await messagesAfterRpc(harness.url, { frameParts: true })
+    expect(parted.length).toBeGreaterThan(1)
+    expect(JSON.parse(parted.map((part) => part.replace(TEXT_FRAME_PART_MARK, '')).join(''))).toEqual({ t: 'result', id: '1', result: largeAnswer })
+  })
+
+  test('a client reads a large answer as one result', async () => {
+    const harness = await createHarness(false)
+    harness.server.register('connectionsGetServerInfo', async () => largeAnswer)
+    const client = createClient(harness.url)
+    client.start()
+    await waitForStatus(client, 'connected')
+    const api = client.buildSolusApi() as unknown as { connectionsGetServerInfo(): Promise<typeof largeAnswer> }
+    expect(await api.connectionsGetServerInfo()).toEqual(largeAnswer)
+  })
+
+  test('parts that take longer than the ping timeout keep both sides of the socket alive', () => {
+    // WHY: the ping waits behind a large frame on the same socket. At 4,000 bytes/s a
+    // config of a few hundred KiB outlasts the timeout, and the socket redials for the
+    // same frame in a loop.
+    const timers = new Map<number, { at: number; run: () => void }>()
+    let now = 0
+    let nextTimer = 1
+    const realSetTimeout = globalThis.setTimeout
+    const realClearTimeout = globalThis.clearTimeout
+    const realWebSocket = globalThis.WebSocket
+    const sent: string[] = []
+    class SlowLinkSocket {
+      static CONNECTING = 0
+      static OPEN = 1
+      readyState = 1
+      binaryType = 'arraybuffer'
+      onopen: (() => void) | null = null
+      onmessage: ((message: { data: string }) => void) | null = null
+      onclose: ((close: { code: number; reason: string }) => void) | null = null
+      onerror: (() => void) | null = null
+      send(frame: string): void { sent.push(frame) }
+      close(): void { this.readyState = 3 }
+    }
+    let wire!: SlowLinkSocket
+    globalThis.WebSocket = class extends SlowLinkSocket {
+      constructor() {
+        super()
+        wire = this
+      }
+    } as unknown as typeof WebSocket
+    globalThis.setTimeout = ((run: () => void, delay: number) => {
+      timers.set(nextTimer, { at: now + delay, run })
+      return nextTimer++
+    }) as unknown as typeof setTimeout
+    globalThis.clearTimeout = ((id: number) => { timers.delete(id) }) as unknown as typeof clearTimeout
+    try {
+      const closes: number[] = []
+      const results: string[] = []
+      new HostSocket('http://host.test', {
+        welcome: () => {},
+        refused: () => {},
+        closed: (close) => closes.push(close.code),
+        result: (result) => results.push(result.id),
+      })
+      wire.onopen?.()
+      const parts = splitTextFrame(JSON.stringify({ t: 'result', id: '1', result: largeAnswer }))
+      const stepMs = (HOST_SOCKET_PING_INTERVAL_MS + HOST_SOCKET_PING_TIMEOUT_MS) / 2
+      expect(parts.length * stepMs).toBeGreaterThan(HOST_SOCKET_PING_INTERVAL_MS + HOST_SOCKET_PING_TIMEOUT_MS)
+      for (const part of parts) {
+        now += stepMs
+        for (const [id, timer] of [...timers]) {
+          if (timer.at > now) continue
+          timers.delete(id)
+          timer.run()
+        }
+        wire.onmessage?.({ data: part })
+      }
+      expect(closes).toEqual([])
+      expect(results).toEqual(['1'])
+      // One pong per part: the host's silence clock reads these.
+      expect(sent.filter((frame) => frame === '{"t":"pong"}')).toHaveLength(parts.length)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+      globalThis.clearTimeout = realClearTimeout
+      globalThis.WebSocket = realWebSocket
+    }
+  })
+})
+
+/** The text messages that answer one RPC on a raw socket admitted with these hello fields. */
+async function messagesAfterRpc(url: string, hello: { frameParts?: true }): Promise<string[]> {
+  const socket = new RawSocket(`${url.replace('http', 'ws')}/ws`)
+  cleanups.push(() => socket.terminate())
+  const messages: string[] = []
+  socket.on('message', (data) => messages.push(data.toString()))
+  await new Promise<void>((resolve, reject) => { socket.once('open', () => resolve()); socket.once('error', reject) })
+  socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, ...hello }))
+  await waitFor(() => messages.length === 1)
+  messages.length = 0
+  socket.send(JSON.stringify({ t: 'rpc', id: '1', method: 'connectionsGetServerInfo', args: [] }))
+  await waitFor(() => messages.length > 0 && !messages.at(-1)?.startsWith(TEXT_FRAME_PART_MARK))
+  return messages
+}
 
 async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost, lifecycle: Pick<Parameters<typeof attachWebSocketTransport>[2], 'onClientConnected' | 'onClientDisconnected'> = {}): Promise<Harness> {
   const http = createServer((_request, response) => {

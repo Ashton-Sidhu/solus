@@ -32,6 +32,49 @@ async function run(name: string, code: string) {
 }
 const processExecPath = process.execPath
 
+test('changing the default model keeps focus on its visible icon button', async () => {
+  const source = readFileSync(new URL('packages/workspace-ui/src/components/settings/ProviderInstanceModels.svelte', root), 'utf8')
+  const start = source.indexOf('{#snippet defaultButton(')
+  // Use a native button and a simple star to test the production action and
+  // focus without loading the shared button or icon components.
+  const snippet = source.slice(start, source.indexOf('{/snippet}', start) + '{/snippet}'.length)
+    .replaceAll('<Button', '<button').replaceAll('</Button>', '</button>').replace(/<Star[^>]*\/>/, '<span>star</span>')
+  const fixture = compile(`<script lang="ts">
+    let settings = $state({ defaultModels: { codex: '' } });
+    const instance = { provider: 'codex' };
+    const defaultModelId = $derived(settings.defaultModels.codex || 'built-in');
+    const workspace = { config: { setDefaultModel(provider, model) { settings.defaultModels[provider] = model; } } };
+    function makeDefault(model) { workspace.config.setDefaultModel('codex', model); }
+  </script>
+  ${snippet}
+  {@render defaultButton('chosen', 'Chosen model')}`, { filename: 'default-model-menu.svelte', generate: 'client' }).js.code
+  const fixturePath = join(directory, 'default-model-menu.mjs')
+  writeFileSync(fixturePath, executable(fixture))
+  await run('default-model-focus', `
+    import assert from 'node:assert/strict';
+    import { JSDOM } from ${JSON.stringify(new URL('node_modules/jsdom/lib/api.js', root).href)};
+    const dom = new JSDOM('<!doctype html><body></body>');
+    for (const key of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'Text', 'Comment', 'Event', 'CustomEvent']) {
+      globalThis[key] = dom.window[key];
+    }
+    const { mount, unmount, flushSync } = await import(${JSON.stringify(client)});
+    const { default: Menu } = await import(${JSON.stringify(fixturePath)});
+    const menu = mount(Menu, { target: document.body });
+    flushSync();
+    const item = document.querySelector('button');
+    item.focus();
+    item.click(); flushSync();
+    assert.equal(item.getAttribute('aria-label'), 'Use built-in default');
+    assert.equal(item.getAttribute('aria-pressed'), 'true');
+    assert.equal(document.activeElement, item, 'changing the default must not remove the focused item');
+    item.click(); flushSync();
+    assert.equal(item.getAttribute('aria-label'), 'Make Chosen model default');
+    assert.equal(item.getAttribute('aria-pressed'), 'false');
+    assert.equal(document.activeElement, item, 'clearing the default must also keep focus');
+    await unmount(menu);
+  `)
+})
+
 test('same-number PRs load once for each host and project scope', async () => {
   const source = readFileSync(new URL('packages/workspace-ui/src/components/project-panel/GitSection.svelte', root), 'utf8')
   const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'))

@@ -1556,6 +1556,16 @@ button.solus-token {
     inset 0 -0.0625rem 0 color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
 }
 
+/* Dictation so far, at the spot the transcript will land. Tentative words can
+   still change on the next model update. */
+.solus-voice-preview {
+  user-select: none;
+  pointer-events: none;
+}
+.solus-voice-preview__tentative {
+  color: var(--solus-text-tertiary);
+}
+
 .solus-token--slash { cursor: default; }
 :is(a, button).solus-token:is(:hover, :focus-visible) {
   text-decoration-color: currentColor;

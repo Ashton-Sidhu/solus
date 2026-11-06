@@ -81,6 +81,18 @@ export function turnEnding(messages: readonly SessionLoadMessage[]): TurnEnding 
   return ending
 }
 
+/** Enough of a transcript's tail to hold the last turn of most sessions. */
+const TURN_ENDING_WINDOW = 200
+
+/** How the last turn ended, read from the tail of the transcript. A window
+ *  that is full and holds no prompt may have cut the turn, so the whole
+ *  transcript is read then. */
+export async function lastTurnEnding(load: (limit?: number) => Promise<SessionLoadMessage[]>): Promise<TurnEnding> {
+  const tail = await load(TURN_ENDING_WINDOW)
+  const holdsTurn = tail.length < TURN_ENDING_WINDOW || tail.some((message) => message.role === 'user')
+  return turnEnding(holdsTurn ? tail : await load())
+}
+
 /** The outputs a settling turn adds: the branch its changed files are on, the
  *  questions it ended without an answer to, and its branch's pull request. */
 export function finishOutputs(exchange: Exchange, branch: string | undefined, pullRequest: SessionOutput | null): void {

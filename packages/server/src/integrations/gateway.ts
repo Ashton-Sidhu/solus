@@ -13,7 +13,7 @@ import {
   type ReadResourceResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import { solusServerFor } from './solus-servers'
@@ -115,6 +115,7 @@ export class IntegrationGateway {
   private readonly listing = new Map<string, Promise<UpstreamTool[]>>()
   private readonly listeners: Array<(integrationId: string) => void> = []
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
+  private readonly customServerNeededListeners: Array<(request: IntegrationCustomServerNeeded) => void> = []
   private readonly opening = new Map<string, Promise<UpstreamSession>>()
   private credentials: IntegrationCredentials | null = null
   private captureApp: ((call: IntegrationAppCapture) => Promise<void>) | null = null
@@ -345,6 +346,11 @@ export class IntegrationGateway {
     for (const listener of this.connectNeededListeners) listener(request)
   }
 
+  /** Shows the connect card with an address field in the conversation of `request.sessionId`. */
+  askForCustomServer(request: IntegrationCustomServerNeeded): void {
+    for (const listener of this.customServerNeededListeners) listener(request)
+  }
+
   /**
    * After a person's sign-in: list their tools now, so the next run and their
    * Settings read them, and tell clients the list may have changed. Never throws.
@@ -369,6 +375,10 @@ export class IntegrationGateway {
   /** A call needs the person to sign in (§4.1 rule 2); the conversation shows the connect card. */
   onConnectNeeded(listener: (request: IntegrationConnectNeeded) => void): void {
     this.connectNeededListeners.push(listener)
+  }
+
+  onCustomServerNeeded(listener: (request: IntegrationCustomServerNeeded) => void): void {
+    this.customServerNeededListeners.push(listener)
   }
 
   /**

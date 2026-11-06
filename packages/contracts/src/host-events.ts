@@ -33,7 +33,7 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { AgentAuthFinishedEvent } from './agent-auth'
-import type { IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnectionChangedEvent, IntegrationConnectNeeded } from './integration-types'
+import type { IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnectionChangedEvent, IntegrationConnectNeeded, IntegrationCustomServerNeeded } from './integration-types'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { UplinkStatus } from './uplink'
@@ -191,6 +191,8 @@ export interface HostEventMap {
   'host.integrationAuthFinished': IntegrationAuthFinishedEvent
   /** An integration tool needs the user to connect their account. */
   'integration.connectNeeded': IntegrationConnectNeeded
+  /** An agent needs the address of a server that is not in the catalog. */
+  'integration.customServerNeeded': IntegrationCustomServerNeeded
   /** Who is watching one session, and whose turn is running. The whole room each
    *  time: a handful of rows, and two clients disagreeing about who is present is
    *  the failure to avoid. Delivered to the session's watchers. */
@@ -295,6 +297,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'integration.connectionChanged': { owner: 'integrations', category: 'delta', recovery: 'reload', description: "One person's connection to an integration changed; recover through integrationConnectionList." },
   'host.integrationAuthFinished': { owner: 'integrations', category: 'targeted', recovery: 'reset', description: "An integration sign-in in one person's scope ended." },
   'integration.connectNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An integration tool needs the user to connect their account.' },
+  'integration.customServerNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An agent needs the address of a server that is not in the catalog.' },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },

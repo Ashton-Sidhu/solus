@@ -160,7 +160,11 @@
        reaches the same rows — so the stepper stands down rather than pushing
        the controls after it off the edge. -->
   {#if stepper}
-    <div class="flex shrink-0 items-center gap-1.5 @max-[30rem]/pane:hidden">
+    <div
+      class="flex shrink-0 items-center rounded-full shadow-[inset_0_0_0_0.5px_var(--hairline)] @max-[30rem]/pane:hidden"
+      role="group"
+      aria-label="Step through {stepper.itemLabel}s"
+    >
       <button
         type="button"
         class={SUB_PAGE_ROUND_BTN}
@@ -172,7 +176,10 @@
         <CaretLeftIcon size={15} strokeWidth={1.5} />
       </button>
       {#if queueLabel}
-        <span class="tabular-nums whitespace-nowrap text-muted-foreground">{queueLabel}</span>
+        <span
+          class="px-0.5 text-center tabular-nums whitespace-nowrap text-muted-foreground"
+          title="{stepper.itemLabel} {queueLabel}">{queueLabel}</span
+        >
       {/if}
       <button
         type="button"

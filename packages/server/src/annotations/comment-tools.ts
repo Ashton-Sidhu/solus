@@ -16,6 +16,7 @@ import type { PlanAnnotations, PlanComment, SessionMeta } from '@solus/contracts
 import { attributionLabel, type Attribution } from '@solus/contracts/user'
 import { toolAgentAttribution } from '../execution/agents/tools/agent-attribution'
 import type { DocCommentThread } from '@solus/contracts/work-comments'
+import { toolMayRead } from '../admission/workspace-tool-authority'
 
 const log = createLogger('annotations', 'comment-tools.ts')
 
@@ -296,6 +297,8 @@ export async function executeCommentTool(
 async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Promise<CommentToolResult> {
   const sessionId = String(args.session_id ?? '').trim()
   if (!sessionId) return { ok: false, text: 'read_plan requires session_id.' }
+  // A member's or guest's turn reads only the plan of a session the person may open.
+  if (!(await toolMayRead({ kind: 'session', id: sessionId }))) return { ok: false, text: `No session ${sessionId} that this turn may read.` }
   const requestedPlanId = args.plan_tool_use_id?.trim() || null
 
   const controller = getSessionController()
@@ -358,6 +361,9 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
   if (!targetId) return { ok: false, text: 'comment_document requires target_id.' }
   const requested = Array.isArray(args.comments) ? args.comments : []
   if (!requested.length) return { ok: false, text: 'comment_document requires at least one comment.' }
+  // A member's or guest's turn comments only on what the person may open: a work, or a plan's session.
+  const resource = isPlanTarget(targetId) ? { kind: 'session' as const, id: targetId.split('__')[0] ?? targetId } : { kind: 'work' as const, id: targetId }
+  if (!(await toolMayRead(resource))) return { ok: false, text: `No document ${targetId} that this turn may read.` }
 
   const target = await resolveTarget(targetId)
   if (!target) {

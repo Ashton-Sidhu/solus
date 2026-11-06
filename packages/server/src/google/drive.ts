@@ -1,6 +1,6 @@
 import { z } from 'zod'
+import { driveApi, googleAnswer } from './google-api'
 
-const FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const DOC_MIME_TYPE = 'application/vnd.google-apps.document'
 /** Everything Solus needs to address, order, and version-guard a doc. */
 const FILE_FIELDS = 'id,name,modifiedTime,version,webViewLink,mimeType'
@@ -10,6 +10,13 @@ export interface DriveDoc {
   docUrl: string
 }
 
+/** The answer's data; a refusal names the action and Google's status and body. */
+async function driveCall<T>(action: string, call: Promise<{ data: T }>): Promise<T> {
+  const answer = await googleAnswer(call)
+  if (answer.kind === 'answered') return answer.data
+  if (answer.kind === 'unanswered') throw answer.error
+  throw new Error(`${action} failed (${answer.status}): ${answer.body}`)
+}
 
 /** The metadata part of a Drive multipart upload. A file created at the root
  *  states no parent rather than an empty list. */
@@ -26,14 +33,8 @@ interface DriveFileMetadata {
 export async function createEmptyDoc(accessToken: string, title: string, parentId?: string): Promise<DriveDoc> {
   const fields: DriveFileMetadata = { name: title, mimeType: DOC_MIME_TYPE }
   if (parentId && parentId !== 'root') fields.parents = [parentId]
-  const res = await fetch(`${FILES_URL}?fields=id`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  })
-  const responseBody = await res.text()
-  if (!res.ok) throw new Error(`Drive create failed (${res.status}): ${responseBody}`)
-  const data = z.object({ id: z.string().min(1) }).parse(JSON.parse(responseBody))
+  const created = await driveCall('Drive create', driveApi(accessToken).files.create({ requestBody: fields, fields: 'id' }))
+  const data = z.object({ id: z.string().min(1) }).parse(created)
   return { docId: data.id, docUrl: docUrlFor(data.id) }
 }
 
@@ -54,14 +55,10 @@ const fileSchema = z.object({
 
 export type DriveFile = z.infer<typeof fileSchema>
 
-async function driveJson<T extends z.ZodType>(accessToken: string, url: string, schema: T): Promise<z.infer<T>> {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
-  if (!res.ok) throw new Error(`Drive request failed (${res.status}): ${(await res.text()).slice(0, 300)}`)
-  return schema.parse(await res.json())
-}
+const fileListSchema = z.object({ files: z.array(fileSchema) })
 
 export async function fileMetadata(accessToken: string, fileId: string): Promise<DriveFile> {
-  return driveJson(accessToken, `${FILES_URL}/${encodeURIComponent(fileId)}?fields=${FILE_FIELDS}`, fileSchema)
+  return fileSchema.parse(await driveCall('Drive request', driveApi(accessToken).files.get({ fileId, fields: FILE_FIELDS })))
 }
 
 
@@ -80,34 +77,25 @@ export async function listDocs(
   // query invalid rather than returning nothing.
   if (options.query) clauses.push(`fullText contains '${options.query.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`)
   if (options.folderId && options.folderId !== 'root') clauses.push(`'${options.folderId}' in parents`)
-  const params = new URLSearchParams({
+  const found = await driveCall('Drive request', driveApi(accessToken).files.list({
     q: clauses.join(' and '),
     fields: `files(${FILE_FIELDS})`,
-    pageSize: String(options.limit ?? 20),
+    pageSize: options.limit ?? 20,
     orderBy: 'modifiedTime desc',
-  })
-  const found = await driveJson(accessToken, `${FILES_URL}?${params}`, z.object({ files: z.array(fileSchema) }))
-  return found.files
+  }))
+  return fileListSchema.parse(found).files
 }
 
 export async function listFolders(accessToken: string, limit = 100): Promise<DriveFile[]> {
-  const params = new URLSearchParams({
+  const found = await driveCall('Drive request', driveApi(accessToken).files.list({
     q: "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
     fields: `files(${FILE_FIELDS})`,
-    pageSize: String(limit),
+    pageSize: limit,
     orderBy: 'name',
-  })
-  const found = await driveJson(accessToken, `${FILES_URL}?${params}`, z.object({ files: z.array(fileSchema) }))
-  return found.files
+  }))
+  return fileListSchema.parse(found).files
 }
 
 export async function renameFile(accessToken: string, fileId: string, title: string): Promise<DriveFile> {
-  const res = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}?fields=${FILE_FIELDS}`, {
-    method: 'PATCH',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: title }),
-  })
-  const responseBody = await res.text()
-  if (!res.ok) throw new Error(`Drive rename failed (${res.status}): ${responseBody}`)
-  return fileSchema.parse(JSON.parse(responseBody))
+  return fileSchema.parse(await driveCall('Drive rename', driveApi(accessToken).files.update({ fileId, fields: FILE_FIELDS, requestBody: { name: title } })))
 }

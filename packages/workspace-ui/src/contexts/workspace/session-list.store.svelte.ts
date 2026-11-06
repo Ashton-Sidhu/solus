@@ -10,7 +10,8 @@ import { isSolusApiId } from '@solus/contracts/uplink'
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { rememberRoles } from '../sharing/resource-roles'
-import { visibleInWindow } from '@solus/client-core/organization-filter'
+import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
+import { managedHostIds } from '@solus/client-core/server-registry'
 import { newGrants, sessionShareOf, type SessionShare } from './shared-sessions'
 
 /** A session in a person's list, as a row without a conversation draws it. */
@@ -37,7 +38,7 @@ export interface ListedSession {
   branch: string | null
   /** The person the session belongs to (docs/plans/access-model.md §2.2). */
   ownerKey: string
-  /** Started in Coordinator mode: a lead (docs/plans/lead-session.md). */
+  /** Started in Meta mode: a lead (docs/plans/lead-session.md). */
   isLead?: boolean
   /** The reader's role on the session; absent on a host that is theirs. */
   role?: ResourceRole
@@ -97,11 +98,14 @@ export interface SessionListHosts {
   /** The connected saved server a cloud record's runner host id names, or null. */
   connectedRunnerFor(runnerHostId: string): string | null
   connectedServerIds(): string[]
+  /** A machine provisioned for an organization; any other is personal (plans/031). Absent: every machine is personal. */
+  isManagedHost?(serverId: string): boolean
 }
 
 const registryHosts: SessionListHosts = {
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
   connectedServerIds: () => serverConnections.connectedServerIds(),
+  isManagedHost: (serverId) => managedHostIds().has(serverId),
 }
 
 const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedAt: null, snoozedUntil: null, snoozeNote: null }
@@ -160,8 +164,11 @@ export class SessionListStore {
     const readStartedAt = performance.now()
     const answer = await api.sessionRecordList().catch(() => null)
     if (!answer || serverConnections.apiFor(serverId) !== api) return
-    // A published organization session a machine lists is its Solus API's to list.
-    const records = isSolusApiId(serverId) ? answer.records : answer.records.filter((record) => this.homeOf(serverId, record) === serverId)
+    // A published organization session a managed machine lists is its Solus API's to list;
+    // one a connected personal machine runs is that machine's (plans/031 rule 1).
+    const records = isSolusApiId(serverId)
+      ? answer.records.filter((record) => !this.runsOnConnectedPersonalHost(record))
+      : answer.records.filter((record) => this.homeOf(serverId, record) === serverId)
     const answered = new Set(records.map((record) => record.sessionId))
     for (const [sessionId, listed] of this.listedBySession) {
       if (listed.homeServerId !== serverId || answered.has(sessionId)) continue
@@ -299,6 +306,12 @@ export class SessionListStore {
     return sessionHomeId(serverId, record, this.hosts)
   }
 
+  /** A Solus API record whose personal runner is connected: the machine lists it and keeps its state. */
+  private runsOnConnectedPersonalHost(record: Pick<SessionRecord, 'runnerHostId'>): boolean {
+    const runner = record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
+    return !!runner && !this.hosts.isManagedHost?.(runner)
+  }
+
   /** Each home announces its own changes, so each is subscribed once. */
   private watchHost(serverId: string): void {
     if (this.watchedServerIds.has(serverId)) return
@@ -383,9 +396,11 @@ export class SessionListStore {
     return [...this.listedBySession.values()]
   }
 
-  /** Local sessions and the selected organization's, including cached homes. */
+  /** Local sessions, the selected organization's, and every session of a personal
+   *  host (plans/031 rule 1), including cached homes. */
   sessionsInOrganization(organizationId: string | null): ListedSession[] {
-    return this.sessions.filter((session) => visibleInWindow(session.organizationId, organizationId))
+    const managed = managedHostIds()
+    return this.sessions.filter((session) => visibleInWindow(session.organizationId, organizationId, usesWindowFilter(session.homeServerId, managed)))
   }
 
   /** This person's snoozes, for the clock that wakes their rows. */

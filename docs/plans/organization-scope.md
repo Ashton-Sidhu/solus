@@ -68,7 +68,13 @@ with the collaboration service. “Workspace” remains the user interface.
 
 ## 2. What the person can see
 
-**Client rule: Local + the selected organization.** Organization selection is
+**Client rule: a personal host whole; the cloud and managed hosts by the
+selected organization** (plans/031 rules 1 and 3, 2026-11-03). Every record of a
+personal host the person owns shows in every window, signed in or out, whatever its
+organization: the host is theirs. The rule below applies to records read from a
+Solus API or a managed host (`usesWindowFilter`, `client-core/organization-filter.ts`).
+
+**Filtered sources: Local + the selected organization.** Organization selection is
 a view filter. Switching from A to B replaces A's organization content with
 B's while keeping Local visible. Each window has one such selection; separate
 windows can select different organizations. With no selection, show Local.
@@ -88,9 +94,9 @@ Keep all three sources accessible, subject to access and availability:
 
 Local remains available while an organization is selected. The organization
 selection changes the cloud and shared-host context; it does not hide the
-person's Local work. Another organization's records are reached by selecting
-that organization or opening another window. Do not combine all organizations
-into one unscoped view.
+person's Local work. Another organization's records on the cloud or a managed host are reached by
+selecting that organization or opening another window. Do not combine those into
+one unscoped view; a personal host's records are the exception above.
 
 **One exception: the notifications hub** ([notifications-hub.md](notifications-hub.md)).
 It shows what is addressed to the person from every host and every

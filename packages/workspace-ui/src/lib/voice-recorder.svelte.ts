@@ -219,6 +219,9 @@ export class VoiceRecorder {
         silenceMs += chunk.samples.length / 16
         if (silenceMs >= this.#getVadSilenceMs()) this.stop()
       }
+    }, (rms) => {
+      if (this.state === 'recording' && this.#capture === capture && !this.#cancelled)
+        this.rmsRef.current = rms * 128
     })
     this.#capture = capture
 
@@ -258,7 +261,6 @@ export class VoiceRecorder {
   // Buffer a capture chunk, gating leading silence so a stray onset mark never
   // opens the transcript. Returns whether the chunk carried speech (drives VAD).
   #handleChunk(chunk: PcmChunk): boolean {
-    this.rmsRef.current = chunk.rms * 128
     const hasSpeech = containsSpeech(chunk.samples)
     if (!this.#speechDetected) {
       if (!hasSpeech) {
@@ -292,6 +294,7 @@ export class VoiceRecorder {
     const samples = concatSamples(this.#buffer)
     const liveStream = this.#stream
     this.#capture = null
+    this.rmsRef.current = 0
 
     if (cancelled || !hadSpeech || samples.length === 0) {
       liveStream?.cancel()
@@ -367,6 +370,7 @@ export class VoiceRecorder {
   #cleanup(): void {
     this.#capture?.stop()
     this.#capture = null
+    this.rmsRef.current = 0
     this.#stream?.cancel()
     this.#stream = null
     this.partialTranscript = { stable: '', tentative: '' }

@@ -548,7 +548,7 @@
      with it rather than being tuned against it. -->
 {#snippet rowTitle()}
   {#if task.isLead && !renamingRow}
-    <!-- The same glyph as the composer's Coordinator mode button and the count
+    <!-- The same glyph as the composer's Meta mode button and the count
          of sessions a row started: one family for "this session starts
          sessions". It breathes while the row's session works, as the count
          does, in the pane's one cool tone for work in flight. -->
@@ -556,8 +556,8 @@
       class="flex shrink-0 items-center text-(--solus-text-tertiary) {task.attention === 'running'
         ? 'text-(--solus-accent) animate-pulse [animation-duration:1.4s] motion-reduce:animate-none'
         : ''}"
-      title="Coordinator mode: this session plans the work and starts other sessions to do it"
-      aria-label="Coordinator mode session"
+      title="Meta mode: this session plans the work and starts other sessions to do it"
+      aria-label="Meta mode session"
       role="img"
     >
       <StartedSessionsIcon size={13} onanimationstart={alignStatusAnimationPhase} />

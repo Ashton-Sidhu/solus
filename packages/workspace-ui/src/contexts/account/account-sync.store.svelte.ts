@@ -1,6 +1,6 @@
 import { AgentProfileSync, type AgentProfileSyncPorts, type AgentProfileSyncStatus } from '@solus/client-core/agent-profile-sync'
 import { webAgentProfileRequests, type AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
-import { webHostListRequests, type HostListCloudRequests } from '@solus/client-core/host-list-requests'
+import { accountDocumentCall, webAccountDocumentSend, type AccountDocumentCall } from '@solus/client-core/account-documents'
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import {
   syncAccountKey,
@@ -54,10 +54,11 @@ export function accountSettingsRequests(): SettingsCloudRequests | null {
   return account ? webSettingsRequests(account.consoleUrl, account.session, fetch, () => account.takeShellSettings()) : null
 }
 
-export function accountHostListRequests(): HostListCloudRequests | null {
-  if (localApi.accountHostListGet !== undefined) return localApi
+/** The account documents (`account-documents.ts`) for whoever holds this client's account, as the calls above. */
+export function accountDocuments(): AccountDocumentCall | null {
+  if (localApi.accountDocument !== undefined) return (request) => localApi.accountDocument!(request)
   const account = cloudAccount()
-  return account ? webHostListRequests(account.consoleUrl, account.session) : null
+  return account ? accountDocumentCall(webAccountDocumentSend(account.consoleUrl, account.session)) : null
 }
 
 export function accountAgentProfileRequests(): AgentProfileCloudRequests | null {

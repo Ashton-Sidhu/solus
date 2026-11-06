@@ -4,7 +4,7 @@ import type { Activity, TaskEventTarget } from '@solus/contracts/activity'
 import type { TaskEventKind } from '@solus/contracts/task-types'
 import { parseUserKey, type Attribution } from '@solus/contracts/user'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
-import { isHostUserKey } from '../../host/host-user'
+import { hostKeyOf, isHostUserKey } from '../../host/host-user'
 import { appendActivity, newActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution } from '../stored-attribution'
 import { recordNotification } from '../notifications/store'
@@ -123,11 +123,18 @@ export async function notifyTaskAssignment(
  * owner key is not a member. Membership itself is the directory's answer on the
  * client, as for review requests; the server never infers it from a name.
  */
+/** The assignee as this host stores them: the host's owner, named by their account, by their key here (plans/031 D4). */
+export function taskAssigneeKey(assigneeUserId: string | null | undefined): string | null {
+  const trimmed = assigneeUserId?.trim()
+  return trimmed ? hostKeyOf(trimmed) : null
+}
+
 export function assertTaskAssignee(organizationId: string, assigneeUserId: string | null | undefined): void {
   if (!assigneeUserId) return
   if (organizationId === LOCAL_ORGANIZATION_ID) {
     if (!isHostUserKey(assigneeUserId)) throw new Error('A Local task can be assigned only to this host\'s user.')
     return
   }
-  if (parseUserKey(assigneeUserId).kind !== 'account') throw new Error('An organization task can be assigned only to a member account.')
+  // The host's own user is a member through the account the host is linked to (plans/031 D4).
+  if (!isHostUserKey(assigneeUserId) && parseUserKey(assigneeUserId).kind !== 'account') throw new Error('An organization task can be assigned only to a member account.')
 }

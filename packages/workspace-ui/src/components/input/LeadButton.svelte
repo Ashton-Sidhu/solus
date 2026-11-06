@@ -8,7 +8,7 @@
   import { canChooseLead, runForLead } from "./lib/lead-toggle";
 
   /**
-   * Coordinator mode, the lead choice of a session that has not started
+   * Meta mode, the lead choice of a session that has not started
    * (docs/plans/lead-session.md): a lead plans the work, starts other sessions
    * to do it, and reports back. One button in the composer footer, a ghost
    * button that fills while it is selected. Offered before the first message, fixed once the
@@ -55,7 +55,7 @@
     <TooltipUI.Trigger>
       {#snippet child({ props })}
         <!-- The same glyph marks the session in the sidebar once it starts, so
-             the button and the row say "Coordinator mode" the same way. A ghost
+             the button and the row say "Meta mode" the same way. A ghost
              button, quiet beside the footer's other controls; selected, it
              fills with the accent tint: the state reads by fill as well as by
              colour. -->
@@ -64,17 +64,17 @@
           type="button"
           data-testid="lead-toggle"
           aria-pressed={isLead}
-          aria-label="Coordinator mode: plan the work and start other sessions to do it"
+          aria-label="Meta mode: plan the work and start other sessions to do it"
           onclick={toggle}
           class="flex h-[1.625rem] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 font-secondary text-workspace-chrome font-medium transition-[background-color,color,scale] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent-border) {isLead
             ? 'bg-(--solus-accent-light) text-(--solus-accent)'
             : 'text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)'}"
         >
           <LeadIcon size={14} class="shrink-0" />
-          <span class="whitespace-nowrap @max-[22rem]/composer:hidden">Coordinator mode</span>
+          <span class="whitespace-nowrap @max-[22rem]/composer:hidden">Meta mode</span>
         </button>
       {/snippet}
     </TooltipUI.Trigger>
-    <TooltipUI.Content value={isLead ? "Coordinator mode is on: this session plans the work, starts other sessions to do it, and reports back. It does not do the work itself. Fixed once the session starts." : "Coordinator mode: plan the work, start other sessions to do it, and report back"} />
+    <TooltipUI.Content value={isLead ? "Meta mode is on: this session plans the work, starts other sessions to do it, and reports back. It does not do the work itself. Fixed once the session starts." : "Meta mode: plan the work, start other sessions to do it, and report back"} />
   </TooltipUI.Root>
 {/if}

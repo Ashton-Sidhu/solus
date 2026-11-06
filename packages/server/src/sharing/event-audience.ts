@@ -2,7 +2,7 @@ import type { AttentionEntry } from '@solus/contracts/attention-types'
 import type { HostEvent } from '@solus/contracts/host-events'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { actorFor, ownerKeyOf } from '../admission/actor'
-import { isHostOwner, type Principal } from '../admission/principal'
+import { readsWholeDisk, type Principal } from '../admission/principal'
 import type { ShareManager } from './share-manager'
 
 /**
@@ -19,7 +19,7 @@ import type { ShareManager } from './share-manager'
 export async function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): Promise<boolean> {
   const personal = personalEventVisibleTo(principal, event)
   if (personal !== null) return personal
-  if (principal.kind === 'system' || isHostOwner(principal)) return true
+  if (readsWholeDisk(principal)) return true
   // A runner writes; it reads nothing back from the people's side.
   if (principal.kind === 'runner') return false
   const resource = eventResource(event)
@@ -73,7 +73,7 @@ function personalEventVisibleTo(principal: Principal, event: HostEvent): boolean
  * item 5). The owner and the host itself see every entry; a runner sees none.
  */
 export async function attentionVisibleTo(principal: Principal, entries: readonly AttentionEntry[], shares: ShareManager): Promise<AttentionEntry[]> {
-  if (principal.kind === 'system' || isHostOwner(principal)) return [...entries]
+  if (readsWholeDisk(principal)) return [...entries]
   if (principal.kind === 'runner') return []
   const visible = await Promise.all(entries.map(async (entry) => await shares.roleFor(principal, { kind: 'session', id: entry.sessionId }) !== 'none'))
   return entries.filter((_entry, index) => visible[index])

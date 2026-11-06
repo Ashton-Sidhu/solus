@@ -1,4 +1,5 @@
 import { isQuestionTool } from '@solus/contracts/question-history'
+import { isSecretTool, secretOutcomesFromResult } from '@solus/contracts/secret-request'
 import { parseExchangeTag, parseOrchestrationItems } from '@solus/contracts/session-exchange'
 import type { ExchangeProgress, NormalizedEvent, WireNormalizedEvent } from '@solus/contracts/types'
 import type { AgentConversationResultProjection, SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -34,6 +35,8 @@ export function projectSessionEvent(event: NormalizedEvent): WireNormalizedEvent
     if (event.parentToolUseId) projected.parentToolUseId = event.parentToolUseId
     if (event.isError) projected.errorHead = utf8Head(event.content)
     if (event.toolImages) projected.toolImages = event.toolImages
+    const secretOutcomes = event.isError ? undefined : secretOutcomesFromResult(event.content)
+    if (secretOutcomes) projected.secretOutcomes = secretOutcomes
     return projected
   }
 
@@ -70,6 +73,7 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
       }
       if (toolResultIsError) projected.errorHead = utf8Head(message.content)
       if (isQuestionTool(toolName) && message.content) projected.questionResult = utf8Head(message.content)
+      Object.assign(projected, secretProjection(toolName, message.content, toolResultIsError))
       Object.assign(projected, agentConversationProjection(toolName, message.content))
       Object.assign(projected, artifactProjection(toolName, message.content, toolResultIsError))
       return projected
@@ -89,6 +93,7 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
     }
     if (message.toolStatus === 'error') projected.errorHead = utf8Head(message.content)
     if (isQuestionTool(message.toolName)) projected.questionResult = utf8Head(message.content)
+    Object.assign(projected, secretProjection(message.toolName, message.content, message.toolStatus === 'error'))
     Object.assign(projected, agentConversationProjection(message.toolName, message.content))
     Object.assign(projected, artifactProjection(message.toolName, message.content, message.toolStatus === 'error'))
     return projected
@@ -109,6 +114,11 @@ export function withExchangeProgress(
     const progress = result?.messageId ? progressOf(result.messageId) : undefined
     return progress ? { ...message, agentConversationResult: { ...result, progress } } : message
   })
+}
+
+function secretProjection(toolName: string | undefined, content: string, failed?: boolean): Pick<WireSessionLoadMessage, 'secretOutcomes'> {
+  const secretOutcomes = !failed && isSecretTool(toolName) ? secretOutcomesFromResult(content) : undefined
+  return secretOutcomes ? { secretOutcomes } : {}
 }
 
 function artifactProjection(toolName: string | undefined, content: string, failed?: boolean): Pick<WireSessionLoadMessage, 'artifactWorkRef' | 'workUpdateSucceeded' | 'workContentVersion'> {

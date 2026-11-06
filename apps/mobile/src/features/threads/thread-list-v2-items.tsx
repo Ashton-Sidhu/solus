@@ -637,9 +637,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </View>
       <View className="mt-1 flex-row items-start gap-1.5">
         {record.isLead ? (
-          // The Coordinator mode glyph, the same as on the composer's button: this
+          // The Meta mode glyph, the same as on the composer's button: this
           // session plans the work and starts other sessions to do it.
-          <View className="pt-[3px]" accessibilityLabel="Coordinator mode session">
+          <View className="pt-[3px]" accessibilityLabel="Meta mode session">
             <SymbolView
               name={LEAD_SYMBOL}
               size={13}

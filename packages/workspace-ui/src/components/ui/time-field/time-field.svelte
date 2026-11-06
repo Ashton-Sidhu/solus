@@ -58,7 +58,7 @@
 			{#each segments as segment, index (index)}
 				<TimeFieldPrimitive.Segment
 					part={segment.part}
-					class="rounded-[0.25rem] px-0.5 outline-none transition-colors focus:bg-(--solus-accent-light) focus:text-foreground data-[segment=dayPeriod]:ml-0.5 data-[segment=literal]:px-0 data-[segment=literal]:text-muted-foreground aria-[valuetext=Empty]:text-muted-foreground pointer-coarse:px-1.5 pointer-coarse:py-1"
+					class="rounded-[0.25rem] px-0.5 outline-none transition-colors focus:bg-muted focus:text-foreground data-[segment=dayPeriod]:ml-0.5 data-[segment=literal]:px-0 data-[segment=literal]:text-muted-foreground aria-[valuetext=Empty]:text-muted-foreground pointer-coarse:px-1.5 pointer-coarse:py-1"
 				>
 					{segment.value}
 				</TimeFieldPrimitive.Segment>

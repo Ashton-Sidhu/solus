@@ -14,6 +14,7 @@ import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { AccountState } from '@solus/contracts/account-types'
 import type { ResourceRefusal } from './oauth-session'
 import type { WebTokenSession } from './web-token-session'
+import { httpClient, type HttpRequest } from './http-request'
 import { dialableRoutes, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
 import type { SavedServer, SavedServerUplink } from './server-registry'
 
@@ -62,19 +63,10 @@ export function webUplinkAccountSource(
   session: Pick<WebTokenSession, 'accessToken' | 'state'> & Partial<Pick<WebTokenSession, 'refusal'>>,
   fetchImpl: typeof fetch = fetch,
 ): UplinkAccountSource {
-  const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
-    const token = await session.accessToken({ kind: 'account' })
-    if (!token) return null
-    try {
-      return await fetchImpl(`${origin}${path}`, {
-        ...init,
-        credentials: 'omit',
-        headers: { accept: 'application/json', authorization: `Bearer ${token}`, ...init.headers },
-        signal: AbortSignal.timeout(8_000),
-      })
-    } catch {
-      return null
-    }
+  const cloud = httpClient({ baseUrl: origin, token: (options) => session.accessToken({ kind: 'account' }, options), timeoutMs: 8_000, fetch: fetchImpl })
+  const call = async (path: string, init?: HttpRequest): Promise<Response | null> => {
+    const result = await cloud.request(path, init)
+    return result.kind === 'response' ? result.response : null
   }
   return {
     async listDirectory() {

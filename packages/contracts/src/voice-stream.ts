@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+// A lost client must not retain model memory indefinitely. Renew independently
+// of audio capture; a voice-mode hold never keeps the machine awake.
+export const VOICE_WARM_RENEW_MS = 30_000
+export const VOICE_WARM_LEASE_MS = 3 * VOICE_WARM_RENEW_MS
+export const voiceWarmRequestSchema = z.object({ keepWarm: z.boolean() })
+export type VoiceWarmRequest = z.infer<typeof voiceWarmRequestSchema>
+
 export interface VoiceTranscript {
   error: string | null
   transcript: string | null

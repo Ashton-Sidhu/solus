@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { integrationSlug, type CatalogEntry, type Integration, type IntegrationCreateRequest } from '@solus/contracts/integration-types'
+import { integrationSlug, integrationUrlSchema, type CatalogEntry, type Integration, type IntegrationCreateRequest, type IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
 import { SetupHandoff, setupNeedOfUndetermined } from '@solus/contracts/integrations/setup-handoff'
 import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL, type Principal } from '../admission/principal'
 import { workspaceToolAuthority } from '../admission/workspace-tool-authority'
@@ -16,6 +16,8 @@ const log = createLogger('integrations', 'connect-integration-tool.ts')
 /** Catalog matches offered when the name is not exact (docs/plans/mcp-integrations.md §13.2). */
 const MATCH_LIMIT = 5
 
+const ADD_BY_URL_HINT = 'The user can add a server by its URL in Settings → MCP, or call this tool with `custom: true` to ask for the address in a card.'
+
 interface ConnectIntegrationDeps {
   catalog: Pick<IntegrationCatalog, 'list'>
   /** `createIntegration` with the host's store, events, and profile bound. */
@@ -29,7 +31,11 @@ export function installConnectIntegrationTool(next: ConnectIntegrationDeps | nul
   deps = next
 }
 
-const argsSchema = z.object({ service: z.string().trim().min(1).max(200) })
+const argsSchema = z.object({
+  service: z.string().trim().min(1).max(200).optional(),
+  custom: z.boolean().optional(),
+  url: integrationUrlSchema.optional(),
+})
 
 function sameName(name: string, service: string): boolean {
   return name.toLowerCase() === service.toLowerCase()
@@ -65,13 +71,13 @@ async function connectIntegration(service: string, sessionId: string | undefined
     // Every match: an exact entry ranked below popular partial ones must still be found.
     entries = (await deps.catalog.list({ query: service })).entries
   } catch (error) {
-    if (error instanceof IntegrationCatalogUnavailableError) return { ok: false, text: `${CATALOG_UNAVAILABLE_MESSAGE} The user can add a server by its URL in Settings → MCP.` }
+    if (error instanceof IntegrationCatalogUnavailableError) return { ok: false, text: `${CATALOG_UNAVAILABLE_MESSAGE} ${ADD_BY_URL_HINT}` }
     throw error
   }
   const exact = entries.filter((entry) => isExactEntry(entry, service))
   const chosen = exact.length === 1 ? exact[0] : null
   if (!chosen) {
-    if (!entries.length) return { ok: false, text: `No integration in the catalog matches '${service}'. The user can add a server by its URL in Settings → MCP.` }
+    if (!entries.length) return { ok: false, text: `No integration in the catalog matches '${service}'. ${ADD_BY_URL_HINT}` }
     return {
       ok: true,
       text: JSON.stringify({
@@ -97,18 +103,42 @@ async function connectIntegration(service: string, sessionId: string | undefined
   }
 }
 
+/**
+ * Ask the person for a server that is not in the catalog, such as one on the
+ * host's loopback. The agent never adds such a server: the address is the
+ * person's to confirm, so `name` and `url` only prefill the card.
+ */
+async function askForCustomServer(name: string | undefined, url: string | undefined, sessionId: string | undefined): Promise<AgentToolResult> {
+  const personKey = currentPersonKey()
+  const gateway = integrationGateway()
+  if (personKey === null) return { ok: false, text: 'An integration belongs to a person, and this turn acts for none.' }
+  if (!gateway) return { ok: false, text: 'Integrations are not available on this host.' }
+  const sameServer = url ? gateway.store.list(ANY_ORGANIZATION, personKey).find((integration) => integration.url === url) : undefined
+  if (sameServer) return reportIntegrationConnection(sameServer, sessionId)
+  if (!sessionId) return { ok: false, text: 'There is no conversation to ask in. The user can add a server by its URL in Settings → MCP.' }
+  const request: IntegrationCustomServerNeeded = { sessionId }
+  if (name) request.name = name
+  if (url) request.url = url
+  gateway.askForCustomServer(request)
+  return { ok: true, text: JSON.stringify({ askedUser: true, note: 'Asked the user for the server address in a card. Wait for them; its tools are available from their next message.' }) }
+}
+
 export const connectIntegrationAgentTool: AgentTool = {
   name: 'connect_integration',
   description:
-    'Connect the user to an external service by name, such as "Linear" or "Notion", when they ask to use it and no tool for it is available. Uses their integration when they have one, else adds the one catalog entry the name matches exactly, then asks the user to sign in with a card in the conversation. When the name is not exact it returns catalog matches; ask the user which one and call again with its `service` value. Never ask for a token, key, or password in the conversation. A newly added integration\'s tools are available from the user\'s next message.',
+    'Connect the user to an external service by name, such as "Linear" or "Notion", when they ask to use it and no tool for it is available. For a server that is not in the catalog, such as a local MCP server, pass `custom: true`: a card asks the user for its address. Uses their integration when they have one, else adds the one catalog entry the name matches exactly, then asks the user to sign in with a card in the conversation. When the name is not exact it returns catalog matches; ask the user which one and call again with its `service` value. Never ask for a token, key, or password in the conversation. A newly added integration\'s tools are available from the user\'s next message.',
   inputFields: {
-    service: z.string().describe('The service name, an integration slug, or a `service` value from earlier matches.'),
+    service: z.string().optional().describe('The service name, an integration slug, or a `service` value from earlier matches. Required unless `custom` is true; with it, the name for the card.'),
+    custom: z.boolean().optional().describe('true opens a card where the user enters a server address.'),
+    url: z.string().optional().describe('With `custom`: the address, if the user gave it, to prefill the card.'),
   } as const,
   // It can add a server to the person's integrations.
   requiresApproval: true,
   execute: async (input, context) => {
     const args = argsSchema.safeParse(input)
-    if (!args.success) return { ok: false, text: '`service` must be a non-empty name.' }
+    if (!args.success) return { ok: false, text: '`service` must be a non-empty name, and `url` an HTTPS address, or HTTP on localhost.' }
+    if (args.data.custom) return askForCustomServer(args.data.service, args.data.url, context.sessionId())
+    if (!args.data.service) return { ok: false, text: '`service` must be a non-empty name.' }
     return connectIntegration(args.data.service, context.sessionId())
   },
 }

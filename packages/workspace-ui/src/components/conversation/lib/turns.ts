@@ -1,4 +1,5 @@
 import { isQuestionTool } from '@solus/contracts/question-history'
+import { isSecretTool } from '@solus/contracts/secret-request'
 import type { User } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import type { Message, SessionStatus } from '@solus/contracts/types'
@@ -8,6 +9,7 @@ import { dividesThread } from '../../activity/lib/activity-line'
 
 export type GroupedItem =
   | { kind: 'question'; message: Message }
+  | { kind: 'secret-receipt'; message: Message }
   | { kind: 'user'; message: Message }
   | { kind: 'assistant'; message: Message }
   /** Thoughts between two prose blocks with no tool call beside them. Once a
@@ -120,6 +122,9 @@ export function groupInto(grouping: Grouping, messages: Message[], start: number
     } else if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
       flushActivity(grouping)
       result.push({ kind: 'question', message: msg })
+    } else if (msg.role === 'tool' && isSecretTool(msg.toolName) && msg.secretOutcomes) {
+      flushActivity(grouping)
+      result.push({ kind: 'secret-receipt', message: msg })
     } else if (msg.role === 'tool' && isAgentConversationTool(msg.toolName) && msg.toolStatus !== 'error') {
       // The agent card shows what the call did; the call shows only if it
       // failed, as on mobile. It closes no row, so a turn that starts seven
@@ -457,7 +462,7 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
       // An answered question folds away with the rest of the work, so the row
       // has to report that the turn asked — otherwise a decision the reader
       // made disappears from the transcript once the turn ends.
-      if (item.kind === 'question') turn.tools.push(item.message)
+      if (item.kind === 'question' || item.kind === 'secret-receipt') turn.tools.push(item.message)
     }
 
     // Only a notice at the very end closed the run; one in the middle is a

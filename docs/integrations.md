@@ -112,6 +112,11 @@ client, the card shows the client form first. The agent never asks for a key
 or a password in the conversation. The tool requires approval, because it can
 add a server. The new server's tools are available from your next message.
 
+For a server that is not in the catalog, such as one on `localhost`, the agent
+calls the tool with `custom: true`. The connect card then asks for the server's
+address. The agent can fill in the address if you gave it, but only you can add
+the server. After you add it, the same row goes on to the sign-in.
+
 ## Set up with an agent
 
 Some servers need something from you before Solus can connect: an API key, an

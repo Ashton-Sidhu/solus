@@ -5,7 +5,8 @@ import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { cutText } from '@solus/contracts/text-cut'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { SearchQuery } from '@solus/contracts/search-query'
-import { isAnyOrganization, runnerPrincipalFor, type RecordScope } from '../../admission/principal'
+import { isAnyOrganization, isHostOwner, runnerPrincipalFor, type RecordScope } from '../../admission/principal'
+import { keyForReader } from '../../host/host-user'
 import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, worktreeProjectRoot, type SessionRecord } from '@solus/contracts/types'
 import { workspaceSessionAdmissionRequestSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
@@ -87,12 +88,14 @@ export class SessionApiOperations {
     const projects = await projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : []))
     const links = records.length ? await readSessionPullRequests(apiScope(context), records.map(session => session.sessionId)) : {}
     const access = await this.shares.accessOf(context.principal, 'session', records.map(session => session.sessionId))
+    const isOwnerReading = isHostOwner(context.principal)
     // Questions wait on the host that runs the session; the workspace service keeps none.
     const asking = isApiMode() ? new Set<string>() : sessionsWithPendingAsyncQuestion(records.map(session => session.sessionId))
     return records.map(session => {
       const item: WorkspaceSession = {
         id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
-        ownerKey: session.ownerKey, role: access.get(session.sessionId)?.role ?? 'none', version: String(session.lastActivityAt),
+        // Anyone but the host's owner sees the owner by their linked account (plans/031 D4).
+        ownerKey: keyForReader(session.ownerKey, isOwnerReading), role: access.get(session.sessionId)?.role ?? 'none', version: String(session.lastActivityAt),
         createdAt: new Date(session.createdAt).toISOString(), updatedAt: new Date(session.lastActivityAt).toISOString(),
         provider: session.provider, title: withinNameLimit(session.title), customTitle: withinNameLimit(session.customTitle),
         projectId: session.projectRemote ? projects.get(session.organizationId)?.get(session.projectRemote) ?? null : null,
@@ -108,7 +111,7 @@ export class SessionApiOperations {
         pullRequests: links[session.sessionId] ?? [],
       }
       if (session.sharedBy !== undefined && session.grantedAt !== undefined) {
-        item.sharedBy = session.sharedBy
+        item.sharedBy = keyForReader(session.sharedBy, isOwnerReading)
         item.grantedAt = session.grantedAt
       }
       if (asking.has(session.sessionId)) item.hasPendingQuestion = true

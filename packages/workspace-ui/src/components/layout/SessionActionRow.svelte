@@ -30,8 +30,8 @@
     sessionGuideIdentity,
   } from "../review/review-guide.store.svelte";
   import { Button } from "../ui/button";
-  import Kbd from "../ui/Kbd.svelte";
   import * as Popover from "../ui/popover";
+  import * as Tooltip from "../ui/tooltip";
   import SessionProgressButton from "./SessionProgressButton.svelte";
   import SessionActionList from "./SessionActionList.svelte";
   import DiffSummaryCard from "../conversation/DiffSummaryCard.svelte";
@@ -161,23 +161,6 @@
   let stepsOpen = $state(false);
   let reviewFilesOpen = $state(false);
   let isActionListOpen = $state(false);
-  // The row's left edge while the pointer or focus is in it; null when the
-  // row rests centred.
-  let pinnedRowLeft = $state<number | null>(null);
-  let actionRowEl: HTMLDivElement | null = $state(null);
-
-  function pinRowLeft() {
-    if (pinnedRowLeft !== null || !actionRowEl || !rootEl) return;
-    pinnedRowLeft =
-      actionRowEl.getBoundingClientRect().left - rootEl.getBoundingClientRect().left;
-  }
-
-  function releaseRowLeft(isFocusLeaving: boolean) {
-    if (!actionRowEl) return;
-    if (!isFocusLeaving && actionRowEl.contains(document.activeElement)) return;
-    if (isFocusLeaving && actionRowEl.matches(":hover")) return;
-    pinnedRowLeft = null;
-  }
   let rootEl: HTMLDivElement | null = $state(null);
   // The changed-files popover anchors to its row icon by id.
   const rowId = $props.id();
@@ -406,28 +389,12 @@
       <SessionActionList actions={listActions} onClose={closeActionList} />
     </div>
   {:else}
-    <!-- Centred at rest. While the pointer or focus is in the row, its left
-         edge is pinned where it was, so a label that opens only pushes the
-         icons to its right and the icon the pointer is on never moves. -->
-    <!-- The handlers only pin the row while it is in use; every control inside
-         is its own focusable button. -->
-    <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div
-      bind:this={actionRowEl}
-      class="pointer-events-auto absolute bottom-1.5 flex items-center gap-1 whitespace-nowrap text-workspace-chrome text-(--solus-text-tertiary)"
-      style:left={pinnedRowLeft === null ? "50%" : `${pinnedRowLeft}px`}
-      style:translate={pinnedRowLeft === null ? "-50% 0" : "none"}
+      class="pointer-events-auto absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap text-workspace-chrome text-(--solus-text-tertiary)"
       style:max-width="calc(100% - {leftReservedWidth * 2}px - 1rem)"
       role="toolbar"
       aria-label="Session actions"
-      onpointerenter={pinRowLeft}
-      onpointerleave={() => releaseRowLeft(false)}
-      onfocusin={pinRowLeft}
-      onfocusout={(event: FocusEvent) => {
-        if (!actionRowEl?.contains(event.relatedTarget as Node | null)) releaseRowLeft(true);
-      }}
     >
-
       {#if hasProgress}
         <SessionProgressButton
           progress={progress!}
@@ -478,31 +445,39 @@
 </div>
 
 {#snippet actionButton(action: SessionAction)}
-  <!-- Flat and quiet at rest: an icon in the chrome colour. Pointing at it or
-       tabbing to it opens it into a pill with its label and shortcut. The
-       invisible ::after box widens the hit area to 44px tall and across the
-       gap to each neighbour, without changing how the button looks. -->
-  <Button
-    id={action.id === "files" ? filesAnchorId : undefined}
-    variant="ghost"
-    size="sm"
-    class="h-7 gap-0 rounded-full px-1.5 relative after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] text-workspace-chrome font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent)"
-    onclick={action.run}
-    aria-haspopup={action.id === "files" ? "dialog" : undefined}
-    aria-expanded={action.id === "files" ? reviewFilesOpen : undefined}
-    disabled={action.isDisabled}
-    data-session-action={action.id}
-    aria-label={action.label}
-    aria-pressed={action.id === "pin" ? isPinned : undefined}
-  >
-    <action.icon size={16} />
-    <span
-      class="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity,margin] duration-200 ease-out group-hover/button:ml-1.5 group-hover/button:max-w-60 group-hover/button:opacity-100 group-focus-visible/button:ml-1.5 group-focus-visible/button:max-w-60 group-focus-visible/button:opacity-100 pointer-coarse:hidden motion-reduce:transition-none"
+  <!-- All icons are the same size, and a name opens in a tooltip, so no icon
+       moves. Review's colour shows that a review is running or ready. A disabled
+       action stays focusable and hoverable, so the tooltip can say why. The
+       invisible ::after box widens the hit area to 44px tall and across the gap
+       to each neighbour, without changing how the button looks. -->
+  <Tooltip.Root delayDuration={150} ignoreNonKeyboardFocus>
+    <Tooltip.Trigger
+      id={action.id === "files" ? filesAnchorId : undefined}
+      onclick={() => {
+        if (!action.isDisabled) action.run();
+      }}
+      aria-haspopup={action.id === "files" ? "dialog" : undefined}
+      aria-expanded={action.id === "files" ? reviewFilesOpen : undefined}
+      aria-disabled={action.isDisabled}
+      data-session-action={action.id}
+      data-review-status={action.id === "review" ? reviewStatus : undefined}
+      aria-label={action.label}
+      aria-pressed={action.id === "pin" ? isPinned : undefined}
     >
-      {action.label}
-      {#if action.shortcut}
-        <Kbd variant="inline" class="ml-1 opacity-50">{action.shortcut}</Kbd>
-      {/if}
-    </span>
-  </Button>
+      {#snippet child({ props })}
+        <Button
+          {...props}
+          variant="ghost"
+          size="sm"
+          class="relative size-7 rounded-full px-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-[review-status=done]:text-(--solus-accent) data-[review-status=generating]:text-(--solus-accent) [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4!"
+        >
+          <action.icon size={16} />
+        </Button>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content
+      sideOffset={8}
+      value={{ label: action.label, shortcut: action.shortcut }}
+    />
+  </Tooltip.Root>
 {/snippet}

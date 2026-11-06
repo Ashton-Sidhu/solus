@@ -199,11 +199,47 @@ describe('cost', () => {
 })
 
 describe('closed pull requests', () => {
+  const twoDaysAgo = () => new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString()
+
+  test('quiet for a day stop being read for live work alone', async () => {
+    // WHY: a closed link on unfinished work stays live for as long as the work
+    // does, and each one spent the code host's quota every 15 minutes.
+    const { scope, host, pullRequest } = codeHost('closed-quiet')
+    host.known.set(1, pullRequest(1, { state: 'closed', updatedAt: twoDaysAgo() }))
+    await taskLinking(scope, [1])
+    let now = Date.now()
+    const sync = new PrSync({ publish: () => {}, now: () => now })
+
+    await sync.tick()
+    expect(host.numberReads).toEqual([[1]])
+
+    now += 16 * 60_000
+    await sync.tick()
+    expect(host.numberReads).toEqual([[1]])
+  })
+
+  test('quiet for a day are still read while a client shows them', async () => {
+    // WHY: a person who looks at the pull request must see a reopen. Only the
+    // reads that nobody looks at are given up.
+    const { scope, host, pullRequest } = codeHost('closed-shown')
+    host.known.set(1, pullRequest(1, { state: 'closed', updatedAt: twoDaysAgo() }))
+    await taskLinking(scope, [1])
+    let now = Date.now()
+    const sync = new PrSync({ publish: () => {}, now: () => now })
+    sync.setInterest('closed-shown-client', { repo: repoOf('closed-shown'), provider: providers.get('closed-shown')! },
+      [{ kind: 'pull-request', number: 1 }])
+
+    await sync.tick()
+    now += 16 * 60_000
+    await sync.tick()
+    expect(host.numberReads).toEqual([[1], [1]])
+  })
+
   test('are read by number every 15 minutes, not every minute; a merged one is never read again', async () => {
     // WHY: a closed pull request can open again, so it is not settled for
     // good, but it changes rarely: reading it each minute spent the quota.
     const { scope, host, pullRequest } = codeHost('closed-cadence')
-    host.known.set(1, pullRequest(1, { state: 'closed' }))
+    host.known.set(1, pullRequest(1, { state: 'closed', updatedAt: later(0) }))
     host.known.set(2, pullRequest(2, { state: 'merged' }))
     await taskLinking(scope, [1, 2])
     let now = Date.now()
@@ -227,7 +263,7 @@ describe('closed pull requests', () => {
   test('one that opens again is read every minute after, and its branch prefers it', async () => {
     const { scope, host, pullRequest } = codeHost('closed-reopened')
     await worktreeSession('closed-reopened-session', 'again', scope)
-    host.known.set(1, pullRequest(1, { headRef: 'again', state: 'closed' }))
+    host.known.set(1, pullRequest(1, { headRef: 'again', state: 'closed', updatedAt: later(0) }))
     let now = Date.now()
     const sync = new PrSync({ publish: () => {}, now: () => now })
 
@@ -633,6 +669,43 @@ describe('branch discovery', () => {
 
     expect(host.branchLookups).toEqual([['fix-2']])
     expect((await sessionLinks('pr-sync-fork')).map((link) => link.number)).toEqual([4])
+  })
+
+  test('a branch resolves where it pushes once over several reads, and again on a turn end', async () => {
+    // WHY: each resolve is up to five `git` spawns, for each live branch, each
+    // minute. A turn is what can change the answer: the agent may have pushed
+    // the branch under another name.
+    const { host } = codeHost('push-head-cache')
+    let now = Date.now()
+    let resolves = 0
+    const sync = new PrSync({
+      publish: () => {},
+      now: () => now,
+      liveCheckouts: async () => [{ projectScope: '/work/push-head-cache', branch: 'fix', sessionId: 'pr-sync-push-head' }],
+      codeHost: async () => ({ repo: repoOf('push-head-cache'), provider: providers.get('push-head-cache')! }),
+      pushHead: async () => {
+        resolves += 1
+        return new PullRequestHead(repoOf('push-head-cache'), 'fix')
+      },
+      defaultBranch: async () => 'main',
+    })
+
+    await sync.tick()
+    for (let tick = 0; tick < 3; tick++) {
+      now += 60_001
+      await sync.tick()
+    }
+    expect(resolves).toBe(1)
+
+    await sync.turnEnded('pr-sync-push-head')
+    await sync.tick()
+    expect(resolves).toBe(2)
+
+    // The answer does not stay for good: config can change with no turn.
+    now += 5 * 60_000 + 1
+    await sync.tick()
+    expect(resolves).toBe(3)
+    expect(host.branchLookups.length).toBeGreaterThan(0)
   })
 
   test('a session on the default branch is not looked up by branch', async () => {

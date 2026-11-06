@@ -32,7 +32,7 @@ export class HostlessHostsStore {
       this.reachable.delete(server.id)
     })
     void probeServingOrigin(origin).then((serving) => {
-      if (generation === this.generation) this.servingHost = serving && !serving.isSaved ? serving.offered : null
+      if (generation === this.generation) this.servingHost = serving && !serving.saved ? serving.offered : null
     })
     for (const server of this.servers) void refreshServer(server)
     return () => {

@@ -2,8 +2,7 @@
 
 The turn page used to be a record: the spans, the attributes, the exchange.
 This plan makes it a reading — what went wrong, what was slow, what it cost,
-and what to do next — and adds the two surfaces a reading needs around it: a
-session page and live turns.
+and what to do next — and adds what a reading needs around it: live turns.
 
 Everything here is derived from what the host already recorded. Where a
 number is an estimate it is labelled one; where the record cannot answer, the
@@ -136,10 +135,10 @@ surface says so instead of printing a zero.
 - **turn status glyph** — a turn's state is an icon, never a dot: running
   (dashed circle), stopped, failed (`lib/turn-status.ts`). The rail and the
   turn header use the same glyphs.
-- **session page** — one session's turns on one axis: a bar per turn, spend
-  climbing over it, the context after each turn under it. Route
-  `insights/session/<sessionId>`, in the same panel a turn opens in.
-  `lib/session-page.ts`, `SessionDetailPanel.svelte`.
+- **session route** — `insights/session/<sessionId>` has no page of its own.
+  It opens the session's last complete turn (`lastCompleteTurn` in
+  `lib/session-summary.ts`), replacing its history entry; the turn page lists
+  the session's other turns.
 - **live turn** — a turn whose root has not ended. The tracer writes a turn's
   root open the moment it starts (`writeOpenSpan`, `onStart` in
   `tracer.ts`); the finished span replaces the row. The panel re-reads a live
@@ -161,7 +160,7 @@ surface says so instead of printing a zero.
 ## The turn page, in order
 
 1. Title and identity, the mark, and the ways out: open session, open task,
-   share, and a menu with the session page, the prompt into the composer
+   share, and a menu with the prompt into the composer
    (`pendingInput` on the revealed session), and JSON export. Share is the
    app's `ShareButton` on the session the turn belongs to; there is no share
    kind for a single turn. The console query is on the session's own menus.

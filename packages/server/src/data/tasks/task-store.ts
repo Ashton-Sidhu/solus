@@ -5,7 +5,7 @@ import { getDatabase, type Db } from '../../db/database'
 import { createLogger } from '../../logger'
 import { ulid } from '@solus/contracts/ulid'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import { assertTaskAssignee, notifyTaskAssignment, taskChanged } from './task-activity'
+import { assertTaskAssignee, notifyTaskAssignment, taskAssigneeKey, taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution } from '../stored-attribution'
 import { readThreads, type ThreadRecord } from '../comments/comment-threads'
@@ -346,7 +346,8 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   if (!title) throw new Error('Task title cannot be empty.')
 
   const projectKey = normalizedOptional(input.projectKey)
-  assertTaskAssignee(organizationId, normalizedOptional(input.assigneeUserId))
+  const assigneeUserId = taskAssigneeKey(input.assigneeUserId)
+  assertTaskAssignee(organizationId, assigneeUserId)
 
   const id = input.id ?? ulid(input.now)
   const triagedAt = input.status === 'inbox' ? null : input.now
@@ -360,7 +361,7 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
     ) VALUES (
       ${id}, ${await nextShortId(db)}, ${projectKey}, ${title}, ${input.titleSource},
       ${input.body ?? ''}, ${input.status},
-      ${normalizedOptional(input.assignee)}, ${normalizedOptional(input.assigneeUserId)}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
+      ${normalizedOptional(input.assignee)}, ${assigneeUserId}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
       ${JSON.stringify(input.labels ?? [])}, ${input.source}, ${normalizedOptional(input.originSessionId)},
       ${normalizedOptional(input.originAutomationId)}, ${input.now}, ${input.now}, ${triagedAt}, ${doneAt},
       ${organizationId}, ${input.ownerKey}
@@ -368,7 +369,7 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   `)
   const by = input.by ?? creatorBySource(input)
   await appendActivity(organizationId, taskChanged(id, by, 'created', { to: input.status }, input.now), db)
-  await notifyTaskAssignment(db, organizationId, { id, title }, null, normalizedOptional(input.assigneeUserId), by, input.now)
+  await notifyTaskAssignment(db, organizationId, { id, title }, null, assigneeUserId, by, input.now)
   return taskFromRow(await requireTask(organizationId, id, db))
 }
 

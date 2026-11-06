@@ -43,32 +43,26 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
     ownsVoice && voice.mode === "message" ? voice.state : "idle",
   );
 
-  // Lazy-mount the waveform: once true, never resets so the canvas stays alive.
-  let hasMountedWaveform = $state(false);
-  $effect(() => {
-    if (voiceState === "recording") hasMountedWaveform = true;
-  });
-
   // Pure derived — no timers. Covers the full recording→transcribing→idle→
   // recording cycle without flickering because the Dictation layer re-arms
   // synchronously in onIdle (setting voice.starting=true in the same microtask
   // as the idle transition, before any Svelte render).
-  const showWaveform = $derived(
+  const isListening = $derived(
     voiceState === "recording" ||
       (voiceState === "transcribing" && voiceModeEnabled) ||
       (voiceState === "idle" && voiceModeEnabled && voice.starting),
   );
   const voiceControlState = $derived<"idle" | "recording" | "transcribing">(
-    voice.starting && showWaveform ? "recording" : voiceState,
+    voice.starting && isListening ? "recording" : voiceState,
   );
 
   // The whole mic cycle holds the bar open, not only the frames the waveform
-  // is on screen: the mic-permission wait before it, and the transcription
+  // is live: the mic-permission wait before it, and the transcription
   // after it, when the editor is back but disabled. Folding in either gap and
   // unfolding when the transcript landed read as a stutter after every
   // dictation.
   const micHoldsBarOpen = $derived(
-    showWaveform ||
+    isListening ||
       voiceState !== "idle" ||
       (ownsVoice && voice.mode === "message" && voice.starting),
   );
@@ -264,8 +258,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
     get retryExhausted() { return voiceRetry.exhausted; },
     get ownsVoice() { return ownsVoice; },
     get state() { return voiceState; },
-    get hasMountedWaveform() { return hasMountedWaveform; },
-    get showWaveform() { return showWaveform; },
+    get isListening() { return isListening; },
     get controlState() { return voiceControlState; },
     get holdsBarOpen() { return micHoldsBarOpen; },
     claim: claimVoice,

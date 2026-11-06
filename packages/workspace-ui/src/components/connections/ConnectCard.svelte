@@ -39,6 +39,7 @@
   const settled = $derived(rows.filter((row) => row.status !== "pending"));
   const isSettled = $derived(rows.length > 0 && settled.length === rows.length);
   const connectedCount = $derived(rows.filter((row) => row.status === "connected").length);
+  const heading = $derived(connectCardHeading(rows.length, settled.length, rows.length === 1 && rows[0].request.kind === "custom-server"));
 
   let cardEl = $state<HTMLElement | null>(null);
 
@@ -91,11 +92,11 @@
         : 'shadow-[shadow:var(--solus-tx-attention-shadow)]'}"
       data-testid="connection-connect-card"
       data-state={isSettled ? "settled" : "pending"}
-      aria-label={connectCardHeading(rows.length, settled.length)}
+      aria-label={heading}
     >
       <div class="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-transcript-meta text-muted-foreground">
         <Plug size={13} aria-hidden="true" class="shrink-0 opacity-80" />
-        <span class="min-w-0 truncate">{connectCardHeading(rows.length, settled.length)}</span>
+        <span class="min-w-0 truncate">{heading}</span>
         <span class="flex-1"></span>
         {#if rows.length > 1}
           <span class="shrink-0 tabular-nums">{connectedCount} of {rows.length} connected</span>

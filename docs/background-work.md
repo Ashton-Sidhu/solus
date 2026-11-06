@@ -12,7 +12,10 @@ Only work that the agent waits on keeps the session in `background`. One rule
 for the status, the "finished" notification, the restart record, and the
 power-save blocker:
 
-- A sub-agent holds. Every Codex task holds.
+- A sub-agent always holds.
+- A Codex command holds by default. The agent can call `background_wait` with
+  `waiting: false` to leave a dev server or watcher running without holding
+  the turn. Tests, builds, and commands whose results are needed keep holding.
 - A Claude shell or Monitor holds only when the agent marks it with the
   `background_wait` tool. A shell or Monitor can be a wait (tests, a build, a
   CI wait) or a process that the agent leaves running (a dev server, its
@@ -23,11 +26,13 @@ default). `waiting: false` removes the mark and does not stop the task. An id
 that is not running comes back in `unmatched` and changes nothing. The mark
 ends when its task ends, and when the Claude process exits. Claude Code loads
 Solus tools behind tool search, so the Claude system prompt says when to use
-the tool. **Codex** answers the tool with "unsupported": its turn ends before
-its commands, and each command wakes the agent, so all its work holds as before.
+the tool. Codex uses the same tool with the terminal session ID returned by
+`exec_command` or the command item ID. It can set the policy before the turn
+ends, when the command is not yet shown as background work. `waiting: true`
+restores the wait. Sub-agents cannot be unmarked.
 
-When a Claude turn ends and only unmarked work runs, the session settles as
-`completed` and notifies. The SDK query stays open for that work: a new prompt
+When a turn ends and only unmarked work runs, the session settles as
+`completed` and notifies. For Claude, the SDK query stays open for that work: a new prompt
 goes into it, and Stop on the session cancels it and the work. The clients
 still show the background row, with its Stop, after the completed turn (see
 Clients). If that work ends later and the SDK wakes the agent, the reply comes
@@ -56,7 +61,7 @@ path.
 | The person stops the work from the background row, or Stop on mobile | Only the tasks stop, and the session settles as `completed`. Claude's SDK first gives the agent a turn to react; Codex does not wake the agent. |
 | The background work of a failed Codex turn ends | The session settles as `failed`, once. |
 | The person stops the session (Stop shortcut, `stop_session`) | The tasks stop and the session settles as `interrupted`. |
-| A Claude turn ends while only unmarked shells or Monitors run | `completed`. The turn settles and notifies. The background row and its Stop stay until the work ends. |
+| A turn ends while only unmarked shells, Monitors, or Codex commands run | `completed`. The turn settles and notifies. The background row and its Stop stay until the work ends. |
 | The host restarts | The work is lost. A session that waited in `background` gets the restart prompt, which names the tools that were running. |
 
 `background` is not busy. A new prompt is accepted and runs as the next turn.
@@ -150,5 +155,5 @@ session has its own live row and Stop.
   work, the sidebar row shows `completed`: the agent does not wait on that work.
 - **Mobile.** The thread shows the "Background task running" pill. Its Stop,
   and the composer Stop, end only the tasks, as on desktop and web.
-- **Codex** needs no change: all its tasks hold, so its sessions are in
-  `background` while they run.
+- **Codex** commands explicitly left running use the same completed status and background Stop controls.
+  Native sub-agents keep the session in `background` while they run.

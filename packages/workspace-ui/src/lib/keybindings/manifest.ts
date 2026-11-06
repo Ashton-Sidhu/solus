@@ -189,6 +189,7 @@ export const KEYBINDINGS = {
   'automations.close':            { combo: { code: 'Escape' },                             scope: 'automations',        label: 'Close',                    group: 'Automations' },
   'automations.new':              { combo: { alt: true, code: 'KeyN' },                    scope: 'automations',        label: 'New automation',           group: 'Automations' },
   'automations.current-project':  { combo: { alt: true, code: 'KeyC' },                    scope: 'automations',        label: 'Current project',          group: 'Automations' },
+  'automations.clone':            { combo: { alt: true, code: 'KeyD' },                    scope: 'automations',        label: 'Clone automation',         group: 'Automations' },
 
   // ── Insights ───────────────────────────────────────────────────────────────
   'insights.close':               { combo: { code: 'Escape' },                             scope: 'insights',           label: 'Close',                    group: 'Insights' },

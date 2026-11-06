@@ -155,3 +155,20 @@ test('another conversation asking does not retire this card, and closing one kee
 
   unsubscribe()
 })
+
+test('a custom server address becomes that server\'s sign-in in the same row', async () => {
+  // The person added the address in the card, so the row must go on to the
+  // sign-in rather than leave a second row or an address field that is done.
+  const store = await newStore()
+  const unsubscribe = store.listen()
+
+  mockedServerConnections.emit('studio', 'integration.customServerNeeded', { sessionId: 'session-a', url: 'http://localhost:8000/mcp' })
+  const [request] = store.requests
+  expect(request).toEqual({ kind: 'custom-server', serverId: 'studio', sessionId: 'session-a', url: 'http://localhost:8000/mcp' })
+
+  store.customServerAdded(request, { id: 'int-1', name: 'localhost:8000' })
+
+  expect(store.requests).toEqual([{ kind: 'integration', serverId: 'studio', sessionId: 'session-a', integrationId: 'int-1', integrationName: 'localhost:8000' }])
+
+  unsubscribe()
+})

@@ -39,6 +39,9 @@ const REPOSITORY_MS = 60_000
 /** The closed pull requests it tracks are read by number at this cadence:
  *  a closed pull request can open again. A merged one cannot. */
 const CLOSED_MS = 15 * 60_000
+/** A pull request closed and quiet for this long is read on the clock only
+ *  while a client shows it. Live work alone reads it again on a turn end. */
+const CLOSED_QUIET_MS = 24 * 60 * 60_000
 const REVIEW_MS = 15_000
 const CHECKS_IN_FLIGHT_MS = 10_000
 /** Live tasks change slowly; their interest is read from the database this often. */
@@ -48,6 +51,9 @@ const FAILURE_BACKOFF_MS = 5 * 60_000
 /** A scope with no code host is not asked again for this long: a folder with
  *  no remote costs a `git` spawn each time. */
 const NO_CODE_HOST_MS = 5 * 60_000
+/** Where a branch pushes is kept this long, or until a turn of a session on it
+ *  ends: resolving it costs up to five `git` spawns. */
+const PUSH_HEAD_MS = 5 * 60_000
 
 /** What PR sync knows about one pull request. `missing`: the code host says
  *  that it does not exist, which is an answer and is not asked again. */
@@ -93,6 +99,8 @@ interface ClientInterest {
 /** Everything wanted from one repository this tick. */
 interface Wanted {
   numbers: Set<number>
+  /** The numbers a client shows. */
+  shownNumbers: Set<number>
   review: Set<number>
   needsReview: boolean
   /** Heads with no open pull request whose lookup is due: new in the
@@ -199,7 +207,8 @@ export interface PrSyncDeps {
  * interest in it. A tick reads the open pull requests that live work and
  * clients name, by number, however many tasks, surfaces and devices want
  * them; the repositories of one account share that request. A closed pull
- * request is read by number less often, because it can open again. A branch
+ * request is read by number less often, because it can open again, and only
+ * while a client shows it or it changed in the last day. A branch
  * with no open pull request is looked up by its name when it first joins the
  * interest, when a turn of its session ends, and on a person's refresh, never
  * on a clock. A merged or missing pull request is not read again by number,
@@ -231,6 +240,8 @@ export class PrSync {
   private readonly checkoutStates = new Map<string, string>()
   /** Scopes with no code host, until when they are not asked again. */
   private readonly noCodeHostUntil = new Map<string, number>()
+  /** The head of each scope and branch, and when to resolve it again. */
+  private readonly pushHeads = new Map<string, { head: Promise<PullRequestHead>; until: number }>()
   /** A session link or a session's turn changed since sessions were last
    *  settled; a tick with no reads settles only then. */
   private settleDue = true
@@ -585,6 +596,7 @@ export class PrSync {
     const clients = this.clientInterests.get(key)
     const wanted: Wanted = {
       numbers: new Set(task?.open),
+      shownNumbers: new Set(),
       review: new Set(),
       needsReview: false,
       heads: new Map(),
@@ -607,12 +619,18 @@ export class PrSync {
     }
     for (const interests of clients?.owners.values() ?? []) {
       for (const interest of interests) {
-        if (interest.kind === 'pull-request') wanted.numbers.add(interest.number)
-        else if (interest.kind === 'review') {
+        if (interest.kind === 'pull-request') {
           wanted.numbers.add(interest.number)
+          wanted.shownNumbers.add(interest.number)
+        } else if (interest.kind === 'review') {
+          wanted.numbers.add(interest.number)
+          wanted.shownNumbers.add(interest.number)
           wanted.review.add(interest.number)
-        } else if (interest.kind === 'head') wantHead(interest.head, false)
-        else wanted.needsReview = true
+        } else if (interest.kind === 'head') {
+          wantHead(interest.head, false)
+          const number = sync.byHead.get(interest.head.key)
+          if (number !== undefined) wanted.shownNumbers.add(number)
+        } else wanted.needsReview = true
       }
     }
     return wanted
@@ -696,7 +714,8 @@ export class PrSync {
   /**
    * Numbers never seen, numbers another read path saw change, each
    * `REPOSITORY_MS` the open pull requests that are wanted, and each
-   * `CLOSED_MS` the closed ones. A merged or missing one is not read again;
+   * `CLOSED_MS` the closed ones that a client shows or that changed within
+   * `CLOSED_QUIET_MS`. A merged or missing one is not read again;
    * nor is one this tick has read. A detail read answers a number too
    * (`answerByDetail`).
    */
@@ -709,8 +728,10 @@ export class PrSync {
       const record = sync.records.get(number)
       if (!record || sync.reread.has(number)) return true
       if (record.result !== 'found') return false
-      const { state } = record.pullRequest
-      return (isDue && state === 'open') || (isClosedDue && state === 'closed')
+      const { state, updatedAt } = record.pullRequest
+      if (state === 'open') return isDue
+      return isClosedDue && state === 'closed'
+        && (wanted.shownNumbers.has(number) || this.now() - Date.parse(updatedAt) < CLOSED_QUIET_MS)
     })
     const reread = new Set(sync.reread)
     sync.reread.clear()
@@ -871,15 +892,16 @@ export class PrSync {
       }
       return branch
     }
-    // Several sessions share a checkout and branch: Git is asked once per read.
-    const pushHeads = new Map<string, Promise<PullRequestHead>>()
-    const headFor = (host: CodeHost, scope: string, branch: string): Promise<PullRequestHead> => {
+    // Several sessions share a checkout and branch, and a read comes each minute.
+    for (const [key, { until }] of this.pushHeads) {
+      if (until <= this.now()) this.pushHeads.delete(key)
+    }
+    const headFor = (host: CodeHost, scope: string, branch: string, turnEnded: boolean): Promise<PullRequestHead> => {
       const key = `${scope}\0${branch}`
-      let head = pushHeads.get(key)
-      if (!head) {
-        head = this.pushHead(host, scope, branch).catch(() => new PullRequestHead(host.repo, branch))
-        pushHeads.set(key, head)
-      }
+      const known = this.pushHeads.get(key)
+      if (known && !turnEnded) return known.head
+      const head = this.pushHead(host, scope, branch).catch(() => new PullRequestHead(host.repo, branch))
+      this.pushHeads.set(key, { head, until: this.now() + PUSH_HEAD_MS })
       return head
     }
     for (const { projectScope, branch, sessionId } of await this.liveCheckouts(this.now(), ofLiveTasks)) {
@@ -888,7 +910,7 @@ export class PrSync {
       if (branch === await defaultBranchFor(projectScope)) continue
       const host = await hostFor(projectScope)
       if (!host) continue
-      const head = await headFor(host, projectScope, branch)
+      const head = await headFor(host, projectScope, branch, this.endedTurns.has(sessionId))
       const heads = interestFor(host).heads
       const owners = heads.get(head.key) ?? { head, sessions: [] }
       owners.sessions.push({ sessionId, branch })

@@ -14,7 +14,7 @@ beforeAll(async () => {
   ;({ CodexRpcError } = await import('@solus/server/execution/agents/codex/codex-agent'))
 })
 
-/** A turn as `thread/read` reports it. */
+/** A turn as `thread/turns/list` reports it. */
 type ReadTurn = { id: string; status: 'inProgress' | 'completed' | 'interrupted' | 'failed'; items: Array<{ type: 'agentMessage'; text: string }> }
 
 /** An app-server that answers every request and records it. */
@@ -22,14 +22,14 @@ class FakeAppServer extends EventEmitter {
   readonly requests: Array<{ method: string; params: unknown }> = []
   /** How `turn/interrupt` fails: Codex answers with this error, or never answers. */
   interruptFailure: { answered: string } | 'unanswered' | null = null
-  /** The turns `thread/read` reports for a child thread; null never answers. */
+  /** The turns `thread/turns/list` reports for a child thread; null never answers. */
   childTurns: ReadTurn[] | null = []
   async request(method: string, params: unknown): Promise<object> {
     this.requests.push({ method, params })
     if (method === 'turn/interrupt' && this.interruptFailure === 'unanswered') throw new Error('Request turn/interrupt timed out')
     if (method === 'turn/interrupt' && this.interruptFailure) throw new CodexRpcError(this.interruptFailure.answered, -32600)
-    if (method === 'thread/read' && !this.childTurns) throw new Error('Request thread/read timed out')
-    if (method === 'thread/read') return { thread: { turns: this.childTurns } }
+    if (method === 'thread/turns/list' && !this.childTurns) throw new Error('Request thread/turns/list timed out')
+    if (method === 'thread/turns/list') return { data: this.childTurns, nextCursor: null }
     return {}
   }
 }
@@ -417,7 +417,7 @@ describe('stopping and releasing a Codex native child', () => {
     appServer.childTurns = [{ id: 'spawn-1-turn', status: 'inProgress', items: [] }]
 
     expect(await backend.stopBackgroundTask(ROOT, CHILD)).toBe(false)
-    expect(appServer.requests).toContainEqual({ method: 'thread/read', params: { threadId: CHILD, includeTurns: true } })
+    expect(appServer.requests).toContainEqual({ method: 'thread/turns/list', params: { threadId: CHILD, cursor: undefined, limit: 200, sortDirection: 'asc', itemsView: 'summary' } })
     expect(settles()).toEqual([])
     expect(backend.hasBackgroundTasks(ROOT)).toBe(true)
     // The failed Stop is forgotten: the child's own end settles as it ended.

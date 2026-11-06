@@ -1,0 +1,759 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "audio": "/tmp/solus-voice-latency-1103/upstream/samples/dots.wav",
+  "audio_sha256": "9ee00cc1b837d6c5c554b3ff491b3c48609849bff875a9d5ae35a57c17fbceeb",
+  "seconds": 35.3324375,
+  "binary": "/tmp/solus-voice-latency-1103/cmake/solus-transcription",
+  "configs": [
+    [
+      1040,
+      1040
+    ],
+    [
+      160,
+      320
+    ]
+  ],
+  "results": [
+    {
+      "chunk_ms": 1040,
+      "right_ms": 1040,
+      "packet_ms": 250,
+      "repeat": 0,
+      "warm_ms": 533.1569160334766,
+      "begin_ms": 0.04033301956951618,
+      "offline_ms": 571.885459125042,
+      "first_text_ms": 3344.5077498909086,
+      "text_changes": 30,
+      "change_gap_p50_ms": 1003.1871669925749,
+      "change_gap_p95_ms": 1279.3855839408934,
+      "feed_p95_ms": 131.4445419702679,
+      "feed_total_ms": 4027.30212546885,
+      "max_queue_ms": 158.87912502512336,
+      "stop_wait_ms": 136.50433289259672,
+      "finish_ms": 132.16858403757215,
+      "stable_rewrites": 0,
+      "transcript": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the difference",
+      "offline_transcript": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the difference",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 104,
+      "changes": [
+        {
+          "at_ms": 3344.5077498909086,
+          "stable": "Of course, it was impossible",
+          "tentative": "",
+          "queue_ms": 94.5077498909086
+        },
+        {
+          "at_ms": 4354.755957843736,
+          "stable": "Of course, it was impossible to connect the dots",
+          "tentative": "",
+          "queue_ms": 104.75595784373581
+        },
+        {
+          "at_ms": 5358.684625010937,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was",
+          "tentative": "",
+          "queue_ms": 108.68462501093745
+        },
+        {
+          "at_ms": 6358.686415944248,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college",
+          "tentative": "",
+          "queue_ms": 108.68641594424844
+        },
+        {
+          "at_ms": 7607.349582947791,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very",
+          "tentative": "",
+          "queue_ms": 107.34958294779062
+        },
+        {
+          "at_ms": 8627.73924996145,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backward",
+          "tentative": "",
+          "queue_ms": 127.7392499614507
+        },
+        {
+          "at_ms": 9630.528165958822,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later",
+          "tentative": "",
+          "queue_ms": 130.52816595882177
+        },
+        {
+          "at_ms": 11620.19812501967,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again,",
+          "tentative": "",
+          "queue_ms": 120.19812501966953
+        },
+        {
+          "at_ms": 12610.104790888727,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots",
+          "tentative": "",
+          "queue_ms": 110.10479088872671
+        },
+        {
+          "at_ms": 13889.49037482962,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward.",
+          "tentative": "",
+          "queue_ms": 139.49037482962012
+        },
+        {
+          "at_ms": 14883.715665899217,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them",
+          "tentative": "",
+          "queue_ms": 133.71566589921713
+        },
+        {
+          "at_ms": 15876.754832919687,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards",
+          "tentative": "",
+          "queue_ms": 126.75483291968703
+        },
+        {
+          "at_ms": 16886.434957850724,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have",
+          "tentative": "",
+          "queue_ms": 136.43495785072446
+        },
+        {
+          "at_ms": 17906.191249843687,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots",
+          "tentative": "",
+          "queue_ms": 156.19124984368682
+        },
+        {
+          "at_ms": 18899.733749916777,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect",
+          "tentative": "",
+          "queue_ms": 149.73374991677701
+        },
+        {
+          "at_ms": 20128.525582840666,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future",
+          "tentative": "",
+          "queue_ms": 128.52558284066617
+        },
+        {
+          "at_ms": 21117.71662486717,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in",
+          "tentative": "",
+          "queue_ms": 117.71662486717105
+        },
+        {
+          "at_ms": 22119.33354102075,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something:",
+          "tentative": "",
+          "queue_ms": 119.333541020751
+        },
+        {
+          "at_ms": 23133.394790813327,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny",
+          "tentative": "",
+          "queue_ms": 133.39479081332684
+        },
+        {
+          "at_ms": 24130.127124954015,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma,",
+          "tentative": "",
+          "queue_ms": 130.12712495401502
+        },
+        {
+          "at_ms": 25122.28529085405,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever",
+          "tentative": "",
+          "queue_ms": 122.28529085405171
+        },
+        {
+          "at_ms": 26128.61912488006,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the",
+          "tentative": "",
+          "queue_ms": 128.61912488006055
+        },
+        {
+          "at_ms": 27408.879125025123,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down",
+          "tentative": "",
+          "queue_ms": 158.87912502512336
+        },
+        {
+          "at_ms": 28380.80499996431,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road",
+          "tentative": "",
+          "queue_ms": 130.80499996431172
+        },
+        {
+          "at_ms": 29380.85574982688,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence",
+          "tentative": "",
+          "queue_ms": 130.8557498268783
+        },
+        {
+          "at_ms": 30374.508749926463,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your",
+          "tentative": "",
+          "queue_ms": 124.50874992646277
+        },
+        {
+          "at_ms": 31363.33341593854,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart",
+          "tentative": "",
+          "queue_ms": 113.3334159385413
+        },
+        {
+          "at_ms": 32383.94208298996,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you",
+          "tentative": "",
+          "queue_ms": 133.9420829899609
+        },
+        {
+          "at_ms": 33638.97291594185,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path",
+          "tentative": "",
+          "queue_ms": 138.97291594184935
+        },
+        {
+          "at_ms": 34642.160082934424,
+          "stable": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something: your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will",
+          "tentative": "",
+          "queue_ms": 142.16008293442428
+        }
+      ]
+    },
+    {
+      "chunk_ms": 160,
+      "right_ms": 320,
+      "packet_ms": 250,
+      "repeat": 0,
+      "warm_ms": 2701.9857082050294,
+      "begin_ms": 0.04137493669986725,
+      "offline_ms": 559.2882500495762,
+      "first_text_ms": 1604.9516659695655,
+      "text_changes": 85,
+      "change_gap_p50_ms": 320.8330204943195,
+      "change_gap_p95_ms": 1000.2675829455256,
+      "feed_p95_ms": 163.86195900849998,
+      "feed_total_ms": 16506.063083419576,
+      "max_queue_ms": 180.2431249525398,
+      "stop_wait_ms": 164.91841583885252,
+      "finish_ms": 85.03841608762741,
+      "stable_rewrites": 0,
+      "transcript": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the difference",
+      "offline_transcript": "Of course, it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever, because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the difference",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 104,
+      "changes": [
+        {
+          "at_ms": 1604.9516659695655,
+          "stable": "Of course",
+          "tentative": "",
+          "queue_ms": 104.95166596956551
+        },
+        {
+          "at_ms": 2101.0942079592496,
+          "stable": "Of course it was",
+          "tentative": "",
+          "queue_ms": 101.09420795924962
+        },
+        {
+          "at_ms": 2350.7200409658253,
+          "stable": "Of course it was impossible",
+          "tentative": "",
+          "queue_ms": 100.72004096582532
+        },
+        {
+          "at_ms": 2868.6497500166297,
+          "stable": "Of course it was impossible to",
+          "tentative": "",
+          "queue_ms": 118.6497500166297
+        },
+        {
+          "at_ms": 3065.356499981135,
+          "stable": "Of course it was impossible to connect",
+          "tentative": "",
+          "queue_ms": 65.35649998113513
+        },
+        {
+          "at_ms": 3362.0298749301583,
+          "stable": "Of course it was impossible to connect the dot",
+          "tentative": "",
+          "queue_ms": 112.02987493015826
+        },
+        {
+          "at_ms": 3565.261707874015,
+          "stable": "Of course it was impossible to connect the dots",
+          "tentative": "",
+          "queue_ms": 65.26170787401497
+        },
+        {
+          "at_ms": 3883.603415917605,
+          "stable": "Of course it was impossible to connect the dots looking",
+          "tentative": "",
+          "queue_ms": 133.60341591760516
+        },
+        {
+          "at_ms": 4138.7294579762965,
+          "stable": "Of course it was impossible to connect the dots looking forward",
+          "tentative": "",
+          "queue_ms": 138.72945797629654
+        },
+        {
+          "at_ms": 4648.497208021581,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was",
+          "tentative": "",
+          "queue_ms": 148.49720802158117
+        },
+        {
+          "at_ms": 4821.066499920562,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in",
+          "tentative": "",
+          "queue_ms": 71.06649992056191
+        },
+        {
+          "at_ms": 5124.198999954388,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college",
+          "tentative": "",
+          "queue_ms": 124.19899995438755
+        },
+        {
+          "at_ms": 6147.430915851146,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it",
+          "tentative": "",
+          "queue_ms": 147.43091585114598
+        },
+        {
+          "at_ms": 6401.8879579380155,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very",
+          "tentative": "",
+          "queue_ms": 151.88795793801546
+        },
+        {
+          "at_ms": 6577.638707822189,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very,",
+          "tentative": "",
+          "queue_ms": 77.63870782218874
+        },
+        {
+          "at_ms": 6910.623290808871,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very",
+          "tentative": "",
+          "queue_ms": 160.6232908088714
+        },
+        {
+          "at_ms": 7083.437541034073,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear",
+          "tentative": "",
+          "queue_ms": 83.43754103407264
+        },
+        {
+          "at_ms": 7411.6095409262925,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear lo",
+          "tentative": "",
+          "queue_ms": 161.60954092629254
+        },
+        {
+          "at_ms": 7585.5354578234255,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking",
+          "tentative": "",
+          "queue_ms": 85.53545782342553
+        },
+        {
+          "at_ms": 7913.240457884967,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards",
+          "tentative": "",
+          "queue_ms": 163.24045788496733
+        },
+        {
+          "at_ms": 8650.380874983966,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years",
+          "tentative": "",
+          "queue_ms": 150.38087498396635
+        },
+        {
+          "at_ms": 8827.777207829058,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later",
+          "tentative": "",
+          "queue_ms": 77.77720782905817
+        },
+        {
+          "at_ms": 10164.136374834925,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later.",
+          "tentative": "",
+          "queue_ms": 164.13637483492494
+        },
+        {
+          "at_ms": 10414.515082957223,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again",
+          "tentative": "",
+          "queue_ms": 164.51508295722306
+        },
+        {
+          "at_ms": 10902.364749927074,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again,",
+          "tentative": "",
+          "queue_ms": 152.36474992707372
+        },
+        {
+          "at_ms": 11079.24749981612,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you",
+          "tentative": "",
+          "queue_ms": 79.24749981611967
+        },
+        {
+          "at_ms": 11430.24312495254,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect",
+          "tentative": "",
+          "queue_ms": 180.2431249525398
+        },
+        {
+          "at_ms": 11917.586874915287,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots",
+          "tentative": "",
+          "queue_ms": 167.5868749152869
+        },
+        {
+          "at_ms": 12164.638665970415,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking",
+          "tentative": "",
+          "queue_ms": 164.63866597041488
+        },
+        {
+          "at_ms": 12337.629665853456,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward",
+          "tentative": "",
+          "queue_ms": 87.62966585345566
+        },
+        {
+          "at_ms": 13165.151624940336,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can",
+          "tentative": "",
+          "queue_ms": 165.15162494033575
+        },
+        {
+          "at_ms": 13336.114082951099,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only",
+          "tentative": "",
+          "queue_ms": 86.11408295109868
+        },
+        {
+          "at_ms": 13663.999665994197,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect",
+          "tentative": "",
+          "queue_ms": 163.99966599419713
+        },
+        {
+          "at_ms": 13837.976332986727,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them",
+          "tentative": "",
+          "queue_ms": 87.97633298672736
+        },
+        {
+          "at_ms": 14417.68137481995,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking",
+          "tentative": "",
+          "queue_ms": 167.68137481994927
+        },
+        {
+          "at_ms": 14584.459665929899,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking back",
+          "tentative": "",
+          "queue_ms": 84.45966592989862
+        },
+        {
+          "at_ms": 14912.690083030611,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards",
+          "tentative": "",
+          "queue_ms": 162.69008303061128
+        },
+        {
+          "at_ms": 15912.957665976137,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So",
+          "tentative": "",
+          "queue_ms": 162.95766597613692
+        },
+        {
+          "at_ms": 16170.155124971643,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to",
+          "tentative": "",
+          "queue_ms": 170.1551249716431
+        },
+        {
+          "at_ms": 16328.610291006044,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust",
+          "tentative": "",
+          "queue_ms": 78.61029100604355
+        },
+        {
+          "at_ms": 16838.81108299829,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that",
+          "tentative": "",
+          "queue_ms": 88.81108299829066
+        },
+        {
+          "at_ms": 17166.902750032023,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots",
+          "tentative": "",
+          "queue_ms": 166.9027500320226
+        },
+        {
+          "at_ms": 17670.738499844447,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow",
+          "tentative": "",
+          "queue_ms": 170.73849984444678
+        },
+        {
+          "at_ms": 18164.864665828645,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect",
+          "tentative": "",
+          "queue_ms": 164.86466582864523
+        },
+        {
+          "at_ms": 18416.967124911025,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your",
+          "tentative": "",
+          "queue_ms": 166.96712491102517
+        },
+        {
+          "at_ms": 18588.569540996104,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future",
+          "tentative": "",
+          "queue_ms": 88.56954099610448
+        },
+        {
+          "at_ms": 19578.82412499748,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future.",
+          "tentative": "",
+          "queue_ms": 78.8241249974817
+        },
+        {
+          "at_ms": 19900.91066597961,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust",
+          "tentative": "",
+          "queue_ms": 150.9106659796089
+        },
+        {
+          "at_ms": 20150.066499831155,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in",
+          "tentative": "",
+          "queue_ms": 150.06649983115494
+        },
+        {
+          "at_ms": 20339.20995797962,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something",
+          "tentative": "",
+          "queue_ms": 89.2099579796195
+        },
+        {
+          "at_ms": 21330.569125013426,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something,",
+          "tentative": "",
+          "queue_ms": 80.56912501342595
+        },
+        {
+          "at_ms": 21667.51654096879,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut",
+          "tentative": "",
+          "queue_ms": 167.51654096879065
+        },
+        {
+          "at_ms": 21831.225957954302,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut,",
+          "tentative": "",
+          "queue_ms": 81.22595795430243
+        },
+        {
+          "at_ms": 22164.78620795533,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny",
+          "tentative": "",
+          "queue_ms": 164.7862079553306
+        },
+        {
+          "at_ms": 22412.777832942083,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny,",
+          "tentative": "",
+          "queue_ms": 162.77783294208348
+        },
+        {
+          "at_ms": 22586.01616602391,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life",
+          "tentative": "",
+          "queue_ms": 86.01616602391005
+        },
+        {
+          "at_ms": 23079.63570789434,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, k",
+          "tentative": "",
+          "queue_ms": 79.63570789434016
+        },
+        {
+          "at_ms": 23419.464957900345,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma,",
+          "tentative": "",
+          "queue_ms": 169.46495790034533
+        },
+        {
+          "at_ms": 23589.489958016202,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever",
+          "tentative": "",
+          "queue_ms": 89.48995801620185
+        },
+        {
+          "at_ms": 24662.42945799604,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because",
+          "tentative": "",
+          "queue_ms": 162.42945799604058
+        },
+        {
+          "at_ms": 25166.586957871914,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing",
+          "tentative": "",
+          "queue_ms": 166.5869578719139
+        },
+        {
+          "at_ms": 25671.62829102017,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots",
+          "tentative": "",
+          "queue_ms": 171.62829102016985
+        },
+        {
+          "at_ms": 26163.60754100606,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect",
+          "tentative": "",
+          "queue_ms": 163.60754100605845
+        },
+        {
+          "at_ms": 26587.664499878883,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down",
+          "tentative": "",
+          "queue_ms": 87.66449987888336
+        },
+        {
+          "at_ms": 26913.679708028212,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road",
+          "tentative": "",
+          "queue_ms": 163.6797080282122
+        },
+        {
+          "at_ms": 28168.031790992245,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give",
+          "tentative": "",
+          "queue_ms": 168.03179099224508
+        },
+        {
+          "at_ms": 28332.318000029773,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you",
+          "tentative": "",
+          "queue_ms": 82.31800002977252
+        },
+        {
+          "at_ms": 28663.783040829003,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence",
+          "tentative": "",
+          "queue_ms": 163.78304082900286
+        },
+        {
+          "at_ms": 29160.95845797099,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to",
+          "tentative": "",
+          "queue_ms": 160.95845797099173
+        },
+        {
+          "at_ms": 29336.001666029915,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow",
+          "tentative": "",
+          "queue_ms": 86.00166602991521
+        },
+        {
+          "at_ms": 29646.351790986955,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your",
+          "tentative": "",
+          "queue_ms": 146.35179098695517
+        },
+        {
+          "at_ms": 29823.626957833767,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart",
+          "tentative": "",
+          "queue_ms": 73.62695783376694
+        },
+        {
+          "at_ms": 30909.688582876697,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even",
+          "tentative": "",
+          "queue_ms": 159.68858287669718
+        },
+        {
+          "at_ms": 31090.110540855676,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it",
+          "tentative": "",
+          "queue_ms": 90.11054085567594
+        },
+        {
+          "at_ms": 31415.967082837597,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads",
+          "tentative": "",
+          "queue_ms": 165.96708283759654
+        },
+        {
+          "at_ms": 31585.093499859795,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you",
+          "tentative": "",
+          "queue_ms": 85.09349985979497
+        },
+        {
+          "at_ms": 31908.56787492521,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off",
+          "tentative": "",
+          "queue_ms": 158.56787492521107
+        },
+        {
+          "at_ms": 32165.424040984362,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-",
+          "tentative": "",
+          "queue_ms": 165.42404098436236
+        },
+        {
+          "at_ms": 32332.815707894042,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn",
+          "tentative": "",
+          "queue_ms": 82.81570789404213
+        },
+        {
+          "at_ms": 32669.908415991813,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path",
+          "tentative": "",
+          "queue_ms": 169.90841599181294
+        },
+        {
+          "at_ms": 33650.770999956876,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and",
+          "tentative": "",
+          "queue_ms": 150.77099995687604
+        },
+        {
+          "at_ms": 33825.77695790678,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that",
+          "tentative": "",
+          "queue_ms": 75.77695790678263
+        },
+        {
+          "at_ms": 34145.356457913294,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make",
+          "tentative": "",
+          "queue_ms": 145.35645791329443
+        },
+        {
+          "at_ms": 34398.59816594981,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the",
+          "tentative": "",
+          "queue_ms": 148.59816594980657
+        },
+        {
+          "at_ms": 34591.8214158155,
+          "stable": "Of course it was impossible to connect the dots looking forward when I was in college, but it was very, very clear looking backwards 10 years later. Again, you can't connect the dots looking forward. You can only connect them looking backwards. So you have to trust that the dots will somehow connect in your future. You have to trust in something, your gut, destiny, life, karma, whatever. Because believing that the dots will connect down the road will give you the confidence to follow your heart even when it leads you off the well-worn path, and that will make all the difference",
+          "tentative": "",
+          "queue_ms": 91.8214158155024
+        }
+      ]
+    }
+  ]
+}

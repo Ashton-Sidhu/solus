@@ -10,7 +10,7 @@ import type {
   WorkPresenceSnapshot,
 } from '@solus/contracts/presence'
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
-import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../admission/principal'
+import { LOCAL_ORGANIZATION_ID, readsWholeDisk, type Principal } from '../admission/principal'
 import { actorFor, type Actor } from '../admission/actor'
 import { hostUser } from '../host/host-user'
 
@@ -69,7 +69,8 @@ const scheduleTimeout: Schedule = (run, delayMs) => {
 }
 
 export function presenceAccessFor(principal: Principal): PresenceAccess {
-  if (isHostOwner(principal)) return 'owner'
+  // An owner scoped to Local (a pairing on an attached machine) sees presence as a member does (plans/031 item 9).
+  if (readsWholeDisk(principal)) return 'owner'
   return principal.kind === 'guest' ? 'guest' : 'member'
 }
 

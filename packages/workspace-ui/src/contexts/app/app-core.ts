@@ -46,6 +46,7 @@ import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { isSolusApiId } from '@solus/contracts/uplink'
+import { useVoiceModelWarmth } from '../../lib/voice-model-warmth.svelte'
 
 export interface AppCore {
   settings: SettingsContext
@@ -75,6 +76,7 @@ export interface AppCore {
 export function createAppCore(shell: ClientShellContext): AppCore {
   setLucideProps(ICON_DEFAULTS)
   const settings = new SettingsContext()
+  useVoiceModelWarmth(settings)
   // One account sync owner and one host-settings follower per client, not per tab.
   onDestroy(accountSyncStore.start(settings.personal, agentProfileLocalStore))
   // The desktop's push sends this copy, and this computer's profile fills it (plans/020 §3).

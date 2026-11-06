@@ -50,7 +50,7 @@
   import { checkoutGit, checkoutPlace } from "../../../../packages/workspace-ui/src/contexts/workspace/run-location";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
-  const skipOnboarding = skipsOnboarding(window.location.search);
+  const skipOnboarding = skipsOnboarding(window.location.search, window);
 
   type WorkspaceLayoutModule =
     typeof import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte");

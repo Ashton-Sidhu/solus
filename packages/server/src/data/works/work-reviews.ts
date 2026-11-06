@@ -22,6 +22,7 @@ import { recordNotification } from '../notifications/store'
 import { workReviewers, works } from './schema'
 import { Work } from './work'
 import { isoTime, workTypeSchema } from './work-rows'
+import { hostKeyOf } from '../../host/host-user'
 
 /**
  * Who reviews a work and what they decided (docs/plans/work-review-and-live-editing.md,
@@ -124,12 +125,14 @@ export async function requestWorkReview(scope: RecordScope, workId: string, inpu
     // The hub keeps one row per reviewer and request (plans/015-notifications-hub.md §5).
     const eventId = `work.review_requested:${work.id}:${input.requestId ?? ulid()}`
     for (const reviewer of input.reviewers) {
+      // The host's owner, named by their account, is stored by their key here (plans/031 D4).
+      const reviewerId = hostKeyOf(reviewer.userId)
       // A request is newer than the decision it follows, even within one millisecond.
-      const now = Math.max(Date.now(), (existing.get(reviewer.userId)?.decided_at ?? 0) + 1)
+      const now = Math.max(Date.now(), (existing.get(reviewerId)?.decided_at ?? 0) + 1)
       const colorIndex = userColorIndex({ id: { kind: 'account', accountId: reviewer.userId }, displayName: reviewer.displayName })
       await db.run(sql`
         INSERT INTO ${workReviewers} (work_id, reviewer_id, display_name, color_index, requested_by, requested_at, request_message, requested_rev, organization_id)
-        VALUES (${work.id}, ${reviewer.userId}, ${reviewer.displayName}, ${colorIndex}, ${by ? JSON.stringify(by) : null}, ${now}, ${input.message ?? null}, ${revision.revisionId}, ${work.organizationId})
+        VALUES (${work.id}, ${reviewerId}, ${reviewer.displayName}, ${colorIndex}, ${by ? JSON.stringify(by) : null}, ${now}, ${input.message ?? null}, ${revision.revisionId}, ${work.organizationId})
         ON CONFLICT (work_id, reviewer_id) DO UPDATE SET
           requested_by = excluded.requested_by,
           requested_at = excluded.requested_at,
@@ -137,7 +140,7 @@ export async function requestWorkReview(scope: RecordScope, workId: string, inpu
           requested_rev = excluded.requested_rev
       `)
     }
-    const reviewerIds = input.reviewers.map((reviewer) => reviewer.userId)
+    const reviewerIds = input.reviewers.map((reviewer) => hostKeyOf(reviewer.userId))
     const resource = { kind: 'work' as const, workId: work.id, revisionId: revision.revisionId }
     // A retry of this request notifies nobody twice; a deliberate re-request has a new id.
     await recordNotification(db, {

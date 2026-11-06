@@ -12,7 +12,7 @@ let machines: typeof import('@solus/workspace-ui/components/automations/lib/auto
 const defaultCapabilitiesFor = connections.capabilitiesFor
 
 beforeAll(async () => {
-  ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+  ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: structuredClone })
   ;({ AutomationsStore } = await import('@solus/workspace-ui/contexts/automations/automations.store.svelte'))
   machines = await import('@solus/workspace-ui/components/automations/lib/automation-machines')
 })
@@ -45,6 +45,74 @@ function automation(id: string, cwd: string): Automation {
     createdBy: { kind: 'system' },
   }
 }
+
+describe('AutomationsStore clone', () => {
+  const action: Automation['action'] = {
+    prompt: 'Run checks',
+    agentProvider: 'claude',
+    modelId: 'claude-opus-5-5',
+    reasoningEffort: 'high',
+    cwd: '/repo',
+    useWorktree: true,
+    planRefs: [{ planId: 'plan-1', title: 'Plan', filePath: '/repo/plan.md' }],
+    workRefs: [{ workId: 'work-1', title: 'Spec', type: 'doc' }],
+  }
+  const trigger: Automation['trigger'] = { type: 'cron', expr: '0 9 * * 1', timezone: 'America/Toronto', endsAt: '2027-01-01T00:00:00.000Z' }
+
+  function hostsWith(source: Automation) {
+    const created: { name: string; action: Automation['action']; enabled: boolean; trigger: Automation['trigger']; preferences: unknown }[] = []
+    connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
+      automationList: async () => [],
+      automationCreate: async () => { throw new Error('clone left the source host') },
+    })
+    connections.registerHost('host-b', {
+      automationRecentRuns: async () => [],
+      automationList: async () => [source],
+      automationCreate: async (name: string, action: Automation['action'], enabled: boolean, trigger: Automation['trigger'], preferences: unknown) => {
+        created.push({ name, action, enabled, trigger, preferences })
+        return { ...automation('clone', action.cwd), name, enabled, trigger, action }
+      },
+    })
+    connections.capabilitiesFor = async () => ({ automations: true }) as Awaited<ReturnType<typeof connections.capabilitiesFor>>
+    return created
+  }
+
+  test('a clone does what the source does, on its host, and starts paused so a schedule does not run twice', async () => {
+    const source: Automation = {
+      ...automation('nightly', '/repo'),
+      name: 'Nightly',
+      favorite: true,
+      action,
+      trigger,
+      lastRunStatus: 'failed',
+      executionPreferences: { capturedAt: 1, preferences: { extraInstructions: 'Be brief' } },
+    }
+    const created = hostsWith(source)
+    const store = new AutomationsStore()
+    store.executionPreferences = () => ({ extraInstructions: 'The cloner, not the source' })
+    await store.loadAll('host-b')
+
+    const clone = await store.clone('nightly')
+
+    expect(created).toEqual([{ name: 'Nightly copy', action, enabled: false, trigger, preferences: { extraInstructions: 'Be brief' } }])
+    expect(store.hostFor(clone.id)).toBe('host-b')
+    expect(store.get('clone')?.favorite).toBeUndefined()
+    expect(store.get('clone')?.lastRunStatus).toBeUndefined()
+    expect(store.get('nightly')?.enabled).toBe(true)
+  })
+
+  test('a source with no captured preferences clones with the current person\'s', async () => {
+    const created = hostsWith({ ...automation('nightly', '/repo'), action, trigger })
+    const store = new AutomationsStore()
+    store.executionPreferences = () => ({ extraInstructions: 'Current' })
+    await store.loadAll('host-b')
+
+    await store.clone('nightly')
+
+    expect(created[0].preferences).toEqual({ extraInstructions: 'Current' })
+  })
+})
 
 describe('AutomationsStore host federation', () => {
   test('loads and exposes only the selected host when the automations page is scoped', async () => {
@@ -207,7 +275,7 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
     const store = new AutomationsStore()
     // `serversStore.executionServers` never lists the Solus API.
     const machineIds = machines.automationListMachineIds([
-      { id: ORG_MACHINE, label: 'Lab machine', status: 'online' },
+      { id: ORG_MACHINE, label: 'Lab machine', readiness: 'ready' },
     ])
 
     await store.loadHosts(machineIds)
@@ -228,10 +296,10 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
       ({ ...(await defaultCapabilitiesFor()), automations: serverId !== 'old' })
     const store = new AutomationsStore()
     const machineIds = machines.automationListMachineIds([
-      { id: 'laptop', label: 'Laptop', status: 'online' },
-      { id: 'desktop', label: 'Desktop', status: 'online' },
-      { id: 'old', label: 'Old', status: 'online' },
-      { id: 'away', label: 'Away', status: 'offline' },
+      { id: 'laptop', label: 'Laptop', readiness: 'ready' },
+      { id: 'desktop', label: 'Desktop', readiness: 'ready' },
+      { id: 'old', label: 'Old', readiness: 'ready' },
+      { id: 'away', label: 'Away', readiness: 'unreachable' },
     ])
 
     expect(machineIds).toEqual(['laptop', 'desktop', 'old'])
@@ -243,13 +311,13 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
   test('the builder offers execution machines and names a Solus-provisioned machine that is not ready', () => {
     const options = machines.automationMachineOptions(
       [
-        { id: 'laptop', label: 'Laptop', status: 'online' },
-        { id: 'no-automations', label: 'Old', status: 'online' },
-        { id: 'away', label: 'Away', status: 'offline' },
+        { id: 'laptop', label: 'Laptop', readiness: 'ready' },
+        { id: 'no-automations', label: 'Old', readiness: 'ready' },
+        { id: 'away', label: 'Away', readiness: 'unreachable' },
         {
           id: ORG_MACHINE,
           label: 'Lab machine',
-          status: 'offline',
+          readiness: 'unreachable',
           uplink: { hostId: 'h', directoryUrl: 'https://app.solus.sh', kind: 'managed', managedState: 'stopped' },
         },
       ],
@@ -271,7 +339,7 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
       [{
         id: ORG_MACHINE,
         label: 'Lab machine',
-        status: 'connecting',
+        readiness: 'checking',
         uplink: { hostId: 'h', directoryUrl: 'https://app.solus.sh', kind: 'managed', managedState: 'starting' },
       }],
       () => true,

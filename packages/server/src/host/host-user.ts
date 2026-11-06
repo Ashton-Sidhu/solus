@@ -72,3 +72,34 @@ export function cloudAccountOf(key: string): string | null {
   const id = parseUserKey(key)
   return id.kind === 'account' ? id.accountId : null
 }
+
+/**
+ * The key a person has on this host (plans/031 D4, inbound): the account the host
+ * is linked to is the host's user; any other key is itself. A client that picked
+ * the owner from an organization's directory names them by their account id, and
+ * a row from the cloud does too: stored as it came, nothing on the host would
+ * know it as the owner.
+ */
+export function hostKeyOf(key: string): string {
+  return current?.account && key === current.account.accountId ? hostUserKey() : key
+}
+
+/**
+ * The person key a reader is shown (plans/031 D4, outbound). The host's owner
+ * knows themselves by their key here; anyone else knows the owner by the account
+ * the host is linked to, as the organization's directory names them.
+ */
+export function keyForReader(key: string, isOwnerReading: boolean): string {
+  return isOwnerReading || !isHostUserKey(key) ? key : cloudAccountOf(key) ?? key
+}
+
+/** A person key as it goes to the cloud: the host's user is the linked account. */
+export function cloudKeyOf(key: string): string {
+  return isHostUserKey(key) ? cloudAccountOf(key) ?? key : key
+}
+
+/** A person's id as the cloud knows them: the host's user is the linked account. */
+export function cloudUserIdOf(id: UserId): UserId {
+  const accountId = isHostUserKey(userKey(id)) ? current?.account?.accountId : undefined
+  return accountId ? { kind: 'account', accountId } : id
+}

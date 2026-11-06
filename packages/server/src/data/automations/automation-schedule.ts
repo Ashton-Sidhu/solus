@@ -6,12 +6,23 @@ import type { AutomationTrigger } from '@solus/contracts/types'
 // All instants are ISO-8601 UTC strings (Date#toISOString), which compare
 // chronologically with plain string `<=` — the scheduler relies on that.
 
+/** Whether a recurring trigger's end has come. No fire happens at or after `endsAt`. */
+export function scheduleHasEnded(trigger: AutomationTrigger, at: Date): boolean {
+  return 'endsAt' in trigger && trigger.endsAt !== undefined && Date.parse(trigger.endsAt) <= at.getTime()
+}
+
 /**
  * The next fire strictly after `from`, or undefined if the trigger has no
- * recurring future fire (manual, or a one-time trigger whose instant is past).
+ * recurring future fire (manual, a one-time trigger whose instant is past, or a
+ * recurring trigger whose next fire is not before its end).
  * Used to compute the *subsequent* fire after one occurs.
  */
 export function nextRunFrom(trigger: AutomationTrigger, from: Date): string | undefined {
+  const next = nextFireFrom(trigger, from)
+  return next && !scheduleHasEnded(trigger, new Date(next)) ? next : undefined
+}
+
+function nextFireFrom(trigger: AutomationTrigger, from: Date): string | undefined {
   switch (trigger.type) {
     case 'manual':
       return undefined
@@ -36,6 +47,9 @@ export function nextRunFrom(trigger: AutomationTrigger, from: Date): string | un
 
 /** Validate a trigger before persisting. Returns an error message, or null if ok. */
 export function validateTrigger(trigger: AutomationTrigger): string | null {
+  if ('endsAt' in trigger && trigger.endsAt !== undefined && !Number.isFinite(Date.parse(trigger.endsAt))) {
+    return 'endsAt must be a valid ISO instant.'
+  }
   switch (trigger.type) {
     case 'manual':
       return null

@@ -319,6 +319,7 @@ export class SessionOpening {
       stillWanted?: () => boolean
     },
   ): Promise<string> {
+    const openedAt = performance.now()
     // A session ref crossing the client names its host — there is no probe.
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
     // Every way into a session without a tab comes here: a shared one is no longer new.
@@ -334,7 +335,9 @@ export class SessionOpening {
     // `meta.sessionId` is the session id; its lineage names the thread to read
     // (docs/plans/session-identity.md).
     const resumedSessionId = meta.sessionId
+    const descriptionStartedAt = performance.now()
     const { lineage: handoff, meta: describedMeta } = await selectedApi.describeSession(resumedSessionId)
+    measureOpenStep('describeSession', descriptionStartedAt, { sessionId: resumedSessionId })
     const activeMember = handoff?.active
     let activeProviderSessionId: string | null = meta.sessionId
     if (activeMember?.providerSessionId) {
@@ -535,6 +538,7 @@ export class SessionOpening {
         session.historyCursor = transcript.before
         session.historyPendingMessages = transcript.pendingMessages
         session.loadingHistory = false
+        measureOpenStep('transcriptApplied', openedAt, { sessionId: resumedSessionId, tabId })
         if (transcript.endsInRefusedLogin) this.workspace.offerSignInAgain(session.id, session)
         requestConversationScrollToBottom(tabId)
 

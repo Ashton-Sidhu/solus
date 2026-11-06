@@ -4,10 +4,10 @@ const SAMPLE_RATE = 16_000
 // 250ms keeps live text and end-of-speech feedback responsive without flooding
 // the offline model with the ~3ms blocks produced by AudioWorklet.
 const CHUNK_SAMPLES = SAMPLE_RATE / 4
+const METER_SAMPLES = SAMPLE_RATE * 0.032
 
 export type PcmChunk = {
   samples: Float32Array
-  rms: number
 }
 
 const WORKLET_SOURCE = `
@@ -74,8 +74,14 @@ export class PcmCapture {
   private pending = new Float32Array(CHUNK_SAMPLES)
   private pendingLength = 0
   private resampler: StreamingLinearResampler | null = null
+  private meterSamples = 0
+  private meterSquares = 0
 
-  constructor(private stream: MediaStream, private onChunk: (chunk: PcmChunk) => void) {}
+  constructor(
+    private stream: MediaStream,
+    private onChunk: (chunk: PcmChunk) => void,
+    private onLevel?: (rms: number) => void,
+  ) {}
 
   async start(): Promise<void> {
     const audioCtx = await prepareCaptureContext()
@@ -97,7 +103,7 @@ export class PcmCapture {
     const tail = this.resampler?.flush()
     if (tail?.length) this.acceptResampled(tail)
     if (this.pendingLength === 0) return
-    this.emit(this.pending.slice(0, this.pendingLength))
+    this.onChunk({ samples: this.pending.slice(0, this.pendingLength) })
     this.pendingLength = 0
   }
 
@@ -112,6 +118,9 @@ export class PcmCapture {
     this.source = null
     this.stream.getTracks().forEach((track) => track.stop())
     this.resampler = null
+    this.meterSamples = 0
+    this.meterSquares = 0
+    this.onLevel?.(0)
   }
 
   private accept(input: Float32Array): void {
@@ -120,6 +129,16 @@ export class PcmCapture {
   }
 
   private acceptResampled(samples: Float32Array): void {
+    // Meter timing follows audio samples, independently of network packets or
+    // main-thread timers. The recorder writes a plain ref, not reactive state.
+    if (this.onLevel) for (const sample of samples) {
+      this.meterSquares += sample * sample
+      if (++this.meterSamples === METER_SAMPLES) {
+        this.onLevel(Math.sqrt(this.meterSquares / METER_SAMPLES))
+        this.meterSamples = 0
+        this.meterSquares = 0
+      }
+    }
     let offset = 0
     while (offset < samples.length) {
       const copyLength = Math.min(CHUNK_SAMPLES - this.pendingLength, samples.length - offset)
@@ -127,21 +146,10 @@ export class PcmCapture {
       this.pendingLength += copyLength
       offset += copyLength
       if (this.pendingLength === CHUNK_SAMPLES) {
-        this.emit(this.pending)
+        this.onChunk({ samples: this.pending })
         this.pending = new Float32Array(CHUNK_SAMPLES)
         this.pendingLength = 0
       }
     }
   }
-
-  private emit(samples: Float32Array): void {
-    this.onChunk({ samples, rms: rmsLevel(samples) })
-  }
-}
-
-function rmsLevel(samples: Float32Array): number {
-  if (samples.length === 0) return 0
-  let sumSq = 0
-  for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i]
-  return Math.sqrt(sumSq / samples.length)
 }

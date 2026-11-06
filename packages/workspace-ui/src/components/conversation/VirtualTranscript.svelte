@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { transcriptPaintProfiler } from "../../lib/mount-timing";
   import { observeStartupTranscriptPaint } from "../../contexts/workspace/startup-transcript";
   import { untrack, type Snippet } from "svelte";
   import type { Turn } from "./lib/turns";
@@ -14,6 +15,12 @@
     virtualizer: TranscriptVirtualizer;
     children: Snippet<[Turn, number, UserBurst]>;
   } = $props();
+
+  const observeProfilePaint = transcriptPaintProfiler();
+  const hasVisibleRows = $derived(active && slots.length > 0);
+  $effect(() => {
+    if (hasVisibleRows) return observeProfilePaint(tabId);
+  });
 
   $effect.pre(() => {
     const keys = turns.map((turn) => turn.id);

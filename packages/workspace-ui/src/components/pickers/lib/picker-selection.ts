@@ -15,7 +15,7 @@ export interface PickerSelection {
   fastMode: boolean;
 }
 
-export type ModelPickerColumn = "model" | "reasoning";
+export type ModelPickerColumn = "rail" | "model" | "reasoning" | "footer";
 
 interface SessionSettingsShortcutTarget {
   isPrimary: boolean;
@@ -40,12 +40,41 @@ interface ModelPickerNavigation {
   columnLength: number;
   oppositeColumnLength: number;
   preferredOppositeIndex: number;
+  /** Rows in the footer under the two columns. */
+  footerLength?: number;
+  /** The rail's row to land on from the model list. Unset when there is no rail. */
+  railIndex?: number;
+}
+
+/** The key that leaves each column for the other one. */
+const CROSSING_KEY = {
+  model: "ArrowRight",
+  reasoning: "ArrowLeft",
+  footer: "ArrowUp",
+  rail: "ArrowRight",
+} satisfies { [column in ModelPickerColumn]: string };
+
+/** The moves along the footer and onto the rail. Undefined when neither applies. */
+function sidewaysTarget({
+  key,
+  column,
+  index,
+  columnLength,
+  railIndex,
+}: Pick<ModelPickerNavigation, "key" | "column" | "index" | "columnLength" | "railIndex">): { column: ModelPickerColumn; index: number } | null | undefined {
+  if (key === "ArrowLeft" && column === "model" && railIndex !== undefined) return { column: "rail", index: railIndex };
+  if (column !== "footer" || (key !== "ArrowLeft" && key !== "ArrowRight")) return undefined;
+  // Right on the last row stays with that row, which opens its own flyout.
+  if (key === "ArrowRight" && index === columnLength - 1) return null;
+  return { column, index: Math.max(0, index + (key === "ArrowRight" ? 1 : -1)) };
 }
 
 /**
  * Keep vertical movement inside the visual column. Crossing columns is an
  * explicit left/right action so reaching Reasoning never costs a lap through
- * every model.
+ * every model. The footer is one row under both columns: down from the end of
+ * either column reaches it, left and right move along it, and up leaves it.
+ * The rail sits left of the model list, one key away from any model.
  */
 export function modelPickerNavigationTarget({
   key,
@@ -54,18 +83,20 @@ export function modelPickerNavigationTarget({
   columnLength,
   oppositeColumnLength,
   preferredOppositeIndex,
+  footerLength = 0,
+  railIndex,
 }: ModelPickerNavigation): { column: ModelPickerColumn; index: number } | null {
-  if (key === "ArrowUp")
-    return { column, index: Math.max(0, index - 1) };
-  if (key === "ArrowDown")
+  const sideways = sidewaysTarget({ key, column, index, columnLength, railIndex });
+  if (sideways !== undefined) return sideways;
+  if (key === "ArrowUp" && column !== "footer") return { column, index: Math.max(0, index - 1) };
+  if (key === "ArrowDown") {
+    if (column !== "footer" && index === columnLength - 1 && footerLength > 0) return { column: "footer", index: 0 };
     return { column, index: Math.min(columnLength - 1, index + 1) };
+  }
   if (key === "Home") return { column, index: 0 };
   if (key === "End") return { column, index: columnLength - 1 };
 
-  const isCrossing =
-    (key === "ArrowRight" && column === "model") ||
-    (key === "ArrowLeft" && column === "reasoning");
-  if (!isCrossing || oppositeColumnLength === 0) return null;
+  if (key !== CROSSING_KEY[column] || oppositeColumnLength === 0) return null;
 
   return {
     column: column === "model" ? "reasoning" : "model",
@@ -160,16 +191,16 @@ export function clampReasoningEffort(
 }
 
 /** A choice made inside the model picker. */
-export type ModelPickerPick = "model" | "effort" | "fast-mode" | "agent";
+export type ModelPickerPick = "model" | "effort" | "fast-mode" | "agent" | "permission-mode";
 
 /**
- * Only an effort is the final choice: it closes the picker and focus returns to
- * the input bar. A model pick moves on to that model's effort, and Fast mode and
- * the agent are steps on the way, so they keep the picker open. Escape and a
- * click outside close it at any step.
+ * An effort and a permission mode are final choices: they close the picker and
+ * focus returns to the input bar. A model pick moves on to that model's effort,
+ * and Fast mode and the agent are steps on the way, so they keep the picker
+ * open. Escape and a click outside close it at any step.
  */
 export function pickClosesModelPicker(pick: ModelPickerPick): boolean {
-  return pick === "effort";
+  return pick === "effort" || pick === "permission-mode";
 }
 
 /** Why the picker is placing focus: it just opened, a model was picked, or the
@@ -204,23 +235,37 @@ export function modelPickerFocusTarget({
 }
 
 /**
- * Rows the Reasoning column holds for its levels and the Fast mode switch,
- * taken over every model of every agent on offer. The model column scrolls
+ * Rows the Reasoning column holds for its levels, taken over every model of
+ * every agent on offer. The model column scrolls
  * inside this height, so the popup keeps one size while the cursor crosses
  * models, the legacy list opens, or the agent changes.
  */
 export function reservedReasoningRows(
   agentIds: readonly AgentId[],
   metadataByAgent: Record<string, AgentMetadata | null>,
-  allowFastMode: boolean,
 ): number {
   let deepest = 0;
   for (const agentId of agentIds) {
     const metadata = metadataByAgent[agentId];
     for (const model of modelOptionsFor(agentId, metadataByAgent)) {
-      const fastRow = allowFastMode && agentId === "codex" && supportsFastModeFor(agentId, model.id, metadata) ? 1 : 0;
-      deepest = Math.max(deepest, reasoningLevelsFor(agentId, model.id, metadata).length + fastRow);
+      deepest = Math.max(deepest, reasoningLevelsFor(agentId, model.id, metadata).length);
     }
   }
   return deepest;
+}
+
+/**
+ * Whether any model of any agent on offer can take Fast mode. A footer that
+ * holds only that control stays while the agent changes, so the popup keeps one
+ * size.
+ */
+export function offersFastMode(
+  agentIds: readonly AgentId[],
+  metadataByAgent: Record<string, AgentMetadata | null>,
+): boolean {
+  return agentIds.some(
+    (agentId) =>
+      agentId === "codex" &&
+      modelOptionsFor(agentId, metadataByAgent).some((model) => supportsFastModeFor(agentId, model.id, metadataByAgent[agentId])),
+  );
 }

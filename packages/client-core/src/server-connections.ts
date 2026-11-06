@@ -26,7 +26,8 @@ import type { HostCapabilities } from '@solus/contracts/types'
 import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
 import { HostIntroducer, type IntroducerHost } from './host-introducer'
-import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
+import { answersAsSavedHost, HostLink, isSavedHost } from './host-link'
+import { readHostHealth, type HostHealth } from './host-http'
 import { routesForMachine } from '@solus/contracts/host-routes'
 
 const CACHE_TTL_MS = 60_000

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { editableDocumentSchema, UNSUPPORTED_GOOGLE_EDIT, type EditableDocument } from './docs-edit-plan'
+import { docsApi, googleAnswer } from './google-api'
 
 /**
  * The Google Docs API, as far as Solus reads and writes it.
@@ -11,8 +12,6 @@ import { editableDocumentSchema, UNSUPPORTED_GOOGLE_EDIT, type EditableDocument 
  * the same facts back. It accepts the `drive.file` grant Solus already holds
  * for documents Solus created, and `drive.readonly` for the rest.
  */
-
-const DOCS_URL = 'https://docs.googleapis.com/v1/documents'
 
 // ─── the document, read ───
 
@@ -251,30 +250,25 @@ export type DocsRequest =
       }
     }
 
-async function docsFetch(accessToken: string, url: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...init.headers, Authorization: `Bearer ${accessToken}` },
-  })
-  if (!res.ok) {
-    const body = (await res.text()).slice(0, 300)
-    if (res.status === 403 && body.includes('SERVICE_DISABLED')) {
-      throw new Error('The Google Docs API is not enabled for this Solus Google Cloud project.')
-    }
-    throw new Error(`Google Docs request failed (${res.status}): ${body}`)
+/** The answer's data; a refusal names Google's status and body. */
+async function docsCall<T>(call: Promise<{ data: T }>): Promise<T> {
+  const answer = await googleAnswer(call)
+  if (answer.kind === 'answered') return answer.data
+  if (answer.kind === 'unanswered') throw answer.error
+  if (answer.status === 403 && answer.body.includes('SERVICE_DISABLED')) {
+    throw new Error('The Google Docs API is not enabled for this Solus Google Cloud project.')
   }
-  return res
+  throw new Error(`Google Docs request failed (${answer.status}): ${answer.body}`)
 }
 
 export async function getDocument(accessToken: string, documentId: string): Promise<DocsDocument> {
-  const res = await docsFetch(accessToken, `${DOCS_URL}/${encodeURIComponent(documentId)}`)
-  return documentSchema.parse(await res.json())
+  return documentSchema.parse(await docsCall(docsApi(accessToken).documents.get({ documentId })))
 }
 
 /** Read the full tab structure before planning edits; the markdown reader is lossy. */
 export async function getEditableDocument(accessToken: string, documentId: string): Promise<EditableDocument> {
-  const res = await docsFetch(accessToken, `${DOCS_URL}/${encodeURIComponent(documentId)}?includeTabsContent=true`)
-  const parsed = editableDocumentSchema.safeParse(await res.json())
+  const document = await docsCall(docsApi(accessToken).documents.get({ documentId, includeTabsContent: true }))
+  const parsed = editableDocumentSchema.safeParse(document)
   if (!parsed.success) throw new Error(UNSUPPORTED_GOOGLE_EDIT)
   return parsed.data
 }
@@ -293,11 +287,7 @@ export async function batchUpdateDocument(
   if (requests.length === 0) return
   const body: DocsBatchUpdate = { requests }
   if (requiredRevisionId) body.writeControl = { requiredRevisionId }
-  await docsFetch(accessToken, `${DOCS_URL}/${encodeURIComponent(documentId)}:batchUpdate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  await docsCall(docsApi(accessToken).documents.batchUpdate({ documentId, requestBody: body }))
 }
 
 /** The index a new block is appended at: just before the body's final

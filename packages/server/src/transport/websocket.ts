@@ -26,6 +26,7 @@ import {
   HOST_SOCKET_PING_INTERVAL_MS,
   HOST_SOCKET_PING_TIMEOUT_MS,
   HOST_SOCKET_PROTOCOL_VERSION,
+  splitTextFrame,
   type ClientFrame,
   type EventResume,
   type HelloFrame,
@@ -100,6 +101,8 @@ interface Connection {
   facts: UpgradeFacts
   state: 'awaiting-hello' | 'admitting' | 'admitted' | 'closed'
   lastInboundAt: number
+  /** The client said it joins parts of a text frame. */
+  joinsFrameParts: boolean
   /** The caller of every RPC on this socket, once admitted. */
   ctx: CallerCtx | null
   /** The host's requests this socket has not answered yet. An answer is wire input; `request` parses it. */
@@ -194,7 +197,12 @@ export function attachWebSocketTransport(
 
   /** Sends a frame already serialized (an event, kept in its log as text). */
   const sendText = (connection: Connection, text: string): void => {
-    if (connection.ws.readyState === WebSocket.OPEN) connection.ws.send(text)
+    if (connection.ws.readyState !== WebSocket.OPEN) return
+    if (!connection.joinsFrameParts) {
+      connection.ws.send(text)
+      return
+    }
+    for (const part of splitTextFrame(text)) connection.ws.send(part)
   }
   const sendFrame = (connection: Connection, frame: ServerFrameInput): void => sendText(connection, JSON.stringify(frame))
 
@@ -247,7 +255,7 @@ export function attachWebSocketTransport(
       ws.terminate()
       return
     }
-    const connection: Connection = { ws, facts, state: 'awaiting-hello', lastInboundAt: Date.now(), ctx: null, pending: new Map(), onClosed: [], connectedAt: Date.now() }
+    const connection: Connection = { ws, facts, state: 'awaiting-hello', lastInboundAt: Date.now(), joinsFrameParts: false, ctx: null, pending: new Map(), onClosed: [], connectedAt: Date.now() }
     connections.add(connection)
     const helloTimer = setTimeout(() => {
       if (connection.state === 'awaiting-hello') ws.close(HOST_SOCKET_CLOSE.protocol, 'no hello')
@@ -300,6 +308,7 @@ export function attachWebSocketTransport(
       return
     }
     connection.state = 'admitting'
+    connection.joinsFrameParts = frame.frameParts === true
     void admitHello(connection, frame)
   }
 

@@ -11,6 +11,8 @@ import { projectSessionHistory } from '../../data/sessions/result-projection'
 import { getSessionRecord } from '../../data/sessions/session-records'
 import type { SharesMirrorPayload, ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
 import type { Activity } from '@solus/contracts/activity'
+import type { Attribution, User } from '@solus/contracts/user'
+import { cloudUserIdOf } from '../../host/host-user'
 import { activityFor } from '../../data/activity/activity'
 import { session } from '../../data/sessions/schema'
 import { appendDelivery, deliveryActorOf, type DeliveryDestination } from '../delivery-queue'
@@ -180,7 +182,7 @@ export class TranscriptMirror {
     if (unsent.length === 0) return 0
     const items: Array<{ key: string; payload: ActivityMirrorPayload }> = unsent.map((entry) => ({
       key: entry.id,
-      payload: { activity: { ...entry, subject: { kind: 'session', id: sessionId } } },
+      payload: { activity: { ...cloudActivity(entry), subject: { kind: 'session', id: sessionId } } },
     }))
     const { lastSeq } = appendDelivery(destination, 'activity', items)
     const remember = getDb().prepare('INSERT INTO activity_mirror_rows(session_id, activity_id) VALUES (?, ?) ON CONFLICT DO NOTHING')
@@ -211,4 +213,22 @@ export async function listOwnInterruptedSessions(): Promise<InterruptedSession[]
     WHERE publication = 'published' AND status = 'interrupted' AND runner_host_id IS NULL AND started_at IS NOT NULL
   `))
   return rows.map((row) => ({ sessionId: row.session_id, provider: row.provider, projectPath: row.project_path }))
+}
+
+/** A user as the cloud knows them: the host's owner is their linked account (plans/031 D4). */
+function cloudUser(user: User): User {
+  return { ...user, id: cloudUserIdOf(user.id) }
+}
+
+function cloudAttribution(by: Attribution): Attribution {
+  if (by.kind === 'user') return { ...by, user: cloudUser(by.user) }
+  if ((by.kind === 'agent' || by.kind === 'automation') && by.for) return { ...by, for: cloudUser(by.for) }
+  return by
+}
+
+/** An activity row as it goes to the cloud: every person it names as the cloud knows them. */
+function cloudActivity(entry: Activity): Activity {
+  const mapped: Activity = { ...entry, by: cloudAttribution(entry.by) }
+  if ((mapped.kind === 'shared' || mapped.kind === 'mentioned') && mapped.userId) mapped.userId = cloudUserIdOf(mapped.userId)
+  return mapped
 }

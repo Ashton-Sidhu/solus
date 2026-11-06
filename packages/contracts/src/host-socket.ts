@@ -5,8 +5,8 @@ import type { BrowserFrameHeader } from './browser-types'
 
 /**
  * The host socket: one plain WebSocket per host on `/ws`, between a client and a
- * host. Every text frame is one JSON object with a `t` field; a binary frame is a
- * streamed browser frame (`encodeBrowserFrame`).
+ * host. Every text frame is one JSON object with a `t` field, or a part of one
+ * (`splitTextFrame`); a binary frame is a streamed browser frame (`encodeBrowserFrame`).
  *
  * The client sends `hello` first, with the dial's one credential. The host answers
  * `welcome` or `refused` (and then closes). Before `hello` the client may send only
@@ -21,6 +21,11 @@ export const HOST_SOCKET_PROTOCOL_VERSION = 1
 export const HOST_SOCKET_PING_INTERVAL_MS = 15_000
 /** A side that hears nothing for the interval and this much more closes the socket. */
 export const HOST_SOCKET_PING_TIMEOUT_MS = 10_000
+/** The longest part of a large text frame, in UTF-16 units. UTF-8 spends at most 3 bytes on
+ *  one, so a part is at most 48 KiB: about 12 s at 4,000 bytes/s, inside the ping timeout. */
+const TEXT_FRAME_PART_UNITS = 16 * 1024
+/** Starts every part of a text frame but the last. No JSON object starts with a record separator. */
+export const TEXT_FRAME_PART_MARK = '\u001e'
 
 /** Close codes the host uses. 4000-4999 are free for applications (RFC 6455 §7.4.2). */
 export const HOST_SOCKET_CLOSE = {
@@ -47,6 +52,8 @@ export const helloFrameSchema = socketHandshakeSchema.extend({
   t: z.literal('hello'),
   v: z.number().int(),
   resume: eventResumeSchema.optional(),
+  /** This client joins parts of a text frame. A host that does not know the field sends whole frames. */
+  frameParts: z.literal(true).optional(),
 })
 export type HelloFrame = z.infer<typeof helloFrameSchema>
 
@@ -136,6 +143,28 @@ export function hostSocketUrl(serverUrl: string): string {
   const url = new URL(HOST_SOCKET_PATH, serverUrl)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
+}
+
+/**
+ * A WebSocket message arrives whole, so a large frame on a slow link hides every
+ * sign of life until its last byte, and each side reads that as a dead socket.
+ * The parts of a frame go one after the other, with nothing between them. Each part
+ * that arrives is a sign of life, and the client answers it with `pong`.
+ */
+export function splitTextFrame(text: string): string[] {
+  if (text.length <= TEXT_FRAME_PART_UNITS) return [text]
+  const parts: string[] = []
+  let start = 0
+  while (text.length - start > TEXT_FRAME_PART_UNITS) {
+    const end = start + TEXT_FRAME_PART_UNITS
+    // A surrogate pair stays in one part: half of one does not survive UTF-8.
+    const lastUnit = text.charCodeAt(end - 1)
+    const cut = lastUnit >= 0xd800 && lastUnit <= 0xdbff ? end - 1 : end
+    parts.push(TEXT_FRAME_PART_MARK + text.slice(start, cut))
+    start = cut
+  }
+  parts.push(text.slice(start))
+  return parts
 }
 
 /**

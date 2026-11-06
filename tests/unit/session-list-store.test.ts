@@ -2,6 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { isSolusApiId } from '@solus/contracts/uplink'
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from '@solus/contracts/session-state'
 import type { SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
@@ -19,7 +20,8 @@ const record = (sessionId: string, fields: Partial<SessionRecord> = {}) =>
 
 interface FakeHome { records: SessionRecord[]; events: HostEventSubscriber; lists: Array<SessionRecordListFilter | undefined>; gets: string[]; viewWrites: string[] }
 
-function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}, update?: SolusAPI['sessionUpdate']) {
+/** Every fake machine is managed unless named in `personal` (plans/031: only a managed machine's published sessions are the Solus API's). */
+function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}, update?: SolusAPI['sessionUpdate'], personal: readonly string[] = []) {
   const fakes = new Map<string, FakeHome>(Object.entries(homes).map(([serverId, records]) => [serverId, { records, events: new HostEventSubscriber(), lists: [], gets: [], viewWrites: [] }]))
   const apis = new Map([...fakes].map(([serverId, home]) => [serverId, asHostApi({
     sessionRecordList: async (filter) => { home.lists.push(filter); return { records: home.records, indexing: false } },
@@ -34,6 +36,7 @@ function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<strin
   const store = new SessionListStore({
     connectedRunnerFor: (runnerHostId) => runners[runnerHostId] ?? null,
     connectedServerIds: () => [...fakes.keys()],
+    isManagedHost: (serverId) => !isSolusApiId(serverId) && !personal.includes(serverId),
   })
   const announce = (serverId: string, type: 'session.stateChanged' | 'session.viewChanged', sessionId: string, value: SessionState | SessionView) =>
     fakes.get(serverId)!.events.receive(type === 'session.stateChanged'
@@ -191,6 +194,22 @@ test('the Solus API keeps an organization session; it opens on its machine, and 
     await store.setArchived({ serverId: 'runner', sessionId: 'on-runner' }, true)
     expect(fakes.get('workspace:org-1')!.viewWrites).toEqual(['on-runner'])
     expect(fakes.get('runner')!.viewWrites).toEqual([])
+  } finally { restore() }
+})
+
+test('a published organization session on a personal machine keeps the machine as home, listed once, and its archive goes there', async () => {
+  // WHY (plans/031 rule 1): the machine is its owner's. Homed on the Solus API, an archive
+  // written while signed in never reached the machine, and came back after a sign-out.
+  const { store, fakes, restore } = fakeHomes({
+    'workspace:org-1': [record('on-mac', { organizationId: 'org-1', publication: 'published', runnerHostId: 'mac-host' })],
+    mac: [record('on-mac', { organizationId: 'org-1', publication: 'published' })],
+  }, { 'mac-host': 'mac' }, undefined, ['mac'])
+  try {
+    await store.load()
+    expect(store.sessions.filter((listed) => listed.sessionId === 'on-mac')).toEqual([expect.objectContaining({ serverId: 'mac', homeServerId: 'mac' })])
+    await store.setArchived({ serverId: 'mac', sessionId: 'on-mac' }, true)
+    expect(fakes.get('mac')!.viewWrites).toEqual(['on-mac'])
+    expect(fakes.get('workspace:org-1')!.viewWrites).toEqual([])
   } finally { restore() }
 })
 

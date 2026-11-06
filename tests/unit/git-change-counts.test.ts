@@ -1,6 +1,6 @@
 import { afterAll, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { git } from '@solus/server/git/exec'
@@ -10,6 +10,8 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 // through its own SQLite.
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { computeGitState, parseStatus } = await import('@solus/server/git/git-helpers')
+
+const { getDiff, getDiffStats, getEpisodeDiff } = await import('@solus/server/git/session-snapshots')
 
 const directories: string[] = []
 afterAll(() => {
@@ -82,12 +84,14 @@ test('the status scan reports whitespace in file names exactly', async () => {
   expect(status?.uncommittedChanges.files.map((file) => file.path).sort()).toEqual([' leading.txt', 'trailing.txt '])
 })
 
-test('a repository with no commit yet is a checkout on its unborn branch', async () => {
+for (const objectFormat of ['sha1', 'sha256']) test(`a repository with no commit yet shows changes (${objectFormat})`, async () => {
   // A new project is `git init` alone. The composer's branch chip and the Git
   // rows read this status, so a null answer here hides them until a commit.
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'solus-git-unborn-')))
   directories.push(directory)
-  git(['init', '-b', 'trunk'], directory)
+  git(['init', '-b', 'trunk', `--object-format=${objectFormat}`], directory)
+  const emptyStatus = await computeGitState(directory, { includeDetails: true })
+  expect(emptyStatus?.branchChanges).toEqual({ fileCount: 0, insertions: 0, deletions: 0 })
   writeFileSync(join(directory, 'draft.ts'), 'x\n')
 
   const status = await computeGitState(directory, { includeDetails: true })
@@ -98,4 +102,22 @@ test('a repository with no commit yet is a checkout on its unborn branch', async
   // The default-branch probe needs a commit, so the unborn branch is its own target.
   expect(status?.targetBranch).toBe('trunk')
   expect(status?.uncommittedChanges.fileCount).toBe(1)
+  expect(status?.branchChanges).toEqual({ fileCount: 1, insertions: 1, deletions: 0 })
+
+  // The count and the opened review must agree before the first commit.
+  const scope = { kind: 'working-tree' } as const
+  const patch = await getDiff(directory, directory, scope, null)
+  expect(patch?.patch).toContain('+x')
+  expect(await getEpisodeDiff(directory, directory, 'HEAD')).toEqual(patch)
+  expect(await getDiffStats(directory, directory, scope, null)).toEqual([
+    { path: 'draft.ts', additions: 1, deletions: 0, status: 'A' },
+  ])
+
+  // Staged content can differ from disk. Reading changes must preserve it.
+  git(['add', 'draft.ts'], directory)
+  const index = readFileSync(join(directory, '.git', 'index'))
+  writeFileSync(join(directory, 'draft.ts'), 'x\ny\n')
+  const stagedStatus = await computeGitState(directory, { includeDetails: true })
+  expect(stagedStatus?.branchChanges).toEqual({ fileCount: 1, insertions: 2, deletions: 0 })
+  expect(readFileSync(join(directory, '.git', 'index'))).toEqual(index)
 })

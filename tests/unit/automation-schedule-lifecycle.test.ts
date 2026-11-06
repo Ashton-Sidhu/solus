@@ -66,6 +66,53 @@ describe('automation schedule lifecycle', () => {
     expect(await store.listRuns(saved.id)).toHaveLength(1)
     expect(await store.claimDueAutomations(new Date(Date.now() + 86_400_000))).toEqual([])
   })
+  test('a schedule stops at its end, and moving the end starts it again', async () => {
+    const start = Date.now()
+    const endsAt = new Date(start + 90 * 60_000).toISOString()
+    const saved = await store.createAutomation('Ends', action, { kind: 'system' }, true, { type: 'interval', everyMinutes: 60, endsAt })
+    expect(scheduleCardState(saved)).toStartWith('Next check')
+
+    // The last fire before the end clears the next one: 120 minutes is past it.
+    const lastFire = new Date(start + 60 * 60_000 + 1000)
+    expect((await store.claimDueAutomations(lastFire)).map(item => item.id)).toEqual([saved.id])
+    const ended = (await store.loadAutomation(saved.id))!
+    expect(ended.trigger).toEqual(saved.trigger)
+    expect(ended.nextRunAt).toBeUndefined()
+    expect(ended.enabled).toBe(true)
+    expect(scheduleCardState(ended)).toBe('Schedule ended')
+    expect(store.nextAutomationDueAt()).toBeNull()
+
+    const moved = (await store.updateAutomation(saved.id, { trigger: { type: 'interval', everyMinutes: 60 } }))!
+    expect(moved.nextRunAt).toBeDefined()
+    await store.deleteAutomation(saved.id)
+  })
+
+  test('a fire missed while closed does not run once the end has passed', async () => {
+    const start = Date.now()
+    const saved = await store.createAutomation('Missed', action, { kind: 'system' }, true, {
+      type: 'cron', expr: '* * * * *', endsAt: new Date(start + 10 * 60_000).toISOString(),
+    })
+    const afterEnd = new Date(start + 86_400_000)
+    expect(await store.claimDueAutomations(afterEnd)).toEqual([])
+    expect((await store.loadAutomation(saved.id))?.nextRunAt).toBeUndefined()
+    expect(store.nextAutomationDueAt()).toBeNull()
+    await store.deleteAutomation(saved.id)
+  })
+
+  test('agents set an end, and cannot set one that has passed or is not a date', async () => {
+    const create = (ends_at: string) => automationTools.executeAutomationTool('create_automation', {
+      name: 'Tool end', prompt: 'Check CI', cwd: directory, agent_provider: 'codex', trigger: { type: 'interval', every_minutes: 30, ends_at },
+    })
+    expect((await create('2020-01-01T00:00:00Z')).ok).toBe(false)
+    expect((await create('soon')).ok).toBe(false)
+    const endsAt = new Date(Date.now() + 86_400_000).toISOString()
+    const created = await create(endsAt)
+    expect(created.ok).toBe(true)
+    const id = created.text.match(/id: ([^)]+)\)/)![1]!
+    expect((await store.loadAutomation(id))?.trigger).toEqual({ type: 'interval', everyMinutes: 30, endsAt })
+    await store.deleteAutomation(id)
+  })
+
   test('archive retention defaults to 30 days and rejects unsafe periods', () => {
     expect(DEFAULT_HOST_CONFIG.archivedAutomationRetentionDays).toBe(30)
     for (const days of [0, -1, 1.5, 3651]) {

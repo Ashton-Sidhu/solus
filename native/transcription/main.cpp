@@ -1,4 +1,5 @@
 #include <transcribe.h>
+#include <transcribe/parakeet.h>
 #include <algorithm>
 #include <thread>
 #include <cmath>
@@ -63,6 +64,22 @@ class Transcriber {
     bool probed = false;
     bool stream_available = false;
 
+    transcribe_status start_stream() {
+        transcribe_stream_params params;
+        transcribe_stream_params_init(&params);
+        transcribe_parakeet_buffered_stream_ext buffered;
+        transcribe_parakeet_buffered_stream_ext_init(&buffered);
+        // Use the same trained window for preparation and every recording.
+        // Retain the model's 5.6 s left context and the CPU batch fallback.
+        if (transcribe_model_accepts_ext_kind(model.get(), TRANSCRIBE_EXT_SLOT_STREAM,
+                                              TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM)) {
+            buffered.chunk_ms = 560;
+            buffered.right_ms = 560;
+            params.family = &buffered.ext;
+        }
+        return transcribe_stream_begin(session.get(), nullptr, &params);
+    }
+
     void prepare() {
         if (!model) {
             check(transcribe_init_backends_default());
@@ -94,7 +111,7 @@ class Transcriber {
             if (!probed) {
                 probed = true;
                 if (gpu) {
-                    if (transcribe_stream_begin(session.get(), nullptr, nullptr) == TRANSCRIBE_OK) {
+                    if (start_stream() == TRANSCRIBE_OK) {
                         const std::vector<float> silence(8 * 16000, 0.0f);
                         stream_available = transcribe_stream_feed(session.get(), silence.data(), int(silence.size()), nullptr) == TRANSCRIBE_OK
                             && transcribe_stream_finalize(session.get(), nullptr) == TRANSCRIBE_OK;
@@ -127,7 +144,7 @@ public:
                 prepare();
                 recording = true;
                 // A model/device that cannot stream still records every sample.
-                streaming = stream_available && transcribe_stream_begin(session.get(), nullptr, nullptr) == TRANSCRIBE_OK;
+                streaming = stream_available && start_stream() == TRANSCRIBE_OK;
                 reply(id);
                 return;
             }

@@ -2,6 +2,7 @@ import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
 import type { WireSessionLoadMessage } from './session-history'
+import type { SecretOutcomeRecord } from './secret-request'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
@@ -740,6 +741,8 @@ export interface QuestionItem {
   header?: string
   options: QuestionOption[]
   multiSelect: boolean
+  /** A `request_secret` card only: `file` saves this secret to a private file that the agent's commands read (docs/plans/webhooks.md §3.6). */
+  secretDelivery?: 'file'
 }
 
 export interface QuestionAnswer {
@@ -1392,6 +1395,8 @@ export interface Message {
    *  history, so it survives a reload. */
   activity?: Activity
   questionResult?: string
+  /** A `request_secret` call's outcomes: its row after the card closes. */
+  secretOutcomes?: SecretOutcomeRecord[]
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system' | 'plan'
   content: string
@@ -1991,8 +1996,8 @@ export type NormalizedEvent =
    *  fires only after all work owned by the turn has stopped. */
   | { type: 'turn_settled'; turnId: string; outcome: 'completed' | 'failed' | 'interrupted' | 'dead'; settledAt: number }
   /** `awaitable`: the task holds its session only while the agent marks it as
-   *  awaited (`background_wait`). Claude's shells and Monitors; absent for
-   *  sub-agents and every Codex task, which always hold. */
+   *  awaited (`background_wait`). Shells, Monitors, and Codex commands;
+   *  absent for sub-agents, which always hold. */
   | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean }
   | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
@@ -2082,7 +2087,7 @@ export type WireNormalizedEvent =
   | (AssistantMessageEvent & { textStreamed?: true })
   | Omit<ToolCallEvent, 'content'>
   | Omit<ToolCallUpdateEvent, 'content'>
-  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[] }
+  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[]; secretOutcomes?: SecretOutcomeRecord[] }
 
 // ─── Prompt Options ───
 
@@ -2577,7 +2582,7 @@ export interface SessionMeta {
   delegation?: SessionDelegation
   /** What started this session (docs/plans/session-starter.md); absent for a session made before the host recorded it. */
   startedBy?: SessionStarter
-  /** The session was started in Coordinator mode: it is a lead
+  /** The session was started in Meta mode: it is a lead
    *  (docs/plans/lead-session.md). The sidebar marks it. Absent when not. */
   isLead?: boolean
   /** The organization of the session's record: `local` or an organization id
@@ -2670,7 +2675,7 @@ export interface SessionRecord {
   place: SessionPlace | null
   /** What started the session. Written once, as `place` is. */
   startedBy: SessionStarter | null
-  /** The session was started in Coordinator mode: it is a lead
+  /** The session was started in Meta mode: it is a lead
    *  (docs/plans/lead-session.md). The list marks it. Absent when not. */
   isLead?: boolean
   /** Whether the session's work is finished (docs/plans/session-archive.md).
@@ -3481,8 +3486,8 @@ export type AutomationRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelle
 export type AutomationTrigger =
   | { type: 'manual' }
   | { type: 'once'; runAt: string }
-  | { type: 'interval'; everyMinutes: number }
-  | { type: 'cron'; expr: string; timezone?: string }
+  | { type: 'interval'; everyMinutes: number; endsAt?: string }
+  | { type: 'cron'; expr: string; timezone?: string; endsAt?: string }
 
 export type AutomationTriggerType = AutomationTrigger['type']
 
@@ -3541,7 +3546,8 @@ export interface Automation {
   trigger: AutomationTrigger
   /**
    * Next scheduled fire as an ISO-8601 UTC instant. Undefined for manual
-   * triggers and for one-time triggers that have already fired. The scheduler
+   * triggers, for one-time triggers that have already fired, and for recurring
+   * triggers with no fire before their `endsAt`. The scheduler
    * persists this so a fire missed while the app was closed is caught up on the
    * next launch (a stale `nextRunAt <= now` means "overdue → run once now").
    */

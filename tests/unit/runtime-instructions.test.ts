@@ -143,14 +143,15 @@ describe('runtime instructions', () => {
     expect(await claudeAppend([linkTool])).not.toContain(rule)
   })
 
-  test('only a Claude agent with background_wait is told when to mark the work it waits on', async () => {
+  test('each provider receives its background wait policy only when the tool is available', async () => {
     // WHY: Claude Code defers the tool behind tool search, and only marked work
-    // keeps a session working. Codex answers the tool with "unsupported".
+    // keeps a session working. Codex instead holds commands by default.
     const rule = 'call background_wait with its task ID'
     const waitTool = tool('background_wait')
     expect(await claudeAppend([waitTool])).toContain(rule)
     expect(await claudeAppend([])).not.toContain(rule)
-    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [waitTool])).not.toContain(rule)
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [waitTool])).toContain('call background_wait with waiting=false')
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('call background_wait with waiting=false')
   })
 
   test('the pull request block is absent when the Tasks tool group is off', async () => {
@@ -183,6 +184,9 @@ describe('runtime instructions', () => {
     for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
       expect(prompt).toContain('Use delegate_task for child work on the same provider or another provider')
       expect(prompt).toContain('Use start_session only for an independent conversation')
+      // WHY: Claude's own Agent tool runs in the background by default, and that
+      // agent has no exchange, no report, and no stop_session.
+      expect(prompt).toContain('For background agent work, use delegate_task, never a background native subagent')
       expect(prompt).toContain('A local child inherits')
       expect(prompt).toContain('Permission mode may stay the same or become narrower')
       expect(prompt).not.toContain('claude_subagent')

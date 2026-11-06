@@ -146,6 +146,27 @@ describe('ownership', () => {
     expect(await shares.roleFor(member('cara'), chat)).toBe('editor')
   })
 
+  test('a member sees the host owner by their linked account; the owner sees their own key; the mirror sends the account', async () => {
+    // WHY (plans/031 D4): the owner's key on the host is `local:<id>`, which no
+    // organization directory knows. Shown raw, a member saw the owner as a
+    // "Former member" with no name, and the cloud stored a key it cannot resolve.
+    const { useHostUser } = await import('@solus/server/host/host-user')
+    useHostUser({ localId: 'h1', account: { accountId: 'alice' } })
+    try {
+      const { shares } = manager()
+      const work = { kind: 'work', id: 'w-shared' } as const
+      await seed('work', 'w-shared', hostUserKey(), 'org1')
+      await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, OWNER)
+      expect((await shares.list(work, member('bob'))).ownerKey).toBe('alice')
+      expect((await shares.list(work, member('bob'))).entries[0]!.grantedByUserId).toBe('alice')
+      expect((await shares.list(work, OWNER)).ownerKey).toBe(hostUserKey())
+      expect((await shares.accessOf(member('bob'), 'work', ['w-shared'])).get('w-shared')!.ownerKey).toBe('alice')
+      expect((await shares.mirroredRows(work))[0]).toMatchObject({ subjectId: 'bob', grantedByUserId: 'alice' })
+    } finally {
+      useHostUser(null)
+    }
+  })
+
   test('the host owner owns what is the host user\'s, local or over the tunnel', async () => {
     const { useHostUser } = await import('@solus/server/host/host-user')
     useHostUser({ localId: 'h1', account: { accountId: 'alice' } })

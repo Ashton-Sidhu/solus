@@ -1,3 +1,4 @@
+import type { HostReadiness } from '@solus/client-core/host-readiness'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import { managedHostStateLabel } from '../../servers/lib/managed-host'
 
@@ -9,7 +10,7 @@ import { managedHostStateLabel } from '../../servers/lib/managed-host'
 export interface AutomationMachine {
   id: string
   label: string
-  status: string
+  readiness: HostReadiness
   uplink?: SavedServerUplink
 }
 
@@ -36,7 +37,7 @@ export function automationMachineOptions(
   for (const machine of machines) {
     const state = managedHostStateLabel(machine.uplink)
     if (state) options.push({ value: machine.id, label: `${machine.label} · ${state}`, disabled: true })
-    else if (machine.status === 'online' && supportsAutomations(machine.id)) {
+    else if (machine.readiness === 'ready' && supportsAutomations(machine.id)) {
       options.push({ value: machine.id, label: machine.label, disabled: false })
     }
   }
@@ -56,5 +57,5 @@ export function selectableAutomationMachine(options: readonly AutomationMachineO
 
 /** The machines the automations page lists from: every connected execution machine. The store skips one without the automations capability. */
 export function automationListMachineIds(machines: readonly AutomationMachine[]): string[] {
-  return machines.filter((machine) => machine.status === 'online').map((machine) => machine.id)
+  return machines.filter((machine) => machine.readiness === 'ready').map((machine) => machine.id)
 }

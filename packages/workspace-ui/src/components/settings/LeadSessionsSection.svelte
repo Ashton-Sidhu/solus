@@ -86,13 +86,13 @@
 </script>
 
 <SettingsSection
-  label="Coordinator mode"
+  label="Meta mode"
   visible={["lead-model", "worker-model", "lead-instructions"].some(isVisible)}
 >
   <SettingsRow
-    label="Coordinator mode model"
+    label="Meta mode model"
     managed={managedSetting("leadModel")}
-    description="What a session in Coordinator mode starts on. Off uses the default for new sessions."
+    description="What a session in Meta mode starts on. Off uses the default for new sessions."
     visible={isVisible("lead-model")}
   >
     {#snippet control()}
@@ -112,7 +112,7 @@
         <Switch
           checked={theme.leadModel !== null}
           onCheckedChange={setLeadModelEnabled}
-          aria-label="Use a separate model for Coordinator mode sessions"
+          aria-label="Use a separate model for Meta mode sessions"
         />
       </div>
     {/snippet}
@@ -121,7 +121,7 @@
   <SettingsRow
     label="Default worker model"
     managed={managedSetting("workerModel")}
-    description="What a Coordinator mode session starts its workers on when its instructions name none. Off lets it choose."
+    description="What a Meta mode session starts its workers on when its instructions name none. Off lets it choose."
     visible={isVisible("worker-model")}
   >
     {#snippet control()}
@@ -148,14 +148,14 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Coordinator mode instructions"
+    label="Meta mode instructions"
     managed={managedSetting("leadInstructions")}
-    description="Added after the built-in rules a Coordinator mode session follows."
+    description="Added after the built-in rules a Meta mode session follows."
     visible={isVisible("lead-instructions")}
   >
     {#snippet body()}
       <SettingsTextField
-        label="Coordinator mode instructions"
+        label="Meta mode instructions"
         value={leadInstructionsDraft}
         onValueChange={(text) => (leadInstructionsDraft = text)}
         onBlur={commitLeadInstructions}

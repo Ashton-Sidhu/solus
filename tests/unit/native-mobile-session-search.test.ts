@@ -47,7 +47,8 @@ test('native names use shared ranking and scope while host messages keep their p
   const prefix = thread('prefix', 'Cafeteria')
   const hidden = thread('hidden', 'Café', 'another-organization')
   const remote = [thread('message', ''), exact].map(thread => ({ serverId: thread.hostId, result: { record: thread.record, snippet: 'cafe', ts: 1, messageId: 2, rank: -1, additionalMatches: [] } }))
-  const hits = nativeSearchHits({ query: 'cafe', hostId: 'a', projectKeys: null, organizationId: null, threads: [prefix, hidden, exact], remote })
+  // Host `a` is managed: its results go through the organization filter (plans/031 rule 3).
+  const hits = nativeSearchHits({ query: 'cafe', hostId: 'a', projectKeys: null, organizationId: null, threads: [prefix, hidden, exact], remote, managedHostIds: new Set(['a']) })
   expect(hits.map(hit => hit.result.record.sessionId)).toEqual(['exact', 'prefix', 'message'])
   expect(hits[0]!.result.reason?.field).toBe('title')
   expect(nativeSearchHits({ query: 'cafe', hostId: 'b', projectKeys: null, organizationId: null, threads: [exact], remote: [] })).toEqual([])

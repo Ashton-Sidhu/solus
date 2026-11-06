@@ -211,9 +211,64 @@ export async function prepareTurnSnapshot(
  * checkout are the session's" below.
  */
 async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
-  const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
-  const dirtyPaths = await listLiveChangedPaths(workTree)
-  return writeTreeForPaths(workTree, repoRoot, headSha, dirtyPaths)
+  const head = await headCommit(workTree) ?? await writeEmptyTree(workTree, repoRoot)
+  const dirtyPaths = await listLiveChangedPaths(workTree, head)
+  return writeTreeForPaths(workTree, repoRoot, head, dirtyPaths)
+}
+
+/**
+ * The commit a session's changes are read against: `HEAD`, or before the first
+ * commit, a root commit of the empty tree. That commit has fixed dates, so each
+ * turn of an unborn branch gets the same one.
+ */
+export async function sessionBaseCommit(workTree: string, repoRoot: string): Promise<string> {
+  const head = await headCommit(workTree)
+  if (head) return head
+  const fixedDate = '@0 +0000'
+  return runAsync('git', ['commit-tree', await writeEmptyTree(workTree, repoRoot), '-m', 'solus-snapshot empty base'], repoRoot, {
+    env: {
+      GIT_AUTHOR_NAME: SNAPSHOT_AUTHOR_NAME,
+      GIT_AUTHOR_EMAIL: SNAPSHOT_AUTHOR_EMAIL,
+      GIT_AUTHOR_DATE: fixedDate,
+      GIT_COMMITTER_NAME: SNAPSHOT_AUTHOR_NAME,
+      GIT_COMMITTER_EMAIL: SNAPSHOT_AUTHOR_EMAIL,
+      GIT_COMMITTER_DATE: fixedDate,
+    },
+  })
+}
+
+/** The commit `HEAD` names, or null on a branch with no commit yet. A broken
+ *  existing ref still throws. */
+async function headCommit(workTree: string): Promise<string | null> {
+  try {
+    return await runAsync('git', ['rev-parse', '--verify', 'HEAD'], workTree)
+  } catch (error) {
+    if (await isUnbornHead(workTree)) return null
+    throw error
+  }
+}
+
+async function writeEmptyTree(workTree: string, repoRoot: string): Promise<string> {
+  ensureSolusDirs(repoRoot)
+  const indexPath = tmpIndexPath(repoRoot)
+  const env: NodeJS.ProcessEnv = { GIT_INDEX_FILE: indexPath }
+  try {
+    await runAsync('git', ['read-tree', '--empty'], workTree, { env })
+    // Git computes the tree ID in the repository's object format (SHA-1 or SHA-256).
+    return await runAsync('git', ['write-tree'], workTree, { env })
+  } finally {
+    try { unlinkSync(indexPath) } catch { /* best-effort */ }
+  }
+}
+
+/** True when `HEAD` names a branch that has no commit yet. */
+async function isUnbornHead(workTree: string): Promise<boolean> {
+  const branchRef = await runAsync('git', ['symbolic-ref', '-q', 'HEAD'], workTree)
+  return runAsync('git', ['show-ref', '--verify', '--quiet', branchRef], workTree)
+    .then(() => false, (refError: NodeJS.ErrnoException) => {
+      if (Number(refError.code) === 1) return true
+      throw refError
+    })
 }
 
 export async function snapshotTurn(
@@ -546,11 +601,11 @@ async function stagePaths(
   }
 }
 
-async function listLiveChangedPaths(workTree: string): Promise<string[]> {
+async function listLiveChangedPaths(workTree: string, head: string): Promise<string[]> {
   const [tracked, untracked] = await Promise.all([
     // Plumbing: porcelain `git diff` rewrites the index under index.lock, even
     // with GIT_OPTIONAL_LOCKS=0, and races the user's own git commands.
-    runAsync('git', ['diff-index', '--name-only', '-z', 'HEAD', '--'], workTree, { raw: true }),
+    runAsync('git', ['diff-index', '--name-only', '-z', head, '--'], workTree, { raw: true }),
     runAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], workTree, { raw: true }),
   ])
   return [...new Set(`${tracked}${untracked}`.split('\0').filter(Boolean))]
@@ -628,20 +683,31 @@ const EMPTY_DIFF: DiffResult = { patch: '' }
  * Seed a throwaway index from HEAD and intent-to-add every untracked file, so a
  * single `git diff HEAD` surfaces tracked edits AND untracked files (as new
  * files with full content) without touching the user's real index. Runs in the
- * worktree's own git context so HEAD resolves to its checked-out branch.
+ * worktree's own git context so HEAD resolves to its checked-out branch. Before
+ * the first commit, use an empty tree for both the index and the diff base.
  */
 async function withWorkingTreeIndex<T>(
   workTree: string,
   repoRoot: string,
-  fn: (env: NodeJS.ProcessEnv) => Promise<T>,
+  fn: (env: NodeJS.ProcessEnv, head: string) => Promise<T>,
 ): Promise<T> {
   ensureSolusDirs(repoRoot)
   const tmpIndex = tmpIndexPath(repoRoot)
   const env: NodeJS.ProcessEnv = { GIT_INDEX_FILE: tmpIndex }
   try {
-    await runAsync('git', ['read-tree', 'HEAD'], workTree, { env })
+    let head = 'HEAD'
+    try {
+      await runAsync('git', ['read-tree', head], workTree, { env })
+    } catch (error) {
+      // Only an unborn branch has an empty base. A broken existing ref or an
+      // index failure must still fail instead of reporting every file as new.
+      if (!await isUnbornHead(workTree)) throw error
+      await runAsync('git', ['read-tree', '--empty'], workTree, { env })
+      // Git computes the tree ID in the repository's object format (SHA-1 or SHA-256).
+      head = await runAsync('git', ['write-tree'], workTree, { env })
+    }
     await runAsync('git', [...DISPOSABLE_ADD_CONFIG, 'add', '-N', '--', '.'], workTree, { env })
-    return await fn(env)
+    return await fn(env, head)
   } finally {
     try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
   }
@@ -660,9 +726,9 @@ export async function getEpisodeDiff(
   repoRoot: string,
   baseSha: string,
 ): Promise<DiffResult> {
-  const combined = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
+  const combined = await withWorkingTreeIndex(workTree, repoRoot, (env, head) =>
     runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', baseSha, ...diffFormatArgs()],
+      ['-c', 'core.quotepath=false', 'diff', baseSha === 'HEAD' ? head : baseSha, ...diffFormatArgs()],
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     ),
@@ -683,13 +749,14 @@ export async function getEpisodeNumstat(
   /** A pending base resolves while the index is prepared; it must not reject. */
   baseSha: string | Promise<string>,
 ): Promise<ChangedFileStat[]> {
-  const out = await withWorkingTreeIndex(workTree, repoRoot, async (env) =>
-    runAsync('git',
-      ['-c', 'core.quotepath=false', 'diff', await baseSha, '--numstat', '--summary'],
+  const out = await withWorkingTreeIndex(workTree, repoRoot, async (env, head) => {
+    const base = await baseSha
+    return runAsync('git',
+      ['-c', 'core.quotepath=false', 'diff', base === 'HEAD' ? head : base, '--numstat', '--summary'],
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
-    ),
-  )
+    )
+  })
   return parseChangedFileStats(out)
 }
 
@@ -754,9 +821,9 @@ export async function getDiff(
 ): Promise<DiffResult | null> {
   if (scope.kind === 'working-tree') {
     if (!workTree) return null
-    const combined = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
+    const combined = await withWorkingTreeIndex(workTree, repoRoot, (env, head) =>
       runAsync('git',
-        ['-c', 'core.quotepath=false', 'diff', 'HEAD', ...diffFormatArgs()],
+        ['-c', 'core.quotepath=false', 'diff', head, ...diffFormatArgs()],
         workTree,
         { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
       ),
@@ -918,8 +985,8 @@ export async function getDiffStats(
 ): Promise<ChangedFileStat[]> {
   if (scope.kind === 'working-tree') {
     if (!workTree) return []
-    const out = await withWorkingTreeIndex(workTree, repoRoot, (env) =>
-      runAsync('git', ['-c', 'core.quotepath=false', 'diff', 'HEAD', '--numstat', '--summary'], workTree, {
+    const out = await withWorkingTreeIndex(workTree, repoRoot, (env, head) =>
+      runAsync('git', ['-c', 'core.quotepath=false', 'diff', head, '--numstat', '--summary'], workTree, {
         env,
         maxBuffer: COMBINED_DIFF_MAX_BUFFER,
       }),

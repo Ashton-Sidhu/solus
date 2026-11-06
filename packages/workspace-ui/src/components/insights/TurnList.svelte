@@ -83,7 +83,6 @@
     /** Opens a turn's conversation; absent where conversations cannot be opened. */
     onOpenSession?: (sessionId: string) => void;
     /** The session's own Insights page — every turn of it on one axis. */
-    onOpenSessionPage?: (sessionId: string) => void;
     /** The session's own name, when the host has one, for a turn with no task. */
     sessionName?: (sessionId: string) => string | null;
     /** A person's marks on turns, by trace, for the chip beside the prompt. */
@@ -131,7 +130,6 @@
     selectedTraceId,
     onOpenTurn,
     onOpenSession,
-    onOpenSessionPage,
     sessionName,
     flags,
     emptyHint,
@@ -406,10 +404,6 @@
         label: "Open session",
         run: () => openSession(sessionId),
       });
-      const openPage = onOpenSessionPage;
-      if (openPage) {
-        actions.push({ label: "Session page", run: () => openPage(sessionId) });
-      }
     }
     return actions;
   }

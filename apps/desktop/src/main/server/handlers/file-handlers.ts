@@ -1,4 +1,4 @@
-import { voiceStreamIdSchema, voiceStreamFeedSchema } from '@solus/contracts/voice-stream'
+import { voiceStreamIdSchema, voiceStreamFeedSchema, voiceWarmRequestSchema } from '@solus/contracts/voice-stream'
 import { dialog, shell } from 'electron'
 import { takeDesktopScreenshot } from '../../capture/screenshot'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
@@ -199,7 +199,8 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   server.register('voiceStreamCancel', ([request], ctx) => {
     cancelVoiceStream(ctx.clientId, voiceStreamIdSchema.parse(request).streamId)
   })
-  server.register('warmTranscription', () => warmTranscription())
+  server.register('warmTranscription', ([request], ctx) =>
+    warmTranscription(ctx.clientId, voiceWarmRequestSchema.optional().parse(request)))
 
   server.register('voiceModelStatus', () => getVoiceModelStatus())
 

@@ -2012,15 +2012,20 @@ export class WorkspaceContext implements SurfaceContext {
     this.showInsights(spanId ? { traceId, spanId } : { traceId }, via)
   }
 
-  /** One session's page in Insights: every turn of it on one axis, with cost
-   *  and context climbing — where "why is this session slow" is answered. */
+  /** A session in Insights: the page opens its last complete turn. */
   openInsightsSession(sessionId: string, via: Via = 'click', target?: OpenTarget): void {
     this.showInsights({ sessionId }, via, target)
   }
 
-  private showInsights(params: RouteParams['insights'], via: Via, target?: OpenTarget): void {
+  /** The turn a session route resolved to, in that route's history entry: Back
+   *  must not land on the session route, which would resolve forward again. */
+  replaceWithInsightsTurn(traceId: string): void {
+    this.showInsights({ traceId }, 'click', undefined, true)
+  }
+
+  private showInsights(params: RouteParams['insights'], via: Via, target?: OpenTarget, replace = false): void {
     const shownTarget = this.router.companionSurface?.name === 'insights' ? 'companion' : 'leading'
-    this.router.navigate({ name: 'insights', params }, { via, target: target ?? shownTarget })
+    this.router.navigate({ name: 'insights', params }, { via, target: target ?? shownTarget, replace })
     track('surface_viewed', { surface: 'insights', via })
   }
 

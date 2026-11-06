@@ -1,5 +1,5 @@
 import type { HostSessionSearchHit, SessionSearchHome } from '@solus/client-core/session-search'
-import { visibleInWindow } from '@solus/client-core/organization-filter'
+import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { SearchQuery } from '@solus/contracts/search-query'
 import { sessionNameScore } from '@solus/contracts/session-search'
@@ -29,19 +29,22 @@ export function nativeSearchHits(input: NativeSearchScope & {
   threads: readonly SolusThreadShell[]
   remote: readonly HostSessionSearchHit[]
   organizationId: string | null
+  /** The hosts provisioned for an organization: only their results, and the Solus API's, go through the organization filter. */
+  managedHostIds?: ReadonlySet<string>
 }): HostSessionSearchHit[] {
+  const managed = input.managedHostIds ?? new Set<string>()
   const search = new SearchQuery(input.query)
   const named: HostSessionSearchHit[] = input.threads.flatMap(thread => {
     if (input.hostId && thread.hostId !== input.hostId) return []
     if (input.projectKeys && !isChatSession(thread.record) && !input.projectKeys.has(threadProjectKey(thread, input.projectKeys))) return []
-    if (!visibleInWindow(thread.record.organizationId, input.organizationId)) return []
+    if (!visibleInWindow(thread.record.organizationId, input.organizationId, usesWindowFilter(thread.hostId, managed))) return []
     const match = sessionNameScore({ id: thread.record.sessionId, title: thread.record.customTitle, branch: thread.record.branch, pullRequest: thread.record.pullRequests?.map(pr => `#${pr.number} ${pr.title}`).join(' ') }, search)
     return match ? [{ serverId: thread.hostId, result: { record: thread.record, snippet: '', ts: thread.record.lastActivityAt, messageId: -1, rank: -match.score, reason: match.reason, additionalMatches: [] } }] : []
   }).sort((a, b) => a.result.rank - b.result.rank || b.result.ts - a.result.ts)
   const seen = new Set<string>()
   return [...named, ...input.remote].filter(hit => {
     const key = `${hit.serverId}\0${hit.result.record.sessionId}`
-    if (seen.has(key) || !visibleInWindow(hit.result.record.organizationId, input.organizationId)) return false
+    if (seen.has(key) || !visibleInWindow(hit.result.record.organizationId, input.organizationId, usesWindowFilter(hit.serverId, managed))) return false
     seen.add(key)
     return true
   })

@@ -156,7 +156,7 @@
         </button>
       {/each}
     </nav>
-    <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1">
+    <div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
       <span class="tabular-nums text-(--solus-text-tertiary)">
         {#if current.totalFileCount > current.changedFileCount}
           {current.changedFileCount} of {current.totalFileCount} files changed
@@ -174,7 +174,7 @@
       </span>
       <!-- The legend names the hues; the strength of a tint is the heat, and
            the tooltip on any cell gives its numbers. -->
-      <span class="flex items-center gap-3 text-(--solus-text-tertiary)" aria-hidden="true">
+      <span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-(--solus-text-tertiary)" aria-hidden="true">
         {#each LEGEND as [tone, label] (tone)}
           <span class="flex items-center gap-1.5">
             <span

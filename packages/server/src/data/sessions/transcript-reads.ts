@@ -55,6 +55,7 @@ const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
     answers: z.record(z.string(), z.string()),
   }).optional(),
   questionResult: z.string().optional(),
+  secretOutcomes: z.array(z.object({ name: z.string(), status: z.enum(['saved', 'declined']), delivery: z.literal('file').optional() })).optional(),
   toolInputKey: z.string().optional(),
   report: z.string().optional(),
   status: z.enum(['ok', 'error']).optional(),

@@ -18,6 +18,12 @@
  */
 export const SECRET_REF_TTL_MS = 15 * 60 * 1000
 
+/**
+ * A secret that `request_secret` saves with `delivery: "file"` stays in its private
+ * file for 24 hours, so the agent's commands can read it during the task.
+ */
+export const SECRET_FILE_TTL_MS = 24 * 60 * 60 * 1000
+
 /** User-controlled tools, grouped by their function in Settings. */
 export const SOLUS_TOOL_GROUPS = [
   { id: 'works', label: 'Works', tools: [

@@ -24,7 +24,6 @@ interface ReviewCommentColors {
   readonly mutedBackground: ColorValue;
   readonly text: ColorValue;
   readonly mutedText: ColorValue;
-  readonly codeBackground: ColorValue;
 }
 
 function useReviewCommentColors(): ReviewCommentColors {
@@ -37,7 +36,6 @@ function useReviewCommentColors(): ReviewCommentColors {
       mutedBackground: theme["--color-subtle"],
       text: theme["--color-foreground"],
       mutedText: theme["--color-foreground-muted"],
-      codeBackground: theme["--color-md-code-bg"],
     }),
     [theme],
   );
@@ -153,20 +151,11 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
           </Text>
         </View>
       </View>
-      {props.comment.text.length > 0 ? (
-        <View className="px-3 py-3">
-          <Text selectable className="text-base leading-snug" style={{ color: colors.text }}>
-            {props.comment.text}
-          </Text>
-        </View>
-      ) : null}
       {shouldRenderNativeDiff ? (
         <View
-          className="border-t"
           collapsable={false}
           style={{
             backgroundColor: nativeReviewDiffTheme.background,
-            borderColor: colors.border,
             height: nativeDiffHeight,
           }}
         >
@@ -189,8 +178,7 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
           directionalLockEnabled
           showsHorizontalScrollIndicator={false}
           bounces={false}
-          className="border-t"
-          style={{ backgroundColor: colors.codeBackground, borderColor: colors.border }}
+          style={{ backgroundColor: nativeReviewDiffTheme.background }}
           contentContainerStyle={{ padding: 10 }}
         >
           <NativeText
@@ -224,6 +212,18 @@ export const ReviewCommentCard = memo(function ReviewCommentCard(props: {
               : props.comment.diff.trim()}
           </NativeText>
         </ScrollView>
+      ) : null}
+      {props.comment.text.length > 0 ? (
+        <View className="p-3" style={{ backgroundColor: nativeReviewDiffTheme.background }}>
+          <View
+            className="rounded-[12px] border border-continuous p-3"
+            style={{ backgroundColor: colors.background, borderColor: colors.border }}
+          >
+            <Text selectable className="text-sm leading-snug" style={{ color: colors.text }}>
+              {props.comment.text}
+            </Text>
+          </View>
+        </View>
       ) : null}
     </View>
   );

@@ -2,6 +2,7 @@
 // apps/mobile/src/lib/threadActivity.ts (MIT, see UPSTREAM.md).
 import { z } from 'zod'
 import { hostPathBaseName } from '@solus/contracts/host-path'
+import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contracts/secret-request'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
@@ -139,7 +140,15 @@ function compact(text: string): string {
 }
 
 /** A call's own label: its command, its file, or its search. */
-export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input'>, expanded = false): string {
+/** What stays of a `request_secret` card once it closes (docs/plans/webhooks.md §3.6). */
+function secretReceipt(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'secretOutcomes'>): string | null {
+  if (!isSecretTool(tool.toolName) || !tool.secretOutcomes) return null
+  return secretReceiptText(secretReceiptRows(tool.secretOutcomes, tool.input ?? undefined))
+}
+
+export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'secretOutcomes'>, expanded = false): string {
+  const receipt = secretReceipt(tool)
+  if (receipt) return receipt
   const parsed = parseToolInput(tool.input)
   const action = toolGroupAction(tool.toolName)
   const command = commandText(parsed)
@@ -156,7 +165,9 @@ export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input'
 }
 
 /** What one call is doing, in the present while it runs and the past after. */
-export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status'>): string {
+export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status' | 'secretOutcomes'>): string {
+  const receipt = secretReceipt(tool)
+  if (receipt) return receipt
   const running = tool.status === 'running'
   const parsed = parseToolInput(tool.input)
   const command = commandText(parsed)
@@ -239,7 +250,7 @@ function changedFileCount(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolNam
  * A finished group's sentence: its two weightiest actions, then a count of
  * the rest. One call reads as itself.
  */
-export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status'>>): string {
+export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status' | 'secretOutcomes'>>): string {
   const only = tools.length === 1 ? tools[0] : undefined
   if (only) return toolGroupAction(only.toolName) === 'edit' ? actionLabel('edit', changedFileCount(tools)) : toolActivitySummary(only)
   const groups = new Map<ToolGroupAction, number>()

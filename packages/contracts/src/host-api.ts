@@ -1,4 +1,4 @@
-import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest } from './voice-stream'
+import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest, VoiceWarmRequest } from './voice-stream'
 import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanceTarget, ProviderInstanceCode, ProviderInstanceStatus } from './provider-instances'
 import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
@@ -60,7 +60,8 @@ import type {
 import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
-import type { AccountHostListPatchRequest, AccountHostListResponse, HostListing } from './host-list'
+import type { HostListing } from './host-list'
+import type { AccountDocumentName, AccountDocumentRequest, AccountDocumentResult } from './account-documents'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
@@ -214,7 +215,7 @@ export interface SolusAPI {
   voiceStreamFeed(request: VoiceStreamFeedRequest): Promise<VoicePartial>
   voiceStreamFinish(request: VoiceStreamRequest): Promise<VoiceTranscript>
   voiceStreamCancel(request: VoiceStreamRequest): Promise<void>
-  warmTranscription(ctx?: IpcContext): Promise<void>
+  warmTranscription(request?: VoiceWarmRequest, ctx?: IpcContext): Promise<void>
   voiceModelStatus(ctx?: IpcContext): Promise<VoiceModelStatus>
   voiceModelRetry(ctx?: IpcContext): Promise<VoiceModelStatus>
   logVoiceTranscription(row: {
@@ -1219,13 +1220,6 @@ export type AccountAgentProfileResult =
   | { kind: 'conflict'; reason: 'profile_conflict' | 'profile_generation_changed'; current: AccountAgentProfileResponse }
   | SettingsRequestFailure
 
-/** The account host list (plans/031 D7), the same way. */
-export type AccountHostListResult =
-  | { kind: 'ok'; hosts: AccountHostListResponse }
-  /** 409: a stale revision, or a cleared generation. `current` is the stored document. */
-  | { kind: 'conflict'; reason: 'host_list_conflict' | 'host_list_generation_changed'; current: AccountHostListResponse }
-  | SettingsRequestFailure
-
 /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, read and started from a client. */
 export type AccountVaultResult =
   | { kind: 'ok'; connections: VaultConnection[] }
@@ -1326,9 +1320,8 @@ export interface NativeSolusAPI {
   accountAgentProfileGet(): Promise<AccountAgentProfileResult>
   accountAgentProfilePatch(request: AccountAgentProfilePatchRequest): Promise<AccountAgentProfileResult>
   accountAgentProfileDelete(): Promise<AccountAgentProfileResult>
-  accountHostListGet(): Promise<AccountHostListResult>
-  accountHostListPatch(request: AccountHostListPatchRequest): Promise<AccountHostListResult>
-  accountHostListDelete(): Promise<AccountHostListResult>
+  /** One call on one of the account's documents (`account-documents.ts`), with this client's sign-in. */
+  accountDocument<N extends AccountDocumentName>(request: AccountDocumentRequest<N>): Promise<AccountDocumentResult<N>>
   /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, start a sign-in, paste a key, disconnect. */
   accountVault(): Promise<AccountVaultResult>
   accountVaultConnect(request: VaultConnectRequest): Promise<AccountVaultConnectResult>

@@ -137,6 +137,34 @@ the list, and a fresh database does not open 30 days of history.
   (maintainer, 2026-11-03). `HostCategory`, `MachineKind`
   and the `cloud` value of `HostKind` go. In `solus-cloud`, `host.category` goes
   and `host.owner_user_id` is null for a managed host.
+- **Plain requests, no copy.** A client reads the list from its source and shows
+  the answer beside the hosts it keeps itself (`server-registry.ts`: its own
+  pairings and their tokens). Pairing a host writes it to the source; forgetting
+  one removes it. Nothing is copied back into the registry, so nothing is
+  reconciled (`client-core/src/host-list-source.ts`; the phone holds the answer in
+  memory, `HostRegistry.setListedHosts`). A host another device paired shows
+  without a token until this client pairs it.
+- **One primitive for account documents.** `contracts/src/account-documents.ts` is
+  a table with one row per document (its route and schemas), and
+  `client-core/src/account-documents.ts` is one call that decodes any row. Desktop
+  has one IPC channel (`solus:account-document`), checked against the table; web
+  and mobile give only how they send. The host list is its first row; settings and
+  the agent profile move to it in a later change.
+- The host's own `introduced-hosts.bin` and `forwarded-hosts.bin` are host-to-host
+  credentials, not the person's list, and stay as they are.
+- **`kind` is one fact on every host:** `personal` or `managed`. A host is
+  `managed` when the organization set it up through the control plane: a machine
+  Solus provisioned for it, or a standalone server connected to the organization
+  in the organization's setup. Every other host is `personal`, including a
+  standalone server that a person runs and pairs (maintainer, 2026-11-03). A
+  `managed` host is reached through the Solus API (rule 3). The host stores its
+  own `kind` and reports it in `serverInfo`; the row and the directory copy it.
+  It changes only when the organization setup connects or removes the host.
+  A desktop host that its owner shares with the organization stays `personal`:
+  the owner reads everything on it, and members get only their grants
+  (maintainer, 2026-11-03). `HostCategory`, `MachineKind`
+  and the `cloud` value of `HostKind` go. In `solus-cloud`, `host.category` goes
+  and `host.owner_user_id` is null for a managed host.
 - **The client's registry is a cache of the list.** `server-registry.ts` keeps
   its saved hosts and this client's own tokens; `HostListSync`
   (`client-core/src/host-list-sync.ts`) folds the source into it and writes a
@@ -145,6 +173,44 @@ the list, and a fresh database does not open 30 days of history.
   another device and leaves; a host the source never had is new here and goes up.
   The host's own `introduced-hosts.bin` and `forwarded-hosts.bin` are host-to-host
   credentials, not the person's list, and stay as they are.
+
+## 3a. Audit fixes (2026-11-03)
+
+A read audit of server and clients found these gaps; each is fixed in the working tree
+with a test.
+
+1. **A personal host's records show whole.** The window's organization filter
+   (`visibleInWindow`) applies only to records from a Solus API or a managed host
+   (`usesWindowFilter`, `managedHostIds`), on desktop, web, and mobile. Signed out, the
+   owner's organization records no longer vanish. `organization-scope.md` §2 says so.
+2. *(Replaced by the plain-requests rewrite of D7: there is no copy to reconcile.)*
+   **The host list keeps a host it cannot confirm.** An account write that does not
+   land throws; a host counts as listed only after its write lands; a pull that
+   overlapped a write of this client reads again; an overlapping refresh is queued;
+   a host a pull removes gets the cleanup a forget has; a host this client never
+   paired is never written to a list; a re-paired host's old id is removed.
+3. *(Replaced by the rewrite: the phone holds the list's answer in memory, apart from the directory.)*
+   **The phone keeps account-list hosts through a directory refresh.** They carry
+   `listedBy`, not the directory's `accountUserId`; the list or a sign-out removes them.
+4. **A personal machine's sessions keep their personal state on the machine.** Only a
+   managed machine's published sessions are homed on the Solus API (`sessionHomeId`);
+   the API's copy of a session a connected personal machine runs is not listed twice.
+5. **Inbound mapping, `hostKeyOf`.** The linked owner's account id is stored as the
+   host user's key: review requests, mentions, share subjects, task assignees (the
+   owner may now be assigned an organization task), an attached machine's session
+   owner, and the automation pause.
+6. **Outbound mapping, `keyForReader`, `cloudKeyOf`, `cloudUserIdOf`.** Anyone but the
+   owner sees the owner by their linked account in share lists, record roles
+   (`accessOf`), and session records; the share mirror and the activity mirror send
+   the account. Presence and reviewer ids still show the local key to members.
+7. **Agent tools read what the turn's person may open** (`toolMayRead`):
+   `read_session`, `search_sessions`, `read_plan`, `comment_document`.
+8. **Pinned sessions are the owner's.** Others get none and cannot pin.
+9. **The event stream, attention, and presence respect the owner's scope**
+   (`readsWholeDisk`): a pairing on an attached machine hears only what it may read.
+
+Open: item 10 of the audit (what an attached self-hosted server is) is the
+maintainer's decision.
 
 ## 4. Questions
 

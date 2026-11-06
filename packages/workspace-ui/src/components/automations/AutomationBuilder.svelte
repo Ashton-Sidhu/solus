@@ -12,9 +12,7 @@
     AutomationPlanRef,
     AutomationRun,
     AutomationTrigger,
-    AgentId,
     PlanReference,
-    ReasoningEffort,
     WorkReference,
   } from "@solus/contracts/types";
   import {
@@ -35,7 +33,6 @@
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
-  import { agentLabel } from "../../lib/agentAvailability";
   import { SubPageCrumbLine } from "../ui/list-page";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -51,13 +48,15 @@
     automationRunCwd,
   } from "./lib/automation-format";
   import {
+    automationAgents,
     runnableAutomationAgent,
-    runnableAutomationAgents,
   } from "./lib/automation-agent";
   import { ScheduleDraft } from "./lib/schedule-draft.svelte";
-  import { ROW, EYEBROW, VALUE, MONO_VALUE, VALUE_TRIGGER } from "./lib/rail-styles";
+  import { ROW, ROW_BUTTON, LABEL, EYEBROW, VALUE } from "./lib/rail-styles";
   import AutomationInstructions from "./AutomationInstructions.svelte";
   import AutomationRailSelect from "./AutomationRailSelect.svelte";
+  import SessionChip from "../pickers/SessionChip.svelte";
+  import type { PickerSelection } from "../pickers/lib/picker-selection";
   import AutomationRunChart from "./AutomationRunChart.svelte";
   import AutomationRunHistory from "./AutomationRunHistory.svelte";
   import AutomationScheduleFields from "./AutomationScheduleFields.svelte";
@@ -180,14 +179,6 @@
   const canEdit = $derived(!automationRef || (hosts.get(selectedServerId)?.me.may("edit", automationRef) ?? true));
   const canRun = $derived(!automationRef || (hosts.get(selectedServerId)?.me.may("drive", automationRef) ?? true));
 
-  const agentOptions = $derived(runnableAutomationAgents(agentContext.agents));
-  const REASONING_OPTIONS: ReasoningEffort[] = [
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-  ];
 
   // ── Editable action drafts ──
   // Seeded once from the prop; `untrack` makes the one-time snapshot explicit so
@@ -205,17 +196,21 @@
   const planSources = new Map<string, AutomationPlanRef>(
     (initial?.action.planRefs ?? []).map((r) => [r.planId, r]),
   );
-  // A new automation starts on an agent this host can actually run, so a
-  // single-provider machine never saves one whose provider is not installed. A
-  // saved automation keeps the agent it holds — it may belong to another host.
-  let agentProvider = $state<AgentId>(
-    initial?.action.agentProvider ??
+  // What the model picker edits in place. A new automation starts on an agent
+  // this host can actually run, so a single-provider machine never saves one
+  // whose provider is not installed. A saved automation keeps the agent it
+  // holds — it may belong to another host. `modelId: null` means "the provider's
+  // default model": the picker shows it without writing it back. Pinning and
+  // saving here used to fire on mount, creating a ghost "Untitled automation"
+  // the moment the New view opened. Automations cannot carry fast mode.
+  let selection = $state<PickerSelection>({
+    provider:
+      initial?.action.agentProvider ??
       untrack(() => runnableAutomationAgent(agentContext.agents, undefined)),
-  );
-  let modelId = $state<string | null>(initial?.action.modelId ?? null);
-  let reasoningEffort = $state<ReasoningEffort>(
-    initial?.action.reasoningEffort ?? "medium",
-  );
+    modelId: initial?.action.modelId ?? null,
+    reasoningEffort: initial?.action.reasoningEffort ?? "medium",
+    fastMode: false,
+  });
   let cwd = $state(
     initial?.action.cwd ??
       worktreeProjectRoot(
@@ -234,28 +229,6 @@
   // fields are live, and `build()` compiles them back to a trigger.
   const schedule = new ScheduleDraft(initial?.trigger);
 
-  // ── Select option lists ──
-  const models = $derived(agentContext.metadata[agentProvider]?.models ?? []);
-  const agentSelectOptions = $derived(
-    (agentOptions.some((a) => a.id === agentProvider)
-      ? agentOptions.map((a) => a.id)
-      : // The automation holds an agent this host cannot run — a saved one from
-        // another host, or nothing runnable installed here. Name it anyway: an
-        // option missing from its own select reads as an empty picker.
-        [...agentOptions.map((a) => a.id), agentProvider]
-    ).map((id) => ({ value: id, label: agentLabel(id, agentContext.metadata) })),
-  );
-  const modelSelectOptions = $derived(
-    models.map((m) => ({ value: m.id, label: m.label })),
-  );
-  // `modelId: null` means "the provider's default model" — display it as the
-  // first model without writing it back. Pinning + saving here used to fire on
-  // mount, creating a ghost "Untitled automation" the moment the New view opened.
-  const effectiveModelId = $derived(modelId ?? models[0]?.id ?? null);
-  const reasoningSelectOptions = REASONING_OPTIONS.map((r) => ({
-    value: r,
-    label: REASONING_EFFORT_LABELS[r] ?? r,
-  }));
   const projectName = $derived(hostPathBaseName(cwd) || cwd);
   // Run history for the live automation. Keyed on the id (not `current`, which
   // is replaced on every save/push) so history only reloads when the id changes;
@@ -284,7 +257,9 @@
       ? absoluteTime(current.nextRunAt, nowTick)
       : schedule.kind === "manual"
         ? "Manual only"
-        : "Not scheduled",
+        : enabled && current && "endsAt" in current.trigger && current.trigger.endsAt
+          ? "Schedule ended"
+          : "Not scheduled",
   );
 
   /** The "· next run in 4h 12m" tail on the state line. Times are human here,
@@ -311,7 +286,7 @@
     [
       current?.updatedAt ? `Edited ${relativeTime(current.updatedAt, nowTick)}` : "",
       useWorktree ? "Isolated worktree" : "Runs in place",
-      `${REASONING_EFFORT_LABELS[reasoningEffort] ?? reasoningEffort} reasoning`,
+      `${REASONING_EFFORT_LABELS[selection.reasoningEffort] ?? selection.reasoningEffort} reasoning`,
     ].filter(Boolean),
   );
 
@@ -319,9 +294,9 @@
     const planRefs = resolvePlanRefs();
     return {
       prompt: prompt.trim(),
-      agentProvider,
-      modelId,
-      reasoningEffort,
+      agentProvider: selection.provider,
+      modelId: selection.modelId,
+      reasoningEffort: selection.reasoningEffort,
       cwd: cwd.trim() || "~",
       useWorktree,
       planRefs: planRefs.length ? planRefs : undefined,
@@ -458,12 +433,6 @@
     void persist({ trigger: t });
   }
 
-  function onAgentChange(id: AgentId) {
-    agentProvider = id;
-    modelId = null;
-    commitAction();
-  }
-
   function setEnabled(next: boolean) {
     enabled = next;
     void persist({ enabled });
@@ -538,7 +507,7 @@
     // Resume the spawned run as a session so the user can inspect what it did,
     // under the exact directory used by that run (drafts may hold unsaved edits).
     void session.opening.resumeSession({
-      provider: current?.action.agentProvider ?? agentProvider,
+      provider: current?.action.agentProvider ?? selection.provider,
       serverId: selectedServerId,
       sessionId: run.sessionId,
       slug: null,
@@ -724,7 +693,7 @@
           onBlur={commitAction}
           enterInsertsNewline
           pluginCommands={session.pluginCommands}
-          provider={agentProvider}
+          provider={selection.provider}
           workingDirectory={cwd}
           menuPlacement="down"
           dictation
@@ -755,9 +724,9 @@
 <!-- ── The rail: machine facts, set like data ── -->
 {#snippet railCard()}
   <div
-    class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+    class="flex flex-col rounded-2xl bg-(--solus-menu-bg) shadow-[shadow:var(--solus-menu-shadow)] @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-4"
   >
-    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="flex min-w-0 flex-col p-1.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationScheduleFields
         {schedule}
         {enabled}
@@ -767,83 +736,62 @@
       />
     </div>
 
-    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
-      <span class={EYEBROW}>Setup</span>
+    <div class="mx-2.5 h-px shrink-0 bg-(--solus-menu-hairline) @max-[65rem]:hidden"></div>
+
+    <div class="flex min-w-0 flex-col p-1.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+      <span class="menu-heading">Setup</span>
       <div class="flex flex-col">
-        <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Machine</span>
-          {#if current}
+        {#if current}
+          <div class={ROW}>
+            <span class={LABEL}>Machine</span>
             <span class={VALUE}>{selectedHostLabel}</span>
-          {:else}
-            <AutomationRailSelect
-              label="Automation machine"
-              value={selectedServerId}
-              options={hostOptions}
-              placeholder={NO_MACHINE_LABEL}
-              onSelect={(serverId) => {
-                selectedServerId = serverId;
-                pickerOpen = false;
-              }}
-            />
-          {/if}
-        </div>
-
-        <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Project</span>
-          <!-- Same chip as the menu-backed values, minus the caret: this one
-               opens the directory picker, and a caret would promise a menu. -->
-          <button
-            bind:this={pickerTriggerEl}
-            type="button"
-            disabled={!selectedHostApi}
-            class={VALUE_TRIGGER}
-            onclick={() => (pickerOpen = true)}
-            title={cwd}
-          >
-            <span class={MONO_VALUE}>{projectName}</span>
-          </button>
-        </div>
-
-        <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Agent</span>
+          </div>
+        {:else}
           <AutomationRailSelect
-            label="Agent"
-            value={agentProvider}
-            options={agentSelectOptions}
-            onSelect={onAgentChange}
-            menuClass="w-[200px]"
-          />
-        </div>
-
-        <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Model</span>
-          <AutomationRailSelect
-            label="Model"
-            value={effectiveModelId ?? ""}
-            options={modelSelectOptions}
-            onSelect={(v) => {
-              modelId = v;
-              commitAction();
-            }}
-            menuClass="w-[216px]"
-          />
-        </div>
-
-        <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Reasoning</span>
-          <AutomationRailSelect
-            label="Reasoning"
-            value={reasoningEffort}
-            options={reasoningSelectOptions}
-            onSelect={(v) => {
-              reasoningEffort = v;
-              commitAction();
+            label="Machine"
+            value={selectedServerId}
+            options={hostOptions}
+            placeholder={NO_MACHINE_LABEL}
+            onSelect={(serverId) => {
+              selectedServerId = serverId;
+              pickerOpen = false;
             }}
           />
+        {/if}
+
+        <!-- A row like the menu-backed ones, minus the caret: this one opens the
+             directory picker, and a caret would promise a menu. -->
+        <button
+          bind:this={pickerTriggerEl}
+          type="button"
+          disabled={!selectedHostApi}
+          class="{ROW_BUTTON} disabled:opacity-50"
+          onclick={() => (pickerOpen = true)}
+          title={cwd}
+        >
+          <span class={LABEL}>Project</span>
+          <span class="ml-auto {VALUE}">{projectName}</span>
+        </button>
+
+        <div class={ROW}>
+          <span class={LABEL}>Model</span>
+          <!-- The input bar's own picker, set flush like the rail's other values:
+               agent, model and reasoning are one decision there and here. -->
+          <SessionChip
+            bind:selection
+            agents={automationAgents(agentContext.agents)}
+            serverId={selectedServerId}
+            allowFastMode={false}
+            menuSide="bottom"
+            ariaLabel="Automation agent, model and reasoning"
+            disabled={!canEdit}
+            class="-mr-1.5 h-7 border-0 px-1.5 text-(--solus-text-secondary) pointer-coarse:h-10"
+            onSelectionChange={commitAction}
+          />
         </div>
 
         <div class={ROW}>
-          <span class="shrink-0 text-muted-foreground">Worktree</span>
+          <span class={LABEL}>Worktree</span>
           <Switch
             checked={useWorktree}
             onCheckedChange={(v) => {
@@ -858,7 +806,9 @@
       </div>
     </div>
 
-    <div class="flex min-w-0 flex-col gap-3 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
+    <div class="mx-2.5 h-px shrink-0 bg-(--solus-menu-hairline) @max-[65rem]:hidden"></div>
+
+    <div class="flex min-w-0 flex-col p-1.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationRunHistory
         {runs}
         expanded={isRunHistoryExpanded}

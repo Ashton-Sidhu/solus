@@ -15,7 +15,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // WORKAROUND(openai/codex#54472): delete this file with the workaround.
 //
 // Every Codex home keeps its own projection of a thread's history, and an
-// unloaded `thread/read` never projects the shared rollout first. A thread a
+// unloaded `thread/turns/list` never projects the shared rollout first. A thread a
 // member's seat ran reads empty through the host's app-server (seen on a
 // managed host: a plain Codex session showed no messages, and a Claude -> Codex
 // handoff showed nothing after the switch). So history is read through the
@@ -55,10 +55,10 @@ function fakeAppServer(name: string) {
         markTurnStarted()
         return { turn: { id: `turn-${methods.length}` } }
       }
-      if (method === 'thread/read') {
-        return { thread: { turns: [{ id: 'turn-1', status: 'completed', itemsView: 'full', items: [
+      if (method === 'thread/turns/list') {
+        return { data: [{ id: 'turn-1', status: 'completed', itemsView: 'full', items: [
           { id: `message-${name}`, type: 'userMessage', content: [{ type: 'text', text: `read on ${name}` }] },
-        ] }] } }
+        ] }], nextCursor: null }
       }
       if (method === 'thread/items/list') return { data: [], nextCursor: null }
       if (method === 'thread/goal/get') return { goal: null }

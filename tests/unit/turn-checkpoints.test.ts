@@ -56,6 +56,31 @@ describe('turn checkpoints', () => {
     expect(turns.map((turn) => [turn.index, turn.filesChanged])).toEqual([[0, 2]])
   })
 
+  // WHY: a new project often has `git init` and no commit. With no HEAD the
+  // session had no base, so no turn was recorded and the session diff stayed
+  // empty while the agent wrote every file.
+  test('a repository with no commits records the session and its diff', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'solus-turn-checkpoints-unborn-'))
+    dirs.push(cwd)
+    git(cwd, ['init'])
+    writeFileSync(join(cwd, 'existing.txt'), 'there before the session\n')
+    const target = { sessionId: 'unborn-session', workTree: cwd }
+
+    await beginTurnCheckpoint(target)
+    writeFileSync(join(cwd, 'store.go'), 'package vault\n')
+    expect(await endTurnCheckpoint(target, { partial: false, userMessagePreview: 'first' })).toEqual(['store.go'])
+
+    await beginTurnCheckpoint(target)
+    writeFileSync(join(cwd, 'value.go'), 'package vault\n')
+    await endTurnCheckpoint(target, { partial: false, userMessagePreview: 'second' })
+
+    const turns = await listTurnSnapshots(cwd, 'unborn-session')
+    expect(turns.map((turn) => [turn.index, turn.filesChanged])).toEqual([[0, 1], [1, 1]])
+    // The main checkout is shared, so the session reads only what its turns wrote.
+    expect((await getDiffStats(cwd, cwd, { kind: 'session' }, 'unborn-session')).map((file) => [file.path, file.status]).sort())
+      .toEqual([['store.go', 'A'], ['value.go', 'A']])
+  })
+
   test('a folder outside git records nothing and does not throw', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'solus-turn-checkpoints-plain-'))
     dirs.push(cwd)

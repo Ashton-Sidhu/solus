@@ -13,7 +13,7 @@ export function agentTargetFromMetadata(metadata: AgentMetadata): AgentTarget {
     unavailableReason: metadata.unavailableReason,
     defaultModel: metadata.defaultModel,
     models: metadata.models.map((model) => {
-      const profile = profiles[model.id]
+      const profile = metadata.modelProfiles?.[model.id] ?? profiles[model.id]
       return {
         id: model.id,
         label: model.label,

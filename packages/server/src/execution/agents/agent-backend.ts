@@ -90,6 +90,9 @@ export interface AgentBackend extends EventEmitter {
     options: Pick<PromptOptions, 'prompt' | 'imageAttachments'>,
   ): Promise<RunHandle | null>
   cancelSession(sessionId: string): boolean
+  /** Set whether a running command holds the turn; returns its canonical item ID.
+   * Accepts the command item ID or the terminal session ID shown to the agent. */
+  setBackgroundCommandWaiting?(sessionId: string, taskId: string, waiting: boolean): string | null
   /** Stop one background task without ending the turn. */
   stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean>
   /** Whether work the agent left running outlives its turn's end. Absent when

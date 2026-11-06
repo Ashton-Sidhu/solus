@@ -12,6 +12,7 @@ import { ACCOUNT_GRANT_KEY, KeychainTokenStore } from '../../apps/mobile/src/fea
 import { HostRegistry } from '../../apps/mobile/src/features/hosts/host-registry'
 import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../apps/mobile/src/platform/ports'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
+import { HOST_LIST_PATH } from '@solus/contracts/host-list'
 
 // The mobile account (ADR 0001 stage 1c): one OAuthSession as `solus-mobile`, the system
 // authentication session with the claimed `solus://` redirect, the refresh token in the
@@ -139,9 +140,11 @@ describe('mobile keychain token store', () => {
 describe('native Solus account', () => {
   test('uses login account and settings data before making later refresh reads', async () => {
     const w = await signedIn({ hosts: [host('inst-1', ['org-1'])] })
-    expect(w.apiCalls.map(call => call.path)).toEqual(['/v1/hosts'])
+    // The host list is its own read after the directory (plans/031 D7); this test counts the rest.
+    const paths = () => w.apiCalls.map(call => call.path).filter(path => path !== HOST_LIST_PATH)
+    expect(paths()).toEqual(['/v1/hosts'])
     expect(await w.session.settingsRequests().accountSettingsGet()).toMatchObject({ kind: 'ok', settings: { generation: 0 } })
-    expect(w.apiCalls.map(call => call.path)).toEqual(['/v1/hosts'])
+    expect(paths()).toEqual(['/v1/hosts'])
     await w.session.refreshDirectory()
     expect(w.apiCalls.filter(call => call.path === '/v1/account')).toHaveLength(1)
   })
@@ -150,7 +153,8 @@ describe('native Solus account', () => {
       hosts: [host('inst-1', ['org-1'])],
       startupDirectory: { hosts: [host('inst-1', ['org-1'])], workspaces: [{ organizationId: 'org-1', label: 'Acme at login', routes: [], isActive: false, hostRules: ORGANIZATION.hostRules }] },
     })
-    expect(w.apiCalls).toEqual([])
+    // The host list is its own read after the directory (plans/031 D7).
+    expect(w.apiCalls.filter(call => call.path !== HOST_LIST_PATH)).toEqual([])
     expect(w.session.directory).toMatchObject({ kind: 'loaded', workspaces: [{ label: 'Acme at login' }] })
     await w.session.refreshDirectory()
     expect(w.apiCalls.filter(call => call.path === '/v1/hosts')).toHaveLength(1)

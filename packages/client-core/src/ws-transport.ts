@@ -16,6 +16,7 @@ import {
 } from '@solus/contracts/voice-audio'
 import { z } from 'zod'
 import { randomId } from './random-id'
+import { refreshHostSession } from './host-http'
 import type { DialError } from './host-diagnostics'
 import type { DialOutcome } from './host-supervisor'
 import { type HandshakeCredential, type SocketHandshake } from '@solus/contracts/uplink'
@@ -760,7 +761,7 @@ export class WsTransport {
   private async refreshToken(): Promise<RefreshResult> {
     const refreshed = this.opts.refreshToken
       ? await this.opts.refreshToken()
-      : await refreshSessionToken(this.opts.serverUrl, this.opts.sessionToken)
+      : await refreshHostSession(fetch, this.opts.serverUrl, this.opts.sessionToken, REFRESH_TIMEOUT_MS)
     if (refreshed.result !== 'refreshed' || !refreshed.sessionToken) return refreshed.result === 'refreshed' ? 'unavailable' : refreshed.result
     this.opts.sessionToken = refreshed.sessionToken
     this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken)
@@ -859,24 +860,6 @@ export class WsTransport {
 }
 
 export type RefreshResult = 'refreshed' | 'fresh' | 'unauthorized' | 'unavailable'
-
-async function refreshSessionToken(serverUrl: string, sessionToken: string): Promise<{ result: RefreshResult; sessionToken?: string }> {
-  try {
-    const res = await fetch(`${serverUrl}/auth/refresh`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${sessionToken}` },
-      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
-    })
-    if (res.status === 401) return { result: 'unauthorized' }
-    if (!res.ok) return { result: 'unavailable' }
-    const body = z.object({ sessionToken: z.string().optional() }).safeParse(await res.json())
-    return body.success && body.data.sessionToken
-      ? { result: 'refreshed', sessionToken: body.data.sessionToken }
-      : { result: 'unavailable' }
-  } catch {
-    return { result: 'unavailable' }
-  }
-}
 
 const accessTokenEndSchema = z.object({ exp: z.number() })
 

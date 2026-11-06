@@ -54,6 +54,12 @@ person's own integration, through the same `createIntegration` as Settings.
 It ends at the connect card. A server that needs an OAuth client shows the
 client form in the card first.
 
+`connect_integration({ custom: true, service?, url? })` is for a server that is
+not in the catalog. It broadcasts `integration.customServerNeeded`, and the card
+shows an address field. `service` and `url` only prefill it: the person adds the
+server, so an agent cannot add an address by itself. The row then goes on as an
+integration row (`customServerAdded`).
+
 - Files: `integrations/connect-integration-tool.ts`,
   `integrations/integration-create.ts`, `connections/connection-tools.ts`
   (`reportIntegrationConnection`), `ConnectCard.svelte`,

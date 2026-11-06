@@ -4,7 +4,8 @@ import { getIndexedSession } from '../../db/session-indexer'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { codeHostFor, pullRequestForHead, pushHeadFor } from '../../prs/code-host'
-import { SessionOrchestrator, turnEnding } from './session-orchestrator'
+import { lastTurnEnding } from './exchange-reports'
+import { SessionOrchestrator } from './session-orchestrator'
 
 /** The host's session orchestrator, running its turns on `sessionRuntime` and
  *  hearing back from it through the control plane's hooks. `isLead` names the
@@ -36,10 +37,7 @@ export function orchestrateSessions(
     replaceQueuedPrompt: (sessionId, queueId, text, reportExchangeIds, exchangeIds) => sessionRuntime.scheduler.replaceQueuedPrompt(sessionId, queueId, text, reportExchangeIds, exchangeIds),
     hasQueuedPrompt: (sessionId, queueId) => sessionRuntime.scheduler.hasQueuedPrompt(sessionId, queueId),
     cancelQueuedPrompt: (sessionId, queueId) => sessionRuntime.scheduler.cancelQueued(sessionId, queueId),
-    turnEnding: async (provider, sessionId, projectScope) => {
-      const messages = await sessionRuntime.history.loadSession(provider, sessionId, projectScope)
-      return turnEnding(messages)
-    },
+    turnEnding: (provider, sessionId, projectScope) => lastTurnEnding((limit) => sessionRuntime.history.loadSession(provider, sessionId, projectScope, limit)),
     turnOrganization: (sessionId) => sessionRuntime.turnOrganization(sessionId),
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
     isLead,

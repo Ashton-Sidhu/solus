@@ -154,7 +154,7 @@
 
 <!-- The same destination strip a pre-flight tab draws — project, where it
      runs, branch — under the card, addressed by the draft's id, with the
-     Coordinator mode button at its end. -->
+     Meta mode button at its end. -->
 {#if !destinationFixed}
   <InputBarFooter
     {active}

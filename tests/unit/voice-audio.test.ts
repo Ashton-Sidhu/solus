@@ -123,6 +123,61 @@ describe('voice capture lifecycle', () => {
     expect(modulesLoaded).toBe(2)
     await disposePcmCaptureResources()
   })
+
+  test('meter levels arrive every 32 ms without changing 250 ms audio packets', async () => {
+    let onAudio: ((event: MessageEvent<Float32Array>) => void) | null = null
+    class FakeNode {
+      port = {
+        get onmessage() { return onAudio },
+        set onmessage(value: typeof onAudio) { onAudio = value },
+      }
+      connect() {}
+      disconnect() {}
+    }
+    class FakeAudioContext {
+      state = 'running'
+      sampleRate = 16_000
+      destination = {}
+      audioWorklet = { addModule: async () => {} }
+      createMediaStreamSource() { return new FakeNode() }
+      createGain() { return Object.assign(new FakeNode(), { gain: { value: 1 } }) }
+      async close() { this.state = 'closed' }
+    }
+    globalThis.AudioContext = FakeAudioContext as unknown as typeof AudioContext
+    globalThis.AudioWorkletNode = FakeNode as unknown as typeof AudioWorkletNode
+    URL.createObjectURL = () => 'blob:voice-meter'
+    URL.revokeObjectURL = () => {}
+    const levels: number[] = []
+    const packets: Float32Array[] = []
+    const stream = { getTracks: () => [{ stop() {} }] } as unknown as MediaStream
+    const capture = new PcmCapture(stream, chunk => packets.push(chunk.samples), level => levels.push(level))
+    try {
+      await capture.start()
+      const send = (samples: Float32Array) => onAudio?.(new MessageEvent('message', { data: samples }))
+      send(new Float32Array(511).fill(0.25))
+      expect(levels).toEqual([])
+      send(Float32Array.of(0.25))
+      expect(levels).toEqual([0.25])
+      expect(packets).toEqual([])
+      // Irregular worklet block sizes must not move either audio clock.
+      for (let sent = 512; sent < 16_000;) {
+        const count = Math.min(127, 16_000 - sent)
+        send(new Float32Array(count).fill(0.25))
+        sent += count
+      }
+      expect(levels).toHaveLength(31)
+      expect(levels.every(level => level === 0.25)).toBe(true)
+      expect(packets.map(samples => samples.length)).toEqual([4000, 4000, 4000, 4000])
+      send(new Float32Array(384))
+      expect(levels.at(-1)).toBeCloseTo(0.125)
+      capture.stop()
+      expect(levels.at(-1)).toBe(0)
+      expect(packets.at(-1)?.length).toBe(384)
+    } finally {
+      capture.stop()
+      await disposePcmCaptureResources()
+    }
+  })
 })
 
 function join(blocks: Float32Array[]): Float32Array {

@@ -67,11 +67,16 @@ export function integrationConnectCardCopy(integrationName: string): ConnectCard
 }
 
 export function connectRequestCopy(request: ConnectRequest): ConnectCardCopy {
+  if (request.kind === 'custom-server') {
+    const name = request.name ?? 'MCP server'
+    return { name, providerLabel: name, purpose: 'Enter its address to add it.' }
+  }
   return request.kind === 'integration' ? integrationConnectCardCopy(request.integrationName) : connectCardCopy(request.provider, request.reason)
 }
 
 /** The card's eyebrow: how many sign-ins it asks for, or that it asks for none now. */
-export function connectCardHeading(total: number, settled: number): string {
+export function connectCardHeading(total: number, settled: number, needsOnlyAddress = false): string {
+  if (needsOnlyAddress) return 'Server address needed'
   if (settled === total) return total === 1 ? 'Connected' : 'All connected'
   return total === 1 ? 'Sign-in needed' : `${total} sign-ins needed`
 }

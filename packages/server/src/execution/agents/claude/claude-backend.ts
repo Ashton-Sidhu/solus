@@ -10,8 +10,9 @@ import { open, readdir, stat as fsStat } from 'node:fs/promises'
 import { createReadStream, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { ModelInfo, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAgent, claudeConfigDir, type ClaudeSeat } from './claude-agent'
+import { reportedModelEffort, unlistedClaudeModelProfiles } from './claude-models'
 import type { TurnSeat } from '../../seats/seat-manager'
 import { TurnInputChannel } from './claude-turn-input'
 import { adaptClaudeTools } from './claude-tool-adapter'
@@ -162,8 +163,18 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   readonly id: AgentId = 'claude-code'
   /** Read per call: the host replaces the model list when GitHub publishes a new one. */
   get metadata(): AgentMetadata {
-    return { ...CLAUDE_METADATA, ...providerModelsFor('claude-code') }
+    const listed = { ...CLAUDE_METADATA, ...providerModelsFor('claude-code') }
+    const unlisted = unlistedClaudeModelProfiles(this.reportedModels)
+    if (!Object.keys(unlisted).length) return listed
+    return {
+      ...listed,
+      models: [...listed.models, ...Object.entries(unlisted).map(([id, { label }]) => ({ id, label }))],
+      modelProfiles: { ...MODEL_PROFILES['claude-code'], ...unlisted },
+    }
   }
+  /** The models the host's Claude Code reports; read once a client or a run needs Claude. */
+  private reportedModels: ModelInfo[] = []
+  private reportedModelsRead: Promise<void> | null = null
   readonly permissions = new PermissionManager()
 
   private agent = new ClaudeAgent()
@@ -214,6 +225,20 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     return findClaudeForkResumeId(lines)
   }
 
+  /** Read the models Claude Code reports, once per process. Clients learn of a
+   *  changed list as they do of a new published one. A failed read is tried
+   *  again on the next call. */
+  private readReportedModels(): void {
+    if (this.reportedModelsRead) return
+    this.reportedModelsRead = this.agent.reportedModels().then((models) => {
+      this.reportedModels = models
+      if (Object.keys(unlistedClaudeModelProfiles(models)).length) this.emit('models-reported')
+    }).catch((error) => {
+      this.reportedModelsRead = null
+      log.warn('claude_model_list_failed', { error: error instanceof Error ? error.message : String(error) })
+    })
+  }
+
   /** SDK-reported built-in commands for a working directory and model, fetched via a
    *  short-lived streaming query (the only mode that exposes `supportedCommands`)
    *  and serialized across cache misses. No persistent session is kept. */
@@ -224,6 +249,12 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
+    this.readReportedModels()
+    // A person's custom model keeps its own profile, applied with the provider instance.
+    const reported = request.model && !request.providerRuntime?.modelProfiles?.[request.model]
+      ? unlistedClaudeModelProfiles(this.reportedModels)[request.model]
+      : undefined
+    const reasoningEffort = reported ? reportedModelEffort(reported, request.reasoningEffort) : request.reasoningEffort
     const providerPrompt = request.prompt
     const abortController = new AbortController()
     const conversation = request.conversation ?? { kind: 'start' }
@@ -287,7 +318,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         forkSession: conversation.kind === 'fork',
         resumeSessionAt: resumeSessionAt ?? undefined,
         model,
-        reasoningEffort: request.reasoningEffort,
+        reasoningEffort,
+        disableReasoning: !!reported && !reasoningEffort,
         fastMode: request.fastMode,
         permissionMode: uiMode,
         additionalDirectories: request.additionalDirectories,
@@ -297,7 +329,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         systemPromptAppend: [
           request.systemPrompt,
           runtimeInstructions(
-            { harness: 'Claude Code', model, reasoningEffort: request.reasoningEffort ?? 'default', workingDirectory: request.cwd },
+            { harness: 'Claude Code', model, reasoningEffort: reasoningEffort ?? 'default', workingDirectory: request.cwd },
             request.tools,
           ),
         ].filter(Boolean).join('\n\n'),
@@ -709,6 +741,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     // Built-in commands come live from the warm session — fetched fresh (not
     // cached) so the session is warmed and the list reflects the current tab.
     if (!ctx) return result
+    this.readReportedModels()
     const builtin = await this.builtinCommands(ctx, claudeSeat, configDir).catch((e) => {
       // The SDK reports a spawn ENOENT as "the binary exists but failed to
       // launch", naming the executable even when it is the working directory

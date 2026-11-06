@@ -14,7 +14,8 @@ import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
-import { hostListAccountSource, hostListHostSource, HostListSync, type HostListSource } from '@solus/client-core/host-list-sync'
+import { hostListAccountSource, hostListHostSource, listingOf, withListedHosts, type HostListSource } from '@solus/client-core/host-list-source'
+import type { HostListing } from '@solus/contracts/host-list'
 import { takeStartupDirectoryRead, uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
@@ -28,6 +29,7 @@ import {
   managedHostNeedsStart,
   markDirectoryAnswered,
   onServerRemoving,
+  onServerSaved,
   removeServer,
   saveServers,
   setActiveServerId,
@@ -42,7 +44,7 @@ import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
-import { accountHostListRequests } from '../account/account-sync.store.svelte'
+import { accountDocuments } from '../account/account-sync.store.svelte'
 import {
   compareNearbyHosts,
   filterUnsavedDiscoveredServers,
@@ -119,8 +121,9 @@ class ServersStore {
   /** What the account's host directory last said about being signed in: null until asked. */
   directorySignedIn = $state<boolean | null>(null)
   private directoryRefreshInFlight = false
-  /** The person's host list (plans/031 D7): this client's registry follows it. */
-  private readonly hostList = new HostListSync()
+  /** The person's host list (plans/031 D7): where it is read now, and what it last answered. */
+  private hostList: HostListSource | null = null
+  private listedHosts: HostListing[] = []
   private hostListEventsFor: string | null = null
   private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
   private lastDirectoryReadAt = 0
@@ -387,6 +390,12 @@ class ServersStore {
     onServerRemoving((server) => {
       forgetSkewDismissals(server.id)
       sendOutbox.forgetHost(server.id)
+      if (listingOf(server)) this.forgetListed(server.id)
+    })
+    // A host this client pairs or forgets goes to the person's host list (plans/031 D7).
+    onServerSaved((server) => {
+      const listing = listingOf(server)
+      if (listing) void this.hostList?.put(listing).catch(() => toasts.error(`${server.label} is paired here but not yet on your host list`))
     })
 
     // The account's host directory is the fourth source of hosts (C1). It is
@@ -548,41 +557,39 @@ class ServersStore {
     if (notice) dismissSkew(skewDismissalKey(serverId, notice.clientVersion, notice.serverVersion))
   }
 
+  /** This client's own hosts, and each host the person's list names that this client does not keep. */
   refreshServers(): void {
-    this.remotes = loadServers()
+    this.remotes = withListedHosts(loadServers(), this.listedHosts)
+  }
+
+  /** Takes a host off the person's list, and off what this client shows of it. */
+  private forgetListed(serverId: string): void {
+    this.listedHosts = this.listedHosts.filter((listing) => listing.id !== serverId)
+    void this.hostList?.remove(serverId).catch(() => toasts.error('This host is forgotten here but still on your host list'))
+    this.refreshServers()
   }
 
   /**
-   * Reads the person's host list from its source and folds it into this client's
-   * saved hosts (plans/031 D7): the account's document while signed in, the
-   * device host's list while signed out. A phone and the account origin have no
-   * device host, so signed out they keep their own saved hosts as they are.
+   * Reads the person's host list (plans/031 D7): the account's document while signed
+   * in, the device host's list while signed out. A phone and the account origin have
+   * no device host, so signed out they show their own hosts alone.
    */
   async refreshHostList(): Promise<void> {
-    const source = this.hostListSource()
-    this.hostList.use(source)
-    this.followDeviceHostList(source)
-    if (!(await this.hostList.pull())) return
-    this.refreshServers()
-    serverConnections.startCatalogSupervisors()
-  }
-
-  private hostListSource(): HostListSource | null {
-    const account = accountStore.state
-    if (account.kind === 'signed-in') {
-      const requests = accountHostListRequests()
-      return requests ? hostListAccountSource(`${account.consoleUrl}|${account.identity.sub}`, requests) : null
+    const signedIn = accountStore.state.kind === 'signed-in'
+    const documents = signedIn ? accountDocuments() : null
+    const deviceHostId = signedIn ? null : serverConnections.deviceHostId()
+    const source = documents ? hostListAccountSource(documents) : deviceHostId ? hostListHostSource(serverConnections.apiFor(deviceHostId)) : null
+    this.hostList = source
+    if (deviceHostId && this.hostListEventsFor !== deviceHostId) {
+      // Another client of the device host changed the list: read it again.
+      this.hostListEventsFor = deviceHostId
+      serverConnections.eventsFor(deviceHostId).subscribe('host.listChanged', () => void this.refreshHostList())
     }
-    const deviceHostId = serverConnections.deviceHostId()
-    return deviceHostId ? hostListHostSource(deviceHostId, serverConnections.apiFor(deviceHostId)) : null
-  }
-
-  /** Another client of the device host changed the list: read it again. */
-  private followDeviceHostList(source: HostListSource | null): void {
-    const deviceHostId = source?.key.startsWith('host:') ? serverConnections.deviceHostId() : null
-    if (!deviceHostId || this.hostListEventsFor === deviceHostId) return
-    this.hostListEventsFor = deviceHostId
-    serverConnections.eventsFor(deviceHostId).subscribe('host.listChanged', () => void this.refreshHostList())
+    const listed = source ? await source.read() : []
+    // A newer refresh chose another source while this one read; a failed read keeps the last answer.
+    if (source !== this.hostList || !listed) return
+    this.listedHosts = listed
+    this.refreshServers()
   }
 
   savePairedServer(server: SavedServer): void {
@@ -704,6 +711,8 @@ class ServersStore {
       return
     }
     if (fallbackId && serverId === this.activeServerId) this.switchTo(fallbackId)
+    // A host only the person's list names: this client keeps nothing to remove.
+    if (!loadServers().some((saved) => saved.id === serverId)) this.forgetListed(serverId)
     removeServer(serverId)
     // No longer a catalog entry, so the eager supervisor leaves with it. A tab
     // on this host retains it, and a retained connection still lists the host

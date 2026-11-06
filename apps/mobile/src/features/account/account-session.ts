@@ -7,7 +7,7 @@ import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import type { SyncAccount } from '@solus/client-core/document-sync'
 import { managedHostNeedsStart } from '@solus/client-core/server-registry'
-import { hostListAccountSource, type HostListSource } from '@solus/client-core/host-list-sync'
+import { hostListAccountSource, type HostListSource } from '@solus/client-core/host-list-source'
 import { organizationIdFor } from '@solus/client-core/uplink-session'
 import type { AccountOrganization, DirectoryWorkspace, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
@@ -40,8 +40,6 @@ export type DirectoryView =
   | { kind: 'error'; message: string }
 
 const SESSION_ENDED_MESSAGE = 'Your Solus session ended. Sign in again.'
-/** The hosts this device and the account's host list agreed on, per account (plans/031 D7). */
-const HOST_LIST_SYNCED_KEY = 'solus.mobile.hostList.synced:'
 
 export interface AccountSessionDeps {
   cloudOrigin: string
@@ -97,45 +95,21 @@ export class AccountSession {
     // A phone has one window: the device choice is the selection.
     this.organizations = new OrganizationSelection(() => ({ window: null, device }))
     this.organizations.subscribe(() => this.changes.notify())
-    // A host paired or forgotten here while signed in goes to the account's list.
+    // A host paired or forgotten here while signed in goes to the account's list (plans/031 D7).
     deps.registry.onListingChange((change) => {
       const source = this.hostList
       if (!source) return
-      if (change.kind === 'put') void source.put(change.listing).then(() => this.markHostListed(source.key, change.listing.id, true), () => {})
-      else void source.remove(change.hostId).then(() => this.markHostListed(source.key, change.hostId, false), () => {})
+      const write = change.kind === 'put' ? source.put(change.listing) : source.remove(change.hostId)
+      void write.catch(() => {})
     })
   }
 
-  /**
-   * Reads the account's host list and folds it into this device's hosts (plans/031
-   * D7). Signed out, the phone keeps its own hosts: it has no host of its own to
-   * hold a list.
-   */
-  private async syncHostList(identity: AccountIdentity, generation: number): Promise<void> {
-    const requests = this.client.hostListRequests(() => this.oauth.accessToken({ kind: 'account' }), () => this.recheckGrant())
-    const source = hostListAccountSource(`${this.deps.cloudOrigin}|${identity.sub}`, requests)
+  /** Reads the account's host list (plans/031 D7). Signed out, the phone shows its own hosts alone. */
+  private async readHostList(generation: number): Promise<void> {
+    const source = hostListAccountSource(this.client.accountDocuments(() => this.oauth.accessToken({ kind: 'account' }), () => this.recheckGrant()))
     this.hostList = source
     const listings = await source.read()
-    if (!listings || generation !== this.generation) return
-    const result = await this.deps.registry.applyHostList(identity.sub, listings, this.listedHosts(source.key))
-    this.deps.storage.setItem(HOST_LIST_SYNCED_KEY + source.key, JSON.stringify(result.synced))
-    await Promise.all(result.toPut.map((listing) => source.put(listing).catch(() => {})))
-  }
-
-  private listedHosts(sourceKey: string): Set<string> {
-    try {
-      const parsed: unknown = JSON.parse(this.deps.storage.getItem(HOST_LIST_SYNCED_KEY + sourceKey) ?? '[]')
-      return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
-    } catch {
-      return new Set()
-    }
-  }
-
-  private markHostListed(sourceKey: string, hostId: string, isListed: boolean): void {
-    const listed = this.listedHosts(sourceKey)
-    if (isListed) listed.add(hostId)
-    else listed.delete(hostId)
-    this.deps.storage.setItem(HOST_LIST_SYNCED_KEY + sourceKey, JSON.stringify([...listed]))
+    if (listings && generation === this.generation) this.deps.registry.setListedHosts(listings)
   }
 
   /** The load barrier for the account. Routes wait for it before restoring. */
@@ -228,7 +202,7 @@ export class AccountSession {
       return
     }
     this.deps.registry.applyDirectory(identity.sub, directory.value.directoryUrl, directory.value.hosts)
-    void this.syncHostList(identity, generation)
+    void this.readHostList(generation)
     // A registered host that is not linked has no route: look for it on the local network (ADR 0001 §2.2 rule 9).
     if (this.deps.scanLocalNetwork && directory.value.hosts.some((host) => host.routes.length === 0)) {
       void this.deps.scanLocalNetwork().then((found) => this.deps.registry.applyNearby(found)).catch(() => {})

@@ -14,7 +14,7 @@ interface ComposerFocusOptions {
   isReadOnly: () => boolean;
   ownsVoice: () => boolean;
   voiceState: () => "idle" | "recording" | "transcribing";
-  showWaveform: () => boolean;
+  isListening: () => boolean;
   session: () => ReturnType<ReturnType<typeof getWorkspaceContext>["sessionFor"]>;
   editor: () => ReturnType<typeof PromptEditor> | null;
   prompt: () => Prompt;
@@ -27,8 +27,9 @@ interface ComposerFocusOptions {
 /** Routes focus and quote requests only to the visible, addressed composer. */
 export function useComposerFocus(options: ComposerFocusOptions) {
   const session = getWorkspaceContext();
-  // Recording replaces the editor with the waveform. Once the recorder settles
-  // and the editor is visible again, return keyboard input to the composer.
+  // Recording disables the editor, so its live words cannot move the transcript
+  // or be sent half finished. Once the recorder settles, return keyboard input
+  // to the composer.
   // The mic stops holding the bar open in this same flush and the focus lands
   // a frame later, well inside the bar's fold grace (ADR-0027), so the bar
   // never folds on its own after a dictation.
@@ -43,12 +44,12 @@ export function useComposerFocus(options: ComposerFocusOptions) {
       !options.ownsVoice() ||
       previousState === "idle" ||
       currentState !== "idle" ||
-      options.showWaveform()
+      options.isListening()
     )
       return;
 
     requestAnimationFrame(() => {
-      if (options.active() && options.ownsVoice() && options.voiceState() === "idle" && !options.showWaveform()) {
+      if (options.active() && options.ownsVoice() && options.voiceState() === "idle" && !options.isListening()) {
         options.refocusComposer();
       }
     });

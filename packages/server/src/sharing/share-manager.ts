@@ -29,7 +29,7 @@ import { isHostOwner, isOrganizationSpace, organizationForNew, type Principal } 
 import { actorFor, ownerKeyOf, type Actor } from '../admission/actor'
 import { roleOf, roleThroughSession, standingOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
 import { aclEntry } from './schema'
-import { hostUserKey } from '../host/host-user'
+import { cloudKeyOf, hostKeyOf, hostUserKey, keyForReader } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { session } from '../data/sessions/schema'
 import { claimSessionOwner, machineSessionHome, type SessionHome } from '../data/sessions/session-identity'
@@ -347,10 +347,12 @@ export class ShareManager {
       `)),
     ])
     const actor = actorFor(principal)
+    const isOwnerReading = isHostOwner(principal)
     const standings = new Map(rows.map((row) => {
       const own = entries.filter((entry) => entry.resource_id === row.id)
       return [row.id, {
-        ownerKey: row.owner,
+        // Anyone but the host's owner sees the owner by their linked account (plans/031 D4).
+        ownerKey: keyForReader(row.owner, isOwnerReading),
         ...standingFields(standingOf(actor, {
           kind, id: row.id, organizationId: row.organization_id, ownerKey: row.owner,
           acl: own.map(aclEntryOf),
@@ -594,23 +596,28 @@ export class ShareManager {
     const access = await this.access(resourceInput)
     const caller = this.standingIn(principal, access)
     if (caller.role === 'none') throw new ShareAccessError('FORBIDDEN', `This ${access.resource.kind} is not shared with you`)
-    return this.listOf(withHome(access), caller)
+    return this.listOf(withHome(access), caller, isHostOwner(principal))
   }
 
-  /** The list `access` describes. A write answers with it as it now stands, even when the writer just removed their own access. */
-  private listOf(access: RecordedAccess, caller: ResourceStanding): ShareList {
+  /**
+   * The list `access` describes. A write answers with it as it now stands, even when
+   * the writer just removed their own access. Anyone but the host's owner sees the
+   * owner by their linked account (plans/031 D4).
+   */
+  private listOf(access: RecordedAccess, caller: ResourceStanding, isOwnerReading: boolean): ShareList {
+    const shown = (key: string) => keyForReader(key, isOwnerReading)
     const link = linkRowOf(access)
     const entries: ShareList['entries'] = access.entries
       .filter((row) => row.subject_kind !== 'everyone')
       .map((row) => {
         const entry: ShareList['entries'][number] = {
           subject: row.subject_kind === 'user'
-            ? { kind: 'user', id: row.subject_id }
+            ? { kind: 'user', id: shown(row.subject_id) }
             : row.subject_kind === 'team'
               ? { kind: 'team', id: row.subject_id }
               : { kind: 'organization', id: row.subject_id },
           role: row.role,
-          grantedByUserId: row.created_by,
+          grantedByUserId: shown(row.created_by),
           createdAt: row.created_at,
         }
         const actions = actionsOf(row)
@@ -622,7 +629,7 @@ export class ShareManager {
     const linkActions = link ? actionsOf(link) : null
     if (shareLink && linkActions) shareLink.actions = linkActions
     if (shareLink && link?.link_secret && resourceRoleAtLeast(caller.role, 'editor')) shareLink.secret = link.link_secret
-    const list: ShareList = { resource: access.resource, ownerKey: access.home.ownerKey, entries, callerRole: caller.role, link: shareLink }
+    const list: ShareList = { resource: access.resource, ownerKey: shown(access.home.ownerKey), entries, callerRole: caller.role, link: shareLink }
     if (caller.actions?.length) list.callerActions = [...caller.actions]
     return list
   }
@@ -647,7 +654,9 @@ export class ShareManager {
       const grantedByName = actorFor(principal).user?.displayName ?? null
       const next = new Map<string, { subject: ShareNamedSubject; role: ShareRole; actions: string | null }>()
       for (const entry of request.entries) {
-        const subject = shareNamedSubjectSchema.parse(entry.subject)
+        const parsed = shareNamedSubjectSchema.parse(entry.subject)
+        // The host's owner, named by their account, is named by their key here (plans/031 D4).
+        const subject = parsed.kind === 'user' ? { ...parsed, id: hostKeyOf(parsed.id) } : parsed
         if (subject.kind === 'user' && subject.id === access.home.ownerKey) continue
         next.set(`${subject.kind}:${subject.id}`, { subject, ...storedRole(resource, entry.role, entry.actions) })
       }
@@ -683,7 +692,7 @@ export class ShareManager {
       const held = await this.holdOrganizationAtLink(db, access, grantedBy)
       const sharedWithOrganization = held === 'added' || [...next.values()].some(({ subject }) => subject.kind === 'organization' && !before.has(`organization:${subject.id}`))
       await this.announce(organizationId, access, principal, removedUserIds, link?.guestsRevoked ?? false, sharedWithOrganization)
-      return this.listOf(access, this.standingIn(principal, access))
+      return this.listOf(access, this.standingIn(principal, access), isHostOwner(principal))
     })
   }
 
@@ -922,10 +931,11 @@ export class ShareManager {
   async mirroredRows(resource: ShareResource): Promise<SharesMirrorPayload['rows']> {
     return (await this.entries(resource)).map((row) => ({
       subjectKind: row.subject_kind,
-      subjectId: row.subject_id,
+      // The cloud knows the host's owner by their linked account (plans/031 D4).
+      subjectId: row.subject_kind === 'user' ? cloudKeyOf(row.subject_id) : row.subject_id,
       role: row.role,
       linkSecretHash: row.link_secret_hash,
-      grantedByUserId: row.created_by,
+      grantedByUserId: cloudKeyOf(row.created_by),
       createdAt: row.created_at,
       actions: actionsOf(row),
       expiresAt: row.expires_at,

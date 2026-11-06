@@ -1,0 +1,527 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "audio": "/tmp/solus-voice-latency-1103/jfk.wav",
+  "audio_sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e",
+  "seconds": 11.0,
+  "binary": "/tmp/solus-voice-latency-1103/cmake/solus-transcription",
+  "configs": [
+    [
+      1040,
+      1040
+    ],
+    [
+      160,
+      320
+    ]
+  ],
+  "results": [
+    {
+      "chunk_ms": 1040,
+      "right_ms": 1040,
+      "packet_ms": 100,
+      "repeat": 0,
+      "warm_ms": 546.6837920248508,
+      "begin_ms": 0.03687501884996891,
+      "offline_ms": 181.6485000308603,
+      "first_text_ms": 3295.668375212699,
+      "text_changes": 8,
+      "change_gap_p50_ms": 1009.2077499721199,
+      "change_gap_p95_ms": 1103.2062920276076,
+      "feed_p95_ms": 88.46500003710389,
+      "feed_total_ms": 953.8227459415793,
+      "max_queue_ms": 128.68125005625188,
+      "stop_wait_ms": 130.05483313463628,
+      "finish_ms": 126.64495804347098,
+      "stable_rewrites": 0,
+      "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country",
+      "offline_transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 22,
+      "changes": [
+        {
+          "at_ms": 3295.668375212699,
+          "stable": "And so, my fellow Americ",
+          "tentative": "",
+          "queue_ms": 95.66837521269917
+        },
+        {
+          "at_ms": 4281.122125219554,
+          "stable": "And so, my fellow Americans",
+          "tentative": "",
+          "queue_ms": 81.12212521955371
+        },
+        {
+          "at_ms": 5290.329875191674,
+          "stable": "And so, my fellow Americans, ask",
+          "tentative": "",
+          "queue_ms": 90.32987519167364
+        },
+        {
+          "at_ms": 6407.595041207969,
+          "stable": "And so, my fellow Americans, ask not",
+          "tentative": "",
+          "queue_ms": 107.59504120796919
+        },
+        {
+          "at_ms": 7425.474958028644,
+          "stable": "And so, my fellow Americans, ask not what your country",
+          "tentative": "",
+          "queue_ms": 125.47495802864432
+        },
+        {
+          "at_ms": 8528.681250056252,
+          "stable": "And so, my fellow Americans, ask not what your country can do for",
+          "tentative": "",
+          "queue_ms": 128.68125005625188
+        },
+        {
+          "at_ms": 9513.704250101,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you",
+          "tentative": "",
+          "queue_ms": 113.70425010100007
+        },
+        {
+          "at_ms": 10518.8420410268,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you",
+          "tentative": "",
+          "queue_ms": 118.84204102680087
+        }
+      ]
+    },
+    {
+      "chunk_ms": 1040,
+      "right_ms": 1040,
+      "packet_ms": 100,
+      "repeat": 1,
+      "warm_ms": 546.6837920248508,
+      "begin_ms": 0.055374810472130775,
+      "offline_ms": 181.6485000308603,
+      "first_text_ms": 3291.661333059892,
+      "text_changes": 8,
+      "change_gap_p50_ms": 1008.3325000014156,
+      "change_gap_p95_ms": 1103.9878749288619,
+      "feed_p95_ms": 97.04154101200402,
+      "feed_total_ms": 949.5600836817175,
+      "max_queue_ms": 119.1521248780191,
+      "stop_wait_ms": 128.0341250821948,
+      "finish_ms": 122.8184171486646,
+      "stable_rewrites": 0,
+      "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country",
+      "offline_transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 22,
+      "changes": [
+        {
+          "at_ms": 3291.661333059892,
+          "stable": "And so, my fellow Americ",
+          "tentative": "",
+          "queue_ms": 91.66133305989206
+        },
+        {
+          "at_ms": 4301.776542095467,
+          "stable": "And so, my fellow Americans",
+          "tentative": "",
+          "queue_ms": 101.77654209546745
+        },
+        {
+          "at_ms": 5309.469708008692,
+          "stable": "And so, my fellow Americans, ask",
+          "tentative": "",
+          "queue_ms": 109.46970800869167
+        },
+        {
+          "at_ms": 6414.062374969944,
+          "stable": "And so, my fellow Americans, ask not",
+          "tentative": "",
+          "queue_ms": 114.06237496994436
+        },
+        {
+          "at_ms": 7410.999583080411,
+          "stable": "And so, my fellow Americans, ask not what your country",
+          "tentative": "",
+          "queue_ms": 110.99958308041096
+        },
+        {
+          "at_ms": 8514.987458009273,
+          "stable": "And so, my fellow Americans, ask not what your country can do for",
+          "tentative": "",
+          "queue_ms": 114.98745800927281
+        },
+        {
+          "at_ms": 9510.819624876603,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you",
+          "tentative": "",
+          "queue_ms": 110.81962487660348
+        },
+        {
+          "at_ms": 10519.15212487802,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you",
+          "tentative": "",
+          "queue_ms": 119.1521248780191
+        }
+      ]
+    },
+    {
+      "chunk_ms": 160,
+      "right_ms": 320,
+      "packet_ms": 100,
+      "repeat": 0,
+      "warm_ms": 2702.343042008579,
+      "begin_ms": 0.035250093787908554,
+      "offline_ms": 161.27904201857746,
+      "first_text_ms": 1555.887958034873,
+      "text_changes": 26,
+      "change_gap_p50_ms": 206.85970899648964,
+      "change_gap_p95_ms": 889.1982091590762,
+      "feed_p95_ms": 82.35183404758573,
+      "feed_total_ms": 4543.158708838746,
+      "max_queue_ms": 95.16758299432695,
+      "stop_wait_ms": 79.78975004516542,
+      "finish_ms": 79.30433307774365,
+      "stable_rewrites": 0,
+      "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country",
+      "offline_transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 22,
+      "changes": [
+        {
+          "at_ms": 1555.887958034873,
+          "stable": "And",
+          "tentative": "",
+          "queue_ms": 55.88795803487301
+        },
+        {
+          "at_ms": 1654.1505421046168,
+          "stable": "And so",
+          "tentative": "",
+          "queue_ms": 54.15054210461676
+        },
+        {
+          "at_ms": 1853.4399580676109,
+          "stable": "And so,",
+          "tentative": "",
+          "queue_ms": 53.43995806761086
+        },
+        {
+          "at_ms": 2055.515917018056,
+          "stable": "And so, my",
+          "tentative": "",
+          "queue_ms": 55.515917018055916
+        },
+        {
+          "at_ms": 2156.3672500196844,
+          "stable": "And so, my fellow",
+          "tentative": "",
+          "queue_ms": 56.367250019684434
+        },
+        {
+          "at_ms": 2456.6027079708874,
+          "stable": "And so, my fellow Americ",
+          "tentative": "",
+          "queue_ms": 56.60270797088742
+        },
+        {
+          "at_ms": 2663.462416967377,
+          "stable": "And so, my fellow Americans",
+          "tentative": "",
+          "queue_ms": 63.46241696737707
+        },
+        {
+          "at_ms": 4262.131208088249,
+          "stable": "And so, my fellow Americans,",
+          "tentative": "",
+          "queue_ms": 62.13120808824897
+        },
+        {
+          "at_ms": 4460.96908301115,
+          "stable": "And so, my fellow Americans, ask",
+          "tentative": "",
+          "queue_ms": 60.96908301115036
+        },
+        {
+          "at_ms": 4876.6904580406845,
+          "stable": "And so, my fellow Americans, ask not",
+          "tentative": "",
+          "queue_ms": 76.69045804068446
+        },
+        {
+          "at_ms": 6386.879583122209,
+          "stable": "And so, my fellow Americans, ask not what",
+          "tentative": "",
+          "queue_ms": 86.87958312220871
+        },
+        {
+          "at_ms": 6485.859458101913,
+          "stable": "And so, my fellow Americans, ask not what your",
+          "tentative": "",
+          "queue_ms": 85.85945810191333
+        },
+        {
+          "at_ms": 6686.098542064428,
+          "stable": "And so, my fellow Americans, ask not what your country",
+          "tentative": "",
+          "queue_ms": 86.09854206442833
+        },
+        {
+          "at_ms": 7286.52249998413,
+          "stable": "And so, my fellow Americans, ask not what your country can",
+          "tentative": "",
+          "queue_ms": 86.52249998413026
+        },
+        {
+          "at_ms": 7483.57899999246,
+          "stable": "And so, my fellow Americans, ask not what your country can do",
+          "tentative": "",
+          "queue_ms": 83.57899999246001
+        },
+        {
+          "at_ms": 7786.021250067279,
+          "stable": "And so, my fellow Americans, ask not what your country can do for",
+          "tentative": "",
+          "queue_ms": 86.02125006727874
+        },
+        {
+          "at_ms": 7995.167582994327,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you",
+          "tentative": "",
+          "queue_ms": 95.16758299432695
+        },
+        {
+          "at_ms": 8884.365792153403,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you.",
+          "tentative": "",
+          "queue_ms": 84.36579215340316
+        },
+        {
+          "at_ms": 9286.215542117134,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask",
+          "tentative": "",
+          "queue_ms": 86.21554211713374
+        },
+        {
+          "at_ms": 9575.673750136048,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what",
+          "tentative": "",
+          "queue_ms": 75.6737501360476
+        },
+        {
+          "at_ms": 9670.785458059981,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you",
+          "tentative": "",
+          "queue_ms": 70.78545805998147
+        },
+        {
+          "at_ms": 10076.879207976162,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can",
+          "tentative": "",
+          "queue_ms": 76.87920797616243
+        },
+        {
+          "at_ms": 10176.913042087108,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do",
+          "tentative": "",
+          "queue_ms": 76.9130420871079
+        },
+        {
+          "at_ms": 10486.159750027582,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for",
+          "tentative": "",
+          "queue_ms": 86.15975002758205
+        },
+        {
+          "at_ms": 10685.427083168179,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your",
+          "tentative": "",
+          "queue_ms": 85.4270831681788
+        },
+        {
+          "at_ms": 10880.418042186648,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country",
+          "tentative": "",
+          "queue_ms": 80.41804218664765
+        }
+      ]
+    },
+    {
+      "chunk_ms": 160,
+      "right_ms": 320,
+      "packet_ms": 100,
+      "repeat": 1,
+      "warm_ms": 2702.343042008579,
+      "begin_ms": 0.05791708827018738,
+      "offline_ms": 161.27904201857746,
+      "first_text_ms": 1558.8366251904517,
+      "text_changes": 26,
+      "change_gap_p50_ms": 205.36133414134383,
+      "change_gap_p95_ms": 898.3922088518739,
+      "feed_p95_ms": 82.87375001236796,
+      "feed_total_ms": 4653.678501723334,
+      "max_queue_ms": 89.54316712915897,
+      "stop_wait_ms": 88.77508318983018,
+      "finish_ms": 85.19058302044868,
+      "stable_rewrites": 0,
+      "transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country",
+      "offline_transcript": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 22,
+      "changes": [
+        {
+          "at_ms": 1558.8366251904517,
+          "stable": "And",
+          "tentative": "",
+          "queue_ms": 58.83662519045174
+        },
+        {
+          "at_ms": 1654.9601249862462,
+          "stable": "And so",
+          "tentative": "",
+          "queue_ms": 54.96012498624623
+        },
+        {
+          "at_ms": 1857.717707986012,
+          "stable": "And so,",
+          "tentative": "",
+          "queue_ms": 57.7177079860121
+        },
+        {
+          "at_ms": 2053.0179999768734,
+          "stable": "And so, my",
+          "tentative": "",
+          "queue_ms": 53.0179999768734
+        },
+        {
+          "at_ms": 2154.299749992788,
+          "stable": "And so, my fellow",
+          "tentative": "",
+          "queue_ms": 54.29974999278784
+        },
+        {
+          "at_ms": 2457.0559579879045,
+          "stable": "And so, my fellow Americ",
+          "tentative": "",
+          "queue_ms": 57.05595798790455
+        },
+        {
+          "at_ms": 2662.4172921292484,
+          "stable": "And so, my fellow Americans",
+          "tentative": "",
+          "queue_ms": 62.41729212924838
+        },
+        {
+          "at_ms": 4274.843208026141,
+          "stable": "And so, my fellow Americans,",
+          "tentative": "",
+          "queue_ms": 74.84320802614093
+        },
+        {
+          "at_ms": 4476.627958007157,
+          "stable": "And so, my fellow Americans, ask",
+          "tentative": "",
+          "queue_ms": 76.62795800715685
+        },
+        {
+          "at_ms": 4875.9055831469595,
+          "stable": "And so, my fellow Americans, ask not",
+          "tentative": "",
+          "queue_ms": 75.90558314695954
+        },
+        {
+          "at_ms": 6385.364917106926,
+          "stable": "And so, my fellow Americans, ask not what",
+          "tentative": "",
+          "queue_ms": 85.36491710692644
+        },
+        {
+          "at_ms": 6484.844167018309,
+          "stable": "And so, my fellow Americans, ask not what your",
+          "tentative": "",
+          "queue_ms": 84.84416701830924
+        },
+        {
+          "at_ms": 6686.4934579934925,
+          "stable": "And so, my fellow Americans, ask not what your country",
+          "tentative": "",
+          "queue_ms": 86.49345799349248
+        },
+        {
+          "at_ms": 7282.593458192423,
+          "stable": "And so, my fellow Americans, ask not what your country can",
+          "tentative": "",
+          "queue_ms": 82.59345819242299
+        },
+        {
+          "at_ms": 7484.915417153388,
+          "stable": "And so, my fellow Americans, ask not what your country can do",
+          "tentative": "",
+          "queue_ms": 84.91541715338826
+        },
+        {
+          "at_ms": 7785.215875133872,
+          "stable": "And so, my fellow Americans, ask not what your country can do for",
+          "tentative": "",
+          "queue_ms": 85.21587513387203
+        },
+        {
+          "at_ms": 7985.2380831725895,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you",
+          "tentative": "",
+          "queue_ms": 85.23808317258954
+        },
+        {
+          "at_ms": 8883.630292024463,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you.",
+          "tentative": "",
+          "queue_ms": 83.63029202446342
+        },
+        {
+          "at_ms": 9285.385667113587,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask",
+          "tentative": "",
+          "queue_ms": 85.38566711358726
+        },
+        {
+          "at_ms": 9585.311083123088,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what",
+          "tentative": "",
+          "queue_ms": 85.31108312308788
+        },
+        {
+          "at_ms": 9682.307375129312,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you",
+          "tentative": "",
+          "queue_ms": 82.30737512931228
+        },
+        {
+          "at_ms": 10085.969875101,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can",
+          "tentative": "",
+          "queue_ms": 85.96987510100007
+        },
+        {
+          "at_ms": 10181.44950014539,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do",
+          "tentative": "",
+          "queue_ms": 81.44950014539063
+        },
+        {
+          "at_ms": 10483.578167157248,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for",
+          "tentative": "",
+          "queue_ms": 83.57816715724766
+        },
+        {
+          "at_ms": 10689.543167129159,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your",
+          "tentative": "",
+          "queue_ms": 89.54316712915897
+        },
+        {
+          "at_ms": 10886.223958106712,
+          "stable": "And so, my fellow Americans, ask not what your country can do for you. Ask what you can do for your country",
+          "tentative": "",
+          "queue_ms": 86.2239581067115
+        }
+      ]
+    }
+  ]
+}

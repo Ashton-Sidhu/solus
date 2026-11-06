@@ -18,10 +18,8 @@ export interface ServingOrigin {
   offered: OfferedHost
   /** The host's entry when it admits this browser with no pairing (loopback, a proxied bind). */
   entry: SavedServer | null
-  /** This browser already keeps the host. */
-  isSaved: boolean
-  /** The id this browser knows the host by, saved or admitted with no pairing; null when it knows neither. */
-  servingId: string | null
+  /** The host as this browser keeps it; null when it keeps none. */
+  saved: SavedServer | null
 }
 
 export async function probeServingOrigin(origin: string): Promise<ServingOrigin | null> {
@@ -36,7 +34,7 @@ export async function probeServingOrigin(origin: string): Promise<ServingOrigin 
   const entry: SavedServer | null = health.requireAuth === false && health.installationId
     ? { id: health.installationId, routes: mergeRoutes([], [routeForUrl(origin)], 'page', Date.now()), sessionToken: '', installationId: health.installationId, label: health.name || 'This computer', os: health.os, lastConnected: Date.now() }
     : null
-  return { offered: { url: origin, name }, entry, isSaved: !!saved, servingId: saved?.id ?? entry?.id ?? null }
+  return { offered: { url: origin, name }, entry, saved: saved ?? null }
 }
 
 function unreachableMessage(url: string): string {

@@ -19,7 +19,7 @@
   const renderers = { link: MarkdownLink, listitem: MarkdownListItem };
 </script>
 
-<div class="automation-prose">
+<div class="automation-prose select-text">
   <SvelteMarkdown source={markdown} {renderers} sanitizeUrl={markdownSanitizeUrl} />
 </div>
 

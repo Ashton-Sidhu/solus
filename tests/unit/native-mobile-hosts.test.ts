@@ -120,20 +120,36 @@ describe('the account host list on the phone (plans/031 D7)', () => {
     expect(changes.join('\n')).not.toContain('secret-token')
   })
 
-  test('a host another device paired joins without a token and leaves at sign-out; one forgotten elsewhere leaves here', async () => {
-    const { secrets, registry } = createHostWorld()
+  test('a host another device paired shows without a token, beside the phone\'s own, and leaves at sign-out', async () => {
+    const { storage, registry } = createHostWorld()
     await registry.load()
     await registry.savePaired({ id: 'mine', label: 'Mine', url: 'http://mine:1' }, 'tm')
-    await registry.savePaired({ id: 'gone', label: 'Gone', url: 'http://gone:1' }, 'tg')
     const theirs = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan' as const, source: 'pairing' as const, seenAt: 1 }] }
-    // `gone` was on the list before, and another device removed it.
-    const result = await registry.applyHostList('acct', [theirs], new Set(['gone']))
+    registry.setListedHosts([theirs])
     expect(registry.hosts().map((host) => [host.id, host.paired])).toEqual([['mine', true], ['theirs', false]])
     expect(registry.credential('theirs')).toBe('')
-    expect(secrets.values.has('solus.mobile.host.gone.token')).toBe(false)
-    expect(result.toPut.map((listing) => listing.id)).toEqual(['mine'])
+    // The list's hosts are held in memory: the device's own record keeps only its hosts.
+    expect(storage.getItem('solus.mobile.hosts.v1')).not.toContain('theirs')
     registry.forgetAccount('acct')
     expect(registry.hosts().map((host) => host.id)).toEqual(['mine'])
+  })
+
+  test('a listed host stays through a directory refresh, and forgetting it takes it off the list', async () => {
+    // WHY: the directory and the list are separate reads; one never removes the other's hosts.
+    const { registry } = createHostWorld()
+    await registry.load()
+    const theirs = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan' as const, source: 'pairing' as const, seenAt: 1 }] }
+    registry.setListedHosts([theirs])
+    const removed: string[] = []
+    registry.onHostRemoved((hostId) => removed.push(hostId))
+    registry.applyDirectory('acct', 'https://app', [])
+    expect(registry.hosts().map((host) => host.id)).toEqual(['theirs'])
+    expect(removed).toEqual([])
+    const changes: string[] = []
+    registry.onListingChange((change) => changes.push(change.kind === 'remove' ? `remove ${change.hostId}` : 'put'))
+    await registry.forget('theirs')
+    expect(changes).toEqual(['remove theirs'])
+    expect(registry.hosts()).toEqual([])
   })
 })
 

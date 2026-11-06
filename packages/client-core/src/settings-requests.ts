@@ -24,6 +24,7 @@ import type { AccountSettingsResult, NativeSolusAPI, PolicyApiResult, SettingsRe
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import { z } from 'zod'
 import type { WebTokenSession } from './web-token-session'
+import { httpClient, sentOf } from './http-request'
 
 export type { AccountSettingsResult, PolicyApiResult, SettingsRequestFailure }
 
@@ -179,22 +180,6 @@ export function webSettingsRequests(
   fetchImpl: typeof fetch = fetch,
   takeShellSettings?: () => Promise<AccountSettingsResponse | null>,
 ): SettingsCloudRequests {
-  return settingsCloudRequests(async (request) => {
-    const token = await session.accessToken({ kind: 'account' })
-    if (!token) return 'signed-out'
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
-    if (request.body) headers.set('content-type', 'application/json')
-    try {
-      return await fetchImpl(`${origin}${request.path}`, {
-        method: request.method,
-        credentials: 'omit',
-        cache: 'no-store',
-        headers,
-        body: request.body ? JSON.stringify(request.body) : undefined,
-        signal: AbortSignal.timeout(15_000),
-      })
-    } catch {
-      return null
-    }
-  }, takeShellSettings)
+  const cloud = httpClient({ baseUrl: origin, token: (options) => session.accessToken({ kind: 'account' }, options), fetch: fetchImpl })
+  return settingsCloudRequests(async (request) => sentOf(await cloud.request(request.path, { method: request.method, body: request.body })), takeShellSettings)
 }

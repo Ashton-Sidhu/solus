@@ -16,6 +16,7 @@ import {
 import type { AccountAgentProfileResult, AccountVaultConnectResult, AccountVaultResult, NativeSolusAPI, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { WebTokenSession } from './web-token-session'
+import { httpClient, sentOf } from './http-request'
 
 /**
  * The account agent profile calls (plans/020-agent-profile.md §3), one typed
@@ -120,21 +121,6 @@ export async function accountAgentProfileResult(response: Response): Promise<Acc
 
 /** The web client's adapter: an account-plane access token from the page's sign-in, at the account origin. */
 export function webAgentProfileRequests(origin: string, session: Pick<WebTokenSession, 'accessToken'>, fetchImpl: typeof fetch = fetch): AgentProfileCloudRequests {
-  return agentProfileCloudRequests(async (request) => {
-    const token = await session.accessToken({ kind: 'account' })
-    if (!token) return 'signed-out'
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
-    if (request.body) headers.set('content-type', 'application/json')
-    try {
-      return await fetchImpl(`${origin}${request.path}`, {
-        method: request.method,
-        credentials: 'omit',
-        headers,
-        body: request.body ? JSON.stringify(request.body) : undefined,
-        signal: AbortSignal.timeout(15_000),
-      })
-    } catch {
-      return null
-    }
-  })
+  const cloud = httpClient({ baseUrl: origin, token: (options) => session.accessToken({ kind: 'account' }, options), fetch: fetchImpl })
+  return agentProfileCloudRequests(async (request) => sentOf(await cloud.request(request.path, { method: request.method, body: request.body })))
 }

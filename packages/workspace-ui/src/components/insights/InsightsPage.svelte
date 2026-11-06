@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext, serversStore } from "../../contexts";
@@ -73,8 +73,9 @@
   import SaveQueryDialog from "./SaveQueryDialog.svelte";
   import SchemaSheet from "./SchemaSheet.svelte";
   import ResultTrendChart from "./ResultTrendChart.svelte";
-  import SessionDetailPanel from "./SessionDetailPanel.svelte";
   import TurnDetailPanel from "./TurnDetailPanel.svelte";
+  import TurnDetailSkeleton from "./TurnDetailSkeleton.svelte";
+  import { lastCompleteTurn } from "./lib/session-summary";
   import TurnList from "./TurnList.svelte";
   import VolumeChart from "./VolumeChart.svelte";
   import { turnHostChoices, turnHostLabel, turnHostServerId } from "./lib/turn-hosts";
@@ -392,8 +393,24 @@
   // beside the list; below the width where both fit it covers the list instead.
   const openTraceId = $derived(params.traceId ?? null);
   const openSpanId = $derived(params.spanId ?? null);
-  /** A session's own page, in the same panel a turn opens in. */
+  /** A session has no page: its route stands for its last complete turn. */
   const openSessionId = $derived(params.sessionId ?? null);
+  $effect(() => {
+    const sessionId = openSessionId;
+    if (sessionId) untrack(() => void openLastCompleteTurn(sessionId));
+  });
+
+  async function openLastCompleteTurn(sessionId: string): Promise<void> {
+    const session = await store.readSessionSummary(sessionId);
+    if (params.sessionId !== sessionId) return;
+    const turn = session ? lastCompleteTurn(session) : null;
+    if (turn) {
+      workspace.replaceWithInsightsTurn(turn.traceId);
+      return;
+    }
+    toasts.error("No turns recorded for this session");
+    closePanel();
+  }
   const panelOpen = $derived(openTraceId !== null || openSessionId !== null);
 
   let pageWidth = $state(0);
@@ -734,7 +751,6 @@
           selectedTraceId={openTraceId}
           onOpenTurn={openTurn}
           onOpenSession={(sessionId) => void openSession(sessionId)}
-          onOpenSessionPage={(sessionId) => workspace.openInsightsSession(sessionId)}
           sessionName={(sessionId) => store.sessionName(sessionId)}
           flags={store.turnFlags}
           {emptyHint}
@@ -846,23 +862,7 @@
     </div>
   {/if}
 
-  {#if panelOpen && openSessionId}
-    <div
-      class="flex flex-col bg-background {panelFullScreen
-        ? 'absolute inset-0 z-20'
-        : 'absolute inset-y-0 right-0 left-(--insights-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong)]'}"
-      transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
-    >
-      {#if !panelFullScreen}{@render resizeHandle()}{/if}
-      <SessionDetailPanel
-        sessionId={openSessionId}
-        fullScreen={panelFullScreen}
-        onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
-        {listLabel}
-        onClose={closePanel}
-      />
-    </div>
-  {:else if panelOpen && openTraceId}
+  {#if panelOpen}
     <!-- Out of the list's flow on purpose, not just when full screen: it covers
          the room the rail's width leaves rather than claiming its own, so the
          fly is transform and opacity alone and nothing relayouts. -->
@@ -873,17 +873,21 @@
       transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
     >
       {#if !panelFullScreen}{@render resizeHandle()}{/if}
-      <TurnDetailPanel
-        traceId={openTraceId}
-        spanId={openSpanId}
-        fullScreen={panelFullScreen}
-        onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
-        {listLabel}
-        onClose={closePanel}
-        position={railIndex + 1}
-        total={railItems.length}
-        onStep={stepPanel}
-      />
+      {#if openTraceId}
+        <TurnDetailPanel
+          traceId={openTraceId}
+          spanId={openSpanId}
+          fullScreen={panelFullScreen}
+          onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
+          {listLabel}
+          onClose={closePanel}
+          position={railIndex + 1}
+          total={railItems.length}
+          onStep={stepPanel}
+        />
+      {:else}
+        <TurnDetailSkeleton />
+      {/if}
     </div>
   {/if}
   </div>

@@ -23,6 +23,7 @@
   import ToolGroupItem from "../../conversation/ToolGroupItem.svelte";
   import ThoughtRow from "../../conversation/ThoughtRow.svelte";
   import AnsweredQuestion from "../../conversation/AnsweredQuestion.svelte";
+  import SecretReceipt from "../../conversation/SecretReceipt.svelte";
   import TranscriptCard from "../../conversation/TranscriptCard.svelte";
   import TranscriptDivider from "../../conversation/TranscriptDivider.svelte";
   import { compactionDividerText } from "@solus/contracts/context-compaction";
@@ -148,6 +149,8 @@
         <ThoughtRow message={item.message} skipMotion />
       {:else if item.kind === "question"}
         <AnsweredQuestion message={item.message} />
+      {:else if item.kind === "secret-receipt"}
+        <SecretReceipt message={item.message} />
       {:else if item.kind === "tool-group"}
         <ToolGroupItem tools={item.messages} steps={item.steps} skipMotion />
       {:else if item.kind === "subagent-group"}

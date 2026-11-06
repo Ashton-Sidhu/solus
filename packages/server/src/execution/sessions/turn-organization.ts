@@ -8,7 +8,7 @@ import { isOrganizationAttached } from '../../host/organization-attachment'
 import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
 import { parseUserKey } from '@solus/contracts/user'
-import { hostUserKey, isHostUserKey } from '../../host/host-user'
+import { hostKeyOf, hostUserKey, isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
 import { hostCategory } from '../../host/host-category'
 import type { HostCategory, HostRules } from '@solus/contracts/uplink'
@@ -170,7 +170,8 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
   const userId = await actForPerson(principal, deps, { sessionId, organizationId, admit: true, record: firstFacts })
   await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isPrivate })
   // Born published, owned by the verified person, with the admission the API accepted (its id is the session's).
-  return { organizationId, decided: true, birth: { ownerKey: userId, published: true, admittedAt: Date.now() } }
+  // The owner, admitted through their account, owns it by their key on this host (plans/031 D1).
+  return { organizationId, decided: true, birth: { ownerKey: hostKeyOf(userId), published: true, admittedAt: Date.now() } }
 }
 
 /** The organization a new root starts in on an attached machine: the member's own, or the owner's window selection. */

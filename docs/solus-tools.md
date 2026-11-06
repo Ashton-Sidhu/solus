@@ -24,7 +24,8 @@ own, or every one for a host administrator. `query_insights` runs SQL over every
 person's turns, so only a host administrator's turn may call it; another
 person's turn gets a refusal and can open Insights to see their own turns.
 `connect_integration` adds a server only to the calling person's own servers,
-and only from an exact catalog match (docs/integrations.md).
+and only from an exact catalog match. For any other address it opens a card
+where the person enters and adds the server (docs/integrations.md).
 
 These switches control Solus tools only. Provider-native tools and external MCP
 servers keep their own settings. The internal `submit_review_guide` output tool
@@ -55,6 +56,9 @@ controls for things a click cannot do:
   on it. An action that opens a dialog says what the page asked and how it was
   answered. On a headless host an unanswered dialog is dismissed, as before; on
   the desktop it stays open for the user. `browser_status` shows an open dialog.
+
+A Solus client in a browser page opens without onboarding, so an agent sees the
+route it opened. Add `?show-onboarding` to the URL to check the onboarding flow.
 
 A snapshot does not record the value of a field the page masks: a password
 field, or a field the page draws as dots (`-webkit-text-security`). Other field
@@ -110,3 +114,9 @@ status, start and finish times, errors, and the session ID when available. Pass
 `automation_id` and optional `run_id` to inspect one run. Failures before a
 session starts remain visible here. Use `read_session` with the returned
 `session_id` for agent output and history.
+
+An interval or cron trigger can have an end: `ends_at` in the tools, and Ends in
+the automation's Schedule block. No scheduled run starts at or after that
+instant, and this includes a run missed while Solus was closed. The automation
+stays enabled, shows "Schedule ended", and can still run manually. Change or
+remove the end to schedule it again.

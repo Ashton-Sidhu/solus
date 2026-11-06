@@ -1,10 +1,11 @@
 <script lang="ts">
   /** The private card of `request_secret` (docs/plans/webhooks.md §3.6): one
-   *  field per secret; the user saves or declines each one. The values live only
+   *  field per secret; the user saves or declines each one. A `file` secret is
+   *  saved where the agent's commands can read it, and the card says so. The values live only
    *  in this card's local state: they are never echoed, never kept in a draft or
    *  in the transcript, and they go to the host once through
    *  `secretRequestAnswer`. The host closes the card with `permission_resolved`. */
-  import { KeyRound as KeyIcon } from "@lucide/svelte";
+  import { LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
   import type { QuestionRequest } from "@solus/contracts/types";
   import { untrack } from "svelte";
   import { getWorkspaceContext } from "../../contexts";
@@ -15,7 +16,7 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import InterruptCard from "./InterruptCard.svelte";
-  import { canSubmitSecrets, secretAnswer, secretRequestPrompts, type SecretField } from "@solus/contracts/secret-request";
+  import { canSubmitSecrets, SECRET_PLACEHOLDER, secretAnswer, secretPrivacyNote, secretRequestPrompts, type SecretField } from "@solus/contracts/secret-request";
 
   interface Props {
     tabId: string;
@@ -74,72 +75,85 @@
 
 <InterruptCard
   type="question"
-  title={isGroup ? `${prompts.length} secrets requested` : `Secret requested · ${prompts[0].name}`}
+  title={isGroup ? `${prompts.length} secrets requested` : "Secret requested"}
   testId="secret-request-card"
 >
-  <div class="flex flex-col gap-2">
-    {#if !isGroup}
-      <p class="m-0 text-transcript-card wrap-anywhere">{prompts[0].reason}</p>
-    {/if}
-    <p class="m-0 flex items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
-      <KeyIcon size={14} class="shrink-0" />
-      The {isGroup ? "values go" : "value goes"} only to the host. The agent and the transcript never see {isGroup ? "them" : "it"}.
-    </p>
-    {#if request.expired}
-      <p class="m-0 text-transcript-meta text-(--muted-foreground)">This request is closed.</p>
-    {:else}
-      <form id="secret-request-{request.questionId}" class="flex flex-col gap-3" onsubmit={submit}>
-        {#each prompts as prompt, index (index)}
-          {@const field = fields[index]}
-          {#if isGroup}
-            <div class="flex flex-col gap-1.5">
-              <div class="flex items-start justify-between gap-2">
-                <div class="flex min-w-0 flex-col gap-0.5">
-                  <span class="text-transcript-card font-medium">{prompt.name}</span>
-                  <span class="text-transcript-meta text-(--muted-foreground) wrap-anywhere">{prompt.reason}</span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={closed || isSending || !canDrive}
-                  aria-pressed={field.isDeclined}
-                  aria-label="{field.isDeclined ? 'Undo decline of' : 'Decline'} {prompt.name}"
-                  onclick={() => toggleDeclined(field)}
-                >
-                  {field.isDeclined ? "Undo" : "Decline"}
-                </Button>
-              </div>
-              {#if field.isDeclined}
-                <p class="m-0 text-transcript-meta text-(--muted-foreground)">Declined. The agent does not get this secret.</p>
-              {:else}
-                <Input
-                  bind:value={field.value}
-                  type="password"
-                  autocomplete="off"
-                  spellcheck={false}
-                  disabled={closed || isSending || !canDrive}
-                  aria-label="Value of {prompt.name}"
-                  class="font-mono"
-                />
-              {/if}
+  {#if request.expired}
+    <p class="m-0 text-transcript-meta text-(--muted-foreground)">This request is closed.</p>
+  {:else}
+    <form id="secret-request-{request.questionId}" class="flex flex-col gap-3" autocomplete="off" onsubmit={submit}>
+      {#each prompts as prompt, index (index)}
+        {@const field = fields[index]}
+        {@const inputId = `secret-request-${request.questionId}-${index}`}
+        {#if index > 0}
+          <div class="h-px bg-(--border) opacity-60"></div>
+        {/if}
+        <div class="flex min-w-0 flex-col gap-2">
+          <div class="flex min-w-0 flex-col gap-0.5">
+            <label for={inputId} class="text-transcript-card font-medium">{prompt.name}</label>
+            <p class="m-0 text-transcript-meta text-(--muted-foreground) wrap-anywhere">{prompt.reason}</p>
+          </div>
+          {#if field.isDeclined}
+            <div class="flex min-w-0 items-center justify-between gap-2">
+              <p class="m-0 text-transcript-meta text-(--muted-foreground)">Declined. The agent does not get this secret.</p>
+              <Button
+                size="xs"
+                variant="ghost"
+                class="text-(--muted-foreground)"
+                disabled={closed || isSending || !canDrive}
+                aria-label="Undo decline of {prompt.name}"
+                onclick={() => toggleDeclined(field)}
+              >
+                Undo
+              </Button>
             </div>
           {:else}
-            <Input
-              bind:value={field.value}
-              type="password"
-              autocomplete="off"
-              spellcheck={false}
-              disabled={closed || isSending || !canDrive}
-              aria-label="Value of {prompt.name}"
-              class="font-mono"
-            />
+            <div class="flex min-w-0 items-center gap-2">
+              <Input
+                id={inputId}
+                bind:value={field.value}
+                type="password"
+                autocomplete="off"
+                spellcheck={false}
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
+                placeholder={SECRET_PLACEHOLDER}
+                disabled={closed || isSending || !canDrive}
+                aria-describedby="{inputId}-note"
+                class="min-w-0 flex-1"
+              />
+              {#if !isGroup}
+                <Button type="submit" disabled={closed || isSending || !canDrive || !canSubmitSecrets(fields)}>Save securely</Button>
+              {/if}
+            </div>
+            <div class="flex min-w-0 items-center justify-between gap-2">
+              <p id="{inputId}-note" class="m-0 flex min-w-0 items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
+                {#if prompt.delivery === "file"}
+                  <TerminalIcon size={14} class="shrink-0" />
+                {:else}
+                  <LockIcon size={14} class="shrink-0" />
+                {/if}
+                {secretPrivacyNote(prompt)}
+              </p>
+              <Button
+                size="xs"
+                variant="ghost"
+                class="shrink-0 text-(--muted-foreground)"
+                disabled={closed || isSending || !canDrive}
+                aria-label="Decline {prompt.name}"
+                onclick={() => (isGroup ? toggleDeclined(field) : void send([null]))}
+              >
+                Decline
+              </Button>
+            </div>
           {/if}
-        {/each}
-      </form>
-    {/if}
-  </div>
+        </div>
+      {/each}
+    </form>
+  {/if}
   {#snippet footer()}
-    {#if !request.expired}
+    {#if !request.expired && isGroup}
       <div class="flex items-center justify-end gap-1">
         <Button
           size="sm"
@@ -147,7 +161,7 @@
           disabled={closed || isSending || !canDrive}
           onclick={() => void send(fields.map(() => null))}
         >
-          {isGroup ? "Decline all" : "Decline"}
+          Decline all
         </Button>
         <Button
           size="sm"
@@ -155,7 +169,7 @@
           form="secret-request-{request.questionId}"
           disabled={closed || isSending || !canDrive || !canSubmitSecrets(fields)}
         >
-          Submit
+          Save securely
         </Button>
       </div>
     {/if}

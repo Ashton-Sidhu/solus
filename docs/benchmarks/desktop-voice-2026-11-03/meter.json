@@ -1,0 +1,19 @@
+{
+  "note": "Synthetic onset sweep; no microphone, permission, or device latency. 32 ms is a proposed meter cadence, not shipping behavior.",
+  "rows": [
+    {
+      "meter_window_ms": 250,
+      "onset_sweep_p50_ms": 126,
+      "onset_sweep_max_ms": 250,
+      "rms_128_samples_us": 0.8322562500000001,
+      "checksum": 2119.669848094363
+    },
+    {
+      "meter_window_ms": 32,
+      "onset_sweep_p50_ms": 17,
+      "onset_sweep_max_ms": 32,
+      "rms_128_samples_us": 1.3772175,
+      "checksum": 2119.669848094363
+    }
+  ]
+}

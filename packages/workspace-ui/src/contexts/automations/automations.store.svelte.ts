@@ -3,7 +3,7 @@ import type { Automation, AutomationAction, AutomationRun, AutomationRunPoint, A
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
-import { visibleInWindow } from '../../lib/organization-filter'
+import { recordVisibleInWindow } from '../../lib/organization-filter'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { RUN_GRAPH_WINDOW } from './run-graph-window'
 
@@ -65,10 +65,10 @@ export class AutomationsStore {
     }
   }
 
-  /** The automations this window shows: Local ones, and the selected organization's (organization-scope §2). */
+  /** The automations this window shows: Local ones, the selected organization's, and every one of a personal host (organization-scope §2, plans/031 rule 1). */
   get visibleItems(): Automation[] {
     const activeOrganizationId = organizationSelection.activeOrganizationId
-    return this.items.filter((automation) => visibleInWindow(automation.organizationId, activeOrganizationId))
+    return this.items.filter((automation) => recordVisibleInWindow(automation.organizationId, activeOrganizationId, this.hostByAutomationId.get(automation.id)))
   }
 
   itemsForHost(serverId: string): Automation[] {
@@ -260,15 +260,28 @@ export class AutomationsStore {
     action: AutomationAction,
     trigger: AutomationTrigger,
     enabled = true,
+    executionPreferences: ExecutionPreferences = this.executionPreferences(),
   ): Promise<Automation> {
     if ((await serverConnections.capabilitiesFor(serverId)).automations !== true) {
       throw new Error('Automations are not supported on this host')
     }
     // The host records who made it from the admitted caller.
-    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, enabled, trigger, this.executionPreferences())
+    const created = await serverConnections.apiFor(serverId).automationCreate(name, action, enabled, trigger, executionPreferences)
     this.hostByAutomationId.set(created.id, serverId)
     this.upsert(created)
     return created
+  }
+
+  /** A new automation on the same host that does what the source does: its name,
+   *  action, schedule, and captured preferences. It starts paused, so a copied
+   *  schedule does not run twice before anyone edits it. Run history and the star
+   *  stay with the source. */
+  async clone(id: string): Promise<Automation> {
+    const source = this.get(id)
+    const serverId = this.hostByAutomationId.get(id) ?? serverConnections.defaultServerId()
+    if (!source || !serverId) throw new Error('Automation not found')
+    const { name, action, trigger, executionPreferences } = $state.snapshot(source)
+    return this.create(serverId, `${name} copy`, action, trigger, false, executionPreferences?.preferences)
   }
 
   async update(

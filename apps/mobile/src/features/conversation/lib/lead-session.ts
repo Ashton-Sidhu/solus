@@ -2,7 +2,7 @@ import type { LeadModelSelection } from '@solus/contracts/settings'
 import type { ConversationRun } from './ipc-context'
 import { leadModelRun, type LeadModelRun, type RunDefaults } from './run-settings'
 
-/** The Coordinator mode glyph: an org chart, the same shape the desktop's
+/** The Meta mode glyph: an org chart, the same shape the desktop's
  *  composer button and sidebar row use (lucide Network). Tabler's Network
  *  stands in on Android (`AppSymbol`). */
 export const LEAD_SYMBOL = 'point.3.connected.trianglepath.dotted' as const

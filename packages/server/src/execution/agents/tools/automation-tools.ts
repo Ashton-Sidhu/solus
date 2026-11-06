@@ -22,7 +22,7 @@ import { roleOf } from '../../../admission/access'
 import { actorFor, type Actor } from '../../../admission/actor'
 import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL } from '../../../admission/principal'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
-import { validateTrigger } from '../../../data/automations/automation-schedule'
+import { scheduleHasEnded, validateTrigger } from '../../../data/automations/automation-schedule'
 import { hasActiveRun, triggerAutomationRun } from '../../automations/automation-runner'
 import { Task } from '../../../data/tasks/task'
 import { foreignTaskLinksFor } from '../../../data/tasks/foreign-tasks'
@@ -62,6 +62,7 @@ const triggerSchema = z
     every_minutes: z.number().int().positive().optional().describe('type "interval": minutes between runs.'),
     cron: z.string().optional().describe('type "cron": a 5-field cron expression, e.g. "0 9 * * 1-5".'),
     timezone: z.string().optional().describe('type "cron": IANA timezone, e.g. "America/Toronto". Defaults to the system timezone.'),
+    ends_at: z.string().optional().describe('type "interval" or "cron": ISO-8601 instant. No scheduled run starts at or after it.'),
   })
   .describe('Trigger for the automation. Omit for a manual (run-now-only) automation. Scheduled triggers fire only while Solus is open.')
 
@@ -153,17 +154,21 @@ function toTrigger(raw: AutomationToolArgs['trigger']): TriggerResult {
     case 'interval':
       if (!raw.every_minutes) return { ok: false, error: 'trigger type "interval" requires every_minutes.' }
       trigger = { type: 'interval', everyMinutes: raw.every_minutes }
+      if (raw.ends_at) trigger.endsAt = raw.ends_at
       break
     case 'cron':
       if (!raw.cron) return { ok: false, error: 'trigger type "cron" requires a cron expression.' }
       trigger = { type: 'cron', expr: raw.cron }
       if (raw.timezone) trigger.timezone = raw.timezone
+      if (raw.ends_at) trigger.endsAt = raw.ends_at
       break
     default:
       return { ok: false, error: `Unknown trigger type "${String(raw.type)}".` }
   }
   const err = validateTrigger(trigger)
-  return err ? { ok: false, error: err } : { ok: true, trigger }
+  if (err) return { ok: false, error: err }
+  if (scheduleHasEnded(trigger, new Date())) return { ok: false, error: 'ends_at must be in the future.' }
+  return { ok: true, trigger }
 }
 
 function describeRun(r: {

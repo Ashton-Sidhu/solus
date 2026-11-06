@@ -21,7 +21,7 @@ type BackendInternals = {
   pendingRuns: RunLike[]
   runningCommands: Map<string, { threadId: string; processId: string | null; client: FakeClient; isBackground: boolean }>
   finishRun: (handle: RunLike) => void
-  readThread: (threadId: string) => Promise<unknown>
+  readThreadTurns: (client: FakeClient, threadId: string) => Promise<unknown>
   onNotification: (msg: { method: string; params: unknown }, client: unknown) => void
 }
 
@@ -96,16 +96,18 @@ describe('Codex idle thread unload', () => {
 
   test('a preview that had to load a dormant thread unloads it again', async () => {
     jest.useFakeTimers()
+    let resumed = false
     const client = fakeClient((method) => {
-      if (method === 'thread/read') throw new CodexRpcError('thread not loaded: thread-1', -32600)
-      return method === 'thread/resume' ? { thread: { id: 'thread-1', turns: [] } } : { status: 'unsubscribed' }
+      if (method === 'thread/turns/list' && !resumed) throw new CodexRpcError('thread not loaded: thread-1', -32600)
+      if (method === 'thread/resume') resumed = true
+      return method === 'thread/turns/list' ? { data: [], nextCursor: null } : { status: 'unsubscribed' }
     })
     const { internals } = backendWith(client)
 
-    await internals.readThread('thread-1')
+    await internals.readThreadTurns(client, 'thread-1')
     jest.advanceTimersByTime(IDLE_MS)
     await Promise.resolve()
 
-    expect(client.calls.map(([method]) => method)).toEqual(['thread/read', 'thread/resume', 'thread/unsubscribe'])
+    expect(client.calls.map(([method]) => method)).toEqual(['thread/turns/list', 'thread/resume', 'thread/turns/list', 'thread/unsubscribe'])
   })
 })

@@ -37,7 +37,7 @@ import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
 import { mayWorkLocallyDuringSetup } from '@solus/contracts/setup-card'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
-import type { IntegrationConnectNeeded } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationConnectNeeded, IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
 import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
@@ -118,6 +118,8 @@ export class ConversationController {
   readonly auth: AgentAuthFlow
   /** The integrations this session's turn needs the person's connection to (`integration.connectNeeded`), in the order asked. */
   connectNeeded: readonly IntegrationConnectNeeded[] = []
+  /** A server that is not in the catalog, until the person adds its address (`integration.customServerNeeded`). */
+  customServerNeeded: IntegrationCustomServerNeeded | null = null
   readonly connectNeededChanges = new Listeners()
   /** What guests suggested to this session, for whoever may prompt it to send or dismiss. */
   readonly suggestions: SessionSuggestionsFeed
@@ -221,6 +223,11 @@ export class ConversationController {
         : [...this.connectNeeded, payload]
       this.connectNeededChanges.notify()
     }))
+    this.cleanups.push(connection.events.subscribe('integration.customServerNeeded', (payload) => {
+      if (payload.sessionId !== this.run.sessionId) return
+      this.customServerNeeded = payload
+      this.connectNeededChanges.notify()
+    }))
     this.cleanups.push(connection.events.subscribe('session.errorReceived', (payload) => {
       if (payload.sessionId !== this.run.sessionId) return
       this.model.addNotice(`Error: ${payload.error.message}`, 'error')
@@ -265,6 +272,17 @@ export class ConversationController {
 
   dismissConnectNeeded(): void {
     this.connectNeeded = []
+    this.customServerNeeded = null
+    this.connectNeededChanges.notify()
+  }
+
+  /** The address was added: its row goes on as that server's sign-in. */
+  customServerAdded(integration: Pick<Integration, 'id' | 'name'>): void {
+    const sessionId = this.customServerNeeded?.sessionId
+    this.customServerNeeded = null
+    if (sessionId && !this.connectNeeded.some((open) => open.integrationId === integration.id)) {
+      this.connectNeeded = [...this.connectNeeded, { integrationId: integration.id, integrationName: integration.name, sessionId }]
+    }
     this.connectNeededChanges.notify()
   }
 

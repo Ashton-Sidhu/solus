@@ -70,7 +70,7 @@
   onDestroy(() => dictation.releaseMessageConsumer(voiceOwnerId));
 </script>
 
-<div class="relative flex shrink-0 items-center">
+<div class="relative flex shrink-0 items-center gap-1">
   {#if voiceState !== "idle" && (dictation.partialTranscript.stable || dictation.partialTranscript.tentative)}
     <div class="absolute bottom-full right-0 z-20 mb-2 w-64 max-w-[80vw] rounded-lg border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3 text-workspace-chrome shadow-(--solus-popover-shadow)">
       <VoiceTranscriptPreview partial={dictation.partialTranscript} />

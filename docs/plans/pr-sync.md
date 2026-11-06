@@ -54,7 +54,9 @@ Consequences:
   it. With no interest, a repository sync does not run.
 - **settled** — a pull request that is merged or closed, or a record that is
   `missing`. A merged or `missing` record is not read again by number. A
-  closed one is read again every 15 min, because it can open again.
+  closed one is read again every 15 min, because it can open again, while a
+  client shows it or it changed in the last day. After that, live work alone
+  reads it on a turn end, so a reopen with no client and no turn goes unseen.
 
 Do not use "reconcile", "mirror", "invalidate", or "observe" for this domain after
 the change.

@@ -3,6 +3,7 @@
     Pen as PencilSimpleIcon,
     Clock as ClockIcon,
     Play as PlayIcon,
+    Plus as PlusIcon,
     ArrowRight as ArrowRightIcon,
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
@@ -12,8 +13,10 @@
   import { getAgentContext, getWorkspaceContext } from "../../contexts";
   import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { toasts } from "../../lib/toasts";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
+  import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { folderLabel, triggerSummary } from "./lib/automation-format";
   import {
@@ -399,13 +402,17 @@
         >Write your own instructions and pick when they run.</span
       >
     </span>
-    <button
-      type="button"
-      class="flex h-7 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-transparent px-3 text-muted-foreground shadow-[0_0_0_.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] hover:text-foreground"
+    <!-- The header hides its own New button while the page is empty, so this
+         one has to carry the same weight. -->
+    <Button
+      class="cursor-pointer gap-[7px] border-0 px-[13px] text-workspace-chrome shadow-[0_1px_2px_rgba(24,20,16,.14)] hover:bg-[color:color-mix(in_oklab,var(--primary)_90%,black)]"
       onclick={onCreateBlank}
     >
+      <PlusIcon size={16} weight="bold" />
       New automation
-      <ArrowRightIcon size={14} weight="bold" />
-    </button>
+      <span class="text-xs opacity-80 @max-[30rem]/pane:hidden"
+        >{comboHint("automations.new")}</span
+      >
+    </Button>
   </div>
 </div>

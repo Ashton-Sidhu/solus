@@ -7,6 +7,9 @@ import type { NormalizedEvent } from '@solus/contracts/types'
 import { SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
 import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
 import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
+import { SECRET_FILE_TTL_MS } from '@solus/contracts/agent-tools'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { actAsHostForTests, hostSecretFilesFolder } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -21,6 +24,7 @@ let webhookTools: typeof import('@solus/server/execution/agents/tools/webhook-to
 let instructions: typeof import('@solus/server/execution/agents/runtime-instructions')
 
 beforeAll(async () => {
+  actAsHostForTests()
   ;({ solusToolbox: toolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox'))
   secretRequests = await import('@solus/server/execution/sessions/secret-requests')
   webhookTools = await import('@solus/server/execution/agents/tools/webhook-tools')
@@ -61,7 +65,7 @@ describe('request_secret as a session tool', () => {
     expect(description).toContain('never ask the person to type a secret into the conversation')
     expect(description.endsWith('Asked how to provide a secret: call this now, do not explain instead.')).toBe(true)
     const text = instructions.runtimeInstructions({ harness: 'Codex', model: 'm', reasoningEffort: 'low' }, sessionTools())
-    expect(text).toContain('A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it. Never ask for a secret in chat and never invent one.')
+    expect(text).toContain('A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one.')
   })
 
   test('the result names the outcome: saved with its ref, or declined, or cancelled', async () => {
@@ -124,5 +128,36 @@ describe('request_secret as a session tool', () => {
     expect(secrets[1].secretRef).toBeUndefined()
     expect(secretRequests.takeSecretRef(secrets[0].secretRef!, 'session-a')).toBe('sk_live_x')
     expect(secretRequests.takeSecretRef(secrets[2].secretRef!, 'session-a')).toBe('https://dsn')
+  })
+
+  test('a file secret goes to a private file the agent\'s commands read; the agent gets only the path', async () => {
+    // WHY: a CLI token cannot take a secretRef. The agent's shell needs the value, but the
+    // transcript and the tool result must still never hold it, and no other user may read it.
+    const events: NormalizedEvent[] = []
+    const asking = toolbox.sessions.requestSecret.execute({ secrets: [
+      { name: 'Cloudflare token', reason: 'For wrangler.', delivery: 'file' },
+      { name: 'Webhook secret', reason: 'To verify.' },
+    ] }, context('session-a', events))
+    await Promise.resolve()
+    const card = events.find((event) => event.type === 'question_request')
+    if (card?.type !== 'question_request') throw new Error('no card')
+    // The card tells every client which secret the commands can read.
+    expect(card.questions.map((question) => question.secretDelivery)).toEqual(['file', undefined])
+    expect(secretRequests.answerSecretRequest('session-a', card.questionId, ['cf_token_x', 'whsec_x'])).toBe(true)
+    const answer = await asking
+    expect(answer.text).not.toContain('cf_token_x')
+    const [file, ref] = (JSON.parse(answer.text) as { secrets: { status: string; path?: string; secretRef?: string }[] }).secrets
+    expect(file.secretRef).toBeUndefined()
+    expect(file.path!.startsWith(hostSecretFilesFolder())).toBe(true)
+    expect(readFileSync(file.path!, 'utf8')).toBe('cf_token_x')
+    expect(statSync(file.path!).mode & 0o777).toBe(0o600)
+    expect(statSync(hostSecretFilesFolder()).mode & 0o777).toBe(0o700)
+    expect(secretRequests.takeSecretRef(ref.secretRef!, 'session-a')).toBe('whsec_x')
+
+    // The file stays for the task and goes when its time is over.
+    secretRequests.removeExpiredSecretFiles(Date.now() + SECRET_FILE_TTL_MS - 60_000)
+    expect(existsSync(file.path!)).toBe(true)
+    secretRequests.removeExpiredSecretFiles(Date.now() + SECRET_FILE_TTL_MS + 1)
+    expect(existsSync(file.path!)).toBe(false)
   })
 })

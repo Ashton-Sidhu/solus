@@ -346,6 +346,10 @@
     },
     { enabled: () => open },
   );
+  useKeybinding("automations.clone", () => {
+    const selected = automations.find((a) => a.id === selectedId);
+    if (selected) void cloneAutomation(selected);
+  }, { enabled: () => open && view.kind === "list" });
   useKeybinding("automations.new", () => startCreate(), {
     enabled: () => open && view.kind === "list",
   });
@@ -373,8 +377,8 @@
     view = { kind: "list" };
   }
 
-  /** Open an automation the launchpad just created without letting an old facet
-   *  hide it when the user returns to the list. */
+  /** Open an automation just created from the launchpad or a clone without letting
+   *  an old facet hide it when the user returns to the list. */
   function openSeeded(a: Automation) {
     session.setProjectPageScope({ kind: "all" });
     query = "";
@@ -432,6 +436,11 @@
     return hosts.get(store.hostFor(a.id))?.me.may(verb, { kind: "automation", id: a.id, role: a.role }) ?? true;
   }
 
+  /** Whether the reader may make new automations on an automation's host. */
+  function mayClone(a: Automation): boolean {
+    return hosts.get(store.hostFor(a.id))?.me.may("host.use") ?? true;
+  }
+
   async function toggleEnabled(a: Automation, e?: Event) {
     e?.stopPropagation();
     if (!may(a, "edit")) return;
@@ -453,6 +462,18 @@
     e?.stopPropagation();
     if (!may(a, "edit")) return;
     await store.setFavorite(a.id, !a.favorite);
+  }
+
+  async function cloneAutomation(a: Automation, e?: Event) {
+    e?.stopPropagation();
+    if (!mayClone(a)) return;
+    try {
+      openSeeded(await store.clone(a.id));
+    } catch (error) {
+      toasts.error("Couldn't clone automation", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   function deleteAutomation(a: Automation, e?: Event) {
@@ -609,6 +630,7 @@
                         serverId={store.hostFor(a.id)}
                         canEdit={may(a, "edit")}
                         canRun={may(a, "drive")}
+                        canClone={mayClone(a)}
                         recentRuns={store.recentRuns.get(a.id) ?? []}
                         {now}
                         selected={selectedId === a.id}
@@ -617,6 +639,7 @@
                         onRunNow={runNow}
                         onCancelRun={cancelRun}
                         onToggleFavorite={toggleFavorite}
+                        onClone={cloneAutomation}
                         onDelete={deleteAutomation}
                         onContextMenu={openAutomationContextMenu}
                       />
@@ -653,11 +676,13 @@
           automation={menuAutomation}
           canEdit={may(menuAutomation, "edit")}
           canRun={may(menuAutomation, "drive")}
+          canClone={mayClone(menuAutomation)}
           onEdit={() => startEdit(menuAutomation)}
           onRunNow={() => void runNow(menuAutomation)}
           onCancelRun={() => void cancelRun(menuAutomation)}
           onToggleEnabled={() => void toggleEnabled(menuAutomation)}
           onToggleFavorite={() => void toggleFavorite(menuAutomation)}
+          onClone={() => void cloneAutomation(menuAutomation)}
           onDelete={() => deleteAutomation(menuAutomation)}
           onClose={() => (automationContextMenu = null)}
         />

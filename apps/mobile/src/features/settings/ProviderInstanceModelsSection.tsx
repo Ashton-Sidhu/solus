@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { TextInput, View } from "react-native";
+import { Pressable, TextInput, View } from "react-native";
 import { MODEL_PROFILES } from "@solus/contracts/types";
 import { providerDefaultModel, withProviderDefault } from "@solus/contracts/provider-model-settings";
 import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
 import { useApp, useListened } from "../../app/app-context";
 import type { ProviderInstance } from "@solus/contracts/provider-instances";
 import { changeModelPreference, instanceModelCatalog } from "@solus/contracts/provider-instance-models";
+import { SymbolView } from "../../components/AppSymbol";
 import { AppText } from "../../components/AppText";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsActionRow } from "./components/SettingsActionRow";
@@ -46,7 +47,10 @@ export function ProviderInstanceModelsSection({ instance, onChange }: { instance
   return <SettingsSection title="Models">
     <ModelField label="Filter models" value={query} onChange={setQuery} />
     <SettingsActionRow icon="eye" label={instance.hiddenModels.length ? "Show all models" : "Hide all models"} onPress={() => onChange({ ...instance, hiddenModels: instance.hiddenModels.length ? [] : Object.keys(MODEL_PROFILES[instance.provider] ?? {}) })} />
-    {"auto".includes(query.trim().toLowerCase()) ? <SettingsChoiceRow label="Auto · Picks a model from the first prompt" selected={defaultModelId === AUTO_MODEL_ID} onPress={() => makeDefault(AUTO_MODEL_ID)} /> : null}
+    {"auto".includes(query.trim().toLowerCase()) ? <View className="flex-row items-center gap-2 px-4 py-3">
+      <View className="flex-1"><AppText className="text-lg text-foreground">Auto</AppText><AppText className="text-sm text-muted-foreground">Picks a model from the first prompt</AppText></View>
+      <DefaultModelButton label="Auto" selected={defaultModelId === AUTO_MODEL_ID} onMakeDefault={() => makeDefault(AUTO_MODEL_ID)} onUseBuiltInDefault={settings.defaultModels[instance.provider] ? () => makeDefault("") : undefined} />
+    </View> : null}
     {models.filter((model) => !isLegacy(model.id)).map(row)}
     {legacy.length ? <SettingsActionRow icon={legacyOpen || query ? "chevron.down" : "chevron.right"} label={`Legacy models (${legacy.length})`} onPress={() => setLegacyOpen(!legacyOpen)} /> : null}
     {legacyOpen || query ? legacy.map(row) : null}
@@ -68,12 +72,13 @@ function ModelRow({ instance, model, isLegacy, isDefault, onChange, onMovedToLeg
   const custom = instance.customModels.find((item) => item.id === model.id);
   const hidden = !custom && instance.hiddenModels.includes(model.id);
   const change = (action: 'visibility' | 'group' | 'up' | 'down') => onChange(changeModelPreference(instance, model.id, action));
-  const tags = [isDefault ? "Default" : null, custom ? "Custom" : null, hidden ? "Hidden" : null].filter(Boolean).join(" · ");
+  const tags = [custom ? "Custom" : null, hidden ? "Hidden" : null].filter(Boolean).join(" · ");
   return <View className="border-t border-border">
-    <SettingsActionRow icon="sparkles" label={tags ? `${model.label} · ${tags}` : model.label} onPress={() => setExpanded(!expanded)} />
+    <View className="flex-row items-center pr-4">
+      <View className="flex-1"><SettingsActionRow icon="sparkles" label={tags ? `${model.label} · ${tags}` : model.label} onPress={() => setExpanded(!expanded)} /></View>
+      {!isLegacy ? <DefaultModelButton label={model.label} selected={isDefault} onMakeDefault={onMakeDefault} onUseBuiltInDefault={onUseBuiltInDefault} /> : null}
+    </View>
     {expanded ? <>
-      {!isLegacy && !isDefault ? <SettingsActionRow icon="checkmark.circle" label="Make default" onPress={onMakeDefault} /> : null}
-      {isDefault && onUseBuiltInDefault ? <SettingsActionRow icon="arrow.uturn.backward" label="Use built-in default" onPress={onUseBuiltInDefault} /> : null}
       <SettingsActionRow icon={isLegacy ? "arrow.up.circle" : "archivebox"} label={isLegacy ? "Move to main models" : "Move to legacy models"} onPress={() => { if (!isLegacy) onMovedToLegacy(); change("group"); }} />
       <SettingsActionRow icon="arrow.up" label="Move up" onPress={() => change("up")} />
       <SettingsActionRow icon="arrow.down" label="Move down" onPress={() => change("down")} />
@@ -86,6 +91,19 @@ function ModelRow({ instance, model, isLegacy, isDefault, onChange, onMovedToLeg
       </> : <SettingsSwitchRow label="Show in model picker" disabled={isDefault && !hidden} value={!hidden} onValueChange={() => change("visibility")} />}
     </> : null}
   </View>;
+}
+function DefaultModelButton({ label, selected, onMakeDefault, onUseBuiltInDefault }: { label: string; selected: boolean; onMakeDefault: () => void; onUseBuiltInDefault?: () => void }) {
+  const disabled = selected && !onUseBuiltInDefault;
+  return <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={selected ? onUseBuiltInDefault ? "Use built-in default" : `${label} is the built-in default` : `Make ${label} default`}
+    accessibilityState={{ selected, disabled }}
+    disabled={disabled}
+    onPress={selected ? onUseBuiltInDefault : onMakeDefault}
+    className="size-11 items-center justify-center"
+  >
+    <SymbolView name={selected ? "star.fill" : "star"} size={20} tintColorClassName={selected ? "accent-foreground" : "accent-muted-foreground"} />
+  </Pressable>;
 }
 function ModelField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange: (value: string) => void }) {
   return <View className="gap-2 px-4 py-3"><AppText className="text-base text-foreground">{label}</AppText><TextInput accessibilityLabel={label} value={value} placeholder={placeholder} onChangeText={onChange} autoCapitalize="none" autoCorrect={false} className="min-h-10 rounded-lg border border-border bg-input px-3 py-2 text-base text-foreground" /></View>;

@@ -5,6 +5,7 @@ import {
   defaultModelIdFor,
   modelPickerFocusTarget,
   modelPickerNavigationTarget,
+  offersFastMode,
   pickClosesModelPicker,
   reasoningLevelsFor,
   reservedReasoningRows,
@@ -136,7 +137,34 @@ describe("model picker keyboard navigation", () => {
     ).toEqual({ column: "model", index: 2 });
   });
 
-  test("right remains available to open the Agent submenu", () => {
+  test("the footer is reached from the end of a column, and only there", () => {
+    const fromColumn = { oppositeColumnLength: 5, preferredOppositeIndex: 1, footerLength: 3 };
+    // WHY: a keyboard user must reach Auto, Fast mode, and the permission mode
+    // without leaving the picker, but moving down a list must not skip into them.
+    expect(modelPickerNavigationTarget({ ...fromColumn, key: "ArrowDown", column: "reasoning", index: 3, columnLength: 4 })).toEqual({ column: "footer", index: 0 });
+    expect(modelPickerNavigationTarget({ ...fromColumn, key: "ArrowDown", column: "model", index: 2, columnLength: 4 })).toEqual({ column: "model", index: 3 });
+    expect(modelPickerNavigationTarget({ ...fromColumn, key: "ArrowDown", column: "model", index: 3, columnLength: 4, footerLength: 0 })).toEqual({ column: "model", index: 3 });
+  });
+
+  test("the rail is one key from the model list, on the active agent", () => {
+    const models = { column: "model" as const, index: 3, columnLength: 5, oppositeColumnLength: 4, preferredOppositeIndex: 1 };
+    // WHY: switching agent must not cost a walk through the list, and it must
+    // land on the agent in use, not the top of the rail.
+    expect(modelPickerNavigationTarget({ ...models, key: "ArrowLeft", railIndex: 1 })).toEqual({ column: "rail", index: 1 });
+    expect(modelPickerNavigationTarget({ ...models, key: "ArrowLeft" })).toBeNull();
+    expect(modelPickerNavigationTarget({ key: "ArrowRight", column: "rail", index: 0, columnLength: 2, oppositeColumnLength: 5, preferredOppositeIndex: 3 })).toEqual({ column: "model", index: 3 });
+  });
+
+  test("left and right move along the footer, and up leaves it", () => {
+    const inFooter = { column: "footer" as const, columnLength: 3, oppositeColumnLength: 4, preferredOppositeIndex: 2 };
+    expect(modelPickerNavigationTarget({ ...inFooter, key: "ArrowRight", index: 0 })).toEqual({ column: "footer", index: 1 });
+    expect(modelPickerNavigationTarget({ ...inFooter, key: "ArrowLeft", index: 1 })).toEqual({ column: "footer", index: 0 });
+    expect(modelPickerNavigationTarget({ ...inFooter, key: "ArrowUp", index: 1 })).toEqual({ column: "model", index: 2 });
+    // WHY: the last row opens the permission mode flyout on →, so the key stays with it.
+    expect(modelPickerNavigationTarget({ ...inFooter, key: "ArrowRight", index: 2 })).toBeNull();
+  });
+
+  test("right has nowhere to go from the Reasoning column", () => {
     expect(
       modelPickerNavigationTarget({
         key: "ArrowRight",
@@ -219,15 +247,18 @@ describe("model picker levels", () => {
     expect(reasoningLevelsFor("claude-code", "big", PICKER_METADATA["claude-code"])).toHaveLength(6);
   });
 
-  test("reserves the deepest column any agent's model needs, Fast mode included", () => {
+  test("reserves the deepest column any agent's model needs", () => {
     // WHY: the popup keeps one size. Switching agent or crossing models must not
     // resize it under the cursor, so the reservation spans every agent on offer.
-    expect(reservedReasoningRows(["claude-code", "codex"], PICKER_METADATA, true)).toBe(6);
-    // Quick has 3 levels and Fast mode, Deep has 4 levels: both fill 4 rows.
-    expect(reservedReasoningRows(["codex"], PICKER_METADATA, true)).toBe(4);
-    expect(reservedReasoningRows(["codex"], { codex: agent("codex", { quick: profile("Quick", ["low", "medium", "high", "xhigh"], true) }) }, true)).toBe(5);
-    // A host that cannot send Fast mode never shows the switch, so reserves no row for it.
-    expect(reservedReasoningRows(["codex"], { codex: agent("codex", { quick: profile("Quick", ["low", "medium", "high", "xhigh"], true) }) }, false)).toBe(4);
+    expect(reservedReasoningRows(["claude-code", "codex"], PICKER_METADATA)).toBe(6);
+    expect(reservedReasoningRows(["codex"], PICKER_METADATA)).toBe(4);
+  });
+
+  test("Fast mode keeps the footer open for an agent that does not offer it", () => {
+    // WHY: the footer must not come and go as the agent changes, so the answer
+    // spans every agent on offer. Only Codex sends Fast mode.
+    expect(offersFastMode(["claude-code", "codex"], PICKER_METADATA)).toBe(true);
+    expect(offersFastMode(["claude-code"], PICKER_METADATA)).toBe(false);
   });
 });
 
@@ -264,6 +295,7 @@ describe("model picker closing", () => {
     // WHY: once the effort is chosen the next step is typing, so the picker gets
     // out of the way and focus returns to the input bar.
     expect(pickClosesModelPicker("effort")).toBe(true);
+    expect(pickClosesModelPicker("permission-mode")).toBe(true);
   });
 
   test("a model, Fast mode, or an agent is a step on the way and keeps it open", () => {

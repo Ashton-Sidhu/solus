@@ -3,7 +3,7 @@
   import CopyButton from "../ui/CopyButton.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { formatCost, formatDuration, formatTokens, shortId } from "./lib/format";
-  import type { SessionSummaryView } from "./lib/session-summary";
+  import { scrollListToRow, type SessionSummaryView } from "./lib/session-summary";
   import SessionTurnTooltip from "./SessionTurnTooltip.svelte";
 
   /**
@@ -49,14 +49,14 @@
 
   /** The list scrolls to the turn being read, so arriving from anywhere — a
    *  deep link, the header stepper, a neighbouring turn — lands with the
-   *  reader's place in view rather than at the session's first turn. */
+   *  reader's place in view rather than at the session's first turn. Only the
+   *  list moves: the page stays where the reader is. */
   let list = $state<HTMLElement | null>(null);
   $effect(() => {
     const id = currentTraceId;
     if (!list) return;
-    list
-      .querySelector<HTMLElement>(`[data-trace="${CSS.escape(id)}"]`)
-      ?.scrollIntoView({ block: "nearest" });
+    const row = list.querySelector<HTMLElement>(`[data-trace="${CSS.escape(id)}"]`);
+    if (row) scrollListToRow(list, row);
   });
 </script>
 

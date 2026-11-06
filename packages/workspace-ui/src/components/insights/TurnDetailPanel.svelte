@@ -7,7 +7,6 @@
     Ellipsis as MoreIcon,
     MessageSquare as SessionIcon,
     PenLine as ComposeIcon,
-    Rows3 as SessionPageIcon,
   } from "@lucide/svelte";
   import { onDestroy, tick } from "svelte";
   import { toasts } from "../../lib/toasts";
@@ -100,6 +99,13 @@
         insightsStore.serverId ?? undefined,
       );
     });
+  });
+
+  // The panel stays mounted from turn to turn; a new turn is read from its top.
+  let bodyEl = $state<HTMLElement | null>(null);
+  $effect(() => {
+    void traceId;
+    if (bodyEl) bodyEl.scrollTop = 0;
   });
 
   const trace = $derived(insightsStore.trace(traceId));
@@ -241,10 +247,6 @@
   }
 
 
-  function openSessionPage(): void {
-    if (sessionId) workspace.openInsightsSession(sessionId);
-  }
-
   function exportTrace(): void {
     if (!trace || !view || !root) return;
     downloadText(traceExportFileName(traceId), traceExportJson(trace, view, root));
@@ -331,10 +333,6 @@
       sideOffset={6}
       class="w-56 max-w-[calc(100vw-2rem)] [&_.menu-row]:text-workspace-chrome"
     >
-      <DropdownMenu.Item disabled={!sessionId} onSelect={() => void runMenuAction(openSessionPage)}>
-        <SessionPageIcon size={14} />
-        <span class="whitespace-nowrap">All turns in this session</span>
-      </DropdownMenu.Item>
       <DropdownMenu.Item
         disabled={!sessionId || !prompt}
         onSelect={() => void runMenuAction(() => void openPromptInComposer())}
@@ -369,7 +367,7 @@
       ? {
           onPrevious: () => onStep(-1),
           onNext: () => onStep(1),
-          itemLabel: "row",
+          itemLabel: "turn",
           position,
           total,
         }
@@ -390,7 +388,7 @@
        keyboard-first workspace and wrong for a page whose whole purpose is
        reading recorded values. The detail body opts back in; the controls
        inside it opt out again so a drag over a row still activates it. -->
-  <div class="@container min-h-0 flex-1 overflow-y-auto px-6 select-text" data-sb>
+  <div class="@container min-h-0 flex-1 overflow-y-auto px-6 select-text" data-sb bind:this={bodyEl}>
     {#if loading && !view}
       <TurnDetailSkeleton />
     {:else if !view || !root || !trace}

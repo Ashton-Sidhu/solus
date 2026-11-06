@@ -4,7 +4,7 @@
   import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import type { ProviderInstance } from "@solus/contracts/provider-instances";
-  import { ArrowDown, ArrowUp, ChevronRight, Ellipsis, Eye, EyeOff } from "@lucide/svelte";
+  import { ArrowDown, ArrowUp, ChevronRight, Ellipsis, Eye, EyeOff, Star } from "@lucide/svelte";
   import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -53,15 +53,24 @@
   }
 </script>
 
-{#snippet defaultItem(id: string)}
-  {#if id !== defaultModelId}
-    <DropdownMenu.Item onSelect={() => makeDefault(id)}>Make default</DropdownMenu.Item>
-  {:else if settings.defaultModels[instance.provider]}
-    <!-- Clears the personal choice, so the catalog's default applies again. -->
-    <DropdownMenu.Item onSelect={() => workspace.config.setDefaultModel(instance.provider, "")}>Use built-in default</DropdownMenu.Item>
-  {:else}
-    <DropdownMenu.Item disabled>Built-in default</DropdownMenu.Item>
-  {/if}
+{#snippet defaultButton(id: string, label: string)}
+  {@const isDefault = id === defaultModelId}
+  {@const action = isDefault ? settings.defaultModels[instance.provider] ? "Use built-in default" : `${label} is the built-in default` : `Make ${label} default`}
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class="shrink-0 pointer-coarse:size-11 {isDefault ? 'text-foreground' : 'text-muted-foreground'}"
+    title={action}
+    aria-label={action}
+    aria-pressed={isDefault}
+    disabled={isDefault && !settings.defaultModels[instance.provider]}
+    onclick={() => {
+      if (!isDefault) makeDefault(id);
+      else workspace.config.setDefaultModel(instance.provider, "");
+    }}
+  >
+    <Star size={16} class="size-4" fill={isDefault ? "currentColor" : "none"} />
+  </Button>
 {/snippet}
 
 {#snippet modelRow(model: { id: string; label: string })}
@@ -72,12 +81,16 @@
       <div class="min-w-0 flex-1">
         <span class="flex min-w-0 items-center gap-2 text-sm {hidden ? 'text-muted-foreground' : 'text-foreground'}">
           <span class="truncate">{model.label}</span>
-          {#if model.id === defaultModelId}<span class="shrink-0 rounded-full border border-border px-1.5 text-xs text-muted-foreground">Default</span>{/if}
           {#if custom}<span class="shrink-0 rounded-full border border-border px-1.5 text-xs text-muted-foreground">Custom</span>{/if}
           {#if hidden}<span class="shrink-0 rounded-full border border-border px-1.5 text-xs text-muted-foreground">Hidden</span>{/if}
         </span>
         <span class="block truncate text-sm text-muted-foreground">{model.id}</span>
       </div>
+      {#if !isLegacy(model.id)}
+        {@render defaultButton(model.id, model.label)}
+      {:else}
+        <span class="size-7 shrink-0 pointer-coarse:size-11" aria-hidden="true"></span>
+      {/if}
       <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" title="Move up" aria-label="Move {model.label} up" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "up") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "up"))}><ArrowUp size={16} /></Button>
       <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" title="Move down" aria-label="Move {model.label} down" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "down") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "down"))}><ArrowDown size={16} /></Button>
       {#if !custom}
@@ -93,7 +106,6 @@
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-52">
-          {#if !isLegacy(model.id)}{@render defaultItem(model.id)}{/if}
           <DropdownMenu.Item onSelect={() => moveGroup(model.id)}>{isLegacy(model.id) ? "Move to main models" : "Move to legacy models"}</DropdownMenu.Item>
           {#if custom}
             <DropdownMenu.Item variant="destructive" onSelect={() => instance.customModels.splice(instance.customModels.indexOf(custom), 1)}>Remove custom model</DropdownMenu.Item>
@@ -137,17 +149,11 @@
         <!-- Auto is not a model: it picks one from the first prompt, so it can only be the default. -->
         <div class="flex min-w-0 items-center gap-1 py-3">
           <div class="min-w-0 flex-1">
-            <span class="flex min-w-0 items-center gap-2 text-sm text-foreground"><span class="truncate">Auto</span>{#if defaultModelId === AUTO_MODEL_ID}<span class="shrink-0 rounded-full border border-border px-1.5 text-xs text-muted-foreground">Default</span>{/if}</span>
+            <span class="flex min-w-0 items-center gap-2 text-sm text-foreground"><span class="truncate">Auto</span></span>
             <span class="block truncate text-sm text-muted-foreground">Picks a model from the first prompt. Configure it in Sessions.</span>
           </div>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger>
-              {#snippet child({ props })}
-                <Button {...props} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" title="More actions" aria-label="More actions for Auto"><Ellipsis size={16} /></Button>
-              {/snippet}
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-52">{@render defaultItem(AUTO_MODEL_ID)}</DropdownMenu.Content>
-          </DropdownMenu.Root>
+          {@render defaultButton(AUTO_MODEL_ID, "Auto")}
+          <span class="w-31 shrink-0 pointer-coarse:w-47" aria-hidden="true"></span>
         </div>
       {/if}
       {#each current as model (model.id)}{@render modelRow(model)}{/each}

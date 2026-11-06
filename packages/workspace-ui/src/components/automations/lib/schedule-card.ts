@@ -18,7 +18,7 @@ export function scheduleCardState(automation: Automation): string {
     return automation.lastRunStatus === 'failed' ? 'Check failed' : 'Schedule complete'
   }
   if (!automation.enabled) return 'Paused'
-  if (!automation.nextRunAt) return 'Manual'
+  if (!automation.nextRunAt) return 'endsAt' in automation.trigger && automation.trigger.endsAt ? 'Schedule ended' : 'Manual'
   const next = new Date(automation.nextRunAt).toLocaleString([], {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   })

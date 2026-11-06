@@ -1,7 +1,9 @@
 <script lang="ts">
   import {
+    Check as CheckIcon,
     Mic as MicrophoneIcon,
     LoaderCircle as SpinnerGapIcon,
+    X as XIcon,
   } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import WaveformVisualizer from './WaveformVisualizer.svelte'
@@ -60,6 +62,23 @@
 
 {#if variant === 'bar'}
   {#if state === 'recording'}
+    <!-- Cancel and Finish sit at the two ends of the meter, so the pointer that
+         started the recording, still over the mic's place, is on neither. -->
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+        type="button"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={onCancel}
+        aria-label="Cancel voice input"
+        class="rc-bar-mic rounded-full! pointer-coarse:tap-area bg-(--solus-surface-active) text-(--solus-text-secondary) transition-[color,transform] duration-150 ease-out hover:text-(--solus-text-primary) active:scale-[0.96]"
+      ><XIcon size={14} /></button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={{ label: 'Cancel', shortcut: 'Esc' }} />
+    </TooltipUI.Root>
+    <span class="mx-1 min-w-16 flex-1" aria-hidden="true"><WaveformVisualizer {rmsRef} color="var(--solus-text-secondary)" /></span>
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
@@ -68,11 +87,11 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={onConfirm}
         aria-label="Finish listening and transcribe"
-        class="recording-stop recording-stop--bar pointer-coarse:tap-area"
-      ><MicrophoneIcon size={14} class="recording-mic-pulse" /></button>
+        class="rc-bar-mic rounded-full! pointer-coarse:tap-area bg-(--solus-text-primary) text-(--solus-input-pill-bg) transition-[opacity,transform] duration-150 ease-out hover:opacity-85 active:scale-[0.96]"
+      ><CheckIcon size={14} strokeWidth={3} /></button>
         {/snippet}
       </TooltipUI.Trigger>
-      <TooltipUI.Content value={"Listening · Click to transcribe · Esc to cancel"} />
+      <TooltipUI.Content value={{ label: 'Finish', shortcut: comboHint('voice.toggle-recorder') }} />
     </TooltipUI.Root>
   {:else if state === 'transcribing'}
     <button
@@ -122,7 +141,7 @@
       {#if partial && (partial.stable || partial.tentative)}
         <VoiceTranscriptPreview {partial} compact />
       {:else}
-        <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
+        <WaveformVisualizer {rmsRef} color="var(--solus-text-secondary)" />
       {/if}
     </span>
     <span class="recording-stop recording-stop--field" aria-hidden="true"><MicrophoneIcon size={13} class="recording-mic-pulse" /></span>
@@ -181,10 +200,6 @@
   }
   .recording-stop:active {
     scale: 0.96;
-  }
-  .recording-stop--bar {
-    width: 1.875rem;
-    height: 1.875rem;
   }
   .rc-bar-mic {
     display: flex;
@@ -291,7 +306,6 @@
   }
   /* Level with the send button beside it, which also steps up for a finger. */
   @media (pointer: coarse) {
-    .recording-stop--bar,
     .rc-bar-mic {
       width: 2.25rem;
       height: 2.25rem;

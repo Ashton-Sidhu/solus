@@ -179,6 +179,17 @@ export function isHostOwner(principal: Principal): principal is Extract<Principa
 }
 
 /**
+ * Whether a principal reads every record on the disk: the host itself, or its owner
+ * whose scope reaches every organization (plans/031 rule 1). A pairing on a machine
+ * attached for organization work reads Local only, so the record checks apply to it
+ * as to anyone else.
+ */
+export function readsWholeDisk(principal: Principal): boolean {
+  if (principal.kind === 'system') return true
+  return isHostOwner(principal) && isAnyOrganization(recordScopeOf(principal))
+}
+
+/**
  * Who administers the machine: the owner of a personal host, or an organization
  * owner on a managed host or the workspace service. Administration is not
  * resource access (§3.4).

@@ -15,8 +15,6 @@
   import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../../lib/keybindings/manifest";
   import { formatComboText } from "../../../lib/keybindings/match";
-  import WaveformVisualizer from "../../input/WaveformVisualizer.svelte";
-  import VoiceTranscriptPreview from "../../input/VoiceTranscriptPreview.svelte";
   import RecordingControls from "../../input/RecordingControls.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { uuid } from "@solus/contracts/uuid";
@@ -115,7 +113,6 @@
   let focused = $state(false);
 
   const hasContent = $derived(!editorEmpty || canSubmitWhenEmpty);
-  const canSend = $derived(hasContent && !submitting && !disabled);
 
   // ─── Voice dictation ───
   // Reuses the app-wide recorder in conversational mode, but routes the
@@ -126,16 +123,11 @@
   const voiceState = $derived(
     ownsVoice && dictation.mode === "message" ? dictation.state : "idle",
   );
+  const canSend = $derived(hasContent && !submitting && !disabled && voiceState === "idle");
   const voiceReady = $derived(voiceHost?.voiceReady ?? false);
-  const showWaveform = $derived(voiceState === "recording");
   const hasPartialTranscript = $derived(
     voiceState !== "idle" && !!(dictation.partialTranscript.stable || dictation.partialTranscript.tentative),
   );
-  const showVoicePreview = $derived(showWaveform || hasPartialTranscript);
-  let hasMountedWaveform = $state(false);
-  $effect(() => {
-    if (showWaveform) hasMountedWaveform = true;
-  });
 
   function insertTranscript(transcript: string) {
     editorEl?.insertTranscript(transcript);
@@ -246,18 +238,7 @@
   onfocusin={() => (focused = true)}
   onfocusout={handleCardFocusOut}
 >
-  {#if hasMountedWaveform}
-    <div class="flex items-center gap-2" style:display={showVoicePreview ? null : "none"} style="padding:0.5rem 0.25rem">
-      <div class="min-w-0 flex-1">
-        {#if hasPartialTranscript}
-          <VoiceTranscriptPreview partial={dictation.partialTranscript} />
-        {:else}
-          <WaveformVisualizer rmsRef={dictation.rmsRef} color="var(--solus-accent)" active={showWaveform} />
-        {/if}
-      </div>
-    </div>
-  {/if}
-  <div class="px-1.5" style:display={showVoicePreview ? "none" : null}>
+  <div class="px-1.5">
     <PromptEditor
       bind:this={editorEl}
       {value}
@@ -275,8 +256,9 @@
       onFocus={() => {
         claimVoice();
       }}
-      {placeholder}
-      {disabled}
+      placeholder={hasPartialTranscript ? "" : voiceState === "recording" ? "Listening..." : placeholder}
+      disabled={disabled || voiceState !== "idle"}
+      voicePartial={hasPartialTranscript ? dictation.partialTranscript : null}
       enterInsertsNewline
       {menuPlacement}
       maxHeight={260}

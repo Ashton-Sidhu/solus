@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { z } from 'zod'
 import { normalizeServerUrl } from '@solus/client-core/pairing'
+import { readHostHealth, refreshHostSession, type HostHealth } from '@solus/client-core/host-http'
 import type { HostIntroduction, IntroducedHostsSummary } from '@solus/contracts/host-api'
 import { getInstallationId, issueSessionToken, revokeDevice } from '../../admission/auth'
 import { createLogger } from '../../logger'
@@ -8,7 +9,7 @@ import { hostDisplayName } from '../../platform/host-display-name'
 import { dataDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
 import { hostIdentity } from '../../host/host-identity'
-import { healthProofSchema, hostIdentityKeySchema, newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
+import { hostIdentityKeySchema, newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
 import { verifyHostProof } from '@solus/contracts/host-proof'
 
 const log = createLogger('orchestration', 'introduced-hosts.ts')
@@ -37,12 +38,6 @@ const storedSchema = z.object({
 })
 type Stored = z.infer<typeof storedSchema>
 
-const healthSchema = z.object({
-  installationId: z.string().min(1),
-  name: z.string().optional().catch(undefined),
-  proof: healthProofSchema.optional().catch(undefined),
-})
-const refreshSchema = z.object({ sessionToken: z.string().min(1) })
 
 /** This host, as an introduction needs it. */
 export interface IntroductionSelf {
@@ -194,34 +189,20 @@ export class IntroducedHosts {
 
   /** A fresh token for `sessionToken` from the host at `url`; `refused` when the host refuses it, null when it does not answer. */
   private async exchange(url: string, sessionToken: string): Promise<string | 'refused' | null> {
-    try {
-      const response = await this.fetchImpl(`${url}/auth/refresh`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${sessionToken}` },
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      })
-      if (response.status === 401) return 'refused'
-      if (!response.ok) return null
-      return refreshSchema.parse(await response.json()).sessionToken
-    } catch (error) {
-      log.warn('introduced_host_refresh_failed', { url, error: String(error) })
-      return null
-    }
+    const refreshed = await refreshHostSession(this.fetchImpl, url, sessionToken, PROBE_TIMEOUT_MS)
+    if (refreshed.result === 'refreshed') return refreshed.sessionToken
+    if (refreshed.result === 'unauthorized') return 'refused'
+    log.warn('introduced_host_refresh_failed', { url })
+    return null
   }
 
   /** The health at `url` when it answers as `installationId` and, on an `http:` route, signs a fresh nonce with `identityKey`. */
-  private async probe(url: string, installationId: string, identityKey: string): Promise<z.infer<typeof healthSchema> | null> {
-    try {
-      const nonce = newHealthNonce()
-      const response = await this.fetchImpl(`${url}/health?nonce=${encodeURIComponent(nonce)}`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
-      if (!response.ok) return null
-      const parsed = healthSchema.safeParse(await response.json())
-      if (!parsed.success || parsed.data.installationId !== installationId) return null
-      if (!routeNeedsProof({ url })) return parsed.data
-      return parsed.data.proof && verifyHostProof(identityKey, nonce, installationId, parsed.data.proof) ? parsed.data : null
-    } catch {
-      return null
-    }
+  private async probe(url: string, installationId: string, identityKey: string): Promise<HostHealth | null> {
+    const nonce = newHealthNonce()
+    const health = await readHostHealth(this.fetchImpl, url, AbortSignal.timeout(PROBE_TIMEOUT_MS), nonce)
+    if (!health || health.installationId !== installationId) return null
+    if (!routeNeedsProof({ url })) return health
+    return health.proof && verifyHostProof(identityKey, nonce, installationId, health.proof) ? health : null
   }
 
   private load(): Stored {

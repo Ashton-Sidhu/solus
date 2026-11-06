@@ -31,7 +31,7 @@ export function SessionSearchResults(props: {
   const homes = useMemo(() => nativeSearchHomes(hosts.map(host => host.id), props.projects, { hostId: props.hostId, projectKeys: props.projectKeys }), [hosts, props.hostId, props.projectKeys, props.projects])
   useEffect(() => { search.search(props.query, homes); return () => search.reset() }, [search, props.query, homes, organizationId])
   const state = search.state
-  const hits = nativeSearchHits({ query: props.query, hostId: props.hostId, projectKeys: props.projectKeys, threads: [...props.threads, ...props.unlistedThreads], remote: state.hits, organizationId })
+  const hits = nativeSearchHits({ query: props.query, hostId: props.hostId, projectKeys: props.projectKeys, threads: [...props.threads, ...props.unlistedThreads], remote: state.hits, organizationId, managedHostIds: app.threads.managedHostIds() })
   const select = (hit: HostSessionSearchHit) => {
     const record = hit.result.record
     const thread = { key: threadKey(hit.serverId, record.sessionId), hostId: hit.serverId, hostLabel: app.registry.host(hit.serverId)?.label ?? hit.serverId, record }

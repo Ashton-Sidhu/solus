@@ -445,6 +445,14 @@ export interface IntegrationConnectNeeded {
   sessionId: string
 }
 
+/** An agent asks the person for the address of a server that is not in the catalog. Both fields only prefill the card. */
+export interface IntegrationCustomServerNeeded {
+  /** The Solus session whose turn is waiting on the server. */
+  sessionId: string
+  name?: string
+  url?: string
+}
+
 const SLUG_MAX_LENGTH = 40
 
 /** The tool prefix for a name: lowercase `[a-z0-9]` runs joined by `-`, at most 40 characters, never empty. */

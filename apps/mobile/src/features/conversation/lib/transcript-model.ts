@@ -3,6 +3,7 @@ import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activit
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
 import type { ContextCompaction, PermissionOption, QuestionItem, QuestionRequest, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SecretOutcomeRecord } from '@solus/contracts/secret-request'
 import { planKey } from '@solus/contracts/types'
 import { settleSetupCard } from '@solus/contracts/setup-card'
 import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-cards'
@@ -43,6 +44,8 @@ export type TranscriptItem =
       report: string | null
       /** Pictures the call returned, stored on the host. */
       images?: readonly ToolResultImage[]
+      /** A `request_secret` call's outcomes: its label after the card closes. */
+      secretOutcomes?: SecretOutcomeRecord[]
       /** The provider child's own transcript, kept off the parent's feed. */
       children?: TranscriptModel
     }
@@ -274,6 +277,7 @@ export class TranscriptModel {
         subagent: row.isSubagent ? row.subagentType ?? 'agent' : subagentFromToolName(toolName),
         report: row.report ?? null,
         images: row.toolImages,
+        secretOutcomes: row.secretOutcomes,
       })
       if (!isAgentConversationTool(toolName)) return id
       this.agentCards.applyToolRow(toolName, row.toolInput, row.agentConversationResult, row.timestamp)
@@ -308,6 +312,7 @@ export class TranscriptModel {
       status: row.status === 'error' ? 'error' : 'completed',
       errorHead: row.errorHead ?? null,
       images: row.toolImages ?? tool.images,
+      secretOutcomes: row.secretOutcomes ?? tool.secretOutcomes,
     }))
   }
 
@@ -377,6 +382,7 @@ export class TranscriptModel {
           status: event.status === 'error' ? 'error' : 'completed',
           errorHead: event.errorHead ?? null,
           images: event.toolImages ?? tool.images,
+          secretOutcomes: event.secretOutcomes ?? tool.secretOutcomes,
         }))
         return true
       case 'subagent_report':

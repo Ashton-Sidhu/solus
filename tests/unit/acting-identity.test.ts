@@ -240,3 +240,18 @@ test.if(posixHost)('two members never share a review checkout their own connecti
   const { createHash } = await import('node:crypto')
   expect(pathAs(null)).toBe(join('/checkouts', createHash('sha256').update('github.com/acme/private/7/base/head').digest('hex')))
 })
+
+test('a secret file for a member goes in their own folders, never in the host\'s or another member\'s', () => {
+  // WHY: request_secret writes a CLI token where the member's commands read it
+  // (docs/plans/webhooks.md §3.6). In the host's folder another member could find it.
+  const root = temporaryDirectory()
+  const deps = { memberToken: async () => null, fetchLogin: async () => '', memberHome: (seat: Extract<Seat, { kind: 'user' }>) => memberHomeDirectory(root, seat), gitHelper: () => null, now: () => 0 }
+  const identities = new ActingIdentities(deps)
+  const alice = identities.for(member('alice')).secretFilesFolder()
+  expect(alice.startsWith(memberHomeDirectory(root, member('alice')))).toBe(true)
+  expect(alice).not.toBe(identities.for(member('bob')).secretFilesFolder())
+  expect(alice).not.toBe(HOST_IDENTITY.secretFilesFolder())
+  // Where a member has a secrets folder in memory, the file goes there and not to the home a backup reads.
+  const isolated = new ActingIdentities({ ...deps, memberSecrets: () => join(root, 'memory') })
+  expect(isolated.for(member('alice')).secretFilesFolder()).toBe(join(root, 'memory', 'secret-files'))
+})

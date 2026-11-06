@@ -14,6 +14,7 @@ import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, ReasoningEf
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { Task } from '../../../data/tasks/task'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
+import { toolMayRead } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnedSession, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import type { ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
@@ -524,6 +525,8 @@ async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionField
     ...(args.item_id !== undefined && { itemId: args.item_id, textOffset: args.text_offset ?? 0 }),
   }
   const requestedId = args.session_id.trim()
+  // A member's or guest's turn reads only a session the person may open.
+  if (!(await toolMayRead({ kind: 'session', id: requestedId }))) return { ok: false, text: `No session ${requestedId} that this turn may read.` }
   const meta = await findSession(requestedId)
   if (!meta) {
     const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
@@ -622,13 +625,16 @@ async function searchSessionsTool(args: z.infer<z.ZodObject<typeof searchSession
     }
   }
 
-  const { results } = searchSessionIndex(query, {
+  const found = searchSessionIndex(query, {
     projectRoot,
     role: role === 'any' ? undefined : role,
     sinceTs,
     untilTs,
     limit,
-  })
+  }).results
+  // A member's or guest's turn finds only sessions the person may open.
+  const readable = await Promise.all(found.map((result) => toolMayRead({ kind: 'session', id: result.session.sessionId })))
+  const results = found.filter((_, index) => readable[index])
   if (!results.length) return { ok: true, text: `${scopeNote}${rangeNote}No matching sessions.` }
   const lines = results.map(({ session, snippet, ts, target }) => {
     const project = session.projectRoot ? basename(session.projectRoot) : '(unknown)'

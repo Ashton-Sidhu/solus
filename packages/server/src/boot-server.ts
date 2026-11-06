@@ -92,7 +92,7 @@ import { publishPresenceRoom, registerPresenceHandlers } from './transport/handl
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { CodexBackend } from './execution/agents/codex/codex-backend'
-import { ActingIdentities, identityFor, useActingIdentities } from './execution/seats/acting-identity'
+import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
@@ -242,6 +242,7 @@ import { markAwaitedTasks } from './execution/sessions/background-work'
 import { WorktreeOffers } from './execution/sessions/worktree-offers'
 import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
+import { installToolAccess } from './admission/workspace-tool-authority'
 
 const log = createLogger('main', 'server-boot')
 
@@ -454,6 +455,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A member reaches this host with a host access token, which needs the registration (host-sharing.md §4.3), never the link.
     membersReachable: () => apiMode || registrar.current() !== null,
   })
+  // An agent tool reads a record only when the turn's person may open it (plans/031 item 7).
+  installToolAccess((principal, resource) => shares.roleFor(principal, resource))
   server.useResourceAccess(shares)
   /** The host's share rows for a mirrored session, appended for its organization; nothing for a session nobody mirrors. */
   const mirrorShareRows = async (resource: ShareResource): Promise<void> => {
@@ -513,6 +516,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   useActingIdentities(identities)
   // The credential files the previous design kept per process; nothing reads them now.
   rmSync(join(dataDir(), 'git-credentials'), { recursive: true, force: true })
+  // The secret files request_secret saved for the last process's runs: no timer of this process removes them.
+  rmSync(hostSecretFilesFolder(), { recursive: true, force: true })
   // Every member folder on this host — projects, seats, homes, dispatch checkouts — is named after its member.
   useMemberFolders(new MemberFolders({ db: getDb(), roots: () => [setupProjectsRoot(), join(seats.seatsRoot, 'claude'), join(seats.seatsRoot, 'codex'), join(seats.seatsRoot, 'home')] }))
   // A record this host left `running` names a turn the previous process never settled.
@@ -760,6 +765,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
+  integrationGateway.onCustomServerNeeded((request) => { void events.broadcast('integration.customServerNeeded', request) })
   // A connection is one person's (§4.1): its events go to that person's clients.
   const integrationConnectionEvents: IntegrationConnectionEvents = {
     connectionChanged: (personKey, event) => {
@@ -969,7 +975,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     invalidatePlanCaches: (sessionId) => opts.sessionRuntime.history.invalidatePlanCaches(sessionId),
     awaitBackgroundTasks: (sessionId, taskIds, waiting) => {
       const session = opts.sessionRuntime.activeSessions.get(sessionId)
-      return session ? markAwaitedTasks(session, taskIds, waiting) : null
+      return session ? markAwaitedTasks(session, taskIds, waiting, opts.sessionRuntime.backendFor(session.backendId)) : null
     },
   })
   // A person deciding on a plan a session it sent work to wrote, from that card.
@@ -1100,6 +1106,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     download: downloadModelProfiles,
     publish: (status) => { events.broadcast('host.modelProfilesChanged', status) },
   })
+  if (opts.sessionRuntime.getBackendIds().includes('claude-code')) {
+    opts.sessionRuntime.backendFor('claude-code').on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
+  }
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
   modelProfiles.start()

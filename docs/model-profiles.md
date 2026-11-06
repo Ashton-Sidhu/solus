@@ -29,6 +29,22 @@ after a user clears the cache in Settings → About Solus.
 A model works only if the provider CLI installed on the host accepts its ID.
 The list does not install or update Claude Code or Codex.
 
+## Models a provider reports
+
+The published list stays authoritative. A host adds only what the list does not
+know. Claude Code reports its models once per server process, the first time a
+client opens a Claude composer or a Claude run starts. A model the list knows, by
+its ID or by the model an alias resolves to, adds no row. A new row uses the
+effort levels Claude Code reports, with Medium as the default if the model has
+it. A model with no levels shows no effort control, and a run sends it no effort.
+Clients get the new rows through `host.modelProfilesChanged`.
+
+With an Anthropic-compatible gateway (`ANTHROPIC_BASE_URL` and
+`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`, in the environment or in the `env`
+of the host's `settings.json`), the read waits for Claude Code's discovery
+timeout, so that the list has the gateway's models. The list is for the host. A
+person whose seat uses another gateway sees the host's list.
+
 ## How a host gets the list
 
 `ModelProfilesService` (`packages/server/src/updates/model-profiles-service.ts`)

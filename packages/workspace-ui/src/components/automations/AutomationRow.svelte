@@ -7,6 +7,7 @@
     Pen as PencilSimpleIcon,
     Star as StarIcon,
     Clock as ClockIcon,
+    CopyPlus as CloneIcon,
     LoaderCircle as CircleNotchIcon,
   } from "@lucide/svelte";
   import type { Automation, AutomationRunPoint } from "@solus/contracts/types";
@@ -31,6 +32,8 @@
     /** The reader's role allows changing it (star, pause, delete) and running it (docs/plans/access-model.md §2.7). */
     canEdit: boolean;
     canRun: boolean;
+    /** The reader may make new automations on this host; cloning needs no role on the source. */
+    canClone: boolean;
     /** Newest first; drawn as the row's run graph. */
     recentRuns: readonly AutomationRunPoint[];
     /** Ticking clock from the page, so the age column counts up on its own. */
@@ -41,6 +44,7 @@
     onRunNow: (a: Automation, e: Event) => void;
     onCancelRun: (a: Automation, e: Event) => void;
     onToggleFavorite: (a: Automation, e: Event) => void;
+    onClone: (a: Automation, e: Event) => void;
     onDelete: (a: Automation, e: Event) => void;
     onContextMenu?: (event: MouseEvent, automation: Automation) => void;
   }
@@ -51,6 +55,7 @@
     serverId,
     canEdit,
     canRun,
+    canClone,
     recentRuns,
     now,
     selected = false,
@@ -59,6 +64,7 @@
     onRunNow,
     onCancelRun,
     onToggleFavorite,
+    onClone,
     onDelete,
     onContextMenu,
   }: Props = $props();
@@ -72,7 +78,9 @@
           ? "paused"
           : a.trigger.type === "manual"
             ? "manual"
-            : "scheduled",
+            : !a.nextRunAt && "endsAt" in a.trigger && a.trigger.endsAt
+              ? "ended"
+              : "scheduled",
   );
   // One status token in, one fill/glyph pair out — no row picks a background
   // and a text colour separately and drifts from the chips beside it.
@@ -83,6 +91,7 @@
       scheduled: "bg-[color-mix(in_oklch,var(--running)_14%,transparent)] text-[var(--running)]",
       manual: "bg-[var(--wash-3)] text-muted-foreground",
       paused: "bg-[var(--wash-3)] text-muted-foreground",
+      ended: "bg-[var(--wash-3)] text-muted-foreground",
     }[tone],
   );
   const schedule = $derived(triggerSummary(a.trigger));
@@ -93,7 +102,9 @@
         ? "Last run failed"
         : tone === "paused"
           ? a.archivedAt ? "Archived" : "Paused"
-          : "Active",
+          : tone === "ended"
+            ? "Schedule ended"
+            : "Active",
   );
   const age = $derived(compactRelativeTime(a.lastRunAt, now));
 </script>
@@ -133,9 +144,10 @@
       {a.name}
     </span>
 
-    <!-- Slot 3 — the project where this automation runs. -->
+    <!-- Slot 3 — the project where this automation runs. In the compact row the
+         verbs reach across it, so it steps aside for them as slots 5 and 6 do. -->
     <span
-      class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground transition-opacity duration-150 @max-[44rem]:group-hover:opacity-0 @max-[44rem]:group-focus-within:opacity-0 @max-[44rem]:pointer-coarse:opacity-0"
       title="Project: {projectLabel}"
     >
       <ProjectFavicon projectKey={groupKeyFor(serverId ?? "", projectPath)} class="size-3 shrink-0" />
@@ -199,6 +211,16 @@
       title="Edit"
     >
       <PencilSimpleIcon size={14} />
+    </button>
+    <button
+      type="button"
+      class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+      onclick={(e) => onClone(a, e)}
+      disabled={!canClone}
+      aria-label="Clone"
+      title={canClone ? "Clone" : "You can't make automations on this host"}
+    >
+      <CloneIcon size={14} />
     </button>
     {#if a.lastRunStatus === "running"}
       <button

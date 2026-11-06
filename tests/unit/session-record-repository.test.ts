@@ -61,7 +61,7 @@ test('a session\'s record names the repository of its project', async () => {
   expect(listed.items.map((item) => item.id)).toEqual(['s-web'])
 })
 
-test('a record carries the Coordinator mode mark once the session is marked a lead', async () => {
+test('a record carries the Meta mode mark once the session is marked a lead', async () => {
   // WHY: the mark lives in session_leads, not on the record row; a list that
   // did not ask it could not show the glyph on the session's row.
   const { getSessionRecord } = await import('@solus/server/data/sessions/session-records')

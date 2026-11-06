@@ -71,7 +71,7 @@ test('streaming previews text before silence stops recording and commits only th
       export const disposePcmCaptureResources = async () => {}
       export class PcmCapture {
         static current
-        constructor(stream, onChunk) { this.emit = onChunk; PcmCapture.current = this }
+        constructor(stream, onChunk, onLevel) { this.emit = onChunk; this.level = onLevel; PcmCapture.current = this }
         async start() {} stop() {}
       }
       export const calls = { fed: 0, finished: 0, offline: 0 }
@@ -110,12 +110,15 @@ test('streaming previews text before silence stops recording and commits only th
     await recorder.start()
     expect(recorder.state).toBe('recording')
     const capture = harness.PcmCapture.current
+    capture.level(0.05)
+    expect(recorder.rmsRef.current).toBeCloseTo(6.4)
     let partialReceived!: () => void
     const partial = new Promise<void>(resolve => { partialReceived = resolve })
     const stopObserving = harness.observePartial(recorder, (value: { tentative: string }) => {
       if (value.tentative) partialReceived()
     })
     capture.emit({ samples: new Float32Array(4000).fill(0.1), rms: 0.1 })
+    expect(recorder.rmsRef.current).toBeCloseTo(6.4)
     await partial
     stopObserving()
     expect(recorder.partialTranscript).toEqual({ stable: 'kept ', tentative: 'record' })
@@ -126,6 +129,9 @@ test('streaming previews text before silence stops recording and commits only th
     capture.emit({ samples: new Float32Array(4000), rms: 0 })
     await idle
     expect(recorder.state).toBe('idle')
+    expect(recorder.rmsRef.current).toBe(0)
+    capture.level(0.2)
+    expect(recorder.rmsRef.current).toBe(0)
     expect(transcripts).toEqual(['kept recording'])
     expect(recorder.partialTranscript).toEqual({ stable: '', tentative: '' })
     expect(harness.calls).toEqual({ fed: 28_000, finished: 1, offline: 0 })

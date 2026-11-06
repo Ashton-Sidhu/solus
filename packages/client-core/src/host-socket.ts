@@ -6,6 +6,7 @@ import {
   HOST_SOCKET_PING_TIMEOUT_MS,
   HOST_SOCKET_PROTOCOL_VERSION,
   serverFrameSchema,
+  TEXT_FRAME_PART_MARK,
   type ClientFrame,
   type EventResume,
   type HelloFrame,
@@ -66,6 +67,8 @@ export class HostSocket {
   private finished = false
   private openTimer: ReturnType<typeof setTimeout> | null = null
   private silenceTimer: ReturnType<typeof setTimeout> | null = null
+  /** The parts that arrived of a frame that is not whole yet (`splitTextFrame`). */
+  private heldParts = ''
 
   constructor(serverUrl: string, private readonly listener: HostSocketListener, options: { openTimeoutMs?: number } = {}) {
     this.ws = new WebSocket(hostSocketUrl(serverUrl))
@@ -94,7 +97,7 @@ export class HostSocket {
   /** Sends the hello now, or as soon as the socket opens. */
   hello(handshake: SocketHandshake, resume?: EventResume): void {
     if (this.finished) return
-    const frame: HelloFrame = { t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, ...handshake }
+    const frame: HelloFrame = { t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, frameParts: true, ...handshake }
     if (resume) frame.resume = resume
     if (this.opened) this.send(frame)
     else this.pendingHello = frame
@@ -128,8 +131,19 @@ export class HostSocket {
       if (frame) this.listener.frame?.(frame.header, frame.data)
       return
     }
+    if (data.startsWith(TEXT_FRAME_PART_MARK) || this.heldParts) {
+      // The host's ping waits behind the parts, and its clock waits for our pong.
+      this.send({ t: 'pong' })
+      this.expectPing()
+    }
+    if (data.startsWith(TEXT_FRAME_PART_MARK)) {
+      this.heldParts += data.slice(TEXT_FRAME_PART_MARK.length)
+      return
+    }
+    const text = this.heldParts + data
+    this.heldParts = ''
     let json: unknown
-    try { json = JSON.parse(data) } catch { return }
+    try { json = JSON.parse(text) } catch { return }
     const parsed = serverFrameSchema.safeParse(json)
     if (!parsed.success) return
     const frame = parsed.data

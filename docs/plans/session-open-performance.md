@@ -328,6 +328,59 @@ Two more server costs are outside the benchmark:
 - About 60 ms of module evaluation at 4× is the first open after a page load.
   A running app pays it once, so it is not a target.
 
+
+## Capture a real cold open
+
+History and mount profiling are temporarily always enabled while we measure
+cold opens. No environment variable or local-storage switch is required.
+Load the updated server and client code before capturing. History limits and
+read order are unchanged. Server timings cover desktop, web, and mobile.
+
+The server writes two structured events:
+
+- `codex_history_page_profile`: reader selection/startup, turn summaries
+  (including a resume fallback), item loading/conversion, child-agent checks,
+  and saved answers. It includes item request count and total request time,
+  turn/message counts, total duration, and the failed stage on error.
+- `session_history_response_profile`: history plus projection, activity,
+  response preparation, and response size. This covers all providers. Size
+  measurement serializes the response once more, for this temporary profiling; its
+  cost is reported separately. These timings end before transport send.
+
+Filter a development log with:
+
+```sh
+jq -c 'select(.sessionId == "01a18e28-aadb-7811-81f7-388fed5354d2" and (.msg == "codex_history_page_profile" or .msg == "session_history_response_profile"))' dev.log
+```
+
+Open the session once, then export the desktop or web client measures from
+its developer console:
+
+```js
+JSON.stringify(performance.getEntriesByType('measure')
+  .filter(entry => entry.name.startsWith('solus.open.') || entry.name.startsWith('solus.mount.'))
+  .map(({ name, startTime, duration, detail }) => ({ name, startTime, duration, detail })), null, 2)
+```
+
+New `solus.open.*` measures name `describeSession`, `historyWait`,
+`automationHydration`, `artifactHydration`, `materializeTranscript`,
+`transcriptApplied`, and `transcriptPaint`. Session measures include the
+session id. `transcriptApplied` also includes the tab id to match the paint
+measure. `historyWait` is the remaining wait when a prefetched request is
+consumed, not necessarily the whole network request. `transcriptApplied`
+starts at session resume; `transcriptPaint` starts at the transcript component
+mount. Use their start times as well as durations; do not add overlapping spans.
+The existing `solus.boot.transcript.*` marks cover startup restoration.
+
+Paint means two animation frames after visible rows mount, not confirmed GPU
+presentation. Hidden or unmounted views do not report a paint. Native mobile
+client rendering is not instrumented by these browser measures; its
+server read is covered. No transcript content or tool arguments are logged
+by these profile events.
+
+Clear old performance measures before another capture. Restore opt-in
+profiling after this investigation.
+
 ## Goal
 
 The goal is in `tests/benchmarks/session-open-goal.json`. Every fixture must
@@ -425,8 +478,15 @@ benchmark result. After each step, run both benchmarks and record a new
 
 ### Later
 
-- Codex pages: read turns with bounded concurrency instead of one at a time.
-  First add a Codex fixture, or the benchmark cannot see the change.
+- Codex pages now overlap the first item pages of up to three turns. Results
+  are consumed newest first under the existing page budgets; continuation
+  pages within a turn stay sequential. At most two unused first-page reads
+  can finish after a page fills. No results are cached across page requests.
+  Focused tests cover ordering, limits, cursors, and failures. Measure real
+  opens with the profile events before claiming a latency improvement.
+  Compare the elapsed `items` stage: `itemRequestMs` sums completed request
+  durations, which overlap and can exceed elapsed time. Unused reads still
+  in flight at return are not included in that sum.
 - `loadSessionToolInputs`: read only the page that holds the keys, not the
   whole transcript.
 

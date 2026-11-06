@@ -126,6 +126,14 @@ function cronSummary(expr: string): string {
 }
 
 export function triggerSummary(trigger: AutomationTrigger): string {
+  const summary = repeatSummary(trigger)
+  const ends = 'endsAt' in trigger && trigger.endsAt ? new Date(trigger.endsAt) : null
+  return ends && !Number.isNaN(ends.getTime())
+    ? `${summary} until ${ends.toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+    : summary
+}
+
+function repeatSummary(trigger: AutomationTrigger): string {
   switch (trigger.type) {
     case 'manual':
       return 'Manual'

@@ -5,13 +5,13 @@ import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { z } from 'zod'
 import { getDb, withTx } from '../../db'
 import { createLogger } from '../../logger'
-import { nextRunFrom, validateTrigger } from './automation-schedule'
+import { nextRunFrom, scheduleHasEnded, validateTrigger } from './automation-schedule'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../../host/host-category'
 import { getSessionRecord, organizationOfSession } from '../sessions/session-records'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { roleOf, visibleTo, type ResourceRow } from '../../admission/access'
 import type { Actor } from '../../admission/actor'
-import { hostUserKey } from '../../host/host-user'
+import { hostKeyOf, hostUserKey } from '../../host/host-user'
 import type {
   AgentId,
   Automation,
@@ -42,8 +42,8 @@ const runStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled'])
 const automationTriggerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('manual') }),
   z.object({ type: z.literal('once'), runAt: z.string() }),
-  z.object({ type: z.literal('interval'), everyMinutes: z.number() }),
-  z.object({ type: z.literal('cron'), expr: z.string(), timezone: z.string().optional() }),
+  z.object({ type: z.literal('interval'), everyMinutes: z.number(), endsAt: z.string().optional() }),
+  z.object({ type: z.literal('cron'), expr: z.string(), timezone: z.string().optional(), endsAt: z.string().optional() }),
 ])
 const automationActionSchema = z.object({
   prompt: z.string(),
@@ -465,8 +465,10 @@ export async function updateAutomation(
  */
 export async function pauseAutomationsOf(userId: string, organizationId: string): Promise<Automation[]> {
   const paused: Automation[] = []
+  // The owner's automations are theirs by their key on this host (plans/031 D4).
+  const personKey = hostKeyOf(userId)
   for (const automation of everyAutomation()) {
-    if (!automation.enabled || automation.organizationId !== organizationId || await creatorKeyOf(automation.createdBy) !== userId) continue
+    if (!automation.enabled || automation.organizationId !== organizationId || await creatorKeyOf(automation.createdBy) !== personKey) continue
     const updated = await updateAutomation(automation.id, { enabled: false })
     if (updated) paused.push(updated)
   }
@@ -510,7 +512,9 @@ export async function deleteAutomation(id: string): Promise<boolean> {
  * Claim every enabled, non-manual automation whose `nextRunAt` is due, advancing
  * their schedules atomically before the caller fires any runs. A one-time
  * automation is consumed (disabled, no next fire); recurring ones schedule
- * their next occurrence from `now`.
+ * their next occurrence from `now`. A recurring automation past its `endsAt`
+ * does not fire, even for a fire missed while the app was closed: its next fire
+ * clears, and it is not returned.
  *
  * `isRunning` lets the scheduler skip automations with a run still in flight:
  * a skipped automation keeps its past-due `nextRunAt`, so it's re-claimed when
@@ -523,17 +527,19 @@ export async function claimDueAutomations(
   const db = database()
   const nowMs = now.getTime()
   const nowIso = now.toISOString()
-  const due = withTx(() => {
+  const { due, advanced } = withTx(() => {
     const rows = automationRowSchema.array().parse(db.prepare(`
       SELECT *
       FROM automations
       WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
     `).all(nowMs))
-    const claimed = rows
+    const advanced = rows
       .map(automationFromRow)
       .filter((automation) => automation.trigger.type !== 'manual' && !isRunning?.(automation.id))
 
-    for (const automation of claimed) {
+    const due = advanced.filter((automation) => !scheduleHasEnded(automation.trigger, now))
+
+    for (const automation of advanced) {
       if (automation.trigger.type === 'once') {
         automation.nextRunAt = undefined
         automation.enabled = false
@@ -543,9 +549,9 @@ export async function claimDueAutomations(
       automation.updatedAt = nowIso
       writeAutomation(db, automation)
     }
-    return claimed
+    return { due, advanced }
   })
-  for (const automation of due) emitChanged({ kind: 'saved', automation })
+  for (const automation of advanced) emitChanged({ kind: 'saved', automation })
   return due
 }
 

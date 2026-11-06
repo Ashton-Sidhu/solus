@@ -32,6 +32,7 @@ describe('connect card copy', () => {
   test('the eyebrow counts the sign-ins until every row is settled', () => {
     expect(connectCardHeading(1, 0)).toBe('Sign-in needed')
     expect(connectCardHeading(3, 1)).toBe('3 sign-ins needed')
+    expect(connectCardHeading(1, 0, true)).toBe('Server address needed')
     expect(connectCardHeading(3, 3)).toBe('All connected')
     expect(connectCardHeading(1, 1)).toBe('Connected')
   })

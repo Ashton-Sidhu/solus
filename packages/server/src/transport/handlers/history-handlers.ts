@@ -143,22 +143,37 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       before: z.string().max(16384).optional(),
       deferArtifactHtml: z.boolean().optional(),
     }).parse(input)
+    const profileStartedAt = performance.now()
     const cursor = readActivityPageCursor(request.before)
     const pageRequest = { ...request, before: cursor.before }
     const page: SessionHistoryPage = isApiMode()
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
       : await sessionRuntime.history.loadSessionPage(pageRequest).then((loaded) => ({ messages: projectSessionHistory(storePromptImages(loaded.messages)), before: loaded.before }))
+    const historyReadyAt = performance.now()
     const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
+    const activityReadyAt = performance.now()
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
       sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,
       olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
     })
     const current = withExchangeProgress(messages, exchangeProgress)
-    return {
+    const result = {
       messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
       before,
     }
+    const preparedAt = performance.now()
+    const bytes = serializedBytes(result)
+    log.info('session_history_response_profile', {
+      sessionId: request.sessionId, provider: request.provider, olderPage: !!request.before,
+      messageCount: result.messages.length, bytes,
+      historyAndProjectionMs: historyReadyAt - profileStartedAt,
+      activityMs: activityReadyAt - historyReadyAt,
+      preparationMs: preparedAt - activityReadyAt,
+      sizeMeasurementMs: performance.now() - preparedAt,
+      durationMs: preparedAt - profileStartedAt,
+    })
+    return result
   })
 
   server.register('loadSessionSubagent', async ([input]) => {

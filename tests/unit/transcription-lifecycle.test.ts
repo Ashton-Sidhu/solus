@@ -2,6 +2,7 @@ import { afterAll, expect, mock, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { VOICE_WARM_LEASE_MS } from '@solus/contracts/voice-stream'
 
 const directory = mkdtempSync(join(tmpdir(), 'solus-voice-runtime-'))
 mkdirSync(join(directory, 'build/transcription/bin'), { recursive: true })
@@ -79,4 +80,108 @@ test('a worker exit releases the active recording and calls its cleanup once', a
   expect(ended).toBe(1)
   voice.disposeTranscription()
   expect(ended).toBe(1)
+})
+
+// Advance the host's timers directly: no real idle waits or polling.
+function clock() {
+  const originalSet = globalThis.setTimeout
+  const originalClear = globalThis.clearTimeout
+  const tasks = new Map<ReturnType<typeof setTimeout>, { at: number; run: () => void }>()
+  let now = 0
+  globalThis.setTimeout = ((run: () => void, delay = 0) => {
+    const timer = originalSet(() => {}, 1_000_000_000)
+    tasks.set(timer, { at: now + delay, run })
+    return timer
+  }) as typeof setTimeout
+  globalThis.clearTimeout = ((timer: ReturnType<typeof setTimeout>) => {
+    tasks.delete(timer)
+    originalClear(timer)
+  }) as typeof clearTimeout
+  return {
+    advance(ms: number) {
+      const through = now + ms
+      for (;;) {
+        const next = [...tasks].sort((a, b) => a[1].at - b[1].at)[0]
+        if (!next || next[1].at > through) break
+        now = next[1].at
+        tasks.delete(next[0])
+        originalClear(next[0])
+        next[1].run()
+      }
+      now = through
+    },
+    restore() {
+      voice.disposeTranscription()
+      for (const timer of tasks.keys()) originalClear(timer)
+      globalThis.setTimeout = originalSet
+      globalThis.clearTimeout = originalClear
+    },
+  }
+}
+
+test('voice mode retains one worker beyond normal idle without holding power', async () => {
+  const time = clock()
+  try {
+    await voice.warmTranscription('client-a', { keepWarm: true })
+    const current = workers.at(-1)!
+    const count = workers.length
+    for (let i = 0; i < 5; i++) {
+      time.advance(60_000)
+      await voice.warmTranscription('client-a', { keepWarm: true })
+    }
+    expect(current.stopped).toBe(false)
+    expect(workers.length).toBe(count)
+    expect(blockers.size).toBe(0)
+    await voice.warmTranscription('client-a', { keepWarm: false })
+    time.advance(voice.TRANSCRIPTION_WORKER_IDLE_MS - 1)
+    expect(current.stopped).toBe(false)
+    time.advance(1)
+    expect(current.stopped).toBe(true)
+  } finally { time.restore() }
+})
+
+test('releasing one client cannot remove another client voice-mode hold', async () => {
+  const time = clock()
+  try {
+    await voice.warmTranscription('client-a', { keepWarm: true })
+    await voice.warmTranscription('client-b', { keepWarm: true })
+    const current = workers.at(-1)!
+    await voice.warmTranscription('client-a', { keepWarm: false })
+    for (let i = 0; i < 3; i++) {
+      time.advance(60_000)
+      await voice.warmTranscription('client-b', { keepWarm: true })
+    }
+    expect(current.stopped).toBe(false)
+    // An abruptly lost client's last hold expires, then normal idle cleanup runs.
+    time.advance(VOICE_WARM_LEASE_MS + voice.TRANSCRIPTION_WORKER_IDLE_MS)
+    expect(current.stopped).toBe(true)
+  } finally { time.restore() }
+})
+
+test('one-off warm requests retain the existing idle timeout', async () => {
+  const time = clock()
+  try {
+    await voice.warmTranscription('client-a')
+    const current = workers.at(-1)!
+    time.advance(voice.TRANSCRIPTION_WORKER_IDLE_MS)
+    expect(current.stopped).toBe(true)
+  } finally { time.restore() }
+})
+
+test('concurrent preparation shares one request and active capture accepts renewals', async () => {
+  const time = clock()
+  try {
+    const count = operations.length
+    await Promise.all([
+      voice.warmTranscription('client-a', { keepWarm: true }),
+      voice.warmTranscription('client-b', { keepWarm: true }),
+    ])
+    expect(operations.slice(count)).toEqual(['warm'])
+    const streamId = await voice.startVoiceStream('client-a', () => {})
+    const during = operations.length
+    await voice.warmTranscription('client-a', { keepWarm: true })
+    expect(operations.length).toBe(during)
+    await voice.finishVoiceStream('client-a', streamId)
+    expect(blockers.size).toBe(0)
+  } finally { time.restore() }
 })

@@ -33,6 +33,11 @@ One plain WebSocket per host on `/ws`, with typed frames declared in
 - Host requests: `request {id, event, payload}` and `reply {id, payload}`.
 - Liveness: the host sends `ping` every 15 s; the client answers `pong`. A side
   that hears nothing for 25 s closes the socket.
+- Large text frames: a client that names `frameParts` in its `hello` gets a text
+  frame over 16 KiB of UTF-16 units as parts (`splitTextFrame`). A WebSocket
+  message arrives whole, and a ping waits behind it, so on a slow link one large
+  frame reads as a silent socket. Each part counts as a sign of life, and the client
+  answers it with `pong`. A client that does not name the field gets whole frames.
 - Browser frames are binary frames: a 4-byte header length, the header JSON, the
   JPEG bytes.
 

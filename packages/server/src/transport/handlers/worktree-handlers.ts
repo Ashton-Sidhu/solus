@@ -63,9 +63,11 @@ async function resolveGitCheckout(ctx: IpcContext) {
   return gitContext
 }
 
-async function workTreeForCtx(ctx: IpcContext): Promise<string | null> {
-  const gitContext = await resolveGitCheckout(ctx)
-  return gitContext?.worktreePath || ctx.session.workingDirectory || null
+/** The session's checkout. It needs no git spawn: only a client's `gitContext`
+ *  names a worktree, and a branch read from the folder would not. Diff requests
+ *  come once per file. */
+export function workTreeForCtx(ctx: IpcContext): string | null {
+  return ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory || null
 }
 
 /** The repo root behind the session's *active checkout* — its worktree when it
@@ -73,8 +75,7 @@ async function workTreeForCtx(ctx: IpcContext): Promise<string | null> {
  *  scope: a session working in a worktree must diff that worktree, not the
  *  project it branched from. */
 async function checkoutRepoRoot(ctx: IpcContext): Promise<string | null> {
-  const gitContext = await resolveGitCheckout(ctx)
-  const workTree = gitContext?.worktreePath || ctx.session.workingDirectory
+  const workTree = workTreeForCtx(ctx)
   if (!workTree || workTree === '~') return null
   return resolveRepoRoot(workTree)
 }
@@ -126,7 +127,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     log.info('rpc_diff', { sessionId: ctx.session.sessionId, scopeKind: request.scope.kind })
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return null
-    const workTree = await workTreeForCtx(ctx)
+    const workTree = workTreeForCtx(ctx)
     const sid = ctx.session.sessionId ?? null
     return await getDiff(workTree, repoRoot, request.scope, sid)
   })
@@ -136,7 +137,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const request = args[1]
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return null
-    const workTree = await workTreeForCtx(ctx)
+    const workTree = workTreeForCtx(ctx)
     const sid = ctx.session.sessionId ?? null
     return getDiffFileContents(workTree, repoRoot, sid, request)
   })
@@ -146,7 +147,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const request = args[1]
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return []
-    const workTree = await workTreeForCtx(ctx)
+    const workTree = workTreeForCtx(ctx)
     const sid = ctx.session.sessionId ?? null
     return getDiffStats(workTree, repoRoot, request.scope, sid)
   })

@@ -1,7 +1,5 @@
-import { z } from 'zod'
 import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_RECHECK_MS, type HostRoute, type RouteCheck } from '@solus/contracts/host-routes'
-import { healthProofSchema, newHealthNonce, routeNeedsProof, type HealthProof } from '@solus/contracts/host-identity'
-import type { HostOperatingSystem } from '@solus/contracts/types'
+import { newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { HostFacts, type HostPresence } from './host-facts'
@@ -10,6 +8,7 @@ import type { LinkReadiness, RefusedReason } from './host-readiness'
 import type { DialError } from './host-diagnostics'
 import { installationIdDecision, type SavedServerUplink } from './server-registry'
 import type { WakeSignal } from './wake-signals'
+import { readHostHealth, type HostHealth } from './host-http'
 
 /**
  * One host's link (docs/plans/simplify-auth-and-sync.md §3 rule 7, §4.4): its
@@ -241,40 +240,6 @@ export class HostLink {
 
 /** What a connected host says about where it is reached and how it proves itself. */
 export type AdvertisedHost = { routes: HostRoute[]; identityKey: string }
-
-/** What a host's `/health` says about it. */
-export interface HostHealth {
-  ok: boolean
-  installationId: string
-  name: string
-  os?: HostOperatingSystem
-  /** Present when the read sent a nonce: the host's signature over it. */
-  proof?: HealthProof
-}
-
-// `ok` and `installationId` are the identity contract and stay required;
-// everything else degrades alone so a newer host's additions never null the
-// whole health record and silently stop identity verification. A host leaves
-// `name` out of a reply through its tunnel, so a missing name is empty.
-const hostHealthSchema = z.object({
-  ok: z.literal(true),
-  installationId: z.string().min(1),
-  name: z.string().catch(''),
-  os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
-  proof: healthProofSchema.optional().catch(undefined),
-})
-
-/** One `/health` read, with no credential; null when the route did not answer as a Solus host. With a nonce, the host signs it. */
-export async function readHostHealth(fetchImpl: typeof fetch, url: string, signal: AbortSignal, nonce?: string): Promise<HostHealth | null> {
-  try {
-    const response = await fetchImpl(nonce ? `${url}/health?nonce=${encodeURIComponent(nonce)}` : `${url}/health`, { signal })
-    if (!response.ok) return null
-    const health = hostHealthSchema.safeParse(await response.json())
-    return health.success ? health.data : null
-  } catch {
-    return null
-  }
-}
 
 /** Whether a host's health names the host this client saved. */
 export function isSavedHost(saved: { installationId: string; uplink?: SavedServerUplink }, health: HostHealth): boolean {

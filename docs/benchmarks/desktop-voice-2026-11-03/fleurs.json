@@ -1,0 +1,431 @@
+{
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "audio": "/tmp/solus-voice-latency-1103/upstream/samples/fleurs-en.wav",
+  "audio_sha256": "7835bd6ffb54ce38a2a9bcde3905ba424faed94d50a474f21a9cbe9209b869df",
+  "seconds": 10.56,
+  "binary": "/tmp/solus-voice-latency-1103/cmake/solus-transcription",
+  "configs": [
+    [
+      1040,
+      1040
+    ],
+    [
+      160,
+      320
+    ]
+  ],
+  "results": [
+    {
+      "chunk_ms": 1040,
+      "right_ms": 1040,
+      "packet_ms": 250,
+      "repeat": 0,
+      "warm_ms": 513.0440001375973,
+      "begin_ms": 0.03437511622905731,
+      "offline_ms": 159.3181248754263,
+      "first_text_ms": 3327.7406659908593,
+      "text_changes": 8,
+      "change_gap_p50_ms": 1012.4247500207275,
+      "change_gap_p95_ms": 1031.4165418967605,
+      "feed_p95_ms": 104.12329202517867,
+      "feed_total_ms": 925.4493319895118,
+      "max_queue_ms": 118.22729092091322,
+      "stop_wait_ms": 166.02333291433752,
+      "finish_ms": 110.32983311451972,
+      "stable_rewrites": 0,
+      "transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+      "offline_transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 19,
+      "changes": [
+        {
+          "at_ms": 3327.7406659908593,
+          "stable": "However",
+          "tentative": "",
+          "queue_ms": 77.74066599085927
+        },
+        {
+          "at_ms": 4359.15720788762,
+          "stable": "However, due to the slow communication",
+          "tentative": "",
+          "queue_ms": 109.15720788761973
+        },
+        {
+          "at_ms": 5348.725124960765,
+          "stable": "However, due to the slow communication channels",
+          "tentative": "",
+          "queue_ms": 98.72512496076524
+        },
+        {
+          "at_ms": 6364.8762500379235,
+          "stable": "However, due to the slow communication channels, styles",
+          "tentative": "",
+          "queue_ms": 114.87625003792346
+        },
+        {
+          "at_ms": 7607.558083022013,
+          "stable": "However, due to the slow communication channels, styles in the West could",
+          "tentative": "",
+          "queue_ms": 107.5580830220133
+        },
+        {
+          "at_ms": 8605.802540900186,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind",
+          "tentative": "",
+          "queue_ms": 105.8025409001857
+        },
+        {
+          "at_ms": 9618.227290920913,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to",
+          "tentative": "",
+          "queue_ms": 118.22729092091322
+        },
+        {
+          "at_ms": 10615.453083068132,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+          "tentative": "",
+          "queue_ms": 115.4530830681324
+        }
+      ]
+    },
+    {
+      "chunk_ms": 1040,
+      "right_ms": 1040,
+      "packet_ms": 250,
+      "repeat": 1,
+      "warm_ms": 513.0440001375973,
+      "begin_ms": 0.058999983593821526,
+      "offline_ms": 159.3181248754263,
+      "first_text_ms": 3332.9245829954743,
+      "text_changes": 8,
+      "change_gap_p50_ms": 1012.6474997960031,
+      "change_gap_p95_ms": 1025.1439579296857,
+      "feed_p95_ms": 110.50429195165634,
+      "feed_total_ms": 972.9414964094758,
+      "max_queue_ms": 140.5909159220755,
+      "stop_wait_ms": 164.97804113663733,
+      "finish_ms": 109.2316668946296,
+      "stable_rewrites": 0,
+      "transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+      "offline_transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 19,
+      "changes": [
+        {
+          "at_ms": 3332.9245829954743,
+          "stable": "However",
+          "tentative": "",
+          "queue_ms": 82.92458299547434
+        },
+        {
+          "at_ms": 4353.522124933079,
+          "stable": "However, due to the slow communication",
+          "tentative": "",
+          "queue_ms": 103.52212493307889
+        },
+        {
+          "at_ms": 5351.559708127752,
+          "stable": "However, due to the slow communication channels",
+          "tentative": "",
+          "queue_ms": 101.55970812775195
+        },
+        {
+          "at_ms": 6364.207207923755,
+          "stable": "However, due to the slow communication channels, styles",
+          "tentative": "",
+          "queue_ms": 114.20720792375505
+        },
+        {
+          "at_ms": 7615.44695799239,
+          "stable": "However, due to the slow communication channels, styles in the West could",
+          "tentative": "",
+          "queue_ms": 115.4469579923898
+        },
+        {
+          "at_ms": 8640.590915922076,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind",
+          "tentative": "",
+          "queue_ms": 140.5909159220755
+        },
+        {
+          "at_ms": 9626.548999920487,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to",
+          "tentative": "",
+          "queue_ms": 126.5489999204874
+        },
+        {
+          "at_ms": 10615.488083101809,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+          "tentative": "",
+          "queue_ms": 115.48808310180902
+        }
+      ]
+    },
+    {
+      "chunk_ms": 160,
+      "right_ms": 320,
+      "packet_ms": 250,
+      "repeat": 0,
+      "warm_ms": 2784.0597091708332,
+      "begin_ms": 0.03554113209247589,
+      "offline_ms": 161.19524999521673,
+      "first_text_ms": 2347.4094588309526,
+      "text_changes": 18,
+      "change_gap_p50_ms": 334.15000000968575,
+      "change_gap_p95_ms": 754.0833749808371,
+      "feed_p95_ms": 159.6574999857694,
+      "feed_total_ms": 4295.23337748833,
+      "max_queue_ms": 167.3704998102039,
+      "stop_wait_ms": 187.13124986737967,
+      "finish_ms": 86.92254195921123,
+      "stable_rewrites": 0,
+      "transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+      "offline_transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 19,
+      "changes": [
+        {
+          "at_ms": 2347.4094588309526,
+          "stable": "However",
+          "tentative": "",
+          "queue_ms": 97.40945883095264
+        },
+        {
+          "at_ms": 2856.623125029728,
+          "stable": "However,",
+          "tentative": "",
+          "queue_ms": 106.62312502972782
+        },
+        {
+          "at_ms": 3055.858291918412,
+          "stable": "However, due to",
+          "tentative": "",
+          "queue_ms": 55.85829191841185
+        },
+        {
+          "at_ms": 3382.4796669650823,
+          "stable": "However, due to the slow",
+          "tentative": "",
+          "queue_ms": 132.4796669650823
+        },
+        {
+          "at_ms": 3560.4348748456687,
+          "stable": "However, due to the slow communicat",
+          "tentative": "",
+          "queue_ms": 60.43487484566867
+        },
+        {
+          "at_ms": 3881.2771670054644,
+          "stable": "However, due to the slow communication",
+          "tentative": "",
+          "queue_ms": 131.27716700546443
+        },
+        {
+          "at_ms": 4328.265374992043,
+          "stable": "However, due to the slow communication channels",
+          "tentative": "",
+          "queue_ms": 78.26537499204278
+        },
+        {
+          "at_ms": 5142.550499876961,
+          "stable": "However, due to the slow communication channels,",
+          "tentative": "",
+          "queue_ms": 142.5504998769611
+        },
+        {
+          "at_ms": 5335.595541866496,
+          "stable": "However, due to the slow communication channels, st",
+          "tentative": "",
+          "queue_ms": 85.5955418664962
+        },
+        {
+          "at_ms": 5661.941916914657,
+          "stable": "However, due to the slow communication channels, styles",
+          "tentative": "",
+          "queue_ms": 161.94191691465676
+        },
+        {
+          "at_ms": 6167.370499810204,
+          "stable": "However, due to the slow communication channels, styles in the",
+          "tentative": "",
+          "queue_ms": 167.3704998102039
+        },
+        {
+          "at_ms": 6393.622291972861,
+          "stable": "However, due to the slow communication channels, styles in the West",
+          "tentative": "",
+          "queue_ms": 143.6222919728607
+        },
+        {
+          "at_ms": 6896.591666853055,
+          "stable": "However, due to the slow communication channels, styles in the West could lag",
+          "tentative": "",
+          "queue_ms": 146.59166685305536
+        },
+        {
+          "at_ms": 7410.760958911851,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind",
+          "tentative": "",
+          "queue_ms": 160.76095891185105
+        },
+        {
+          "at_ms": 8164.844333892688,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by",
+          "tentative": "",
+          "queue_ms": 164.84433389268816
+        },
+        {
+          "at_ms": 8334.03779193759,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25",
+          "tentative": "",
+          "queue_ms": 84.03779193758965
+        },
+        {
+          "at_ms": 8832.867958815768,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to",
+          "tentative": "",
+          "queue_ms": 82.86795881576836
+        },
+        {
+          "at_ms": 9167.017958825454,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+          "tentative": "",
+          "queue_ms": 167.01795882545412
+        }
+      ]
+    },
+    {
+      "chunk_ms": 160,
+      "right_ms": 320,
+      "packet_ms": 250,
+      "repeat": 1,
+      "warm_ms": 2784.0597091708332,
+      "begin_ms": 0.07412489503622055,
+      "offline_ms": 161.19524999521673,
+      "first_text_ms": 2333.119750022888,
+      "text_changes": 18,
+      "change_gap_p50_ms": 337.6210001297295,
+      "change_gap_p95_ms": 748.0406248942018,
+      "feed_p95_ms": 162.5043749809265,
+      "feed_total_ms": 4374.833874637261,
+      "max_queue_ms": 171.98341619223356,
+      "stop_wait_ms": 191.01570808328688,
+      "finish_ms": 84.75466701202095,
+      "stable_rewrites": 0,
+      "transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+      "offline_transcript": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+      "word_difference_from_offline": 0,
+      "offline_word_count": 19,
+      "changes": [
+        {
+          "at_ms": 2333.119750022888,
+          "stable": "However",
+          "tentative": "",
+          "queue_ms": 83.11975002288818
+        },
+        {
+          "at_ms": 2868.073250167072,
+          "stable": "However,",
+          "tentative": "",
+          "queue_ms": 118.07325016707182
+        },
+        {
+          "at_ms": 3060.975625179708,
+          "stable": "However, due to",
+          "tentative": "",
+          "queue_ms": 60.975625179708004
+        },
+        {
+          "at_ms": 3376.3814580161124,
+          "stable": "However, due to the slow",
+          "tentative": "",
+          "queue_ms": 126.38145801611245
+        },
+        {
+          "at_ms": 3574.5299581903964,
+          "stable": "However, due to the slow communicat",
+          "tentative": "",
+          "queue_ms": 74.52995819039643
+        },
+        {
+          "at_ms": 3882.6218331232667,
+          "stable": "However, due to the slow communication",
+          "tentative": "",
+          "queue_ms": 132.6218331232667
+        },
+        {
+          "at_ms": 4318.879791069776,
+          "stable": "However, due to the slow communication channels",
+          "tentative": "",
+          "queue_ms": 68.87979106977582
+        },
+        {
+          "at_ms": 5133.118083002046,
+          "stable": "However, due to the slow communication channels,",
+          "tentative": "",
+          "queue_ms": 133.11808300204575
+        },
+        {
+          "at_ms": 5334.202500060201,
+          "stable": "However, due to the slow communication channels, st",
+          "tentative": "",
+          "queue_ms": 84.20250006020069
+        },
+        {
+          "at_ms": 5664.213333046064,
+          "stable": "However, due to the slow communication channels, styles",
+          "tentative": "",
+          "queue_ms": 164.21333304606378
+        },
+        {
+          "at_ms": 6164.7299581673,
+          "stable": "However, due to the slow communication channels, styles in the",
+          "tentative": "",
+          "queue_ms": 164.72995816729963
+        },
+        {
+          "at_ms": 6406.090290984139,
+          "stable": "However, due to the slow communication channels, styles in the West",
+          "tentative": "",
+          "queue_ms": 156.09029098413885
+        },
+        {
+          "at_ms": 6917.1021659858525,
+          "stable": "However, due to the slow communication channels, styles in the West could lag",
+          "tentative": "",
+          "queue_ms": 167.10216598585248
+        },
+        {
+          "at_ms": 7415.813791099936,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind",
+          "tentative": "",
+          "queue_ms": 165.81379109993577
+        },
+        {
+          "at_ms": 8163.8544159941375,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by",
+          "tentative": "",
+          "queue_ms": 163.85441599413753
+        },
+        {
+          "at_ms": 8341.244000010192,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25",
+          "tentative": "",
+          "queue_ms": 91.2440000101924
+        },
+        {
+          "at_ms": 8834.362416062504,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to",
+          "tentative": "",
+          "queue_ms": 84.36241606250405
+        },
+        {
+          "at_ms": 9171.983416192234,
+          "stable": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years",
+          "tentative": "",
+          "queue_ms": 171.98341619223356
+        }
+      ]
+    }
+  ]
+}

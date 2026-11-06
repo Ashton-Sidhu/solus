@@ -45,8 +45,6 @@
     removeMarkFromAttachment,
   } from "../browser/lib/annotation-attachment";
   import DeferredPromptEditor from "../ui/DeferredPromptEditor.svelte";
-  import WaveformVisualizer from "./WaveformVisualizer.svelte";
-  import VoiceTranscriptPreview from "./VoiceTranscriptPreview.svelte";
   import RecordingControls from "./RecordingControls.svelte";
   import { dictation } from "../../lib/dictation.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -346,13 +344,11 @@
   });
   const ownsVoice = $derived(composerVoice.ownsVoice);
   const voiceState = $derived(composerVoice.state);
-  const hasMountedWaveform = $derived(composerVoice.hasMountedWaveform);
-  const showWaveform = $derived(composerVoice.showWaveform);
+  const isListening = $derived(composerVoice.isListening);
   const hasPartialTranscript = $derived(
     ownsVoice && voice.mode === "message" && voiceState !== "idle" &&
       !!(voice.partialTranscript.stable || voice.partialTranscript.tentative),
   );
-  const showVoicePreview = $derived(showWaveform || hasPartialTranscript);
   const voiceControlState = $derived(composerVoice.controlState);
   const micHoldsBarOpen = $derived(composerVoice.holdsBarOpen);
   const claimVoice = composerVoice.claim;
@@ -407,7 +403,7 @@
       workRefs.length > 0 ||
       sessionRefs.length > 0,
   );
-  const canSend = $derived(!isConnecting && !isReadOnly && hasContent);
+  const canSend = $derived(!isConnecting && !isReadOnly && hasContent && voiceState === "idle");
   // The corner holds "the next thing you can do", and with an empty composer
   // during a turn that is stopping it — on every device, since the session
   // action row no longer carries a Stop. The instant anything is typed the
@@ -479,6 +475,10 @@
         ? SUGGEST_ONLY_REASON
       : isConnecting
         ? "Initializing..."
+        : hasPartialTranscript
+          ? ""
+        : voiceState === "recording"
+          ? "Listening..."
         : voiceState === "transcribing"
           ? "Transcribing..."
           : pendingPlan
@@ -516,7 +516,7 @@
     isReadOnly: () => isReadOnly,
     ownsVoice: () => ownsVoice,
     voiceState: () => voiceState,
-    showWaveform: () => showWaveform,
+    isListening: () => isListening,
     session: () => sess,
     editor: () => composerEl,
     prompt: () => prompt,
@@ -715,7 +715,7 @@
       style:--composer-actions-height="{actionsHeight}px"
     >
       <div class="min-w-0 px-1.5">
-        {@render editorOrWaveform()}
+        {@render editor()}
       </div>
       <!-- No `zoom` here, deliberately. It put this row in a different
            coordinate space from the `composer` container querying it, so the
@@ -742,7 +742,7 @@
       >
         <div class="min-h-0 overflow-hidden">
           <div
-            class="flex items-center pr-[calc(var(--composer-actions-width)_+_0.5rem)] min-h-(--composer-actions-height)"
+            class="flex items-center pr-[calc(var(--composer-actions-width)_+_0.5rem)] min-h-(--composer-actions-height) {isListening ? 'invisible' : ''}"
           >
             {@render leadingActions()}
           </div>
@@ -755,7 +755,7 @@
         data-composer-actions
         bind:clientWidth={actionsWidth}
         bind:clientHeight={actionsHeight}
-        class="absolute bottom-0 right-0 flex shrink-0 items-center gap-1 pointer-coarse:gap-2"
+        class="absolute bottom-0 right-0 flex shrink-0 items-center justify-end gap-1 pointer-coarse:gap-2 {isListening ? 'left-0' : ''}"
       >
         {@render actionButtons()}
       </div>
@@ -763,7 +763,7 @@
   {:else}
     <div class="flex items-end w-full gap-2">
       <div class="flex-1 min-w-0">
-        {@render editorOrWaveform()}
+        {@render editor()}
       </div>
       <!-- No `zoom` here either. Removing it from the editor branch alone would
            leave the same coordinate-space mismatch in the same component, and
@@ -785,12 +785,8 @@
   {@render sendButton()}
 {/snippet}
 
-{#snippet editorOrWaveform()}
-  <!-- The editor's type vars live on this wrapper, not on the editor itself, so
-       the waveform inherits the same padding and stands exactly as tall as the
-       text well it replaces — entering voice mode must not resize the card.
-
-       The well is generous at rest and one tight line while idle. The idle
+{#snippet editor()}
+  <!-- The well is generous at rest and one tight line while idle. The idle
        well is deliberately lopsided — 4px under the line — because the card
        keeps its 12px bottom padding either way: 16 above and 4 + 12 below is
        the line centred in the card, and the pinned buttons, whose centre sits
@@ -820,30 +816,11 @@
           ? '[--plain-editor-padding:0.5rem_0_0.9375rem_0.25rem]'
           : ''}"
   >
-    {#if hasMountedWaveform}
-      <div
-        class="flex items-center gap-2 [padding:var(--plain-editor-padding,0.9375rem_0_0.9375rem_0.25rem)]"
-        style:display={showVoicePreview ? null : "none"}
-      >
-        <div class="min-w-0 flex-1">
-          {#if hasPartialTranscript}
-            <VoiceTranscriptPreview partial={voice.partialTranscript} />
-          {:else}
-            <WaveformVisualizer
-              rmsRef={voice.rmsRef}
-              color="var(--solus-accent)"
-              active={showWaveform}
-            />
-          {/if}
-        </div>
-      </div>
-    {/if}
     <!-- `.cm-content` is a flex item. Without `min-w-0` its min-content width is
          the whole no-wrap placeholder, so the box grows past the padding that
          keeps the corner clear and the hint runs under mic and send. -->
     <div
       class="[&_.cm-content]:min-w-0 [&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
-      style:display={showVoicePreview ? "none" : null}
     >
       <DeferredPromptEditor
         bind:this={composerEl}
@@ -864,7 +841,8 @@
         {placeholder}
         ariaLabel={composerLabel}
         readOnly={isReadOnly}
-        disabled={isReadOnly || voiceState === "transcribing"}
+        disabled={isReadOnly || voiceState !== "idle"}
+        voicePartial={hasPartialTranscript ? voice.partialTranscript : null}
         maxHeight={maxHeight}
       />
     </div>
@@ -877,7 +855,7 @@
        on send, and only once there is something to send. Stop is a light red,
        the lightest that keeps 3:1 with its white square. A click on a folded
        bar sends without taking the keyboard, so the bar stays folded. -->
-  {#if !showVoicePreview}
+  {#if voiceControlState !== "recording" || stopsRun}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}

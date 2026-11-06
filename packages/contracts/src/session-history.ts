@@ -1,5 +1,6 @@
 import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, QuestionAnswer, ToolResultImage } from './types'
 import type { SessionReport } from './session-exchange'
+import type { SecretOutcomeRecord } from './secret-request'
 import type { Activity } from './activity'
 
 /** Opaque host cursor. A page is the `turnLimit` newest user turns before the
@@ -133,6 +134,8 @@ export interface AgentConversationResultProjection {
 export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
   /** Existing question-tool output, retained for answer details on reload. */
   questionResult?: string
+  /** A `request_secret` call's outcomes: names and statuses, never a ref or a path. */
+  secretOutcomes?: SecretOutcomeRecord[]
   /** Content key for a tool input left on the host until its summary is opened. */
   toolInputKey?: string
   /** A subagent's answer, separated from ordinary tool output. */

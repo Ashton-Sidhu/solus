@@ -1231,6 +1231,7 @@ export class SessionEventReducer {
     target.errorHead = event.errorHead
     target.contentBytes = event.contentBytes
     if (event.toolImages) target.toolImages = event.toolImages
+    if (event.secretOutcomes) target.secretOutcomes = event.secretOutcomes
     target.toolStatus = event.status === 'error' ? 'error' : 'completed'
     if (event.status === 'error' && !event.parentToolUseId) {
       this.deps.workStreamTracker.failArtifact(session, event.toolUseId)

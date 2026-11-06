@@ -12,7 +12,7 @@ import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { hosts } from '../hosts/hosts.svelte'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
-import { LOCAL_ORGANIZATION_ID, visibleInWindow } from '../../lib/organization-filter'
+import { LOCAL_ORGANIZATION_ID, recordVisibleInWindow } from '../../lib/organization-filter'
 import { createSubscriber, SvelteMap } from 'svelte/reactivity'
 import type {
   DocDestination,
@@ -184,10 +184,10 @@ export class WorksStore {
     return this.hostByWorkId.get(workId) ?? null
   }
 
-  /** The known works this window shows: Local ones, and the selected organization's (organization-scope §2). */
+  /** The known works this window shows: Local ones, the selected organization's, and every work of a personal host (organization-scope §2, plans/031 rule 1). */
   get visibleWorks(): WorkListing[] {
     const activeOrganizationId = organizationSelection.activeOrganizationId
-    return Object.values(this.works).filter((work) => visibleInWindow(work.organizationId, activeOrganizationId))
+    return Object.values(this.works).filter((work) => recordVisibleInWindow(work.organizationId, activeOrganizationId, this.hostByWorkId.get(work.id)))
   }
 
   /**

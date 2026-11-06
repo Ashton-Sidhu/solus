@@ -15,6 +15,7 @@ import {
 import { cutText } from '@solus/contracts/text-cut'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
+import { BROWSER_GUEST_MARK_SCRIPT } from './guest-mark'
 import { browserGuestStyleScript } from './guest-style'
 import { chromiumExecutable } from './pinned-chromium'
 import {
@@ -472,12 +473,14 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     )
   }
 
-  /** Style the guest's scrollbar so it matches Solus. Registered before the
-   *  first navigation, so it reaches that page and every later one; best-effort,
-   *  because a styled scrollbar is a nicety and not a reason to refuse a guest. */
+  /** Mark the guest as a Solus browser page and style its scrollbar. Registered
+   *  before the first navigation, so it reaches that page and every later one;
+   *  best-effort, because neither is a reason to refuse a guest. */
   async installGuestStyle(): Promise<void> {
     try {
-      await this.send('Page.addScriptToEvaluateOnNewDocument', { source: browserGuestStyleScript() })
+      await this.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `${BROWSER_GUEST_MARK_SCRIPT};${browserGuestStyleScript()}`,
+      })
     } catch {
       // The guest renders fine without it.
     }

@@ -1,0 +1,41 @@
+{
+  "note": "Synthetic request delay, real VoiceStreamSession; not a network benchmark",
+  "results": [
+    {
+      "packet_ms": 250,
+      "simulated_request_ms": 2,
+      "calls": 12,
+      "stop_wait_ms": 2.4021670000001905
+    },
+    {
+      "packet_ms": 250,
+      "simulated_request_ms": 140,
+      "calls": 12,
+      "stop_wait_ms": 140.54091700000026
+    },
+    {
+      "packet_ms": 100,
+      "simulated_request_ms": 2,
+      "calls": 30,
+      "stop_wait_ms": 3.2515420000008817
+    },
+    {
+      "packet_ms": 100,
+      "simulated_request_ms": 140,
+      "calls": 30,
+      "stop_wait_ms": 1326.0797500000008
+    }
+  ],
+  "serialization": [
+    {
+      "packet_ms": 250,
+      "roundtrip_us": 216.81179100000008,
+      "bytes_per_second": 314112
+    },
+    {
+      "packet_ms": 100,
+      "roundtrip_us": 80.83716599999934,
+      "bytes_per_second": 314340
+    }
+  ]
+}

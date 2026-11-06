@@ -19,6 +19,7 @@
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
   import AtlassianConnectForm from "../atlassian/AtlassianConnectForm.svelte";
+  import CustomServerConnectForm from "./CustomServerConnectForm.svelte";
   import GitHubConnectForm from "./GitHubConnectForm.svelte";
   import IntegrationConnectForm from "../settings/IntegrationConnectForm.svelte";
   import IntegrationOAuthClientForm from "../settings/IntegrationOAuthClientForm.svelte";
@@ -59,7 +60,7 @@
 
   // The one-line row mounts no connect form, so it reads the host itself.
   $effect(() => {
-    if (!integrationId) return;
+    if (request.kind === "account") return;
     const hostId = serverId;
     return untrack(() => integrationsStore.watch(hostId));
   });
@@ -71,7 +72,7 @@
       aria-hidden="true"
       class="relative inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-[color-mix(in_oklch,var(--foreground)_10%,transparent)] bg-[color-mix(in_oklch,var(--foreground)_2%,var(--solus-tx-card-bg))] text-muted-foreground dark:border-[color-mix(in_oklch,white_5%,transparent)] dark:bg-[color-mix(in_oklch,white_3%,var(--solus-tx-card-bg))]"
     >
-      {#if request.kind === "integration"}
+      {#if request.kind !== "account"}
         <Plug size={13} />
       {:else}
         <Icon icon={PROVIDER_LOGOS[request.provider]} width={13} height={13} />
@@ -115,7 +116,9 @@
     <!-- Indented to the name: the 24px mark and the 10px gap. -->
     <div class="flex min-w-0 flex-col gap-2 pt-2 pl-[2.125rem] text-transcript-meta">
       <!-- Connect waits for the client, so the row shows one step at a time. -->
-      {#if integrationNeedingClient}
+      {#if request.kind === "custom-server"}
+        <CustomServerConnectForm {request} {onhandoff} />
+      {:else if integrationNeedingClient}
         <IntegrationOAuthClientForm {serverId} integration={integrationNeedingClient} compact />
       {:else if request.kind === "integration" && !isOneLine}
         <IntegrationConnectForm {serverId} integrationId={request.integrationId} integrationName={request.integrationName} compact />

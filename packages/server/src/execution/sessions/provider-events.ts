@@ -21,7 +21,7 @@ const log = createLogger('SessionRuntime', 'provider-events.ts')
 
 /**
  * The status a turn's exit leaves its session in. A provider whose background
- * work outlives the turn (Codex) settles into 'background', as Claude's open
+ * held work outlives the turn (Codex) settles into 'background', as Claude's open
  * query does; Claude's tasks end with its query, so its exit never leaves any.
  * A failed turn whose work still runs waits too, so that work stays visible
  * and stoppable: its failure is reported at once, and the wait ends as 'failed'.
@@ -369,6 +369,9 @@ export class ProviderEvents {
           // (Codex) has no query: a task that finished wakes the agent with a
           // new turn, and one that was stopped or killed ends the wait here.
           if (!eventHandle && (event.status === 'stopped' || event.status === 'killed')) this.endBackgroundWait(session.sessionId)
+          if (!eventHandle && !session.backgroundTaskIds?.size && !isSessionBusyStatus(session.status) && session.status !== 'background') {
+            this.rt.activeSessions.delete(session.sessionId)
+          }
         }
 
         if (event.type === 'task_complete') {
@@ -533,16 +536,16 @@ export class ProviderEvents {
               ? 'dead'
               : 'failed'
         this.failedBeforeBackground.delete(sessionId)
-        // The process is gone, and the tasks the agent marked went with it.
+        // Codex tasks outlive the turn; keep their wait policy until they end.
         const exited = this.rt.activeSessions.get(sessionId)
-        if (exited) exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
         const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
         // A Claude task that the exit killed sends no settle: its row leaves here.
         if (exited?.backgroundTaskIds?.size && !hasBackgroundWork) {
           exited.backgroundTaskIds.clear()
+          exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
           this.rt.publish(sessionId, { type: 'background_work', running: false })
         }
-        const newStatus = statusAfterExit(settledStatus, !!this.rt.orchestration?.isAwaitingReplies(sessionId), hasBackgroundWork)
+        const newStatus = statusAfterExit(settledStatus, !!this.rt.orchestration?.isAwaitingReplies(sessionId), hasBackgroundWork && !!exited && backgroundWorkHolds(exited))
         if (settledStatus === 'failed' && newStatus === 'background') this.failedBeforeBackground.add(sessionId)
         this.rt.sessionEmitter.recordTerminal(
           sessionId,
@@ -570,8 +573,8 @@ export class ProviderEvents {
         if (!queueWillTakeOver && !wasStarting) this.rt.statuses.setStatus(sessionId, newStatus)
 
         if (!hasPendingRateLimit) {
-          // A session in 'background' stays resident: its tasks settle and stop through it.
-          if (newStatus !== 'background') this.rt.activeSessions.delete(sessionId)
+          // Running tasks stay resident even after completion, so they can be stopped.
+          if (newStatus !== 'background' && !hasBackgroundWork) this.rt.activeSessions.delete(sessionId)
           this.rt.activeRunRequests.delete(sessionId)
         }
 

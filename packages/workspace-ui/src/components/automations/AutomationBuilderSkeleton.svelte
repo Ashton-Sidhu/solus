@@ -92,11 +92,11 @@
       class="w-[21.25rem] shrink-0 @max-[65rem]:w-auto"
     >
       <div
-        class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
+        class="flex flex-col rounded-2xl bg-(--solus-menu-bg) p-1.5 shadow-[shadow:var(--solus-menu-shadow)]"
       >
-        <div class="flex min-w-0 flex-1 flex-col gap-3">
+        <div class="flex min-w-0 flex-1 flex-col">
           {#each railRows as width, index (index)}
-            <div class="flex items-center gap-3">
+            <div class="flex min-h-8 items-center gap-3 px-2.5 pointer-coarse:min-h-11">
               <Skeleton class="h-2.5 w-14 shrink-0 rounded-[0.1875rem] opacity-40" />
               <Skeleton
                 class="h-3 rounded-[0.1875rem] opacity-50"

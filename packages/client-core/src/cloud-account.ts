@@ -11,6 +11,7 @@ import type { SeatProvider } from '@solus/contracts/seats'
 import type { AccountSettingsResponse } from '@solus/contracts/settings'
 import { VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
 import type { WebTokenSession } from './web-token-session'
+import { httpClient, type HttpRequest } from './http-request'
 
 /**
  * The signed-in Solus Cloud account, as cloud onboarding uses it
@@ -80,21 +81,10 @@ export interface CloudAgentSeat {
  */
 export function webCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch, shellSettingsJson?: string): CloudAccount {
   let unreadShellSettings = shellSettingsJson
-  const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
-    const token = await session.accessToken({ kind: 'account' })
-    if (!token) return null
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
-    if (init.body) headers.set('content-type', 'application/json')
-    try {
-      return await fetchImpl(`${origin}${path}`, {
-        ...init,
-        credentials: 'omit',
-        headers,
-        signal: AbortSignal.timeout(15_000),
-      })
-    } catch {
-      return null
-    }
+  const cloud = httpClient({ baseUrl: origin, token: (options) => session.accessToken({ kind: 'account' }, options), fetch: fetchImpl })
+  const call = async (path: string, init?: HttpRequest): Promise<Response | null> => {
+    const result = await cloud.request(path, init)
+    return result.kind === 'response' ? result.response : null
   }
   return {
     session,
@@ -114,7 +104,7 @@ export function webCloudAccount(origin: string, session: CloudAccountSession, fe
       return accountSettingsResponseSchema.parse(JSON.parse(json))
     },
     async readAgentSeats() {
-      const response = await call(VAULT_PATH, { cache: 'no-store' })
+      const response = await call(VAULT_PATH)
       if (!response?.ok) return null
       const parsed = vaultConnectionListSchema.safeParse(await response.json().catch(() => null))
       if (!parsed.success) return null
@@ -134,7 +124,7 @@ export function webCloudAccount(origin: string, session: CloudAccountSession, fe
         ...(label ? { label } : {}),
         ...(spec && Object.keys(spec).length > 0 ? { spec } : {}),
       }
-      const response = await call('/v1/hosts', { method: 'POST', body: JSON.stringify(body) })
+      const response = await call('/v1/hosts', { method: 'POST', body })
       if (!response) return { ok: false, code: null, message: null }
       const answer = await response.json().catch(() => null)
       if (!response.ok) {
@@ -152,7 +142,7 @@ export function webCloudAccount(origin: string, session: CloudAccountSession, fe
       const host = encodeURIComponent(hostId)
       const body: HostShareRequest = { organizationId }
       const response = enabled
-        ? await call(`/v1/hosts/${host}/organizations`, { method: 'POST', body: JSON.stringify(body) })
+        ? await call(`/v1/hosts/${host}/organizations`, { method: 'POST', body })
         : await call(`/v1/hosts/${host}/organizations/${encodeURIComponent(organizationId)}`, { method: 'DELETE' })
       return !!response?.ok
     },

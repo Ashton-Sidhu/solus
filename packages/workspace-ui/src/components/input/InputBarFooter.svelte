@@ -62,7 +62,7 @@
     projectPickerOpen?: boolean;
     /** An external project control that owns the open menu's visual position. */
     projectPickerAnchor?: HTMLElement | null;
-    /** The strip belongs to the workspace's own composer, so the Coordinator mode
+    /** The strip belongs to the workspace's own composer, so the Meta mode
      *  button returns focus to it. */
     isPrimary?: boolean;
   }
@@ -426,7 +426,7 @@
        headline. The host choice for a chat sits in the composer's own row. -->
   <div class="hidden">{@render projectChip()}</div>
 {/if}
-<!-- The footer under the card: the destination, then the Coordinator mode button
+<!-- The footer under the card: the destination, then the Meta mode button
      at the end of the line. A chat shows neither. `/composer` is the card above, so the button's
      own rung measures the same width the toolbar's ladder does. -->
 <div class="@container/composer flex flex-wrap items-center gap-1.5 px-3.5 pt-2">

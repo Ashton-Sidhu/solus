@@ -39,22 +39,75 @@ client. Another client cannot feed, finalize, or cancel it.
 
 Feeds are serial. The renderer caps queued audio at ten seconds and retains a
 separate complete clip. The native helper uses buffered streaming, with the
-model's default 5.6 s left context, 1.04 s chunk, and 1.04 s lookahead. Partial
-text is returned by the RPC and displayed while recording. The preview replaces
-the waveform once text arrives. Stable words retain their normal color;
-tentative words use a muted color and can change on the next model update.
-The composer keeps its draft intact until the final transcript is inserted or
-sent once. Cancel clears the preview, and late stream replies cannot restore it.
-Desktop and web share this behavior in the conversation composer, prompt
-composers, prose editors, and text fields. CPU fallback keeps the waveform and
+model's 5.6 s left context, a 560 ms chunk, and 560 ms lookahead. Preparation and
+recording use the same trained window. This reduces the first-text wait without
+the preparation cost of the smallest windows; see the
+[latency benchmarks](../benchmarks/desktop-voice-2026-11-03.md). Partial
+text is returned by the RPC and displayed while recording. Stable words retain
+their normal color; tentative words use a muted color and can change on the next
+model update.
+
+The level meter receives a new RMS level every 32 ms of captured audio. This
+cadence is separate from the 250 ms transcription packets and does not change
+speech detection or silence timing. Levels use a plain reference and reset when
+capture stops. Late callbacks cannot restore a finished recording's level.
+
+The conversation composer and prompt composers keep the editor and its draft on
+screen. Live words appear at the caret, with the separators the final transcript
+will use, so the transcript replaces them in place. The words are a widget, not
+document text. The editor is read-only until the recorder settles, so the words
+cannot move and a half-finished draft cannot be sent. Prose editors show the same
+text in a popover at the mic, and text fields show it over the field. Cancel
+clears the preview, and late stream replies cannot restore it.
+
+The inline preview retains its confirmed and tentative text nodes across model
+updates. Confirmed text is appended in place; tentative text can be replaced.
+Empty text nodes are retained when words become confirmed. Caret placement and
+nearest scrolling remain the same. Desktop and web share this implementation;
+native mobile keyboard dictation uses its existing operating-system input path.
+
+While recording, the conversation composer's toolbar row becomes one control:
+round Cancel, a level meter of real audio that fills the row, and solid round
+Finish in the send corner. If a turn can be stopped, Stop keeps the corner and
+Finish sits beside it. The pointer that started the recording rests over the
+meter, so a second click cancels nothing. Other composers show the same controls
+with a shorter meter, and Send stays there, disabled. Esc cancels. An empty
+composer shows "Listening..." until the first words arrive. CPU fallback keeps the meter and
 returns text after recording stops; it does not produce live partial text.
+Desktop and web share this behavior.
 
 The helper retains the audio and uses whole-clip inference if streaming is
 unsupported, fails, or returns no text. If the worker or transport fails, the
 renderer retries its complete clip through `transcribeAudio`. Errors retain
 that clip for the existing explicit retry. Cancellation suppresses late text.
-Recordings remain limited to 60 minutes. The idle worker releases its model
-after two minutes.
+Recordings remain limited to 60 minutes. With voice mode off, the idle worker
+releases its model after two minutes.
+
+## Voice-mode preparation
+
+When voice mode is enabled and the selected transcription host's model is ready,
+the client prepares the worker before the next recording needs it. A single
+app-wide hold keeps its model loaded across pauses, tab changes, and recordings.
+Desktop and web use the same host-addressed `warmTranscription` request. Model
+preparation is independent of the agent's host and provider. Native mobile
+keyboard dictation keeps its operating-system preparation policy.
+
+The client renews its hold every 30 seconds. The host scopes each hold to the
+transport client, so one client cannot release another client's hold. Disabling
+voice mode, changing transcription hosts, or unmounting the client releases its
+hold. A hold with no renewal expires after 90 seconds; the usual two-minute idle
+timeout then applies. Lost clients cannot retain model memory indefinitely.
+Reconnects and model installation readiness cause the client to acquire again.
+
+Preparation does not hold a sleep-prevention assertion. Concurrent warm requests
+share one native request, and renewing a hold during a recording does not add
+native work. Standalone hosts without transcription do not acquire a hold.
+One-off dictation still warms on press and keeps the normal idle timeout.
+
+Focused tests drive the shared client effect and host timers without opening an
+app or microphone. They cover readiness and reconnects, host changes, renewals,
+release on disable and unmount, ownership across clients, lease expiry,
+concurrent preparation, and the one-off idle timeout.
 
 ## Native builds and distribution
 

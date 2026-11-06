@@ -42,15 +42,18 @@ const PULL_REQUEST_WATCH_INSTRUCTIONS = `## Waiting on a pull request
 To wait for CI checks or review on a pull request, call watch_pull_request and end your turn. Solus wakes you with a message when a check fails, the required checks pass, the other checks finish, no check reports, someone comments or reviews, the branch conflicts, or the pull request closes. Do not poll with gh, sleep, or a watch loop. Before you hand the work back, call watch_pull_request with watching=false.`
 
 /** Claude Code defers Solus tools behind tool search, so the agent finds
- *  background_wait only when the prompt says when to use it. Claude only:
- *  Codex answers the tool with "unsupported" (docs/background-work.md). */
+ *  background_wait only when the prompt says when to use it. */
 const BACKGROUND_WAIT_INSTRUCTIONS = `## Background work you wait on
 
 Before you end your turn to wait for a background command or Monitor you started, such as tests, a build, or a CI wait, call background_wait with its task ID. The session then stays working until that task ends, instead of telling the user it is done. Do not mark a dev server, a watcher, or anything else you leave running.`
 
+const CODEX_BACKGROUND_WAIT_INSTRUCTIONS = `## Background work you wait on
+
+Codex background commands keep the session in background until their results arrive. Before ending your turn with a dev server, watcher, or other service you intend to leave running, call background_wait with waiting=false and its terminal session ID from exec_command. This lets the turn complete while the command stays visible and stoppable. Do not unmark tests, builds, or other commands whose results you still need. Use waiting=true to restore a wait. Sub-agents always hold.`
+
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
-Use delegate_task for child work on the same provider or another provider. It creates a durable child session with no parent history. Give it the complete brief, constraints, and expected result. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities.
+Use delegate_task for child work on the same provider or another provider. It creates a durable child session with no parent history. Give it the complete brief, constraints, and expected result. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities. For background agent work, use delegate_task, never a background native subagent.
 
 Use start_session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
 
@@ -72,7 +75,7 @@ The device tools control iOS Simulators, Android Emulators, and connected phones
 
 const AUTOMATION_INSTRUCTIONS = `## Automations
 
-create_automation sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Omit trigger for an automation that runs only with run_automation. Each run starts its own session, and its result does not come back to this conversation: use list_automation_runs for run status, errors, and session_id, then read_session for agent output. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
+create_automation sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Add \`ends_at\` (an ISO-8601 instant) to an interval or cron trigger to stop it on a date. Omit trigger for an automation that runs only with run_automation. Each run starts its own session, and its result does not come back to this conversation: use list_automation_runs for run status, errors, and session_id, then read_session for agent output. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
 
 /** Solus binds a session to one checkout. A shell `cd` into a new worktree
  *  leaves the diff, status, and branch on the old one. */
@@ -98,8 +101,8 @@ export interface AgentRuntime {
   workingDirectory?: string
 }
 
-/** The one rule for credentials across Solus tools: a tool takes a `secretRef`, never a secret. */
-const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it. Never ask for a secret in chat and never invent one.'
+/** The one rule for credentials across Solus tools: a tool takes a `secretRef`, never a secret; a shell command reads a private file. */
+const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one.'
 
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
@@ -144,6 +147,6 @@ You can embed images and videos in your response with Markdown and absolute file
     has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. When you write a plan file, link it with kind=file and path. Relative paths use the calling session’s working directory.',
     has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again. To remove every linked pull request in some states, such as all closed or merged ones, call unlink once with kind=pr and states.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
-    runtime.harness === 'Claude Code' && has('background_wait') && BACKGROUND_WAIT_INSTRUCTIONS,
+    has('background_wait') && (runtime.harness === 'Claude Code' ? BACKGROUND_WAIT_INSTRUCTIONS : CODEX_BACKGROUND_WAIT_INSTRUCTIONS),
   ].filter(Boolean).join('\n\n')
 }

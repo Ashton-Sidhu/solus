@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, powerSaveBlocker } from 'electron'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
-import type { VoiceTranscript, VoicePartial } from '@solus/contracts/voice-stream'
+import { VOICE_WARM_LEASE_MS, type VoiceTranscript, type VoicePartial, type VoiceWarmRequest } from '@solus/contracts/voice-stream'
 import { createLogger } from '@solus/server/logger'
 import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady, PARAKEET_MODEL_FILE } from '@solus/server/model-downloader'
 import { recordOtelDuration } from '@solus/server/otel'
@@ -15,6 +15,8 @@ const STREAM_IDLE_MS = 30_000
 let worker: NativeVoiceWorker | null = null
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 let batchBusy = false
+const warmClients = new Map<string, ReturnType<typeof setTimeout>>()
+let warming: { worker: NativeVoiceWorker; promise: Promise<void> } | null = null
 
 type Capture = {
   streamId: string
@@ -47,10 +49,10 @@ function clearIdleTimer(): void {
 
 function scheduleIdleStop(): void {
   clearIdleTimer()
-  if (capture || batchBusy || !worker) return
+  if (capture || batchBusy || warmClients.size || !worker) return
   const current = worker
   idleTimer = setTimeout(() => {
-    if (worker !== current || capture || batchBusy) return
+    if (worker !== current || capture || batchBusy || warmClients.size) return
     worker = null
     current.stop()
   }, TRANSCRIPTION_WORKER_IDLE_MS)
@@ -117,12 +119,37 @@ export async function prepareTranscriptionModel(): Promise<void> {
   catch (error) { log.warn('transcription_model_prepare_failed', { error: String(error) }) }
 }
 
-export async function warmTranscription(): Promise<void> {
+export async function warmTranscription(owner: string, request?: VoiceWarmRequest): Promise<void> {
+  if (request) {
+    const previous = warmClients.get(owner)
+    if (previous) clearTimeout(previous)
+    warmClients.delete(owner)
+    if (!request.keepWarm) {
+      scheduleIdleStop()
+      return
+    }
+    clearIdleTimer()
+    const expires = setTimeout(() => {
+      warmClients.delete(owner)
+      scheduleIdleStop()
+    }, VOICE_WARM_LEASE_MS)
+    expires.unref?.()
+    warmClients.set(owner, expires)
+  }
   if (batchBusy || capture) return
   await requireModel()
+  // A stream or batch may have started while model readiness was checked.
+  if (batchBusy || capture) return
   const current = ensureWorker()
-  try { await current.request('warm') }
-  finally { scheduleIdleStop() }
+  if (warming?.worker === current) return warming.promise
+  const promise = current.request('warm').then(result => {
+    if (result.error) throw new Error(result.error)
+  }).finally(() => {
+    if (warming?.worker === current) warming = null
+    scheduleIdleStop()
+  })
+  warming = { worker: current, promise }
+  return promise
 }
 
 export async function startVoiceStream(owner: string, onEnd: () => void): Promise<string> {
@@ -212,6 +239,8 @@ export async function transcribeAudio(samples: Float32Array): Promise<VoiceTrans
 }
 
 export function disposeTranscription(): void {
+  for (const timer of warmClients.values()) clearTimeout(timer)
+  warmClients.clear()
   clearIdleTimer()
   worker?.stop()
   worker = null

@@ -1,3 +1,4 @@
+import { measureOpenStep } from '../../lib/mount-timing'
 import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session, SessionProgress } from '@solus/contracts/types'
 import { z } from 'zod'
@@ -136,6 +137,8 @@ const artifactInputSchema = z.object({
 const imageInputSchema = z.object({ path: z.string().optional() })
 
 export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
+  const requestStartedAt = performance.now()
+  const detail = { sessionId: args.sessionId, olderPage: !!args.before }
   const api = ctx.apiForSession(args.ctx.session.sessionId)
   const loaded = await (args.history ?? (args.turnLimit
     ? requestSessionHistoryPage(api, {
@@ -144,13 +147,19 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
       })
     : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, undefined,
         { deferToolInputs: true })))
+  measureOpenStep('historyWait', requestStartedAt, detail)
+  const dependenciesStartedAt = performance.now()
   const history = (Array.isArray(loaded) ? loaded : loaded.messages).concat(args.pendingMessages ?? [])
   if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
   }
   // An artifact is saved on the host its session ran on: ask there first.
   const sessionServerId = args.serverId ?? serverConnections.serverIdForApi(api)
-  return materializeSessionTranscript(ctx, args, loaded, await loadArtifactFileBodies((workId, version) => ctx.worksStore.history.bodyAtVersion(workId, version, sessionServerId), history))
+  measureOpenStep('automationHydration', dependenciesStartedAt, detail)
+  const artifactsStartedAt = performance.now()
+  const artifactFileBodies = await loadArtifactFileBodies((workId, version) => ctx.worksStore.history.bodyAtVersion(workId, version, sessionServerId), history)
+  measureOpenStep('artifactHydration', artifactsStartedAt, detail)
+  return materializeSessionTranscript(ctx, args, loaded, artifactFileBodies)
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted
@@ -163,6 +172,7 @@ export function materializeSessionTranscript(
   /** The HTML of each `html_path` artifact call, by tool id. Without it those cards wait for the asynchronous load. */
   artifactFileBodies?: ReadonlyMap<string, string>,
 ): SessionTranscriptLoadResult {
+  const materializeStartedAt = performance.now()
   const serverId = args.serverId ?? serverConnections.serverIdForApi(ctx.apiForSession(args.ctx.session.sessionId))
   const pageMessages = Array.isArray(loaded) ? loaded : loaded.messages
   const history = args.pendingMessages?.length ? pageMessages.concat(args.pendingMessages) : pageMessages
@@ -230,6 +240,7 @@ export function materializeSessionTranscript(
       const target = m.toolResultForId ? toolById.get(m.toolResultForId) : undefined
       if (target) {
         target.questionResult = m.questionResult
+        if (m.secretOutcomes) target.secretOutcomes = m.secretOutcomes
         target.report = m.report
         target.errorHead = m.errorHead
         target.contentBytes = m.contentBytes
@@ -303,6 +314,7 @@ export function materializeSessionTranscript(
       toolId: m.toolId,
       questionAnswer: m.questionAnswer,
       questionResult: m.questionResult,
+      secretOutcomes: m.secretOutcomes,
       toolInput: m.toolInput,
       historyToolInput: m.toolInputKey ? {
         serverId, sessionId: args.sessionId, projectPath: args.loadPath,
@@ -505,10 +517,14 @@ export function materializeSessionTranscript(
     messages.push(msg)
   }
 
+  const progress = progressFromMessages(messages)
+  measureOpenStep('materializeTranscript', materializeStartedAt, {
+    sessionId: args.sessionId, olderPage: !!args.before, messageCount: messages.length,
+  })
   return {
     messages,
     planIds,
-    progress: progressFromMessages(messages),
+    progress,
     truncated,
     before,
     pendingMessages,

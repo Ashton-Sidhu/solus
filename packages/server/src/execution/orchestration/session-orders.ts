@@ -153,6 +153,7 @@ export const MAX_WAIT_MS = 600_000
 export const ANSWERING_ANOTHER_SESSION = 'Another Solus session sent you this work, and your last message is the reply it reads. '
   + 'End your turn with a reply of at most five short lines: the outcome, what you produced by id or link (branch, pull request, plans, works, sessions you started), and what is still open. '
   + 'Put longer detail in a task comment or a work, not in the reply. '
+  + 'Do not stop to ask a question you can settle yourself: choose the sensible default, say so in your reply, and continue. Ask the user only when you cannot continue without a decision that only they can make. '
   + 'For nested work, use report=true and wait_seconds=0, then end the turn while it runs. Its report wakes you. Read the result, do any required follow-up, and only then give your final reply. '
   + 'An ended turn with open child work is not a final result for the session that sent this request. '
   + 'Do not use send_session to message the session that sent you this work; your reply reaches it. '

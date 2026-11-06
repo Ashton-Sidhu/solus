@@ -1,4 +1,4 @@
-import { readHostHealth } from '@solus/client-core/host-link'
+import { readHostHealth } from '@solus/client-core/host-http'
 import { urlHost } from '@solus/client-core/pairing'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 

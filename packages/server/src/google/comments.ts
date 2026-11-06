@@ -2,6 +2,7 @@ import { DocCommentRequestError } from '../docs/types'
 import { z } from 'zod'
 import type { GoogleCommentThread } from '@solus/contracts/work-comments'
 import { Parser } from 'htmlparser2'
+import { driveApi, googleAnswer } from './google-api'
 
 function quoteText(html: string): string {
   let text = ''
@@ -34,27 +35,14 @@ interface GoogleCommentRequestBody {
   quotedFileContent?: { mimeType: 'text/plain'; value: string }
 }
 
-async function request(token: string, url: string, body?: GoogleCommentRequestBody, method = body ? 'POST' : 'GET'): Promise<Response> {
-  let response: Response
-  try {
-    const options: RequestInit = {
-      method,
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(25_000),
-    }
-    if (body) options.body = JSON.stringify(body)
-    response = await fetch(url, options)
-  } catch {
-    throw new GoogleCommentRequestError('Google could not confirm the request. Check the document before sending again.', method !== 'GET')
-  }
-  if (!response.ok) {
-    throw new GoogleCommentRequestError(`Google comments request failed (${response.status}). Check the connection and document permissions.`, method !== 'GET' && response.status >= 500)
-  }
-  return response
-}
+const REQUEST_TIMEOUT_MS = 25_000
 
-function base(documentId: string): string {
-  return `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(documentId)}/comments`
+/** A write whose answer never came is uncertain: Google may have applied it. */
+async function request<T>(isWrite: boolean, call: Promise<{ data: T }>): Promise<T> {
+  const answer = await googleAnswer(call)
+  if (answer.kind === 'answered') return answer.data
+  if (answer.kind === 'unanswered') throw new GoogleCommentRequestError('Google could not confirm the request. Check the document before sending again.', isWrite)
+  throw new GoogleCommentRequestError(`Google comments request failed (${answer.status}). Check the connection and document permissions.`, isWrite && answer.status >= 500)
 }
 
 /** All pages must succeed before the caller replaces its cached snapshot. */
@@ -62,10 +50,10 @@ export async function listGoogleComments(token: string, documentId: string): Pro
   const comments: GoogleCommentThread[] = []
   const seen = new Set<string>()
   let pageToken: string | undefined
+  const drive = driveApi(token, REQUEST_TIMEOUT_MS)
   do {
-    const params = new URLSearchParams({ fields: `nextPageToken,comments(${fields})`, includeDeleted: 'true', pageSize: '100' })
-    if (pageToken) params.set('pageToken', pageToken)
-    const page = pageSchema.parse(await (await request(token, `${base(documentId)}?${params}`)).json())
+    const listed = drive.comments.list({ fileId: documentId, fields: `nextPageToken,comments(${fields})`, includeDeleted: true, pageSize: 100, pageToken })
+    const page = pageSchema.parse(await request(false, listed))
     for (const comment of page.comments ?? []) {
       comments.push(normalizeComment(comment))
     }
@@ -79,17 +67,16 @@ export async function listGoogleComments(token: string, documentId: string): Pro
 export async function postGoogleComment(token: string, documentId: string, text: string, quote?: string): Promise<string | undefined> {
   const body: GoogleCommentRequestBody = { content: text }
   if (quote) body.quotedFileContent = { mimeType: 'text/plain', value: quote }
-  return acknowledgedId(await request(token, `${base(documentId)}?fields=id`, body))
+  return acknowledgedId(await request(true, driveApi(token, REQUEST_TIMEOUT_MS).comments.create({ fileId: documentId, fields: 'id', requestBody: body })))
 }
 
 export async function postGoogleReply(token: string, documentId: string, threadId: string, body: { content?: string; action?: 'resolve' | 'reopen' }): Promise<string | undefined> {
-  return acknowledgedId(await request(token, `${base(documentId)}/${encodeURIComponent(threadId)}/replies?fields=id`, body))
+  return acknowledgedId(await request(true, driveApi(token, REQUEST_TIMEOUT_MS).replies.create({ fileId: documentId, commentId: threadId, fields: 'id', requestBody: body })))
 }
 
-async function acknowledgedId(response: Response): Promise<string | undefined> {
-  // A successful write remains acknowledged even if its optional ID cannot be read.
-  const parsed = z.object({ id: z.string() }).safeParse(await response.json().catch(() => undefined))
-  return parsed.success ? parsed.data.id : undefined
+/** A successful write remains acknowledged even if its optional ID cannot be read. */
+function acknowledgedId(answer: { id?: string | null }): string | undefined {
+  return answer.id ?? undefined
 }
 
 function normalizeComment(comment: z.infer<typeof commentSchema>): GoogleCommentThread {
@@ -115,7 +102,14 @@ export async function changeGoogleCommentMessage(
   token: string, documentId: string, threadId: string,
   change: { kind: 'edit'; text: string; replyId?: string } | { kind: 'delete'; replyId?: string },
 ): Promise<void> {
-  const url = `${base(documentId)}/${encodeURIComponent(threadId)}${change.replyId ? `/replies/${encodeURIComponent(change.replyId)}` : ''}`
-  await request(token, `${url}?fields=id`, change.kind === 'edit' ? { content: change.text } : undefined,
-    change.kind === 'edit' ? 'PATCH' : 'DELETE')
+  const drive = driveApi(token, REQUEST_TIMEOUT_MS)
+  const target = { fileId: documentId, commentId: threadId }
+  if (change.kind === 'edit') {
+    const requestBody = { content: change.text }
+    await request(true, change.replyId
+      ? drive.replies.update({ ...target, replyId: change.replyId, fields: 'id', requestBody })
+      : drive.comments.update({ ...target, fields: 'id', requestBody }))
+  } else {
+    await request(true, change.replyId ? drive.replies.delete({ ...target, replyId: change.replyId }) : drive.comments.delete(target))
+  }
 }

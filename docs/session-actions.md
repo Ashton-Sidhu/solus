@@ -1,8 +1,7 @@
 # Session actions
 
 The session action row sits centred on the top edge of the input bar in desktop
-and web. While you point at it, it holds its left edge, so an opened label only
-pushes the icons to its right. When the input bar collapses (the keyboard is
+and web. The icons do not move when you point at them. When the input bar collapses (the keyboard is
 elsewhere and "collapse when idle" is on), the row fades out with it and comes
 back when the bar expands; it stays while you point at it or focus is in it.
 It replaced the action orb: the actions are always visible, so no action needs a
@@ -14,9 +13,11 @@ click to reveal the others first.
   progress ring. Point at it to see the steps.
 - **Icons.** Pin, changed files (desktop), terminal (desktop), fork, continue in a
   new worktree, insights, and review. Review shows when the session has changed
-  files; its name reads **Review N files**, **Reviewing…**, or **Open review**.
-  Each icon is flat and quiet. Point at it or move focus to it to show its name
-  and shortcut. On a touch screen the names do not show.
+  files; its tooltip reads **Review N files**, **Reviewing…**, or **Open review**.
+  All icons are the same size. Point at one or move focus to it to show a tooltip
+  with its name and shortcut, or, for a disabled action, the reason. The star
+  fills when the session is pinned, and the review icon takes the accent colour
+  while a review runs or is ready. On a touch screen the tooltips do not show.
 
 ## The action list
 

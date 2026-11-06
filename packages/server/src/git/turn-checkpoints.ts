@@ -1,9 +1,8 @@
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
 import { resolveRepoRoot } from './git-helpers'
-import { getHeadCommit } from './worktree-manager'
 import { turnActivity } from './turn-activity'
-import { initSessionBase, prepareTurnSnapshot, snapshotTurn, type SnapshotOpts } from './session-snapshots'
+import { initSessionBase, prepareTurnSnapshot, sessionBaseCommit, snapshotTurn, type SnapshotOpts } from './session-snapshots'
 
 const log = createLogger('TurnCheckpoints', 'turn-checkpoints.ts')
 
@@ -30,9 +29,7 @@ export async function beginTurnCheckpoint(target: CheckpointTarget): Promise<voi
     turnActivity.turnStarted(target.sessionId, workTree)
     const repoRoot = await resolveRepoRoot(workTree)
     if (!repoRoot) return
-    const head = await getHeadCommit(workTree)
-    if (!head) return
-    await initSessionBase(repoRoot, target.sessionId, head)
+    await initSessionBase(repoRoot, target.sessionId, await sessionBaseCommit(workTree, repoRoot))
     await prepareTurnSnapshot(workTree, repoRoot, target.sessionId)
   } catch (error) {
     log.warn('turn_checkpoint_begin_failed', { sessionId: target.sessionId, error: error instanceof Error ? error.message : String(error) })

@@ -6,7 +6,7 @@
   import { WEEKDAYS, type BuilderTriggerKind } from "./lib/automation-format";
   import type { ScheduleDraft } from "./lib/schedule-draft.svelte";
   import AutomationRailSelect from "./AutomationRailSelect.svelte";
-  import { ROW, EYEBROW, RAIL_FIELD } from "./lib/rail-styles";
+  import { ROW, LABEL, RAIL_FIELD } from "./lib/rail-styles";
 
   // The rail's Schedule block: whether the automation is live, how often it
   // repeats, and the one or two fields that preset needs. Every change commits
@@ -30,6 +30,10 @@
     { value: "once", label: "Once" },
     { value: "cron", label: "Custom (cron)" },
   ];
+  const endsOptions = [
+    { value: "never" as const, label: "Never" },
+    { value: "date" as const, label: "On a date" },
+  ];
   const intervalUnitOptions = [
     { value: "minutes" as const, label: "minutes" },
     { value: "hours" as const, label: "hours" },
@@ -51,10 +55,10 @@
   );
 </script>
 
-<span class={EYEBROW}>Schedule</span>
+<span class="menu-heading">Schedule</span>
 <div class="flex flex-col">
   <div class={ROW}>
-    <span class="text-muted-foreground">Enabled</span>
+    <span class={LABEL}>Enabled</span>
     <!-- Sage owns status: this switch says "running on schedule". The Worktree
          switch in Setup is a plain setting and keeps the brand terracotta. -->
     <Switch
@@ -67,59 +71,51 @@
     />
   </div>
 
-  <div class={ROW}>
-    <span class="text-muted-foreground">Repeats</span>
-    <AutomationRailSelect
-      label="Repeats"
-      value={schedule.kind}
-      options={repeatOptions}
-      onSelect={(v) => {
-        schedule.kind = v;
-        onCommit();
-      }}
-    />
-  </div>
+  <AutomationRailSelect
+    label="Repeats"
+    value={schedule.kind}
+    options={repeatOptions}
+    onSelect={(v) => {
+      schedule.kind = v;
+      onCommit();
+    }}
+  />
 
   {#if schedule.kind === "interval"}
     <div class={ROW}>
-      <span class="text-muted-foreground">Every</span>
-      <span class="flex items-center gap-1">
-        <Input
-          class="{RAIL_FIELD} mr-0 w-14"
-          type="number"
-          min="1"
-          bind:value={schedule.intervalValue}
-          onchange={onCommit}
-          aria-label="Interval amount"
-        />
-        <AutomationRailSelect
-          label="Interval unit"
-          value={schedule.intervalUnit}
-          options={intervalUnitOptions}
-          onSelect={(v) => {
-            schedule.intervalUnit = v;
-            onCommit();
-          }}
-          menuClass="w-[140px]"
-        />
-      </span>
-    </div>
-  {:else if schedule.kind === "weekly"}
-    <div class={ROW}>
-      <span class="text-muted-foreground">On</span>
-      <AutomationRailSelect
-        label="Day of week"
-        value={String(schedule.weekday)}
-        options={weekdayOptions}
-        onSelect={(v) => {
-          schedule.weekday = Number(v);
-          onCommit();
-        }}
+      <span class={LABEL}>Every</span>
+      <Input
+        class="{RAIL_FIELD} w-14"
+        type="number"
+        min="1"
+        bind:value={schedule.intervalValue}
+        onchange={onCommit}
+        aria-label="Interval amount"
       />
     </div>
+    <AutomationRailSelect
+      label="Unit"
+      value={schedule.intervalUnit}
+      options={intervalUnitOptions}
+      onSelect={(v) => {
+        schedule.intervalUnit = v;
+        onCommit();
+      }}
+      menuClass="w-[140px]"
+    />
+  {:else if schedule.kind === "weekly"}
+    <AutomationRailSelect
+      label="Day"
+      value={String(schedule.weekday)}
+      options={weekdayOptions}
+      onSelect={(v) => {
+        schedule.weekday = Number(v);
+        onCommit();
+      }}
+    />
   {:else if schedule.kind === "monthly"}
     <div class={ROW}>
-      <span class="text-muted-foreground">Day</span>
+      <span class={LABEL}>Day</span>
       <Input
         class="{RAIL_FIELD} w-14"
         type="number"
@@ -132,7 +128,7 @@
     </div>
   {:else if schedule.kind === "cron"}
     <div class={ROW}>
-      <span class="text-muted-foreground">Expression</span>
+      <span class={LABEL}>Expression</span>
       <Input
         class="{RAIL_FIELD} w-32"
         type="text"
@@ -146,12 +142,12 @@
       />
     </div>
     {#if schedule.cronInvalid}
-      <p class="m-0 text-right text-xs text-[var(--solus-status-error,#e53e3e)]">
+      <p class="m-0 px-2.5 text-right text-xs text-[var(--solus-status-error,#e53e3e)]">
         Invalid cron expression.
       </p>
     {/if}
   {:else if schedule.kind === "once"}
-    <div class="flex justify-end py-1">
+    <div class="flex justify-end px-2.5 py-1">
       <DateTimePicker
         value={schedule.onceLocal}
         onChange={(v) => {
@@ -164,7 +160,7 @@
 
   {#if hasTimeOfDay}
     <div class={ROW}>
-      <span class="text-muted-foreground">At</span>
+      <span class={LABEL}>At</span>
       <TimeField
         value={schedule.time}
         onChange={(next) => {
@@ -172,8 +168,36 @@
           onCommit();
         }}
         label="Time"
-        class="-mr-1.5 h-7 rounded-md border-0 px-1.5 font-mono text-workspace-chrome transition-colors duration-120 hover:bg-muted focus-within:border-transparent focus-within:ring-0 pointer-coarse:h-10"
+        class="-mr-1.5 h-7 rounded-lg border-0 px-1.5 font-mono text-workspace-chrome transition-colors duration-120 hover:bg-(--solus-menu-hover-ink) focus-within:border-transparent focus-within:ring-0 pointer-coarse:h-10"
       />
     </div>
+  {/if}
+
+  {#if schedule.repeats}
+    <AutomationRailSelect
+      label="Ends"
+      value={schedule.hasEnd ? "date" : "never"}
+      options={endsOptions}
+      onSelect={(v) => {
+        schedule.hasEnd = v === "date";
+        onCommit();
+      }}
+    />
+    {#if schedule.hasEnd}
+      <div class="flex justify-end px-2.5 py-1">
+        <DateTimePicker
+          value={schedule.endsLocal}
+          onChange={(v) => {
+            schedule.endsLocal = v;
+            onCommit();
+          }}
+        />
+      </div>
+      {#if schedule.endPassed}
+        <p class="m-0 px-2.5 text-right text-xs text-[var(--solus-status-error,#e53e3e)]">
+          This date has passed. No run will start.
+        </p>
+      {/if}
+    {/if}
   {/if}
 </div>

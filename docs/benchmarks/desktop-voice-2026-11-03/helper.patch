@@ -1,0 +1,19 @@
+--- a/main.cpp
++++ b/main.cpp
+@@ -5,6 +5,7 @@
+ #include <cmath>
+ #include <cstdint>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <iostream>
+ #include <memory>
+@@ -75,6 +76,8 @@
+                                               TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM)) {
+             buffered.chunk_ms = 560;
+             buffered.right_ms = 560;
++            if (const char *value = std::getenv("BENCH_CHUNK_MS")) buffered.chunk_ms = std::atoi(value);
++            if (const char *value = std::getenv("BENCH_RIGHT_MS")) buffered.right_ms = std::atoi(value);
+             params.family = &buffered.ext;
+         }
+         return transcribe_stream_begin(session.get(), nullptr, &params);

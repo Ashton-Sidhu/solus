@@ -68,13 +68,27 @@ describe('Codex background command wake', () => {
 
   // WHY: Codex ends its turn while the command runs on. Without the announce
   // the session read as finished, with no Stop, for work still going.
-  test('a command still running when its turn ends becomes background work before the turn result', async () => {
+  test.each([
+    { waiting: undefined, awaitable: false },
+    { waiting: false, awaitable: true },
+    { waiting: true, awaitable: false },
+  ])('a command holds unless explicitly left running: $waiting', async ({ waiting, awaitable }) => {
     const backend = new CodexBackend()
     const internals = backend as unknown as BackendInternals
     const events: string[] = []
-    backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => events.push(event.type))
+    const tasks: NormalizedEvent[] = []
+    backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => {
+      events.push(event.type)
+      if (event.type === 'background_task_started') tasks.push(event)
+    })
     backend.on('exit', () => events.push('exit'))
     internals.runningCommands.set('item-3', { ...backgroundCommand(), isBackground: false })
+    if (waiting !== undefined) {
+      expect(backend.setBackgroundCommandWaiting('thread-1', 'proc-1', false)).toBe('item-3')
+      expect(backend.setBackgroundCommandWaiting('thread-1', 'proc-1', waiting)).toBe('item-3')
+    }
+    expect(backend.setBackgroundCommandWaiting('other-thread', 'proc-1', false)).toBeNull()
+    expect(backend.setBackgroundCommandWaiting('thread-1', 'missing', false)).toBeNull()
     const handle = { agentSessionId: 'thread-1', persistent: false, _resolveRun: () => {} }
     internals.activeRuns.set('thread-1', handle)
 
@@ -82,6 +96,7 @@ describe('Codex background command wake', () => {
 
     expect(events).toEqual(['background_task_started', 'task_complete', 'exit'])
     expect(backend.hasBackgroundTasks('thread-1')).toBe(true)
+    expect(tasks).toEqual([{ type: 'background_task_started', taskId: 'item-3', toolUseId: 'item-3', awaitable }])
   })
 
   test('a background command that finishes settles its task, then wakes the agent', () => {

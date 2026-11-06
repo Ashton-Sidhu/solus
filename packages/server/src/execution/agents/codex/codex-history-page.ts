@@ -3,6 +3,8 @@ import { historyPageIsFull, historyPageMustCut, type ProviderHistoryPage, type S
 import { CODEX_ITEM_PAGE, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { codexItemToMessage, completeCodexTurnMessages, toEpochMs, type CodexTurnHistory } from './codex-utils'
 
+const CONCURRENT_TURN_READS = 3
+
 type ReadItems = (params: CodexItemsListParams) => Promise<CodexItemsListResponse>
 
 /** `turn` alone is the boundary before that turn. With `skip`, the page was cut
@@ -44,6 +46,7 @@ async function readItemPage(threadId: string, turn: CodexTurnHistory, readItems:
  * until the page is past its hard budget. `cut` is the cursor of the items left. */
 async function readTurn(
   threadId: string, turn: CodexTurnHistory, readItems: ReadItems, budget: PageBudget, resume: Cursor | undefined,
+  firstPage: CodexItemsListResponse,
 ): Promise<{ messages: SessionLoadMessage[]; cut?: string }> {
   const startedAt = toEpochMs(turn.startedAt)
   const newest: SessionLoadMessage[] = []
@@ -51,8 +54,10 @@ async function readTurn(
   let skip = resume?.skip ?? 0
   let last = resume?.last
   const seenCursors = new Set<string>()
+  let pendingPage: CodexItemsListResponse | undefined = firstPage
   for (;;) {
-    const page = await readItemPage(threadId, turn, readItems, items)
+    const page = pendingPage ?? await readItemPage(threadId, turn, readItems, items)
+    pendingPage = undefined
     // An item page that changed since the cursor was made cannot resume it.
     if (skip > page.data.length || (last !== undefined && page.data[skip - 1]?.item.id !== last)) throw historyChanged()
     for (let entry = skip; entry < page.data.length; entry++) {
@@ -96,9 +101,29 @@ export async function loadCodexHistoryPage(
   const loaded: SessionLoadMessage[][] = []
   const budget: PageBudget = { rows: 0, bytes: 0 }
   let complete = 0
-  for (let index = resume ? boundary : boundary - 1; index >= 0; index--) {
+  const firstIndex = resume ? boundary : boundary - 1
+  const lastIndex = Math.max(0, firstIndex - turnLimit + 1)
+  let nextIndex = firstIndex
+  // Only first pages overlap. Consume them newest first so the shared budget
+  // and cursors stay identical to sequential reads. At most two unused reads
+  // can remain when the page fills; they are not kept for another request.
+  const pending: Array<Promise<PromiseSettledResult<CodexItemsListResponse>>> = []
+  for (let index = firstIndex; index >= 0; index--) {
+    while (pending.length < CONCURRENT_TURN_READS && nextIndex >= lastIndex) {
+      const turn = turns[nextIndex]
+      const items = nextIndex === firstIndex ? resume?.items : undefined
+      // Handle rejection immediately: a speculative page may fail before it
+      // is consumed, or may never be needed because the budget is full.
+      pending.push(readItemPage(threadId, turn, readItems, items).then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason) => ({ status: 'rejected' as const, reason }),
+      ))
+      nextIndex--
+    }
+    const firstPage = await pending.shift()!
+    if (firstPage.status === 'rejected') throw firstPage.reason
     const turn = turns[index]
-    const { messages, cut } = await readTurn(threadId, turn, readItems, budget, resume)
+    const { messages, cut } = await readTurn(threadId, turn, readItems, budget, resume, firstPage.value)
     // Turn timing and failure belong to the turn's end, so only the page that holds it applies them.
     loaded.push(resume ? messages : completeCodexTurnMessages(turn, messages))
     resume = undefined

@@ -7,6 +7,7 @@ import { getCliPath, hostCliEnv, type LaunchOptions, type ProcessUser } from '..
 import { hostUserKey, isHostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { MEMBER_GITHUB_FILE } from '../../providers/github/git-credential'
+import { dataDir } from '../../platform/paths'
 import { applyMemberFiles, type MemberFileChange } from './member-files'
 import { useActingScopeSource, useDefaultActingScopeForTests, withActingScope, type ActingScope, type ActingScopeSource } from '../../vault/acting-scope'
 
@@ -168,6 +169,17 @@ export class ActingIdentity {
     return { ...extra, ...env }
   }
 
+  /**
+   * Where `request_secret` saves a secret for this identity's commands
+   * (docs/plans/webhooks.md §3.6): a folder its processes can read and no other
+   * member can. A member's goes in their secrets folder where they have one, in memory.
+   */
+  secretFilesFolder(): string {
+    const { seat, deps } = this
+    if (seat.kind === 'host-login' || !deps) return hostSecretFilesFolder()
+    return join(deps.memberSecrets?.(seat) ?? join(deps.memberHome(seat), '.solus'), 'secret-files')
+  }
+
   /** Read the member's connection again on next use: their account changed. */
   forget(): void {
     this.answer = null
@@ -216,6 +228,11 @@ export class ActingIdentity {
 }
 
 /** The host's own identity: the environment the host process runs with. */
+/** The host's own secret files; a process start removes what the last one left. */
+export function hostSecretFilesFolder(): string {
+  return join(dataDir(), 'secret-files')
+}
+
 export const HOST_IDENTITY = new ActingIdentity(HOST_LOGIN_SEAT, null)
 
 /** The host acting for itself, with its own account connections. */

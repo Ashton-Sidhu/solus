@@ -271,11 +271,13 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                   <ThreadMarkdown markdown={previewOption.preview} tone="assistant" store={props.store} />
                 </View>
               ) : null}
+              {/* Uncontrolled: a controlled value rebuilds the native text on each
+                  keystroke, which discards the autocorrection iOS has pending. */}
               <TextInput
                 accessibilityLabel={`Your own answer to: ${question.question}`}
                 editable={!responseDisabled}
                 multiline
-                value={draft?.customAnswer ?? ""}
+                defaultValue={draft?.customAnswer ?? ""}
                 onChangeText={(value) => changeCustomAnswer(question, value)}
                 placeholder="Add your own answer"
                 placeholderTextColorClassName="accent-placeholder"

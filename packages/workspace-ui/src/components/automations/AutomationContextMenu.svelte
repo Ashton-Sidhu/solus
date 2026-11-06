@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Copy as CopyIcon,
+    CopyPlus as CloneIcon,
     Pause as PauseIcon,
     Pen as PencilSimpleIcon,
     Play as PlayIcon,
@@ -20,11 +21,13 @@
     automation,
     canEdit,
     canRun,
+    canClone,
     onEdit,
     onRunNow,
     onCancelRun,
     onToggleEnabled,
     onToggleFavorite,
+    onClone,
     onDelete,
     onClose,
   }: {
@@ -34,11 +37,14 @@
     /** The reader's role allows changing it and running it (docs/plans/access-model.md §2.7). */
     canEdit: boolean;
     canRun: boolean;
+    /** The reader may make new automations on this host; cloning needs no role on the source. */
+    canClone: boolean;
     onEdit: () => void;
     onRunNow: () => void;
     onCancelRun: () => void;
     onToggleEnabled: () => void;
     onToggleFavorite: () => void;
+    onClone: () => void;
     onDelete: () => void;
     onClose: () => void;
   } = $props();
@@ -96,6 +102,10 @@
     <ContextMenu.Item disabled={!canEdit} onSelect={() => select(onToggleFavorite)}>
       <StarIcon weight={automation.favorite ? "fill" : "regular"} />
       {automation.favorite ? "Unstar" : "Star"}
+    </ContextMenu.Item>
+    <ContextMenu.Item disabled={!canClone} onSelect={() => select(onClone)}>
+      <CloneIcon />
+      Clone automation
     </ContextMenu.Item>
 
     <ContextMenu.Separator />

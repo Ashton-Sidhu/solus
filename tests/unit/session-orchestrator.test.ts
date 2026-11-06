@@ -9,6 +9,8 @@ import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execut
 import type { AgentConversationUpdate, AgentId, AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 import { ORCHESTRATION_LIMITS, parseOrchestrationItems, type SessionReport } from '@solus/contracts/session-exchange'
 import type { Activity } from '@solus/contracts/activity'
+import { lastTurnEnding } from '@solus/server/execution/orchestration/exchange-reports'
+import type { SessionLoadMessage } from '@solus/contracts/types'
 
 /** The person deciding on a plan in these tests, and how the host records them. */
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'decider' }, displayName: 'Decider' } }
@@ -1147,6 +1149,10 @@ describe('waiting for an outcome inside the call', () => {
       // to answer; the session that sent the work watches it instead.
       expect(answering.systemPrompt).toContain('Do not watch or poll a pull request for that session')
       expect(backend.requests[0]!.systemPrompt ?? '').not.toContain('Do not watch or poll a pull request')
+      // A worker's question parks until a person opens its card, and the sender
+      // only asked for the work: it decides what it can, and an ordinary turn may ask.
+      expect(answering.systemPrompt).toContain('Do not stop to ask a question you can settle yourself')
+      expect(backend.requests[0]!.systemPrompt ?? '').not.toContain('Do not stop to ask a question')
     } finally {
       plane.shutdown()
     }
@@ -1158,6 +1164,30 @@ describe('waiting for an outcome inside the call', () => {
 // say why — found in a live test, where a provider refused the model and the
 // parent read only "no final assistant reply".
 describe('how a turn ended', () => {
+  const message = (role: string, content: string) => ({ role, content, timestamp: 1 }) as SessionLoadMessage
+
+  test('reads the tail of a transcript when it holds the last prompt', async () => {
+    // WHY: this runs when a turn settles with no reply, and a long session's
+    // whole transcript is a large read for its last few lines.
+    const limits: Array<number | undefined> = []
+    const ending = await lastTurnEnding(async (limit) => {
+      limits.push(limit)
+      return [message('user', 'go'), message('assistant', 'done')]
+    })
+    expect(ending).toEqual({ reply: 'done' })
+    expect(limits).toHaveLength(1)
+    expect(limits[0]).toBeGreaterThan(0)
+  })
+
+  test('reads the whole transcript when a full tail cut the turn', async () => {
+    // WHY: a long turn can end in tool rows past its last words. The reply is
+    // older than the tail, and a report with no reply would say nothing.
+    const toolRows = Array.from({ length: 500 }, () => message('assistant', ''))
+    const whole = [message('user', 'go'), message('assistant', 'the reply'), ...toolRows]
+    const ending = await lastTurnEnding(async (limit) => limit ? whole.slice(-limit) : whole)
+    expect(ending).toEqual({ reply: 'the reply' })
+  })
+
   test("reads only the last turn's reply, and the error a failed turn stopped on", () => {
     const earlier = [
       { role: 'user', content: 'first job', timestamp: 1 },

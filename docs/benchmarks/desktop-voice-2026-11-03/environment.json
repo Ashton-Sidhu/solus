@@ -1,0 +1,5 @@
+{
+  "model_sha256": "4b50b6dd862bf6e346929aaf4f5eaacec003bfa3f56462d6c874b41ef2f38795",
+  "runtime_commit": "7045d1c0fe7cee37747b2792977421d435e75fca",
+  "packet_samples_per_ms": 16
+}

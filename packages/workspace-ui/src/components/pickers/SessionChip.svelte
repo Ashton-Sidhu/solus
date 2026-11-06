@@ -26,13 +26,15 @@
     type AgentMetadata,
     type ReasoningEffort,
     type AgentId,
+    type RunConfig,
   } from "@solus/contracts/types";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { cn } from "@solus/workspace-ui/lib/tw";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { Switch } from "../ui/switch";
+  import PermissionModePicker from "./PermissionModePicker.svelte";
+  import { PERMISSION_MODE_DISPLAY } from "../../lib/permission-modes";
   import {
     clampReasoningEffort,
     defaultModelIdFor,
@@ -42,6 +44,7 @@
     pickClosesModelPicker,
     modelPickerNavigationTarget,
     modelOptionsFor,
+    offersFastMode,
     reservedReasoningRows,
     reasoningLevelsFor,
     splitLegacyModels,
@@ -78,6 +81,13 @@
     /** Show the fast-mode switch. A host that cannot send fast mode with its
      *  run turns it off, so the switch never promises what the run ignores. */
     allowFastMode?: boolean;
+    /** Show the permission mode in the chip and offer it in the footer. Only a
+     *  composer may: nothing else this chip edits has a mode. */
+    allowPermissionMode?: boolean;
+    /** A session draft's run, whose mode the footer edits. A chip with a tab
+     *  edits that tab's session instead. */
+    run?: RunConfig;
+    onRun?: (next: RunConfig) => void;
     /** Host-scoped metadata can differ from the active workspace host. */
     agents?: AgentMetadata[];
     /** The host whose TypeSafe key decides whether Auto can run. Defaults to
@@ -103,6 +113,9 @@
     modelOnly = false,
     allowAuto = false,
     allowFastMode = true,
+    allowPermissionMode = false,
+    run,
+    onRun,
     agents,
     serverId,
     disabled = false,
@@ -184,6 +197,10 @@
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
   const fastMode = $derived(selection?.fastMode ?? ctx.fastMode);
+  const permissionMode = $derived((onRun ? statusBar.ctxForRun(run) : ctx).permissionMode);
+  const permissionDisplay = $derived(PERMISSION_MODE_DISPLAY[permissionMode]);
+  const supportsPermissions = $derived(modelMeta?.capabilities?.permissions !== false);
+  const triggerLabel = $derived(allowPermissionMode ? `${ariaLabel} · ${permissionDisplay.label}` : ariaLabel);
 
   // Agent. Unavailable agents stay on the list, disabled: dropping them left the
   // flyout blank whenever a binary probe came back empty, with nothing on screen
@@ -195,10 +212,10 @@
 
   // Leading brand glyph on the chip — Claude's starburst for claude-code, the
   // OpenAI mark for codex, a generic code glyph otherwise.
-  const isClaude = $derived(activeAgent === "claude-code");
   const isCodex = $derived(activeAgent === "codex");
 
   let open = $state(false);
+  let permissionOpen = $state(false);
   let triggerEl: HTMLButtonElement | null = $state(null);
   let contentEl: HTMLElement | null = $state(null);
 
@@ -229,16 +246,16 @@
   const showsFastMode = $derived(
     allowFastMode && isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId, modelMeta),
   );
-  // Models offer different numbers of levels (Haiku 4, Sonnet 5, Opus 7), and
-  // only some offer Fast mode, so the column is held at the deepest set any
-  // agent's model offers. Without the reservation the menu resizes — and, being
+  const showsFooter = $derived(
+    !modelOnly && (allowPermissionMode || canRoute || (allowFastMode && offersFastMode(agentRows.map((agent) => agent.id), metadata))),
+  );
+  // Models offer different numbers of levels (Haiku 4, Sonnet 5, Opus 7), so the
+  // column is held at the deepest set any agent's model offers. Without the
+  // reservation the menu resizes — and, being
   // top-anchored, repositions — under the cursor on every model you pass over
   // and on every agent switch.
   const reservedLevelRows = $derived(
-    Math.max(
-      reservedReasoningRows(agentRows.map((agent) => agent.id), metadata, allowFastMode),
-      reasoningLevels.length + (showsFastMode ? 1 : 0),
-    ) - (showsFastMode ? 1 : 0),
+    Math.max(reservedReasoningRows(agentRows.map((agent) => agent.id), metadata), reasoningLevels.length),
   );
 
   function openFromShortcut(targetTabId?: string) {
@@ -254,9 +271,18 @@
     else open = true;
   }
 
+  // The mode lives in the footer flyout, so its shortcut opens both at once.
+  function openPermissionFromShortcut(targetTabId?: string) {
+    if (!allowPermissionMode || !supportsPermissions) return;
+    if (!isSessionSettingsShortcutTarget({ isPrimary, tabId, targetTabId })) return;
+    if (triggerEl && triggerEl.offsetParent === null) return;
+    permissionOpen = true;
+    open = true;
+  }
+
   // Focus by value, not index: the row moves when the legacy list opens or the
-  // agent changes. Auto sits in the Reasoning column when this picker can
-  // route, so a value missing from its column is looked up in the other.
+  // agent changes. Auto sits in the footer when this picker can route, so a
+  // value missing from its column is looked up in the others.
   function focusPickerRow(reason: ModelPickerFocusReason) {
     const target = modelPickerFocusTarget({
       reason,
@@ -264,7 +290,7 @@
       effort: reasoningEffort,
       levels: modelOnly || isAuto ? [] : reasoningLevels,
     });
-    const rows = [...pickerItems(target.column), ...pickerItems(target.column === "model" ? "reasoning" : "model")];
+    const rows = [...pickerItems(target.column), ...pickerItems(target.column === "model" ? "reasoning" : "model"), ...pickerItems("footer")];
     (rows.find((row) => row.dataset.pickerValue === target.value) ?? pickerItems("model")[0])?.focus();
   }
 
@@ -400,7 +426,7 @@
         : null;
     const pickerColumn = focusedItem?.dataset.pickerColumn;
     const column: ModelPickerColumn | undefined =
-      pickerColumn === "model" || pickerColumn === "reasoning" ? pickerColumn : undefined;
+      pickerColumn === "model" || pickerColumn === "reasoning" || pickerColumn === "footer" || pickerColumn === "rail" ? pickerColumn : undefined;
     if (!focusedItem || !column) return;
 
     const columnItems = pickerItems(column);
@@ -420,6 +446,7 @@
         (item) => item.dataset.pickerValue === preferredValue,
       ),
     );
+    const railRows = pickerItems("rail");
     const destination = modelPickerNavigationTarget({
       key: event.key,
       column,
@@ -427,6 +454,8 @@
       columnLength: columnItems.length,
       oppositeColumnLength: oppositeItems.length,
       preferredOppositeIndex,
+      footerLength: pickerItems("footer").length,
+      railIndex: railRows.length > 0 ? Math.max(0, railRows.findIndex((row) => row.dataset.pickerValue === activeAgent)) : undefined,
     });
     if (!destination) return;
 
@@ -444,18 +473,36 @@
     return () =>
       window.removeEventListener("solus:toggle-session-settings-picker", handler);
   });
+
+  $effect(() => {
+    const handler = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : undefined;
+      openPermissionFromShortcut(detail?.tabId);
+    };
+    window.addEventListener("solus:toggle-permission-menu", handler);
+    return () =>
+      window.removeEventListener("solus:toggle-permission-menu", handler);
+  });
 </script>
 
 <!-- The agent's brand mark. The trigger and the model list heading both name
      the agent this way, so the two read as one control. -->
-{#snippet agentMark(blossomFill = "black")}
-  {#if isClaude}
+{#snippet agentMark(agentId: AgentId, blossomFill = "black")}
+  {#if agentId === "claude-code"}
     <ClaudeIcon size={16} />
-  {:else if isCodex}
+  {:else if agentId === "codex"}
     <OpenAIBlossom size={16} fill={blossomFill} />
   {:else}
     <CodeIcon size={16} class="flex-shrink-0" />
   {/if}
+{/snippet}
+
+<!-- The mark at menu size. Codex takes the row's ink: a white plate is heavier
+     than the glyph at this size. -->
+{#snippet agentMenuMark(agentId: AgentId)}
+  <span class="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5 {agentId === 'codex' ? '' : 'text-(--solus-accent)'}" aria-hidden="true">
+    {@render agentMark(agentId, "currentColor")}
+  </span>
 {/snippet}
 
 <DropdownMenu.Root
@@ -463,6 +510,7 @@
   onOpenChange={(nextOpen) => {
     hoveredModelId = null;
     hoveredLevel = null;
+    if (!nextOpen) permissionOpen = false;
     // Open on the section holding the current choice: a session already running
     // a superseded model must not have to go looking for what it is running.
     if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId, modelMeta?.modelProfiles);
@@ -473,15 +521,13 @@
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <!-- Same shell as the permission picker, never merged with it: mode
-                 and model are two decisions, so they are two hit targets. The
-                 brand mark is the model's category glyph and carries the only
-                 accent on the control. -->
+            <!-- The brand mark is the model's category glyph and carries the
+                 only accent on the control. -->
             <!-- `overflow-hidden` is load-bearing, not decoration. `min-w-0`
                  lets this box shrink past its content, but the glyph, the
                  reasoning label and the caret are all rigid, so without a clip
                  they paint outside the border box and over the neighbour. -->
-            <button {...tooltipProps} {...props} data-slot="session-chip" type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled ? 'not-allowed' : 'pointer'}">
+            <button {...tooltipProps} {...props} data-slot="session-chip" type="button" aria-label={triggerLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled ? 'not-allowed' : 'pointer'}">
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
              legible in dark mode; the others take the accent directly. Auto
              belongs to no one provider, so it carries a sparkles glyph in the
@@ -500,14 +546,13 @@
           {:else if isCodex && fastMode}
             <LightningIcon size={16} fill="currentColor" />
           {:else}
-            {@render agentMark()}
+            {@render agentMark(activeAgent)}
           {/if}
         </span>
         <!-- Composer ladder, rung 5: below 22rem the chip is the glyph alone.
              It stays a hit target and keeps its ⌥ shortcut; only the label
              goes. Named `/composer` so the rung is inert wherever the chip is
-             not in a composer. The label inherits the chip's muted colour,
-             the same as the permission chip beside it. -->
+             not in a composer. The label inherits the chip's muted colour. -->
         <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
           <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
@@ -519,7 +564,7 @@
       </button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content value={open ? null : isBusy ? "Changes apply to later work; a provider change applies when you send" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : ariaLabel} />
+        <TooltipUI.Content value={open ? null : isBusy ? "Changes apply to later work; a provider change applies when you send" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : triggerLabel} />
       </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
@@ -541,11 +586,12 @@
       // — it only ever says "never wider than the window".
       modelOnly
         ? "w-[min(21.5rem,calc(100vw-2rem))]"
-        : "w-[min(28.25rem,calc(100vw-2rem))]",
+        : "w-[min(31rem,calc(100vw-2rem))]",
     )}
     onOpenAutoFocus={(event) => {
       event.preventDefault();
-      focusPickerRow("open");
+      // The shortcut opened the flyout too, and the flyout takes focus.
+      if (!permissionOpen) focusPickerRow("open");
     }}
     onCloseAutoFocus={handleCloseAutoFocus}
     onkeydown={handlePickerKeyDown}
@@ -554,7 +600,38 @@
       hoveredLevel = null;
     }}
   >
-    <div class="flex items-stretch">
+    <div class="flex items-stretch rounded-[inherit]">
+      {#if !modelOnly}
+        <!-- The agent decides everything beside it, so it is the one surface of
+             its own, the full height of the popup, set apart by tint and not by
+             another line. Picking an agent keeps the picker up so its models can
+             follow. The title sits on a wrapper because a disabled row takes no
+             pointer. -->
+        <DropdownMenu.RadioGroup value={activeAgent} aria-label="Agent" class="flex w-11 shrink-0 flex-col items-center gap-1 rounded-l-[inherit] bg-(--solus-menu-footer-bg) p-1.5">
+          {#each agentRows as agent (agent.id)}
+            <span class="block" title={agent.enabled ? agent.label : `${agent.label}: ${agent.policyDenial ? "Not allowed" : "Not installed"}`}>
+              <DropdownMenu.RadioItem
+                value={agent.id}
+                disabled={!agent.enabled}
+                aria-label={agent.label}
+                data-picker-column="rail"
+                data-picker-value={agent.id}
+                closeOnSelect={pickClosesModelPicker("agent")}
+                onSelect={() => selectAgent(agent.id)}
+                onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
+                onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+                class="size-8 justify-center p-0 data-[state=checked]:bg-(--solus-surface-hover) [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
+              >
+                <span class="flex size-4 shrink-0 items-center justify-center {agent.id === activeAgent ? (agent.id === 'codex' ? '' : 'text-(--solus-accent)') : 'opacity-55 grayscale'}" aria-hidden="true">
+                  {@render agentMark(agent.id, "currentColor")}
+                </span>
+              </DropdownMenu.RadioItem>
+            </span>
+          {/each}
+        </DropdownMenu.RadioGroup>
+      {/if}
+      <div class="min-w-0 flex-1">
+      <div class="flex items-stretch">
       <!-- Beside the Reasoning column the model list takes no height of its
            own: it scrolls inside the column's reserved height, so opening the
            legacy list or switching agent never resizes the popup. -->
@@ -566,14 +643,10 @@
              at the column edge would drop the pending model on the walk to the
              level you're about to click. -->
         <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
-          <!-- Names whose models these are, mark first, the way the agent
-               header in the reference picker does. -->
+          <!-- Names whose models these are. Beside the rail the mark is already
+               lit, so only the Agent column's picker repeats it here. -->
           <DropdownMenu.GroupHeading class="flex items-center gap-1.5">
-            <!-- Codex takes the heading's ink: a white plate is heavier than
-                 the glyph at this size. -->
-            <span class="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5 {isCodex ? '' : 'text-(--solus-accent)'}" aria-hidden="true">
-              {@render agentMark("currentColor")}
-            </span>
+            {#if modelOnly}{@render agentMenuMark(activeAgent)}{/if}
             <span class="min-w-0 truncate">{agentName}</span>
           </DropdownMenu.GroupHeading>
           {#each modelSections.current as model (model.id)}
@@ -677,7 +750,8 @@
       </div>
 
       {#if !modelOnly}
-        <div class="w-px shrink-0 bg-(--solus-menu-hairline)"></div>
+        <!-- Short of the footer line, so the two never meet in a T. -->
+        <div class="my-2 w-px shrink-0 bg-(--solus-menu-hairline)"></div>
 
         <div class="flex w-[184px] shrink-0 flex-col p-1.5">
           <DropdownMenu.RadioGroup value={isAuto || previewReasoning ? "" : reasoningEffort}>
@@ -710,61 +784,6 @@
               {/each}
             </div>
           </DropdownMenu.RadioGroup>
-          <div class="min-h-2 flex-1"></div>
-          <DropdownMenu.Separator />
-          {#if showsFastMode}
-            <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary)">
-              <span class="min-w-0 flex-1 text-(--solus-text-tertiary)">Fast mode</span>
-              <Switch
-                size="sm"
-                checked={fastMode}
-                disabled={isAuto}
-                onCheckedChange={setFastMode}
-                aria-label="Fast mode for {modelLabel}"
-              />
-            </div>
-          {/if}
-          {#if canRoute}
-            <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
-              <DropdownMenu.RadioItem
-                value={AUTO_MODEL_ID}
-                disabled={autoNeedsKey}
-                data-picker-column="reasoning"
-                data-picker-value={AUTO_MODEL_ID}
-                closeOnSelect={pickClosesModelPicker("model")}
-                onSelect={() => pickModel(AUTO_MODEL_ID)}
-                onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
-                onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
-              >
-                <span class="min-w-0 flex-1 truncate">Auto</span>
-                {#if autoNeedsKey}
-                  <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Needs TypeSafe key</span>
-                {/if}
-              </DropdownMenu.RadioItem>
-            </DropdownMenu.RadioGroup>
-          {/if}
-          <DropdownMenu.Sub>
-            <DropdownMenu.SubTrigger data-picker-column="reasoning">
-              <span class="flex-1 text-(--solus-text-tertiary)">Agent</span>
-              <span class="truncate">{agentName}</span>
-            </DropdownMenu.SubTrigger>
-            <DropdownMenu.SubContent class="w-[216px]">
-              <DropdownMenu.RadioGroup value={activeAgent}>
-                <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
-                <!-- Picking an agent is the start of a choice, not the end of one:
-                     the menu stays up so its models and levels can follow. The
-                     flyout closes on its own once the pointer reaches them. -->
-                {#each agentRows as agent (agent.id)}
-                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
-                    <span class="min-w-0 flex-1 truncate">{agent.label}</span>
-                    {#if !agent.enabled}
-                      <span class="shrink-0 text-xs text-(--solus-text-tertiary)">{agent.policyDenial ? "Not allowed" : "Not installed"}</span>
-                    {/if}
-                  </DropdownMenu.RadioItem>
-                {/each}
-              </DropdownMenu.RadioGroup>
-            </DropdownMenu.SubContent>
-          </DropdownMenu.Sub>
         </div>
       {:else}
         <div class="w-px shrink-0 bg-(--solus-menu-hairline)"></div>
@@ -773,12 +792,76 @@
             <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
             {#each agentRows as agent (agent.id)}
               <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
+                {@render agentMenuMark(agent.id)}
                 <span class="min-w-0 flex-1 truncate">{agent.label}</span>
               </DropdownMenu.RadioItem>
             {/each}
           </DropdownMenu.RadioGroup>
         </div>
       {/if}
+    </div>
+    {#if showsFooter}
+      <!-- Settings of the whole run, not of the model under the cursor, so they
+           sit under both columns and leaving a model for them drops its preview.
+           The keys are taken on the way down: → moves along the row, and only
+           the last row keeps it to open its flyout. The flyout opens on a click,
+           never on hover: a row this close to its neighbours would open it on
+           the way past. -->
+      <div class="mx-2.5 h-px bg-(--solus-menu-hairline)"></div>
+      <div
+        role="none"
+        class="flex items-center gap-1 p-1.5"
+        onkeydowncapture={handlePickerKeyDown}
+        onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+        onfocusin={() => { hoveredModelId = null; hoveredLevel = null; }}
+      >
+        {#if canRoute}
+          <DropdownMenu.RadioGroup class="min-w-0" value={currentModelId ?? ""}>
+            <DropdownMenu.RadioItem
+              value={AUTO_MODEL_ID}
+              disabled={autoNeedsKey}
+              data-picker-column="footer"
+              data-picker-value={AUTO_MODEL_ID}
+              closeOnSelect={pickClosesModelPicker("model")}
+              onSelect={() => pickModel(AUTO_MODEL_ID)}
+              class="gap-1.5 pr-2.5 data-[state=checked]:bg-(--solus-accent-light) [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
+            >
+              <SparklesIcon class={isAuto ? "text-(--solus-accent)" : "text-(--solus-text-tertiary)"} />
+              <span class="shrink-0">Auto</span>
+              {#if autoNeedsKey}
+                <span class="min-w-0 truncate text-xs text-(--solus-text-tertiary)">Needs TypeSafe key</span>
+              {/if}
+            </DropdownMenu.RadioItem>
+          </DropdownMenu.RadioGroup>
+        {/if}
+        {#if showsFastMode}
+          <DropdownMenu.CheckboxItem
+            class="shrink-0 gap-1.5 pr-2.5 data-[state=checked]:bg-(--solus-accent-light) [&_[data-slot=dropdown-menu-checkbox-item-indicator]]:hidden"
+            checked={fastMode}
+            disabled={isAuto}
+            closeOnSelect={pickClosesModelPicker("fast-mode")}
+            onCheckedChange={setFastMode}
+            aria-label="Fast mode for {modelLabel}"
+            data-picker-column="footer"
+            data-picker-value="fast-mode"
+          >
+            <LightningIcon class={fastMode ? "text-(--solus-accent)" : "text-(--solus-text-tertiary)"} fill={fastMode ? "currentColor" : "none"} />
+            <span>Fast mode</span>
+          </DropdownMenu.CheckboxItem>
+        {/if}
+        {#if allowPermissionMode}
+          <PermissionModePicker
+            {tabId}
+            {run}
+            {onRun}
+            {permissionMode}
+            capabilities={modelMeta?.capabilities}
+            bind:open={permissionOpen}
+          />
+        {/if}
+      </div>
+    {/if}
+      </div>
     </div>
   </DropdownMenu.Content>
 </DropdownMenu.Root>

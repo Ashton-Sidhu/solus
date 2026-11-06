@@ -91,6 +91,9 @@ export function agentForProject(metadata: AgentMetadata, cwd?: string): AgentMet
   const catalog = instanceModelCatalog(instance)
   // Profiles the provider reported live (Codex `model/list`) stay under the instance's catalog.
   if (metadata.modelProfiles) catalog.modelProfiles = { ...metadata.modelProfiles, ...catalog.modelProfiles }
+  // So do the models it reported: a catalog lists only the published and the custom ones.
+  catalog.models.push(...metadata.models.filter(({ id }) => !MODEL_PROFILES[provider]?.[id]
+    && !instance.hiddenModels.includes(id) && !catalog.models.some((model) => model.id === id)))
   const enabled = project?.enabled[instance.id] ?? instance.enabled
   const builtin = Object.entries(catalog.modelProfiles).find(([, profile]) => profile.isDefault)?.[0] ?? metadata.defaultModel
   return { ...metadata, ...catalog, defaultModel: builtin, available: enabled && instance.binaryAvailable,

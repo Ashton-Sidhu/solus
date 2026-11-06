@@ -1,7 +1,8 @@
+import { readFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
-import { Options, query, type CanUseTool, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
+import { Options, query, type CanUseTool, type ModelInfo, type OnElicitation, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAppCapture, type ClaudeMcpApp } from './claude-mcp-apps'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { resumeCompactionDialog } from './claude-resume-compaction'
@@ -13,6 +14,7 @@ import { endTreeAfterExit } from '../../../platform/process-tree'
 import { findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
 import { solusPluginsDir } from '../plugins'
 import { claudeUsageFromApi, parseClaudeUsageReport } from './claude-usage'
+import { gatewayDiscoveryWaitMs } from './claude-models'
 import { toContextBreakdown } from './claude-context-usage'
 import type { ClaudeUsageReport, ClaudeUsageWindows } from './claude-usage'
 import type { AgentSlashCommand, ContextUsage, NormalizedEvent, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
@@ -312,6 +314,20 @@ function usageQueryOptions(executable: string, seat: ClaudeSeat | undefined, abo
   }
 }
 
+const settingsEnvSchema = z.object({
+  env: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+})
+
+/** The `env` of the host user's settings.json; empty when it has none or cannot be read. */
+async function userSettingsEnv(): Promise<Record<string, string | number | boolean>> {
+  try {
+    const settings = JSON.parse(await readFile(join(claudeConfigDir(), 'settings.json'), 'utf8'))
+    return settingsEnvSchema.safeParse(settings).data?.env ?? {}
+  } catch {
+    return {}
+  }
+}
+
 export class ClaudeAgent {
   run(opts: ClaudeRunOptions): ClaudeRunExecution {
     const abortController = opts.abortController ?? new AbortController()
@@ -565,6 +581,35 @@ export class ClaudeAgent {
         argumentHint: c.argumentHint || undefined,
         aliases: c.aliases,
       }))
+    } finally {
+      abortController.abort()
+      await drain.catch(() => {})
+    }
+  }
+
+  /**
+   * The models Claude Code reports for the host. User settings load because a
+   * gateway is usually set there. With gateway discovery on, the process stays
+   * open for Claude Code's discovery timeout first, so the list has the
+   * gateway's models on a new config folder. No turn is ever sent.
+   */
+  async reportedModels(): Promise<ModelInfo[]> {
+    const abortController = new AbortController()
+    async function* emptyInput(): AsyncGenerator<never> {
+      await new Promise<void>((resolve) =>
+        abortController.signal.addEventListener('abort', () => resolve(), { once: true }))
+      yield* []
+    }
+    const modelsQuery = query({
+      prompt: emptyInput(),
+      options: { ...usageQueryOptions(await resolveClaudeExecutable(), undefined, abortController), settingSources: ['user'] },
+    })
+    const drain = (async () => { try { for await (const _ of modelsQuery) { /* until aborted */ } } catch { /* aborted */ } })()
+    try {
+      await modelsQuery.initializationResult()
+      const waitMs = gatewayDiscoveryWaitMs(claudeEnv(), await userSettingsEnv())
+      if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs))
+      return await modelsQuery.supportedModels()
     } finally {
       abortController.abort()
       await drain.catch(() => {})

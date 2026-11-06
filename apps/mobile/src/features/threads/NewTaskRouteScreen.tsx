@@ -498,7 +498,7 @@ function PlanModeToggle(props: {
 }
 
 /**
- * Coordinator mode: makes the new session a lead, which plans the work, starts
+ * Meta mode: makes the new session a lead, which plans the work, starts
  * other sessions to do it, and reports back. The choice goes with the first
  * prompt and is fixed after it. Selected, the control fills, as every selected
  * inline control does.
@@ -519,10 +519,10 @@ function LeadToggle(props: {
   return (
     <ComposerInlineControl
       accessibilityHint="Plans the work, starts other sessions to do it, and reports back. It does not do the work itself. Fixed once the session starts."
-      accessibilityLabel="Coordinator mode: plan the work and start other sessions to do it"
+      accessibilityLabel="Meta mode: plan the work and start other sessions to do it"
       disabled={props.disabled}
       icon={LEAD_SYMBOL}
-      label="Coordinator mode"
+      label="Meta mode"
       onPress={toggle}
       selected={props.meta.lead}
       showChevron={false}

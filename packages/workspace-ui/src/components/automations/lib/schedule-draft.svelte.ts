@@ -56,6 +56,10 @@ export class ScheduleDraft {
   cronExpr = $state('0 9 * * *')
   /** datetime-local value for the one-off "Once" preset. */
   onceLocal = $state(toLocalInputValue(undefined))
+  /** Whether a recurring schedule stops on a date. */
+  hasEnd = $state(false)
+  /** datetime-local value for the schedule's end; a month out until one is picked. */
+  endsLocal = $state(toLocalInputValue(new Date(Date.now() + 30 * 86_400_000).toISOString()))
 
   constructor(trigger?: AutomationTrigger) {
     if (!trigger) return
@@ -72,7 +76,17 @@ export class ScheduleDraft {
     } else if (trigger.type === 'once') {
       this.onceLocal = toLocalInputValue(trigger.runAt)
     }
+    if ('endsAt' in trigger && trigger.endsAt) {
+      this.hasEnd = true
+      this.endsLocal = toLocalInputValue(trigger.endsAt)
+    }
   }
+
+  /** Only a schedule that repeats has an end. */
+  readonly repeats = $derived(this.kind !== 'manual' && this.kind !== 'once')
+
+  /** The end is already behind us, so the schedule will not fire again. */
+  readonly endPassed = $derived(this.repeats && this.hasEnd && Date.parse(this.endsLocal) <= Date.now())
 
   /** The raw-expression escape hatch holds something that will never fire.
    *  Flagged as you type, so a typo never reaches the scheduler silently. */
@@ -85,6 +99,14 @@ export class ScheduleDraft {
   /** Compile the live fields into a storable trigger, or the reason they don't
    *  make one yet. */
   build(): AutomationTrigger | { error: string } {
+    const trigger = this.buildRepeat()
+    if ('error' in trigger || !this.hasEnd || (trigger.type !== 'interval' && trigger.type !== 'cron')) return trigger
+    const ms = Date.parse(this.endsLocal)
+    if (!Number.isFinite(ms)) return { error: 'Pick a valid end date and time.' }
+    return { ...trigger, endsAt: new Date(ms).toISOString() }
+  }
+
+  private buildRepeat(): AutomationTrigger | { error: string } {
     const [h, m] = this.time.split(':').map(Number)
     const hh = Number.isFinite(h) ? h : 9
     const mm = Number.isFinite(m) ? m : 0

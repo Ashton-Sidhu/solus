@@ -72,7 +72,8 @@ import { sessionListStore, type ListedSession, type SessionListTarget } from './
 import { isUnopenedShare } from './shared-sessions'
 import { canDriveSession } from '../sharing/resource-roles'
 import { projectHome, runHost, workingPlace } from './run-location'
-import { visibleInWindow } from '@solus/client-core/organization-filter'
+import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
+import { managedHostIds } from '@solus/client-core/server-registry'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 
 function restoredSessionActivityAt(
@@ -139,6 +140,7 @@ export function mountedSidebarTabIds(
   tabs: Readonly<Record<string, Tab>>,
   organizationIdForTab: (tabId: string) => string | undefined = () => undefined,
   activeOrganizationId: string | null = null,
+  usesFilterForTab: (tabId: string) => boolean = () => true,
 ): string[] {
   const mounted = tabOrder.filter((tabId) => !!tabs[tabId])
   const seen = new Set(mounted)
@@ -147,7 +149,7 @@ export function mountedSidebarTabIds(
     mounted.push(tabId)
     seen.add(tabId)
   }
-  return mounted.filter((tabId) => visibleInWindow(organizationIdForTab(tabId), activeOrganizationId))
+  return mounted.filter((tabId) => visibleInWindow(organizationIdForTab(tabId), activeOrganizationId, usesFilterForTab(tabId)))
 }
 
 /** The homes as the saved-host registry and the live sockets know them, without a reactive store. */
@@ -174,6 +176,11 @@ export class SessionSidebarStore {
     this.session.tabs,
     (tabId) => this.session.sessionFor(tabId)?.organizationId ?? undefined,
     this.activeOrganizationId(),
+    // A personal host's conversation shows in every window (plans/031 rule 1).
+    (tabId) => {
+      const session = this.session.sessionFor(tabId)
+      return usesWindowFilter(session ? runHost(session.run) : null, managedHostIds())
+    },
   ))
 
   /** Which tab, if any, has a given session mounted. Built once per pass:

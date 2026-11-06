@@ -89,3 +89,65 @@ test('a cursor inside a turn whose items changed fails instead of skipping or re
   thread.items.get('long')!.push(command(2100, 'ok'), command(2101, 'ok'))
   await expect(loadCodexHistoryPage('thread', thread.turns, thread.read, OLDER_HISTORY_TURNS, recent.before!)).rejects.toThrow('history changed')
 })
+
+function concurrentThread(count: number) {
+  const turns: CodexTurnHistory[] = Array.from({ length: count }, (_, index) => ({ id: String(index), itemsView: 'summary' }))
+  const calls: CodexItemsListParams[] = []
+  const replies = new Map<string, ReturnType<typeof Promise.withResolvers<CodexItemsListResponse>>>()
+  const started = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>()
+  for (const turn of turns) started.set(turn.id!, Promise.withResolvers<void>())
+  let active = 0
+  let peak = 0
+  const read = async (params: CodexItemsListParams): Promise<CodexItemsListResponse> => {
+    calls.push(params)
+    active++
+    peak = Math.max(peak, active)
+    const reply = Promise.withResolvers<CodexItemsListResponse>()
+    replies.set(params.turnId, reply)
+    started.get(params.turnId)!.resolve()
+    try { return await reply.promise } finally { active-- }
+  }
+  const finish = (turnId: string, text = turnId) => replies.get(turnId)!.resolve({
+    data: [{ turnId, item: prompt(`p-${turnId}`, text) }], nextCursor: null,
+  })
+  return { turns, calls, replies, started, read, finish, peak: () => peak }
+}
+
+test('three turn reads overlap, preserve order, and do not exceed the requested turns', async () => {
+  const thread = concurrentThread(5)
+  const result = loadCodexHistoryPage('thread', thread.turns, thread.read, 4)
+  expect(thread.calls.map((call) => call.turnId)).toEqual(['4', '3', '2'])
+  // Older replies arrive first. They must not change chronology or advance
+  // the shared budget before the newest turn has been consumed.
+  thread.finish('2')
+  thread.finish('3')
+  thread.finish('4')
+  await thread.started.get('1')!.promise
+  thread.finish('1')
+  const page = await result
+  expect(thread.peak()).toBe(3)
+  expect(page.messages.map((message) => message.content)).toEqual(['1', '2', '3', '4'])
+  expect(thread.calls.map((call) => call.turnId)).toEqual(['4', '3', '2', '1'])
+  expect(page.before).toBe(JSON.stringify({ turn: '1' }))
+})
+
+test('a full page stops scheduling and ignores errors in unused speculative reads', async () => {
+  const thread = concurrentThread(5)
+  const result = loadCodexHistoryPage('thread', thread.turns, thread.read, 5)
+  thread.replies.get('2')!.reject(new Error('unused older turn'))
+  thread.replies.get('3')!.reject(new Error('unused older turn'))
+  thread.finish('4', 'x'.repeat(HISTORY_PAGE_BYTES))
+  const page = await result
+  expect(page.messages).toHaveLength(1)
+  expect(page.before).toBe(JSON.stringify({ turn: '4' }))
+  expect(thread.calls.map((call) => call.turnId)).toEqual(['4', '3', '2'])
+})
+
+test('an error in a needed prefetched turn still fails the page', async () => {
+  const thread = concurrentThread(3)
+  const result = loadCodexHistoryPage('thread', thread.turns, thread.read, 3)
+  thread.replies.get('1')!.reject(new Error('needed turn unavailable'))
+  thread.finish('0')
+  thread.finish('2')
+  await expect(result).rejects.toThrow('needed turn unavailable')
+})

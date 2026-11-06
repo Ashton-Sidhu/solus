@@ -6,6 +6,7 @@ import { sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path
 import { loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
 import type { AgentToolImage } from '../tools/agent-tool'
+import { loadCodexTurns } from './codex-turns'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
@@ -69,8 +70,6 @@ import type {
   CodexThreadGoalClearResponse,
   CodexThreadGoalResponse,
   CodexThreadListResponse,
-  CodexThreadReadResponse,
-  CodexThreadResumeResponse,
   CodexThreadStartParams,
   CodexThreadStartResponse,
   CodexTurnStartParams,
@@ -243,6 +242,8 @@ interface RunningCommand {
   client: CodexAppServerClient
   /** It outlived the turn that started it. */
   isBackground: boolean
+  /** Commands hold by default; false explicitly leaves a service running. */
+  waiting?: boolean
   /** A person stopped it, so its completion wakes nobody. */
   isStopping?: boolean
 }
@@ -668,11 +669,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         const sourceThreadId = threadId
         let lastTurnId: string | undefined
         if (conversation.excludeLatestTurn) {
-          const source = await handle.client.request<CodexThreadReadResponse>('thread/read', {
-            threadId,
-            includeTurns: true,
-          })
-          const turns = source.thread?.turns ?? []
+          const turns = await this.readThreadTurns(handle.client, threadId)
           const activeTurnId = this.activeRuns.get(threadId)?.turnId ?? null
           lastTurnId = codexForkCutoffTurnId(turns, activeTurnId)
         }
@@ -1046,7 +1043,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       await cacheIndexedSessions(sessions)
       const threadsById = new Map(candidates.map((thread) => [thread.id!, thread]))
       const planAnnotations = await loadAllAnnotations(ANY_ORGANIZATION)
-      // Throttle the thread/read fan-out: a new user's first sweep can span
+      // Throttle the history-read fan-out: a new user's first sweep can span
       // thousands of threads, and reading them all at once spikes the RPC channel.
       await runWithConcurrency(sessions, CODEX_INDEX_READ_CONCURRENCY, async (session) => {
         try {
@@ -1055,12 +1052,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
             const plans = await scanCodexPlans(thread, planAnnotations)
             await replaceIndexedPlansForThread('codex', session.sessionId, plans.map(indexedCodexPlan))
           }
-          const response: CodexThreadReadResponse = await this.client.request('thread/read', {
-            threadId: session.sessionId,
-            includeTurns: true,
-          })
+          const turns = await this.readThreadTurns(this.client, session.sessionId)
           const messages: SessionLoadMessage[] = []
-          this.appendCodexTurnMessages(messages, response.thread?.turns ?? [])
+          this.appendCodexTurnMessages(messages, turns)
           indexSessionMessages(
             session.sessionId,
             messages.filter((message) =>
@@ -1114,35 +1108,26 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private async readThread(client: CodexAppServerClient, sessionId: string): Promise<CodexThreadReadResponse | CodexThreadResumeResponse> {
+  private async readThreadTurns(client: CodexAppServerClient, sessionId: string): Promise<Turn[]> {
     try {
-      return await client.request('thread/read', {
-        threadId: sessionId,
-        includeTurns: true,
-      })
+      return await loadCodexTurns(client, sessionId)
     } catch (error) {
-      // `thread/read` only reads a thread that app-server already holds in
-      // memory. History rows also name dormant threads persisted on disk, so
-      // load those through the protocol's disk-backed resume path before the
-      // picker asks for their transcript preview.
+      // Dormant threads must be loaded on their owning app-server before paging.
       if (!(error instanceof Error) || !isThreadNotLoadedError(error)) throw error
-      const response = await client.request('thread/resume', { threadId: sessionId })
+      await client.request('thread/resume', { threadId: sessionId })
       this.armThreadIdle(client, sessionId)
-      return response
+      return loadCodexTurns(client, sessionId)
     }
   }
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     // A subagent's thread was run on the same app-server as its parent, so it is read there too.
     const client = await this.readerFor(sessionId, { startSeatClient: true })
-    const response = await this.readThread(client, sessionId)
-    const messages = await loadCodexHistory(sessionId, response.thread?.turns ?? [],
+    const turns = await this.readThreadTurns(client, sessionId)
+    const messages = await loadCodexHistory(sessionId, turns,
       (params) => client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
       limit)
-    await reconcileCodexSubagentHistory(messages, async (threadId) => {
-      const child = await this.readThread(client, threadId)
-      return child.thread?.turns ?? []
-    })
+    await reconcileCodexSubagentHistory(messages, (threadId) => this.readThreadTurns(client, threadId))
     restoreAsyncQuestionAnswers(sessionId, messages)
     return messages
   }
@@ -1157,25 +1142,61 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private async readHistoryPage(sessionId: string, pickTurns: (turns: CodexTurnHistory[]) => CodexTurnHistory[], turnLimit: number, before?: string) {
-    const client = await this.readerFor(sessionId, { startSeatClient: true })
-    const response = await this.readThread(client, sessionId)
-    const page = await loadCodexHistoryPage(sessionId, pickTurns(response.thread?.turns ?? []),
-      (params) => client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
-      turnLimit, before)
-    await reconcileCodexSubagentHistory(page.messages, async (threadId) => {
-      const child = await this.readThread(client, threadId)
-      return child.thread?.turns ?? []
-    })
-    restoreAsyncQuestionAnswers(sessionId, page.messages)
-    return page
+    const startedAt = performance.now()
+    let stage = 'reader'
+    let stageStartedAt = startedAt
+    const stages: { stage: string; durationMs: number }[] = []
+    const nextStage = (next: string) => {
+      const now = performance.now()
+      stages.push({ stage, durationMs: now - stageStartedAt })
+      stage = next
+      stageStartedAt = now
+    }
+    let itemRequests = 0
+    let itemRequestMs = 0
+    let turnCount = 0
+    let messageCount = 0
+    let succeeded = false
+    try {
+      const client = await this.readerFor(sessionId, { startSeatClient: true })
+      nextStage('turns')
+      const turns = await this.readThreadTurns(client, sessionId)
+      turnCount = turns.length
+      nextStage('items')
+      const page = await loadCodexHistoryPage(sessionId, pickTurns(turns), async (params) => {
+        const requestedAt = performance.now()
+        itemRequests++
+        try {
+          return await client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params)
+        } finally {
+          itemRequestMs += performance.now() - requestedAt
+        }
+      }, turnLimit, before)
+      messageCount = page.messages.length
+      nextStage('children')
+      await reconcileCodexSubagentHistory(page.messages, (threadId) => this.readThreadTurns(client, threadId))
+      nextStage('answers')
+      restoreAsyncQuestionAnswers(sessionId, page.messages)
+      succeeded = true
+      return page
+    } finally {
+      const finalStage = stage
+      nextStage('done')
+      log.info('codex_history_page_profile', {
+        sessionId, olderPage: before !== undefined, turnLimit, turnCount, messageCount,
+        itemRequests, itemRequestMs, stages, succeeded,
+        failedStage: succeeded ? undefined : finalStage,
+        durationMs: performance.now() - startedAt,
+      })
+    }
   }
 
   async loadSessionPreview(sessionId: string): Promise<SessionPreviewResult> {
     // Picker previews need spoken text, not hidden tool history. Keep them on
     // the summary read even though opening the conversation now hydrates tools.
     const client = await this.readerFor(sessionId, { startSeatClient: false })
-    const response = await this.readThread(client, sessionId)
-    const messages = codexTurnsToMessages(response.thread?.turns ?? [])
+    const turns = await this.readThreadTurns(client, sessionId)
+    const messages = codexTurnsToMessages(turns)
       .filter((message) => message.role !== 'reasoning')
     return { head: messages.slice(0, 4), tail: messages.slice(-1), totalMessages: messages.length }
   }
@@ -1613,12 +1634,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   ): Promise<void> {
     const sessionId = handle.agentSessionId
     // A command still running when the turn ends is background work. Announced
-    // before the turn's result, so the session settles into 'background'.
+    // before the turn's result, so clients keep its Stop after completion.
     if (!partial) {
       for (const [itemId, command] of this.runningCommands) {
         if (command.threadId !== sessionId || command.isBackground) continue
         command.isBackground = true
-        this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId } satisfies NormalizedEvent)
+        this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId, awaitable: command.waiting === false } satisfies NormalizedEvent)
       }
     }
     // So is a sub-agent still working, after a completed or a failed root. An
@@ -1733,7 +1754,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   /** The child thread's turns, as Codex holds them. Null without an answer. */
   private async readChildTurns(stop: ChildStop): Promise<Turn[] | null> {
     try {
-      return (await stop.client.request('thread/read', { threadId: stop.threadId, includeTurns: true }, 10_000)).thread.turns
+      return await loadCodexTurns(stop.client, stop.threadId, 10_000)
     } catch (error) {
       log.warn('codex_child_read_failed', { sessionId: stop.sessionId, childThreadId: stop.threadId, error: error instanceof Error ? error.message : String(error) })
       return null
@@ -1758,6 +1779,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   /** Stop one command or sub-agent the agent left running, without a turn. */
+  setBackgroundCommandWaiting(sessionId: string, taskId: string, waiting: boolean): string | null {
+    for (const [itemId, command] of this.runningCommands) {
+      if (command.threadId !== sessionId || (itemId !== taskId && command.processId !== taskId)) continue
+      command.waiting = waiting
+      return itemId
+    }
+    return null
+  }
+
   async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
     const command = this.runningCommands.get(taskId)
     if (command) return command.threadId === sessionId && this.stopCommand(taskId, command)

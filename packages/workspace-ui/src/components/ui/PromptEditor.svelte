@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import type { VoicePartial } from "@solus/contracts/voice-stream";
   import { getPullRequestsContext, getWorkspaceContext, getPlanStore } from "../../contexts";
   import type {
     AgentId,
@@ -66,6 +67,8 @@
     readOnly?: boolean;
     /** Disables the underlying editor (read-only, connecting, transcribing…). */
     disabled?: boolean;
+    /** Live dictation, drawn at the caret until the transcript lands there. */
+    voicePartial?: VoicePartial | null;
     /** Show push-to-talk for prose editors outside the main input bar. */
     mic?: boolean;
     /** Enable the voice shortcut even when the idle mic is hidden. */
@@ -108,6 +111,7 @@
     ariaLabel = "Message input",
     readOnly = false,
     disabled = false,
+    voicePartial = null,
     mic = false,
     dictation,
     maxHeight = 140,
@@ -294,6 +298,7 @@
   {placeholder}
   {ariaLabel}
   {disabled}
+  {voicePartial}
   {mic}
   {dictation}
   {maxHeight}

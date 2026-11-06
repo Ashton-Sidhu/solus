@@ -10,7 +10,7 @@ import { buildTurns, groupMessages, itemKey, type GroupedItem, type TurnEnd } fr
  * their tool rows and nothing more.
  */
 export const RECORD_ITEM_KINDS: ReadonlySet<GroupedItem['kind']> = new Set<GroupedItem['kind']>([
-  'user', 'assistant', 'thought', 'question', 'tool-group', 'subagent-group', 'system',
+  'user', 'assistant', 'thought', 'question', 'secret-receipt', 'tool-group', 'subagent-group', 'system',
   'plan', 'document', 'artifact',
 ])
 

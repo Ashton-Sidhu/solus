@@ -928,6 +928,13 @@ export class InsightsStore {
     }
   }
 
+  /** The summary as the host has it now: a choice made from it cannot rest on
+   *  a turn list read before the session's latest turn. */
+  async readSessionSummary(sessionId: string): Promise<MetricsSessionSummary | null> {
+    this.sessionSummaries.delete(sessionId)
+    return this.loadSessionSummary(sessionId)
+  }
+
   /**
    * The name a session is listed under, when the host still holds the session.
    *

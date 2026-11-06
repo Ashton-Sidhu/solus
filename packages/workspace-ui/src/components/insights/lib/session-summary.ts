@@ -1,4 +1,4 @@
-import type { MetricsSessionSummary } from '@solus/contracts/observability-types'
+import type { MetricsSessionSummary, MetricsTurnSummary } from '@solus/contracts/observability-types'
 import { singleLine } from './format'
 import type { TurnRow } from './turn-rows'
 import { isFailedStatus } from './volume'
@@ -14,6 +14,21 @@ import { isFailedStatus } from './volume'
 // question about one row rather than about all of them at once.
 //
 // Pure and non-reactive: the component reads these from `$derived`.
+
+/** The turn a session opens on: the newest that ended, however it ended, or the
+ *  running one when none has. A root with no end yet reports `unknown`. */
+export function lastCompleteTurn(session: MetricsSessionSummary): MetricsTurnSummary | null {
+  return session.turns.findLast((turn) => turn.status !== 'unknown') ?? session.turns.at(-1) ?? null
+}
+
+/** Brings a row into its scrolling list by the shortest move. `scrollIntoView`
+ *  would also scroll every scroller around the list, moving the page. */
+export function scrollListToRow(list: HTMLElement, row: HTMLElement): void {
+  const view = list.getBoundingClientRect()
+  const { top, bottom } = row.getBoundingClientRect()
+  if (top < view.top) list.scrollTop -= view.top - top
+  else if (bottom > view.bottom) list.scrollTop += bottom - view.bottom
+}
 
 export interface SessionTurnRow {
   traceId: string

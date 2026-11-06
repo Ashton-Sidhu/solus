@@ -4,7 +4,7 @@ import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import type { SessionStatus } from '@solus/contracts/types'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { attemptServerId } from '../../lib/sessionUtils'
-import { visibleInWindow } from '../../lib/organization-filter'
+import { recordVisibleInWindow } from '../../lib/organization-filter'
 import { hosts } from '../hosts/hosts.svelte'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { projectsStore } from '../projects/projects.store.svelte'
@@ -137,11 +137,11 @@ export class TasksStore {
    *  redraws the rows reading that field without this list being rebuilt. */
   private listedTasks = $state<Task[]>([])
 
-  /** The listed tasks this window shows: Local ones, and the selected
-   *  organization's (organization-scope §2, `organization-filter.ts`). */
+  /** The listed tasks this window shows: Local ones, the selected organization's,
+   *  and every task of a personal host (organization-scope §2, plans/031 rule 1). */
   get tasks(): Task[] {
     const activeOrganizationId = organizationSelection.activeOrganizationId
-    return this.listedTasks.filter((task) => visibleInWindow(task.organizationId, activeOrganizationId))
+    return this.listedTasks.filter((task) => recordVisibleInWindow(task.organizationId, activeOrganizationId, this.byId.get(task.id)?.serverId))
   }
 
   /** Puts a task on the durable list, once; the window filter decides whether it shows. */

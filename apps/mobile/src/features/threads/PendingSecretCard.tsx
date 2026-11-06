@@ -1,7 +1,9 @@
 import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 import {
   canSubmitSecrets,
+  SECRET_PLACEHOLDER,
   secretAnswer,
+  secretPrivacyNote,
   secretRequestPrompts,
   type SecretField,
 } from "@solus/contracts/secret-request";
@@ -26,7 +28,8 @@ export interface PendingSecretCardProps {
 
 /**
  * The private card of `request_secret` (docs/plans/webhooks.md §3.6): one field
- * per secret; the user saves or declines each one. The values live only in this
+ * per secret; the user saves or declines each one. A `file` secret is saved where
+ * the agent's commands can read it, and the card says so. The values live only in this
  * card's state. They never go to the composer's draft or the transcript, and
  * they go to the host once. Keyed by the request, so the next card starts empty.
  */
@@ -57,19 +60,10 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
         {isGroup ? `${prompts.length} secrets requested` : "Secret requested"}
       </Text>
-      {isGroup ? null : <Text className="font-t3-bold text-lg text-foreground">{prompts[0].name}</Text>}
-      <View className="flex-row items-center gap-1.5">
-        <SymbolView name="lock" size={12} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
-        <Text className="flex-1 font-sans text-xs text-foreground-muted">
-          {isGroup
-            ? "The values go only to the host. The agent and the transcript never see them."
-            : "The value goes only to the host. The agent and the transcript never see it."}
-        </Text>
-      </View>
       <ScrollView
         bounces={false}
         className="min-h-0"
-        contentContainerClassName="gap-3 pb-1"
+        contentContainerClassName="gap-4 pb-1"
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
         style={{ flexShrink: 1 }}
@@ -81,46 +75,63 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
         ) : null}
         {prompts.map((prompt, index) => {
           const field = fields[index];
+          const isFile = prompt.delivery === "file";
           return (
             <View key={index} className="gap-2">
-              <View className="flex-row items-start gap-2">
-                <View className="min-w-0 flex-1 gap-0.5">
-                  {isGroup ? <Text className="font-t3-bold text-sm text-foreground">{prompt.name}</Text> : null}
-                  <Text selectable className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
-                </View>
-                {isGroup && canRespond ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: field.isDeclined, disabled }}
-                    accessibilityLabel={`${field.isDeclined ? "Undo decline of" : "Decline"} ${prompt.name}`}
-                    disabled={disabled}
-                    hitSlop={8}
-                    onPress={() => changeField(index, { isDeclined: !field.isDeclined, value: "" })}
-                    className="min-h-8 justify-center rounded-full px-3 active:opacity-70"
-                  >
-                    <Text className="font-t3-bold text-xs text-foreground-secondary">
-                      {field.isDeclined ? "Undo" : "Decline"}
-                    </Text>
-                  </Pressable>
-                ) : null}
+              <View className="gap-0.5">
+                <Text className="font-t3-bold text-lg text-foreground">{prompt.name}</Text>
+                <Text selectable className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
               </View>
               {!canRespond ? null : field.isDeclined ? (
-                <Text className="font-sans text-xs text-foreground-muted">
-                  Declined. The agent does not get this secret.
-                </Text>
+                <View className="flex-row items-center justify-between gap-2">
+                  <Text className="flex-1 font-sans text-xs text-foreground-muted">
+                    Declined. The agent does not get this secret.
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Undo decline of ${prompt.name}`}
+                    disabled={disabled}
+                    hitSlop={8}
+                    onPress={() => changeField(index, { isDeclined: false })}
+                    className="min-h-8 justify-center rounded-full px-3 active:opacity-70"
+                  >
+                    <Text className="font-t3-bold text-xs text-foreground-secondary">Undo</Text>
+                  </Pressable>
+                </View>
               ) : (
-                <TextInput
-                  accessibilityLabel={`Value of ${prompt.name}`}
-                  editable={!disabled}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="off"
-                  textContentType="none"
-                  value={field.value}
-                  onChangeText={(value) => changeField(index, { value })}
-                  className="min-h-12 rounded-2xl border border-border bg-input px-3.5 py-3 font-mono text-sm text-foreground"
-                />
+                <>
+                  <TextInput
+                    accessibilityLabel={`Value of ${prompt.name}`}
+                    editable={!disabled}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    placeholder={SECRET_PLACEHOLDER}
+                    value={field.value}
+                    onChangeText={(value) => changeField(index, { value })}
+                    className="min-h-12 rounded-2xl border border-border bg-input px-3.5 py-3 font-mono text-sm text-foreground"
+                  />
+                  <View className="flex-row items-center gap-2">
+                    <View className="min-w-0 flex-1 flex-row items-start gap-1.5">
+                      <SymbolView name={isFile ? "terminal" : "lock"} size={12} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
+                      <Text className="flex-1 font-sans text-xs text-foreground-muted">{secretPrivacyNote(prompt)}</Text>
+                    </View>
+                    {isGroup ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Decline ${prompt.name}`}
+                        disabled={disabled}
+                        hitSlop={8}
+                        onPress={() => changeField(index, { isDeclined: true, value: "" })}
+                        className="min-h-8 justify-center rounded-full px-3 active:opacity-70"
+                      >
+                        <Text className="font-t3-bold text-xs text-foreground-secondary">Decline</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </>
               )}
             </View>
           );
@@ -136,7 +147,7 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
             onPress={() => send(fields.map(() => null))}
           />
           <RequestActionButton
-            label="Submit"
+            label="Save securely"
             tone={isReady ? "primary" : "secondary"}
             disabled={disabled || !isReady}
             onPress={() => send(secretAnswer(fields))}

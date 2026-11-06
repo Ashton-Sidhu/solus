@@ -6,6 +6,7 @@ import type { Db } from '../../db/database'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { appendActivity, newActivity } from './activity'
 import { recordNotification } from '../notifications/store'
+import { hostKeyOf } from '../../host/host-user'
 
 /**
  * A mention is recorded once, when it is first saved (plans/012 §5, plan 004
@@ -25,8 +26,10 @@ export async function recordNewMentions(
 ): Promise<void> {
   if (organizationId === LOCAL_ORGANIZATION_ID) return
   const before = new Set(mentionedPeople(previous).map((mention) => mention.userId))
-  for (const mention of mentionedPeople(text)) {
-    if (before.has(mention.userId)) continue
+  for (const { userId: namedId } of mentionedPeople(text)) {
+    if (before.has(namedId)) continue
+    // The host's owner, named by their account, is mentioned by their key here (plans/031 D4).
+    const mention = { userId: hostKeyOf(namedId) }
     const activity = newActivity({ kind: subject.kind, id: subject.id }, by, threadId ? { kind: 'mentioned', userId: parseUserKey(mention.userId), threadId } : { kind: 'mentioned', userId: parseUserKey(mention.userId) })
     await appendActivity(organizationId, activity, db)
     // The hub projects the mention for the person it names (plans/015 §5), with the activity's id.

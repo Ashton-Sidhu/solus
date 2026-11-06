@@ -1,0 +1,27 @@
+diff --git a/dist/components/ImageItem/ImageItem.android.js b/dist/components/ImageItem/ImageItem.android.js
+index 5fcaa9f..7ecd054 100644
+--- a/dist/components/ImageItem/ImageItem.android.js
++++ b/dist/components/ImageItem/ImageItem.android.js
+@@ -6,7 +6,7 @@
+  *
+  */
+ import React, { useCallback, useRef, useState } from "react";
+-import { Animated, ScrollView, Dimensions, StyleSheet, } from "react-native";
++import { Animated, ScrollView, Dimensions, StyleSheet, View, } from "react-native";
+ import useImageDimensions from "../../hooks/useImageDimensions";
+ import usePanResponder from "../../hooks/usePanResponder";
+ import { getImageStyles, getImageTransform } from "../../utils";
+@@ -68,8 +68,11 @@ const ImageItem = ({ imageSrc, onZoom, onRequestClose, onLongPress, delayLongPre
+         onScroll,
+         onScrollEndDrag,
+     })}>
+-      <Animated.Image {...panHandlers} source={imageSrc} style={imageStylesWithOpacity} onLoad={onLoaded}/>
+-      {(!isLoaded || !imageDimensions) && <ImageLoading />}
++      {/* Pinch from anywhere on screen, not only on the fitted image. */}
++      <View {...panHandlers} pointerEvents={isLoaded && imageDimensions ? "auto" : "none"} style={styles.listItem}>
++        <Animated.Image source={imageSrc} style={imageStylesWithOpacity} onLoad={onLoaded}/>
++        {(!isLoaded || !imageDimensions) && <ImageLoading />}
++      </View>
+     </ScrollView>);
+ };
+ const styles = StyleSheet.create({

@@ -96,7 +96,10 @@ export class SessionStatuses {
       const agentSessionId = session.agentSessionId
       const alive = !!agentSessionId && backend.isSessionRunning(agentSessionId)
       const hasPendingRun = !alive && backend.getPendingHandles().some((handle) => handle.sessionId === sessionId)
-      if (alive || hasPendingRun) {
+      // A completed provider turn can leave commands or children running.
+      // Their lifecycle events own completion; no active turn is required.
+      const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
+      if (alive || hasPendingRun || (hasBackgroundWork && !isSessionBusyStatus(session.status))) {
         this.rt.missingRunCounts.delete(sessionId)
         continue
       }

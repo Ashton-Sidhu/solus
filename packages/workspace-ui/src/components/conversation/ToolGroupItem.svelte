@@ -232,13 +232,16 @@
     {/snippet}
 
     {#snippet actions()}
-      <CopyButton
-        getText={() => toolRowsCopyText(tools.slice(), history)}
-        title="Copy tool row"
-        iconOnly
-        refocusInput={false}
-        onError={copyFailed}
-      />
+      <!-- The 18px slot keeps the 28px button from setting the row's height. -->
+      <span class="inline-flex h-4.5 shrink-0 items-center self-center">
+        <CopyButton
+          getText={() => toolRowsCopyText(tools.slice(), history)}
+          title="Copy tool row"
+          iconOnly
+          refocusInput={false}
+          onError={copyFailed}
+        />
+      </span>
     {/snippet}
 
     {#snippet rail()}
@@ -289,13 +292,15 @@
               {describe(step, parsed)}
             </button>
             <span class="flex-1"></span>
-            <CopyButton
-              getText={() => toolRowsCopyText([step], history)}
-              title="Copy tool call"
-              iconOnly
-              refocusInput={false}
-              onError={copyFailed}
-            />
+            <span class="inline-flex h-4.5 shrink-0 items-center">
+              <CopyButton
+                getText={() => toolRowsCopyText([step], history)}
+                title="Copy tool call"
+                iconOnly
+                refocusInput={false}
+                onError={copyFailed}
+              />
+            </span>
             {#if endMs !== undefined}
               <span class="tool-step-duration text-tool-step font-mono shrink-0">
                 {formatActivityDuration(endMs - step.timestamp)}

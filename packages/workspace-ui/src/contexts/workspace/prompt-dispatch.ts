@@ -581,7 +581,7 @@ export class PromptDispatch {
       taskId: promptTaskId,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
       // A lead is chosen before the first message and fixed from then on. A
-      // chat offers no Coordinator mode, so a choice made before a move to one drops.
+      // chat offers no Meta mode, so a choice made before a move to one drops.
       isLead: isFirstMessage && session.isLead && !isChat(checkoutPlace(session.run).path) ? true : undefined,
     })
     requestConversationScrollToBottom(targetTabId)

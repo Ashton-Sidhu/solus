@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from '../helpers/bun-sqlite'
-import type { CatalogEntry, Integration, IntegrationConnection, IntegrationConnectNeeded, IntegrationCreateRequest } from '@solus/contracts/integration-types'
+import type { CatalogEntry, Integration, IntegrationConnection, IntegrationConnectNeeded, IntegrationCreateRequest, IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
 
 /**
  * `connect_integration` (docs/plans/mcp-integrations.md §13.2): an agent connects
@@ -24,6 +24,7 @@ const OTHER = 'member-2'
 const integrations: Integration[] = []
 const connections = new Map<string, IntegrationConnection>()
 const cards: IntegrationConnectNeeded[] = []
+const customCards: IntegrationCustomServerNeeded[] = []
 const created: { owner: string; request: IntegrationCreateRequest }[] = []
 let catalogEntries: CatalogEntry[] = []
 let catalogQueries = 0
@@ -79,6 +80,7 @@ beforeAll(async () => {
     statusFor: (integrationId, personKey) => connections.get(`${integrationId}:${personKey}`) ?? null,
   })
   gateway.onConnectNeeded((request) => cards.push(request))
+  gateway.onCustomServerNeeded((request) => customCards.push(request))
   setIntegrationGateway(gateway)
   tool.installConnectIntegrationTool({
     catalog: { list: async () => { catalogQueries += 1; return { entries: catalogEntries, total: catalogEntries.length } } },
@@ -102,6 +104,7 @@ beforeEach(() => {
   integrations.length = 0
   connections.clear()
   cards.length = 0
+  customCards.length = 0
   created.length = 0
   catalogEntries = []
   catalogQueries = 0
@@ -188,6 +191,47 @@ describe('connect_integration', () => {
     const result = await connect(null, 'Notion')
     expect(result.ok).toBe(false)
     expect(created).toEqual([])
+  })
+
+  describe('a server that is not in the catalog', () => {
+    const askCustom = async (personKey: string | null, input: { service?: string; url?: string }) => {
+      const act = await asPerson(personKey)
+      return act(() => runTool(tool.connectIntegrationAgentTool, { custom: true, ...input }, contextFor('session-c')))
+    }
+
+    test('the person adds it: the agent only prefills the card', async () => {
+      // An address from an agent can come from anything the agent read, so
+      // nothing is probed or written until the person confirms it in the card.
+      const result = await askCustom(MEMBER, { service: 'Local tools', url: 'http://localhost:8000/mcp' })
+      expect(result.ok).toBe(true)
+      expect(customCards).toEqual([{ sessionId: 'session-c', name: 'Local tools', url: 'http://localhost:8000/mcp' }])
+      expect(created).toEqual([])
+      expect(catalogQueries).toBe(0)
+    })
+
+    test('the card opens with no address when the agent has none', async () => {
+      await askCustom(MEMBER, {})
+      expect(customCards).toEqual([{ sessionId: 'session-c' }])
+    })
+
+    test('an address the person already has goes to its connect card', async () => {
+      integrations.push(integration('int-local', 'Local', 'http://localhost:8000/mcp', MEMBER))
+      await askCustom(MEMBER, { url: 'http://localhost:8000/mcp' })
+      expect(customCards).toEqual([])
+      expect(cards.map((card) => card.integrationId)).toEqual(['int-local'])
+    })
+
+    test('an address Solus would refuse never reaches the card', async () => {
+      const result = await askCustom(MEMBER, { url: 'http://192.168.1.5:8000/mcp' })
+      expect(result.ok).toBe(false)
+      expect(customCards).toEqual([])
+    })
+
+    test('a turn that acts for no person asks for nothing', async () => {
+      const result = await askCustom(null, {})
+      expect(result.ok).toBe(false)
+      expect(customCards).toEqual([])
+    })
   })
 
   test('it asks for approval, because it can add a server', () => {

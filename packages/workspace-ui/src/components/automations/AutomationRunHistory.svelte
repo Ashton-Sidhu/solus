@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { AutomationRun } from "@solus/contracts/types";
   import {
     RUN_STATUS_META,
@@ -7,7 +7,7 @@
     runDuration,
     relativeTime,
   } from "./lib/automation-format";
-  import { EYEBROW } from "./lib/rail-styles";
+  import { LABEL, ROW_BUTTON, VALUE } from "./lib/rail-styles";
   import { worktreeDisplayName } from "../../lib/git-context";
 
   // The rail's History block: one line per run — what the run did and when.
@@ -35,11 +35,11 @@
   }
 </script>
 
-<div class="flex min-w-0 flex-col gap-3 text-workspace-chrome">
-  <div class="flex items-baseline justify-between gap-2.5">
-    <span class={EYEBROW}>History</span>
+<div class="flex min-w-0 flex-col">
+  <div class="menu-heading flex items-baseline justify-between gap-2.5">
+    <span>History</span>
     {#if runs.length > 0}
-      <span class="text-xs text-[color:color-mix(in_oklab,var(--muted-foreground)_80%,transparent)]">
+      <span class="font-normal tracking-normal normal-case">
         {runs.length}
         {runs.length === 1 ? "run" : "runs"}
       </span>
@@ -47,7 +47,7 @@
   </div>
 
   {#if runs.length === 0}
-    <p class="m-0 text-xs leading-normal text-muted-foreground">
+    <p class="m-0 px-2.5 py-1.5 text-xs leading-normal text-(--solus-text-tertiary)">
       No runs yet. Use Run now to test it.
     </p>
   {:else}
@@ -57,18 +57,13 @@
         <li class="min-w-0">
         <button
           type="button"
-          class="-mx-2 flex h-9.5 w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-left transition-colors duration-100 hover:not-disabled:bg-muted disabled:cursor-default focus-visible:outline-2 focus-visible:[outline-offset:-0.0625rem] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+          class={ROW_BUTTON}
           title={run.branch ? `Changes from this run live on branch ${worktreeDisplayName(run.branch)}` : undefined}
           onclick={() => onOpen(run)}
           disabled={!run.sessionId}
         >
-          <span
-            class="min-w-0 flex-1 truncate {failed
- ? 'text-[var(--solus-status-error,#e53e3e)]'
- : 'text-[color:color-mix(in_oklab,var(--foreground)_82%,var(--muted-foreground))]'}"
-            >{summary(run)}</span
-          >
-          <span class="shrink-0 text-xs tabular-nums text-muted-foreground"
+          <span class="{VALUE} flex-1 {failed ? 'text-[var(--solus-status-error,#e53e3e)]' : ''}">{summary(run)}</span>
+          <span class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)"
             >{runDate(run.startedAt) || relativeTime(run.startedAt)}</span
           >
         </button>
@@ -76,19 +71,12 @@
       {/each}
     </ul>
 
-    {#if hiddenCount > 0 || expanded}
-      <button
-        type="button"
-        class="-mx-2 mt-0.5 inline-flex h-7 cursor-pointer items-center gap-1.5 self-start rounded-lg border-0 bg-transparent px-2 font-medium text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-        onclick={onToggle}
-        aria-expanded={expanded}
-      >
-        <CaretDownIcon
-          size={11}
-          weight="bold"
-          class="transition-transform duration-150 {expanded ? 'rotate-180' : ''}"
-        />
-        {expanded ? "Show fewer" : `Show ${hiddenCount} older ${hiddenCount === 1 ? "run" : "runs"}`}
+    {#if hiddenCount > 0}
+      <!-- The model picker's "Legacy models" row: it opens in place. -->
+      <button type="button" class={ROW_BUTTON} onclick={onToggle} aria-expanded={expanded}>
+        <span class="{LABEL} flex-1">Older runs</span>
+        <span class="shrink-0 text-(--solus-text-tertiary)">{hiddenCount}</span>
+        <CaretRightIcon size={11} class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 {expanded ? 'rotate-90' : ''}" />
       </button>
     {/if}
   {/if}

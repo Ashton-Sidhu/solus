@@ -281,8 +281,27 @@ export function loadServers(): SavedServer[] {
   return []
 }
 
+let managedIds: { raw: string | null; ids: ReadonlySet<string> } | null = null
+
+/** The saved hosts provisioned for an organization (`uplink.kind === 'managed'`), read once per change of the saved list. */
+export function managedHostIds(): ReadonlySet<string> {
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(KEY)
+  } catch {}
+  if (managedIds?.raw === raw) return managedIds.ids
+  const ids = new Set(loadServers().filter((server) => server.uplink?.kind === 'managed').map((server) => server.id))
+  managedIds = { raw, ids }
+  return ids
+}
+
 export function saveServers(servers: SavedServer[]): void {
   localStorage.setItem(KEY, JSON.stringify(servers))
+}
+
+/** Tells the listeners a host is leaving the saved list, as a forget does; the caller saves the list without it. */
+function announceServerRemoved(server: SavedServer): void {
+  for (const listener of serverRemovingListeners) listener(server)
 }
 
 export function upsertServer(server: SavedServer): void {
@@ -290,6 +309,7 @@ export function upsertServer(server: SavedServer): void {
   // A host paired again at the same address after a reinstall replaces the old record.
   const address = pairedAddress(server)
   const idx = servers.findIndex(s => s.id === server.id || (!!address && pairedAddress(s) === address))
+  if (idx >= 0 && servers[idx]!.id !== server.id) announceServerRemoved(servers[idx]!)
   if (idx >= 0) servers[idx] = server
   else servers.push(server)
   saveServers(servers)

@@ -58,6 +58,8 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.316",
     "@ff-labs/fff-node": "^0.11.0",
+    "@googleapis/docs": "^14.1.1",
+    "@googleapis/drive": "^27.0.0",
     "@homebridge/dbus-native": "^0.7.9",
     "@hono/node-server": "^2.1.1",
     "@octokit/graphql": "^9.0.5",
@@ -373,6 +375,7 @@
     "@react-navigation/native-stack@7.17.6": "patches/@react-navigation%2Fnative-stack@7.17.6.patch",
     "expo-network@58.0.3": "patches/expo-network@58.0.3.patch",
     "react-native-gesture-handler@3.2.1": "patches/react-native-gesture-handler@3.2.1.patch",
+    "react-native-image-viewing@0.2.2": "patches/react-native-image-viewing@0.2.2.patch",
     "react-native-keyboard-controller@1.22.7": "patches/react-native-keyboard-controller@1.22.7.patch"
   },
   "desktopName": "com.solus.app.desktop"

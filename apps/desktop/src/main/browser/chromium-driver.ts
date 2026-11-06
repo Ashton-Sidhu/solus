@@ -22,6 +22,7 @@ import {
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
+import { BROWSER_GUEST_MARK_SCRIPT } from '@solus/server/browser/guest-mark'
 import { browserGuestStyleScript } from '@solus/server/browser/guest-style'
 import { captureInTurn } from './screenshot-slot'
 
@@ -238,7 +239,8 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   }
 
   /**
-   * Style the guest's own scrollbar so it matches Solus.
+   * Mark the guest as a Solus browser page, and style its own scrollbar so it
+   * matches Solus.
    *
    * A plain stylesheet, installed on every document the guest commits next and
    * run once on the one already loaded — attach happens after the first page has
@@ -247,12 +249,12 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
    * still a page to look at, never a reason to fail the attach.
    */
   private async installGuestStyle(): Promise<void> {
-    const source = browserGuestStyleScript()
+    const source = `${BROWSER_GUEST_MARK_SCRIPT};${browserGuestStyleScript()}`
     try {
       await this.send('Page.addScriptToEvaluateOnNewDocument', { source })
       await this.evaluate(source)
     } catch {
-      // Styling the guest's scrollbar is a nicety; it does not gate the surface.
+      // Neither one gates the surface: the guest is still a page to look at.
     }
   }
 

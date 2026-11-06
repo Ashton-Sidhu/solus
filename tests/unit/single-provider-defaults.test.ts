@@ -11,6 +11,7 @@ import type { AgentId, AgentMetadata, ModelConfig, RunConfig, StartInfo } from '
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 let WorkspaceLifecycleStore: typeof import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')['WorkspaceLifecycleStore']
 let runnableAutomationAgent: typeof import('@solus/workspace-ui/components/automations/lib/automation-agent')['runnableAutomationAgent']
+let automationAgents: typeof import('@solus/workspace-ui/components/automations/lib/automation-agent')['automationAgents']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -18,7 +19,7 @@ beforeAll(async () => {
     { snapshot: <T>(value: T) => value },
   )
   ;({ WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte'))
-  ;({ runnableAutomationAgent } = await import('@solus/workspace-ui/components/automations/lib/automation-agent'))
+  ;({ runnableAutomationAgent, automationAgents } = await import('@solus/workspace-ui/components/automations/lib/automation-agent'))
 })
 
 afterAll(() => {
@@ -130,6 +131,11 @@ describe('the agent a new automation is created on', () => {
   test('picks the installed agent when nothing is pinned', () => {
     const agents = [agent('claude-code', false), agent('codex', true)]
     expect(runnableAutomationAgent(agents, undefined)).toBe('codex')
+  })
+
+  test('the model picker keeps an agent that is not installed, so it can show it disabled', () => {
+    const agents = [agent('claude-code', true), agent('codex', false)]
+    expect(automationAgents(agents).map((entry) => entry.id)).toEqual(['claude-code', 'codex'])
   })
 
   test('never offers an agent with no headless runner', () => {

@@ -1,0 +1,134 @@
+[
+  {
+    "wordCount": 20,
+    "reuse": false,
+    "scroll": true,
+    "p50_ms": 1.0999999046325684,
+    "p95_ms": 1.3999998569488525,
+    "frame_p95_ms": 17.5,
+    "replacements": 79,
+    "scrollTop": 104.5,
+    "scrollHeight": 243
+  },
+  {
+    "wordCount": 20,
+    "reuse": false,
+    "scroll": false,
+    "p50_ms": 1.1000001430511475,
+    "p95_ms": 1.3999998569488525,
+    "frame_p95_ms": 17.600000143051147,
+    "replacements": 79,
+    "scrollTop": 0,
+    "scrollHeight": 243
+  },
+  {
+    "wordCount": 20,
+    "reuse": true,
+    "scroll": true,
+    "p50_ms": 1.0999999046325684,
+    "p95_ms": 1.4000000953674316,
+    "frame_p95_ms": 17.699999809265137,
+    "replacements": 0,
+    "scrollTop": 104.5,
+    "scrollHeight": 243
+  },
+  {
+    "wordCount": 20,
+    "reuse": true,
+    "scroll": false,
+    "p50_ms": 0.9000000953674316,
+    "p95_ms": 1.2000000476837158,
+    "frame_p95_ms": 17.59999990463257,
+    "replacements": 0,
+    "scrollTop": 0,
+    "scrollHeight": 243
+  },
+  {
+    "wordCount": 200,
+    "reuse": false,
+    "scroll": true,
+    "p50_ms": 1.5,
+    "p95_ms": 2,
+    "frame_p95_ms": 17.5,
+    "replacements": 79,
+    "scrollTop": 496.5,
+    "scrollHeight": 635
+  },
+  {
+    "wordCount": 200,
+    "reuse": false,
+    "scroll": false,
+    "p50_ms": 1.5,
+    "p95_ms": 2,
+    "frame_p95_ms": 17.5,
+    "replacements": 79,
+    "scrollTop": 0,
+    "scrollHeight": 635
+  },
+  {
+    "wordCount": 200,
+    "reuse": true,
+    "scroll": true,
+    "p50_ms": 1.4000000953674316,
+    "p95_ms": 1.8000001907348633,
+    "frame_p95_ms": 17.699999809265137,
+    "replacements": 0,
+    "scrollTop": 496.5,
+    "scrollHeight": 635
+  },
+  {
+    "wordCount": 200,
+    "reuse": true,
+    "scroll": false,
+    "p50_ms": 1.8999998569488525,
+    "p95_ms": 2.1000001430511475,
+    "frame_p95_ms": 17.59999990463257,
+    "replacements": 0,
+    "scrollTop": 0,
+    "scrollHeight": 635
+  },
+  {
+    "wordCount": 2000,
+    "reuse": false,
+    "scroll": true,
+    "p50_ms": 3.700000047683716,
+    "p95_ms": 5.3999998569488525,
+    "frame_p95_ms": 17.5,
+    "replacements": 79,
+    "scrollTop": 4415,
+    "scrollHeight": 4554
+  },
+  {
+    "wordCount": 2000,
+    "reuse": false,
+    "scroll": false,
+    "p50_ms": 3.5,
+    "p95_ms": 4.5,
+    "frame_p95_ms": 17.5,
+    "replacements": 79,
+    "scrollTop": 0,
+    "scrollHeight": 4554
+  },
+  {
+    "wordCount": 2000,
+    "reuse": true,
+    "scroll": true,
+    "p50_ms": 2.5999999046325684,
+    "p95_ms": 4.200000047683716,
+    "frame_p95_ms": 17.299999952316284,
+    "replacements": 0,
+    "scrollTop": 4415,
+    "scrollHeight": 4554
+  },
+  {
+    "wordCount": 2000,
+    "reuse": true,
+    "scroll": false,
+    "p50_ms": 3.299999952316284,
+    "p95_ms": 4.700000047683716,
+    "frame_p95_ms": 17.5,
+    "replacements": 0,
+    "scrollTop": 0,
+    "scrollHeight": 4554
+  }
+]

@@ -9,6 +9,7 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import AnsweredQuestion from "./AnsweredQuestion.svelte";
+  import SecretReceipt from "./SecretReceipt.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import ActivityDivider from "./ActivityDivider.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
@@ -186,6 +187,8 @@
   <ThoughtRow message={item.message} {skipMotion} />
 {:else if item.kind === "question"}
   <AnsweredQuestion message={item.message} />
+{:else if item.kind === "secret-receipt"}
+  <SecretReceipt message={item.message} />
 {:else if item.kind === "tool-group"}
   <ToolGroupItem tools={item.messages} steps={item.steps} history={session.toolHistory} {skipMotion} />
 {:else if item.kind === "subagent-group"}

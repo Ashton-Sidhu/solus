@@ -4,7 +4,7 @@ import { taskExternalLinks, tasks } from './schema'
 import { resourceLinks } from '../links/schema'
 import { deleteEdgesOf } from '../links/resource-links'
 import { sameUser, type Attribution } from '@solus/contracts/user'
-import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
+import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, taskAssigneeKey, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
 import { removeNotificationsFor } from '../notifications/store'
 import { deleteTaskPersonalState } from './task-snoozes'
@@ -311,7 +311,8 @@ export class Task implements TaskRecord {
       if (!title) throw new Error('Task title cannot be empty.')
       const status = patch.status ?? existing.status
       assertTaskStatus(status)
-      if (patch.assigneeUserId !== undefined) assertTaskAssignee(this.#organizationId, normalizedOptional(patch.assigneeUserId))
+      const assigneeUserId = patch.assigneeUserId === undefined ? undefined : taskAssigneeKey(patch.assigneeUserId)
+      if (assigneeUserId !== undefined) assertTaskAssignee(this.#organizationId, assigneeUserId)
       const triagedAt = status === 'inbox' && projectKey === null
         ? null
         : existing.triaged_at ?? now
@@ -326,7 +327,7 @@ export class Task implements TaskRecord {
           body = ${patch.body ?? existing.body},
           status = ${status},
           assignee = ${patch.assignee === undefined ? existing.assignee : normalizedOptional(patch.assignee)},
-          assignee_user_id = ${patch.assigneeUserId === undefined ? existing.assignee_user_id : normalizedOptional(patch.assigneeUserId)},
+          assignee_user_id = ${assigneeUserId === undefined ? existing.assignee_user_id : assigneeUserId},
           due_date = ${patch.dueDate === undefined ? existing.due_date : normalizedOptional(patch.dueDate)},
           priority = ${patch.priority === undefined ? existing.priority : patch.priority},
           labels = ${patch.labels === undefined ? existing.labels : JSON.stringify(patch.labels)},

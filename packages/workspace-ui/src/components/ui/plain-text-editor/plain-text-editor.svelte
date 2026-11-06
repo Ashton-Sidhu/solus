@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import type { VoicePartial } from "@solus/contracts/voice-stream";
   import {
     Compartment,
     EditorState,
@@ -41,6 +42,7 @@
     markdownComposerKeymap,
   } from "./lib/markdown-keymap";
   import { ghostCompletion, showGhost } from "./lib/ghost-completion";
+  import { voicePreview, showVoicePreview } from "./lib/voice-preview";
   import { needsInputSettle } from "./lib/input-settle";
   import { runtime } from "../../../contexts";
   import {
@@ -63,6 +65,8 @@
     ariaLabel?: string;
     hidePlaceholderOnFocus?: boolean;
     disabled?: boolean;
+    /** Live dictation, drawn at the caret until the transcript lands there. */
+    voicePartial?: VoicePartial | null;
     /** Show the shared push-to-talk recorder beside this prose editor. */
     mic?: boolean;
     /** Enable the voice shortcut even when the idle mic is hidden. */
@@ -97,6 +101,7 @@
     ariaLabel,
     hidePlaceholderOnFocus = false,
     disabled = false,
+    voicePartial = null,
     mic = false,
     dictation,
     micPlacement = "inside",
@@ -327,6 +332,7 @@
       ]),
       referenceCompartment.of(referenceChips ? references.extension : []),
       ghostCompletion,
+      voicePreview,
       attributesCompartment.of(
         EditorView.contentAttributes.of({
           role: "textbox",
@@ -429,6 +435,10 @@
       untrack(() => onEmptyChange?.(externalValue.length === 0));
     }
     lastLocalValue = null;
+  });
+
+  $effect(() => {
+    if (view) showVoicePreview(view, voicePartial);
   });
 
   $effect(() => {

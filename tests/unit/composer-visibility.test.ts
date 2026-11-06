@@ -39,7 +39,7 @@ test('only the active mounted composer consumes drafts and focus requests', asyn
       ['first', 'second'].forEach((name, index) => useComposerFocus({
         active: () => shown === name, isPrimary: () => false,
         isReadOnly: () => false, ownsVoice: () => false,
-        voiceState: () => 'idle', showWaveform: () => false,
+        voiceState: () => 'idle', isListening: () => false,
         session: () => undefined, editor: () => ({ focus() { focused.push(name); } }),
         prompt: () => drafts[index], tabId: () => 'same-tab',
         receivesFocusedInput: () => true, isFocusedPaneComposer: () => true,

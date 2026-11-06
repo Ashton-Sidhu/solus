@@ -76,7 +76,7 @@
   import { WebShell } from "./shell/web-shell.svelte";
 
   const shell = new WebShell();
-  const skipOnboarding = skipsOnboarding(window.location.search);
+  const skipOnboarding = skipsOnboarding(window.location.search, window);
 
   const {
     settings,

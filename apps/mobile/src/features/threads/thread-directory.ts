@@ -1,4 +1,4 @@
-import { visibleInWindow } from '@solus/client-core/organization-filter'
+import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
@@ -93,6 +93,11 @@ export class ThreadDirectory {
   ) {}
 
   /** Change the list filter without changing a record or closing an open thread. */
+  /** The hosts provisioned for an organization, whose threads the organization filter applies to. */
+  managedHostIds(): ReadonlySet<string> {
+    return new Set(this.registry.hosts().filter((host) => host.uplink?.kind === 'managed').map((host) => host.id))
+  }
+
   selectOrganization(organizationId: string | null): void {
     if (this.organizationId === organizationId) return
     this.organizationId = organizationId
@@ -252,11 +257,14 @@ export class ThreadDirectory {
     const threads: SolusThreadShell[] = []
     const unlisted: SolusThreadShell[] = []
     const projects: SolusProjectShell[] = []
-    for (const state of this.hosts.values()) {
+    const managed = this.managedHostIds()
+    for (const [hostId, state] of this.hosts) {
       const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
       if (!value) continue
-      threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId)))
-      unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId)))
+      // A personal host's threads show whole; a managed host's go through the organization (plans/031 rule 3).
+      const usesFilter = usesWindowFilter(hostId, managed)
+      threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
+      unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       projects.push(...value.projects)
     }
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)

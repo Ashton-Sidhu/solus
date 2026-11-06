@@ -10,7 +10,6 @@
   import ComposerAddMenu from "./ComposerAddMenu.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { shouldShowRunOnPicker } from "../servers/run-on";
-  import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import StatusBarControls from "../layout/StatusBarControls.svelte";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
@@ -124,7 +123,7 @@
 </script>
 
 <!--
-  Single input-bar toolbar row: add-files + mode + model pills on the left, the
+  Single input-bar toolbar row: add-files + model pill on the left, the
   project/server cluster pushed right (before the bar's mic/send). Fed to
   InputBar via its `leadingActions` slot so it shares the row with mic/send.
 
@@ -141,7 +140,6 @@
     ≥ 34rem  everything
     < 34rem  context usage meter            (StatusBarControls)
     < 31rem  reasoning label on the chip    (SessionChip)
-    < 28rem  permission picker → icon-only  (PermissionModePicker)
     < 25rem  status cluster                 (this file)
     < 22rem  model chip → brand glyph only  (SessionChip)
 
@@ -152,10 +150,10 @@
   which it can leave without the row having looked crowded first, and everything
   else is spaced back from it.
 
-  The two pickers shed their labels well before the row is in trouble: a chip
-  whose glyph already says which mode and which model is on spends nothing by
-  dropping the word beside it, and the width it returns is what keeps the
-  project and branch chips readable a rung longer.
+  The model chip sheds its labels well before the row is in trouble: a chip
+  whose glyph already says which model is on spends nothing by dropping the word
+  beside it, and the width it returns is what keeps the project and branch chips
+  readable a rung longer.
 
   Every rung hides; none unmounts. A control that unmounts loses its state and
   pays a re-mount on every frame of a pane drag. The same ladder serves wide,
@@ -181,9 +179,7 @@
     {attachNote}
   />
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
-  <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
-  <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
-  <SessionChip {tabId} {draftId} {isPrimary} bind:selection returnFocusOnClose class="border-0" />
+  <SessionChip {tabId} {draftId} {isPrimary} {run} {onRun} allowPermissionMode bind:selection returnFocusOnClose class="border-0" />
   {#if chatSourceId && chatRun}
     <!-- No button of its own: the chat's + menu opens this list above itself. -->
     <RunOnPicker

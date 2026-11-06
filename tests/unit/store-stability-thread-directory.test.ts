@@ -19,8 +19,8 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function world() {
-  const host = { id: 'h', label: 'Mac' }
+function world(options: { managed?: boolean } = {}) {
+  const host = options.managed ? { id: 'h', label: 'Mac', uplink: { hostId: 'h', directoryUrl: 'https://app', kind: 'managed' as const } } : { id: 'h', label: 'Mac' }
   const answer = {
     projects: [project('/w/app'), project('/w/site')],
     records: [record('a', 2)],
@@ -139,8 +139,8 @@ describe('native thread directory keeps unchanged projects', () => {
   })
 })
 
-test('native organization selection filters cached sessions and restores them without a host read', async () => {
-  const { directory, answer } = world()
+test('native organization selection filters a managed host\'s cached sessions and restores them without a host read', async () => {
+  const { directory, answer } = world({ managed: true })
   answer.records = [
     { ...record('local', 3), organizationId: 'local' },
     { ...record('first', 2), organizationId: 'org-1' },
@@ -160,6 +160,21 @@ test('native organization selection filters cached sessions and restores them wi
   directory.selectOrganization(null)
   expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local'])
   expect(directory.projects()).toBe(projects)
+})
+
+test('a personal host\'s sessions show whole, whatever organization is selected, signed in or out', async () => {
+  // WHY (plans/031 rule 1): the owner's organization sessions on their own machine vanished when they signed out.
+  const { directory, answer } = world()
+  answer.records = [
+    { ...record('local', 3), organizationId: 'local' },
+    { ...record('first', 2), organizationId: 'org-1' },
+    { ...record('second', 1), organizationId: 'org-2' },
+  ]
+  await directory.load('h')
+  directory.selectOrganization(null)
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local', 'first', 'second'])
+  directory.selectOrganization('org-1')
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local', 'first', 'second'])
 })
 
 test('native lists a healthy host while another host is still loading', async () => {

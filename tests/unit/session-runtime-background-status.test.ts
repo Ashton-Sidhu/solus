@@ -151,7 +151,7 @@ async function endTurnWithTaskRunning(task: { awaitable?: boolean; awaited?: boo
   const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
   plane.on('error', () => {})
   const events: NormalizedEvent[] = []
-  plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
+  plane.on('event', (_sessionId: string, event: NormalizedEvent, to?: { only?: string }) => { if (!to?.only) events.push(event) })
 
   const lifecycle = await plane.runTurn({
     target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(), tools: [],
@@ -265,9 +265,9 @@ class TurnEndingBackend extends Backend {
 
   hasBackgroundTasks(): boolean { return this.liveTasks.size > 0 }
 
-  endTurnWithTask(taskId: string): void {
+  endTurnWithTask(taskId: string, awaitable = false): void {
     this.liveTasks.add(taskId)
-    this.startTask(taskId)
+    this.startTask(taskId, awaitable)
     this.result()
     this.handles.delete(THREAD_ID)
     this.emit('exit', THREAD_ID, 0, null)
@@ -291,12 +291,12 @@ class TurnEndingBackend extends Backend {
   }
 }
 
-async function endCodexTurnWithCommandRunning() {
+async function endCodexTurnWithCommandRunning(awaitable = false) {
   const backend = new TurnEndingBackend()
   const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
   plane.on('error', () => {})
   const events: NormalizedEvent[] = []
-  plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
+  plane.on('event', (_sessionId: string, event: NormalizedEvent, to?: { only?: string }) => { if (!to?.only) events.push(event) })
   const lifecycle = await plane.runTurn({
     target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(), tools: [],
     options: { prompt: 'watch the deploy', promptSource: 'typed' },
@@ -304,12 +304,49 @@ async function endCodexTurnWithCommandRunning() {
   lifecycle.done.catch(() => {})
   await lifecycle.agentSessionId
   await flush()
-  backend.endTurnWithTask('deploy')
+  backend.endTurnWithTask('deploy', awaitable)
   await flush()
   return { backend, plane, events }
 }
 
 describe.serial('SessionRuntime background status when the turn ends first', () => {
+  test('a command left running completes the turn, stays stoppable, and survives the watchdog', async () => {
+    const { backend, plane, events } = await endCodexTurnWithCommandRunning(true)
+    try {
+      const watched = plane.watchers.watchSession({ sessionId: SESSION_ID, attachRuntime: true }, 'client')
+      expect(watched.runtime?.status).toBe('completed')
+      expect(watched.runtime?.backgroundWorkRunning).toBe(true)
+      plane.statuses.checkActiveRuns()
+      plane.statuses.checkActiveRuns()
+      await flush()
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      expect(plane.activeSessions.get(SESSION_ID)?.backgroundTaskIds?.has('deploy')).toBe(true)
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(true)
+      backend.settle('deploy', 'stopped')
+      await flush()
+      plane.statuses.checkActiveRuns()
+      plane.statuses.checkActiveRuns()
+      expect(statuses(events)).not.toContain('dead')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      expect(events.filter((event) => event.type === 'background_work').at(-1)).toEqual({ type: 'background_work', running: false })
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a held task survives the watchdog after its provider turn ends', async () => {
+    const { plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      plane.statuses.checkActiveRuns()
+      plane.statuses.checkActiveRuns()
+      expect(statuses(events).at(-1)).toBe('background')
+      expect(settlements(events)).toEqual([])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   // WHY: Codex ends the turn while its command runs. Settling as completed
   // notified "finished" and offered no Stop for work still going.
   test('the exit settles into background, not completed', async () => {
@@ -478,7 +515,7 @@ describe.serial('SessionRuntime background status for Claude shells and Monitors
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
     plane.on('error', () => {})
     const events: NormalizedEvent[] = []
-    plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
+    plane.on('event', (_sessionId: string, event: NormalizedEvent, to?: { only?: string }) => { if (!to?.only) events.push(event) })
     try {
       const lifecycle = await plane.runTurn({
         target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(), tools: [],
@@ -508,10 +545,28 @@ describe.serial('SessionRuntime background status for Claude shells and Monitors
     }
   })
 
-  test('background_wait answers unsupported for Codex', async () => {
+  test('Codex can unmark and restore a command by terminal ID, without unmarking children', async () => {
+    const { plane } = await endCodexTurnWithCommandRunning()
+    const session = plane.activeSessions.get(SESSION_ID)!
+    const { backgroundWorkHolds } = await import('@solus/server/execution/sessions/background-work')
+    const commandBackend = {
+      setBackgroundCommandWaiting: (_sessionId: string, taskId: string) => taskId === 'terminal' ? 'deploy' : null,
+    }
+    try {
+      expect(markAwaitedTasks(session, ['terminal'], false, commandBackend)).toEqual({ matched: ['terminal'], unmatched: [] })
+      expect(backgroundWorkHolds(session)).toBe(false)
+      expect(markAwaitedTasks(session, ['terminal'], true, commandBackend).matched).toEqual(['terminal'])
+      expect(backgroundWorkHolds(session)).toBe(true)
+      expect(markAwaitedTasks(session, ['child'], false, commandBackend)).toEqual({ matched: [], unmatched: ['child'] })
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('background_wait requires a calling session for Codex', async () => {
     const { awaitBackgroundTasks } = await import('@solus/server/execution/agents/tools/background-wait-tool')
-    const result = awaitBackgroundTasks({ task_ids: ['b1'] }, 'codex', SESSION_ID)
+    const result = awaitBackgroundTasks({ task_ids: ['b1'] }, 'codex', undefined)
     expect(result.ok).toBe(false)
-    expect(result.text).toContain('unsupported')
+    expect(result.text).toContain('needs a calling session')
   })
 })
