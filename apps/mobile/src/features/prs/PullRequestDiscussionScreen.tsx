@@ -15,7 +15,7 @@ import { prAge } from './lib/pr-presentation'
 import { pullRequestPermissions } from './lib/pull-request-permissions'
 import { shownValue } from './pull-request-reads'
 import { PullRequestMarkdown } from './detail/PullRequestMarkdown'
-import { PullRequestMediaContext } from './detail/use-pull-request-media-url'
+import { PullRequestMediaContext, usePullRequestMediaLocation } from './detail/use-pull-request-media-url'
 import { PullRequestAvatar } from './detail/pull-request-ui'
 import { OFFLINE_REASON } from './detail/pull-request-view'
 
@@ -35,6 +35,7 @@ export function PullRequestDiscussionScreen({ navigation, route }: ScreenProps<'
   const running = useListened(app.pullRequestActions.changes, () => app.pullRequestActions.runningOf(ref))
   const detail = shownValue(state)
   const permissions = pullRequestPermissions(detail?.overview.pullRequest ?? null, viewerLogin, connected)
+  const mediaLocation = usePullRequestMediaLocation(ref, detail?.overview.pullRequest ?? null)
   const thread = detail?.threads.find((entry) => entry.id === threadId) ?? null
   const [body, setBody] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -80,7 +81,7 @@ export function PullRequestDiscussionScreen({ navigation, route }: ScreenProps<'
 
   const now = Date.now()
   return (
-    <PullRequestMediaContext.Provider value={ref}>
+    <PullRequestMediaContext.Provider value={mediaLocation}>
       <KeyboardAvoidingView behavior="padding" className="flex-1 bg-screen">
         <NativeScrollView className="flex-1" contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingBottom: 24 }}>
           <HostStatusBanner hostId={hostId} />

@@ -11,7 +11,8 @@
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
-  import { setGithubMediaHost } from "../github-markdown/lib/github-media.svelte";
+  import { githubMediaRepository } from "@solus/contracts/github-media";
+  import { setGithubMediaLocation } from "../github-markdown/lib/github-media.svelte";
 
   // The review's change, popped out beside it. Reading a diff is a two-handed
   // job — the conversation on one side, the code on the other — so this is a
@@ -45,7 +46,7 @@
   const detail = $derived(
     reviewServerId ? pullRequests.projects.at(reviewServerId, params.cwd ?? "")?.prFor(params.number) : null,
   );
-  setGithubMediaHost(() => reviewServerId);
+  setGithubMediaLocation(() => ({ serverId: reviewServerId, repository: pr ? githubMediaRepository(pr) : undefined }));
   const checkout = $derived(review?.checkout ?? null);
 
   const reviewTabId = $derived(`pr-diff-${params.number}`);

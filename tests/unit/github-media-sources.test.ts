@@ -38,6 +38,25 @@ function sourcesFor(host: FakeHost, clock: { now: number }) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('signed GitHub media', () => {
+  test('sends the repository of the pull request, and a new repository signs again', async () => {
+    const repositories: (string | undefined)[] = []
+    const sources = new GithubMediaSources({
+      signs: async () => true,
+      mint: async (_serverId, _url, repository) => {
+        repositories.push(repository)
+        return { relativeUrl: `/api/assets/${repository ?? 'none'}`, expiresAt: 3_600_000 }
+      },
+      origin: () => 'https://host.example:4100',
+    }, () => 0)
+    // WHY: a pull request is often still loading when its body first shows.
+    sources.request('host-a', ATTACHMENT)
+    sources.request('host-a', ATTACHMENT, 'enterprise/private')
+    await settle()
+    expect(repositories).toEqual([undefined, 'enterprise/private'])
+    expect(sources.sourceFor('host-a', ATTACHMENT, 'enterprise/private')).toBe('https://host.example:4100/api/assets/enterprise/private')
+    expect(sources.sourceFor('host-a', ATTACHMENT)).toBe('https://host.example:4100/api/assets/none')
+  })
+
   test('signs a GitHub attachment and opens it on the host origin', async () => {
     const host: FakeHost = { signs: true, failMint: false, mints: [], expiresAt: 3_600_000 }
     const clock = { now: 0 }

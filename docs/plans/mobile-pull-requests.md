@@ -109,7 +109,11 @@ These use host calls that were added after the first port
   accepts loads through a URL the host signs (`prMediaUrl`, on the
   collaboration plane, so a host that serves only pull request records signs
   it too), when the host has the `githubMediaUrls` capability.
-  Other media, an older host, or a refusal loads the direct URL.
+  Other media, an older host, or a refusal loads the direct URL. Every client
+  sends the pull request's repository, and the signed URL names the person who
+  asked for it. An organization that enforces SAML SSO answers an upload with a
+  sign-in page, so the host renders the upload through GitHub's Markdown API in
+  that repository, as that person, and fetches the signed URL with no token.
 
 ### Diff surface
 

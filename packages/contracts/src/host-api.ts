@@ -701,8 +701,10 @@ export interface SolusAPI {
    *  `https://github.com/user-attachments/assets/<id>`. A private repository
    *  serves it only with a GitHub credential, so the host fetches it with its
    *  own and the client never gets the token. Only a URL that
-   *  `githubMediaFetchUrl` accepts is signed. */
-  prMediaUrl(ctx: IpcContext | undefined, githubMediaUrl: string): Promise<AssetCreateUrlResult>
+   *  `githubMediaFetchUrl` accepts is signed. `repository` is the pull
+   *  request's `owner/name`, which can differ from the checkout. GitHub needs
+   *  it to serve an upload in an organization that enforces SAML SSO. */
+  prMediaUrl(ctx: IpcContext | undefined, githubMediaUrl: string, repository?: string): Promise<AssetCreateUrlResult>
   /** The workflow runs of a fork pull request that wait for a maintainer. */
   prPendingWorkflowRuns(ctx: IpcContext, number: number): Promise<PrPendingWorkflowRuns>
   /** Approve the waiting workflow runs of a fork pull request, checked against

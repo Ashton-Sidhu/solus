@@ -35,7 +35,7 @@ import { PullRequestAvatar, PullRequestDiffStats } from './detail/pull-request-u
 import type { PullRequestView } from './detail/pull-request-view'
 import { usePullRequestAction } from './detail/use-pull-request-action'
 import { usePullRequestView } from './detail/use-pull-request-view'
-import { PullRequestMediaContext } from './detail/use-pull-request-media-url'
+import { PullRequestMediaContext, usePullRequestMediaLocation } from './detail/use-pull-request-media-url'
 
 type Tab = 'overview' | 'guide' | 'activity'
 
@@ -101,6 +101,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
   const app = useApp()
   const insets = useSafeAreaInsets()
   const { state, view, connected, reload } = usePullRequestView(ref)
+  const mediaLocation = usePullRequestMediaLocation(ref, view?.pr ?? null)
   const guideState = useListened(app.pullRequestGuides.changes, () => app.pullRequestGuides.guideOf(ref))
   const pr = view?.pr ?? null
   const permissions = view?.permissions ?? null
@@ -291,7 +292,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
   const bottomPadding = Platform.OS === 'android' ? insets.bottom + ANDROID_PULL_REQUEST_TOOLBAR_HEIGHT + 24 : 24
 
   return (
-    <PullRequestMediaContext.Provider value={ref}>
+    <PullRequestMediaContext.Provider value={mediaLocation}>
       <View className="flex-1 bg-screen">
         {header}
         {(['overview', 'guide', 'activity'] as const).filter((entry) => entry !== 'guide' || guidesShown).map((entry) => (

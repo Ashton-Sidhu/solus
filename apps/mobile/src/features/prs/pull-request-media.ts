@@ -10,11 +10,11 @@ import type { HostConnection } from '../hosts/host-connections'
  * its own origin, kept until shortly before it expires. Any other address,
  * a host that cannot sign it, or a failed signature loads the URL directly.
  */
-export async function pullRequestMediaUrl(connection: HostConnection | null, url: string, ctx: IpcContext, refresh = false): Promise<string> {
+export async function pullRequestMediaUrl(connection: HostConnection | null, url: string, ctx: IpcContext, repository?: string, refresh = false): Promise<string> {
   const githubMediaUrl = githubMediaFetchUrl(url)
   if (!githubMediaUrl || !connection || connection.state.readiness !== 'ready') return url
   try {
-    return await resolveHostMediaUrl(connection, { githubMediaUrl, ctx }, refresh)
+    return await resolveHostMediaUrl(connection, { githubMediaUrl, repository, ctx }, refresh)
   } catch {
     return url
   }

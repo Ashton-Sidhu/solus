@@ -23,8 +23,9 @@ export type HostMediaRequest =
   /** A file in the host asset store, such as a picture a tool returned. */
   | { assetId: string; ctx?: undefined }
   /** GitHub media that the host fetches with its own GitHub credential:
-   *  only a URL that `githubMediaFetchUrl` gives. */
-  | { githubMediaUrl: string; ctx?: IpcContext }
+   *  only a URL that `githubMediaFetchUrl` gives. `repository` is the pull
+   *  request's `owner/name`. */
+  | { githubMediaUrl: string; repository?: string; ctx?: IpcContext }
 
 interface SignedUrl {
   url: string
@@ -38,7 +39,7 @@ const cacheKey = (hostId: string, request: HostMediaRequest) =>
   'assetId' in request
     ? `${hostId}\u0000asset\u0000${request.assetId}`
     : 'githubMediaUrl' in request
-      ? `${hostId}\u0000github\u0000${request.githubMediaUrl}`
+      ? `${hostId}\u0000github\u0000${request.repository ?? ''}\u0000${request.githubMediaUrl}`
       : `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
 
 /**
@@ -60,7 +61,7 @@ async function mint(connection: HostConnection, request: HostMediaRequest): Prom
   const signed = 'assetId' in request
     ? await connection.api.assetCreateUrl(undefined, { assetId: request.assetId })
     : 'githubMediaUrl' in request
-      ? await connection.api.prMediaUrl(request.ctx, request.githubMediaUrl)
+      ? await connection.api.prMediaUrl(request.ctx, request.githubMediaUrl, request.repository)
       : await connection.api.assetCreateUrl(request.ctx, { path: request.path })
   const origin = new URL(connection.transport.serverUrl).origin
   return { url: new URL(signed.relativeUrl, `${origin}/`).toString(), expiresAt: signed.expiresAt }

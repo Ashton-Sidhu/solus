@@ -19,7 +19,7 @@ export const GITHUB_MEDIA_REFRESH_WINDOW_MS = 60_000
 export interface GithubMediaSigner {
   /** True when the host signs GitHub media (`githubMediaUrls`). */
   signs: (serverId: string) => Promise<boolean>
-  mint: (serverId: string, githubMediaUrl: string) => Promise<AssetCreateUrlResult>
+  mint: (serverId: string, githubMediaUrl: string, repository?: string) => Promise<AssetCreateUrlResult>
   /** The HTTP origin this client opens the host's assets on. */
   origin: (serverId: string) => string
 }
@@ -28,6 +28,11 @@ type GithubMediaEntry =
   | { status: 'pending' }
   | { status: 'ready'; url: string; expiresAt: number }
   | { status: 'refused' }
+
+/** Each repository has its own signed URL: the host renders an upload in it. */
+function entryKey(serverId: string, source: string, repository: string | undefined): string {
+  return hostKey(serverId, `${repository ?? ''}\0${source}`)
+}
 
 export class GithubMediaSources {
   readonly #entries = new SvelteMap<string, GithubMediaEntry>()
@@ -44,8 +49,8 @@ export class GithubMediaSources {
    * when the host cannot sign it, and null while the first signature is on its
    * way (so a private image does not flash broken first).
    */
-  sourceFor(serverId: string, source: string): string | null {
-    const entry = this.#entries.get(hostKey(serverId, source))
+  sourceFor(serverId: string, source: string, repository?: string): string | null {
+    const entry = this.#entries.get(entryKey(serverId, source, repository))
     if (!entry) return null
     if (entry.status === 'refused') return source
     if (entry.status === 'ready' && entry.expiresAt > this.#now()) return entry.url
@@ -53,8 +58,8 @@ export class GithubMediaSources {
   }
 
   /** Sign `source` unless a valid URL or a signature on its way is held. */
-  request(serverId: string, source: string): void {
-    const key = hostKey(serverId, source)
+  request(serverId: string, source: string, repository?: string): void {
+    const key = entryKey(serverId, source, repository)
     const entry = this.#entries.get(key)
     if (entry?.status === 'pending' || entry?.status === 'refused') return
     if (entry?.status === 'ready' && entry.expiresAt - this.#now() > GITHUB_MEDIA_REFRESH_WINDOW_MS) return
@@ -64,18 +69,18 @@ export class GithubMediaSources {
     }
     // A URL near its end stays on screen until the new one arrives.
     if (entry?.status !== 'ready') this.#entries.set(key, { status: 'pending' })
-    void this.#mint(key, serverId, source)
+    void this.#mint(key, serverId, source, repository)
   }
 
   /** The signed URL did not load. Show the author's URL from now on. */
-  refuse(serverId: string, source: string): void {
-    this.#entries.set(hostKey(serverId, source), { status: 'refused' })
+  refuse(serverId: string, source: string, repository?: string): void {
+    this.#entries.set(entryKey(serverId, source, repository), { status: 'refused' })
   }
 
-  async #mint(key: string, serverId: string, source: string): Promise<void> {
+  async #mint(key: string, serverId: string, source: string, repository: string | undefined): Promise<void> {
     try {
       if (!(await this.#signer.signs(serverId))) throw new Error('The host does not sign GitHub media.')
-      const minted = await this.#signer.mint(serverId, source)
+      const minted = await this.#signer.mint(serverId, source, repository)
       const origin = this.#signer.origin(serverId)
       if (!origin) throw new Error('The host has no origin.')
       const url = new URL(minted.relativeUrl, `${origin.replace(/\/+$/, '')}/`).toString()
@@ -88,18 +93,25 @@ export class GithubMediaSources {
 
 export const githubMediaSources = new GithubMediaSources({
   signs: async (serverId) => (await serverConnections.capabilitiesFor(serverId)).githubMediaUrls === true,
-  mint: (serverId, githubMediaUrl) => serverConnections.apiFor(serverId).prMediaUrl(undefined, githubMediaUrl),
+  mint: (serverId, githubMediaUrl, repository) => serverConnections.apiFor(serverId).prMediaUrl(undefined, githubMediaUrl, repository),
   origin: (serverId) => serverConnections.httpOriginFor(serverId),
 })
 
-const KEY = Symbol('github-media-host')
+const KEY = Symbol('github-media-location')
 
-/** Set by a pull request surface: its markdown signs GitHub media on this host. */
-export function setGithubMediaHost(serverId: () => string | null): void {
-  setContext(KEY, serverId)
+export interface GithubMediaLocation {
+  /** The host that signs GitHub media. */
+  serverId: string | null
+  /** The pull request's `owner/name`, once it is read. */
+  repository: string | undefined
 }
 
-/** The host to sign GitHub media on, or null outside a pull request surface. */
-export function getGithubMediaHost(): (() => string | null) | null {
-  return getContext<(() => string | null) | undefined>(KEY) ?? null
+/** Set by a pull request surface: its markdown signs GitHub media on this host, for this repository. */
+export function setGithubMediaLocation(location: () => GithubMediaLocation): void {
+  setContext(KEY, location)
+}
+
+/** Where to sign GitHub media, or null outside a pull request surface. */
+export function getGithubMediaLocation(): (() => GithubMediaLocation) | null {
+  return getContext<(() => GithubMediaLocation) | undefined>(KEY) ?? null
 }

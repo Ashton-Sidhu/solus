@@ -20,14 +20,18 @@
  * URLs that the host agrees to sign.
  */
 
+import type { RepoRef } from './providers'
+
 const RAW_HOST = 'raw.githubusercontent.com'
 /** Git LFS pointers resolve here. The bytes of an LFS-tracked screenshot are here. */
 const LFS_HOST = 'media.githubusercontent.com'
 const ATTACHMENT_PATH_PATTERN = /^\/user-attachments\/assets\/[\w-]+$/u
 /** The form GitHub wrote into a body before `user-attachments`. Older descriptions still have it. */
-const LEGACY_ATTACHMENT_PATH_PATTERN = /^\/[^/]+\/[^/]+\/assets\/\d+\/[\w-]+$/u
+const LEGACY_ATTACHMENT_PATH_PATTERN = /^\/([^/]+\/[^/]+)\/assets\/\d+\/[\w-]+$/u
 /** `blob` and `raw` both address file bytes. The raw host is where a token works. */
 const REPOSITORY_FILE_PATTERN = /^\/([^/]+)\/([^/]+)\/(?:raw|blob)\/(.*[^/])$/u
+/** `owner/name` within GitHub's length limits. */
+export const GITHUB_REPOSITORY_PATTERN = /^[\w.-]{1,39}\/[\w.-]{1,100}$/u
 
 /**
  * The address of media in text written on GitHub. A root-relative URL means
@@ -60,6 +64,24 @@ export function githubMediaFetchUrl(source: string): string | null {
   const repositoryFile = REPOSITORY_FILE_PATTERN.exec(url.pathname)
   // `?raw=true` is how the web page asks for the bytes. The raw host needs no query.
   return repositoryFile ? `https://${RAW_HOST}/${repositoryFile[1]}/${repositoryFile[2]}/${repositoryFile[3]}` : null
+}
+
+/** The `owner/name` a client names for media in this pull request, when GitHub hosts it. */
+export function githubMediaRepository(repo: RepoRef): string | undefined {
+  return repo.host === 'github.com' ? `${repo.owner}/${repo.repo}` : undefined
+}
+
+/**
+ * The `owner/name` to render a GitHub upload in, or null when `fetchUrl` is not
+ * an upload or no usable repository is known. A legacy upload names its own
+ * repository, and `repository` cannot change that.
+ */
+export function githubUploadRepository(fetchUrl: string, repository?: string): string | null {
+  const url = new URL(fetchUrl)
+  if (url.hostname !== 'github.com') return null
+  const named = LEGACY_ATTACHMENT_PATH_PATTERN.exec(url.pathname)?.[1]
+  const chosen = named ?? (ATTACHMENT_PATH_PATTERN.test(url.pathname) ? repository : undefined)
+  return chosen !== undefined && GITHUB_REPOSITORY_PATTERN.test(chosen) ? chosen : null
 }
 
 /** The last path segment, which names the file when GitHub gives no media type. */

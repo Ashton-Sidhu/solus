@@ -1,13 +1,25 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestMedia.tsx (MIT, see UPSTREAM.md).
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { githubMediaFetchUrl } from '@solus/contracts/github-media'
+import { githubMediaFetchUrl, githubMediaRepository } from '@solus/contracts/github-media'
+import type { PullRequest } from '@solus/contracts/providers'
 import { useApp } from '../../../app/app-context'
 import type { PullRequestRef } from '../pull-request-directory'
 import type { MarkdownMediaContext } from '../../../lib/markdownMedia'
 import { pullRequestMediaUrl } from '../pull-request-media'
 
 /** The pull request whose host signs the GitHub media of the text below it. */
-export const PullRequestMediaContext = createContext<Pick<PullRequestRef, 'hostId' | 'projectPath'> | null>(null)
+export const PullRequestMediaContext = createContext<PullRequestMediaLocation | null>(null)
+
+export interface PullRequestMediaLocation extends Pick<PullRequestRef, 'hostId' | 'projectPath'> {
+  /** The pull request's `owner/name`, once it is read. */
+  repository?: string
+}
+
+/** The context value of a pull request screen. `pullRequest` is null until it is read. */
+export function usePullRequestMediaLocation(ref: PullRequestRef, pullRequest: Pick<PullRequest, 'baseRepo'> | null): PullRequestMediaLocation {
+  const repository = pullRequest ? githubMediaRepository(pullRequest.baseRepo) : undefined
+  return useMemo(() => ({ hostId: ref.hostId, projectPath: ref.projectPath, repository }), [ref.hostId, ref.projectPath, repository])
+}
 
 export interface PullRequestMediaUrl {
   /** Null while the host signs GitHub media. */
@@ -30,7 +42,7 @@ export function usePullRequestMediaUrl(url: string): PullRequestMediaUrl {
   const resolve = useCallback((refresh: boolean) => {
     if (!location) return Promise.resolve(url)
     const connection = app.connections.connection(location.hostId)
-    return pullRequestMediaUrl(connection, url, app.pullRequests.context(location.projectPath), refresh)
+    return pullRequestMediaUrl(connection, url, app.pullRequests.context(location.projectPath), location.repository, refresh)
   }, [app, location, url])
 
   useEffect(() => {
@@ -57,7 +69,7 @@ export function usePullRequestMarkdownMedia(): MarkdownMediaContext {
   return useMemo(() => ({
     hostFile: () => null,
     webUrl: (url: string) => location
-      ? pullRequestMediaUrl(app.connections.connection(location.hostId), url, app.pullRequests.context(location.projectPath))
+      ? pullRequestMediaUrl(app.connections.connection(location.hostId), url, app.pullRequests.context(location.projectPath), location.repository)
       : Promise.resolve(url),
   }), [app, location])
 }

@@ -900,8 +900,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // Signing reads no checkout, so a host that serves only pull request records
   // signs too. The signed URL is served by `/api/assets/:token`.
   server.register('prMediaUrl', async (args) => {
-    const [ctx, githubMediaUrl] = args
-    return createGithubMediaUrl(ctx, githubMediaUrl)
+    const [ctx, githubMediaUrl, repository] = args
+    return createGithubMediaUrl(ctx, githubMediaUrl, { repository })
   })
 
   server.register('prRevert', async (args, handlerCtx) => {
