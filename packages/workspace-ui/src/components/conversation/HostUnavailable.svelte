@@ -7,9 +7,11 @@
     type HostReadinessAction,
   } from "@solus/client-core/host-readiness";
   import { hostDiagnosticRows, hostDiagnosticsText } from "@solus/client-core/host-diagnostics";
+  import { diagnoseHostConnection } from "@solus/client-core/host-connection-diagnosis";
   import { getWorkspaceContext } from "../../contexts";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
+  import HostConnectionStages from "../connections/HostConnectionStages.svelte";
   import { copyText } from "../../lib/toasts";
   import { Button } from "../ui/button";
 
@@ -44,6 +46,12 @@
 
   let detailsOpen = $state(false);
   const rows = $derived(detailsOpen ? hostDiagnosticRows(serversStore.diagnosticsFor(serverId), now) : []);
+  const diagnosis = $derived(detailsOpen ? diagnoseHostConnection(serversStore.diagnosticsFor(serverId)) : null);
+
+  function toggleDetails() {
+    detailsOpen = !detailsOpen;
+    if (detailsOpen) serversStore.checkConnection(serverId);
+  }
 
   let copied = $state(false);
   async function copyDetails() {
@@ -58,8 +66,10 @@
   }
 
   function act(action: HostReadinessAction) {
-    if (action === "retry") serversStore.retry(serverId);
-    else if (action === "start") void serversStore.startManagedHost(serverId);
+    if (action === "retry") {
+      serversStore.retry(serverId);
+      if (detailsOpen) serversStore.checkConnection(serverId);
+    } else if (action === "start") void serversStore.startManagedHost(serverId);
     else serversStore.openAddServer(serversStore.servers.find((server) => server.id === serverId)?.url ?? "");
   }
 </script>
@@ -90,7 +100,7 @@
           class="text-(--solus-text-secondary)"
           aria-expanded={detailsOpen}
           aria-controls="host-details-{serverId}"
-          onclick={() => (detailsOpen = !detailsOpen)}
+          onclick={toggleDetails}
         >
           Details
           <ChevronIcon class="transition-transform duration-150 {detailsOpen ? 'rotate-180' : ''}" />
@@ -104,6 +114,19 @@
 
       {#if detailsOpen}
         <div id="host-details-{serverId}" class="mt-4 flex w-full flex-col gap-3 text-left">
+          {#if diagnosis}
+            <p class="text-workspace-chrome font-medium text-(--solus-text-primary)">
+              {diagnosis.isChecking && !diagnosis.checkedAt ? "Checking the connection…" : diagnosis.headline}
+            </p>
+            <HostConnectionStages stages={diagnosis.stages} />
+            {#if diagnosis.steps.length > 0}
+              <ol class="list-decimal pl-5 text-chrome-dense text-(--solus-text-secondary) select-text">
+                {#each diagnosis.steps as step (step)}
+                  <li>{step}</li>
+                {/each}
+              </ol>
+            {/if}
+          {/if}
           <dl class="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-chrome-dense">
             {#each rows as row (row.label)}
               <dt class="font-medium text-(--solus-text-primary)">{row.label}</dt>
@@ -111,6 +134,15 @@
             {/each}
           </dl>
           <div class="flex justify-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="text-(--solus-text-secondary)"
+              disabled={diagnosis?.isChecking}
+              onclick={() => serversStore.checkConnection(serverId)}
+            >
+              {diagnosis?.isChecking ? "Checking…" : "Check again"}
+            </Button>
             <Button variant="ghost" size="sm" class="text-(--solus-text-secondary)" onclick={copyDetails}>{copied ? "Copied" : "Copy details"}</Button>
             <Button variant="ghost" size="sm" class="text-(--solus-text-secondary)" onclick={openHostSettings}>Host settings</Button>
           </div>

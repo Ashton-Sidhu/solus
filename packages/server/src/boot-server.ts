@@ -30,6 +30,7 @@ import { buildHttpServer } from './transport/http'
 import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
+import { createHostSelfTest } from './transport/uplink/self-test'
 import { readStoredTunnel, registerAndLink, splitLegacyLinkRecord, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
@@ -161,7 +162,7 @@ import { RemoteHosts } from './execution/orchestration/remote-hosts'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
 import type { AccountReach, ReachActor, ReachRequest } from './execution/orchestration/remote-hosts'
-import { advertisedRoutes } from './transport/endpoints'
+import { advertisedRoutes, readTailscaleExitNode } from './transport/endpoints'
 import { orchestrateSessions } from './execution/orchestration/orchestrate-sessions'
 import { onAnnotationsChanged } from './annotations/annotation-events'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -1861,7 +1862,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       trustLocalNetwork: setTrustLocalNetwork(trustLocalNetwork).trustLocalNetwork,
     }),
   })
-  registerUplinkHandlers(server, { registrar, manager: uplinkManager, status: uplinkStatus })
+  registerUplinkHandlers(server, {
+    registrar,
+    manager: uplinkManager,
+    status: uplinkStatus,
+    selfTest: createHostSelfTest({
+      installationId: getInstallationId,
+      status: uplinkStatus,
+      isReachedDirectly: () => readHostLinkEnv() !== null,
+      isTunnelTurnedOffByPolicy: () => hostPolicies().hostSetting('cloudTunnel')?.value === false,
+      boundPort: () => tunnelPort,
+      connector: () => uplinkConnector.inspect(),
+      exitNode: readTailscaleExitNode,
+    }),
+  })
 
   log.info('server_listening', { host, port: actualPort })
   console.log(`\n  Solus web UI → http://localhost:${actualPort}\n`)

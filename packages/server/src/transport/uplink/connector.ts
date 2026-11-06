@@ -17,6 +17,15 @@ const log = createLogger('main', 'uplink-connector')
  * status line, nothing more.
  */
 
+/** What the connector knows now, for the host's self-test. */
+export interface ConnectorFacts {
+  isInstalled: boolean
+  isRunning: boolean
+  /** Edge connections registered now. */
+  readyConnections: number
+  protocol: 'auto' | 'http2'
+}
+
 export type ConnectorObservation =
   | { observed: 'online' }
   | { observed: 'offline' }
@@ -104,6 +113,15 @@ export class CloudflaredConnector {
 
   get running(): boolean {
     return this.child !== null
+  }
+
+  inspect(): ConnectorFacts {
+    return {
+      isInstalled: this.deps.resolveBinary() !== null,
+      isRunning: this.running,
+      readyConnections: this.registeredConnections.size,
+      protocol: this.useHttp2 ? 'http2' : 'auto',
+    }
   }
 
   /** Idempotent: a running connector with the same token is left alone. */

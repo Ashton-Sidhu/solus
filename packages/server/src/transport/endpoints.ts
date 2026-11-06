@@ -37,6 +37,7 @@ export interface TailnetPeerCandidate {
 
 interface TailscaleStatusPeer {
   Online?: boolean
+  ExitNode?: boolean
   HostName?: string
   DNSName?: string
   TailscaleIPs?: string[]
@@ -45,10 +46,12 @@ interface TailscaleStatusPeer {
 interface TailscaleStatus {
   Peer?: Record<string, TailscaleStatusPeer>
   Self?: { TailscaleIPs?: string[] }
+  ExitNodeStatus?: object | null
 }
 
 const tailscaleStatusPeerSchema = z.object({
   Online: z.boolean().optional(),
+  ExitNode: z.boolean().optional(),
   HostName: z.string().optional(),
   DNSName: z.string().optional(),
   TailscaleIPs: z.array(z.string()).optional(),
@@ -56,6 +59,7 @@ const tailscaleStatusPeerSchema = z.object({
 const tailscaleStatusSchema = z.object({
   Peer: z.record(z.string(), tailscaleStatusPeerSchema).optional(),
   Self: z.object({ TailscaleIPs: z.array(z.string()).optional() }).optional(),
+  ExitNodeStatus: z.object({}).nullish(),
 })
 const discoveredHealthSchema = z.object({
   installationId: z.string(),
@@ -196,6 +200,15 @@ function findTailscaleBin(): string | null {
   }
   // A Windows install in another folder, or a scoop or winget shim, is on PATH.
   return process.platform === 'win32' ? findOnPath('tailscale', getCliPath()) : null
+}
+
+/** The exit node this machine sends its traffic through; null when none is on or Tailscale is absent. */
+export async function readTailscaleExitNode(): Promise<{ name: string | null } | null> {
+  const status = await readTailscaleStatus()
+  if (!status?.ExitNodeStatus) return null
+  const peer = Object.values(status.Peer ?? {}).find((candidate) => candidate.ExitNode === true)
+  // The DNS label is the tailnet machine name; HostName is the OS name and ignores renames.
+  return { name: peer?.DNSName?.split('.')[0] || peer?.HostName?.trim() || null }
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus | null> {

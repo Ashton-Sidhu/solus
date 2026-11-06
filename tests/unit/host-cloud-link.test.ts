@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { uplinkControl } from '@solus/client-core/uplink-control'
+import type { HostSelfTest } from '@solus/contracts/host-connection'
 import type { UplinkEnrollmentTicket, UplinkStatus } from '@solus/contracts/uplink'
 import { HostCloudLink } from '../../apps/mobile/src/features/settings/host-cloud-link'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
@@ -52,6 +53,36 @@ async function phoneWith(api: FakeApi, ticket: UplinkEnrollmentTicket | null = T
   await cloud.load('inst-a')
   return { world, cloud }
 }
+
+const SELF_TEST: HostSelfTest = { checkedAt: 1, reachable: true, summary: 'Other devices can reach this machine through its tunnel.', stages: [], problem: null, facts: [] }
+
+describe('a phone runs a host\'s self-test', () => {
+  const paired = () => new FakeApi()
+    .on('connectionsGetServerInfo', () => ({ principal: 'local-owner', hostKind: 'personal' }))
+    .on('uplinkStatus', () => LINKED)
+
+  test('it shows the running state, then the result', async () => {
+    const { cloud } = await phoneWith(paired().on('hostSelfTest', () => SELF_TEST))
+    const run = cloud.runSelfTest('inst-a')
+    expect(cloud.selfTestOf('inst-a')).toEqual({ kind: 'running' })
+    await run
+    expect(cloud.selfTestOf('inst-a')).toEqual({ kind: 'done', test: SELF_TEST })
+  })
+
+  test('an older host without the test says that it could not run', async () => {
+    const { cloud } = await phoneWith(paired())
+    await cloud.runSelfTest('inst-a')
+    expect(cloud.selfTestOf('inst-a')?.kind).toBe('error')
+  })
+
+  test('a tunnel that changes drops a finished result: it may no longer be true', async () => {
+    const { world, cloud } = await phoneWith(paired().on('hostSelfTest', () => SELF_TEST))
+    await cloud.runSelfTest('inst-a')
+    world.transports[0]!.emit('host.uplinkStatusChanged', LINKED)
+    await flushPromises()
+    expect(cloud.selfTestOf('inst-a')).toBeNull()
+  })
+})
 
 describe('a phone paired with a host registers it, and links it', () => {
   test('signed in, the phone registers a host that is not registered by itself, with a ticket from its own account, and makes no tunnel', async () => {

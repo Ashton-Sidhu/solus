@@ -182,7 +182,14 @@ export class ServerConnections {
       lastDialError: connection?.transport.lastDialError ?? null,
       hostVersion: connection?.facts.value('capabilities')?.version ?? this.lastHostVersions.get(resolvedId) ?? null,
       clientVersion: CLIENT_VERSION,
+      connectionCheck: connection?.link.connectionCheck ?? null,
+      isCheckingConnection: connection?.link.isCheckingConnection ?? false,
     }
+  }
+
+  /** Reads the way to a host once, so its diagnosis can name a stage. The host's dial listeners hear the result. */
+  checkConnection(serverId: string): Promise<void> {
+    return this.connections.get(this.resolveId(serverId))?.link.checkConnection() ?? Promise.resolve()
   }
 
   onDialOutcome(listener: (serverId: string) => void): () => void {
@@ -335,6 +342,10 @@ export class ServerConnections {
       clientOrigin: globalThis.location?.origin ?? '',
       localHostId: this.targets.get(LOCAL_SERVER_ID)?.installationId ?? null,
       answersAsHost: (url, signal) => this.answersAsHost(target, url, signal),
+      cloudUrl: () => target.uplink?.directoryUrl ?? null,
+      onConnectionCheck: () => {
+        for (const listener of this.dialListeners) listener(serverId)
+      },
       onRouteChange: (url) => {
         target.url = url
         this.healthCache.delete(serverId)

@@ -8,6 +8,7 @@ import { HostFacts, type HostPresence } from './host-facts'
 import { HostSupervisor, type DialOutcome } from './host-supervisor'
 import type { LinkReadiness, RefusedReason } from './host-readiness'
 import type { DialError } from './host-diagnostics'
+import { runConnectionCheck, type HostConnectionCheck } from './host-connection-check'
 import { installationIdDecision, type SavedServerUplink } from './server-registry'
 import type { WakeSignal } from './wake-signals'
 
@@ -52,6 +53,10 @@ export interface HostLinkOptions {
   fallbackRoutes?(): readonly HostRoute[]
   /** Whether a route answers `/health` as this host. Never rejects. */
   answersAsHost: RouteCheck
+  /** The account origin that names the host, when this client has one. The connection check reads it. */
+  cloudUrl?(): string | null
+  /** The connection check's reads; the global `fetch` when absent. */
+  fetchImpl?: typeof fetch
   /** The page's origin: an `https:` page cannot dial an `http:` route. Empty for a native client. */
   clientOrigin?: string
   /** This machine's installation id, when it hosts a Solus server: only it can dial a forward it holds. */
@@ -61,6 +66,8 @@ export interface HostLinkOptions {
   onReadinessChange?: (readiness: LinkReadiness, attempt: number) => void
   /** Every dial outcome, after the supervisor has acted on it. */
   onOutcome?: (outcome: DialOutcome) => void
+  /** A connection check started or ended. */
+  onConnectionCheck?: () => void
   /** The link moved to another route. */
   onRouteChange?: (url: string) => void
   /** The host said where it is reached and which key it signs with (docs/plans/host-routes.md D2). */
@@ -80,6 +87,8 @@ export class HostLink {
   readonly facts: HostFacts
   private directRecheck: ReturnType<typeof setTimeout> | null = null
   private isDestroyed = false
+  private lastConnectionCheck: HostConnectionCheck | null = null
+  private connectionCheckRun: Promise<void> | null = null
 
   constructor(private readonly options: HostLinkOptions) {
     this.hostId = options.hostId
@@ -95,6 +104,8 @@ export class HostLink {
       },
       onSessionChange: (change) => this.facts.sessionChanged(change),
       onReadinessChange: (readiness, attempt) => {
+        // A check says why a host is not ready; a ready host makes it stale.
+        if (readiness === 'ready') this.lastConnectionCheck = null
         this.scheduleDirectRecheck()
         options.onReadinessChange?.(readiness, attempt)
       },
@@ -138,6 +149,22 @@ export class HostLink {
     return this.supervisor.sessionGeneration
   }
 
+  /** The last connection check while the host stays not ready. */
+  get connectionCheck(): HostConnectionCheck | null {
+    return this.lastConnectionCheck
+  }
+
+  get isCheckingConnection(): boolean {
+    return this.connectionCheckRun !== null
+  }
+
+  /** Reads Solus Cloud and each dialable address once. A check that runs is shared. */
+  checkConnection(): Promise<void> {
+    this.connectionCheckRun ??= this.runConnectionCheck()
+    this.options.onConnectionCheck?.()
+    return this.connectionCheckRun
+  }
+
   /** The first dial. Idempotent. */
   start(): void {
     if (this.options.presence === 'gone') return
@@ -172,6 +199,21 @@ export class HostLink {
     this.supervisor.destroy()
     this.transport.destroy()
     this.facts.dispose()
+  }
+
+  private async runConnectionCheck(): Promise<void> {
+    try {
+      const check = await runConnectionCheck({
+        routes: this.dialable(),
+        cloudUrl: this.options.cloudUrl?.() ?? null,
+        answersAsHost: this.options.answersAsHost,
+        fetchImpl: this.options.fetchImpl ?? fetch,
+      })
+      if (!this.isDestroyed && this.readiness !== 'ready') this.lastConnectionCheck = check
+    } finally {
+      this.connectionCheckRun = null
+      if (!this.isDestroyed) this.options.onConnectionCheck?.()
+    }
   }
 
   private dialable(): HostRoute[] {

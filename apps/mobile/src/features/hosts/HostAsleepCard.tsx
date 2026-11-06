@@ -3,6 +3,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
 import { hostDiagnosticRows, hostDiagnosticsText } from "@solus/client-core/host-diagnostics";
+import { diagnoseHostConnection } from "@solus/client-core/host-connection-diagnosis";
 import { HOST_READINESS_ACTION_LABELS, type HostReadinessAction } from "@solus/client-core/host-readiness";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -11,6 +12,7 @@ import { AppText as Text } from "../../components/AppText";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import type { RootStackParamList } from "../../navigation/routes";
 import { hostAsleepCardCopy } from "../threads/lib/thread-host-chrome";
+import { HostConnectionStages } from "./HostConnectionStages";
 
 const COPY_FEEDBACK_DURATION_MS = 1200;
 const MINUTE_MS = 60_000;
@@ -40,9 +42,15 @@ export function HostAsleepCard(props: { readonly hostId: string; readonly bottom
     return () => clearInterval(timer);
   }, [isFocused]);
   const copy = hostAsleepCardCopy(diagnostics.state, diagnostics.label, isStarting, now);
+  const diagnosis = isDetailsOpen ? diagnoseHostConnection(diagnostics) : null;
+  const toggleDetails = () => {
+    if (!isDetailsOpen) app.connections.checkConnection(hostId);
+    setIsDetailsOpen(!isDetailsOpen);
+  };
   const runAction = (next: HostReadinessAction) => {
     if (next === "retry") {
       app.connections.retry(hostId);
+      if (isDetailsOpen) app.connections.checkConnection(hostId);
     } else if (next === "start") {
       const host = app.registry.host(hostId);
       if (!host) return;
@@ -72,7 +80,7 @@ export function HostAsleepCard(props: { readonly hostId: string; readonly bottom
             accessibilityRole="button"
             accessibilityState={{ expanded: isDetailsOpen }}
             className="min-h-9 flex-row items-center gap-1.5 rounded-[10px] px-3 active:opacity-70"
-            onPress={() => setIsDetailsOpen((open) => !open)}
+            onPress={toggleDetails}
           >
             <Text className="text-sm font-t3-medium text-foreground-secondary">Details</Text>
             <SymbolView
@@ -97,6 +105,19 @@ export function HostAsleepCard(props: { readonly hostId: string; readonly bottom
 
         {isDetailsOpen ? (
           <View className="mt-4 w-full gap-3">
+            {diagnosis ? (
+              <>
+                <Text className="text-sm font-t3-medium text-foreground">
+                  {diagnosis.isChecking && !diagnosis.checkedAt ? "Checking the connection…" : diagnosis.headline}
+                </Text>
+                <HostConnectionStages stages={diagnosis.stages} />
+                {diagnosis.steps.map((step, index) => (
+                  <Text key={step} selectable className="text-xs text-foreground-secondary">
+                    {`${index + 1}. ${step}`}
+                  </Text>
+                ))}
+              </>
+            ) : null}
             <View className="gap-1.5">
               {hostDiagnosticRows(diagnostics, now).map((row) => (
                 <View key={row.label} className="flex-row gap-4">
@@ -112,7 +133,18 @@ export function HostAsleepCard(props: { readonly hostId: string; readonly bottom
                 </View>
               ))}
             </View>
-            <View className="flex-row items-center justify-center gap-1">
+            <View className="flex-row flex-wrap items-center justify-center gap-1">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: diagnosis?.isChecking === true }}
+                className="min-h-9 justify-center rounded-[10px] px-3 active:opacity-70"
+                disabled={diagnosis?.isChecking === true}
+                onPress={() => app.connections.checkConnection(hostId)}
+              >
+                <Text className="text-sm font-t3-medium text-foreground-secondary">
+                  {diagnosis?.isChecking ? "Checking…" : "Check again"}
+                </Text>
+              </Pressable>
               <CopyHostDetailsButton
                 hostId={hostId}
                 className="min-h-9 justify-center rounded-[10px] px-3 active:opacity-70"

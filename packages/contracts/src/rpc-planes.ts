@@ -227,6 +227,7 @@ export const RPC_PLANES = {
   uplinkUnlink: 'collaboration',
   uplinkDetachOrganization: 'collaboration',
   uplinkStatus: 'collaboration',
+  hostSelfTest: 'collaboration',
 
   // Organization scope: a machine's standing is an execution-host fact;
   // an organization's Insights are read where they are stored, on the Solus API.

@@ -290,6 +290,8 @@ export const RPC_INVOKE_METHODS = [
   'uplinkUnlink',
   'uplinkDetachOrganization',
   'uplinkStatus',
+  // The host tests its own connection (docs/plans/host-readiness.md)
+  'hostSelfTest',
   // Organization scope (docs/plans/organization-scope.md): this host's standing, its Insights opt-ins, and publication
   'hostOrganizations',
   'hostPolicy',

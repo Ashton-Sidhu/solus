@@ -1,7 +1,8 @@
 import type { DeviceCodeGrant } from '@solus/client-core/device-authorization'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import type { AccountOrganization, UplinkStatus } from '@solus/contracts/uplink'
-import type { ConnectChoice, ConnectOptions, ConnectReporter } from './connect'
+import { connectionStageLine } from '@solus/contracts/host-connection'
+import type { ConnectChoice, ConnectOptions, ConnectReporter, ConnectSelfTest } from './connect'
 import type { Prompter } from './prompts'
 
 /**
@@ -164,6 +165,19 @@ export function describeConnection({ uplink, standing }: { uplink: UplinkStatus;
   }
   if (standing.deliveryError) lines.push(`  Last delivery error: ${standing.deliveryError}`)
   return lines
+}
+
+/** The server's test of its own connection, for `solus connect status`. */
+export function describeSelfTest({ selfTest, selfTestError }: ConnectSelfTest): string[] {
+  if (!selfTest) return [`Connection test: could not run (${selfTestError}). Run \`solus update\` if this server is older than this command.`]
+  const { problem } = selfTest
+  return [
+    `Connection test: ${selfTest.summary}`,
+    ...selfTest.stages.map((report) => `  ${connectionStageLine(report)}`),
+    ...selfTest.facts.map((fact) => `  ${fact.label}: ${fact.value}`),
+    ...(problem?.hint ? [`  ${problem.hint}`] : []),
+    ...(problem ? [`  Fix: ${problem.fix}`] : []),
+  ]
 }
 
 function categoryLabel(category: HostOrganizationsStatus['category']): string {

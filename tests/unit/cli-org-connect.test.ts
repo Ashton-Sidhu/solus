@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { parseLinkCode, type AccountOrganization, type UplinkStatus } from '@solus/contracts/uplink'
 import type { ConnectOptions, ConnectReporter } from '../../apps/cli/src/lib/connect'
-import { describeConnection, onboard, type OnboardingDeps, type Provider } from '../../apps/cli/src/lib/onboarding'
+import { describeConnection, describeSelfTest, onboard, type OnboardingDeps, type Provider } from '../../apps/cli/src/lib/onboarding'
 import type { Choice, Prompter } from '../../apps/cli/src/lib/prompts'
 
 // plans/009-organization-vms.md §5: `solus setup` is one command. A link code
@@ -125,6 +125,30 @@ describe('solus setup and solus connect', () => {
     expect(describeConnection({ uplink: LINKED, standing: standing({ registered: true }) }).join('\n')).toContain('not attached. New work here stays on this server')
     // Registered and not linked: the server is reached on its network, and says so.
     expect(describeConnection({ uplink: { ...LINKED, link: { linked: false } }, standing: standing({ registered: true }) }).join('\n')).toContain('Reachable from the internet: local network only (not linked)')
+  })
+
+  test('status prints the test of the connection: the stages, the facts, and the fix', () => {
+    const text = describeSelfTest({
+      selfTest: {
+        checkedAt: 1,
+        reachable: false,
+        summary: 'Cloudflare\'s tunnel port (7844) does not answer from this machine.',
+        stages: [{ stage: 'device', label: 'Other devices', result: 'unknown', detail: null }, { stage: 'tunnel', label: 'Tunnel', result: 'failed', detail: 'Port 7844' }],
+        problem: { stage: 'tunnel', cause: 'edge-blocked', reason: 'blocked', fix: 'Allow outbound port 7844.', hint: 'A VPN can block this port.' },
+        facts: [{ label: 'Port 7844', value: 'TCP blocked or timed out; UDP not tested' }],
+      },
+      selfTestError: null,
+    }).join('\n')
+    expect(text).toContain('Connection test: Cloudflare\'s tunnel port (7844) does not answer')
+    expect(text).toContain('Other devices: Unknown')
+    expect(text).toContain('Tunnel: Failed (Port 7844)')
+    expect(text).toContain('Port 7844: TCP blocked or timed out; UDP not tested')
+    expect(text).toContain('A VPN can block this port.')
+    expect(text).toContain('Fix: Allow outbound port 7844.')
+  })
+
+  test('an older server says that the test could not run, not that it passed', () => {
+    expect(describeSelfTest({ selfTest: null, selfTestError: 'unknown method' })[0]).toContain('could not run (unknown method)')
   })
 
   test('a link code names its own account plane; a bare ticket uses the one setup was given', () => {
