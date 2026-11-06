@@ -15,7 +15,7 @@ import { readSessionMeta, stampSessionMeta } from '@solus/client-core/session-me
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hosts } from '../hosts/hosts.svelte'
 import { readSessionRecordPage } from '../sessions/session-record-transcript'
-import { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON, recordHomeOf, savedHostsAreAuthoritative } from './machine-references'
+import { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON, LOCAL_HOST_OFF_READ_ONLY_REASON, recordHomeOf, savedHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { checkoutGit, checkoutPlace, folderLocation, projectHome, remapHosts, runHost } from './run-location'
@@ -458,6 +458,10 @@ function startRestoredMetadataReads(
  * listed, and when a read fails, so selection or reconnect tries again.
  */
 export async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: PersistedTab, session: Session): Promise<boolean> {
+  if (serverConnections.isLocalHostOff(runHost(session.run))) {
+    session.readOnlyReason = LOCAL_HOST_OFF_READ_ONLY_REASON
+    return true
+  }
   if (!savedHostsAreAuthoritative()) return false
   const home = recordHomeOf(session)
   session.readOnlyReason = home ? GONE_MACHINE_READ_ONLY_REASON : GONE_MACHINE_NO_RECORD_REASON

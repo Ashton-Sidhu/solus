@@ -21,8 +21,8 @@ import type { GuestShortcut, NativeSolusAPI } from '@solus/contracts/host-api'
 // Main has finished booting the local server before it creates either renderer
 // window. Start this immutable bootstrap lookup while the preload itself is
 // evaluating so HTML parsing and renderer startup do not sit behind a fresh IPC
-// round trip.
-const localConnectionPromise: Promise<LocalConnectionInfo> = ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL)
+// round trip. Null when the local host is off.
+const localConnectionPromise: Promise<LocalConnectionInfo | null> = ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL)
 
 // One IPC listener per channel, fanned out to however many callers subscribe.
 // A listener per caller crossed Node's ten-listener warning threshold on
@@ -59,7 +59,8 @@ const nativeApi: NativeSolusAPI = {
   getPlatform: () => process.platform,
   getLocalConnection: () => localConnectionPromise,
   refreshLocalSessionToken: () =>
-    ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL).then((info: LocalConnectionInfo) => info.token),
+    ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL).then((info: LocalConnectionInfo | null) => info?.token ?? ''),
+  setLocalHostEnabled: (enabled: boolean) => ipcRenderer.invoke('solus:set-local-host-enabled', enabled),
   openExternal: (url: string, options?: { hideAppAfterOpen?: boolean }) =>
     ipcRenderer.invoke('solus:open-external', url, options),
   setActivityBadge: (sessionKeys: string[]) => ipcRenderer.invoke('solus:set-activity-badge', sessionKeys),

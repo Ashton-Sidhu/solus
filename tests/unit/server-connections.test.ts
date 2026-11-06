@@ -551,3 +551,84 @@ describe('connection-owned startup reads', () => {
     identityLoaders.delete('projects')
   })
 })
+
+// docs/plans/desktop-remote-only.md. WHY: the app must connect only to saved hosts,
+// and a person with none must still reach a workspace that can add one.
+describe('a desktop window with its local host off', () => {
+  const savedHost = (id: string) => ({
+    id, label: id, sessionToken: 'token', installationId: id, lastConnected: 1,
+    routes: [{ kind: 'lan', url: `http://${id}.test:3000`, source: 'pairing', seenAt: 1 }],
+  })
+
+  function withStorage(run: (storage: Map<string, string>) => void): void {
+    const previous = globalThis.localStorage
+    const storage = new Map<string, string>()
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
+    })
+    try {
+      run(storage)
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: previous })
+    }
+  }
+
+  test('opens on the active saved host and has no device host', () => {
+    withStorage((storage) => {
+      storage.set('solus.servers', JSON.stringify([savedHost('first'), savedHost('second')]))
+      storage.set('solus.activeServerId', 'second')
+      const connections = new ServerConnections()
+
+      const primary = connections.openWithoutLocalHost()
+
+      expect(primary.presence).toBe('present')
+      expect(connections.defaultServerId()).toBe('second')
+      expect(connections.localServerId()).toBeNull()
+      expect(connections.localHostApi()).toBeNull()
+      expect(connections.deviceHostId()).toBeNull()
+    })
+  })
+
+  test('falls to the first saved host when the remembered active host is this computer', () => {
+    withStorage((storage) => {
+      storage.set('solus.servers', JSON.stringify([savedHost('first')]))
+      const connections = new ServerConnections()
+
+      expect(connections.openWithoutLocalHost().serverId).toBe('first')
+    })
+  })
+
+  test('with no saved host the window waits on a gone primary, and the first saved host takes over', () => {
+    withStorage((storage) => {
+      const connections = new ServerConnections()
+
+      expect(connections.openWithoutLocalHost().presence).toBe('gone')
+      // Settings lists these as hosts: a window with none must list none.
+      expect(connections.connectedServerIds()).toEqual([])
+
+      // Pairing saves one host; a directory read saves many and then asks for the catalog.
+      storage.set('solus.servers', JSON.stringify([savedHost('paired')]))
+      connections.startCatalogSupervisors()
+
+      expect(connections.defaultServerId()).toBe('paired')
+      expect(connections.presenceOf('paired')).toBe('present')
+    })
+  })
+
+  test('a window that booted on its local host never treats that host as turned off', () => {
+    expect(new ServerConnections().isLocalHostOff()).toBe(false)
+  })
+
+  test('only the local host reads as turned off: a removed host is still removed', () => {
+    withStorage(() => {
+      const connections = new ServerConnections()
+      connections.openWithoutLocalHost()
+
+      expect(connections.isLocalHostOff()).toBe(true)
+      expect(connections.isLocalHostOff('local')).toBe(true)
+      expect(connections.isLocalHostOff('managed:deleted')).toBe(false)
+    })
+  })
+})

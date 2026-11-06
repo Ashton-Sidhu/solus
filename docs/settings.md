@@ -195,6 +195,13 @@ Settings → Hosts lists every host. Each host has its own page:
   trust, address), pairing, and the devices with access.
 - **Git**, **AI providers**, and **Environment**.
 
+On desktop, **This computer → Local host** turns off the host that the app runs
+here. Solus restarts with no local server: no local agents run, and other devices
+cannot connect to this computer. All local data stays, and Solus connects only to
+saved hosts. Open tabs on this computer stay read-only. Turn the switch on to
+restart with the earlier local settings. The connect page and the command palette
+can also turn the local host on (`docs/plans/desktop-remote-only.md`).
+
 On mobile, a host's settings screen opens an **Access** screen with the same
 sections in the same order (`HostAccessScreen`). The pairing code shows as a code,
 a QR code, and a link to copy. The rules for the organization rows and the pairing

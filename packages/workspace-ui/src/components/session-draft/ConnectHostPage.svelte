@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ChevronRight as ChevronIcon,
+    Laptop as LocalHostIcon,
     Link as PairIcon,
     LoaderCircle as SpinnerIcon,
     PencilLine as DraftIcon,
@@ -11,6 +12,7 @@
   } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { runtime, serversStore } from "../../contexts";
+  import { localHostStore } from "../../contexts/connections/local-host.store.svelte";
   import { cn } from "../../lib/utils";
   import { isStackedPane } from "../../lib/pane-width";
   import { Button } from "../ui/button";
@@ -235,6 +237,16 @@
             () => hostOnboardingStore.openForDiscovered(nearbyHost.server),
           )}
         {/each}
+        {#if localHostStore.isOff}
+          {@render option(
+            LocalHostIcon,
+            null,
+            "This computer",
+            "The local host is off. Turn it on to run agents here. Solus restarts.",
+            "Turn on",
+            localHostStore.isSwitching ? null : () => void localHostStore.setEnabled(true),
+          )}
+        {/if}
         {#if hosts.length === 0}
           {@render option(
             PairIcon,
@@ -269,16 +281,19 @@
             Add host
           </Button>
         {/if}
-        <Button
-          variant="ghost"
-          size="sm"
-          class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-          disabled={serversStore.discoveryBusy}
-          onclick={() => void serversStore.scanForServers()}
-        >
-          <ScanIcon size={13} />
-          {serversStore.discoveryBusy ? "Scanning…" : "Scan network"}
-        </Button>
+        <!-- A host scans its network, so with the local host off and no saved host nothing can. -->
+        {#if hosts.length > 0 || !localHostStore.isOff}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+            disabled={serversStore.discoveryBusy}
+            onclick={() => void serversStore.scanForServers()}
+          >
+            <ScanIcon size={13} />
+            {serversStore.discoveryBusy ? "Scanning…" : "Scan network"}
+          </Button>
+        {/if}
       </div>
     {/if}
 

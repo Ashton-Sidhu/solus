@@ -22,6 +22,8 @@
   import { hostSetupStore } from "./host-setup.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
+  import LocalHostSetting from "../connections/LocalHostSetting.svelte";
+  import { localHostStore } from "../../contexts/connections/local-host.store.svelte";
   import WslDistroRows from "./WslDistroRows.svelte";
   import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
 
@@ -109,6 +111,10 @@
     {/each}
   {/if}
 </SettingsSection>
+
+{#if localHostStore.canSwitch}
+  <LocalHostSetting />
+{/if}
 
 <SettingsSection label="Nearby">
   {#snippet action()}

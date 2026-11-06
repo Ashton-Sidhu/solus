@@ -372,6 +372,7 @@ class ServersStore {
       void nativeApi.getLocalConnection().then((local) => {
         this.local = local
         this.updateAutoDiscovery()
+        if (!local) return
         // The row should carry the machine's real name, not a placeholder —
         // /health is the one source that knows it.
         void serverConnections.probeHealth(LOCAL_SERVER_ID).then((health) => {

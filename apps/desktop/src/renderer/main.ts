@@ -3,7 +3,7 @@ import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import { localServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
+import { installWindowSolusApi, mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
 import { renderFatal } from './boot-scene'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import type { LocalConnectionInfo, NativeSolusAPI } from '@solus/contracts/host-api'
@@ -33,8 +33,15 @@ function renderBootError(err: Parameters<typeof String>[0]): void {
   })
 }
 
-async function getLocalConnection(nativeApi: NativeSolusAPI): Promise<LocalConnectionInfo> {
+async function getLocalConnection(nativeApi: NativeSolusAPI): Promise<LocalConnectionInfo | null> {
   return nativeApi.getLocalConnection()
+}
+
+/** Mounting does not wait: a host that is late or refuses shows in the app. */
+function bootWithoutLocalHost(nativeApi: NativeSolusAPI): void {
+  const primary = serverConnections.openWithoutLocalHost()
+  // Only the local target carries the native methods, and this window has none.
+  installWindowSolusApi(mergeNativeOnlySolusApi(primary.api, nativeApi))
 }
 
 async function boot(): Promise<void> {
@@ -51,22 +58,26 @@ async function boot(): Promise<void> {
   if (!nativeApi) throw new Error('Native Solus bootstrap bridge is unavailable')
   const local = await getLocalConnection(nativeApi)
   performance.mark('solus.boot.connection')
-  // The window always boots on its own machine, and that machine is the default
-  // for new work. Another host is chosen per run with the Run on picker.
-  const target = localServerTarget(local)
-  bootTarget = target
-  serverConnections.registerTarget(target, { refreshSessionToken: () => nativeApi.refreshLocalSessionToken(), nativeApi })
-
   // The local server accepts the socket instantly, and RPC calls made before it
   // opens queue and flush automatically (see WsTransport.invoke/send) — so there
   // is nothing to wait for. Leave the boot shell up and mount straight into the
   // app, letting its own per-surface skeletons cover in-flight data.
   let appMounted = false
-  const primary = serverConnections.setPrimary(target.id)
-  installWindowSolusApi(primary.api)
-  const stopBootWatch = serverConnections.onReadinessChange((serverId, readiness) => {
-    if (serverId === target.id && readiness === 'refused' && !appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
-  })
+  let stopBootWatch = () => {}
+  if (local) {
+    // The window boots on its own machine, and that machine is the default for
+    // new work. Another host is chosen per run with the Run on picker.
+    const target = localServerTarget(local)
+    bootTarget = target
+    serverConnections.registerTarget(target, { refreshSessionToken: () => nativeApi.refreshLocalSessionToken(), nativeApi })
+    const primary = serverConnections.setPrimary(target.id)
+    installWindowSolusApi(primary.api)
+    stopBootWatch = serverConnections.onReadinessChange((serverId, readiness) => {
+      if (serverId === target.id && readiness === 'refused' && !appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
+    })
+  } else {
+    bootWithoutLocalHost(nativeApi)
+  }
   void prefetchStartupTranscript()
   // Every catalog entry is eagerly desired: saved remote hosts hold live
   // supervised sockets from boot, so their rows go live instead of cached.
