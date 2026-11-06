@@ -85,7 +85,7 @@ not encrypt. A client does not send a secret on the last row. `isEncryptedRouteU
 because a refusal from the server comes after the secret has crossed the network.
 
 This also closes the linked add on plain `http:`, which sent the secret in the clear.
-The developer can loosen this rule. See "Open decision".
+The developer chose to keep this rule. See "Decision".
 
 ### D6. Logs
 
@@ -116,10 +116,11 @@ field, and no toast.
   waits.
 - **WSL.** A distro has no SSH sign-in, so it never reaches `needs-auth`.
 
-## Open decision
+## Decision
 
-Plain `http:` on a LAN refuses a secret (D5). A person with no account and no tailnet
-can then give the password only from the computer that holds the forward. The other
-choices are a "send anyway" confirmation, or a seal to a host key. A seal needs a new
-key and a crypto library, because `crypto.subtle` is not available on a plain `http:`
-page, and a page served over plain `http:` can be changed in transit anyway.
+Plain `http:` on a LAN refuses a secret (D5), because anyone on that network can read
+it. A person with no account and no tailnet can give the password only from the
+computer that holds the forward. The developer decided to keep this rule (2026-11-06).
+Solus has no "send anyway" confirmation. A seal to a host key is also out: it needs a
+new key and a crypto library, because `crypto.subtle` is not available on a plain
+`http:` page, and a page served over plain `http:` can be changed in transit anyway.
