@@ -27,12 +27,21 @@ function fakeConnection(hostId: string, options: { githubMediaUrls?: boolean; ex
 }
 
 describe('pull request media URLs', () => {
+  test('sends the pull request repository, and each repository has its own signed URL', async () => {
+    const { connection, prMediaUrl } = fakeConnection('media-repository')
+    await pullRequestMediaUrl(connection, UPLOAD, ctx, 'enterprise/private')
+    await pullRequestMediaUrl(connection, UPLOAD, ctx, 'enterprise/private', true)
+    await pullRequestMediaUrl(connection, UPLOAD, ctx)
+    // WHY: a refresh must keep the repository, and a URL signed for no repository must not stand in for one.
+    expect(prMediaUrl.mock.calls.map((call) => (call as unknown[])[2])).toEqual(['enterprise/private', 'enterprise/private', undefined])
+  })
+
   test('GitHub media loads through a URL the host signs, absolute on the host origin, and is reused while fresh', async () => {
     const { connection, prMediaUrl } = fakeConnection('media-a')
     expect(await pullRequestMediaUrl(connection, UPLOAD, ctx)).toBe('https://host.example:4000/api/assets/github-1')
     expect(await pullRequestMediaUrl(connection, UPLOAD, ctx)).toBe('https://host.example:4000/api/assets/github-1')
     expect(prMediaUrl).toHaveBeenCalledTimes(1)
-    expect(prMediaUrl.mock.calls[0]).toEqual([ctx, UPLOAD] as never)
+    expect(prMediaUrl.mock.calls[0]).toEqual([ctx, UPLOAD, undefined] as never)
   })
 
   test('a URL close to its expiry is signed again', async () => {
@@ -45,7 +54,7 @@ describe('pull request media URLs', () => {
   test('the host signs the fetch URL: a blob page becomes the raw file', async () => {
     const { connection, prMediaUrl } = fakeConnection('media-c')
     await pullRequestMediaUrl(connection, 'https://github.com/o/r/blob/main/shot.png', ctx)
-    expect(prMediaUrl.mock.calls[0]).toEqual([ctx, 'https://raw.githubusercontent.com/o/r/main/shot.png'] as never)
+    expect(prMediaUrl.mock.calls[0]).toEqual([ctx, 'https://raw.githubusercontent.com/o/r/main/shot.png', undefined] as never)
   })
 
   test('other media, a host without the capability, a refusal, or no connection load the direct URL', async () => {

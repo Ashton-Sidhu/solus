@@ -60,7 +60,8 @@
   import { prLensAdapter, prLensSubject, prLensSubjectKey } from "./lib/pr-lens";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import { setCodeHostMentions } from "../mentions/lib/code-host-mentions";
-  import { setGithubMediaHost } from "../github-markdown/lib/github-media.svelte";
+  import { githubMediaRepository } from "@solus/contracts/github-media";
+  import { setGithubMediaLocation } from "../github-markdown/lib/github-media.svelte";
   import { prMentionAccounts, warmPrMentions } from "./lib/pr-mentions";
   import {
     buildPrChecksFixPrompt,
@@ -298,7 +299,7 @@
         })
       : [],
   );
-  setGithubMediaHost(() => serverId);
+  setGithubMediaLocation(() => ({ serverId, repository: reviewDetail ? githubMediaRepository(reviewDetail.baseRepo) : undefined }));
   setCodeHostMentions({
     accounts: () => mentionAccounts,
     warm: () => {

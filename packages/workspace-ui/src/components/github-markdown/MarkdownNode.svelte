@@ -12,7 +12,7 @@
   import PersonMention from '../mentions/PersonMention.svelte'
   import SignedGithubMedia from './SignedGithubMedia.svelte'
   import { githubMediaFetchUrl } from '@solus/contracts/github-media'
-  import { getGithubMediaHost, githubMediaSources } from './lib/github-media.svelte'
+  import { getGithubMediaLocation, githubMediaSources } from './lib/github-media.svelte'
   import { alertKind, elementAttributes, fencedCode, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, personMentionOf, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
   let { node, policy, parentTag = '', hideTaskCheckbox = false }: {
@@ -34,14 +34,15 @@
   const mention = $derived(element && policy === 'local' ? personMentionOf(element) : null)
   // A pull request surface signs GitHub media on its host, so a private
   // repository's images and videos show.
-  const mediaHost = getGithubMediaHost()
-  const mediaServerId = $derived(policy === 'remote' ? (mediaHost?.() ?? null) : null)
+  const mediaLocation = getGithubMediaLocation()
+  const mediaServerId = $derived(policy === 'remote' ? (mediaLocation?.().serverId ?? null) : null)
+  const mediaRepository = $derived(mediaLocation?.().repository)
   const imageSource = $derived(element?.tagName === 'img' ? String(element.properties.src ?? '') : '')
   const signsImage = $derived(!!mediaServerId && !!imageSource && githubMediaFetchUrl(imageSource) !== null)
   const signsMedia = $derived(!!mediaServerId && !!media && githubMediaFetchUrl(media) !== null)
   // The signed copy did not load: show the author's URL instead.
   function signedImageFailed(serverId: string, src: string | null) {
-    if (src && src !== imageSource) githubMediaSources.refuse(serverId, imageSource)
+    if (src && src !== imageSource) githubMediaSources.refuse(serverId, imageSource, mediaRepository)
   }
 </script>
 
@@ -63,7 +64,7 @@
   {:else if fence}
     <CodeBlock text={fence.text} lang={fence.lang} />
   {:else if media && signsMedia && mediaServerId}
-    <SignedGithubMedia serverId={mediaServerId} source={media}>
+    <SignedGithubMedia serverId={mediaServerId} source={media} repository={mediaRepository}>
       {#snippet withSource(src)}
         {#if src}<MarkdownParagraph raw={media} playbackSrc={src} />{/if}
       {/snippet}
@@ -82,7 +83,7 @@
     <MarkdownImage href={String(element.properties.src ?? '')} text={String(element.properties.alt ?? '')} title={typeof element.properties.title === 'string' ? element.properties.title : undefined} />
   {:else if signsImage && mediaServerId}
     {@const serverId = mediaServerId}
-    <SignedGithubMedia {serverId} source={imageSource}>
+    <SignedGithubMedia {serverId} source={imageSource} repository={mediaRepository}>
       {#snippet withSource(src)}
         <img
           {...attributes}
