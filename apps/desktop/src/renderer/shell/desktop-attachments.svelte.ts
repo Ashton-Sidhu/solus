@@ -91,7 +91,8 @@ export function createDesktopAttachments(
         toasts.info(unsupportedOnHost("File attachments", hostLabel));
         return;
       }
-      if (hostPolicy.isClientMachine(serverId)) {
+      // With no local host, the target's API picks and uploads like a browser's.
+      if (hostPolicy.isClientMachine(serverId) || !serverConnections.localHostApi()) {
         const files = await targetApi.attachFiles(ctx);
         if (files?.length) session.addAttachments(files, targetTabId);
         return;

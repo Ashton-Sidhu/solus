@@ -98,7 +98,7 @@
       </div>
     {/snippet}
   </SettingsRow>
-  {#if updatesStore.isAvailable}
+  {#if updatesStore.isAvailable && serversStore.local}
     <SettingsRow label="Coding providers" description={providerSummary(hostUpdatesStore.hostUpdateFor(LOCAL_SERVER_ID))}>
       {#snippet control()}<Button variant="outline" size="sm" onclick={openProviders}>Show providers</Button>{/snippet}
     </SettingsRow>

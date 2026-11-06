@@ -71,6 +71,7 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
     },
     (serverId) => serverConnections.presenceOf(serverId),
     () => serverConnections.runOnHostId() !== null,
+    (serverId) => serverConnections.isLocalHostOff(serverId),
   )
 }
 

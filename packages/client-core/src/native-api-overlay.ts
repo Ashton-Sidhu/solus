@@ -8,6 +8,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'getPathForFile',
   'readAttachmentBytes',
   'getLocalConnection',
+  'setLocalHostEnabled',
   'openExternal',
   'showNotification',
   'setActivityBadge',

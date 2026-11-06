@@ -48,6 +48,8 @@ import {
   hosts,
   sharesStore,
 } from "@solus/workspace-ui/contexts";
+import { localHostStore } from "@solus/workspace-ui/contexts/connections/local-host.store.svelte";
+import { connectionsNav } from "@solus/workspace-ui/components/connections/connections-nav.svelte";
 import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
@@ -340,6 +342,21 @@ export function createDesktopPalette(
     },
     addOverSshPaletteCommand(),
     ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
+    {
+      id: "local-host",
+      label: localHostStore.isOff ? "Turn on local host" : "Turn off local host",
+      group: "Servers",
+      icon: PlugsIcon,
+      keywords: ["remote only", "this computer", "local server"],
+      // Turning it off stops work here, so that way goes through the confirmation in Settings → Hosts.
+      run: () => {
+        if (localHostStore.isOff) void localHostStore.setEnabled(true);
+        else {
+          connectionsNav.back();
+          session.showSettings("api-access", "palette");
+        }
+      },
+    },
     {
       id: "find-hosts",
       label: "Find hosts nearby",

@@ -1049,7 +1049,7 @@ export interface SolusAPI {
   setAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): Promise<SetAppGlobalShortcutsResult>
   restartApp(): Promise<void>
   getPlatform(): string
-  getLocalConnection(): Promise<LocalConnectionInfo>
+  getLocalConnection(): Promise<LocalConnectionInfo | null>
 
   updateAgentFiles(ctx: IpcContext, text: string): Promise<{ success: boolean; files?: string[]; err?: string }>
 
@@ -1266,9 +1266,12 @@ export interface GuestShortcut {
 
 export interface NativeSolusAPI {
   getPlatform(): string
-  getLocalConnection(): Promise<LocalConnectionInfo>
+  /** Null when the local host is off (docs/plans/desktop-remote-only.md). */
+  getLocalConnection(): Promise<LocalConnectionInfo | null>
   /** Re-invokes the local-connection bootstrap to pull a fresh session token over IPC. */
   refreshLocalSessionToken(): Promise<string>
+  /** Turns this computer's host on or off: saves the choice and relaunches the app. */
+  setLocalHostEnabled(enabled: boolean): Promise<void>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
   setActivityBadge(sessionKeys: string[]): Promise<void>
   onActivityAcknowledged(callback: () => void): () => void

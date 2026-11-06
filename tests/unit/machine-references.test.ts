@@ -81,6 +81,24 @@ describe('references to a machine that is gone', () => {
     expect(closed).toEqual(['managed:gone'])
   })
 
+  test('a started tab on a turned-off local host stays open and unstarted work there moves', () => {
+    // WHY: docs/plans/desktop-remote-only.md. The host is off, not removed: its tab
+    // restores when it comes back. A draft must be able to run, so it moves.
+    const closed: string[] = []
+    const tab = (serverId: string): StartedTab => ({ run: run(serverId), close: () => closed.push(serverId) })
+    const draft = run('local')
+
+    reconcileMachineReferences(
+      owner(null, [draft], [tab('local'), tab('managed:gone')]),
+      presenceOf,
+      () => true,
+      (serverId) => serverId === 'local',
+    )
+
+    expect(closed).toEqual(['managed:gone'])
+    expect(runHost(draft)).toBe('laptop')
+  })
+
   test('with no machine to move to, unstarted work stays and the remembered project is still cleared', () => {
     const draft = run('managed:gone')
     const workspace = owner({ serverId: 'managed:gone', directory: '/data/projects/app' }, [draft])

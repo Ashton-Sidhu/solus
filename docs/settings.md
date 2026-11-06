@@ -203,6 +203,13 @@ Settings → Hosts lists every host. Each host has its own page:
 The Hosts list has an **Auto balance** section when you have two or more hosts
 ([Run on](run-on.md#auto-balance)).
 
+On desktop, **This computer → Local host** turns off the host that the app runs
+here. Solus restarts with no local server: no local agents run, and other devices
+cannot connect to this computer. All local data stays, and Solus connects only to
+saved hosts. Open tabs on this computer stay read-only. Turn the switch on to
+restart with the earlier local settings. The connect page and the command palette
+can also turn the local host on (`docs/plans/desktop-remote-only.md`).
+
 On mobile, a host's settings screen opens a **Resources** screen and an **Access**
 screen with the same
 sections in the same order (`HostAccessScreen`). The pairing code shows as a code,

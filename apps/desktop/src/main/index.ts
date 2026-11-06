@@ -41,6 +41,7 @@ import type { AccountSession } from '@solus/desktop-main/account/account-session
 import { presentAccountToLocalHost } from '@solus/desktop-main/account/local-host-client'
 import { LocalOwnerToken } from '@solus/desktop-main/local-owner-token'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
+import { readLocalHostEnabled, writeLocalHostEnabled } from '@solus/desktop-main/local-host-setting'
 import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
@@ -67,6 +68,10 @@ if (desktopPlatform.singleInstance && !isHeadless && !isPairUrl && process.env.S
 
 const log = createLogger('main', 'index.ts')
 const bootStartedAt = Date.now()
+
+// A headless app exists to be a host, so only the windowed app reads the setting.
+const localHostSettingPath = join(app.getPath('userData'), 'local-host.json')
+const isLocalHostEnabled = isHeadless || isPairUrl || readLocalHostEnabled(localHostSettingPath)
 
 configurePlatformServices({
   appInfo: {
@@ -116,13 +121,14 @@ let readyUpdateVersion: string | null = null
 let screenshotCounter = 0
 let pasteCounter = 0
 let core: BootCore | null = null
-// Resolves with the booted core once bootCore finishes; rejects if boot fails.
+// Resolves with the booted core once bootCore finishes, or with null when the
+// local host is off; rejects if boot fails.
 // The renderer's first IPC (getLocalConnection) awaits this instead of racing
 // window creation against server boot — the window is now created before boot
 // so its bundle loads in parallel, and the connection resolves when ready.
-let resolveBoot!: (core: BootCore) => void
+let resolveBoot!: (core: BootCore | null) => void
 let rejectBoot!: (error: Error) => void
-const bootPromise = new Promise<BootCore>((resolve, reject) => {
+const bootPromise = new Promise<BootCore | null>((resolve, reject) => {
   resolveBoot = resolve
   rejectBoot = reject
 })
@@ -157,7 +163,7 @@ const shutdownCoordinator = createShutdownCoordinator({
     // Same reasoning, one module over: importing otel for its quit path pulled
     // the tracer, its context manager and the resource detector in ahead of the
     // window. By the time anything needs shutting down, boot has loaded it.
-    const stopOtel = import('@solus/server/otel').then((m) => m.shutdownOtel())
+    const stopOtel = core ? import('@solus/server/otel').then((m) => m.shutdownOtel()) : undefined
     await Promise.all([core?.shutdown(), flushAnalytics, stopOtel])
   },
   quit: () => app.quit(),
@@ -569,12 +575,25 @@ ipcMain.handle(LOCAL_CONNECTION_CHANNEL, async () => {
   // The renderer window is created before the server finishes booting, so this
   // first call may arrive early; await boot rather than throwing. A boot failure
   // rejects the promise — the renderer renders its boot-error card in that case.
-  const { port } = (await bootPromise).booted
+  const booted = await bootPromise
+  if (!booted) return null
   return {
-    port,
+    port: booted.booted.port,
     token: getLocalSessionToken(),
     installationId: getInstallationId(),
   }
+})
+
+// Native, not RPC: with the local host off there is no server to ask
+// (docs/plans/desktop-remote-only.md). The relaunch takes the normal quit path,
+// so a running host shuts down cleanly first.
+ipcMain.handle('solus:set-local-host-enabled', (_event, rawEnabled) => {
+  const enabled = z.boolean().parse(rawEnabled)
+  if (enabled === isLocalHostEnabled) return
+  writeLocalHostEnabled(localHostSettingPath, enabled)
+  log.info('local_host_setting_changed', { enabled })
+  app.relaunch()
+  app.quit()
 })
 
 const externalUrlSchema = z.string().regex(/^https?:\/\//i)
@@ -725,6 +744,75 @@ ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
   event.sender.setZoomFactor(clampZoomFactor(factor.data))
 })
 
+/**
+ * Loads the server graph and boots the local host. False when boot failed; the
+ * renderer then shows its boot-error card.
+ *
+ * Loaded here rather than at module scope, and deliberately after the
+ * window exists. `bootCore` reaches 279 of the main process's 342 eager
+ * modules and nearly every heavy dependency it has — ws, hono,
+ * Octokit, google-auth-library, the Claude SDK — so a static import made
+ * all of it evaluate before Electron was even ready, delaying the window
+ * and therefore the renderer behind it. None of it is needed to open a
+ * window, and the renderer's first IPC already awaits `bootPromise`, so
+ * the server graph now loads beside the renderer instead of ahead of it.
+ * Transcription comes with it: both of its exports are used only from here
+ * down, and its model downloader reaches posthog-node — the one heavy
+ * dependency still eager once the server graph moved.
+ */
+async function bootLocalHost(
+  windowDeps: WindowDeps | undefined,
+  fileDeps: FileDeps | undefined,
+): Promise<boolean> {
+  const serverGraphLoadStartedAt = performance.now()
+  const [
+    { bootCore },
+    { prepareTranscriptionModel, transcribeAudio },
+    { registerFileHandlers },
+    { readMdmPolicy },
+  ] = await Promise.all([
+    import('@solus/server/boot-core'),
+    import('@solus/desktop-main/transcription'),
+    import('@solus/desktop-main/server/handlers/file-handlers'),
+    import('@solus/server/host/policy/mdm-policy'),
+  ])
+  log.info('server_graph_loaded', { elapsedMs: Math.round(performance.now() - serverGraphLoadStartedAt) })
+
+  let bootedCore: BootCore
+  try {
+    // A machine policy this build cannot enforce stops the app before the
+    // host opens anything; the boot-error card names the source (plans/030 §5.1).
+    await readMdmPolicy()
+    bootedCore = await bootCore({
+      windowDeps,
+      registerHostHandlers: fileDeps
+        ? (server) => registerFileHandlers(server, fileDeps)
+        : undefined,
+      requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
+      port: desktopServerPort(),
+      staticDir: join(__dirname, '../client'),
+      transcribeAudio,
+      // A window paints first; a headless app has none and sweeps at once.
+      deferSessionIndex: !isHeadless,
+    })
+  } catch (err) {
+    // Unblock the renderer's getLocalConnection with the failure so it can show
+    // its boot-error card instead of hanging on the pending bootPromise.
+    rejectBoot(err instanceof Error ? err : new Error(String(err)))
+    log.error('core_boot_failed', { error: err instanceof Error ? err.message : String(err) })
+    return false
+  }
+  core = bootedCore
+  // Main is the account client of its own host: it presents its token there (ADR 0001 §2.2 rule 10).
+  if (accountSession) presentAccountToLocalHost(accountSession, bootedCore.booted.localClient)
+  markStartup('core.booted')
+  resolveBoot(bootedCore)
+  bootedCore.sessionRuntime.on('active-work-changed', syncPowerSaveBlocker)
+  syncPowerSaveBlocker()
+  if (!isTestMode) void prepareTranscriptionModel()
+  return true
+}
+
 // ─── App Lifecycle ───
 
 if (isPairUrl) {
@@ -742,24 +830,26 @@ if (isPairUrl) {
   app.whenReady().then(async () => {
     markStartup('app.ready')
     protocol.handle('solus-local-video', handleLocalVideoRequest)
-    // Teach the server how to render a browser page — in a renderer's
-    // `<webview>` when a pane is showing it, and in a window that is never shown
-    // when nothing is. Must precede boot: a client can attach a surface, and an
-    // agent can drive a page, as soon as the browser domain answers.
-    registerBrowserWebviewHost()
-    registerBrowserHeadlessHost()
-    registerBrowserRecordingEncoderHost()
+    if (isLocalHostEnabled) {
+      // Teach the server how to render a browser page — in a renderer's
+      // `<webview>` when a pane is showing it, and in a window that is never shown
+      // when nothing is. Must precede boot: a client can attach a surface, and an
+      // agent can drive a page, as soon as the browser domain answers.
+      registerBrowserWebviewHost()
+      registerBrowserHeadlessHost()
+      registerBrowserRecordingEncoderHost()
 
-    // Resolve the login-shell PATH off the main thread now, so agent-binary
-    // lookup is warm. The Codex app-server itself remains lazy: starting it here
-    // costs a persistent child process even for Claude-only workspaces.
-    void warmCliPath()
-      .catch((err) => log.warn('cli_path_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
+      // Resolve the login-shell PATH off the main thread now, so agent-binary
+      // lookup is warm. The Codex app-server itself remains lazy: starting it here
+      // costs a persistent child process even for Claude-only workspaces.
+      void warmCliPath()
+        .catch((err) => log.warn('cli_path_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
+    }
     // A Dock launch has none of the user's shell profile. Take the allowed
     // variables (SOLUS_DATA_DIR, SSH_AUTH_SOCK, ...) from the login shell; the
     // server graph is awaited on it below, because its modules read them as
     // they evaluate. Tests keep the environment they were launched with.
-    const loginShellEnv = isTestMode
+    const loginShellEnv = isTestMode || !isLocalHostEnabled
       ? Promise.resolve()
       : importLoginShellEnv()
         .then((names) => { if (names.length > 0) log.info('login_shell_env_imported', { names }) })
@@ -799,66 +889,24 @@ if (isPairUrl) {
       markStartup('window.created')
     }
 
-    // Loaded here rather than at module scope, and deliberately after the
-    // window exists. `bootCore` reaches 279 of the main process's 342 eager
-    // modules and nearly every heavy dependency it has — ws, hono,
-    // Octokit, google-auth-library, the Claude SDK — so a static import made
-    // all of it evaluate before Electron was even ready, delaying the window
-    // and therefore the renderer behind it. None of it is needed to open a
-    // window, and the renderer's first IPC already awaits `bootPromise`, so
-    // the server graph now loads beside the renderer instead of ahead of it.
-    // Transcription comes with it: both of its exports are used only from here
-    // down, and its model downloader reaches posthog-node — the one heavy
-    // dependency still eager once the server graph moved.
     await loginShellEnv
-    const serverGraphLoadStartedAt = performance.now()
-    const [
-      { bootCore },
-      { prepareTranscriptionModel, transcribeAudio },
-      { registerFileHandlers },
-      { readMdmPolicy },
-      { hostPolicyStore },
-    ] = await Promise.all([
-      import('@solus/server/boot-core'),
-      import('@solus/desktop-main/transcription'),
-      import('@solus/desktop-main/server/handlers/file-handlers'),
-      import('@solus/server/host/policy/mdm-policy'),
-      import('@solus/server/host/policy/host-policy-store'),
-    ])
-    log.info('server_graph_loaded', { elapsedMs: Math.round(performance.now() - serverGraphLoadStartedAt) })
+    const { hostPolicyStore, HostPolicyStore, useHostPolicyStore } = await import('@solus/server/host/policy/host-policy-store')
 
-    let bootedCore: BootCore
-    try {
-      // A machine policy this build cannot enforce stops the app before the
-      // host opens anything; the boot-error card names the source (plans/030 §5.1).
-      await readMdmPolicy()
-      bootedCore = await bootCore({
-        windowDeps,
-        registerHostHandlers: fileDeps
-          ? (server) => registerFileHandlers(server, fileDeps)
-          : undefined,
-        requireAuth: process.env.SOLUS_REQUIRE_AUTH === '1',
-        port: desktopServerPort(),
-        staticDir: join(__dirname, '../client'),
-        transcribeAudio,
-        // A window paints first; a headless app has none and sweeps at once.
-        deferSessionIndex: !isHeadless,
-      })
-    } catch (err) {
-      // Unblock the renderer's getLocalConnection with the failure so it can show
-      // its boot-error card instead of hanging on the pending bootPromise.
-      rejectBoot(err)
-      log.error('core_boot_failed', { error: err instanceof Error ? err.message : String(err) })
-      return
+    if (isLocalHostEnabled) {
+      if (!await bootLocalHost(windowDeps, fileDeps)) return
+    } else {
+      try {
+        // No host runs here, but the update feed still follows a machine policy (plans/030 §6.8).
+        const { readMdmPolicy } = await import('@solus/server/host/policy/mdm-policy')
+        useHostPolicyStore(new HostPolicyStore({ mdm: await readMdmPolicy(), standing: () => null }))
+      } catch (err) {
+        rejectBoot(err instanceof Error ? err : new Error(String(err)))
+        log.error('machine_policy_read_failed', { error: err instanceof Error ? err.message : String(err) })
+        return
+      }
+      log.info('local_host_off')
+      resolveBoot(null)
     }
-    core = bootedCore
-    // Main is the account client of its own host: it presents its token there (ADR 0001 §2.2 rule 10).
-    if (accountSession) presentAccountToLocalHost(accountSession, bootedCore.booted.localClient)
-    markStartup('core.booted')
-    resolveBoot(bootedCore)
-    bootedCore.sessionRuntime.on('active-work-changed', syncPowerSaveBlocker)
-    syncPowerSaveBlocker()
-    if (!isTestMode) void prepareTranscriptionModel()
 
     if (!isHeadless) {
       nativeTheme.on('updated', () => {
@@ -912,7 +960,8 @@ app.on('before-quit', (event) => {
   // intercepted. All ordinary quit paths get one bounded cleanup attempt.
   if (forceQuit || shutdownCoordinator.isQuitting) return
   event.preventDefault()
-  captureQuitEvent(Math.max(0, Date.now() - bootStartedAt))
+  // The quit event is the host's; with no host, the analytics graph stays unloaded.
+  if (core) captureQuitEvent(Math.max(0, Date.now() - bootStartedAt))
   shutdownCoordinator.requestQuit()
 })
 

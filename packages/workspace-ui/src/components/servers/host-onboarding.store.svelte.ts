@@ -138,7 +138,11 @@ export class HostOnboardingStore {
     // SSH bootstrap shells out from wherever "local" resolves: the desktop app
     // itself, or — on web — the connected server, which reaches the discovered
     // host with the user's own SSH access. Only a client with no host at all
-    // falls back to pairing by code.
+    // falls back to pairing by code, as does a desktop with its local host off.
+    if (serverConnections.isLocalHostOff()) {
+      this.useCodeFallback()
+      return
+    }
     let sshApi: SolusAPI
     try {
       sshApi = this.resolveApi(LOCAL_SERVER_ID)

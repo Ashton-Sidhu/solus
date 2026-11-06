@@ -6,9 +6,11 @@ import {
   applyAdvertised,
   awaitsManagedCompute,
   chooseRunOnHost,
+  getActiveServerId,
   loadServers,
   LOCAL_SERVER_ID,
   managedHostNeedsStart,
+  onServerSaved,
   stampHostOperatingSystem,
 } from './server-registry'
 import { activeWorkspace, ambiguousOrganizationIds, loadWorkspaces, savedWorkspaceFor, workspaceTarget } from './workspace-registry'
@@ -92,6 +94,8 @@ export class ServerConnections {
   /** Connections made but not dialed: a managed host the directory does not call ready yet. */
   private readonly undialedServerIds = new Set<string>()
   private primaryServerId: string | null = null
+  /** The desktop's local host is turned off (docs/plans/desktop-remote-only.md). */
+  private localHostOff = false
   /** The host that served this web page, when it is one (plans/031 D7). */
   private servingHostId: string | null = null
 
@@ -132,6 +136,7 @@ export class ServerConnections {
    *  plus each saved host (dispatch-client step 3). Idempotent — hosts with a
    *  live supervisor are left exactly as they are. */
   startCatalogSupervisors(): void {
+    this.adoptFirstHost()
     for (const serverId of this.catalogServerIds()) {
       const connection = this.ensure(serverId)
       this.followSavedRoutes(connection)
@@ -227,6 +232,33 @@ export class ServerConnections {
     this.primaryServerId = resolved
     this.emitPrimaryChange()
     return connection
+  }
+
+  /**
+   * Boots a desktop window whose local host is off: no local target registers, so
+   * the window has no device host, as on web. The primary is the active saved host,
+   * else the first in the catalog. With none, it is a `gone` connection: its calls
+   * fail, a draft asks for a host, and the first host this client learns of takes
+   * over (`adoptFirstHost`).
+   */
+  openWithoutLocalHost(): ManagedConnection {
+    this.localHostOff = true
+    onServerSaved(() => this.startCatalogSupervisors())
+    const catalog = this.catalogServerIds()
+    const activeId = getActiveServerId()
+    return this.setPrimary(catalog.find((serverId) => serverId === activeId) ?? catalog[0] ?? LOCAL_SERVER_ID)
+  }
+
+  /** Whether this window's local host is off, and `serverId` names it. A host that is off is `gone` to its callers but is not removed. */
+  isLocalHostOff(serverId: string = LOCAL_SERVER_ID): boolean {
+    return this.localHostOff && serverId === LOCAL_SERVER_ID
+  }
+
+  private adoptFirstHost(): void {
+    const primaryId = this.primaryServerId
+    if (!this.localHostOff || !primaryId || this.presenceOf(primaryId) === 'present') return
+    const firstId = this.catalogServerIds().find((serverId) => serverId !== primaryId)
+    if (firstId) this.setPrimary(firstId)
   }
 
   /** The hosts this client holds: the registered local target, the primary, every saved host, and the active organization's Solus API. */
@@ -539,7 +571,7 @@ export class ServerConnections {
     return [
       this.primaryServerId,
       ...ids.filter((id) => id !== this.primaryServerId),
-    ].filter((id) => this.connections.has(id))
+    ].filter((id) => this.connections.get(id)?.presence === 'present')
   }
 
   connectionFor(serverId: string): ManagedConnection | undefined {
