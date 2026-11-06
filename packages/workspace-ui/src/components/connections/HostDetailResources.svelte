@@ -1,7 +1,9 @@
 <script lang="ts">
   /** What this machine carries now, and what Solus adds to it. Machine load needs
    *  no monitor, so it shows on each host; the process table needs host admin. */
-  import { formatResourceBytes, machineCpuText, machineMemoryText, machineMemoryUsedShare, telemetrySparkline, telemetrySummaryText, telemetryUnavailableText } from "@solus/client-core/host-resource-watch";
+  import { formatResourceBytes, machineCpuText, machineMemoryText, machineMemoryUsedShare, telemetryCpuPeak, telemetrySummaryText, telemetryUnavailableText } from "@solus/client-core/host-resource-watch";
+  import type { HostTelemetryPoint } from "@solus/contracts/host-resources";
+  import { Chart, Spline, Svg } from "layerchart";
   import { hostResourcesStore } from "../../contexts/hosts/host-resources.store.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -17,7 +19,7 @@
   const view = $derived(hostResourcesStore.viewFor(serverId));
   const resources = $derived(view.resources);
   const telemetry = $derived(view.telemetry);
-  const sparkline = $derived(telemetry.state === "live" ? telemetrySparkline(telemetry.history, 240, 32) : null);
+  const history = $derived(telemetry.state === "live" ? telemetry.history : []);
   const staleNote = $derived(view.stale ? (resources ? " · The host does not answer. This is the last read." : "") : "");
 </script>
 
@@ -54,10 +56,19 @@
       {@const sample = telemetry.sample}
       <SettingsRow label="Total" description={telemetrySummaryText(sample)}>
         {#snippet control()}
-          {#if sparkline}
-            <svg viewBox="0 0 240 32" class="h-8 w-40 text-(--solus-accent)" role="img" aria-label="CPU use over the last five minutes">
-              <polyline points={sparkline} fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-            </svg>
+          {#if history.length >= 2}
+            <div class="h-8 w-40" role="img" aria-label="CPU use over the last five minutes">
+              <Chart
+                data={history}
+                x={(point: HostTelemetryPoint) => point.sampledAt}
+                y={(point: HostTelemetryPoint) => point.cpuPercent}
+                yDomain={[0, telemetryCpuPeak(history)]}
+              >
+                <Svg>
+                  <Spline stroke="var(--solus-accent)" class="fill-none stroke-[1.5]" stroke-linecap="round" stroke-linejoin="round" />
+                </Svg>
+              </Chart>
+            </div>
           {/if}
         {/snippet}
       </SettingsRow>

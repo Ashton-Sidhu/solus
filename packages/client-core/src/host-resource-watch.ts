@@ -160,10 +160,15 @@ export function telemetryUnavailableText(reason: HostTelemetryUnavailableReason)
     : 'The resource monitor stopped. Solus tries again while this page is open.'
 }
 
+/** The top of a CPU chart: one full core, or the highest point when it is higher. */
+export function telemetryCpuPeak(history: readonly HostTelemetryPoint[]): number {
+  return Math.max(100, ...history.map((point) => point.cpuPercent))
+}
+
 /** Points scaled to a `width` by `height` box, for an SVG polyline. Null below two points. */
 export function telemetrySparkline(history: readonly HostTelemetryPoint[], width: number, height: number): string | null {
   if (history.length < 2) return null
-  const peak = Math.max(100, ...history.map((point) => point.cpuPercent))
+  const peak = telemetryCpuPeak(history)
   return history
     .map((point, index) => `${((index / (history.length - 1)) * width).toFixed(1)},${(height - (point.cpuPercent / peak) * height).toFixed(1)}`)
     .join(' ')

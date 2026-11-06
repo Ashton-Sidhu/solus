@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { HostResourceWatch, machineCpuText, machineMemoryText, telemetrySparkline, type HostResourceView } from '@solus/client-core/host-resource-watch'
+import { HostResourceWatch, machineCpuText, machineMemoryText, telemetryCpuPeak, telemetrySparkline, type HostResourceView } from '@solus/client-core/host-resource-watch'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { MAX_TELEMETRY_HISTORY_POINTS, type HostResources, type HostTelemetry, type HostTelemetrySample } from '@solus/contracts/host-resources'
 
@@ -99,6 +99,12 @@ describe('resource text', () => {
 
   test('an unknown CPU reading is not shown as zero', () => {
     expect(machineCpuText({ ...resources, cpuUtilization: null })).toBe('Unknown, 8 cores')
+  })
+
+  test('a CPU chart tops out at one core, or at a higher point', () => {
+    const point = (cpuPercent: number) => ({ sampledAt: 1, cpuPercent, residentBytes: 1 })
+    expect(telemetryCpuPeak([point(20), point(60)])).toBe(100)
+    expect(telemetryCpuPeak([point(20), point(340)])).toBe(340)
   })
 
   test('a sparkline needs two points', () => {
