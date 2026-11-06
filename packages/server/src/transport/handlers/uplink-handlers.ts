@@ -1,4 +1,5 @@
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
+import type { HostSelfTest } from '@solus/contracts/host-connection'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 import type { HostRegistrar } from '../../host/host-registration'
 import type { SolusServer } from '../server'
@@ -12,8 +13,9 @@ import { registerAndLink, type UplinkLinkManager } from '../uplink/link'
  * organization-bound code as an attachment (organization-vms §4). `uplinkLink` and
  * `uplinkUnlink` turn the tunnel on and off, and change nothing else.
  */
-export function registerUplinkHandlers(server: SolusServer, deps: { registrar: HostRegistrar; manager: UplinkLinkManager; status: () => UplinkStatus }): void {
+export function registerUplinkHandlers(server: SolusServer, deps: { registrar: HostRegistrar; manager: UplinkLinkManager; status: () => UplinkStatus; selfTest: () => Promise<HostSelfTest> }): void {
   server.register('uplinkStatus', () => deps.status())
+  server.register('hostSelfTest', () => deps.selfTest())
   server.register('uplinkRegister', async (args) => {
     const [request] = args
     if (!request?.ticket?.trim()) throw new Error('uplinkRegister requires an enrollment ticket')

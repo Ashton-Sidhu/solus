@@ -256,3 +256,68 @@ describe('one route policy', () => {
     expect(transport.dials).toEqual([])
   })
 })
+
+describe('the connection check', () => {
+  const response = (status: number) => new Response(null, { status })
+
+  function checkedLink(fetchImpl: typeof fetch) {
+    let changes = 0
+    const transport = new FakeTransport(TUNNEL.url)
+    const timers = manualTimers()
+    const hostLink = new HostLink({
+      hostId: 'host-1',
+      transport,
+      api: asHostApi({}),
+      routes: () => [TUNNEL],
+      answersAsHost: async () => false,
+      cloudUrl: () => 'https://app.solus.test',
+      fetchImpl,
+      onConnectionCheck: () => { changes += 1 },
+      ...timers,
+    })
+    return { hostLink, transport, changes: () => changes }
+  }
+
+  test('a request while one runs shares it, and the host is read once', async () => {
+    // WHY: Details, Check again, and Retry can overlap; each read costs the host a request.
+    let reads = 0
+    const { hostLink, changes } = checkedLink((async () => {
+      reads += 1
+      return response(530)
+    }) as unknown as typeof fetch)
+    const first = hostLink.checkConnection()
+    const second = hostLink.checkConnection()
+    expect(hostLink.isCheckingConnection).toBe(true)
+    await Promise.all([first, second])
+    expect(reads).toBe(2)
+    expect(hostLink.isCheckingConnection).toBe(false)
+    expect(hostLink.connectionCheck?.routes[0]).toMatchObject({ kind: 'tunnel', answer: { kind: 'status', status: 530 } })
+    expect(changes()).toBeGreaterThanOrEqual(2)
+  })
+
+  test('a host that became ready drops the check: it would explain a failure that ended', async () => {
+    const { hostLink, transport } = checkedLink((async () => response(530)) as unknown as typeof fetch)
+    hostLink.start()
+    await hostLink.checkConnection()
+    expect(hostLink.connectionCheck).not.toBeNull()
+    transport.report({ kind: 'accepted', recovered: false })
+    expect(hostLink.connectionCheck).toBeNull()
+  })
+
+  test('a check that ends after the host became ready is not kept', async () => {
+    const answers: Array<(value: Response) => void> = []
+    const { hostLink, transport } = checkedLink((() => new Promise((resolve) => { answers.push(resolve) })) as unknown as typeof fetch)
+    hostLink.start()
+    const run = hostLink.checkConnection()
+    transport.report({ kind: 'accepted', recovered: false })
+    for (const answer of answers) answer(response(530))
+    await run
+    expect(hostLink.connectionCheck).toBeNull()
+  })
+
+  test('a check never dials', async () => {
+    const { hostLink, transport } = checkedLink((async () => response(530)) as unknown as typeof fetch)
+    await hostLink.checkConnection()
+    expect(transport.dials).toEqual([])
+  })
+})

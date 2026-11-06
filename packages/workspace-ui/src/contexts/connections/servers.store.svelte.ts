@@ -809,6 +809,11 @@ class ServersStore {
     return serverConnections.diagnosticsFor(serverId)
   }
 
+  /** Reads the way to a host once, so its diagnosis can name a stage. */
+  checkConnection(serverId: string): void {
+    void serverConnections.checkConnection(serverId)
+  }
+
   /** The host's readiness in one word, as a host list shows it: "Online", "Offline". */
   readinessLabelFor(serverId: string): string {
     return hostReadinessCopy(this.readinessFor(serverId), '').label

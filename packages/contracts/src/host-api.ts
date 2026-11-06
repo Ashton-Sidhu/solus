@@ -60,6 +60,7 @@ import type {
 import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
+import type { HostSelfTest } from './host-connection'
 import type { HostListing } from './host-list'
 import type { AccountDocumentName, AccountDocumentRequest, AccountDocumentResult } from './account-documents'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
@@ -431,6 +432,8 @@ export interface SolusAPI {
   /** Take this host's organization attachment back for one organization; the host stays registered and keeps its records. */
   uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   uplinkStatus(): Promise<UplinkStatus>
+  /** The host tests its own connection: Solus Cloud, its tunnel, port 7844, and its server (docs/plans/host-readiness.md). */
+  hostSelfTest(): Promise<HostSelfTest>
   /** Organization scope (docs/plans/organization-scope.md §3.1, §6.1, §7). */
   hostOrganizations(): Promise<HostOrganizationsStatus>
   /** The policies that govern work on this host (plans/030), as a summary: no launch pins and no update feed. */

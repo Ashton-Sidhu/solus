@@ -1,3 +1,4 @@
+import type { HostSelfTest } from '@solus/contracts/host-connection'
 import type { UplinkStatus } from '@solus/contracts/uplink'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -8,6 +9,12 @@ import { SvelteMap } from 'svelte/reactivity'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
 import { serversStore } from './servers.store.svelte'
+
+/** The host's test of its own connection, as this client last asked for it. */
+export type SelfTestState =
+  | { kind: 'running' }
+  | { kind: 'done'; test: HostSelfTest }
+  | { kind: 'error'; message: string }
 
 /**
  * A host's registration to the owner's Solus account and, apart from it, its link
@@ -22,6 +29,7 @@ import { serversStore } from './servers.store.svelte'
 class UplinkStore {
   readonly statusByServer = new SvelteMap<string, UplinkStatus>()
   private readonly controlByServer = new SvelteMap<string, UplinkControl>()
+  private readonly selfTestByServer = new SvelteMap<string, SelfTestState>()
   busyServerId = $state<string | null>(null)
   private stopListening: (() => void) | null = null
 
@@ -43,6 +51,21 @@ class UplinkStore {
     return this.statusByServer.get(serverId)
   }
 
+  selfTestFor(serverId: string): SelfTestState | undefined {
+    return this.selfTestByServer.get(serverId)
+  }
+
+  /** The host tests its own connection. An older host has no such test, and the row says so. */
+  async runSelfTest(serverId: string): Promise<void> {
+    if (this.selfTestFor(serverId)?.kind === 'running') return
+    this.selfTestByServer.set(serverId, { kind: 'running' })
+    try {
+      this.selfTestByServer.set(serverId, { kind: 'done', test: await serverConnections.apiFor(serverId).hostSelfTest() })
+    } catch (err) {
+      this.selfTestByServer.set(serverId, { kind: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   /** `none` until the host says how this client was admitted. */
   controlFor(serverId: string): UplinkControl {
     return this.controlByServer.get(serverId) ?? 'none'
@@ -53,6 +76,8 @@ class UplinkStore {
     if (this.stopListening) return this.stopListening
     this.stopListening = subscribeAllHosts('host.uplinkStatusChanged', (serverId, status) => {
       this.statusByServer.set(serverId, status)
+      // The tunnel changed: a finished test now says something that may not be true.
+      if (this.selfTestFor(serverId)?.kind !== 'running') this.selfTestByServer.delete(serverId)
       // A host that forgot a registration Solus cloud refused is registered again at once (rule 8), not when a settings view next opens.
       if (!status.registration.registered) void this.refresh(serverId)
     })

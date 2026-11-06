@@ -140,6 +140,12 @@ Desktop and web (shared Svelte):
 - **Host lists, pickers, rows, record page, settings.** Read readiness and the
   one-word label (`serversStore.readinessLabelFor`).
 
+**Details** also shows the stages, the first failure, and what to try
+(`HostConnectionStages`, `diagnoseHostConnection`). Opening it runs the connection
+check; **Check again** runs it again. The Access tab has **Connection test**, which
+runs the host's self-test. Mobile shows both, in `HostAsleepCard` and in
+`HostSelfTestSection`.
+
 Mobile: the host banner, the thread pill, the host rows, and the new-task gate
 read the same readiness and the same copy. A thread follows the same design:
 inside the grace, `HostGraceWhisper` sits over the composer, which is
@@ -148,6 +154,61 @@ same statement, Details toggle, and action, and the thread above stays
 readable.
 The request cards and the agents pill are hidden while away. The host banner
 offers Copy details.
+
+## Staged diagnosis
+
+Readiness says that a host is not ready. The **diagnosis** says where the
+connection stopped. User guide: `docs/host-connection-troubleshooting.md`.
+
+### Vocabulary
+
+- **Stage** — one part of the way to a host: `device`, `cloud`, `tunnel`, or
+  `host`. A host with a tunnel route has all four. A host with only direct routes
+  has `device` and `host`. A direct route that fails is not a stage on a tunnel
+  path: a laptop away from home would always show it as the first failure.
+- **Stage result** — `ok`, `failed`, or `unknown`. `failed` means that the check
+  ran and did not pass from where it ran. `unknown` means that no evidence exists.
+- **Connection check** — a short, active read that a client runs when a person
+  opens Details: `/health` on each dialable address, and Solus Cloud.
+- **Self-test** — the check that a host runs on itself (`hostSelfTest`). It sees
+  the connector, the proxied listener, port 7844, and the host's public address.
+
+### Assumptions
+
+1. A dial error alone cannot name a stage. A browser WebSocket error has no HTTP
+   status, so the connection check is necessary.
+2. A browser cannot read a Cloudflare 530 or 502: the error page has no CORS
+   headers. A `no-cors` fetch tells only that something answered. On desktop and
+   web the tunnel and host stages then stay `unknown`. Mobile reads the status.
+3. Solus Cloud reports no tunnel health. Its code is in another repository, and
+   "what the connector observes stays on this host". The client does not guess.
+4. A dial does not always need Solus Cloud: an access token lives eight hours. So
+   a failed `cloud` stage does not make the later stages `unknown`.
+5. Only evidence makes a stage `ok`. A stage is never `ok` because a later stage
+   failed. An answer from a later stage does prove the stages before it, because
+   the answer came through them.
+6. `/.well-known/openid-configuration` is the public read for Solus Cloud. Clients
+   already read it, and it needs no account.
+
+### Rules
+
+1. **One model.** `diagnoseHostConnection` in client-core gives the headline, the
+   stages, and the steps. Desktop, web, and mobile render it.
+2. **One check.** `HostLink.checkConnection` runs it and holds the last result.
+   It runs on Details, on Check again, and on Retry while Details is open. It
+   never runs in the background.
+3. **The first failed stage is the headline.** The steps cover each failed stage.
+4. **The self-test owns its words.** The host sends the reason and the fix, so the
+   CLI and every client show the same text. It marks `device` as `unknown`: it
+   cannot test another device's network.
+5. **Port 7844 is tested with TCP only.** A TCP test says nothing about QUIC over
+   UDP. A failed test counts only when no tunnel connection is up.
+
+### Not in this change
+
+- A tunnel health read from Solus Cloud. It would name the stage in a browser.
+- A check of the clock on either side.
+- A link from the UI to the guide. The steps are in the UI.
 
 ## Known gap
 

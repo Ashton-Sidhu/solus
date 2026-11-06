@@ -8,6 +8,7 @@ import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { cloudLinkSummary, cloudRegistrationSummary } from "./host-cloud-link";
+import { HostSelfTestSection } from "./HostSelfTestSection";
 import { useHostCloudLink } from "./use-host-cloud-link";
 import { hostLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
@@ -64,6 +65,7 @@ export function HostCloudLinkSection(props: { readonly hostId: string; readonly 
           <SettingsNote>{link.note}</SettingsNote>
         </>
       ) : null}
+      <HostSelfTestSection hostId={props.hostId} />
     </View>
   );
 }

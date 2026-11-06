@@ -19,6 +19,7 @@
   import { unlinkWebhookWarning } from "../webhooks/lib/webhook-reachability";
   import { hostWebsiteUrl } from "../../contexts/connections/host-routes";
   import { Button } from "../ui/button";
+  import HostConnectionStages from "./HostConnectionStages.svelte";
   import { Switch } from "../ui/switch";
   import { hostLock } from "../settings/policy/managed-setting.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -86,6 +87,15 @@
       : linkDescription(uplink),
   );
 
+  const selfTest = $derived(uplinkStore.selfTestFor(serverId));
+  const selfTestText = $derived(
+    selfTest?.kind === "done"
+      ? selfTest.test.summary
+      : selfTest?.kind === "error"
+        ? `The test could not run: ${selfTest.message}`
+        : "The host tests Solus Cloud, its tunnel, port 7844, and its server. It cannot test another device's network.",
+  );
+
   // The unlink confirmation counts the host's webhooks that use the cloud URL (docs/plans/webhooks.md §2.2).
   $effect(() => untrack(() => webhooksStore.watch()));
 
@@ -140,6 +150,40 @@
           size="default"
           aria-label="Reachable from the internet"
         />
+      {/snippet}
+    </SettingsRow>
+    <SettingsRow label="Connection test" description={selfTestText} bodyVisible={selfTest?.kind === "done"}>
+      {#snippet control()}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={selfTest?.kind === "running"}
+          onclick={() => void uplinkStore.runSelfTest(serverId)}
+        >
+          {selfTest?.kind === "running" ? "Testing…" : selfTest ? "Test again" : "Run test"}
+        </Button>
+      {/snippet}
+      {#snippet body()}
+        {#if selfTest?.kind === "done"}
+          {@const { stages, problem, facts } = selfTest.test}
+          <div class="flex flex-col gap-3" data-testid="host-self-test">
+            <HostConnectionStages {stages} />
+            {#if problem}
+              <div class="flex flex-col gap-1 text-chrome-dense text-(--solus-text-secondary) select-text">
+                {#if problem.hint}<p>{problem.hint}</p>{/if}
+                <p><span class="font-medium text-(--solus-text-primary)">Fix:</span> {problem.fix}</p>
+              </div>
+            {/if}
+            {#if facts.length > 0}
+              <dl class="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1 text-chrome-dense">
+                {#each facts as fact (fact.label)}
+                  <dt class="font-medium text-(--solus-text-primary)">{fact.label}</dt>
+                  <dd class="min-w-0 break-words text-(--solus-text-secondary) select-text">{fact.value}</dd>
+                {/each}
+              </dl>
+            {/if}
+          </div>
+        {/if}
       {/snippet}
     </SettingsRow>
     {#if websiteUrl}

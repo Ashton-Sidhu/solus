@@ -4,8 +4,8 @@ import type { ChildProcess } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
-import { connectHost, connectStatus, disconnectHost, removeOrganization } from './lib/connect'
-import { describeConnection, onboard, type OnboardingDeps } from './lib/onboarding'
+import { connectHost, connectSelfTest, connectStatus, disconnectHost, removeOrganization } from './lib/connect'
+import { describeConnection, describeSelfTest, onboard, type OnboardingDeps } from './lib/onboarding'
 import { followFile, readLastLines } from './lib/logs'
 import { setUpProvider } from './lib/provider-login'
 import { isInteractive, terminalPrompter } from './lib/prompts'
@@ -237,7 +237,8 @@ async function connect(args: string[]): Promise<void> {
   if (subcommand === 'status') {
     const opts = parseConnectStatusOptions(args.slice(1))
     const status = await connectStatus(opts.dataDir)
-    console.log(opts.json ? JSON.stringify(status) : describeConnection(status).join('\n'))
+    const test = await connectSelfTest(opts.dataDir)
+    console.log(opts.json ? JSON.stringify({ ...status, ...test }) : [...describeConnection(status), '', ...describeSelfTest(test)].join('\n'))
     return
   }
   if (subcommand === 'unlink') {

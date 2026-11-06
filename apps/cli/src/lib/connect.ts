@@ -17,6 +17,7 @@ import {
   type UplinkStatus,
 } from '@solus/contracts/uplink'
 import { hostOrganizationsStatusSchema, type HostOrganizationsStatus } from '@solus/contracts/organization-scope'
+import { hostSelfTestSchema, type HostSelfTest } from '@solus/contracts/host-connection'
 import { installCloudflared } from './cloudflared'
 import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
 import { runtimePaths, windowsSystemTool } from './runtime'
@@ -65,6 +66,11 @@ export function resolveCloudOrigin(value: string | undefined): string {
   return url.origin
 }
 
+export interface ConnectSelfTest {
+  selfTest: HostSelfTest | null
+  selfTestError: string | null
+}
+
 /** The server's own registration, link, and organization calls, over the trusted loopback socket. */
 interface LocalHostApi {
   uplinkStatus(): Promise<UplinkStatus>
@@ -73,6 +79,7 @@ interface LocalHostApi {
   uplinkUnlink(): Promise<UplinkStatus>
   uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   hostOrganizations(): Promise<HostOrganizationsStatus>
+  hostSelfTest(): Promise<HostSelfTest>
 }
 
 async function withLocalHost<T>(dataDir: string, run: (api: LocalHostApi) => Promise<T>): Promise<T> {
@@ -83,6 +90,7 @@ async function withLocalHost<T>(dataDir: string, run: (api: LocalHostApi) => Pro
     uplinkUnlink: async () => uplinkStatusSchema.parse(await call('uplinkUnlink')),
     uplinkDetachOrganization: async (organizationId) => uplinkStatusSchema.parse(await call('uplinkDetachOrganization', [organizationId])),
     hostOrganizations: async () => hostOrganizationsStatusSchema.parse(await call('hostOrganizations')),
+    hostSelfTest: async () => hostSelfTestSchema.parse(await call('hostSelfTest')),
   }))
 }
 
@@ -124,6 +132,15 @@ async function registerAndLink(api: LocalHostApi, request: HostRegistrationReque
 
 export async function connectStatus(dataDir: string): Promise<{ uplink: UplinkStatus; standing: HostOrganizationsStatus }> {
   return withLocalHost(dataDir, async (api) => ({ uplink: await api.uplinkStatus(), standing: await api.hostOrganizations() }))
+}
+
+/** What `solus connect status` adds: the server tests its own connection. An older server has no such test. */
+export async function connectSelfTest(dataDir: string): Promise<ConnectSelfTest> {
+  try {
+    return { selfTest: await withLocalHost(dataDir, (api) => api.hostSelfTest()), selfTestError: null }
+  } catch (error) {
+    return { selfTest: null, selfTestError: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 /**

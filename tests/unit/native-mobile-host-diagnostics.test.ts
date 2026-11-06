@@ -3,7 +3,7 @@ import { hostDiagnosticsText } from '@solus/client-core/host-diagnostics'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { hostSettingsErrorText } from '../../apps/mobile/src/features/settings/host-settings'
 import { hostAsleepCardCopy, threadHostChrome } from '../../apps/mobile/src/features/threads/lib/thread-host-chrome'
-import { createHostWorld } from './helpers/native-mobile-fakes'
+import { createHostWorld, flushPromises } from './helpers/native-mobile-fakes'
 
 // A host that is away puts its thread to sleep under one statement of what
 // happened, with the facts a person needs to find the cause or to send to
@@ -42,6 +42,22 @@ describe('host diagnostics on the phone', () => {
     const diagnostics = connections.diagnostics('inst-a')
     expect(transports).toHaveLength(0)
     expect(diagnostics).toMatchObject({ dialedUrl: null, attempt: 0, lastDialError: null })
+  })
+
+  test('a connection check reaches the diagnostics, and it does not dial', async () => {
+    const { registry, connections, transports } = createHostWorld({
+      fetch: (async () => new Response(null, { status: 530 })) as unknown as typeof fetch,
+    })
+    await registry.load()
+    await registry.savePaired({ id: 'inst-a', label: 'Raiders', url: 'https://h-raiders.solus.sh' }, 'ta')
+    connections.connection('inst-a')
+    const dials = transports.length
+    connections.checkConnection('inst-a')
+    expect(connections.diagnostics('inst-a').isCheckingConnection).toBe(true)
+    await flushPromises()
+    const check = connections.diagnostics('inst-a').connectionCheck
+    expect(check?.routes[0]?.answer).toEqual({ kind: 'status', status: 530 })
+    expect(transports).toHaveLength(dials)
   })
 
   test('the same object comes back until a value changes', async () => {

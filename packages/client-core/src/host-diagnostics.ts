@@ -1,3 +1,6 @@
+import { connectionStageLine } from '@solus/contracts/host-connection'
+import type { HostConnectionCheck } from './host-connection-check'
+import { diagnoseHostConnection } from './host-connection-diagnosis'
 import { hostReadinessCopy, lastSeenText, type HostReadinessState } from './host-readiness'
 
 /** How the last dial to a host failed, as the transport saw it. */
@@ -28,6 +31,9 @@ export interface HostDiagnostics {
   /** The host's Solus version when this client last read it. */
   hostVersion: string | null
   clientVersion: string
+  /** The last connection check, while the host stays not ready; null when none ran. */
+  connectionCheck: HostConnectionCheck | null
+  isCheckingConnection: boolean
 }
 
 export interface HostDiagnosticRow {
@@ -79,5 +85,7 @@ export function hostDiagnosticsText(diagnostics: HostDiagnostics, now = Date.now
     { label: 'Status', value: hostReadinessCopy(diagnostics.state, diagnostics.label, now).label },
     ...hostDiagnosticRows(diagnostics, now),
   ].map((row) => `${row.label}: ${row.value}`)
-  return [`Solus host diagnostics, ${new Date(now).toISOString()}`, ...rows].join('\n')
+  const diagnosis = diagnoseHostConnection(diagnostics)
+  const stages = diagnosis ? ['', diagnosis.checkedAt === null ? 'Stages (no check ran):' : 'Stages:', ...diagnosis.stages.map(connectionStageLine)] : []
+  return [`Solus host diagnostics, ${new Date(now).toISOString()}`, ...rows, ...stages].join('\n')
 }

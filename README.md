@@ -123,7 +123,7 @@ run `solus` afterwards.
 | `solus service uninstall` | Remove background startup; keep user data |
 | `solus logs` | Follow the server log (`--lines N`) |
 | `solus pair` | Create another temporary client pairing link |
-| `solus connect`, `connect status`, `connect remove ORG`, `connect unlink` | The linking steps of `solus setup` for a running server (`--code CODE` uses a link code); show kind, attachment, Solus API, and delivery; take one organization back; unlink, which makes an attached server personal again |
+| `solus connect`, `connect status`, `connect remove ORG`, `connect unlink` | The linking steps of `solus setup` for a running server (`--code CODE` uses a link code); show kind, attachment, Solus API, delivery, and a test of the connection ([troubleshooting](docs/host-connection-troubleshooting.md)); take one organization back; unlink, which makes an attached server personal again |
 | `solus update` | Check and update the running host through its shared update service |
 
 Versions live under `~/.local/share/solus/versions`; `current` selects the active

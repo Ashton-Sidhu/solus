@@ -16,6 +16,8 @@ const diagnostics: HostDiagnostics = {
   lastDialError: { message: 'xhr poll error', code: null, at: NOW - 10_000 },
   hostVersion: '0.42.0',
   clientVersion: '0.43.1',
+  connectionCheck: null,
+  isCheckingConnection: false,
 }
 
 describe('host diagnostics', () => {

@@ -182,6 +182,9 @@ export class HostConnections {
       },
       dialChoices: () => dialChoicesOf(this.deps.registry.host(host.id) ?? host),
       answersAsHost: (url, signal) => this.answersAsHost(host.id, url, signal),
+      cloudUrl: () => this.deps.registry.host(host.id)?.uplink?.directoryUrl ?? null,
+      fetchImpl: this.deps.fetch,
+      onConnectionCheck: () => this.changes.notify(),
       onAdvertised: (advertised) => this.deps.registry.applyAdvertised(host.id, advertised),
       onReadinessChange: () => {
         if (!connection) return
@@ -361,11 +364,17 @@ export class HostConnections {
       lastDialError: connection?.transport.lastDialError ?? null,
       hostVersion: connection?.hostVersion ?? null,
       clientVersion: this.deps.clientVersion,
+      ...connectionCheckOf(connection),
     }
     const previous = this.lastDiagnostics.get(hostId)
     if (previous && (Object.keys(next) as (keyof HostDiagnostics)[]).every((key) => previous[key] === next[key])) return previous
     this.lastDiagnostics.set(hostId, next)
     return next
+  }
+
+  /** Reads the way to a host once, so its diagnosis can name a stage. `changes` tells when it ends. */
+  checkConnection(hostId: string): void {
+    void this.connections.get(hostId)?.link.checkConnection()
   }
 
   /** A user retry: the ladder resets and the host is dialed now. */
@@ -451,6 +460,10 @@ export class HostConnections {
 }
 
 const NO_ROUTES: readonly HostDiagnostics['routes'][number][] = []
+
+function connectionCheckOf(connection: HostConnection | undefined): Pick<HostDiagnostics, 'connectionCheck' | 'isCheckingConnection'> {
+  return { connectionCheck: connection?.link.connectionCheck ?? null, isCheckingConnection: connection?.link.isCheckingConnection ?? false }
+}
 
 // Shared objects, so a screen that reads readiness on each change sees the same value.
 const NOT_RUNNING: HostReadinessState = { readiness: 'unreachable', away: true, unreachableReason: 'not-running', refusedReason: null, lastSeenAt: null }
