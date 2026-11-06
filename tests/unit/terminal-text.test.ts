@@ -68,4 +68,32 @@ describe('terminal text', () => {
     const lines = terminalLines('src/a.ts:3:1: error: oops\nsrc/b.ts:9:2: warning: unused\nall good')
     expect(lines.map((line) => line.tone)).toEqual(['error', 'warning', null])
   })
+
+  test('an escape with intermediate bytes never shows its bytes', () => {
+    // WHY: `tput sgr0` and many TUIs print `ESC ( B`. Shown raw, a stray "(B"
+    // lands in the middle of the output.
+    for (const sequence of ['(B', '#8', '%G', ' F', '7', '=', 'c']) {
+      expect(plainTerminalText(`a\u001b${sequence}b`)).toBe('ab')
+    }
+    // A newline or a new escape is not a final byte. It stays and is read.
+    expect(plainTerminalText('a\u001b#\n8b')).toBe('a\n8b')
+    expect(terminalLines('a\u001b#\u001b[31mb')[0]!.spans.at(-1)).toMatchObject({ text: 'b', color: 'red' })
+  })
+
+  test('a control string with no terminator ends at the line or the next escape', () => {
+    // WHY: the title of a process killed mid-print is control, not output.
+    expect(plainTerminalText('ok\u001b]0;title\nnext')).toBe('ok\nnext')
+    expect(plainTerminalText('ok\u001bPq#0;2;0;0;0\nnext')).toBe('ok\nnext')
+    const lines = terminalLines('ok\u001b]0;title\u001b\u001b[31mred')
+    expect(lines[0]!.spans.map((span) => [span.text, span.color])).toEqual([['ok', null], ['red', 'red']])
+  })
+
+  test('an underline colour leaves the text style alone', () => {
+    // WHY: read as plain codes, the 0 of `58;2;255;0;0` is a reset and the 31
+    // of `58;5;31` is red. The text must keep the style it had.
+    expect(terminalLines('\u001b[1;32mA\u001b[58;2;255;0;0mB')[0]!.spans).toEqual([
+      { text: 'AB', color: 'green', bright: false, bold: true, dim: false },
+    ])
+    expect(terminalLines('\u001b[58;5;31mB')[0]!.spans[0]).toMatchObject({ color: null })
+  })
 })

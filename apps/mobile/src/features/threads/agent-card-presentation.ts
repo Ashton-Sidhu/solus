@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadAgentsPresentation.ts
 // and subagent-card-presentation.ts (MIT, see UPSTREAM.md), on Solus's agents.
+import { cutText } from '@solus/contracts/text-cut'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { AgentExchangeStatus, AgentId, SessionRecord } from '@solus/contracts/types'
 import { agentCardStatus, type AgentItem } from '../conversation/lib/agent-cards'
@@ -81,7 +82,7 @@ const EXCHANGE_TONE: { readonly [status in AgentExchangeStatus]: AgentTone } = {
 function compactDetail(text: string | null | undefined): string | null {
   const compact = text?.replace(/\s+/g, ' ').trim()
   if (!compact) return null
-  return compact.length > DETAIL_LIMIT ? `${compact.slice(0, DETAIL_LIMIT).trimEnd()}…` : compact
+  return compact.length > DETAIL_LIMIT ? `${cutText(compact, DETAIL_LIMIT).trimEnd()}…` : compact
 }
 
 function metaLine(provider: AgentId | null, model: string | null): string | null {
@@ -146,12 +147,13 @@ export function sessionAgentPresentation(item: AgentItem, child: SessionRecord |
 export function subagentPresentation(tool: Extract<TranscriptItem, { kind: 'tool' }>): AgentRowPresentation {
   const parsed = parseToolInput(tool.input)
   const prompt = parsed?.prompt ?? null
+  const promptDetail = compactDetail(prompt)
   const live = tool.status === 'running'
   const provider = tool.subagent ? subagentProvider(tool.subagent) : null
   const steps = tool.childCount ? ` · ${tool.childCount} ${tool.childCount === 1 ? 'step' : 'steps'}` : ''
   return {
     id: tool.id,
-    title: compactDetail(parsed?.description) ?? compactDetail(prompt)?.slice(0, 80) ?? 'Subagent',
+    title: compactDetail(parsed?.description) ?? (promptDetail ? cutText(promptDetail, 80) : null) ?? 'Subagent',
     statusLabel: (live ? 'Working' : tool.status === 'error' ? 'Failed' : 'Completed') + steps,
     tone: live ? 'working' : tool.status === 'error' ? 'failed' : 'completed',
     live,

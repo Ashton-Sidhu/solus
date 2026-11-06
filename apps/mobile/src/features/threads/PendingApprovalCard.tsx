@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/PendingApprovalCard.tsx (MIT, see UPSTREAM.md).
 import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 import { requestExpiryText, type PermissionOption } from "@solus/contracts/types";
-import { View } from "react-native";
+import { ScrollView, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import type { PendingPermission } from "../conversation/lib/transcript-model";
@@ -11,6 +11,8 @@ export interface PendingApprovalCardProps {
   readonly respondingApprovalId: string | null;
   /** False for a reader who may only view the session: the options give way to a note. */
   readonly mayDrive: boolean;
+  /** The card stops here and its text scrolls, so the actions stay in reach. */
+  readonly maxHeight: number;
   readonly onRespond: (questionId: string, optionId: string) => Promise<unknown>;
 }
 
@@ -34,24 +36,35 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
     props.approval.options[0]?.id ??
     null;
   return (
-    <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
+    <View
+      className="overflow-hidden gap-2.5 rounded-[20px] border border-border bg-card-alt p-4"
+      style={{ maxHeight: props.maxHeight }}
+    >
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
         {props.approval.guestTurn ? "Approval needed · Guest turn · Ask mode" : "Approval needed"}
       </Text>
-      <Text className="font-t3-bold text-lg text-foreground">{props.approval.toolName}</Text>
-      {props.approval.description ? (
-        <Text className="font-sans text-sm leading-normal text-foreground-secondary">
-          {props.approval.description}
-        </Text>
-      ) : null}
-      {props.approval.expired ? (
-        <Text className="font-sans text-sm leading-5 text-foreground-muted">
-          {requestExpiryText(props.approval.expired)}
-        </Text>
-      ) : null}
+      <ScrollView
+        bounces={false}
+        className="min-h-0"
+        contentContainerClassName="gap-2.5"
+        nestedScrollEnabled
+        style={{ flexShrink: 1 }}
+      >
+        <Text className="font-t3-bold text-lg text-foreground">{props.approval.toolName}</Text>
+        {props.approval.description ? (
+          <Text className="font-sans text-sm leading-normal text-foreground-secondary">
+            {props.approval.description}
+          </Text>
+        ) : null}
+        {props.approval.expired ? (
+          <Text className="font-sans text-sm leading-5 text-foreground-muted">
+            {requestExpiryText(props.approval.expired)}
+          </Text>
+        ) : null}
+      </ScrollView>
       {canRespond && !props.mayDrive ? <WaitingForEditor /> : null}
       {canRespond && props.mayDrive ? (
-        <View className="flex-row flex-wrap gap-2.5">
+        <View className="gap-2">
           {props.approval.options.map((option) => (
             <RequestActionButton
               key={option.id}

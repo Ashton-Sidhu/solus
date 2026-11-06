@@ -11,7 +11,7 @@
   import MermaidBlock from '../conversation/MermaidBlock.svelte'
   import PersonMention from '../mentions/PersonMention.svelte'
   import SignedGithubMedia from './SignedGithubMedia.svelte'
-  import { githubMediaFetchUrl } from '@solus/contracts/github-media'
+  import { githubMediaFetchUrl, githubMediaUrl } from '@solus/contracts/github-media'
   import { getGithubMediaLocation, githubMediaSources } from './lib/github-media.svelte'
   import { alertKind, elementAttributes, fencedCode, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, personMentionOf, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
@@ -22,9 +22,7 @@
     hideTaskCheckbox?: boolean
   } = $props()
   const element = $derived(node.type === 'element' ? node : null)
-  const attributes = $derived(element ? elementAttributes(element) : {})
   const alert = $derived(element ? alertKind(element) : null)
-  const media = $derived(element ? paragraphMediaSource(element) : '')
   // Only a local document can name a file on its host.
   const localVideo = $derived(element && policy === 'local' ? paragraphLocalVideoSource(element) : '')
   const checkbox = $derived(element ? taskCheckbox(element) : undefined)
@@ -37,9 +35,18 @@
   const mediaLocation = getGithubMediaLocation()
   const mediaServerId = $derived(policy === 'remote' ? (mediaLocation?.().serverId ?? null) : null)
   const mediaRepository = $derived(mediaLocation?.().repository)
-  const imageSource = $derived(element?.tagName === 'img' ? String(element.properties.src ?? '') : '')
+  const onPullRequest = $derived(policy === 'remote' && !!mediaLocation)
+  const media = $derived(element ? paragraphMediaSource(element) : '')
+  const mediaSource = $derived(media && onPullRequest ? githubMediaUrl(media) : media)
+  const imageSrc = $derived(element?.tagName === 'img' ? String(element.properties.src ?? '') : '')
+  const imageSource = $derived(imageSrc && onPullRequest ? githubMediaUrl(imageSrc) : imageSrc)
+  const attributes = $derived.by(() => {
+    if (!element) return {}
+    const elementProps = elementAttributes(element)
+    return imageSource ? { ...elementProps, src: imageSource } : elementProps
+  })
   const signsImage = $derived(!!mediaServerId && !!imageSource && githubMediaFetchUrl(imageSource) !== null)
-  const signsMedia = $derived(!!mediaServerId && !!media && githubMediaFetchUrl(media) !== null)
+  const signsMedia = $derived(!!mediaServerId && !!mediaSource && githubMediaFetchUrl(mediaSource) !== null)
   // The signed copy did not load: show the author's URL instead.
   function signedImageFailed(serverId: string, src: string | null) {
     if (src && src !== imageSource) githubMediaSources.refuse(serverId, imageSource, mediaRepository)
@@ -64,13 +71,13 @@
   {:else if fence}
     <CodeBlock text={fence.text} lang={fence.lang} />
   {:else if media && signsMedia && mediaServerId}
-    <SignedGithubMedia serverId={mediaServerId} source={media} repository={mediaRepository}>
+    <SignedGithubMedia serverId={mediaServerId} source={mediaSource} repository={mediaRepository}>
       {#snippet withSource(src)}
-        {#if src}<MarkdownParagraph raw={media} playbackSrc={src} />{/if}
+        {#if src}<MarkdownParagraph raw={mediaSource} playbackSrc={src} />{/if}
       {/snippet}
     </SignedGithubMedia>
   {:else if media}
-    <MarkdownParagraph raw={media} />
+    <MarkdownParagraph raw={mediaSource} />
   {:else if localVideo}
     <div class="my-3"><MarkdownImage href={localVideo} /></div>
   {:else if checkbox}

@@ -23,6 +23,17 @@ describe('GitWatcher targets', () => {
     })
   })
 
+  test('watches remote refs, because a push or fetch moves nothing else', () => {
+    // WHY: ahead and behind count from the remote ref. Without this target, an
+    // agent's `git push` leaves the old counts on screen.
+    const targets = buildGitWatchTargets({ commonDir: '/repo/.git', headPath: '/repo/.git/HEAD', indexPath: '/repo/.git/index' })
+    expect(targets.find((target) => target.directory === join('/repo/.git', 'refs', 'remotes'))).toEqual({
+      directory: join('/repo/.git', 'refs', 'remotes'),
+      recursive: true,
+      names: null,
+    })
+  })
+
   test('coalesces main-checkout HEAD, index, and packed refs onto one stable directory watch', () => {
     const targets = buildGitWatchTargets({
       commonDir: '/repo/.git',

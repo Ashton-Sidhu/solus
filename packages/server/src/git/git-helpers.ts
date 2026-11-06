@@ -328,7 +328,7 @@ export function parseRemoteUrl(remote: string): RepoRef | null {
   let host: string
   let pathname: string
 
-  const scp = url.match(/^[^@]+@([^:]+):(.+)$/) ?? url.match(USERLESS_SCP_REMOTE)
+  const scp = url.match(/^[^@]+@(\[[^\]\s]+\]|[^:]+):(.+)$/) ?? url.match(USERLESS_SCP_REMOTE)
   if (scp) {
     host = scp[1]
     pathname = scp[2]

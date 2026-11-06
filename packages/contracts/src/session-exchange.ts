@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { cutText } from './text-cut'
 import type { AgentId, NormalizedEvent, PermissionOption, PermissionRequest, QuestionRequest, WorkType } from './types'
 
 /**
@@ -45,7 +46,7 @@ export const ORCHESTRATION_LIMITS = {
 /** `text` on one line, cut to `max` characters with an ellipsis. */
 export function clip(text: string, max: number): string {
   const oneLine = text.replace(/\s+/g, ' ').trim()
-  return oneLine.length > max ? `${oneLine.slice(0, Math.max(0, max - 1))}…` : oneLine
+  return oneLine.length > max ? `${cutText(oneLine, Math.max(0, max - 1))}…` : oneLine
 }
 
 /**

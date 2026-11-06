@@ -13,6 +13,7 @@ import {
   buildThreadListV2ListItems,
   presentThreadPullRequests,
   resolveThreadListV2Status,
+  canSnoozeThread,
   resolveThreadListV2SwipeActions,
   threadListV2ListItemsAreEqual,
   threadPullRequests,
@@ -215,6 +216,9 @@ describe('thread list rows', () => {
   })
 
   test('an archived row swipes to Return to List and offers no snooze', () => {
+    expect(canSnoozeThread('input')).toBe(true) // A question stays answerable, as on desktop and web.
+    expect(canSnoozeThread('approval')).toBe(false) // An approval holds the agent at one step.
+    expect(canSnoozeThread('running')).toBe(true)
     expect(resolveThreadListV2SwipeActions({ variant: 'slim', snoozable: true, archived: true })).toEqual({ primary: 'unarchive', secondary: null })
     expect(resolveThreadListV2SwipeActions({ variant: 'card', snoozable: true })).toEqual({ primary: 'settle', secondary: 'snooze' })
   })
@@ -230,7 +234,7 @@ describe('thread list rows', () => {
     expect(items.map((item) => item.type === 'v2-thread' && item.showTrailingDivider)).toEqual([true, false, false, false])
     const first = items[0]!
     // A blocked thread may not be snoozed, and its status label replaces the time.
-    expect(first.type === 'v2-thread' && [first.status, first.snoozable, first.timeLabelAt]).toEqual(['input', false, null])
+    expect(first.type === 'v2-thread' && [first.status, first.snoozable, first.timeLabelAt]).toEqual(['input', true, null])
   })
 
   test('a reload with the same facts does not re-render a row; a status change does', () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { cutText } from "@solus/contracts/text-cut";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
@@ -144,7 +145,7 @@
     if (!failedTool) return "";
     const text = (failedTool.errorHead || "").trim();
     const first = text.split("\n").map((line) => line.trim()).find(Boolean);
-    return first ? (first.length > 240 ? `${first.slice(0, 237)}…` : first) : "";
+    return first ? (first.length > 240 ? `${cutText(first, 237)}…` : first) : "";
   });
 
   function describe(tool: Message, parsed: ParsedToolInput | null): string {

@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import type { Activity, ActivityKind } from '@solus/contracts/activity'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { SessionLineageMember } from '@solus/contracts/types'
@@ -12,7 +13,7 @@ import { getIndexedSession } from '../../db/session-indexer'
 /** A fork of `sourceThreadId`, named as the source reads now. */
 export function forkedFrom(sourceThreadId: string, midRun: boolean | undefined): ActivityKind {
   const source = getIndexedSession(sourceThreadId)
-  const title = source?.customTitle || source?.slug || source?.firstMessage?.slice(0, 80)
+  const title = source?.customTitle || source?.slug || (source?.firstMessage && cutText(source.firstMessage, 80))
   const forked: Extract<ActivityKind, { kind: 'forked' }> = { kind: 'forked', sourceSessionId: sourceThreadId }
   if (title) forked.sourceTitle = title
   if (midRun) forked.midRun = true

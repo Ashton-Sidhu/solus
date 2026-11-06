@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { IpcContext } from '@solus/contracts/types'
-import { githubMediaFetchUrl } from '@solus/contracts/github-media'
+import { githubMediaFetchUrl, githubMediaUrl } from '@solus/contracts/github-media'
 import { verifyAssetToken } from '@solus/server/data/assets/assets'
 import { actAsHostForTests, HOST_IDENTITY, HOST_SCOPE, useActingIdentities } from '@solus/server/execution/seats/acting-identity'
 import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
@@ -64,6 +64,20 @@ function signedMedia(source = ATTACHMENT, repository?: string) {
   if (!payload) throw new Error('the token did not verify')
   return { relativeUrl, expiresAt, payload }
 }
+
+describe('media in text written on GitHub', () => {
+  test('a root-relative address is on github.com, so a host can sign it', () => {
+    // WHY: a browser resolves it against the Solus origin, and a phone reads it as a file.
+    expect(githubMediaUrl('/acme/app/raw/main/a.png')).toBe('https://github.com/acme/app/raw/main/a.png')
+    expect(githubMediaFetchUrl(githubMediaUrl('/acme/app/raw/main/a.png'))).toBe('https://raw.githubusercontent.com/acme/app/main/a.png')
+  })
+
+  test('any other address stays as it is', () => {
+    for (const source of ['https://example.com/a.png', '//example.com/a.png', '/\\example.com/a.png', 'docs/a.png', './a.png']) {
+      expect(githubMediaUrl(source)).toBe(source)
+    }
+  })
+})
 
 describe('which URLs the host fetches with its GitHub credential', () => {
   test('attachments, committed files and LFS media; nothing else', () => {

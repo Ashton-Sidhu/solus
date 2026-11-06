@@ -201,6 +201,14 @@ describe("routing punctuation in file links", () => {
     expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("$HOME/notes.txt")).toBe(false);
     expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("$(pwd)/run.sh")).toBe(false);
   });
+
+  it("leaves an agent's shortened path as code, because no file has that name", () => {
+    for (const path of ["/tmp/claude-1000/...", "/tmp/claude-1000/...:12", "/tmp/.../notes.md", "~/projects/…/notes.md", "src/.../main.ts"]) {
+      expect(ENRICHED_INLINE_FILE_LINK_REGEX.test(path)).toBe(false);
+    }
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("src/foo...bar.ts")).toBe(true);
+    expect(ENRICHED_INLINE_FILE_LINK_REGEX.test("../src/main.ts")).toBe(true);
+  });
 });
 
 describe("Enriched link presentation", () => {
