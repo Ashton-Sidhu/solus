@@ -546,6 +546,11 @@ export const RPC_PLANES = {
   // Subscription quota per agent provider
   usageLimits: 'execution',
 
+  // Machine load and process telemetry
+  hostResources: 'execution',
+  hostTelemetrySubscribe: 'execution',
+  hostTelemetryUnsubscribe: 'execution',
+
   // Browser
   browserListTargets: 'execution',
   browserRuntimeStatus: 'execution',

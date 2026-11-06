@@ -11,6 +11,7 @@
   import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import {
     getClientShellContext,
+    getWorkspaceContext,
     hostAffinityGlyph,
     hosts,
     projectsStore,
@@ -96,6 +97,9 @@
     open = $bindable(false),
     anchor = null,
   }: Props = $props();
+
+  const workspace = getWorkspaceContext();
+  const draft = $derived(variant === "scope" ? undefined : workspace.drafts.sessionDrafts.get(requesterId));
 
   const selectedHostId = $derived(
     runHost(run) ?? LOCAL_SERVER_ID,
@@ -463,12 +467,12 @@
                           : 'opacity-70'}"
                       />
                     {/if}
-                    <span class="truncate">{hostLabel(selectedServer)}</span>
+                    <span class="truncate">{draft?.balance === "checking" ? "Checking hosts…" : hostLabel(selectedServer)}</span>
                   </Button>
                 {/snippet}
               </TooltipUI.Trigger>
               <TooltipUI.Content
-                value={`Where the next session runs — now: ${hostLabel(selectedServer)}`}
+                value={`Where the next session runs — now: ${hostLabel(selectedServer)}${draft?.balance ? ` · Auto balance: ${draft.balance}` : ""}`}
               />
             </TooltipUI.Root>
           {:else}
@@ -526,6 +530,11 @@
              padded body rather than dragging it out of view. -->
         <div class="max-h-[288px] overflow-y-auto p-1.5">
           <DropdownMenu.Label>{variant === "scope" ? "Settings host" : identitiesLoadingHostId ? "Loading project…" : "Run on"}</DropdownMenu.Label>
+          {#if draft && workspace.settings.hostBalancing.enabled}
+            {#await import("./AutoBalanceRow.svelte") then { default: AutoBalanceRow }}
+              <AutoBalanceRow {draft} />
+            {/await}
+          {/if}
           {#each runOnHosts as server (server.id)}
             {@render serverRow(server)}
           {/each}

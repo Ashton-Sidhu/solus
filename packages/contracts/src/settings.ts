@@ -69,6 +69,10 @@ export type ConversationWidth = (typeof CONVERSATION_WIDTHS)[number]
 export const SIDEBAR_VIEWS = ['status', 'project'] as const
 export type SidebarView = (typeof SIDEBAR_VIEWS)[number]
 
+/** `manual`: Auto balance never chooses it. */
+export const HOST_BALANCE_PREFERENCES = ['prefer', 'normal', 'less', 'manual'] as const
+export type HostBalancePreference = (typeof HOST_BALANCE_PREFERENCES)[number]
+
 /** Days a done task stays on the sidebar's Completed shelf. Display only: it deletes nothing. */
 export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
 /** How long a sidebar row takes to arrive, leave, or move, in milliseconds.
@@ -213,6 +217,10 @@ export const PERSONAL_SETTING_SCHEMAS = {
     followPullRequestTemplate: z.boolean(),
   }).strict().describe('How commit and pull request text is written. mode repo_conventions: like the last 20 commits. conventional_commits: type(scope): subject. custom: customInstructions (up to 8000 characters). followPullRequestTemplate: fill in the pull request template of the repository.'),
   /** A project's `.solus/config.json` can override it (docs/worktree-names.md). */
+  hostBalancing: z.object({
+    enabled: z.boolean(),
+    preferences: z.record(z.string().max(200), z.enum(HOST_BALANCE_PREFERENCES)),
+  }).strict().describe('Auto balance of new sessions. preferences: by host installation id.'),
   worktreeBranchNaming: worktreeBranchNamingSchema.describe('How branches of new worktrees get their names. generated: {prefix}/{slug}, renamed when a title exists. static: {prefix}/{id}. custom: a template with {prefix}, {slug}, {id}, and {user}. The .solus/config.json of a project can override it.'),
 }
 
@@ -293,6 +301,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
   sourceControlWriterModel: null,
   sourceControlWriting: DEFAULT_SOURCE_CONTROL_WRITING,
+  hostBalancing: { enabled: false, preferences: {} },
   worktreeBranchNaming: DEFAULT_WORKTREE_BRANCH_NAMING,
 }
 

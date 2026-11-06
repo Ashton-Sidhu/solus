@@ -46,7 +46,7 @@ function draftsBesideAWorkPage() {
   const pane = { id: 'lead', surfaces: [{ name: 'work', params: { workId: 'w1' } }], activeSurfaceIndex: 0 }
   let drafts: InstanceType<typeof SessionDrafts>
   const workspace = {
-    settings: { modelOptionsByProvider: {} },
+    settings: { modelOptionsByProvider: {}, hostBalancing: { enabled: false, preferences: {} } },
     activeTabId: '',
     defaultRunConfig: runIn('/Users/me/.solus/my-workspace'),
     focusedSourceId: null,

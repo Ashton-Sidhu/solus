@@ -40,6 +40,36 @@ mark. The current host has a check. What Send does depends on the host:
 | A host that has a checkout of the project | The session runs in the checkout that host already has. The session points there when you select the row; Send connects to the host first if it is not online. |
 | A host that has no checkout | The host makes a partial clone of the repository (every branch and its full history; file contents are fetched when a checkout or diff first needs them), then runs the session in a new worktree by default. A checkout that an earlier version cloned without history gets its full history once, the next time work is sent to it; its files, commits, and HEAD stay as they are. The copy goes in the host's projects folder, named for the repository like `git clone` names it (`~/projects/solus`), and the host lists it as a project. When that folder holds a checkout of the same repository, the host uses it, and a checkout you made there yourself always gets a new worktree, so the agent never works in your checkout; when it holds something else, the copy is `solus-2`, then `solus-3`. |
 
+### Auto balance
+
+Auto balance chooses the host of a new session from the current CPU and memory of
+each eligible host. It is off by default. Turn it on in Settings → Hosts → **Auto
+balance**, which shows when you have two or more hosts. On mobile, it is in
+Settings → Hosts. Your choices are personal settings, so they apply on each client.
+
+Each host has a preference: **Prefer**, **Normal**, **Less often**, or **Manual
+only**. They are preferences, not fixed shares. Auto balance never chooses a Manual
+only host.
+
+A host is eligible when it is connected, it can run the agent, and it already has
+a checkout of the project. Any such host can run a chat. Auto balance does not start
+a clone: to copy a repository to another host, choose that host yourself.
+
+The check runs once, when you start a new session. Then the choice stays. Choosing a
+host, a branch, or a worktree overrides it, and choosing another project checks again.
+Existing sessions stay where they started.
+
+A check never moves a session that you have started to write. If you type or attach a
+file before it ends, the session keeps its host, and Run on does not say that Auto
+balance chose it. To move it, choose **Auto balance** in Run on. That checks again and
+moves the session with its text. A session with attachments stays, because attachments
+are on their host, and Run on says **Auto balance unavailable**.
+
+When the check fails or each host is full, Run on says **Auto balance unavailable**.
+The session stays on the host that Run on names. Choose another host by hand, or
+send there. A host counts as full at 95% CPU, or with 5% or less of its memory
+available.
+
 ### What Send does for a copy
 
 Send connects to the host and then sends the prompt. The prompt carries the

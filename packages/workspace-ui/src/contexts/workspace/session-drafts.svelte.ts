@@ -10,6 +10,7 @@ import { alignRunProvider, resolveNewRunConfig } from './run-config'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import type { WorkspaceContext, PersistedSessionDrafts, CreateTabOptions } from './workspace.context.svelte'
 import { checkoutGit, checkoutPlace, chooseStart, pendingClone, runHost, startsWorktree } from './run-location'
+import type { DraftBalancer } from './draft-balancer'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionDraftsWorkspace = Pick<WorkspaceContext,
@@ -41,11 +42,16 @@ export class SessionDrafts {
    *  once and a Git answer, which keeps the place, reads nothing. */
   private readonly startTargetReads = new Map<string, string>()
 
+  private balancer: Promise<DraftBalancer> | null = null
+
   /** Every draft is made here, so every draft tells this store when it moves. */
   private newDraft(inherit?: RunConfig | null, id?: string): SessionDraft {
     return new SessionDraft(this.workspace.defaultRunConfig, inherit, this.workspace.settings.modelOptionsByProvider, {
       id,
-      onMove: (draft) => this.readStartTarget(draft),
+      onMove: (draft) => {
+        this.readStartTarget(draft)
+        if (draft.balance) this.balance(draft, (balancer) => balancer.afterMove(draft))
+      },
     })
   }
 
@@ -75,6 +81,15 @@ export class SessionDrafts {
     if (this.startTargetReads.get(draft.id) === key) return
     this.startTargetReads.set(draft.id, key)
     void this.workspace.refreshStartTarget(draft.id, place.path, worktreeRequested)
+  }
+
+  /** Loads on first use. If it cannot, the draft stays and says so. */
+  balance(draft: SessionDraft, act: (balancer: DraftBalancer) => Promise<void>): void {
+    this.balancer ??= import('./draft-balancer').then((module) => new module.DraftBalancer(this.workspace.settings, this.sessionDrafts))
+    void this.balancer.then(act).catch(() => {
+      this.balancer = null
+      draft.balance = 'unavailable'
+    })
   }
 
   /** A host connected: a read of a draft on it while it was away could not
@@ -192,6 +207,11 @@ export class SessionDrafts {
     draft.boundWorkId = options.workId ?? null
     this.sessionDrafts.set(draft.id, draft)
     this.readStartTarget(draft)
+    if (options.freshTask && !options.serverId && !options.gitContext && !options.worktreeRequested && this.workspace.settings.hostBalancing.enabled) {
+      const from = draft.run.location
+      draft.balance = 'checking'
+      this.balance(draft, (balancer) => balancer.check(draft, from))
+    }
     return draft
   }
 

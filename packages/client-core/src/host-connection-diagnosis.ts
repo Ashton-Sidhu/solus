@@ -209,6 +209,8 @@ function routeSteps(host: string, kinds: readonly RouteKind[]): string[] {
     `Make sure ${host} is awake and Solus runs on it.`,
     ...(kinds.includes('lan') ? [`Make sure this device is on the same network as ${host}.`] : []),
     ...(kinds.includes('tailnet') ? ['Make sure Tailscale is on, on this device and on the host.'] : []),
+    ...(kinds.includes('vpn') ? ['Make sure the VPN is on, on this device and on the host.'] : []),
+    ...(kinds.includes('public') ? [`Check that the address still points at ${host}, and that it is reachable from this network.`] : []),
     ...(kinds.includes('forwarded') ? ['The SSH forward to the host may have stopped. Add the host again.'] : []),
   ]
 }

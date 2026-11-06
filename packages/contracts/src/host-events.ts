@@ -3,6 +3,7 @@ import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
 import type { CheckoutChange } from './checkout'
+import type { HostTelemetryEvent } from './host-resources'
 import type { AtlassianOAuthCompleted } from './atlassian'
 import type { HostConfigSnapshot } from './host-config'
 import type { ConnectionConnectNeeded } from './connections'
@@ -124,6 +125,8 @@ export interface HostEventMap {
   'attention.snapshotChanged': { entries: AttentionEntry[] }
   'pr.guideStatusChanged': PrGuideStatusEvent
   'usage.limitsChanged': { snapshots: AgentUsageLimits[] }
+  /** One read of the process tree. */
+  'host.telemetry': HostTelemetryEvent
   /** A turn's row in the Insights record was written: open when the turn
    *  starts, finished when it ends. Sent after the write, so a client that reads
    *  on it sees the new row. `status` is 'unknown' while the turn runs. */
@@ -271,6 +274,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
+  'host.telemetry': { owner: 'host', category: 'targeted', recovery: 'reset', description: 'One read of the process tree.' },
   'metrics.turnsChanged': { owner: 'metrics', category: 'delta', recovery: 'reload', description: "A turn's Insights row was written: started or finished." },
   'metrics.insightPullChanged': { owner: 'metrics', category: 'snapshot', recovery: 'reload', description: 'A pull of turns other hosts ran started or ended.' },
   'connection.connectNeeded': { owner: 'connections', category: 'delta', recovery: 'reset', description: 'An agent tool needs the user to connect an external account.' },

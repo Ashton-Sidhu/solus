@@ -190,12 +190,21 @@ Settings → Hosts lists every host. Each host has its own page:
 
 - **Overview**: whether the host answers, its address, and a summary row for each
   setup step. Each row opens the tab that changes it.
+- **Resources**: the CPU and memory of the machine. A host admin also sees Solus and
+  the agents it started: totals, CPU use over the last five minutes, and the busiest
+  processes. The host samples only while this tab is open. A host without the
+  resource monitor shows machine load only. See
+  [the plan](plans/resource-telemetry.md).
 - **Access**: how the host is reached and who reaches it. It has the host's Solus
   Cloud section, its organizations, its network (remote connections, local network
   trust, address), pairing, and the devices with access.
 - **Git**, **AI providers**, and **Environment**.
 
-On mobile, a host's settings screen opens an **Access** screen with the same
+The Hosts list has an **Auto balance** section when you have two or more hosts
+([Run on](run-on.md#auto-balance)).
+
+On mobile, a host's settings screen opens a **Resources** screen and an **Access**
+screen with the same
 sections in the same order (`HostAccessScreen`). The pairing code shows as a code,
 a QR code, and a link to copy. The rules for the organization rows and the pairing
 link are shared in `@solus/client-core` (`organization-rows.ts`, `pairing.ts`).

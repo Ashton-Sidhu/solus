@@ -15,9 +15,13 @@ export type RootStackParamList = {
   /** The model, reasoning, and permission mode for the next prompt, as T3 Code's form-sheet route over its thread or new-task draft. `conversationId` names the open conversation. */
   ThreadSettings: { hostId: string; conversationId: string }
   /** T3 Code's new-task sheet; the pickers preselect a host and project. */
-  NewTask: { hostId?: string; projectPath?: string } | undefined
+  /**
+   * `hostChoice` absent: Auto balance may still choose the host. `balanceRequest`
+   * is the picker's Auto balance row: check now (docs/plans/resource-telemetry.md D8).
+   */
+  NewTask: { hostId?: string; projectPath?: string; hostChoice?: import("../features/threads/new-task-balance").NewTaskHostChoice; balanceRequest?: number } | undefined
   /** The host a new-task draft runs on, pushed in the new-task sheet. `hostId` and `projectPath` name the draft. */
-  NewTaskEnvironment: { hostId: string; projectPath: string }
+  NewTaskEnvironment: { hostId: string; projectPath: string; hostChoice?: import("../features/threads/new-task-balance").NewTaskHostChoice }
   Welcome: undefined
   /** `link` is a pairing link, or a nearby host's address, to check before pairing. */
   PairHost: { link?: string } | undefined
@@ -55,6 +59,10 @@ export type RootStackParamList = {
   /** The effective policy of work on a host (plans/030 §7), read-only; the params preselect the host and the organization. */
   Policy: { hostId?: string; organizationId?: string } | undefined
   HostSettings: { hostId: string }
+  /** One host's machine load and, for its admins, its process table. */
+  HostResources: { hostId: string }
+  /** Auto balance: the switch, and a preference for each host. */
+  HostBalancing: undefined
   DeviceSettings: { hostId: string }
   Devices: { hostId: string; sessionId?: string }
   /** How one host is reached: Solus Cloud link, organizations, network, pairing, and devices. */

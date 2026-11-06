@@ -85,6 +85,14 @@ function probePackagedRuntime(context) {
   const voiceVersion = execFileSync(voiceBinary, ['--probe'], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS })
   if (!voiceVersion.startsWith('solus-transcription/1 transcribe.cpp/'))
     throw new Error('[afterPack] Packaged voice runtime failed its protocol check')
+  // `build-resource-monitor.ts` skips a local package without cargo; a release has the binary.
+  const monitorBinary = path.join(resourcesDir, 'resource-monitor', process.platform === 'win32' ? 'solus-resource-monitor.exe' : 'solus-resource-monitor')
+  if (process.env.CI || fs.existsSync(monitorBinary)) {
+    // Stdin closes at once, so the monitor says hello and exits.
+    const hello = JSON.parse(execFileSync(monitorBinary, [], { input: '', encoding: 'utf8', timeout: PROBE_TIMEOUT_MS }).split('\n')[0])
+    if (hello.type !== 'hello' || hello.version !== 3)
+      throw new Error('[afterPack] Packaged resource monitor failed its protocol check')
+  }
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'solus-runtime-probe-'))
 
   // ELECTRON_NO_ASAR would let the probe read straight through the archive and

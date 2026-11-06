@@ -59,6 +59,7 @@
   <Tabs.Root bind:value={connectionsNav.tab}>
     <Tabs.List variant="line" class="w-full justify-start gap-4 border-b border-border pb-1">
       <Tabs.Trigger value="overview" class="flex-none px-0">Overview</Tabs.Trigger>
+      <Tabs.Trigger value="resources" class="flex-none px-0">Resources</Tabs.Trigger>
       <Tabs.Trigger value="access" class="flex-none px-0">Access</Tabs.Trigger>
       <Tabs.Trigger value="git" class="flex-none px-0">Git</Tabs.Trigger>
       <Tabs.Trigger value="providers" class="flex-none px-0">AI providers</Tabs.Trigger>
@@ -68,6 +69,14 @@
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">
       <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
     </Tabs.Content>
+    <!-- Mounted only while selected: the tab holds the watch that makes the host sample. -->
+    {#if connectionsNav.tab === "resources"}
+      <Tabs.Content value="resources" class="mt-5 flex flex-col gap-7">
+        {#await import("./HostDetailResources.svelte") then { default: HostDetailResources }}
+          <HostDetailResources serverId={host.id} />
+        {/await}
+      </Tabs.Content>
+    {/if}
     <Tabs.Content value="access" class="mt-5 flex flex-col gap-7">
       {#if !host.local}
         <HostRoutesSection serverId={host.id} />

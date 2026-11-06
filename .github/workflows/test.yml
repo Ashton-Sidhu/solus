@@ -47,6 +47,12 @@ jobs:
       - name: Run unit tests
         run: bun run test:unit
 
+      - name: Setup Rust for the resource monitor
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test the resource monitor
+        run: cargo test --locked --manifest-path native/resource-monitor/Cargo.toml --target-dir build/resource-monitor/target
+
       - name: Build app
         env:
           NODE_OPTIONS: --max-old-space-size=4096

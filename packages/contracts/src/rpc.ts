@@ -610,6 +610,9 @@ export const RPC_INVOKE_METHODS = [
 
   // Subscription quota per agent provider
   'usageLimits',
+  'hostResources',
+  'hostTelemetrySubscribe',
+  'hostTelemetryUnsubscribe',
 
   // Browser (viewing and driving a running UI at a chosen viewport)
   'browserRuntimeStatus',

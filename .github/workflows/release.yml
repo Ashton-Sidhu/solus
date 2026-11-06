@@ -51,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Setup Rust for the resource monitor
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Import code signing certificate
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -209,6 +212,8 @@ jobs:
           version: 1.4.304.1
           cache: true
       - run: bun install --frozen-lockfile
+      - name: Setup Rust for the resource monitor
+        uses: dtolnay/rust-toolchain@stable
       - name: Linux desktop unit checks
         run: bun scripts/test-unit.ts desktop-package desktop-linux-window desktop-secret-storage desktop-capture desktop-update-mode terminal-launcher cli-env account-store desktop-update-status
       - name: Build desktop and web in sequence
@@ -285,6 +290,8 @@ jobs:
           version: 1.4.304.1
           cache: true
       - run: bun install --frozen-lockfile
+      - name: Setup Rust for the resource monitor
+        uses: dtolnay/rust-toolchain@stable
       - name: Windows desktop unit checks
         run: bun scripts/test-unit.ts desktop-package windows-desktop desktop-capture desktop-update-mode terminal-launcher cli-env keybindings
       - name: Build desktop and web in sequence

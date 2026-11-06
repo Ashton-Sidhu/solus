@@ -22,6 +22,7 @@ import { cn } from "../../lib/cn";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { ScreenProps } from "../../navigation/routes";
 import { groupProjectScopes, scopeOfProject } from "./new-task-project-selection";
+import { useNewTaskBalanceCandidates } from "./new-task-balance";
 
 /** The glyph a Solus host wears: T3's machine kinds by operating system. */
 export function hostMachineKind(os: HostOperatingSystem | undefined): EnvironmentMachineKind {
@@ -169,18 +170,24 @@ export function useNewTaskEnvironments(hostId: string, projectPath: string) {
  * the draft there.
  */
 export function NewTaskEnvironmentPickerRouteScreen({ route, navigation }: ScreenProps<"NewTaskEnvironment">) {
-  const { hostId, projectPath } = route.params;
+  const { hostId, projectPath, hostChoice } = route.params;
   const app = useApp();
   const insets = useSafeAreaInsets();
   const { environments } = useNewTaskEnvironments(hostId, projectPath);
+  const balanceCandidates = useNewTaskBalanceCandidates(environments, null);
   const select = (choice: NewTaskEnvironmentChoice) => {
     void Haptics.selectionAsync();
     if (choice.hostId === hostId) {
-      navigation.goBack();
+      // The same host, chosen by hand, still ends Auto balance on this draft.
+      navigation.popTo("NewTask", { hostId, projectPath, hostChoice: "manual" });
       return;
     }
     app.saveDraft(choice.hostId, `new-task:${choice.projectPath}`, app.draft(hostId, `new-task:${projectPath}`));
-    navigation.popTo("NewTask", { hostId: choice.hostId, projectPath: choice.projectPath });
+    navigation.popTo("NewTask", { hostId: choice.hostId, projectPath: choice.projectPath, hostChoice: "manual" });
+  };
+  const chooseAutoBalance = () => {
+    void Haptics.selectionAsync();
+    navigation.popTo("NewTask", { hostId, projectPath, balanceRequest: Date.now() });
   };
   return (
     <View className="flex-1 bg-sheet" collapsable={false}>
@@ -199,6 +206,14 @@ export function NewTaskEnvironmentPickerRouteScreen({ route, navigation }: Scree
           showsVerticalScrollIndicator={false}
         >
           <PickerSurface>
+            {balanceCandidates.length >= 2 ? (
+              <SelectionRow
+                icon={<SymbolView name="scalemass" size={Platform.OS === "android" ? 24 : 17} tintColorClassName="accent-icon-muted" />}
+                onPress={chooseAutoBalance}
+                selected={hostChoice === "auto"}
+                title="Auto balance"
+              />
+            ) : null}
             {environments.map((environment, index) => (
               <SelectionRow
                 key={environment.hostId}
@@ -211,7 +226,7 @@ export function NewTaskEnvironmentPickerRouteScreen({ route, navigation }: Scree
                 }
                 isLast={index === environments.length - 1}
                 onPress={() => select(environment)}
-                selected={hostId === environment.hostId}
+                selected={hostChoice !== "auto" && hostId === environment.hostId}
                 subtitle={environment.subtitle}
                 title={environment.label}
               />
