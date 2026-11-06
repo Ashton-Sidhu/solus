@@ -142,6 +142,7 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     identityKey: body.identityKey,
     lastConnected: Date.now(),
   }
+  if (url.startsWith('https:')) server.tokenPairedOverHttps = true
 
   return { server, sessionToken: body.sessionToken, installationId: body.installationId }
 }

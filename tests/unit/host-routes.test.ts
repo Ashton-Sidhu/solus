@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostRoute } from '@solus/contracts/host-routes'
-import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_GRACE_MS, LEARNED_ROUTE_TTL_MS, mergeRoutes, ROUTE_CHECK_TIMEOUT_MS, routeForUrl } from '@solus/contracts/host-routes'
+import { carriesTokenInClear, chooseRoute, dialableRoutes, earlierRouteBack, EARLIER_ROUTE_GRACE_MS, joinListedRoutes, LEARNED_ROUTE_TTL_MS, listedRoutes, mergeRoutes, orderedRoutes, ROUTE_CHECK_TIMEOUT_MS, routeForUrl } from '@solus/contracts/host-routes'
 
 const lan: HostRoute = { kind: 'lan', url: 'http://192.168.1.20:7777' }
 const staleLan: HostRoute = { kind: 'lan', url: 'http://10.0.0.9:51234' }
@@ -49,6 +49,30 @@ describe('chooseRoute', () => {
     const choice = chooseRoute([staleLan, lan, tunnel], check, timers)
     expect(asked).toEqual([staleLan.url, lan.url, tunnel.url])
     answer(lan.url, true)
+    await flush()
+    timers.advance(EARLIER_ROUTE_GRACE_MS)
+    expect(await choice).toEqual(lan)
+  })
+
+  test('the first route in order wins over a later one that answered first, inside the grace', async () => {
+    const timers = manualTimers()
+    const { check, answer } = scriptedCheck()
+    const tailnet: HostRoute = { kind: 'tailnet', url: 'http://100.64.0.2:7777' }
+    const choice = chooseRoute([tailnet, lan], check, timers)
+    answer(lan.url, true)
+    await flush()
+    timers.advance(EARLIER_ROUTE_GRACE_MS - 1)
+    answer(tailnet.url, true)
+    expect(await choice).toEqual(tailnet)
+  })
+
+  test('a tunnel the person put first does not hold a host down while Solus cloud is silent', async () => {
+    const timers = manualTimers()
+    const { check, answer } = scriptedCheck()
+    const choice = chooseRoute([tunnel, lan], check, timers)
+    answer(lan.url, true)
+    await flush()
+    timers.advance(EARLIER_ROUTE_GRACE_MS)
     expect(await choice).toEqual(lan)
   })
 
@@ -58,7 +82,7 @@ describe('chooseRoute', () => {
     const choice = chooseRoute([lan, tunnel], check, timers)
     answer(tunnel.url, true)
     await flush()
-    timers.advance(DIRECT_ROUTE_GRACE_MS - 1)
+    timers.advance(EARLIER_ROUTE_GRACE_MS - 1)
     answer(lan.url, true)
     expect(await choice).toEqual(lan)
   })
@@ -71,7 +95,7 @@ describe('chooseRoute', () => {
     const choice = chooseRoute([staleLan, tunnel], check, timers)
     answer(tunnel.url, true)
     await flush()
-    timers.advance(DIRECT_ROUTE_GRACE_MS)
+    timers.advance(EARLIER_ROUTE_GRACE_MS)
     expect(await choice).toEqual(tunnel)
     expect(timers.pendingCount()).toBe(0)
   })
@@ -94,10 +118,10 @@ describe('chooseRoute', () => {
   })
 })
 
-describe('directRouteBack', () => {
+describe('earlierRouteBack', () => {
   test('a host reached through its tunnel goes back to a direct route that answers', async () => {
     const { check, answer, asked } = scriptedCheck()
-    const back = directRouteBack([lan, tunnel], tunnel.url, check, manualTimers())
+    const back = earlierRouteBack([lan, tunnel], tunnel.url, check, manualTimers())
     expect(asked).toEqual([lan.url])
     answer(lan.url, true)
     expect(await back).toEqual(lan)
@@ -105,8 +129,17 @@ describe('directRouteBack', () => {
 
   test('a host already on a direct route is not checked', async () => {
     const { check, asked } = scriptedCheck()
-    expect(await directRouteBack([lan, tunnel], lan.url, check, manualTimers())).toBeNull()
+    expect(await earlierRouteBack([lan, tunnel], lan.url, check, manualTimers())).toBeNull()
     expect(asked).toEqual([])
+  })
+
+  test('a host on any later route asks only the routes before it', async () => {
+    const tailnet: HostRoute = { kind: 'tailnet', url: 'http://100.64.0.2:7777' }
+    const { check, asked, answer } = scriptedCheck()
+    const back = earlierRouteBack([lan, tailnet, tunnel], tailnet.url, check, manualTimers())
+    expect(asked).toEqual([lan.url])
+    answer(lan.url, true)
+    expect(await back).toEqual(lan)
   })
 })
 
@@ -148,14 +181,24 @@ describe('mergeRoutes', () => {
 })
 
 describe('routeForUrl', () => {
-  test('a Tailscale address or name is a tailnet route; any other address is a lan route', () => {
-    expect(routeForUrl('http://100.64.0.2:7777')).toEqual({ kind: 'tailnet', url: 'http://100.64.0.2:7777' })
-    expect(routeForUrl('http://100.127.255.1:7777').kind).toBe('tailnet')
+  test('an address says only what it shows: a public address is not lan, and a shared VPN range is not Tailscale', () => {
+    expect(routeForUrl('https://solus.example.com').kind).toBe('public')
+    expect(routeForUrl('http://203.0.113.7:3000').kind).toBe('public')
+    expect(routeForUrl('http://100.64.0.2:7777')).toEqual({ kind: 'vpn', url: 'http://100.64.0.2:7777' })
+    expect(routeForUrl('http://100.127.255.1:7777').kind).toBe('vpn')
+    // Only a source that knows says Tailscale for that range.
+    expect(routeForUrl('http://100.64.0.2:7777', true).kind).toBe('tailnet')
     expect(routeForUrl('https://studio.tail1234.ts.net').kind).toBe('tailnet')
     // Just outside 100.64.0.0/10.
-    expect(routeForUrl('http://100.63.0.1:7777').kind).toBe('lan')
-    expect(routeForUrl('http://100.128.0.1:7777').kind).toBe('lan')
+    expect(routeForUrl('http://100.63.0.1:7777').kind).toBe('public')
+    expect(routeForUrl('http://100.128.0.1:7777').kind).toBe('public')
     expect(routeForUrl('http://192.168.1.20:7777').kind).toBe('lan')
+    expect(routeForUrl('http://172.16.0.4:7777').kind).toBe('lan')
+    expect(routeForUrl('http://172.32.0.4:7777').kind).toBe('public')
+    expect(routeForUrl('http://studio.local:7777').kind).toBe('lan')
+    expect(routeForUrl('http://studio:7777').kind).toBe('lan')
+    expect(routeForUrl('http://[fd00::1]:7777').kind).toBe('lan')
+    expect(routeForUrl('http://[2001:db8::1]:7777').kind).toBe('public')
     expect(routeForUrl('not a url').kind).toBe('lan')
   })
 })
@@ -184,8 +227,62 @@ describe('dialableRoutes', () => {
     expect(dialableRoutes([forwarded, tunnel], '')).toEqual([tunnel])
   })
 
+  test('the person\'s order wins over the kind order, and the tunnel can stand first', () => {
+    const forwarded: HostRoute = { kind: 'forwarded', url: 'http://127.0.0.1:41000', viaHostId: 'inst-laptop' }
+    expect(dialableRoutes([lan, forwarded, tunnel], '', 'inst-laptop', { order: [tunnel.url, lan.url, forwarded.url] }).map((route) => route.kind))
+      .toEqual(['tunnel', 'lan', 'forwarded'])
+  })
+
+  test('a route not in the order takes its default place, and a url no route has is skipped', () => {
+    const tailnet: HostRoute = { kind: 'tailnet', url: 'http://100.64.0.2:7777' }
+    const added: HostRoute = { kind: 'public', url: 'https://solus.example.com' }
+    // A new route goes before the first route that ranks after it.
+    expect(orderedRoutes([lan, tunnel, added], [lan.url, tunnel.url, 'http://gone.example']).map((route) => route.url)).toEqual([lan.url, added.url, tunnel.url])
+    expect(orderedRoutes([lan, tunnel, tailnet], [tunnel.url, lan.url]).map((route) => route.url)).toEqual([tailnet.url, tunnel.url, lan.url])
+  })
+
+  test('an order survives a read that rewrites the routes, so a learned route keeps its place', () => {
+    const learned: HostRoute = { kind: 'lan', url: 'http://192.168.1.21:7777' }
+    const order = [tunnel.url, learned.url]
+    let routes = mergeRoutes(mergeRoutes([], [learned], 'host', 1), [tunnel], 'directory', 2)
+    routes = mergeRoutes(routes, [], 'host', 3)
+    routes = mergeRoutes(routes, [learned], 'host', 4)
+    expect(dialableRoutes(routes, '', null, { order }).map((route) => route.url)).toEqual(order)
+  })
+
+  test('a token paired over HTTPS never goes to a route that carries it in clear', () => {
+    const tailnet: HostRoute = { kind: 'tailnet', url: 'http://100.64.0.2:7777' }
+    const vpn: HostRoute = { kind: 'vpn', url: 'http://100.64.0.3:7777' }
+    const forwarded: HostRoute = { kind: 'forwarded', url: 'http://127.0.0.1:41000', viaHostId: 'inst-laptop' }
+    const publicHttp: HostRoute = { kind: 'public', url: 'http://203.0.113.7:3000' }
+    const secure = dialableRoutes([lan, tailnet, vpn, forwarded, publicHttp, tunnel], '', 'inst-laptop', { tokenPairedOverHttps: true })
+    expect(secure.map((route) => route.url)).toEqual([forwarded.url, tailnet.url, tunnel.url])
+    expect(carriesTokenInClear({ kind: 'lan', url: 'http://127.0.0.1:3000' })).toBe(false)
+    // A token paired over plain HTTP already travels that way.
+    expect(dialableRoutes([lan, tunnel], '').map((route) => route.url)).toEqual([lan.url, tunnel.url])
+  })
+
+  test('a VPN-range address the host confirms is a tailnet route, and it is dialed once', () => {
+    const paired: HostRoute = { ...routeForUrl('http://100.64.0.2:7777'), source: 'pairing' }
+    const advertised: HostRoute = { kind: 'tailnet', url: paired.url, source: 'host' }
+    expect(dialableRoutes([paired, advertised], '', null, { tokenPairedOverHttps: true }).map((route) => route.kind)).toEqual(['tailnet'])
+  })
+
   test('a url two sources name is dialed once', () => {
     const routes: HostRoute[] = [{ ...lan, source: 'discovery' }, { ...lan, source: 'pairing' }, tunnel]
     expect(dialableRoutes(routes, '').map((route) => route.url)).toEqual([lan.url, tunnel.url])
+  })
+})
+
+describe('routes in a listing', () => {
+  test('a listing carries neither the directory\'s routes nor the ones a person added on this client', () => {
+    const routes: HostRoute[] = [{ ...tunnel, source: 'directory' }, { ...lan, source: 'pairing' }, { ...staleLan, source: 'user' }]
+    expect(listedRoutes(routes).map((route) => route.url)).toEqual([lan.url])
+  })
+
+  test('a listed route the person removed here does not come back; a new one does', () => {
+    const own: HostRoute[] = [{ ...tunnel, source: 'directory' }]
+    const listed: HostRoute[] = [{ ...lan, source: 'pairing' }, { ...staleLan, source: 'pairing' }]
+    expect(joinListedRoutes(own, listed, [staleLan.url]).map((route) => route.url)).toEqual([tunnel.url, lan.url])
   })
 })

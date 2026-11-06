@@ -8,7 +8,8 @@ import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type LinkTra
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import { CHECKING_HOST, GONE_HOST, type HostReadinessState } from '@solus/client-core/host-readiness'
 import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
-import { dialableRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS } from '@solus/contracts/host-routes'
+import { dialableRoutes, dialChoicesOf, routesForMachine, ROUTE_CHECK_TIMEOUT_MS } from '@solus/contracts/host-routes'
+import { checkRouteToAdd, type NewRouteRefusal } from '@solus/client-core/host-route-control'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransport, WsTransportOptions } from '@solus/client-core/ws-transport'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
@@ -151,7 +152,7 @@ export class HostConnections {
     if (existing) return existing
     const host = this.deps.registry.host(hostId)
     if (!host) return null
-    const [route] = dialableRoutes(routesForMachine(host.routes, host.uplink?.kind), '')
+    const [route] = dialableRoutes(routesForMachine(host.routes, host.uplink?.kind), '', null, dialChoicesOf(host))
     if (awaitsManagedCompute(host.uplink) || !route) return this.idle(hostId, undialedReadiness(host))
     this.idleStates.delete(hostId)
 
@@ -178,6 +179,7 @@ export class HostConnections {
         const current = this.deps.registry.host(host.id)
         return routesForMachine(current?.routes ?? [], current?.uplink?.kind)
       },
+      dialChoices: () => dialChoicesOf(this.deps.registry.host(host.id) ?? host),
       answersAsHost: (url, signal) => this.answersAsHost(host.id, url, signal),
       onAdvertised: (advertised) => this.deps.registry.applyAdvertised(host.id, advertised),
       onReadinessChange: () => {
@@ -257,6 +259,39 @@ export class HostConnections {
     this.connections.set(serviceId, created)
     link.start()
     return created
+  }
+
+  /** Checks a typed address as a route to the host (`checkRouteToAdd`) and saves it. Answers why not, or null when it is saved. */
+  async addRoute(hostId: string, address: string): Promise<NewRouteRefusal | null> {
+    const host = this.deps.registry.host(hostId)
+    if (!host) return null
+    const checked = await checkRouteToAdd(this.deps.fetch, {
+      address,
+      holder: host,
+      identity: savedIdentity(host),
+      viewer: { clientOrigin: '' },
+      signal: AbortSignal.timeout(ROUTE_CHECK_TIMEOUT_MS),
+      nonce: this.deps.healthNonce,
+    })
+    if (!checked.ok) return checked.refusal
+    this.deps.registry.addRoute(hostId, checked.url)
+    this.connections.get(hostId)?.link.followRoutes()
+    return null
+  }
+
+  moveRoute(hostId: string, url: string, step: -1 | 1): void {
+    this.deps.registry.moveRoute(hostId, url, step)
+    this.connections.get(hostId)?.link.followRoutes()
+  }
+
+  removeRoute(hostId: string, url: string): void {
+    this.deps.registry.removeRoute(hostId, url)
+    this.connections.get(hostId)?.link.followRoutes()
+  }
+
+  /** The address the host's link is aimed at; null when it has no link yet. */
+  dialedUrl(hostId: string): string | null {
+    return this.connections.get(hostId)?.transport.serverUrl ?? null
   }
 
   /** The connected hosts where this phone is the local owner. */
@@ -432,7 +467,7 @@ function undialedReadiness(host: NativeHost): HostReadinessState {
     if (managedHostNeedsStart(lifecycle)) return NOT_RUNNING
     return lifecycle === 'deleting' ? GONE_HOST : CHECKING_HOST
   }
-  return dialableRoutes(routesForMachine(host.routes, host.uplink?.kind), '').length ? CHECKING_HOST : NO_ADDRESS
+  return dialableRoutes(routesForMachine(host.routes, host.uplink?.kind), '', null, dialChoicesOf(host)).length ? CHECKING_HOST : NO_ADDRESS
 }
 
 /** Whether a host's server info grants a permission; the owner's standing until it answers. */

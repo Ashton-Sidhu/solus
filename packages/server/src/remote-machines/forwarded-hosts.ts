@@ -1,7 +1,7 @@
 import { join } from 'path'
 import { z } from 'zod'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
-import { DIRECT_ROUTE_RECHECK_MS, type HostRoute } from '@solus/contracts/host-routes'
+import { EARLIER_ROUTE_RECHECK_MS, type HostRoute } from '@solus/contracts/host-routes'
 import type { ForwardedHost, ForwardedHostState } from '@solus/contracts/remote-machines'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import { createLogger } from '../logger'
@@ -28,7 +28,7 @@ const log = createLogger('main', 'forwarded-hosts')
 const SECRET_KEY = 'forwarded-hosts'
 const FIRST_RETRY_MS = 1_000
 /** A forward retries at most this often; a linked host also has its tunnel meanwhile (D9). */
-const MAX_RETRY_MS = DIRECT_ROUTE_RECHECK_MS
+const MAX_RETRY_MS = EARLIER_ROUTE_RECHECK_MS
 
 const recordSchema = z.object({
   installationId: z.string().min(1),

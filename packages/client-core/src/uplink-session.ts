@@ -238,11 +238,11 @@ export function mergeDirectoryIntoSaved(
  * that comes back to the network dials the host there again. Null when nothing changed.
  */
 export function withDiscoveredRoutes(saved: SavedServer[], discovered: readonly DiscoveredServer[], now: number): SavedServer[] | null {
-  const found = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
+  const found = new Map(discovered.map((server) => [server.installationId, server]))
   let changed = false
   const next = saved.map((server) => {
-    const url = found.get(server.installationId)
-    const routes = url ? withReadRoutes(server.routes, [routeForUrl(url)], 'discovery', now) : null
+    const nearby = found.get(server.installationId)
+    const routes = nearby ? withReadRoutes(server.routes, [routeForUrl(`http://${nearby.host}:${nearby.port}`, nearby.source === 'tailnet')], 'discovery', now) : null
     if (!routes) return server
     changed = true
     return { ...server, routes }

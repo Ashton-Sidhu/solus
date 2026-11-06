@@ -1,6 +1,6 @@
 import type { AccountHostListResponse, HostListing } from '@solus/contracts/host-list'
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { HostRoute } from '@solus/contracts/host-routes'
+import { joinListedRoutes, listedRoutes } from '@solus/contracts/host-routes'
 import type { HostListCloudRequests } from './host-list-requests'
 import { LOCAL_SERVER_ID, loadServers, onServerRemoving, onServerSaved, saveServers, type SavedServer } from './server-registry'
 
@@ -26,7 +26,7 @@ export interface HostListSource {
 /** A host the person connected to themselves: paired, added over SSH, or forwarded. A host known only from the directory is not one. */
 export function listingOf(server: SavedServer): HostListing | null {
   if (server.id === LOCAL_SERVER_ID || server.uplink?.kind === 'managed') return null
-  const routes = server.routes.filter((route) => route.source !== 'directory')
+  const routes = listedRoutes(server.routes)
   if (!server.sessionToken && routes.length === 0) return null
   const listing: HostListing = { id: server.id, label: server.label, installationId: server.installationId, routes, lastConnected: server.lastConnected }
   if (server.hasUserLabel) listing.hasUserLabel = true
@@ -41,12 +41,6 @@ function serverOf(listing: HostListing): SavedServer {
   if (listing.os) server.os = listing.os
   if (listing.identityKey) server.identityKey = listing.identityKey
   return server
-}
-
-/** This client's routes, then the listing's routes at addresses it does not have. */
-function joinRoutes(own: readonly HostRoute[], listed: readonly HostRoute[]): HostRoute[] {
-  const known = new Set(own.map((route) => route.url))
-  return [...own, ...listed.filter((route) => !known.has(route.url))]
 }
 
 export interface HostListReconcile {
@@ -84,7 +78,7 @@ export function reconcileHostList(saved: readonly SavedServer[], listings: reado
       continue
     }
     byId.delete(server.id)
-    const merged: SavedServer = { ...server, label: listed.label, routes: joinRoutes(server.routes, listed.routes), lastConnected: Math.max(server.lastConnected, listed.lastConnected) }
+    const merged: SavedServer = { ...server, label: listed.label, routes: joinListedRoutes(server.routes, listed.routes, server.removedRoutes), lastConnected: Math.max(server.lastConnected, listed.lastConnected) }
     if (listed.hasUserLabel) merged.hasUserLabel = true
     if (listed.os) merged.os = listed.os
     merged.identityKey = server.identityKey ?? listed.identityKey

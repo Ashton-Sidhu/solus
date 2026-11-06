@@ -118,8 +118,8 @@ describe('local reach: introduced hosts (§4)', () => {
     const hosts = new RemoteHosts(() => null, introductionsOf([studio]), () => null)
     const found = await hosts.find(NO_ACCOUNT, 'studio mini')
     if ('error' in found) throw new Error(found.error)
-    // The introduced address is on the tailnet (100.64.0.0/10), so its route says so.
-    expect(found).toMatchObject({ hostId: 'install-h-mini', routes: [{ kind: 'tailnet', url: 'http://100.64.0.2:7777' }], source: 'introduced' })
+    // An address in 100.64.0.0/10 alone does not say which VPN it is on (host-routes.md §12.2).
+    expect(found).toMatchObject({ hostId: 'install-h-mini', routes: [{ kind: 'vpn', url: 'http://100.64.0.2:7777' }], source: 'introduced' })
     expect(await found.credential()).toBe('introduced-token-install-h-mini')
   })
 

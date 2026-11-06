@@ -55,6 +55,10 @@ describe('the proof of a host', () => {
     expect(routeNeedsProof({ url: 'https://h-studio.solus.sh' })).toBe(false)
     expect(routeNeedsProof({ url: 'http://192.168.1.20:7777', source: 'page' })).toBe(false)
   })
+
+  test('is needed on a route a person typed, even on https: the name can pass to someone else', () => {
+    expect(routeNeedsProof({ url: 'https://solus.example.com', source: 'user' })).toBe(true)
+  })
 })
 
 describe('a route answers as the saved host', () => {

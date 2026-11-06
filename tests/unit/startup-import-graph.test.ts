@@ -164,10 +164,12 @@ const DEFERRED_PACKAGES = [
  * split (docs/plans/fast-secure-startup.md, step 4), with room for ordinary
  * growth. A feature that comes back into startup through a new static import
  * costs more than the room; move it behind a dynamic import, or raise the
- * budget on purpose with a new measurement.
+ * budget on purpose with a new measurement. Web measured again on 2026-11-04 at
+ * 4,606,354: the dial policy in `host-routes.ts` and `host-link.ts` grew for route
+ * control (docs/plans/host-routes.md §12). The route page itself is not in this graph.
  */
 const SOURCE_BUDGET_BYTES = {
-  web: 4_600_000,
+  web: 4_620_000,
   desktop: 4_700_000,
 }
 

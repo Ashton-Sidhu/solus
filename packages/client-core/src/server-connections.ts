@@ -27,7 +27,7 @@ import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
 import { HostIntroducer, type IntroducerHost } from './host-introducer'
 import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
-import { routesForMachine } from '@solus/contracts/host-routes'
+import { dialChoicesOf, routesForMachine } from '@solus/contracts/host-routes'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -269,8 +269,21 @@ export class ServerConnections {
     const saved = loadServers().find((server) => server.id === connection.serverId)
     if (!saved) return
     target.routes = saved.routes
+    target.routeOrder = saved.routeOrder
+    target.tokenPairedOverHttps = saved.tokenPairedOverHttps
     if (saved.uplink) target.uplink = saved.uplink
     connection.link.followRoutes()
+  }
+
+  /** A person changed this host's routes: the live link follows the saved ones now. */
+  followRoutes(serverId: string): void {
+    const connection = this.connections.get(this.resolveId(serverId))
+    if (connection) this.followSavedRoutes(connection)
+  }
+
+  /** The address the host's link is aimed at; null when it has no link yet. */
+  dialedUrl(serverId: string): string | null {
+    return this.connections.get(this.resolveId(serverId))?.transport.serverUrl ?? null
   }
 
   /** Identity since the web `local` alias died (dispatch-client step 5):
@@ -332,6 +345,7 @@ export class ServerConnections {
       presence,
       routes: () => routesForMachine(target.routes ?? [], target.uplink?.kind),
       fallbackRoutes: () => target.fallbackRoutes ?? [],
+      dialChoices: () => dialChoicesOf(target),
       clientOrigin: globalThis.location?.origin ?? '',
       localHostId: this.targets.get(LOCAL_SERVER_ID)?.installationId ?? null,
       answersAsHost: (url, signal) => this.answersAsHost(target, url, signal),

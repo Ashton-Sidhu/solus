@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { dialableRoutes, type HostRoute } from '@solus/contracts/host-routes'
-import { HostRegistry } from '../../apps/mobile/src/features/hosts/host-registry'
+import { HostRegistry, listingOfHost } from '../../apps/mobile/src/features/hosts/host-registry'
 import { decodePairInput, decodeScannedCode, pairFailureMessage, previewHost } from '../../apps/mobile/src/features/hosts/lib/pair-input'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
@@ -134,6 +134,79 @@ describe('the account host list on the phone (plans/031 D7)', () => {
     expect(result.toPut.map((listing) => listing.id)).toEqual(['mine'])
     registry.forgetAccount('acct')
     expect(registry.hosts().map((host) => host.id)).toEqual(['mine'])
+  })
+})
+
+describe('route control on this device', () => {
+  const pairedAt = { id: 'inst-a', label: 'A', url: 'http://10.0.0.8:3000', identityKey: identityKeyFor('inst-a') }
+  const NEW_URL = 'https://solus.example.com'
+
+  test('an address that proves the host is saved, stays out of the account listing, and survives a restart', async () => {
+    const { storage, secrets, registry, connections } = createHostWorld({ fetch: healthFetch({ [NEW_URL]: 'inst-a' }) })
+    await registry.load()
+    await registry.savePaired(pairedAt, 'ta')
+    expect(await connections.addRoute('inst-a', NEW_URL)).toBeNull()
+    expect(listingOfHost(registry.host('inst-a')!)?.routes.map((route) => route.url)).toEqual([pairedAt.url])
+    connections.moveRoute('inst-a', NEW_URL, -1)
+    const restarted = new HostRegistry(storage, secrets)
+    await restarted.load()
+    expect(dialableRoutes(restarted.host('inst-a')?.routes ?? [], '', null, { order: restarted.host('inst-a')?.routeOrder }).map((route) => route.url))
+      .toEqual([NEW_URL, pairedAt.url])
+  })
+
+  test('an address that answers as another host is refused and not saved', async () => {
+    const { registry, connections } = createHostWorld({ fetch: healthFetch({ [NEW_URL]: 'inst-other' }) })
+    await registry.load()
+    await registry.savePaired(pairedAt, 'ta')
+    expect(await connections.addRoute('inst-a', NEW_URL)).toBe('another-host')
+    expect(registry.host('inst-a')?.routes.map((route) => route.url)).toEqual([pairedAt.url])
+  })
+
+  test('a directory read keeps the order, the removals, the token flag, and the identity key', async () => {
+    const { registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ ...pairedAt, id: 'inst-cloud', url: 'https://box.example.com' }, 'ta')
+    registry.moveRoute('inst-cloud', 'https://box.example.com', 1)
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost()])
+    registry.moveRoute('inst-cloud', 'https://build.tunnel.solus.sh', -1)
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost()])
+    expect(registry.host('inst-cloud')).toMatchObject({
+      routeOrder: ['https://build.tunnel.solus.sh', 'https://box.example.com'],
+      tokenPairedOverHttps: true,
+      identityKey: pairedAt.identityKey,
+    })
+  })
+
+  test('a removed paired route leaves the listing and does not come back from another device', async () => {
+    const { registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired(pairedAt, 'ta')
+    const listing = listingOfHost(registry.host('inst-a')!)!
+    await registry.savePaired({ ...pairedAt, url: 'http://10.0.0.9:3000' }, 'ta')
+    const heard: string[][] = []
+    registry.onListingChange((change) => { if (change.kind === 'put') heard.push(change.listing.routes.map((route) => route.url)) })
+    registry.removeRoute('inst-a', pairedAt.url)
+    expect(heard).toEqual([['http://10.0.0.9:3000']])
+    await registry.applyHostList('user-1', [listing], new Set(['inst-a']))
+    expect(registry.host('inst-a')?.routes.map((route) => route.url)).toEqual(['http://10.0.0.9:3000'])
+  })
+
+  test('a token paired over HTTPS is not dialed on a learned plain http route', async () => {
+    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'https://box.example.com': 'inst-a', 'http://192.168.1.20:3000': 'inst-a' }) })
+    await registry.load()
+    await registry.savePaired({ ...pairedAt, url: 'https://box.example.com' }, 'ta')
+    registry.applyAdvertised('inst-a', { routes: [{ kind: 'lan', url: 'http://192.168.1.20:3000' }], identityKey: identityKeyFor('inst-a') })
+    connections.connection('inst-a')
+    await flushPromises()
+    expect(transports[0]?.serverUrl).toBe('https://box.example.com')
+  })
+
+  test('a host found on the tailnet by a scan is a tailnet route, not a VPN guess', async () => {
+    const { registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired(pairedAt, 'ta')
+    registry.applyNearby([{ host: '100.64.0.2', port: 3000, name: 'A', installationId: 'inst-a', source: 'tailnet' }])
+    expect(registry.host('inst-a')?.routes.find((route) => route.source === 'discovery')?.kind).toBe('tailnet')
   })
 })
 
