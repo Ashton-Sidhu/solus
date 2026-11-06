@@ -99,6 +99,23 @@ export function routeForUrl(url: string): HostRoute {
   return { kind: routeKindForUrl(url), url }
 }
 
+/**
+ * Whether a password can cross a connection to `url`: `https:` has TLS, a tailnet
+ * has WireGuard, and a loopback address stays on this machine (a forward's port
+ * then goes on over SSH). Plain `http:` on a local network can be read by anyone
+ * on it, and the host's proof does not change that (docs/plans/ssh-forward-password.md D5).
+ */
+export function isEncryptedRouteUrl(url: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol === 'https:' || parsed.protocol === 'wss:') return true
+  return ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) || routeKindForUrl(url) === 'tailnet'
+}
+
 /** Tailscale gives each device an address in 100.64.0.0/10. */
 function isTailnetAddress(hostname: string): boolean {
   const parts = hostname.split('.').map(Number)

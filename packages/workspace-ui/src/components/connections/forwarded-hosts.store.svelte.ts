@@ -1,9 +1,11 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers, saveServers, withForwardedRoutes } from '@solus/client-core/server-registry'
+import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { ForwardedHost } from '@solus/contracts/remote-machines'
 import { hosts, serversStore } from '../../contexts'
+import { forwardsNewlyWaiting } from '../servers/lib/add-over-ssh'
 import { messageFor } from '../servers/lib/setup-rpc'
 
 interface Watcher {
@@ -25,6 +27,10 @@ class ForwardedHostsStore {
   busyInstallationId = $state<string | null>(null)
   /** The last action's error, by installation id. */
   readonly errorByInstallation = new SvelteMap<string, string>()
+  /** A forward of this device's host began to wait for a password. */
+  onNeedsAuth: ((serverId: string, host: ForwardedHost) => void) | null = null
+  /** The forwards of this device's host that wait for a password, so each one asks once. */
+  private waitingForAuth = new Set<string>()
   private readonly watchers = new Map<string, Watcher>()
   /** Bumped by each read, so an older answer never overwrites a newer one. */
   private readonly readGenerations = new Map<string, number>()
@@ -87,6 +93,15 @@ class ForwardedHostsStore {
     })
   }
 
+  /** Gives a forward in `needs-auth` its password. A refusal comes back on the forward's own `error`. */
+  async unlock(serverId: string, installationId: string, authSecret: string, holderName: string): Promise<boolean> {
+    return this.run(installationId, async () => {
+      if (!serverConnections.hasEncryptedConnection(serverId)) throw new Error(unencryptedPasswordMessage(holderName))
+      await serverConnections.apiFor(serverId).hostsUnlockForwarded({ installationId, authSecret })
+      await this.load(serverId)
+    })
+  }
+
   private async run(installationId: string, action: () => Promise<void>): Promise<boolean> {
     if (this.busyInstallationId) return false
     this.busyInstallationId = installationId
@@ -106,6 +121,8 @@ class ForwardedHostsStore {
     this.hostsByServer.set(serverId, forwarded)
     // Only the machine that holds the forwards can dial them, so only its saved routes follow them.
     if (serverId !== hosts.device?.id) return
+    for (const host of forwardsNewlyWaiting(forwarded, this.waitingForAuth)) this.onNeedsAuth?.(serverId, host)
+    this.waitingForAuth = new Set(forwarded.filter((host) => host.state === 'needs-auth').map((host) => host.installationId))
     const next = withForwardedRoutes(loadServers(), forwarded)
     if (!next) return
     saveServers(next)

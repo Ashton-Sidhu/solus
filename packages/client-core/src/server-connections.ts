@@ -27,7 +27,7 @@ import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
 import { HostIntroducer, type IntroducerHost } from './host-introducer'
 import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
-import { routesForMachine } from '@solus/contracts/host-routes'
+import { isEncryptedRouteUrl, routesForMachine } from '@solus/contracts/host-routes'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -526,6 +526,11 @@ export class ServerConnections {
     const target = this.ensure(this.resolveId(serverId)).target
     // A gone host, or one the directory lists with no route yet, has no origin.
     return target.url ? new URL(target.url).origin : ''
+  }
+
+  /** Whether a password can go to this host now: the connection in use is encrypted, or stays on this machine. */
+  hasEncryptedConnection(serverId: string): boolean {
+    return isEncryptedRouteUrl(this.ensure(this.resolveId(serverId)).transport.serverUrl)
   }
 
   /** The primary moved (boot or a Run on switch), so `runOnHostId()` may answer differently. */

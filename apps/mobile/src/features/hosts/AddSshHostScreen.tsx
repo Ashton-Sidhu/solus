@@ -133,7 +133,7 @@ export function AddSshHostScreen({ navigation, route }: ScreenProps<"AddSshHost"
                 <SettingsNote>
                   {add.shouldLink
                     ? "Every device you sign in on reaches the machine through your account."
-                    : `Only ${runnerLabel} reaches the machine, through an SSH forward. It needs an SSH key.`}
+                    : `Only ${runnerLabel} reaches the machine, through an SSH forward.`}
                 </SettingsNote>
               ) : (
                 <SettingsSection>
@@ -146,18 +146,23 @@ export function AddSshHostScreen({ navigation, route }: ScreenProps<"AddSshHost"
               )}
             </View>
 
-            {add.shouldLink ? (
-              <ConnectionFormField
-                label="Password or key passphrase (optional)"
-                autoCapitalize="none"
-                autoCorrect={false}
-                secureTextEntry
-                textContentType="password"
-                placeholder="Only when SSH asks"
-                value={add.authSecret}
-                onChangeText={add.setAuthSecret}
-              />
-            ) : null}
+            {add.passwordIssue ? (
+              <SettingsNote>{add.passwordIssue}</SettingsNote>
+            ) : (
+              <View className="gap-3">
+                <ConnectionFormField
+                  label="Password or key passphrase (optional)"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                  textContentType="password"
+                  placeholder="Only when SSH asks"
+                  value={add.authSecret}
+                  onChangeText={add.setAuthSecret}
+                />
+                {add.shouldLink ? null : <SettingsNote>{`${runnerLabel} keeps it in memory until it restarts, and never on disk.`}</SettingsNote>}
+              </View>
+            )}
 
             {phase.kind === "ask-auth" || phase.kind === "ask-target" ? <ErrorBanner message={phase.message} /> : null}
             {add.error ? <ErrorBanner message={add.error} /> : null}

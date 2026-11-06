@@ -43,6 +43,9 @@ Amended 2026-10-25 (implementation). Where the text below differs, this list win
     `/health` checks of their internal addresses. Personal and self-hosted
     machines keep LAN, tailnet, and forwarded routes.
 
+12. **A forward can use a password (D6, D7).** This replaces the end of item 6. See
+    `docs/plans/ssh-forward-password.md`.
+
 Solus has no users yet, so this plan keeps no backward compatibility. Saved
 hosts, contracts, and RPC names change in place.
 

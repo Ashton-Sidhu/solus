@@ -18,10 +18,7 @@ export interface SshAddForm {
   requestId: string
 }
 
-/**
- * The request for one add. A password goes only with a link: a forward needs key
- * authentication, and the host refuses a password without a link (D6, D7).
- */
+/** The request for one add. The password goes with a link and with a forward, which keeps it in the host's memory. */
 export function sshAddRequest(form: SshAddForm, link: SshAddLink | null): SshAddRequest {
   const request: SshAddRequest = {
     sshTarget: form.sshTarget.trim(),
@@ -30,15 +27,12 @@ export function sshAddRequest(form: SshAddForm, link: SshAddLink | null): SshAdd
   }
   const identityFile = form.identityFile.trim()
   if (identityFile) request.identityFile = identityFile
-  if (form.linkToAccount && link) {
-    request.link = link
-    if (form.password) request.authSecret = form.password
-  }
+  if (form.linkToAccount && link) request.link = link
+  if (form.password) request.authSecret = form.password
   return request
 }
 
 export interface SshAddContext {
-  linkToAccount: boolean
   /** The SSH ran on this client's own machine, so this client can dial the forward it holds. */
   sshHostIsThisMachine: boolean
   /** The name of the host the SSH ran on. */
@@ -52,10 +46,8 @@ export type SshAddOutcome =
   | { kind: 'forwarded-elsewhere'; message: string }
   /** The host is in the account directory now. */
   | { kind: 'linked'; message: string }
-  /** SSH refused the key: the person can give a password, because the host links. */
+  /** SSH refused the key or the secret: the person can give a password. */
   | { kind: 'ask-password'; message: string }
-  /** SSH refused the key, and a forward cannot use a password. */
-  | { kind: 'needs-key'; message: string }
   | { kind: 'failed'; message: string }
 
 /** What one answer of `hostsAddOverSsh` means for a machine that was not discovered. */
@@ -68,9 +60,7 @@ export function sshAddOutcome(result: SshAddResult, context: SshAddContext): Ssh
     case 'linked':
       return { kind: 'linked', message: `${result.label} is linked to your Solus account.` }
     case 'needs-auth':
-      return context.linkToAccount
-        ? { kind: 'ask-password', message: `${result.message} Enter the password for ${result.sshTarget}.` }
-        : { kind: 'needs-key', message: `${result.message} Without a link to your account, Solus needs an SSH key that ${context.sshHostName} can use for ${result.sshTarget}. Add a key, or link the machine and use a password.` }
+      return { kind: 'ask-password', message: `${result.message} Enter the password for ${result.sshTarget}.` }
     case 'needs-target':
       return { kind: 'failed', message: result.message }
     case 'session':
@@ -103,6 +93,11 @@ export interface ForwardedRowStatus {
  */
 export function forwardedRowStatus(host: Pick<ForwardedHost, 'state' | 'error' | 'isLinked'>): ForwardedRowStatus {
   switch (host.state) {
+    case 'needs-auth':
+      if (host.error) return { text: host.error, tone: 'error' }
+      return host.isLinked
+        ? { text: 'SSH route paused — enter the password to use it', tone: 'muted' }
+        : { text: 'Password needed to reconnect', tone: 'pending' }
     case 'open':
       return { text: 'Open', tone: 'ok' }
     case 'reconnecting':
@@ -112,6 +107,14 @@ export function forwardedRowStatus(host: Pick<ForwardedHost, 'state' | 'error' |
         ? { text: 'SSH route paused — using your account\'s tunnel', tone: 'muted' }
         : { text: host.error || 'The SSH route failed', tone: 'error' }
   }
+}
+
+/**
+ * The forwards that began to wait for a password since `waiting` was read. A linked
+ * host has its tunnel meanwhile, so it does not interrupt the person (D9).
+ */
+export function forwardsNewlyWaiting(forwarded: readonly ForwardedHost[], waiting: ReadonlySet<string>): ForwardedHost[] {
+  return forwarded.filter((host) => host.state === 'needs-auth' && !host.isLinked && !waiting.has(host.installationId))
 }
 
 /**

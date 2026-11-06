@@ -199,6 +199,7 @@ export const RPC_PLANES = {
   connectionsListSessions: 'collaboration',
   hostsAddOverSsh: 'collaboration',
   hostsListForwarded: 'collaboration',
+  hostsUnlockForwarded: 'collaboration',
   hostsListWslDistros: 'collaboration',
   hostsAddWsl: 'collaboration',
   hostsRemoveForwarded: 'collaboration',

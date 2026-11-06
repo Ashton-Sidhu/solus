@@ -11,7 +11,7 @@ import { Listeners } from '../../lib/listeners'
  */
 
 export interface ForwardedHostsConnection {
-  readonly api: Pick<HostApi, 'hostsListForwarded' | 'hostsRemoveForwarded' | 'hostsLinkForwarded'>
+  readonly api: Pick<HostApi, 'hostsListForwarded' | 'hostsRemoveForwarded' | 'hostsLinkForwarded' | 'hostsUnlockForwarded'>
   readonly events: { subscribe<K extends HostEventName>(type: K, listener: (payload: HostEventMap[K]) => void): () => void }
 }
 
@@ -82,6 +82,17 @@ export class ForwardedHosts {
     })
   }
 
+  /** Gives a forward in `needs-auth` its password. A refusal comes back on the forward's own `error`. */
+  async unlock(hostId: string, installationId: string, authSecret: string): Promise<void> {
+    await this.change(hostId, installationId, async (connection) => {
+      const unlocked = await connection.api.hostsUnlockForwarded({ installationId, authSecret })
+      const current = this.stateOf(hostId)
+      if (current.kind === 'loaded') {
+        this.set(hostId, { ...current, hosts: current.hosts.map((host) => host.installationId === installationId ? unlocked : host) })
+      }
+    })
+  }
+
   forgetHost(hostId: string): void {
     this.watches.get(hostId)?.stop()
     this.watches.delete(hostId)
@@ -129,6 +140,8 @@ export interface ForwardedHostRow {
   /** `muted`: a linked host's failed forward is not an error while the tunnel works (D9). */
   readonly tone: 'default' | 'muted' | 'danger'
   readonly canLink: boolean
+  /** The forward waits for its password. A link runs over SSH too, so it waits as well. */
+  readonly needsPassword: boolean
 }
 
 export function forwardedHostRow(host: ForwardedHost, holderLabel: string): ForwardedHostRow {
@@ -138,12 +151,16 @@ export function forwardedHostRow(host: ForwardedHost, holderLabel: string): Forw
   const canLink = !host.isLinked
   switch (host.state) {
     case 'open':
-      return { status: 'Connected over SSH', note: reach, tone: 'default', canLink }
+      return { status: 'Connected over SSH', note: reach, tone: 'default', canLink, needsPassword: false }
     case 'reconnecting':
-      return { status: 'Reconnecting', note: `${holderLabel} is opening the SSH forward again. ${reach}`, tone: 'default', canLink }
+      return { status: 'Reconnecting', note: `${holderLabel} is opening the SSH forward again. ${reach}`, tone: 'default', canLink, needsPassword: false }
     case 'failed':
-      if (host.isLinked) return { status: 'SSH route paused', note: 'SSH route paused — using your account’s tunnel.', tone: 'muted', canLink }
-      return { status: 'Failed', note: `${host.error ?? 'The SSH forward stopped.'} ${reach}`, tone: 'danger', canLink }
+      if (host.isLinked) return { status: 'SSH route paused', note: 'SSH route paused — using your account’s tunnel.', tone: 'muted', canLink, needsPassword: false }
+      return { status: 'Failed', note: `${host.error ?? 'The SSH forward stopped.'} ${reach}`, tone: 'danger', canLink, needsPassword: false }
+    case 'needs-auth':
+      if (host.error) return { status: 'Password refused', note: host.error, tone: 'danger', canLink: false, needsPassword: true }
+      if (host.isLinked) return { status: 'SSH route paused', note: 'SSH route paused — enter the password to use it.', tone: 'muted', canLink: false, needsPassword: true }
+      return { status: 'Password needed', note: `${holderLabel} keeps the password in memory only, so it asks again after a restart. ${reach}`, tone: 'default', canLink: false, needsPassword: true }
   }
 }
 

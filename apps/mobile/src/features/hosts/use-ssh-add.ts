@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SshAddProgress } from '@solus/contracts/remote-machines'
 import { useApp, useListened } from '../../app/app-context'
-import { linkedNote, runSshAdd, sshAddFormIssue, sshAddOutcome, sshRunnerChoices, type SshAddOutcome, type SshRunner } from './lib/ssh-add'
+import { linkedNote, runSshAdd, sshAddFormIssue, sshAddOutcome, sshPasswordIssue, sshRunnerChoices, type SshAddOutcome, type SshRunner } from './lib/ssh-add'
 
 /** Where the add is: the form, the runner host at work, or its answer. */
 export type SshAddPhase =
@@ -46,7 +46,8 @@ export function useSshAdd(preferredHostId: string | undefined) {
   // Linking is the default when signed in; it is not possible signed out.
   const shouldLink = signedIn && (linkChoice ?? true)
   const form = { runnerHostId: runner?.hostId ?? null, sshTarget, identityFile, shouldLink, authSecret }
-  const issue = sshAddFormIssue(form)
+  const passwordIssue = runner ? sshPasswordIssue(app.connections.connection(runner.hostId), runner.label) : null
+  const issue = sshAddFormIssue(form) ?? (authSecret ? passwordIssue : null)
   const isRunning = phase.kind === 'running'
 
   const submit = async () => {
@@ -69,7 +70,7 @@ export function useSshAdd(preferredHostId: string | undefined) {
         },
       })
       if (!isMounted.current) return
-      const outcome = sshAddOutcome(result, runner.label, shouldLink)
+      const outcome = sshAddOutcome(result, runner.label)
       if (outcome.kind === 'linked') void app.account.refreshDirectory()
       if (outcome.kind === 'ask-target') setSshTarget(outcome.defaultTarget)
       setPhase(outcome)
@@ -109,6 +110,7 @@ export function useSshAdd(preferredHostId: string | undefined) {
     setShouldLink: setLinkChoice,
     authSecret,
     setAuthSecret,
+    passwordIssue,
     phase,
     error,
     issue,

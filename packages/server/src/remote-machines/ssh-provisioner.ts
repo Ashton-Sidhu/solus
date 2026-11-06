@@ -94,7 +94,8 @@ interface RemoteMachine {
 const INSTALL_TIMEOUT_MS = 10 * 60_000
 const STEP_TIMEOUT_MS = 2 * 60_000
 
-class AuthNeeded extends Error {}
+/** SSH refused the keys, or the password or passphrase. Trying again with the same answer cannot succeed. */
+export class AuthNeeded extends Error {}
 
 export class SshProvisioner {
   constructor(
@@ -158,8 +159,8 @@ export class SshProvisioner {
   }
 
   /** Stops and removes the service Solus installed there. The install and its data stay. */
-  async uninstallService(target: SshTarget, os: HostOperatingSystem): Promise<void> {
-    const request: ProvisionRequest = { target, deviceLabel: '' }
+  async uninstallService(target: SshTarget, os: HostOperatingSystem, authSecret?: string): Promise<void> {
+    const request: ProvisionRequest = { target, authSecret, deviceLabel: '' }
     const machine = await this.check(request)
     if (!machine.cli) return
     await this.runStep(request, { ...machine, os }, 'service-uninstall', [], STEP_TIMEOUT_MS)
@@ -178,9 +179,9 @@ export class SshProvisioner {
     return request.label ? { ...machine, name: request.label } : machine
   }
 
-  /** The port the server listens on now; null when it is not running. */
-  async remotePort(target: SshTarget): Promise<number | null> {
-    return (await this.check({ target })).port
+  /** The port the server listens on now; null when it is not running. Throws `AuthNeeded` when SSH refuses. */
+  async remotePort(target: SshTarget, authSecret?: string): Promise<number | null> {
+    return (await this.check({ target, authSecret })).port
   }
 
   private async createSession(request: ProvisionRequest, machine: RemoteMachine): Promise<{ sessionToken: string; identityKey: string; installationId: string }> {
@@ -210,7 +211,10 @@ export class SshProvisioner {
       ? await this.ssh.run(request.target, script, args, { ...options, command: unixCommand(this.place) })
       : await this.ssh.run(request.target, undefined, [], { ...options, command: powerShellCommand(script) })
     if (result.code !== 0 && isSshAuthFailure(`${result.stderr}\n${result.stdout}`)) {
-      throw new AuthNeeded(`${formatSshTarget(request.target)} refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.`)
+      const name = formatSshTarget(request.target)
+      throw new AuthNeeded(request.authSecret
+        ? `${name} refused that password or passphrase.`
+        : `${name} refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.`)
     }
     return result
   }

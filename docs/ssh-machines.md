@@ -38,7 +38,8 @@ machine listens only on its own loopback address, so no port opens on its networ
 - Only the machine that holds the forward reaches it: the desktop app on that
   machine, and the agents of that host. Other devices show **Reachable only from
   <host>** and offer **Link to my account**.
-- The forward needs an SSH key. A password cannot keep a forward open.
+- The forward signs in with an SSH key, or with a password or key passphrase. See
+  [Password or key passphrase](#password-or-key-passphrase).
 - When the forward stops (sleep, a network change, a restart), Solus opens it again.
   After a minute of failures, the host shows **Failed** and keeps trying once a
   minute.
@@ -49,6 +50,32 @@ machine listens only on its own loopback address, so no port opens on its networ
 To remove the machine, select **Remove** on its row. When Solus started the server
 there, you can also stop that service.
 
+### Password or key passphrase
+
+Type the password in the **Add host** dialog. If the machine refuses the SSH keys,
+the dialog asks for it.
+
+The host that runs the SSH command keeps the password in its memory until that host
+restarts. A forward that stops opens again with no new prompt. Solus does not write
+the password to a file or a log, and does not put it in command arguments. `ssh` reads
+it from an environment variable through an askpass helper. That variable stays in the
+`ssh` process while the forward is open, so another program that runs as the same user
+on that host can read it. The same user can also read that host's SSH keys.
+
+After the host restarts, or when the machine refuses the password, the forward stops
+and shows **Password needed**. Solus does not try again, because repeated refusals
+can lock the account on the machine. Enter the password on the row of the machine, on
+the **Access** tab of the host that holds the forward. On mobile, use the settings of
+that host. The desktop app also shows a notice that opens this tab. A machine that is
+offline at the restart shows **Reconnecting** until it answers. A key that works
+needs no password.
+
+While a forward waits for its password, **Link to my account** is not available, because
+the link also signs in over SSH. Removing the machine with **Also stop Solus there**
+uses the password that the host holds. If it holds none, the service stays there.
+
+A one-time code or a second factor is not supported: Solus can answer only one prompt.
+
 ## How a device trusts a host
 
 Each host has its own identity key. A device learns it from the pairing, from the SSH
@@ -58,7 +85,12 @@ sign a new random value with that key. A device at an old address that now belon
 to another machine never gets the credential.
 
 This check does not encrypt the connection. Traffic on a plain `http:` address can
-still be read on that network. An SSH forward and the tunnel are encrypted.
+still be read on that network. An SSH forward, a tailnet, and the tunnel are encrypted.
+
+For this reason, a client does not send a password on a plain `http:` address on a
+local network. Connect to the host through your account or a tailnet, or enter the
+password on that computer. The desktop app's connection to its own host stays on the
+computer, so it can always send one.
 
 ## Known limits
 

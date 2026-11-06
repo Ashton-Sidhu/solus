@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostRoute } from '@solus/contracts/host-routes'
-import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_GRACE_MS, LEARNED_ROUTE_TTL_MS, mergeRoutes, ROUTE_CHECK_TIMEOUT_MS, routeForUrl } from '@solus/contracts/host-routes'
+import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_GRACE_MS, isEncryptedRouteUrl, LEARNED_ROUTE_TTL_MS, mergeRoutes, ROUTE_CHECK_TIMEOUT_MS, routeForUrl } from '@solus/contracts/host-routes'
 
 const lan: HostRoute = { kind: 'lan', url: 'http://192.168.1.20:7777' }
 const staleLan: HostRoute = { kind: 'lan', url: 'http://10.0.0.9:51234' }
@@ -157,6 +157,33 @@ describe('routeForUrl', () => {
     expect(routeForUrl('http://100.128.0.1:7777').kind).toBe('lan')
     expect(routeForUrl('http://192.168.1.20:7777').kind).toBe('lan')
     expect(routeForUrl('not a url').kind).toBe('lan')
+  })
+})
+
+describe('isEncryptedRouteUrl', () => {
+  // WHY: docs/plans/ssh-forward-password.md D5. An SSH password crosses this connection,
+  // and anyone on the network can read plain http. A wrong "yes" hands them the password.
+  test('plain http on a network is not encrypted, whatever the address', () => {
+    expect(isEncryptedRouteUrl('http://192.168.1.20:7777')).toBe(false)
+    expect(isEncryptedRouteUrl('http://studio.local:7777')).toBe(false)
+    expect(isEncryptedRouteUrl('ws://10.0.0.9:7777')).toBe(false)
+    // A name that only starts like a loopback or tailnet address proves nothing.
+    expect(isEncryptedRouteUrl('http://127.0.0.1.example.com')).toBe(false)
+    expect(isEncryptedRouteUrl('http://box.ts.net.example.com')).toBe(false)
+  })
+
+  test('TLS, a tailnet, and this machine are', () => {
+    expect(isEncryptedRouteUrl('https://studio.tunnel.solus.sh')).toBe(true)
+    expect(isEncryptedRouteUrl('wss://studio.tunnel.solus.sh')).toBe(true)
+    expect(isEncryptedRouteUrl('http://100.101.102.103:7777')).toBe(true)
+    expect(isEncryptedRouteUrl('http://box.tailnet.ts.net:7777')).toBe(true)
+    expect(isEncryptedRouteUrl('http://127.0.0.1:7777')).toBe(true)
+    expect(isEncryptedRouteUrl('http://localhost:7777')).toBe(true)
+    expect(isEncryptedRouteUrl('http://[::1]:7777')).toBe(true)
+  })
+
+  test('an address that cannot be read is not', () => {
+    expect(isEncryptedRouteUrl('')).toBe(false)
   })
 })
 
