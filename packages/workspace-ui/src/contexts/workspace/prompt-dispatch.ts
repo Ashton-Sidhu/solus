@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import { attachmentPromptPath, composeAttachmentContext } from './prompt-composer'
 import type { IpcContext, Message, Session, OutboundPrompt, PromptImageRef, PromptDelivery } from '@solus/contracts/types'
 import type { QueueAttachment } from '@solus/contracts/session-queue'
@@ -101,7 +102,7 @@ export class PromptDispatch {
     session.currentTurnStartedAt = sentAt
     session.lastSentAt = sentAt
     if (session.messages.length === 2 && !session.titleCustom) {
-      session.title = prompt.length > 80 ? prompt.substring(0, 80) : prompt
+      session.title = cutText(prompt, 80)
     }
     session.prompt.attachments = []
     session.prompt.planRefs = []
@@ -495,7 +496,7 @@ export class PromptDispatch {
     const sessionRefs = input.sessionRefs.length > 0 ? [...input.sessionRefs] : undefined
 
     const title = session.messages.length === 0 && !session.titleCustom
-      ? (prompt.length > 80 ? prompt.substring(0, 80) : prompt)
+      ? (cutText(prompt, 80))
       : session.title
 
     if (resolvedPath !== checkoutPlace(session.run).path) {

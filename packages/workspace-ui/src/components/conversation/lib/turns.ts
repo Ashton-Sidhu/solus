@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { isSecretTool } from '@solus/contracts/secret-request'
 import type { User } from '@solus/contracts/user'
@@ -262,7 +263,7 @@ const DEAD_RE = /^Session (ended unexpectedly|stopped responding)/
  *  first line rather than written for it. */
 function shortCause(text: string): string {
   const first = text.split('\n').map((line) => line.trim()).find(Boolean) ?? ''
-  return first.length > 64 ? `${first.slice(0, 61)}…` : first
+  return first.length > 64 ? `${cutText(first, 61)}…` : first
 }
 
 function turnEndFor(message: Message): TurnEnd | null {

@@ -29,14 +29,17 @@ export interface TerminalLine {
 
 const COLORS: TerminalColor[] = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
 
-// SGR, then any other CSI, OSC strings (`ESC ] … BEL|ST`), and any other lone
-// escape. A CSI is parameter and intermediate bytes up to a final byte (ECMA-48).
+// SGR, then any other CSI, control strings (OSC, DCS, SOS, PM, APC), and any
+// other escape. A CSI is parameter and intermediate bytes up to a final byte (ECMA-48).
 // Those bytes may come in any order here: a terminal ignores a sequence such as
 // `ESC [ 1 . 5 A` up to its final byte, and it must not show. A private form such
-// as `ESC [ ? 25 m` is not SGR. The control characters are the point: the escape
-// byte and the bell are what this expression exists to find.
+// as `ESC [ ? 25 m` is not SGR. A control string ends at BEL or ST. Without either,
+// it ends at the line or at the next escape, as in xterm. Any other escape is
+// intermediate bytes and one final byte (ECMA-35), so a control byte after the
+// intermediates stays. The control characters are the point: the escape byte
+// and the bell are what this expression exists to find.
 // eslint-disable-next-line no-control-regex
-const ESCAPE = /\u001b\[([0-9;:]*)m|\u001b\[[ -?]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-_]?/g
+const ESCAPE = /\u001b\[([0-9;:]*)m|\u001b\[[ -?]*[@-~]|\u001b[\]PX^_][^\u0007\u001b\n]*(?:\u0007|\u001b\\)?|\u001b[ -/]*[0-~]?/g
 
 interface Style { color: TerminalColor | null; bright: boolean; bold: boolean; dim: boolean }
 const PLAIN: Style = { color: null, bright: false, bold: false, dim: false }
@@ -102,8 +105,9 @@ function applySgr(style: Style, params: string): Style {
       // Extended colour with its arguments in one field: `38:2::r:g:b`.
       next.color = null
       next.bright = false
-    } else if (code === 38 || code === 48) {
-      // Extended colour: `38;5;n` or `38;2;r;g;b`. Consumed, not drawn.
+    } else if (code === 38 || code === 48 || code === 58) {
+      // Extended colour: `38;5;n` or `38;2;r;g;b`, and the same for background
+      // and underline. Consumed, not drawn: its values are not codes.
       const mode = codes[i + 1]
       i += mode === 5 ? 2 : mode === 2 ? 4 : 0
       if (code === 38) { next.color = null; next.bright = false }

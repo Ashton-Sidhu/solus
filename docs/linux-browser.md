@@ -13,7 +13,7 @@ archive includes the Playwright driver, but needs the following setup.
 A standalone or managed server does not use the Chromium that Playwright
 bundles. It uses one fixed Chrome for Testing build of `chrome-headless-shell`,
 pinned in `packages/server/src/browser/pinned-chromium.ts`. The current pin is
-156.0.8078.70.
+157.0.8103.38.
 
 Why: the headless shell does not load Chrome's CRLSet. It blocks a certificate
 only through the SPKI blocklist that is compiled into Chromium. Builds before
@@ -58,7 +58,7 @@ environment.
 2. Download each zip into a new, empty directory and record its size and SHA-256:
 
    ```sh
-   V=156.0.8078.70
+   V=157.0.8103.38
    for p in linux64 linux-arm64 mac-arm64 mac-x64 win32 win64; do
      curl -sfL -o "$p.zip" "https://storage.googleapis.com/chrome-for-testing-public/$V/$p/chrome-headless-shell-$p.zip"
      echo "$p $(wc -c < "$p.zip") $(shasum -a 256 "$p.zip" | cut -d' ' -f1)"

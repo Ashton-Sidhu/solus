@@ -83,10 +83,11 @@ export function resolveThreadListV2Status(
   }
 }
 
-/** A session blocked on the person may not be hidden: snoozing would defeat
-    the request. A running session may be snoozed; it only hides the row. */
+/** An approval holds the agent at one step, so it may not be hidden. A question
+    may be put off: it stays answerable in the session, as on desktop and web. A
+    running session may be snoozed; it only hides the row. */
 export function canSnoozeThread(status: ThreadListV2Status): boolean {
-  return status !== "approval" && status !== "input";
+  return status !== "approval";
 }
 
 export function resolveThreadListV2SwipeActions(input: {

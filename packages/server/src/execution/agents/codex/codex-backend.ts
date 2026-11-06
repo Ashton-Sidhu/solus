@@ -7,6 +7,7 @@ import { loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
 import type { AgentToolImage } from '../tools/agent-tool'
 import { loadCodexTurns } from './codex-turns'
+import { rememberCodexModels } from './listed-models'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
@@ -963,6 +964,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         cursor = page.nextCursor
       } while (cursor)
       this.liveModels = models
+      rememberCodexModels(models)
     })().catch((error) => {
       this.liveModelsRead = null
       log.warn('codex_model_list_failed', { error: error instanceof Error ? error.message : String(error) })

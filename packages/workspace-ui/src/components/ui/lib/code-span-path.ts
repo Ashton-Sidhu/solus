@@ -41,6 +41,8 @@ const WINDOWS_ABSOLUTE_PATH_RE = /^(?:\\\\|[a-zA-Z]:(?:[/\\]|$))/;
 const POSITION_SUFFIX_RE = /:(\d+)(?::\d+)?$/;
 const DISQUALIFIER_RE = /[\s`]/;
 const PATH_SEPARATOR_RE = /[\\/]/;
+// Agents shorten long paths with a `...` or `…` segment. No file has that name.
+const ELIDED_PATH_SEGMENT_RE = /(?:^|[\\/])(?:\.{3,}|…)(?:[\\/]|$)/;
 const FILE_EXTENSION_RE = /\.[A-Za-z0-9_-]+$/;
 // A final dot between digits marks a version or model id (`glm-5.3`,
 // `Qwen2.5-Coder`), not an extension. `ls.1` and `libfoo.so.1` stay files.
@@ -103,6 +105,7 @@ export function codeSpanFileTarget(codeText: string): CodeSpanFileTarget | null 
   if (!position && !PATH_SEPARATOR_RE.test(candidate)) return null;
 
   const path = position ? candidate.slice(0, position.index) : candidate;
+  if (ELIDED_PATH_SEGMENT_RE.test(path)) return null;
   const name = hostPathBaseName(path);
   const namesFile = FILE_EXTENSION_RE.test(name) || EXTENSIONLESS_FILE_NAMES.has(name);
 

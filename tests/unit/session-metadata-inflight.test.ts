@@ -3,6 +3,8 @@ import type { AgentRun, AgentRunRequest } from '@solus/server/execution/agents/a
 
 const realCliEnv = await import('@solus/server/cli-env')
 const realSettings = await import('@solus/server/host/settings')
+const realSeatLogin = await import('@solus/server/execution/seats/seat-login')
+mock.module('@solus/server/execution/seats/seat-login', () => ({ ...realSeatLogin, providerLoginConnected: async () => true }))
 mock.module('@solus/server/cli-env', () => ({ ...realCliEnv, findOnPath: (bin: string) => `/fixture/bin/${bin}` }))
 mock.module('@solus/server/host/settings', () => ({
   ...realSettings,

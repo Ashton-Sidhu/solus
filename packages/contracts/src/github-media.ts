@@ -30,6 +30,15 @@ const LEGACY_ATTACHMENT_PATH_PATTERN = /^\/[^/]+\/[^/]+\/assets\/\d+\/[\w-]+$/u
 const REPOSITORY_FILE_PATTERN = /^\/([^/]+)\/([^/]+)\/(?:raw|blob)\/(.*[^/])$/u
 
 /**
+ * The address of media in text written on GitHub. A root-relative URL means
+ * github.com there, not the client's origin or a file. `//` and `/\\` name a
+ * host, so they are left alone.
+ */
+export function githubMediaUrl(source: string): string {
+  return /^\/(?![/\\])/u.test(source) ? `https://github.com${source}` : source
+}
+
+/**
  * The URL to fetch with a GitHub credential for `source`, or null when
  * `source` is not GitHub-hosted media. A client loads a null source directly.
  */

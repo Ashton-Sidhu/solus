@@ -3,7 +3,9 @@ import { DEFAULT_TEXT_GENERATION_MODELS } from '@solus/contracts/settings'
 import { findOnPath, getCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { hostPolicies } from '../../host/policy/host-policy-store'
+import { providerLoginConnected } from '../seats/seat-login'
 import { SeatRequiredError, type SeatResolver, type TurnSeat } from '../seats/seat-manager'
+import { codexWritingModel } from './codex/listed-models'
 
 const log = createLogger('main', 'writing-backend')
 
@@ -24,8 +26,10 @@ export interface WritingBackend {
  * request) uses for one caller: the host's chosen model, else the other
  * backend's writing model. A backend counts only when it is installed and the
  * caller can run it and the policies of `organizationId` allow it. A cloud host
- * installs both CLIs, but a member may be signed in to only one. Null when no
- * backend counts.
+ * installs both CLIs, but a member may be signed in to only one. A signed-out
+ * host login gives way to the next backend, and is used only when no other
+ * counts: the CLI can hold a credential the login check does not see. Null when
+ * no backend counts.
  */
 export async function writingBackendFor(
   selection: TextGenerationModelSelection,
@@ -41,6 +45,7 @@ export async function writingBackendFor(
       .filter((provider) => provider !== selected)
       .map((provider) => ({ provider, model: DEFAULT_TEXT_GENERATION_MODELS[provider] })),
   ]
+  let signedOut: WritingBackend | null = null
   for (const { provider, model } of candidates) {
     if (work.modelDenial(provider, model)) continue
     const bin = AGENT_BIN[provider]
@@ -52,8 +57,14 @@ export async function writingBackendFor(
       if (error instanceof SeatRequiredError) continue
       throw error
     }
-    return seat ? { provider, model, seat, organizationId } : { provider, model, organizationId }
+    if (seat && seat.seat.kind !== 'host-login') return { provider, model, seat, organizationId }
+    // The host's Codex lists the models of the host login, not of a member's.
+    const hostModel = provider === 'codex' ? codexWritingModel(model) : model
+    const hostBackend: WritingBackend = seat ? { provider, model: hostModel, seat, organizationId } : { provider, model: hostModel, organizationId }
+    if (seat?.envToken || await providerLoginConnected(provider, null)) return hostBackend
+    signedOut ??= hostBackend
   }
+  if (signedOut) return signedOut
   log.warn('writing_backend_unavailable', { provider: selection.provider })
   return null
 }

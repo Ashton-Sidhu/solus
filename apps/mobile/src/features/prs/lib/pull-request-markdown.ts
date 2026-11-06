@@ -1,4 +1,5 @@
 // Adapted from T3 Code packages/client-runtime/src/pullRequestMarkdown.ts and apps/mobile/src/features/pull-requests/pullRequestDescriptionContent.ts (MIT, see UPSTREAM.md).
+import { githubMediaUrl } from '@solus/contracts/github-media'
 import type { FilePreviewItem } from '../../../components/FilePreview.types'
 import { resolveMarkdownMediaPreview, type MarkdownMediaContext } from '../../../lib/markdownMedia'
 import { isBotBadgeImage } from './bot-badge-images'
@@ -28,7 +29,7 @@ export interface PullRequestAttachment {
   readonly kind: AttachmentMedia
 }
 
-const FENCE_PATTERN = /^\s{0,3}((?:`{3,})|(?:~{3,}))(.*)$/u
+const FENCE_PATTERN = /^\s{0,3}((?:`{3,})|(?:~{3,}))(.*)\r?$/u
 /** How far a `<video>` tag may reach for its closing tag. */
 const VIDEO_TAG_MAX_LINES = 8
 /** Four spaces open an indented code block. */
@@ -147,7 +148,8 @@ function fileName(url: string): string {
  */
 export function pullRequestAttachments(body: string): PullRequestAttachment[] {
   const attachments = new Map<string, PullRequestAttachment>()
-  const add = (uri: string, caption: string, kind: AttachmentMedia) => {
+  const add = (source: string, caption: string, kind: AttachmentMedia) => {
+    const uri = githubMediaUrl(source)
     if (!isWebUrl(uri) || attachments.has(uri)) return
     attachments.set(uri, { uri, caption, kind })
   }

@@ -1,3 +1,4 @@
+import { cutText, cutTextEnd } from "@solus/contracts/text-cut";
 import type { Attachment, BrowserMark } from "@solus/contracts/types";
 
 /**
@@ -49,7 +50,7 @@ export function middleEllipsis(text: string, max = LABEL_MAX_CHARS): string {
   if (text.length <= max) return text;
   const head = Math.ceil((max - 1) / 2);
   const tail = max - 1 - head;
-  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
+  return `${cutText(text, head)}…${cutTextEnd(text, tail)}`;
 }
 
 /** The first four words of a note, which is what a mark with no element has to

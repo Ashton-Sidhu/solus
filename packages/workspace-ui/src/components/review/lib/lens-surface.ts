@@ -1,3 +1,4 @@
+import { cutText } from "@solus/contracts/text-cut";
 import { z } from "zod";
 import { uuid } from "@solus/contracts/uuid";
 import type {
@@ -157,7 +158,7 @@ export function parseAnchorReply(reply: Pick<z.output<typeof anchorReplySchema>,
  *  line; the user can rename it in Settings. */
 export function savedLensFromPrompt(prompt: string): SavedLens {
   const firstLine = prompt.trim().split("\n")[0] ?? "";
-  const name = firstLine.length > 48 ? `${firstLine.slice(0, 47).trimEnd()}…` : firstLine;
+  const name = firstLine.length > 48 ? `${cutText(firstLine, 47).trimEnd()}…` : firstLine;
   return { id: uuid(), name: name || "Lens", prompt: prompt.trim() };
 }
 

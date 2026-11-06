@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import { createLogger } from '../../logger'
 import { attentionActionForStatus } from '../../attention/attention-service'
 import { finishedSummary } from '../../attention/finished-summary'
@@ -277,7 +278,7 @@ export class SessionStatuses {
           : 'Approval needed'
       case 'question': {
         const q = event?.type === 'question_request' ? event.questions[0]?.question : undefined
-        return q ? `Question: ${q.length > 120 ? `${q.slice(0, 117)}…` : q}` : 'Waiting on your answer'
+        return q ? `Question: ${q.length > 120 ? `${cutText(q, 117)}…` : q}` : 'Waiting on your answer'
       }
       case 'failed':
         return 'Run failed'

@@ -7,6 +7,22 @@ import {
 } from "@solus/workspace-ui/components/ui/lib/code-span-path";
 
 describe("file code-span chip path", () => {
+  test.each([
+    "/tmp/claude-1000/...",
+    "/tmp/claude-1000/...:12",
+    "/tmp/.../scratchpad/notes.md",
+    "/tmp/…/notes.md",
+    "~/projects/…/notes.md",
+    "src/.../main.ts",
+  ])("%s is an agent's shortened path, so it stays code", (text) => {
+    expect(codeSpanFileTarget(text)).toBeNull();
+  });
+
+  test("a name with dots in it is still a file", () => {
+    expect(codeSpanFileTarget("src/foo...bar.ts")).toEqual({ path: "src/foo...bar.ts" });
+    expect(codeSpanFileTarget("../src/main.ts")).toEqual({ path: "../src/main.ts" });
+  });
+
   test("the parts a chip shows and hides rebuild the whole path", () => {
     // WHY: the chip has room for two segments, so copying a message used to
     // paste a partial path that no longer names a file. The copy-only part in

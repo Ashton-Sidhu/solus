@@ -23,6 +23,16 @@ describe('repository key', () => {
     expect(new Set(spellings.map(repositoryKeyFromRemoteUrl))).toEqual(new Set(['github.com/acme/web']))
   })
 
+  test('a bracketed IPv6 host is one token, so its remotes give one key', () => {
+    const spellings = [
+      'git@[2001:db8::1]:org/repo.git',
+      '[2001:db8::1]:org/repo.git',
+      'https://[2001:db8::1]/org/repo.git',
+      'ssh://git@[2001:db8::1]/org/repo.git',
+    ]
+    expect(new Set(spellings.map(repositoryKeyFromRemoteUrl))).toEqual(new Set(['[2001:db8::1]/org/repo']))
+  })
+
   test('keeps the whole path, so two GitLab subgroups stay two projects', () => {
     expect(repositoryKeyFromRemoteUrl('git@gitlab.com:group/one/app.git')).toBe('gitlab.com/group/one/app')
     expect(repositoryKeyFromRemoteUrl('git@gitlab.com:group/two/app.git')).toBe('gitlab.com/group/two/app')

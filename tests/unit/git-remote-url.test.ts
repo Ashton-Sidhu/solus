@@ -5,6 +5,11 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { parseRemoteUrl } = await import('@solus/server/git/git-helpers')
 
 describe('parseRemoteUrl', () => {
+  test('keeps a bracketed IPv6 host whole in an SCP remote', () => {
+    expect(parseRemoteUrl('git@[2001:db8::1]:org/repo.git')).toMatchObject({ owner: 'org', repo: 'repo' })
+    expect(parseRemoteUrl('git@[2001:db8::1]:org/repo.git')?.host).toBe(parseRemoteUrl('https://[2001:db8::1]/org/repo.git')?.host)
+  })
+
   // WHY: git reads `host:path` as SSH and takes the user from ssh config, so
   // this is a working remote whose repository must reach its code host.
   test('a remote that leaves its user to ssh config names its host', () => {

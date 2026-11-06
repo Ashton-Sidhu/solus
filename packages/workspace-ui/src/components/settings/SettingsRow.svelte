@@ -62,10 +62,12 @@
     aria-disabled={disabled || isLocked || undefined}
   >
     <!-- Only a row with a control reserves the trailing column; otherwise the
-         copy takes the full width instead of wrapping beside an empty cell. -->
+         copy takes the full width instead of wrapping beside an empty cell. The
+         column fits its control: dropdowns keep one left edge, and a switch
+         leaves its width to the copy. -->
     <div
       class="flex flex-col gap-3 {control
-        ? '@min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8'
+        ? '@min-[30rem]/pane:grid @min-[30rem]/pane:grid-cols-[minmax(0,1fr)_auto] @min-[30rem]/pane:items-center @min-[30rem]/pane:gap-8'
         : ''}"
     >
       <div class="min-w-0 flex-1 space-y-1">
@@ -95,7 +97,7 @@
       </div>
       {#if control}
         <div
-          class="settings-controls flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end"
+          class="settings-controls flex w-full shrink-0 items-center gap-2 @min-[30rem]/pane:w-auto @min-[30rem]/pane:justify-end @min-[30rem]/pane:[&_[data-slot=select-trigger]]:min-w-40"
           inert={isInert}
         >
           {@render control()}

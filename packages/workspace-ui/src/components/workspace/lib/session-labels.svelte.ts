@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionMeta } from '@solus/contracts/types'
 import { readSessionMeta } from '@solus/client-core/session-meta'
@@ -51,5 +52,5 @@ export function sessionMetaLabel(meta: SessionMeta | null): string {
   const named = meta.customTitle?.trim() || meta.slug?.trim()
   if (named) return named
   const opening = meta.firstMessage?.replace(/\s+/g, ' ').trim() ?? ''
-  return opening.length > 48 ? `${opening.slice(0, 47)}…` : opening
+  return opening.length > 48 ? `${cutText(opening, 47)}…` : opening
 }
