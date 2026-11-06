@@ -39,14 +39,15 @@ export interface MachineForward {
 /** What the provisioner and the forwards need of a machine: run a script there, and reach a port there. */
 export interface MachineClient {
   run(target: SshTarget, script: string | undefined, args: readonly string[], options?: SshRunOptions): Promise<DeviceCommandResult>
-  forward(target: SshTarget, remotePort: number, readyPath?: string, preferredLocalPort?: number): Promise<MachineForward>
+  /** `authSecret` is a password or key passphrase for SSH; a WSL distro needs none. */
+  forward(target: SshTarget, remotePort: number, readyPath?: string, preferredLocalPort?: number, authSecret?: string): Promise<MachineForward>
 }
 
 /** Sends a `wsl:` target to WSL and every other target to SSH. */
 export function machineClient(ssh: SshClient, wsl: MachineClient): MachineClient {
   return {
     run: (target, script, args, options) => (wslDistroOf(target) !== null ? wsl : ssh).run(target, script, args, options),
-    forward: (target, remotePort, readyPath, preferredLocalPort) => (wslDistroOf(target) !== null ? wsl : ssh).forward(target, remotePort, readyPath, preferredLocalPort),
+    forward: (target, remotePort, readyPath, preferredLocalPort, authSecret) => (wslDistroOf(target) !== null ? wsl : ssh).forward(target, remotePort, readyPath, preferredLocalPort, authSecret),
   }
 }
 

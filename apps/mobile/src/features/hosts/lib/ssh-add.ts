@@ -1,6 +1,8 @@
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { ForwardedHost, SshAddLink, SshAddProgress, SshAddResult, SshTargetCandidate, SshAddRequest } from '@solus/contracts/remote-machines'
 import type { HostApi } from '@solus/client-core/host-api'
+import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
+import { isEncryptedRouteUrl, type HostRoute } from '@solus/contracts/host-routes'
 
 /**
  * Adding a machine over SSH from the phone (docs/plans/host-routes.md D6, D7).
@@ -46,8 +48,15 @@ export interface SshAddForm {
   readonly identityFile: string
   /** Link the new machine to the person's Solus account. Possible only while signed in. */
   readonly shouldLink: boolean
-  /** A password or key passphrase, sent only with a link: a forward needs a key. */
+  /** A password or key passphrase. A forward keeps it in the runner host's memory. */
   readonly authSecret: string
+}
+
+/** Why a password cannot go to a host over the connection in use, or null when it can. */
+export function sshPasswordIssue(connection: { readonly transport: { readonly serverUrl: string } } | null, hostLabel: string, routes: readonly HostRoute[] = []): string | null {
+  if (!connection) return unencryptedPasswordMessage(hostLabel)
+  const url = connection.transport.serverUrl
+  return isEncryptedRouteUrl(url, routes.find((route) => route.url === url)?.kind) ? null : unencryptedPasswordMessage(hostLabel)
 }
 
 /** Why the form cannot be sent, or null when it can. */
@@ -57,15 +66,13 @@ export function sshAddFormIssue(form: SshAddForm): string | null {
   return null
 }
 
-/** The request one add sends. The secret goes only with a link, as the host requires. */
+/** The request one add sends. */
 export function sshAddRequest(form: SshAddForm, requestId: string, deviceLabel: string, link: SshAddLink | null): SshAddRequest {
   const request: SshAddRequest = { sshTarget: form.sshTarget.trim(), requestId, deviceLabel }
   const identityFile = form.identityFile.trim()
   if (identityFile) request.identityFile = identityFile
-  if (link) {
-    request.link = link
-    if (form.authSecret) request.authSecret = form.authSecret
-  }
+  if (link) request.link = link
+  if (form.authSecret) request.authSecret = form.authSecret
   return request
 }
 
@@ -102,8 +109,8 @@ export async function runSshAdd(
 
 /** What the screen shows after the runner host answered. */
 export type SshAddOutcome =
-  /** SSH refused the key. With a link a password can be given; a forward needs a key. */
-  | { kind: 'ask-auth'; sshTarget: string; message: string; canUsePassword: boolean }
+  /** SSH refused the key or the secret: a password can be given. */
+  | { kind: 'ask-auth'; sshTarget: string; message: string }
   | { kind: 'ask-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
   | { kind: 'linked'; installationId: string; label: string; note: string }
   /** Only the runner host reaches it. The phone offers a link. */
@@ -111,17 +118,10 @@ export type SshAddOutcome =
   /** The runner reached a server it found on its network. The phone did not ask for this. */
   | { kind: 'reached'; label: string; note: string }
 
-export function sshAddOutcome(result: SshAddResult, runnerLabel: string, wasLinking: boolean): SshAddOutcome {
+export function sshAddOutcome(result: SshAddResult, runnerLabel: string): SshAddOutcome {
   switch (result.status) {
     case 'needs-auth':
-      return {
-        kind: 'ask-auth',
-        sshTarget: result.sshTarget,
-        canUsePassword: wasLinking,
-        message: wasLinking
-          ? `${result.message} Enter the password or key passphrase for ${result.sshTarget}.`
-          : `${result.message} A machine that is not linked to your account needs an SSH key on ${runnerLabel}. Add a key, or link the machine to your account to use a password.`,
-      }
+      return { kind: 'ask-auth', sshTarget: result.sshTarget, message: `${result.message} Enter the password or key passphrase for ${result.sshTarget}.` }
     case 'needs-target':
       return { kind: 'ask-target', candidates: result.candidates, defaultTarget: result.defaultTarget, message: result.message }
     case 'linked':

@@ -46,6 +46,8 @@ Amended 2026-10-25 (implementation). Where the text below differs, this list win
 12. **Route control (§12).** A client can add, reorder, and remove routes, and it
     shows the route in use. Where §12 differs from the text above, §12 wins. It
     changes D1: the kind order is now only the default order.
+13. **A forward can use a password (D6, D7).** This replaces the end of item 6. See
+    `docs/plans/ssh-forward-password.md`.
 
 Solus has no users yet, so this plan keeps no backward compatibility. Saved
 hosts, contracts, and RPC names change in place.

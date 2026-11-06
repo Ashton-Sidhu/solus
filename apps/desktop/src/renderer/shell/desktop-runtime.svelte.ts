@@ -22,6 +22,7 @@ import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
 import { materializeTabs } from "@solus/workspace-ui/contexts/workspace/session-bootstrap";
 
 import { serverConnections } from "@solus/client-core/server-connections";
+import { connectionsNav } from "@solus/workspace-ui/components/connections/connections-nav.svelte";
 import { forwardedHostsStore } from "@solus/workspace-ui/components/connections/forwarded-hosts.store.svelte";
 
 import { subscribeAllHosts } from "@solus/client-core/host-events";
@@ -338,6 +339,20 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       const unsubUplink = uplinkStore.listen();
       // The saved routes of the machines this computer forwards to follow its forwards (host-routes D7).
       const deviceHostId = hosts.device?.id;
+      // A restart clears a forward's password: the host's Access tab asks for it again.
+      forwardedHostsStore.onNeedsAuth = (serverId, host) => {
+        toasts.info(`${host.label} needs its SSH password`, {
+          description: "Solus keeps it in memory only, so it asks again after a restart.",
+          duration: 10_000,
+          action: {
+            label: "Enter password",
+            onAction: () => {
+              session.showSettings("api-access", "click");
+              connectionsNav.open(serverId, "access");
+            },
+          },
+        });
+      };
       const unsubForwarded = deviceHostId ? forwardedHostsStore.watch(deviceHostId) : () => {};
       // The Atlassian sign-in finishes in a browser and lands on the host, not
       // on the tab that opened it — so the completion is heard app-wide too.

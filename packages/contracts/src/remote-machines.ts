@@ -32,7 +32,7 @@ export interface SshAddRequest {
   identityFile?: string
   /** A server found on the network, when the person added it from the nearby list. */
   discovered?: DiscoveredServer
-  /** A password or key passphrase, read once through askpass. A forward needs key authentication. */
+  /** A password or key passphrase, read through askpass. A forward keeps it in the host's memory until the host restarts. */
   authSecret?: string
   /** Present: the new host links to the account. Absent: this host holds a forward to it. */
   link?: SshAddLink
@@ -68,7 +68,11 @@ export type SshAddResult =
   /** This host holds a forward to the new host; the session token is this client's credential there. */
   | { status: 'forwarded'; host: ForwardedHost; sessionToken: string }
 
-export type ForwardedHostState = 'open' | 'reconnecting' | 'failed'
+/**
+ * `needs-auth`: SSH refused this host's keys or the secret it held. The forward does
+ * not retry; it waits for `hostsUnlockForwarded` (docs/plans/ssh-forward-password.md).
+ */
+export type ForwardedHostState = 'open' | 'reconnecting' | 'failed' | 'needs-auth'
 
 /** A host this host reaches through an `ssh -L` forward it holds (D7). */
 export interface ForwardedHost {
@@ -80,7 +84,7 @@ export interface ForwardedHost {
   route: HostRoute
   identityKey: string
   state: ForwardedHostState
-  /** Why the forward is not open. */
+  /** Why the forward is not open. In `needs-auth`, present only when SSH refused a secret. */
   error?: string
   /** Solus installed the service there, so removing the host stops it. */
   startedBySolus: boolean

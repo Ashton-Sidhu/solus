@@ -8,6 +8,7 @@ import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
 import type { SshTarget } from '../platform/ssh'
+import { AuthNeeded } from './ssh-provisioner'
 import type { MachineClient, MachineForward } from './wsl'
 import { formatSshTarget, parseSshTarget } from './ssh-targets'
 
@@ -23,6 +24,11 @@ const log = createLogger('main', 'forwarded-hosts')
  * A forward that stops (sleep, a network change, a restart on either side) opens
  * again with backoff, on the same local port when it is free, so the route a
  * client saved stays the same. At boot every saved forward opens again.
+ *
+ * A password or key passphrase stays in `authSecrets`, in this process's memory
+ * only (docs/plans/ssh-forward-password.md). No record says that one exists. When
+ * SSH refuses, a forward waits in `needs-auth` for the person: a retry cannot
+ * succeed, and a refused password counts against the account on the machine.
  */
 
 const SECRET_KEY = 'forwarded-hosts'
@@ -56,6 +62,8 @@ export interface NewForward {
   identityKey: string
   sessionToken: string
   startedBySolus: boolean
+  /** A password or key passphrase. It stays in memory, for the life of this process. */
+  authSecret?: string
 }
 
 export interface ForwardedHostsDeps {
@@ -63,8 +71,8 @@ export interface ForwardedHostsDeps {
   ssh: Pick<MachineClient, 'forward'>
   /** This host's installation id: a forwarded route names it as the one machine that can dial it. */
   selfInstallationId: () => string
-  /** The port the server there listens on now; it can change when the server restarts. */
-  remotePort: (target: SshTarget) => Promise<number | null>
+  /** The port the server there listens on now; it can change when the server restarts. Throws `AuthNeeded` when SSH refuses. */
+  remotePort: (target: SshTarget, authSecret?: string) => Promise<number | null>
   onChange: (hosts: ForwardedHost[]) => void
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
@@ -80,6 +88,8 @@ interface LiveForward {
 
 export class ForwardedHosts {
   private readonly live = new Map<string, LiveForward>()
+  /** The password or passphrase of each forward that has one, by installation id. */
+  private readonly authSecrets = new Map<string, string>()
   private isClosed = false
 
   constructor(private readonly deps: ForwardedHostsDeps) {}
@@ -110,6 +120,8 @@ export class ForwardedHosts {
     if (host.os) record.os = host.os
     this.close(host.installationId)
     this.save([...stored, record])
+    if (host.authSecret) this.authSecrets.set(host.installationId, host.authSecret)
+    else this.authSecrets.delete(host.installationId)
     await this.open(record)
     const opened = this.live.get(host.installationId)
     if (opened?.state !== 'open') throw new Error(opened?.error ?? `The SSH forward to ${host.label} did not open.`)
@@ -121,10 +133,29 @@ export class ForwardedHosts {
     return this.find(installationId)?.sessionToken ?? null
   }
 
-  /** The SSH target and system of a forwarded host, for the steps that reach it again. */
-  record(installationId: string): (Pick<ForwardRecord, 'os' | 'startedBySolus' | 'label'> & { target: SshTarget }) | null {
+  /** The SSH target, secret, and system of a forwarded host, for the steps that reach it again. */
+  record(installationId: string): (Pick<ForwardRecord, 'os' | 'startedBySolus' | 'label'> & { target: SshTarget; authSecret: string | undefined }) | null {
     const record = this.find(installationId)
-    return record ? { target: recordTarget(record), os: record.os, startedBySolus: record.startedBySolus, label: record.label } : null
+    return record ? { target: recordTarget(record), authSecret: this.authSecrets.get(installationId), os: record.os, startedBySolus: record.startedBySolus, label: record.label } : null
+  }
+
+  /**
+   * The person gave the password or passphrase of a forward in `needs-auth`.
+   * Resolves when the forward answers, or stops again. A forward that no longer
+   * waits, because another client gave it first, does not change.
+   */
+  async unlock(installationId: string, authSecret: string): Promise<ForwardedHost> {
+    const record = this.find(installationId)
+    if (!record) throw new Error('This host does not forward to that machine.')
+    const live = this.live.get(installationId)
+    if (live?.state === 'needs-auth') {
+      live.state = 'reconnecting'
+      live.error = undefined
+      this.authSecrets.set(installationId, authSecret)
+      this.notify()
+      await this.open(record)
+    }
+    return this.describe(this.find(installationId) ?? record)
   }
 
   /** The host is linked too: its forward stays as a route, and a failure is no longer an error (D9). */
@@ -143,6 +174,7 @@ export class ForwardedHosts {
     if (!stored.some((record) => record.installationId === installationId)) return false
     this.close(installationId)
     this.live.delete(installationId)
+    this.authSecrets.delete(installationId)
     this.save(stored.filter((record) => record.installationId !== installationId))
     this.notify()
     log.info('forwarded_host_removed', { installationId })
@@ -161,10 +193,14 @@ export class ForwardedHosts {
     const live = this.live.get(record.installationId) ?? fresh
     this.live.set(record.installationId, live)
     const target = recordTarget(record)
+    const authSecret = this.authSecrets.get(record.installationId)
     try {
       // The server there can listen on another port after a restart: read it again first.
-      const remotePort = await this.deps.remotePort(target).catch(() => null) ?? record.remotePort
-      const forward = await this.deps.ssh.forward(target, remotePort, '/health', record.localPort)
+      const remotePort = await this.deps.remotePort(target, authSecret).catch((error: Error) => {
+        if (error instanceof AuthNeeded) throw error
+        return null
+      }) ?? record.remotePort
+      const forward = await this.deps.ssh.forward(target, remotePort, '/health', record.localPort, authSecret)
       if (this.isClosed || this.live.get(record.installationId) !== live) {
         forward.close()
         return
@@ -182,9 +218,20 @@ export class ForwardedHosts {
         this.retry(record.installationId, live, 'The SSH connection closed.')
       })
     } catch (error) {
-      this.retry(record.installationId, live, error instanceof Error ? error.message : String(error))
+      if (error instanceof AuthNeeded) this.waitForAuth(record.installationId, live, authSecret ? error.message : undefined)
+      else this.retry(record.installationId, live, error instanceof Error ? error.message : String(error))
     }
     this.notify()
+  }
+
+  /** SSH refused: no timer runs, and a refused secret leaves memory. `refusal` says why a given secret failed. */
+  private waitForAuth(installationId: string, live: LiveForward, refusal: string | undefined): void {
+    if (this.isClosed || this.live.get(installationId) !== live) return
+    live.state = 'needs-auth'
+    live.error = refusal
+    live.retryMs = FIRST_RETRY_MS
+    this.authSecrets.delete(installationId)
+    log.info('forward_needs_auth', { installationId })
   }
 
   private retry(installationId: string, live: LiveForward, reason: string): void {

@@ -2,7 +2,8 @@
   /** The machines this host reaches through a forward it holds, over SSH or
    *  into one of its WSL distros (docs/plans/host-routes.md D7, D9;
    *  docs/plans/windows.md §13.6): the state of each forward, and Remove and
-   *  Link with account. State lives in `forwardedHostsStore`. */
+   *  Link with account, and the password of a forward that waits for one. State
+   *  lives in `forwardedHostsStore`. */
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { hosts, serversStore, uplinkStore } from "../../contexts";
   import { Button } from "../ui/button";
@@ -12,6 +13,7 @@
   import { isWindowsHost } from "../servers/add-wsl-distro.store.svelte";
   import WslDistroRows from "../servers/WslDistroRows.svelte";
   import { forwardedReachNote, forwardedRowStatus } from "../servers/lib/add-over-ssh";
+  import ForwardedHostUnlock from "./ForwardedHostUnlock.svelte";
   import { forwardedHostsStore as store } from "./forwarded-hosts.store.svelte";
 
   interface Props {
@@ -82,7 +84,8 @@
                 {status.text}
               </p>
             </div>
-            {#if uplinkStore.canLink && !host.isLinked}
+            <!-- A link runs over SSH too: a forward that waits for its password cannot link yet. -->
+            {#if uplinkStore.canLink && !host.isLinked && host.state !== "needs-auth"}
               <Button
                 variant="outline"
                 size="sm"
@@ -105,6 +108,10 @@
               </Button>
             {/if}
           </div>
+
+          {#if host.state === "needs-auth"}
+            <ForwardedHostUnlock {serverId} installationId={host.installationId} sshTarget={host.sshTarget} {holderName} />
+          {/if}
 
           {#if confirmingRemoveId === host.installationId}
             <div class="flex flex-wrap items-center justify-end gap-3">

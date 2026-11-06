@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import type { ForwardedHost } from '@solus/contracts/remote-machines'
 import { useApp, useListened } from '../../app/app-context'
 import { forwardedRemoveChoice } from './forwarded-hosts'
+import { sshPasswordIssue } from './lib/ssh-add'
 
 /** One host's SSH forwards for its details: read on connect and on focus; a
  *  refused remove or link says why. Remove is asked before it happens. */
@@ -27,6 +28,10 @@ export function useForwardedHosts(hostId: string, holderLabel: string) {
     void app.forwardedHosts.link(hostId, host.installationId).catch(report(`${host.label} is not linked`))
   }
 
+  const unlock = (host: ForwardedHost, authSecret: string) => {
+    void app.forwardedHosts.unlock(hostId, host.installationId, authSecret).catch(report(`${host.label} did not connect`))
+  }
+
   const remove = (host: ForwardedHost) => {
     const choice = forwardedRemoveChoice(host, holderLabel)
     const run = (stopRemote: boolean) => {
@@ -39,5 +44,7 @@ export function useForwardedHosts(hostId: string, holderLabel: string) {
     ])
   }
 
-  return { state, reload, link, remove }
+  const passwordIssue = sshPasswordIssue(app.connections.connection(hostId), holderLabel, app.registry.host(hostId)?.routes)
+
+  return { state, reload, link, remove, unlock, passwordIssue }
 }

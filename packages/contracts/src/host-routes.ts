@@ -107,6 +107,27 @@ export function routeForUrl(url: string, onTailnet = false): HostRoute {
   return { kind: onTailnet ? 'tailnet' : routeKindForUrl(url), url }
 }
 
+/**
+ * Whether a password can cross a connection to `url`: `https:` has TLS, a tailnet
+ * has WireGuard, and a loopback address stays on this machine (a forward's port
+ * then goes on over SSH). Plain `http:` on a local network can be read by anyone
+ * on it, and the host's proof does not change that (docs/plans/ssh-forward-password.md D5).
+ *
+ * `kind` is the kind of the saved route at `url`. An address in 100.64.0.0/10 alone
+ * proves nothing, because other VPNs and carriers share that range, so only a saved
+ * `tailnet` route counts (§12.2).
+ */
+export function isEncryptedRouteUrl(url: string, kind: RouteKind = routeKindForUrl(url)): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return false
+  }
+  if (parsed.protocol === 'https:' || parsed.protocol === 'wss:') return true
+  return ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) || kind === 'tailnet'
+}
+
 function ipv4Parts(hostname: string): number[] | null {
   const parts = hostname.split('.').map(Number)
   return parts.length === 4 && parts.every((part) => Number.isInteger(part)) ? parts : null

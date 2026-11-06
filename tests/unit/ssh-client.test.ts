@@ -128,6 +128,44 @@ describe('SshClient', () => {
     expect(existsSync(withSecret.options!.env!.SSH_ASKPASS!)).toBe(false)
   })
 
+  test('a forward without a secret never prompts', async () => {
+    let seen: { args: readonly string[]; env: NodeJS.ProcessEnv } | null = null
+    const client = new SshClient({ run: recordingRunner().run, reservePort: async () => 52003, spawn: (_command, args, env) => { seen = { args, env }; return fakeProcess(1) } })
+    await client.forward(TARGET, 41000)
+    expect(seen!.args).toContain('BatchMode=yes')
+    expect(seen!.env.SOLUS_SSH_AUTH_SECRET).toBeUndefined()
+  })
+
+  test('a forward with a secret reads it through askpass, never from its arguments, and asks once', async () => {
+    const child = fakeProcess(7)
+    let seen: { args: readonly string[]; env: NodeJS.ProcessEnv; helper: string } | null = null
+    const client = new SshClient({
+      run: recordingRunner().run,
+      reservePort: async () => 52004,
+      spawn: (_command, args, env) => {
+        seen = { args, env, helper: readFileSync(env.SSH_ASKPASS!, 'utf8') }
+        return child
+      },
+    })
+    const forward = await client.forward(TARGET, 41000, undefined, undefined, 'hunter2')
+    expect(seen!.args.join(' ')).not.toContain('hunter2')
+    expect(seen!.helper).not.toContain('hunter2')
+    expect(seen!.helper).toContain('SOLUS_SSH_AUTH_SECRET')
+    expect(seen!.env.SOLUS_SSH_AUTH_SECRET).toBe('hunter2')
+    expect(seen!.args).toContain('BatchMode=no')
+    expect(seen!.args).toContain('NumberOfPasswordPrompts=1')
+    // Askpass must never answer a host key question with the secret.
+    expect(seen!.args).toContain('StrictHostKeyChecking=accept-new')
+    // ssh can run the helper until it signs in, so it stays until ssh ends.
+    expect(existsSync(seen!.env.SSH_ASKPASS!)).toBe(true)
+    forward.close()
+    await forward.exited
+    await Bun.sleep(0)
+    await Promise.resolve()
+    for (let i = 0; i < 50 && existsSync(seen!.env.SSH_ASKPASS!); i += 1) await Bun.sleep(1)
+    expect(existsSync(seen!.env.SSH_ASKPASS!)).toBe(false)
+  })
+
   test('a target that looks like an option is refused before ssh starts', async () => {
     const { calls, run } = recordingRunner()
     await expect(new SshClient({ run, spawn: () => fakeProcess(1) }).run({ destination: '-oProxyCommand=evil' }, 'true', [])).rejects.toThrow()

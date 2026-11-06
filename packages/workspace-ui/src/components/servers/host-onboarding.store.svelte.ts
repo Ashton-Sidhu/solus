@@ -2,6 +2,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID, serverFromSshAdd, type SavedServer } from '@solus/client-core/server-registry'
 import { pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
+import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { discoveredServerUrl, serversStore } from '../../contexts'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
@@ -148,6 +149,10 @@ export class HostOnboardingStore {
       sshApi = this.resolveApi(LOCAL_SERVER_ID)
     } catch {
       this.useCodeFallback()
+      return
+    }
+    if (options.authSecret && !serverConnections.hasEncryptedConnection(LOCAL_SERVER_ID)) {
+      this.pairingError = unencryptedPasswordMessage(this.hostName)
       return
     }
     const url = discoveredServerUrl(target)

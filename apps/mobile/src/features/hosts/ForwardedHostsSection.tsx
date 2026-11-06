@@ -7,6 +7,7 @@ import { SettingsRow } from "../settings/components/SettingsRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsValueRow } from "../settings/components/SettingsValueRow";
 import { wslHostLabel } from "@solus/contracts/remote-machines";
+import { ForwardedHostUnlock } from "./ForwardedHostUnlock";
 import { forwardedHostRow } from "./forwarded-hosts";
 import { distroNote } from "./lib/wsl-add";
 import { useForwardedHosts } from "./use-forwarded-hosts";
@@ -26,7 +27,7 @@ export function ForwardedHostsSection(props: {
   readonly onSignIn: () => void;
 }) {
   const app = useApp();
-  const { state, reload, link, remove } = useForwardedHosts(props.hostId, props.hostLabel);
+  const { state, reload, link, remove, unlock, passwordIssue } = useForwardedHosts(props.hostId, props.hostLabel);
   const signedIn = useListened(app.account.changes, () => app.account.isSignedIn);
   const mayReach = useListened(app.connections.changes, () => app.connections.may(props.hostId, "host.local.reach"));
   const isWindows = useListened(app.registry.changes, () => app.registry.host(props.hostId)?.os === "windows");
@@ -104,6 +105,13 @@ export function ForwardedHostsSection(props: {
                   />
                 </SettingsSection>
                 <SettingsNote tone={row.tone === "danger" ? "danger" : "muted"}>{row.note}</SettingsNote>
+                {row.needsPassword ? (
+                  <ForwardedHostUnlock
+                    isBusy={isBusy}
+                    issue={passwordIssue}
+                    onUnlock={(authSecret) => unlock(host, authSecret)}
+                  />
+                ) : null}
               </View>
             );
           })

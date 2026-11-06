@@ -45,6 +45,7 @@ const addSchema = z.object({
   deviceLabel: z.string().max(64).optional(),
   requestId: z.string().min(1).max(128),
 })
+const unlockSchema = z.object({ installationId: z.string().min(1), authSecret: z.string().min(1).max(1024) })
 
 export function registerRemoteMachinesHandlers(server: SolusServer, deps: RemoteMachinesDeps): void {
   /** Sends each step of one add, with the install's percentage when it moves. */
@@ -61,10 +62,6 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     if (resolved.status === 'needs-target') return resolved
     const { target } = resolved
     if (request.identityFile) target.identityFile = request.identityFile
-    // A forward runs with no one to type a secret: it needs a key the agent or ssh config gives.
-    if (request.authSecret && !request.link) {
-      throw new Error('A machine added without your Solus account is reached through an SSH forward, which needs an SSH key. Add a key for this machine, or link it to your account.')
-    }
     if (!request.link && await deps.ssh.resolvesToThisMachine(target)) throw new Error('That SSH target is this computer.')
     const outcome = await deps.provisioner.add(
       { target, authSecret: request.authSecret, link: request.link, deviceLabel: request.deviceLabel ?? 'Solus' },
@@ -86,11 +83,18 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
       identityKey: host.session.identityKey,
       sessionToken: host.session.sessionToken,
       startedBySolus: host.startedBySolus,
+      authSecret: request.authSecret,
     })
     return { status: 'forwarded', host: forwarded, sessionToken: host.session.sessionToken }
   })
 
   server.register('hostsListForwarded', () => deps.forwardedHosts.list())
+
+  server.register('hostsUnlockForwarded', async ([input], ctx) => {
+    if (!ctx.deviceId) throw new Error('Unlocking an SSH forward requires an authenticated device.')
+    const { installationId, authSecret } = unlockSchema.parse(input)
+    return deps.forwardedHosts.unlock(installationId, authSecret)
+  })
 
   server.register('hostsListWslDistros', () => deps.listWslDistros())
 
@@ -126,7 +130,7 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     const record = deps.forwardedHosts.record(installationId)
     if (record && stopRemote && record.startedBySolus && record.os) {
       // The forward goes even when the machine cannot be reached now; the service then stays there.
-      await deps.provisioner.uninstallService(record.target, record.os).catch((error: Error) => {
+      await deps.provisioner.uninstallService(record.target, record.os, record.authSecret).catch((error: Error) => {
         log.warn('forwarded_host_service_not_removed', { installationId, error: error.message })
       })
     }
@@ -137,7 +141,7 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     const { installationId, link } = z.object({ installationId: z.string().min(1), link: linkSchema }).parse(input)
     const record = deps.forwardedHosts.record(installationId)
     if (!record) throw new Error('This host does not forward to that machine.')
-    const outcome = await deps.provisioner.add({ target: record.target, link: link satisfies SshAddLink, deviceLabel: 'Solus' }, () => {})
+    const outcome = await deps.provisioner.add({ target: record.target, authSecret: record.authSecret, link: link satisfies SshAddLink, deviceLabel: 'Solus' }, () => {})
     if (outcome.status === 'needs-auth') throw new Error(outcome.message)
     deps.forwardedHosts.markLinked(installationId)
     return { linked: true as const }

@@ -1,6 +1,7 @@
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { serverFromSshAdd } from '@solus/client-core/server-registry'
+import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { sshAddStatusCard } from '@solus/client-core/ssh-progress'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { SshAddProgress } from '@solus/contracts/remote-machines'
@@ -30,7 +31,7 @@ class AddOverSshStore {
   error = $state('')
   /** What the add did, once it is done. */
   resultMessage = $state('')
-  /** SSH refused the key and the host links, so the password field is the next thing to fill. */
+  /** SSH refused the key, so the password field is the next thing to fill. */
   isPasswordRequested = $state(false)
   /** Bumped per attempt so an answer to a closed or superseded attempt is dropped. */
   private attempt = 0
@@ -52,6 +53,12 @@ class AddOverSshStore {
   /** An account can issue the link ticket. */
   get canLink(): boolean {
     return uplinkStore.canLink
+  }
+
+  /** Why a password cannot go to the host that runs SSH; empty when it can. */
+  get passwordIssue(): string {
+    const hostId = this.sshHostId
+    return hostId && !serverConnections.hasEncryptedConnection(hostId) ? unencryptedPasswordMessage(this.sshHostName) : ''
   }
 
   /** The add as a setup card, once it has started; null before. */
@@ -103,15 +110,16 @@ class AddOverSshStore {
 
   setLinkToAccount(next: boolean): void {
     this.linkToAccount = next && this.canLink
-    if (!this.linkToAccount) {
-      this.password = ''
-      this.isPasswordRequested = false
-    }
   }
 
   async submit(): Promise<void> {
     const hostId = this.sshHostId
     if (!this.canSubmit || !hostId) return
+    if (this.password && this.passwordIssue) {
+      this.password = ''
+      this.error = this.passwordIssue
+      return
+    }
     const attempt = ++this.attempt
     const requestId = crypto.randomUUID()
     const linkToAccount = this.linkToAccount
@@ -137,7 +145,6 @@ class AddOverSshStore {
       const result = await serverConnections.apiFor(hostId).hostsAddOverSsh(request)
       if (attempt !== this.attempt) return
       const outcome = sshAddOutcome(result, {
-        linkToAccount,
         sshHostIsThisMachine: hostId === hosts.device?.id,
         sshHostName: this.sshHostName,
       })

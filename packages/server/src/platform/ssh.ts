@@ -197,13 +197,20 @@ export class SshClient {
    * Forward a free loopback port here to `remotePort` on the host's loopback.
    * With `readyPath`, wait until an HTTP GET of that path answers through the
    * forward; when it does not, close the forward and throw. With
-   * `preferredLocalPort`, use that port here when it is free.
+   * `preferredLocalPort`, use that port here when it is free. With `authSecret`,
+   * ssh reads a password or passphrase through askpass, once per sign-in.
    */
-  async forward(target: SshTarget, remotePort: number, readyPath?: string, preferredLocalPort?: number): Promise<SshForward> {
+  async forward(target: SshTarget, remotePort: number, readyPath?: string, preferredLocalPort?: number, authSecret?: string): Promise<SshForward> {
     // A forward opened again keeps its port when it is still free, so the route a client saved stays the same.
     const localPort = preferredLocalPort && await isLoopbackPortFree(preferredLocalPort) ? preferredLocalPort : await (this.deps.reservePort ?? reserveLoopbackPort)()
-    const child = this.deps.spawn('ssh', sshArgs(target, { extra: ['-N', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`] }), process.env)
-    const forward = new SshForward(child, localPort, remotePort)
+    const tunnel = ['-N', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`]
+    // With `accept-new`, ssh never asks a host key question that askpass would answer with the secret.
+    const connection = sshArgs(target, authSecret ? { batchMode: false, acceptNewHostKey: true, extra: ['-o', 'NumberOfPasswordPrompts=1', ...tunnel] } : { extra: tunnel })
+    const askpass = authSecret ? await writeAskpassHelper(process.platform) : null
+    const env = askpass ? { ...process.env, ...askpassEnv(process.platform, askpass.path, authSecret ?? '', process.env) } : process.env
+    const forward = new SshForward(this.deps.spawn('ssh', connection, env), localPort, remotePort)
+    // The helper holds no secret, and ssh can run it until it signs in: it goes when ssh ends.
+    if (askpass) void forward.exited.finally(() => rm(askpass.directory, { recursive: true, force: true }).catch(() => {}))
     if (readyPath === undefined) return forward
     let alive = true
     void forward.exited.then(() => { alive = false })

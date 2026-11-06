@@ -379,6 +379,8 @@ export interface SolusAPI {
   hostsAddOverSsh(request: SshAddRequest): Promise<SshAddResult>
   /** The hosts this host reaches through a forward it holds (D7). */
   hostsListForwarded(): Promise<ForwardedHost[]>
+  /** Gives a forward in `needs-auth` its password or key passphrase, which stays in the host's memory. Resolves when the forward answers or stops again. */
+  hostsUnlockForwarded(args: { installationId: string; authSecret: string }): Promise<ForwardedHost>
   /** The WSL distros this Windows host can add as machines. */
   hostsListWslDistros(): Promise<WslDistroList>
   /** Adds one of this host's WSL distros as a machine it forwards to. */

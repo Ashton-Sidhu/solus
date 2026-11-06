@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { ForwardedHost, SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
 import { ForwardedHosts, forwardedHostRow, forwardedRemoveChoice, type ForwardedHostsConnection } from '../../apps/mobile/src/features/hosts/forwarded-hosts'
-import { runSshAdd, sshAddFormIssue, sshAddOutcome, sshRunnerChoices, type SshAddForm } from '../../apps/mobile/src/features/hosts/lib/ssh-add'
+import { runSshAdd, sshAddFormIssue, sshAddOutcome, sshPasswordIssue, sshRunnerChoices, type SshAddForm } from '../../apps/mobile/src/features/hosts/lib/ssh-add'
 
 // A phone cannot run SSH: it asks a connected host to (docs/plans/host-routes.md D6).
 // A machine linked to the account is reachable from the phone; a forwarded one only
@@ -98,13 +98,13 @@ describe('one add over SSH', () => {
     expect(events.count('host.sshProgress')).toBe(0)
   })
 
-  test('without a link no ticket is asked and no password is sent: a forward needs a key', async () => {
+  test('without a link no ticket is asked, and the password still goes: a forward signs in with it', async () => {
     let asked = false
     const { connection, requests } = runner(() => ({ status: 'forwarded', host: forwarded(), sessionToken: 'st' }))
     await runSshAdd(connection, { ...FORM, shouldLink: false }, { requestId: 'r2', deviceLabel: 'Phone', issueTicket: async () => { asked = true; return TICKET }, onProgress: () => {} })
     expect(asked).toBe(false)
     expect(requests[0]!.link).toBeUndefined()
-    expect(requests[0]!.authSecret).toBeUndefined()
+    expect(requests[0]!.authSecret).toBe('pw')
   })
 
   test('an identity file goes to the host without a link, so a forward can use an AWS key', async () => {
@@ -128,26 +128,23 @@ describe('one add over SSH', () => {
 
 describe('what the phone shows for each answer', () => {
   test('a forwarded machine is reachable only from the host that ran SSH', () => {
-    const outcome = sshAddOutcome({ status: 'forwarded', host: forwarded(), sessionToken: 'st' }, 'Mac', false)
+    const outcome = sshAddOutcome({ status: 'forwarded', host: forwarded(), sessionToken: 'st' }, 'Mac')
     expect(outcome.kind).toBe('forwarded')
     expect(outcome.kind === 'forwarded' && outcome.note).toContain('reachable only from Mac')
   })
 
   test('a linked machine is in the account', () => {
-    const outcome = sshAddOutcome({ status: 'linked', installationId: 'inst-box', label: 'box' }, 'Mac', true)
+    const outcome = sshAddOutcome({ status: 'linked', installationId: 'inst-box', label: 'box' }, 'Mac')
     expect(outcome).toMatchObject({ kind: 'linked', installationId: 'inst-box' })
   })
 
-  test('a refused key asks for a password only with a link; without one it asks for a key', () => {
+  test('a refused key asks for a password, with or without a link', () => {
     const result: SshAddResult = { status: 'needs-auth', sshTarget: 'me@box', message: 'Permission denied.' }
-    expect(sshAddOutcome(result, 'Mac', true)).toMatchObject({ kind: 'ask-auth', canUsePassword: true })
-    const withoutLink = sshAddOutcome(result, 'Mac', false)
-    expect(withoutLink).toMatchObject({ kind: 'ask-auth', canUsePassword: false })
-    expect(withoutLink.kind === 'ask-auth' && withoutLink.message).toContain('needs an SSH key on Mac')
+    expect(sshAddOutcome(result, 'Mac')).toMatchObject({ kind: 'ask-auth', sshTarget: 'me@box' })
   })
 
   test('a missing target offers the suggestions', () => {
-    const outcome = sshAddOutcome({ status: 'needs-target', candidates: [{ target: 'box', label: 'box', source: 'ssh-config' }], defaultTarget: 'box', message: 'Pick one.' }, 'Mac', true)
+    const outcome = sshAddOutcome({ status: 'needs-target', candidates: [{ target: 'box', label: 'box', source: 'ssh-config' }], defaultTarget: 'box', message: 'Pick one.' }, 'Mac')
     expect(outcome).toMatchObject({ kind: 'ask-target', defaultTarget: 'box' })
   })
 })
@@ -164,7 +161,7 @@ describe('a forwarded host row', () => {
 
   test('D9: a linked host’s failed forward is muted, not an error, and offers no link', () => {
     const row = forwardedHostRow(forwarded({ state: 'failed', error: 'timeout', isLinked: true }), 'Mac')
-    expect(row).toEqual({ status: 'SSH route paused', note: 'SSH route paused — using your account’s tunnel.', tone: 'muted', canLink: false })
+    expect(row).toEqual({ status: 'SSH route paused', note: 'SSH route paused — using your account’s tunnel.', tone: 'muted', canLink: false, needsPassword: false })
   })
 
   test('remove offers to stop Solus only where Solus started it and the host is not linked', () => {
@@ -230,5 +227,51 @@ describe('the forwarded hosts of one connected host', () => {
     store.forgetHost('inst-mac')
     expect(events.count('host.forwardedHostsChanged')).toBe(0)
     expect(store.stateOf('inst-mac')).toEqual({ kind: 'idle' })
+  })
+})
+
+describe('a forward that waits for its password on the phone', () => {
+  test('asks for it, and holds the link back, because a link runs over SSH too', () => {
+    const row = forwardedHostRow(forwarded({ state: 'needs-auth' }), 'Mac')
+    expect(row).toMatchObject({ status: 'Password needed', needsPassword: true, canLink: false, tone: 'default' })
+  })
+
+  test('a refused password says so', () => {
+    const row = forwardedHostRow(forwarded({ state: 'needs-auth', error: 'box refused that password or passphrase.' }), 'Mac')
+    expect(row).toMatchObject({ note: 'box refused that password or passphrase.', tone: 'danger', needsPassword: true })
+  })
+
+  test('the row takes the forward the host answered with', async () => {
+    const before = forwarded({ state: 'needs-auth' })
+    const asked: Array<{ installationId: string; authSecret: string }> = []
+    const connection = {
+      api: {
+        hostsListForwarded: async () => [before],
+        hostsRemoveForwarded: async () => ({ removed: true }),
+        hostsLinkForwarded: async () => ({ linked: true as const }),
+        hostsUnlockForwarded: async (args: { installationId: string; authSecret: string }) => {
+          asked.push(args)
+          return { ...before, state: 'open' as const }
+        },
+      },
+      events: { subscribe: () => () => {} },
+    } as unknown as ForwardedHostsConnection
+    const forwards = new ForwardedHosts(() => connection, async () => null, () => {})
+    await forwards.load('mac')
+    await forwards.unlock('mac', before.installationId, 'hunter2')
+    expect(asked).toEqual([{ installationId: before.installationId, authSecret: 'hunter2' }])
+    const state = forwards.stateOf('mac')
+    expect(state.kind === 'loaded' && state.hosts[0]!.state).toBe('open')
+  })
+
+  test('a password does not go over a plain http connection', () => {
+    const connected = (serverUrl: string) => ({ transport: { serverUrl } })
+    expect(sshPasswordIssue(connected('http://192.168.1.20:7777'), 'Mac')).toContain('not encrypted')
+    expect(sshPasswordIssue(null, 'Mac')).toContain('not encrypted')
+    expect(sshPasswordIssue(connected('https://mac.tunnel.solus.sh'), 'Mac')).toBeNull()
+    const tailnetAddress = 'http://100.101.102.103:7777'
+    expect(sshPasswordIssue(connected(tailnetAddress), 'Mac')).toContain('not encrypted')
+    expect(sshPasswordIssue(connected(tailnetAddress), 'Mac', [{ kind: 'vpn', url: tailnetAddress }])).toContain('not encrypted')
+    expect(sshPasswordIssue(connected(tailnetAddress), 'Mac', [{ kind: 'tailnet', url: tailnetAddress }])).toBeNull()
   })
 })

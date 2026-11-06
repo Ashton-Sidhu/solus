@@ -56,7 +56,6 @@
 
 <form class="flex flex-col gap-4" onsubmit={submit}>
   {#if showsFields}
-    <!-- The password stays in place, off until the machine links: a forward needs an SSH key. -->
     <div class="grid gap-3 @min-[36rem]/add-host:grid-cols-2">
       <label class="block">
         <span class="mb-1.5 block text-chrome-dense font-medium text-(--solus-text-secondary)">SSH target</span>
@@ -71,17 +70,25 @@
       </label>
       <label class="block">
         <span class="mb-1.5 block text-chrome-dense font-medium text-(--solus-text-secondary)">
-          Password {store.isPasswordRequested ? "" : store.linkToAccount ? "(only if it has no SSH key)" : "(only with a link)"}
+          Password {store.isPasswordRequested ? "" : "(only if it has no SSH key)"}
         </span>
         <Input
           bind:ref={passwordInput}
           bind:value={store.password}
-          disabled={!store.linkToAccount}
+          disabled={!!store.passwordIssue}
           type="password"
           autocomplete="current-password"
           dictation={false}
         />
-        <span class="mt-1 block text-chrome-dense text-(--solus-text-tertiary)">Used once and never stored.</span>
+        <span class="mt-1 block text-pretty text-chrome-dense text-(--solus-text-tertiary)">
+          {#if store.passwordIssue}
+            {store.passwordIssue}
+          {:else if store.linkToAccount}
+            Used once and never stored.
+          {:else}
+            Kept in memory on {store.sshHostName} until it restarts. Never stored on disk.
+          {/if}
+        </span>
       </label>
     </div>
 

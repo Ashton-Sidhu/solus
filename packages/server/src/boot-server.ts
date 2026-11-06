@@ -590,7 +590,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const forwardedHosts = new ForwardedHosts({
     ssh: machines,
     selfInstallationId: getInstallationId,
-    remotePort: (target) => sshProvisioner.remotePort(target),
+    remotePort: (target, authSecret) => sshProvisioner.remotePort(target, authSecret),
     onChange: (hosts) => events.broadcast('host.forwardedHostsChanged', { hosts }),
   })
   forwardedHosts.start()

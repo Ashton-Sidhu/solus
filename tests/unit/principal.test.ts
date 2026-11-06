@@ -92,7 +92,7 @@ describe('the local-only guard', () => {
   test('the set names exactly the surface that changes reachability or drives the window', () => {
     const expected: Array<Parameters<SolusServer['hasHandler']>[0]> = [
       'connectionsSetRemoteAccess', 'connectionsSetTrustLocalNetwork', 'connectionsGeneratePairToken',
-      'hostsAddOverSsh', 'hostsListForwarded', 'hostsRemoveForwarded', 'hostsLinkForwarded', 'uplinkLink', 'uplinkUnlink',
+      'hostsAddOverSsh', 'hostsListForwarded', 'hostsUnlockForwarded', 'hostsRemoveForwarded', 'hostsLinkForwarded', 'uplinkLink', 'uplinkUnlink',
       'isVisible', 'getAppGlobalShortcuts', 'setAppGlobalShortcuts', 'restartApp',
     ]
     for (const method of expected) expect(permissionOf(method as never)?.startsWith('host.local')).toBe(true)
