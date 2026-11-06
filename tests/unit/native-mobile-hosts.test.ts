@@ -203,7 +203,7 @@ describe('route control on this device', () => {
     registry.onListingChange((change) => { if (change.kind === 'put') heard.push(change.listing.routes.map((route) => route.url)) })
     registry.removeRoute('inst-a', pairedAt.url)
     expect(heard).toEqual([['http://10.0.0.9:3000']])
-    await registry.applyHostList('user-1', [listing], new Set(['inst-a']))
+    registry.setListedHosts([listing])
     expect(registry.host('inst-a')?.routes.map((route) => route.url)).toEqual(['http://10.0.0.9:3000'])
   })
 

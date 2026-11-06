@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { checkRouteToAdd, newRouteRefusalText, routeInUse, routeRows, routeUrlFromInput, withoutRoute, withRouteMoved, withUserRoute, type NewRouteInput, type RouteHolder } from '@solus/client-core/host-route-control'
-import { listingOf, reconcileHostList } from '@solus/client-core/host-list-sync'
+import { listingOf } from '@solus/client-core/host-list-source'
 import type { SavedServer } from '@solus/client-core/server-registry'
 import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
 import { dialableRoutes, dialChoicesOf, type HostRoute } from '@solus/contracts/host-routes'
@@ -198,11 +198,10 @@ describe('routes and the host list', () => {
     expect(Object.keys(listing ?? {})).not.toContain('routeOrder')
   })
 
-  test('a removed route does not come back from another device, and the order and the token flag stay', () => {
-    const local = withoutRoute(server({ routes: [pairing, tunnel], tokenPairedOverHttps: true, routeOrder: [tunnel.url, pairing.url] }), pairing.url)
-    const fromOtherDevice = listingOf(server())!
-    const { saved } = reconcileHostList([local], [fromOtherDevice], new Set([INSTALLATION]))
-    expect(saved[0]?.routes.map((route) => route.url)).toEqual([tunnel.url])
-    expect(saved[0]).toMatchObject({ tokenPairedOverHttps: true, routeOrder: [tunnel.url] })
+  test('a removed route leaves the listing, and the order and the token flag stay', () => {
+    const local = withoutRoute(server({ routes: [pairing, learned, tunnel], tokenPairedOverHttps: true, routeOrder: [tunnel.url, pairing.url, learned.url] }), pairing.url)
+    expect(local.routes.map((route) => route.url)).toEqual([learned.url, tunnel.url])
+    expect(local).toMatchObject({ tokenPairedOverHttps: true, routeOrder: [tunnel.url, learned.url] })
+    expect(listingOf(local)?.routes.map((route) => route.url)).not.toContain(pairing.url)
   })
 })
