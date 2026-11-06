@@ -157,7 +157,7 @@
       <SpinnerIcon size={14} class="shrink-0 animate-spin text-(--solus-text-tertiary) motion-reduce:animate-none" aria-hidden="true" />
     {:else if actionLabel}
       <span class="flex shrink-0 items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2.5 py-0.5 text-xs text-(--solus-accent)">
-        {#if actionLabel === CONNECT_HOST_ACTION_LABELS.retry}<RetryIcon size={11} />{/if}{actionLabel}
+        {#if actionLabel === HOST_READINESS_ACTION_LABELS.retry}<RetryIcon size={11} />{/if}{actionLabel}
       </span>
     {:else if onSelect}
       <ChevronIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
