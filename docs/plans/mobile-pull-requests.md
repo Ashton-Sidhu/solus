@@ -114,6 +114,8 @@ These use host calls that were added after the first port
   asked for it. An organization that enforces SAML SSO answers an upload with a
   sign-in page, so the host renders the upload through GitHub's Markdown API in
   that repository, as that person, and fetches the signed URL with no token.
+  The host keeps that URL for 4 minutes for each account, repository, and
+  upload, so a video seek does not render again.
 
 ### Diff surface
 
