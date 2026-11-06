@@ -90,6 +90,10 @@ const CLIENTS = {
 }
 
 const DEFERRED_COMPONENTS = [
+  // Opens only after a host fails, when a person asks why.
+  'packages/workspace-ui/src/components/conversation/HostUnavailableDetails.svelte',
+  'packages/client-core/src/host-connection-diagnosis.ts',
+  'packages/client-core/src/host-connection-check.ts',
   'packages/workspace-ui/src/components/sharing/ShareDialog.svelte',
   'packages/workspace-ui/src/components/session/unified-picker/UnifiedPicker.svelte',
   'packages/workspace-ui/src/components/project-panel/ProjectPanel.svelte',

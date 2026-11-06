@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { hostDiagnosticsText, type HostDiagnostics } from '@solus/client-core/host-diagnostics'
-import { diagnoseHostConnection } from '@solus/client-core/host-connection-diagnosis'
+import type { HostDiagnostics } from '@solus/client-core/host-diagnostics'
+import { diagnoseHostConnection, hostDiagnosticsText } from '@solus/client-core/host-connection-diagnosis'
 import type { AddressAnswer, HostConnectionCheck, RouteAnswer } from '@solus/client-core/host-connection-check'
 
 // A lying status is a correctness bug: a stage is `ok` only with evidence, and a stage

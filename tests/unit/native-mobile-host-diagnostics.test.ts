@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { hostDiagnosticsText } from '@solus/client-core/host-diagnostics'
+import { hostDiagnosticsText } from '@solus/client-core/host-connection-diagnosis'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { hostSettingsErrorText } from '../../apps/mobile/src/features/settings/host-settings'
 import { hostAsleepCardCopy, threadHostChrome } from '../../apps/mobile/src/features/threads/lib/thread-host-chrome'
-import { createHostWorld, flushPromises } from './helpers/native-mobile-fakes'
+import { createHostWorld } from './helpers/native-mobile-fakes'
 
 // A host that is away puts its thread to sleep under one statement of what
 // happened, with the facts a person needs to find the cause or to send to
@@ -54,7 +54,8 @@ describe('host diagnostics on the phone', () => {
     const dials = transports.length
     connections.checkConnection('inst-a')
     expect(connections.diagnostics('inst-a').isCheckingConnection).toBe(true)
-    await flushPromises()
+    // The check loads first, so it ends a few steps later.
+    while (connections.diagnostics('inst-a').isCheckingConnection) await Bun.sleep(1)
     const check = connections.diagnostics('inst-a').connectionCheck
     expect(check?.routes[0]?.answer).toEqual({ kind: 'status', status: 530 })
     expect(transports).toHaveLength(dials)

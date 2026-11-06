@@ -2,8 +2,8 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
-import { hostDiagnosticRows, hostDiagnosticsText } from "@solus/client-core/host-diagnostics";
-import { diagnoseHostConnection } from "@solus/client-core/host-connection-diagnosis";
+import { hostDiagnosticRows } from "@solus/client-core/host-diagnostics";
+import { diagnoseHostConnection, hostDiagnosticsText } from "@solus/client-core/host-connection-diagnosis";
 import { HOST_READINESS_ACTION_LABELS, type HostReadinessAction } from "@solus/client-core/host-readiness";
 
 import { useApp, useListened } from "../../app/app-context";

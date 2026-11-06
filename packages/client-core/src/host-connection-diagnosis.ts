@@ -1,7 +1,7 @@
-import type { ConnectionStage, ConnectionStageReport, ConnectionStageResult } from '@solus/contracts/host-connection'
+import { connectionStageLine, type ConnectionStage, type ConnectionStageReport, type ConnectionStageResult } from '@solus/contracts/host-connection'
 import type { RouteKind } from '@solus/contracts/host-routes'
 import type { AddressAnswer, HostConnectionCheck, RouteAnswer } from './host-connection-check'
-import type { HostDiagnostics } from './host-diagnostics'
+import { hostDiagnosticRows, type HostDiagnostics } from './host-diagnostics'
 import { hostReadinessCopy } from './host-readiness'
 
 /**
@@ -304,4 +304,16 @@ export function diagnoseHostConnection(diagnostics: HostDiagnostics): HostConnec
     checkedAt: check?.at ?? null,
     isChecking: isCheckingConnection,
   }
+}
+
+/** The rows as plain text, for a support message. */
+export function hostDiagnosticsText(diagnostics: HostDiagnostics, now = Date.now()): string {
+  const rows = [
+    { label: 'Host', value: diagnostics.label },
+    { label: 'Status', value: hostReadinessCopy(diagnostics.state, diagnostics.label, now).label },
+    ...hostDiagnosticRows(diagnostics, now),
+  ].map((row) => `${row.label}: ${row.value}`)
+  const diagnosis = diagnoseHostConnection(diagnostics)
+  const stages = diagnosis ? ['', diagnosis.checkedAt === null ? 'Stages (no check ran):' : 'Stages:', ...diagnosis.stages.map(connectionStageLine)] : []
+  return [`Solus host diagnostics, ${new Date(now).toISOString()}`, ...rows, ...stages].join('\n')
 }

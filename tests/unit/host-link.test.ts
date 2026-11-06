@@ -310,6 +310,8 @@ describe('the connection check', () => {
     hostLink.start()
     const run = hostLink.checkConnection()
     transport.report({ kind: 'accepted', recovered: false })
+    // The check loads first, so its requests start a step later.
+    while (answers.length === 0) await settle()
     for (const answer of answers) answer(response(530))
     await run
     expect(hostLink.connectionCheck).toBeNull()

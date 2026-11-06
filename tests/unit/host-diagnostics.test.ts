@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { hostDiagnosticRows, hostDiagnosticsText, type HostDiagnostics } from '@solus/client-core/host-diagnostics'
+import { hostDiagnosticRows, type HostDiagnostics } from '@solus/client-core/host-diagnostics'
+import { hostDiagnosticsText } from '@solus/client-core/host-connection-diagnosis'
 
 // A host that is not ready shows what a person needs to debug it, or to send to
 // support (docs/plans/host-readiness.md). The same rows on every client.

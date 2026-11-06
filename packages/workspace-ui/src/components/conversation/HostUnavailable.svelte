@@ -6,13 +6,9 @@
     isWaitingForHost,
     type HostReadinessAction,
   } from "@solus/client-core/host-readiness";
-  import { hostDiagnosticRows, hostDiagnosticsText } from "@solus/client-core/host-diagnostics";
-  import { diagnoseHostConnection } from "@solus/client-core/host-connection-diagnosis";
   import { getWorkspaceContext } from "../../contexts";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
-  import HostConnectionStages from "../connections/HostConnectionStages.svelte";
-  import { copyText } from "../../lib/toasts";
   import { Button } from "../ui/button";
 
   /**
@@ -45,19 +41,10 @@
   const copy = $derived(hostReadinessCopy(readiness, label, now));
 
   let detailsOpen = $state(false);
-  const rows = $derived(detailsOpen ? hostDiagnosticRows(serversStore.diagnosticsFor(serverId), now) : []);
-  const diagnosis = $derived(detailsOpen ? diagnoseHostConnection(serversStore.diagnosticsFor(serverId)) : null);
 
   function toggleDetails() {
     detailsOpen = !detailsOpen;
     if (detailsOpen) serversStore.checkConnection(serverId);
-  }
-
-  let copied = $state(false);
-  async function copyDetails() {
-    await copyText(hostDiagnosticsText(serversStore.diagnosticsFor(serverId)));
-    copied = true;
-    setTimeout(() => (copied = false), 1500);
   }
 
   function openHostSettings() {
@@ -113,40 +100,11 @@
       </div>
 
       {#if detailsOpen}
-        <div id="host-details-{serverId}" class="mt-4 flex w-full flex-col gap-3 text-left">
-          {#if diagnosis}
-            <p class="text-workspace-chrome font-medium text-(--solus-text-primary)">
-              {diagnosis.isChecking && !diagnosis.checkedAt ? "Checking the connection…" : diagnosis.headline}
-            </p>
-            <HostConnectionStages stages={diagnosis.stages} />
-            {#if diagnosis.steps.length > 0}
-              <ol class="list-decimal pl-5 text-chrome-dense text-(--solus-text-secondary) select-text">
-                {#each diagnosis.steps as step (step)}
-                  <li>{step}</li>
-                {/each}
-              </ol>
-            {/if}
-          {/if}
-          <dl class="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-1.5 text-chrome-dense">
-            {#each rows as row (row.label)}
-              <dt class="font-medium text-(--solus-text-primary)">{row.label}</dt>
-              <dd class="min-w-0 break-words text-(--solus-text-secondary) select-text" class:font-mono={row.isCode}>{row.value}</dd>
-            {/each}
-          </dl>
-          <div class="flex justify-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              class="text-(--solus-text-secondary)"
-              disabled={diagnosis?.isChecking}
-              onclick={() => serversStore.checkConnection(serverId)}
-            >
-              {diagnosis?.isChecking ? "Checking…" : "Check again"}
-            </Button>
-            <Button variant="ghost" size="sm" class="text-(--solus-text-secondary)" onclick={copyDetails}>{copied ? "Copied" : "Copy details"}</Button>
-            <Button variant="ghost" size="sm" class="text-(--solus-text-secondary)" onclick={openHostSettings}>Host settings</Button>
-          </div>
-        </div>
+        {#await import("./HostUnavailableDetails.svelte") then { default: HostUnavailableDetails }}
+          <HostUnavailableDetails {serverId} {now} onOpenHostSettings={openHostSettings} />
+        {:catch}
+          <p class="mt-4 text-chrome-dense text-(--solus-text-secondary)">Solus could not load the details. Reload and try again.</p>
+        {/await}
       {/if}
     </div>
   </div>

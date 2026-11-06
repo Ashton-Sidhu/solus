@@ -472,7 +472,7 @@
                 {/snippet}
               </TooltipUI.Trigger>
               <TooltipUI.Content
-                value={`Where the next session runs — now: ${hostLabel(selectedServer)}${draft?.balance ? ` · Auto balance: ${draft.balance}` : ""}`}
+                value={`Where the next session runs — now: ${hostLabel(selectedServer)}${draft?.balance === "chosen" ? " · chosen by Auto balance" : draft?.balance === "unavailable" ? " · Auto balance unavailable, choose a host" : ""}`}
               />
             </TooltipUI.Root>
           {:else}

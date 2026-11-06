@@ -6,7 +6,7 @@ import { HostFacts, type HostPresence } from './host-facts'
 import { HostSupervisor, type DialOutcome } from './host-supervisor'
 import type { LinkReadiness, RefusedReason } from './host-readiness'
 import type { DialError } from './host-diagnostics'
-import { runConnectionCheck, type HostConnectionCheck } from './host-connection-check'
+import type { HostConnectionCheck } from './host-connection-check'
 import { installationIdDecision, type SavedServerUplink } from './server-registry'
 import type { WakeSignal } from './wake-signals'
 import { readHostHealth, type HostHealth } from './host-http'
@@ -224,6 +224,8 @@ export class HostLink {
 
   private async runConnectionCheck(): Promise<void> {
     try {
+      // Only a person who opens a failed host's details loads this.
+      const { runConnectionCheck } = await import('./host-connection-check')
       const check = await runConnectionCheck({
         routes: this.dialable(),
         cloudUrl: this.options.cloudUrl?.() ?? null,
