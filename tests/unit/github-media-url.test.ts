@@ -226,6 +226,21 @@ describe('an upload in an organization that enforces SAML SSO', () => {
     expect(deps.fetched.at(-1)?.url).toBe(signedUpload(2))
   })
 
+  test('a signed URL whose media failed to load is not cached', async () => {
+    const deps = githubFetch({
+      [ATTACHMENT]: SIGN_IN_PAGE,
+      [signedUpload(1)]: () => new Response(null, { status: 503 }),
+      [signedUpload(2)]: VIDEO,
+    })
+    const { payload } = signedMedia(ATTACHMENT, PR_REPOSITORY)
+
+    expect((await serveGithubMedia(payload, { method: 'GET' }, deps)).status).toBe(502)
+    expect(deps.signedUrls.size).toBe(0)
+
+    expect((await serveGithubMedia(payload, { method: 'GET' }, deps)).status).toBe(200)
+    expect(deps.rendered).toHaveLength(2)
+  })
+
   test('a signed URL does not outlive its time limit', async () => {
     const deps = githubFetch({ [ATTACHMENT]: SIGN_IN_PAGE, [signedUpload(1)]: VIDEO, [signedUpload(2)]: VIDEO })
     const { payload } = signedMedia(ATTACHMENT, PR_REPOSITORY)
