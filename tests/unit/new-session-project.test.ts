@@ -71,7 +71,7 @@ function draftsInOnePane(modelOptionsByProvider: import('@solus/contracts/host-c
   const pane = { id: 'lead', surfaces: [] as Surface[], activeSurfaceIndex: 0 }
   let drafts: InstanceType<typeof SessionDrafts>
   const workspace = {
-    settings: { modelOptionsByProvider },
+    settings: { modelOptionsByProvider, hostBalancing: { enabled: false, preferences: {} } },
     activeTabId: '',
     defaultRunConfig: runIn(NEW_CHAT.directory),
     get focusedSourceId() {

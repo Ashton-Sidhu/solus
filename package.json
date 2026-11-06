@@ -180,6 +180,10 @@
           "to": "transcription"
         },
         {
+          "from": "build/resource-monitor/bin",
+          "to": "resource-monitor"
+        },
+        {
           "from": "packaging/windows/path-entry.ps1",
           "to": "path-entry.ps1"
         }
@@ -242,6 +246,10 @@
       {
         "from": "build/transcription/bin",
         "to": "transcription"
+      },
+      {
+        "from": "build/resource-monitor/bin",
+        "to": "resource-monitor"
       }
     ]
   },

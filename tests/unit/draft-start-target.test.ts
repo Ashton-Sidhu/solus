@@ -46,7 +46,7 @@ function draftsThatRecordReads() {
   const pane = { id: 'lead', surfaces: [] as { name: string; params: { draftId: string } }[], activeSurfaceIndex: 0 }
   const reads: string[] = []
   const workspace = {
-    settings: { modelOptionsByProvider: {} },
+    settings: { modelOptionsByProvider: {}, hostBalancing: { enabled: false, preferences: {} } },
     activeTabId: '',
     defaultRunConfig: runIn('/Users/me/workspace'),
     focusedSourceId: null,

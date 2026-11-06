@@ -197,6 +197,10 @@ import { PersonalRequests } from './transport/events/agent-personal-requests'
 import { registerBrowserHandlers } from './transport/handlers/browser-handlers'
 import { registerChecksHandlers } from './transport/handlers/checks-handlers'
 import { registerUsageHandlers } from './transport/handlers/usage-handlers'
+import { registerHostResourceHandlers } from './transport/handlers/host-resource-handlers'
+import { HostResourceReader } from './host/host-resources'
+import { ResourceMonitor, resolveResourceMonitorPath } from './host/resource-monitor'
+import { ResourceTelemetry } from './host/resource-telemetry'
 import { registerSkillsHandlers } from './transport/handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './transport/handlers/pinned-sessions-handlers'
 import { registerHostListHandlers } from './transport/handlers/host-list-handlers'
@@ -1047,6 +1051,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     seats,
     clientsForSeat,
   })
+  const resourceTelemetry = new ResourceTelemetry({
+    resolvePath: resolveResourceMonitorPath,
+    createMonitor: (options) => new ResourceMonitor(options),
+    publish: (clientIds, event) => { events.publish(clientIds, 'host.telemetry', event) },
+    rootPid: process.pid,
+    now: Date.now,
+  })
+  registerHostResourceHandlers(server, { reader: new HostResourceReader(), telemetry: resourceTelemetry })
   registerSkillsHandlers(server, { sessionRuntime: opts.sessionRuntime, seats })
   registerPinnedSessionsHandlers(server)
   registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) })
@@ -1639,6 +1651,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       prSync.dropConnection(clientId)
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
+      resourceTelemetry.unsubscribe(clientId)
     },
     onClientExpired: ({ clientId }) => {
       opts.sessionRuntime.watchers.handleClientExpired(clientId)
@@ -1799,6 +1812,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         prSync.dropConnection(clientId)
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)
+        resourceTelemetry.unsubscribe(clientId)
       },
       onClientExpired: ({ clientId }) => {
         opts.sessionRuntime.watchers.handleClientExpired(clientId)
@@ -1884,6 +1898,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopMetricsRollover()
         prSync.stop()
         prWatcher.stop()
+        resourceTelemetry.stop()
         hostUpdates.stop()
         modelProfiles.stop()
         remoteUpdates.stop()

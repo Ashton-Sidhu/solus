@@ -25,6 +25,8 @@ import IconArrowsLeftRight from "@tabler/icons-react-native/IconArrowsLeftRight"
 import IconArrowsDiagonal2 from "@tabler/icons-react-native/IconArrowsDiagonal2";
 import IconArrowsMinimize from "@tabler/icons-react-native/IconArrowsMinimize";
 import IconBellRinging from "@tabler/icons-react-native/IconBellRinging";
+import IconGauge from "@tabler/icons-react-native/IconGauge";
+import IconScale from "@tabler/icons-react-native/IconScale";
 import IconBolt from "@tabler/icons-react-native/IconBolt";
 import IconBox from "@tabler/icons-react-native/IconBox";
 import IconBrain from "@tabler/icons-react-native/IconBrain";
@@ -182,6 +184,8 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "folder.badge.plus": IconFolderPlus,
   "folder.fill": IconFolder,
   gearshape: IconSettings,
+  gauge: IconGauge,
+  scalemass: IconScale,
   globe: IconWorld,
   hammer: IconHammer,
   house: IconHome,

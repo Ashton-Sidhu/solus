@@ -23,7 +23,11 @@ bun run package:server --headless --platform linux --arch x64
 ```
 
 The archive is `release/solus-server-headless-linux-x64.tar.gz`. It includes the
-Node runtime, server, CLI, migrations, launchers, plugins, and browser driver.
+Node runtime, server, CLI, migrations, launchers, plugins, browser driver, and
+resource monitor. The monitor needs `cargo` on the build machine. A package made
+with no `cargo` warns and leaves the monitor out, and in CI it fails. Without the
+monitor, the host shows machine load but no process details. A Linux target can be
+built from any machine; a macOS or Windows target must be built on that system.
 Chromium still needs a separate install on the target host. No existing desktop
 or web client build is required. The archive has a separate name so it does not
 replace the standard package. `release/SHA256SUMS` includes both package variants.

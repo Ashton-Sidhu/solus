@@ -3,6 +3,7 @@ import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanc
 import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
 import type { CheckoutSnapshot } from './checkout'
+import type { HostResources, HostTelemetry } from './host-resources'
 import type { WorktreeOfferResolution } from './activity'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
@@ -716,6 +717,13 @@ export interface SolusAPI {
   /** Cached subscription quota per provider. Asking also keeps the backend's
    *  poll alive — it suspends itself once nobody is watching. */
   usageLimits(): Promise<AgentUsageLimits[]>
+
+  /** This machine's load, read on demand and cached for 5 s. */
+  hostResources(): Promise<HostResources>
+  /** Start or renew this client's process telemetry, and read the current state.
+   *  A subscription ends 20 s after its last renewal (`host.telemetry`). */
+  hostTelemetrySubscribe(): Promise<HostTelemetry>
+  hostTelemetryUnsubscribe(): Promise<void>
 
   // Observability / Insights (metrics.db query engine)
   /** Grouped rows from a builder/preset QuerySpec, compiled server-side. */

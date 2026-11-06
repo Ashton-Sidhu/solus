@@ -53,6 +53,8 @@ import {
   type ProjectScope,
 } from "./new-task-project-selection";
 import { hostMachineKind, useNewTaskEnvironments } from "./NewTaskContextPickerScreens";
+import { newTaskHostLabel, settleNewTaskBalance, shouldBalanceNewTask } from "./lib/new-task-balance-candidates";
+import { useNewTaskBalance, useNewTaskBalanceCandidates, type NewTaskHostChoice } from "./new-task-balance";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
 import { NewTaskConnectHost, useNewTaskHostGate } from "./NewTaskConnectHost";
 
@@ -67,6 +69,8 @@ export function NewTaskRouteScreen({ route }: ScreenProps<"NewTask">) {
   const hostGate = useNewTaskHostGate();
   const hostId = route.params?.hostId;
   const projectPath = route.params?.projectPath;
+  const hostChoice = route.params?.hostChoice;
+  const balanceRequest = route.params?.balanceRequest;
   // No host can run a task, so there is no composer: ask for a host, and keep
   // the draft's text until one connects (docs/plans/draft-connect-host.md).
   if (hostGate === "connect") {
@@ -79,7 +83,7 @@ export function NewTaskRouteScreen({ route }: ScreenProps<"NewTask">) {
   }
   if (hostId && projectPath) {
     // The host picker opens another draft by changing these params.
-    return <NewTaskDraftScreen key={`${hostId}\n${projectPath}`} hostId={hostId} projectPath={projectPath} />;
+    return <NewTaskDraftScreen key={`${hostId}\n${projectPath}`} hostId={hostId} projectPath={projectPath} hostChoice={hostChoice} balanceRequest={balanceRequest} />;
   }
   return <NewTaskProjectScreen preferredHostId={hostId ?? null} />;
 }
@@ -436,7 +440,12 @@ function useDraftConversation(hostId: string, sessionId: string, workingDirector
   return { store, startedRef };
 }
 
-function NewTaskDraftScreen(props: { readonly hostId: string; readonly projectPath: string }) {
+function NewTaskDraftScreen(props: {
+  readonly hostId: string;
+  readonly projectPath: string;
+  readonly hostChoice: NewTaskHostChoice | undefined;
+  readonly balanceRequest: number | undefined;
+}) {
   const app = useApp();
   const chat = isChat(props.projectPath);
   const [sessionId] = useState(() => app.newSessionId());
@@ -457,6 +466,8 @@ function NewTaskDraftScreen(props: { readonly hostId: string; readonly projectPa
       sessionId={sessionId}
       hostId={props.hostId}
       projectPath={props.projectPath}
+      hostChoice={props.hostChoice}
+      balanceRequest={props.balanceRequest}
       chat={chat}
       onStarted={() => {
         startedRef.current = true;
@@ -535,6 +546,8 @@ function NewTaskDraftContent(props: {
   readonly sessionId: string;
   readonly hostId: string;
   readonly projectPath: string;
+  readonly hostChoice: NewTaskHostChoice | undefined;
+  readonly balanceRequest: number | undefined;
   readonly chat: boolean;
   readonly onStarted: () => void;
 }) {
@@ -589,8 +602,34 @@ function NewTaskDraftContent(props: {
   );
 
   const host = hosts.find((candidate) => candidate.id === props.hostId);
-  const selectedEnvironmentLabel = host?.label ?? "Host";
   const { scope, environments } = useNewTaskEnvironments(props.hostId, props.projectPath);
+  const balanceCandidates = useNewTaskBalanceCandidates(environments, meta.run.provider);
+  const [startedEmpty] = useState(() => prompt.trim() === "");
+  const balanceState = useNewTaskBalance({
+    shouldCheck: shouldBalanceNewTask({ balanceRequest: props.balanceRequest, hostChoice: props.hostChoice, startedEmpty }),
+    request: props.balanceRequest,
+    candidates: balanceCandidates,
+    read: (hostId) => {
+      const connection = app.connections.connection(hostId);
+      return connection ? connection.api.hostResources() : Promise.reject(new Error("Not connected"));
+    },
+    onChosen: (choice) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      return settleNewTaskBalance(
+        choice,
+        {
+          hostId: props.hostId,
+          draftKey,
+          text: prompt,
+          attachments: meta.attachments.length + meta.uploading,
+          submitting,
+          requested: props.balanceRequest !== undefined,
+        },
+        { saveDraft: (hostId, key, text) => app.saveDraft(hostId, key, text), setParams: (params) => navigation.setParams(params) },
+      );
+    },
+  });
+  const selectedEnvironmentLabel = newTaskHostLabel(balanceState, host?.label);
   const projectTitle = scope?.title ?? (hostPathBaseName(props.projectPath) || "project");
   const attachmentsFull = meta.attachments.length + meta.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT;
   const isComposerInteractionLocked = submitting;
@@ -622,7 +661,7 @@ function NewTaskDraftContent(props: {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     app.saveDraft(props.hostId, draftKey, prompt);
     void KeyboardController.dismiss({ animated: true });
-    navigation.navigate("NewTaskEnvironment", { hostId: props.hostId, projectPath: props.projectPath });
+    navigation.navigate("NewTaskEnvironment", { hostId: props.hostId, projectPath: props.projectPath, hostChoice: props.hostChoice });
   };
 
   const attach = async (pick: (existingCount: number) => Promise<PickedFile[]>) => {

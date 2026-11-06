@@ -20,6 +20,6 @@ export function useSetupHandoff(hostId: string): (handoff: SetupHandoff) => void
     const written = app.draft(hostId, draftKey).trim()
     const { prompt } = handoff
     app.saveDraft(hostId, draftKey, written ? `${written}\n\n${prompt}` : prompt)
-    navigation.navigate('NewTask', { hostId, projectPath: NEW_CHAT_DIRECTORY })
+    navigation.navigate('NewTask', { hostId, projectPath: NEW_CHAT_DIRECTORY, hostChoice: 'manual' })
   }
 }

@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'path'
 import { tmpdir } from 'os'
 import { spawn } from 'child_process'
 import { once } from 'events'
+import { buildResourceMonitor, RESOURCE_MONITOR_OUTPUT } from './build-resource-monitor'
 
 const NODE_VERSION = '24.18.0'
 const SUPPORTED_TARGETS = new Set(['darwin-arm64', 'linux-x64', 'linux-arm64', 'win32-x64'])
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
     await installFileFinder(target, staging, workDir)
     writeLaunchers(staging, target.platform)
     if (target.platform === 'linux') copyManagedBoot(staging)
+    installResourceMonitor(target, staging)
     writeNativeNote(staging)
     mkdirSync(join(staging, 'docs'), { recursive: true })
     cpSync(join(repoRoot, 'docs', 'linux-browser.md'), join(staging, 'docs', 'linux-browser.md'))
@@ -372,12 +374,22 @@ function copyManagedBoot(staging: string): void {
   chmodSync(boot, 0o755)
 }
 
+/** The server finds it at `libexec/native/resource-monitor` under SOLUS_INSTALL_DIR. */
+function installResourceMonitor(target: Target, staging: string): void {
+  if (!buildResourceMonitor(target)) return
+  cpSync(RESOURCE_MONITOR_OUTPUT, join(staging, 'libexec', 'native', 'resource-monitor'), { recursive: true })
+}
+
 function writeNativeNote(staging: string): void {
   const nativeDir = join(staging, 'libexec', 'native')
   mkdirSync(nativeDir, { recursive: true })
   writeFileSync(join(nativeDir, 'README.txt'), [
     'Voice transcription is supplied by the desktop native helper. The',
     'standalone server does not advertise voice transcription.',
+    '',
+    'solus-resource-monitor (process telemetry) IS shipped, at',
+    'libexec/native/resource-monitor, with its MIT notice. Without it the server',
+    'runs and reports only machine load.',
     '',
     '@ff-labs/fff-node (the file finder) IS shipped, at',
     'libexec/server/node_modules/@ff-labs/fff-node, with the native library for',

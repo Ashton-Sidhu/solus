@@ -337,3 +337,14 @@ manual control leases. Simlock lifecycle code is adapted in the server;
 the decoder is shared by the workspace and native WebView.
 The complete upstream MIT notice is also shipped in
 `resources/licenses/t3code-devices.txt`.
+
+## Resource telemetry and Auto balance (2026-11-04)
+
+`native/resource-monitor` is T3 Code's monitor at `dd5f98ee`, with only its crate name
+changed. The balance rule in `packages/client-core/src/host-balance.ts` and the memory
+read in `packages/server/src/host/host-resources.ts` are adapted from
+`packages/client-runtime/src/load-balancing.ts` and
+`apps/server/src/resourceTelemetry/HostResources.ts`. T3 Code leaves mobile on manual
+selection; Solus does not (`docs/plans/resource-telemetry.md`). The complete upstream
+MIT notice is in `resources/licenses/t3code-resource-monitor.txt`, and
+`native/resource-monitor/LICENSE` ships beside the binary.

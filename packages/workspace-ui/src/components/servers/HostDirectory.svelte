@@ -23,6 +23,7 @@
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
   import WslDistroRows from "./WslDistroRows.svelte";
+  import HostBalancingSection from "../connections/HostBalancingSection.svelte";
   import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
 
   // The registry can point at a host that is no longer saved, so trust the
@@ -109,6 +110,8 @@
     {/each}
   {/if}
 </SettingsSection>
+
+<HostBalancingSection />
 
 <SettingsSection label="Nearby">
   {#snippet action()}

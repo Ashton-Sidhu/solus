@@ -7,4 +7,5 @@ module.exports = async function beforePack(context) {
   if (context.electronPlatformName !== process.platform || (arch !== process.arch && process.platform !== 'darwin'))
     throw new Error(`Build the voice helper on the target platform: ${context.electronPlatformName}/${arch}`)
   execFileSync('bun', [path.join(__dirname, 'build-transcription.ts'), `--arch=${arch}`], { stdio: 'inherit' })
+  execFileSync('bun', [path.join(__dirname, 'build-resource-monitor.ts'), `--arch=${arch}`], { stdio: 'inherit' })
 }

@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsEnvironmentsRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { useEffect } from "react";
-import { RefreshControl } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -10,7 +10,9 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { ScreenProps } from "../../navigation/routes";
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
+import { SettingsRow } from "../settings/components/SettingsRow";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
+import { SettingsSection } from "../settings/components/SettingsSection";
 import { confirmForgetHost } from "./confirm-forget-host";
 
 /**
@@ -25,6 +27,7 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
   const account = useListened(app.account.changes, () => app.account.view);
   const directory = useListened(app.account.changes, () => app.account.directory);
   const headerIconColor = useUniwindTheme()["--color-icon"];
+  const balanceEnabled = useListened(app.personal.changes, () => app.personal.current().hostBalancing.enabled);
   const signedIn = account.kind === "signed-in";
   const localHosts = hosts.filter((host) => !host.uplink);
   const cloudHosts = hosts.filter((host) => host.uplink);
@@ -90,6 +93,19 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
             hosts={cloudHosts}
             onOpenHost={(host) => navigation.navigate("HostSettings", { hostId: host.id })}
           />
+        ) : null}
+
+        {hosts.length >= 2 ? (
+          <View className="mt-6">
+            <SettingsSection title="Auto balance">
+              <SettingsRow
+                icon="scalemass"
+                label="Balance new sessions"
+                value={balanceEnabled ? "On" : "Off"}
+                onPress={() => navigation.navigate("HostBalancing")}
+              />
+            </SettingsSection>
+          </View>
         ) : null}
       </ScrollView>
     </SettingsScreen>

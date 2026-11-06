@@ -119,6 +119,15 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               />
             </SettingsSection>
 
+            <SettingsSection title="Resources">
+              <SettingsRow
+                icon="gauge"
+                label="Resources"
+                value="CPU, memory, and processes"
+                onPress={() => navigation.navigate("HostResources", { hostId })}
+              />
+            </SettingsSection>
+
             {connected ? (
               <ForwardedHostsSection
                 hostId={hostId}

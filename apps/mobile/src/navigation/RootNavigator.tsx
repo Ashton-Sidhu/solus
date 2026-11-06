@@ -25,6 +25,8 @@ import { ThreadAgentsSheet } from '../features/threads/ThreadAgents'
 import { ProviderSubagentScreen } from '../features/threads/ProviderSubagentScreen'
 import { ThreadQueueSheet } from '../features/threads/ThreadQueueSheet'
 import { ThreadSettingsRouteScreen } from '../features/threads/ThreadSettingsSheet'
+import { HostBalancingScreen } from '../features/hosts/HostBalancingScreen'
+import { HostResourcesScreen } from '../features/hosts/HostResourcesScreen'
 import { NewTaskRouteScreen } from '../features/threads/NewTaskRouteScreen'
 import { NewTaskEnvironmentPickerRouteScreen } from '../features/threads/NewTaskContextPickerScreens'
 import { HostsScreen } from '../features/hosts/HostsScreen'
@@ -172,6 +174,8 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'NotificationSettings',
   'Policy',
   'HostSettings',
+  'HostResources',
+  'HostBalancing',
   'DeviceSettings',
   'Devices',
   'HostAccess',
@@ -361,6 +365,8 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="DeviceSettings" component={DeviceSettingsScreen} options={{ title: 'Devices' }} />
             <Stack.Screen name="Devices" component={DevicesScreen} options={{ title: 'Devices' }} />
             <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
+            <Stack.Screen name="HostResources" component={HostResourcesScreen} options={{ title: 'Resources' }} />
+            <Stack.Screen name="HostBalancing" component={HostBalancingScreen} options={{ title: 'Auto balance' }} />
             <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
             <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
             <Stack.Screen name="Webhooks" component={WebhooksScreen} options={{ title: 'Webhooks' }} />

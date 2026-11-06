@@ -180,6 +180,9 @@ const PERMISSION_OF_METHOD = {
   prApproveWorkflowRuns: 'host.git.write',
   openWorktreeTerminal: 'host.terminal',
   usageLimits: 'host.usage.read',
+  hostResources: HOST_USE,
+  hostTelemetrySubscribe: 'host.admin',
+  hostTelemetryUnsubscribe: 'host.admin',
   // Project files: reading a checkout's files, and changing them.
   searchFiles: 'host.files.read',
   listIgnoredProjectFiles: 'host.files.read',

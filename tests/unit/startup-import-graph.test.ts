@@ -114,6 +114,12 @@ const DEFERRED_COMPONENTS = [
   'apps/client/src/lib/palette-commands.ts',
   'apps/desktop/src/renderer/shell/desktop-palette.svelte.ts',
   'packages/workspace-ui/src/components/servers/lib/add-wsl-distro-commands.ts',
+  // Auto balance is off by default. It loads at its first check, and the Run on
+  // row with it (docs/plans/resource-telemetry.md).
+  'packages/workspace-ui/src/contexts/workspace/draft-balancer.ts',
+  'packages/workspace-ui/src/components/servers/AutoBalanceRow.svelte',
+  'packages/workspace-ui/src/components/servers/lib/run-on-balance.ts',
+  'packages/client-core/src/host-balance.ts',
   // Stores the first screen does not use; the contexts barrel does not re-export them.
   'packages/workspace-ui/src/contexts/webhooks/webhooks.store.svelte.ts',
   'packages/workspace-ui/src/contexts/webhooks/webhook-admin.store.svelte.ts',
