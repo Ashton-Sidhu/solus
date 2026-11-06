@@ -31,7 +31,7 @@ const WORK_BODY_BYTES = 16 * 1024 * 1024
 
 function bearer(c: ApiContext): string {
   const header = c.req.header('Authorization') ?? ''
-  return header.startsWith('Bearer ') ? header.slice(7) : ''
+  return header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : ''
 }
 function query<T extends z.ZodType>(c: ApiContext, schema: T): z.output<T> {
   if (Object.values(c.req.queries()).some(items => items.length !== 1)) throw new SolusApiError(400, 'INVALID_REQUEST', 'Duplicate query parameters are not allowed.')

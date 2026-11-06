@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestMarkdown.tsx and PullRequestMedia.tsx (MIT, see UPSTREAM.md).
 import { memo, useCallback, useContext, useMemo, useState } from 'react'
+import { githubMediaUrl } from '@solus/contracts/github-media'
 import { Linking, View } from 'react-native'
 import { useApp } from '../../../app/app-context'
 import { FilePreviewGallery } from '../../../components/FilePreviewGallery'
@@ -60,7 +61,7 @@ export const PullRequestMarkdown = memo(function PullRequestMarkdown(props: { re
   const segments = useMemo(() => splitPullRequestBody(props.markdown), [props.markdown])
   const gallery = useMemo(() => pullRequestImageGallery(props.markdown, media), [props.markdown, media])
   const openMarkdownLink = useCallback((href: string, imageEmbed: boolean) => {
-    const preview = resolveMarkdownMediaPreview(href, media, imageEmbed)
+    const preview = resolveMarkdownMediaPreview(imageEmbed ? githubMediaUrl(href) : href, media, imageEmbed)
     if (preview?.kind === 'video') return setVideoPreview((current) => current ?? preview.source)
     if (preview) return setFilePreview((current) => current ?? preview.source)
     const place = location ? { hostId: location.hostId, workingDirectory: location.projectPath } : null
@@ -72,14 +73,14 @@ export const PullRequestMarkdown = memo(function PullRequestMarkdown(props: { re
   const onLinkPress = useCallback((href: string) => openMarkdownLink(href, false), [openMarkdownLink])
   const onImagePress = useCallback((href: string) => openMarkdownLink(href, true), [openMarkdownLink])
   const renderImage = useCallback<MarkdownImageRenderer>((image) => {
-    const presentation = resolveMarkdownLinkPresentation(image.href)
+    const presentation = resolveMarkdownLinkPresentation(githubMediaUrl(image.href))
     // A relative image names a file in the repository, which the phone cannot read.
     if (presentation.kind !== 'external') return <ThreadMarkdownImageUnavailable alt={image.alt} />
     return <PullRequestMedia url={presentation.href} kind="image" caption={image.alt ?? undefined} onPreview={setFilePreview} />
   }, [])
   /** An image Enriched draws itself (in a table, list, or quote): GitHub media through the host's signed URL. */
   const resolveImageSource = useCallback<MarkdownImageSourceResolver>(async (image) => {
-    const preview = resolveMarkdownMediaPreview(image.href, media, true)
+    const preview = resolveMarkdownMediaPreview(githubMediaUrl(image.href), media, true)
     const uri = preview?.kind === 'image' ? await preview.source.resolveUri() : null
     if (uri === null) throw new Error('Markdown image is unavailable')
     return { uri }

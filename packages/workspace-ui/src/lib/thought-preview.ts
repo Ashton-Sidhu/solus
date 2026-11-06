@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import type { Message } from '@solus/contracts/types'
 
 /** A bound on what a tool message keeps: the row truncates with CSS long
@@ -20,7 +21,7 @@ export function thoughtPreview(text: string | undefined): string {
   while (start < text.length) {
     const end = text.indexOf('\n', start)
     const line = stripMarkdown(text.slice(start, end === -1 ? text.length : end))
-    if (line) return line.length > MAX_PREVIEW_CHARS ? `${line.slice(0, MAX_PREVIEW_CHARS - 1)}…` : line
+    if (line) return line.length > MAX_PREVIEW_CHARS ? `${cutText(line, MAX_PREVIEW_CHARS - 1)}…` : line
     if (end === -1) break
     start = end + 1
   }

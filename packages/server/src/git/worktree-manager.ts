@@ -18,6 +18,7 @@ import { worktreeIncludedPaths } from './worktree-include'
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
 
 const MAX_COMMIT_DIFF_CHARS = 20_000
+const MAX_CLEAN_PASSES = 4
 /** Cap the raw diff spawn so a huge working tree can't blow up memory; we slice to
  *  MAX_COMMIT_DIFF_CHARS afterward anyway, and treat an oversized diff as empty. */
 const MAX_COMMIT_DIFF_BYTES = 2_000_000
@@ -573,6 +574,22 @@ export async function buildCommitMessagePrompt(cwd: string): Promise<string> {
   ].join('\n')
 }
 
+/** Removing a new `.gitignore` shows the files it hid, so one `git clean` pass
+ *  is not enough. A chain of them needs one pass for each. Reads the untracked
+ *  list, not the output of `git clean`, which also names what it skips. False
+ *  when files still change after the last pass. */
+async function cleanUntrackedFiles(cwd: string): Promise<boolean> {
+  const untrackedFiles = () => runAsync('git', ['ls-files', '--others', '--exclude-standard'], cwd)
+  let before = await untrackedFiles()
+  for (let pass = 0; pass < MAX_CLEAN_PASSES; pass++) {
+    await runAsync('git', ['clean', '-fd'], cwd)
+    const after = await untrackedFiles()
+    if (after === before) return true
+    before = after
+  }
+  return false
+}
+
 /** Throw away everything uncommitted: tracked files back to HEAD, untracked
  *  files removed. `clean` stays off `-x` so ignored build output and installed
  *  dependencies survive — this discards work, not the checkout. */
@@ -587,7 +604,9 @@ export async function discardChanges(
     const discarded = status ? status.split('\n').filter(Boolean).length : 0
     if (discarded === 0) return { success: true, discarded: 0 }
     await runAsync('git', ['reset', '--hard', 'HEAD'], cwd)
-    await runAsync('git', ['clean', '-fd'], cwd)
+    if (!(await cleanUntrackedFiles(cwd))) {
+      return { success: false, discarded: 0, error: 'Some untracked files could not be removed.' }
+    }
     log.info('uncommitted_changes_discarded', { discarded, cwd })
     return { success: true, discarded }
   } catch (e: any) {

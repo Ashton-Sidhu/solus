@@ -1,3 +1,4 @@
+import { cutText, cutTextEnd } from '@solus/contracts/text-cut'
 import { createReadStream, existsSync, writeFileSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -957,11 +958,11 @@ const BACKGROUND_OUTPUT_TAIL_CHARS = 4_000
  *  its turn ends: the command, its exit code, and the end of its output. */
 export function codexBackgroundCommandWake(item: { command: string; exitCode?: number | null; aggregatedOutput?: string | null }): string {
   const command = item.command.length > BACKGROUND_COMMAND_TEXT_CHARS
-    ? `${item.command.slice(0, BACKGROUND_COMMAND_TEXT_CHARS)}…`
+    ? `${cutText(item.command, BACKGROUND_COMMAND_TEXT_CHARS)}…`
     : item.command
   const exit = item.exitCode === null || item.exitCode === undefined ? '' : ` (exit ${item.exitCode})`
   const output = (item.aggregatedOutput ?? '').trimEnd()
-  const tail = output.length > BACKGROUND_OUTPUT_TAIL_CHARS ? `…${output.slice(-BACKGROUND_OUTPUT_TAIL_CHARS)}` : output
+  const tail = output.length > BACKGROUND_OUTPUT_TAIL_CHARS ? `…${cutTextEnd(output, BACKGROUND_OUTPUT_TAIL_CHARS)}` : output
   const header = `A background command finished after your turn ended${exit}: ${command}`
   return tail ? `${header}\n\nOutput (last part):\n${tail}` : header
 }
@@ -973,7 +974,7 @@ const SUBAGENT_REPORT_CHARS = 4_000
  *  and the start of its report. Codex does not wake the parent for it. */
 export function codexSubagentWake(child: { threadId: string; status: 'completed' | 'failed'; report: string }): string {
   const report = child.report.trim()
-  const bounded = report.length > SUBAGENT_REPORT_CHARS ? `${report.slice(0, SUBAGENT_REPORT_CHARS)}…` : report
+  const bounded = report.length > SUBAGENT_REPORT_CHARS ? `${cutText(report, SUBAGENT_REPORT_CHARS)}…` : report
   const ending = child.status === 'failed' ? 'failed' : 'finished'
   const header = `A sub-agent you started ${ending} after your turn ended: ${child.threadId}`
   return bounded ? `${header}\n\n${child.status === 'failed' ? 'Error' : 'Report'}:\n${bounded}` : header

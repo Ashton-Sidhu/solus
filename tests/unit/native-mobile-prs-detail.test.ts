@@ -50,6 +50,20 @@ describe('pull request attachments (ported from T3)', () => {
     expect(pullRequestAttachments(body).map((attachment) => attachment.uri)).toEqual(['https://app.devin.ai/attachments/abc/ss_1.png'])
   })
 
+  test('a CRLF body keeps a code block whole', () => {
+    // WHY: GitHub keeps CRLF from a body written in a browser. An unread fence
+    // lifts a media link out of the code and cuts the block in two.
+    const body = 'Example:\r\n\r\n```html\r\n<video src="https://a.example/x.mp4">\r\n</video>\r\n```\r\n\r\nDone'
+    expect(splitPullRequestBody(body).map((segment) => segment.kind)).toEqual(['markdown'])
+    expect(pullRequestAttachments(body)).toEqual([])
+  })
+
+  test('a root-relative image is on github.com, so the attachment strip shows it', () => {
+    expect(pullRequestAttachments('![Shot](/acme/app/raw/main/a.png)')).toEqual([
+      { uri: 'https://github.com/acme/app/raw/main/a.png', caption: 'Shot', kind: 'image' },
+    ])
+  })
+
   test('the body splits around standalone media; a fenced link stays Markdown', () => {
     const segments = splitPullRequestBody('Intro\n\nhttps://a.example/v.mp4\n\n```\nhttps://a.example/x.mp4\n```\n\n<video src="https://a.example/clip">\n</video>')
     expect(segments.map((segment) => segment.kind === 'attachment' ? `${segment.media}:${segment.url}` : segment.text)).toEqual([

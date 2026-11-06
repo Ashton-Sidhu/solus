@@ -619,6 +619,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       approval={activePendingApproval}
                       respondingApprovalId={respondingRequestId}
                       mayDrive={mayApprove}
+                      maxHeight={pendingUserInputMaxHeight}
                       onRespond={answerPermission}
                     />
                   ) : null}

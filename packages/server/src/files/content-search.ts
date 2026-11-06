@@ -97,7 +97,7 @@ export async function searchProjectContents(
   const finder = await getContentFinder(root)
   if (!finder) return { ok: false, error: 'Content search is unavailable for this project.' }
 
-  const { query, regexMode } = buildQuery(request)
+  let { query, regexMode } = buildQuery(request)
   const deadline = Date.now() + TIME_BUDGET_MS
   // Grep cursors advance a whole file at a time, so whole-word post-filtering
   // needs enough raw candidates from the current file before moving on.
@@ -108,8 +108,10 @@ export async function searchProjectContents(
   const matches: ProjectContentMatch[] = []
   let cursor: GrepCursor | null = null
   let regexError: string | undefined
+  let retryLiterally = false
 
   do {
+    retryLiterally = false
     const remainingMs = Math.max(1, deadline - Date.now())
     const result = finder.grep(query, {
       mode: regexMode ? 'regex' : 'plain',
@@ -122,6 +124,17 @@ export async function searchProjectContents(
     if (!result.ok) {
       log.warn('content_search_grep_failed', { root, error: String(result.error) })
       return { ok: false, error: 'Search failed.' }
+    }
+
+    // A pattern that does not compile falls back to a literal search for the
+    // text as given, and here that text starts with the `(?i)` of buildQuery.
+    if (result.value.regexFallbackError !== undefined && regexMode && !request.caseSensitive) {
+      regexError = result.value.regexFallbackError
+      query = request.query.toLowerCase()
+      regexMode = false
+      cursor = null
+      retryLiterally = true
+      continue
     }
 
     for (const item of result.value.items) {
@@ -138,7 +151,7 @@ export async function searchProjectContents(
     }
     cursor = result.value.nextCursor
     regexError ??= result.value.regexFallbackError
-  } while (matches.length < CONTENT_SEARCH_MAX_MATCHES && cursor !== null && Date.now() < deadline)
+  } while (retryLiterally || (matches.length < CONTENT_SEARCH_MAX_MATCHES && cursor !== null && Date.now() < deadline))
 
   const result: ProjectContentSearchResult = {
     ok: true,

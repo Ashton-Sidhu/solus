@@ -55,12 +55,14 @@ export function buildGitWatchTargets(paths: GitWatchPaths): GitWatchTarget[] {
   add(path.dirname(paths.indexPath), false, path.basename(paths.indexPath))
   add(paths.commonDir, false, 'packed-refs')
   add(path.join(paths.commonDir, 'refs', 'heads'), true)
+  // A push or fetch moves only the remote ref, and ahead and behind count from it.
+  add(path.join(paths.commonDir, 'refs', 'remotes'), true)
   return [...targets.values()]
 }
 
 /**
- * Watches a git repo's HEAD / refs/heads / index for external changes — branch
- * switch, commit, stage done in a terminal — and fires a debounced callback so
+ * Watches a git repo's HEAD / refs / index for external changes — branch
+ * switch, commit, stage, push done in a terminal — and fires a debounced callback so
  * every mounted environment view can mirror reality instead of drifting.
  *
  * Keyed and ref-counted by checkout cwd so tabs on the same checkout share one

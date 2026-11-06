@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import { MODEL_PROFILES, REASONING_EFFORT_LABELS, modelLabelFor, type AgentId, type Message } from '@solus/contracts/types'
 import { getToolDescription, participleFor } from './activity-summary'
 import { parseSubagentInput } from './subagent'
@@ -103,7 +104,7 @@ function resultSummary(message: Message, subs: Message[]): string {
     .map((line) => line.trim())
     .find(Boolean)
   if (!first) return 'Done'
-  return first.length > 120 ? `${first.slice(0, 117)}…` : first
+  return first.length > 120 ? `${cutText(first, 117)}…` : first
 }
 
 export function subagentName(message: Message): string {

@@ -37,9 +37,10 @@ export function enrichedLinkVariantPattern(url: string) {
  * Conservative recognition for Enriched's whole-span inline-code link hook. It
  * compiles natively too: ICU and java.util.regex read a bare `[` in a class as a
  * nested set, so it stays escaped. A leading `$` is a shell expansion, not a file.
+ * A path with a `...` or `…` segment is an agent's shortened path, not a file.
  */
 export const ENRICHED_INLINE_FILE_LINK_REGEX =
-  /^(?!\S*:\/\/)(?:(?:\.{1,2}[\\/]|~[\\/]|\/(?:Users|home|tmp|var|etc|opt|mnt|Volumes|private|root|usr|bin|sbin|lib|lib64|srv|dev|proc|sys|run|boot|media|workspace|workspaces)\/|[A-Za-z]:[\\/])[^\s`]+|(?!\$)(?:[A-Za-z0-9._$+@()\[\]-]+[\\/])+[A-Za-z0-9._$+@()\[\]-]+\.[A-Za-z0-9_-]+(?::\d+){0,2}|[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+:\d+(?::\d+)?)$/;
+  /^(?!\S*:\/\/)(?!(?:.*[\\/])?(?:\.{3,}|\u2026)(?::\d+){0,2}(?:[\\/]|$))(?:(?:\.{1,2}[\\/]|~[\\/]|\/(?:Users|home|tmp|var|etc|opt|mnt|Volumes|private|root|usr|bin|sbin|lib|lib64|srv|dev|proc|sys|run|boot|media|workspace|workspaces)\/|[A-Za-z]:[\\/])[^\s`]+|(?!\$)(?:[A-Za-z0-9._$+@()\[\]-]+[\\/])+[A-Za-z0-9._$+@()\[\]-]+\.[A-Za-z0-9_-]+(?::\d+){0,2}|[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+:\d+(?::\d+)?)$/;
 
 // Start only at the beginning of a backtick run (T3 #24263), so a long run is not retried at every suffix.
 const INLINE_CODE_SPAN = /(?<!`)`+([^`\r\n]+)`+/g;

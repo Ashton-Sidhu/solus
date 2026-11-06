@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import type { SessionRuntime } from '../session-runtime'
 import { HOST_ACTOR, type AgentVia } from '../../admission/actor'
 import { getIndexedSession } from '../../db/session-indexer'
@@ -63,7 +64,7 @@ function stoppingAgent(sessionId: string): AgentVia {
   const meta = getIndexedSession(sessionId)
   const agent: AgentVia = { sessionId }
   if (meta?.provider) agent.provider = meta.provider
-  const title = meta?.customTitle || meta?.slug || meta?.firstMessage?.slice(0, 80)
+  const title = meta?.customTitle || meta?.slug || (meta?.firstMessage && cutText(meta.firstMessage, 80))
   if (title) agent.title = title
   return agent
 }

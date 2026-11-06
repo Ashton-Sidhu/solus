@@ -1,4 +1,5 @@
 <script module lang="ts">
+  import { cutText } from "@solus/contracts/text-cut";
   export interface HeaderStats {
     files: number;
     additions: number;
@@ -157,7 +158,7 @@
   );
 
   function turnTooltipFor(turn: TurnSnapshot): string {
-    const summary = turn.userMessagePreview.slice(0, 60).trim();
+    const summary = cutText(turn.userMessagePreview, 60).trim();
     const label = `Turn ${turn.index + 1}${summary ? `: ${summary}${turn.userMessagePreview.length > 60 ? "…" : ""}` : ""}`;
     const stats = `${turn.filesChanged} file${turn.filesChanged === 1 ? "" : "s"} • +${turn.additions} −${turn.deletions}`;
     return `${label}\n${stats}`;

@@ -61,8 +61,8 @@ async function api() {
   await new Promise<void>((resolve) => built.server.listen(0, '127.0.0.1', resolve))
   const address = built.server.address()
   if (!address || typeof address === 'string') throw new Error('expected a TCP address')
-  const call = async (bearer: string, organizationId?: string) => (await fetch(`http://127.0.0.1:${address.port}/v1/capabilities`, {
-    headers: { authorization: `Bearer ${bearer}`, ...(organizationId ? { [SOLUS_API_ORGANIZATION_HEADER]: organizationId } : {}) },
+  const call = async (bearer: string, organizationId?: string, scheme = 'Bearer') => (await fetch(`http://127.0.0.1:${address.port}/v1/capabilities`, {
+    headers: { authorization: `${scheme} ${bearer}`, ...(organizationId ? { [SOLUS_API_ORGANIZATION_HEADER]: organizationId } : {}) },
   })).status
   return { tokens, call }
 }
@@ -77,6 +77,13 @@ describe('the Solus API over HTTP', () => {
     expect(await call(token, 'org_c')).toBe(401)
     expect(await call(token)).toBe(401)
     expect(await call('forged.token.value', 'org_a')).toBe(401)
+  })
+
+  test('an auth scheme ignores case, as RFC 9110 says', async () => {
+    const { tokens, call } = await api()
+    const token = tokens.mint(delegated)
+    expect(await call(token, undefined, 'bearer')).toBe(200)
+    expect(await call(token, undefined, 'BEARER')).toBe(200)
   })
 
   test("a host's delegated token admits its person in the organization it names", async () => {
