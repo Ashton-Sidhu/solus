@@ -189,7 +189,7 @@ export class RemoteHosts {
     const now = Date.now()
     return directory.flatMap((host): HostTarget[] => {
       const found = nearby.find((server) => server.installationId === host.installationId)
-      const discovered = found ? [routeForUrl(`http://${found.host}:${found.port}`)] : []
+      const discovered = found ? [routeForUrl(`http://${found.host}:${found.port}`, found.source === 'tailnet')] : []
       const learned = this.learned.get(host.installationId)
       const routes = routesForMachine(mergeRoutes(mergeRoutes(learned?.routes ?? [], host.routes, 'directory', now), discovered, 'discovery', now), host.kind)
       if (host.hostId === self || routes.length === 0) return []

@@ -30,6 +30,15 @@ describe('pairing handshake decoding', () => {
     expect(result.server.os).toBeUndefined()
   })
 
+  test('a token paired over HTTPS is marked, so it never starts to travel over plain HTTP', async () => {
+    respondWith({ sessionToken: 'tok', installationId: 'inst-1' })
+    const overHttps = await pairServer({ url: 'https://solus.example.com', pairToken: 'pair', deviceLabel: 'Test device' })
+    expect(overHttps.server.tokenPairedOverHttps).toBe(true)
+    expect(overHttps.server.routes[0]?.kind).toBe('public')
+    const overHttp = await pairServer({ url: 'http://192.168.1.20:3000', pairToken: 'pair', deviceLabel: 'Test device' })
+    expect(overHttp.server.tokenPairedOverHttps).toBeUndefined()
+  })
+
   test('a structured error body degrades to the status message, not a decode throw', async () => {
     // The server's real failure reason must never be replaced by a zod error
     // about the shape of the failure.

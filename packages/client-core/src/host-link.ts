@@ -1,4 +1,4 @@
-import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_RECHECK_MS, type HostRoute, type RouteCheck } from '@solus/contracts/host-routes'
+import { chooseRoute, dialableRoutes, earlierRouteBack, EARLIER_ROUTE_RECHECK_MS, ROUTE_HOLD_BACK_MS, type DialChoices, type HostRoute, type RouteCheck } from '@solus/contracts/host-routes'
 import { newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
@@ -21,8 +21,11 @@ import { readHostHealth, type HostHealth } from './host-http'
  * - a dial whose route was just picked does not check the host's identity again;
  * - the socket's own short connect timeout ends a dial on a route that stopped
  *   answering, and the supervisor's ladder dials again, through `chooseRoute`;
- * - while a host is reached through its tunnel, its direct routes are checked again
- *   now and then, and at each wake, and the link moves back when one answers;
+ * - while a host is reached on a route that is not its first, the earlier routes are
+ *   checked again now and then, at each wake, and when the order changes, and the
+ *   link moves back when one answers;
+ * - a route that answered but did not connect is passed over for a while, so a proxy
+ *   that passes `/health` and refuses the socket does not strand a working host;
  * - a fallback route (a guest's read-only mirror) is dialed only when no route of
  *   the host itself answers, and each later dial asks the host's routes first again.
  */
@@ -49,6 +52,8 @@ export interface HostLinkOptions {
   routes(): readonly HostRoute[]
   /** Routes dialed only when none of `routes` answers: a guest's read-only mirror. */
   fallbackRoutes?(): readonly HostRoute[]
+  /** The person's choices about these routes (docs/plans/host-routes.md §12). */
+  dialChoices?(): DialChoices
   /** Whether a route answers `/health` as this host. Never rejects. */
   answersAsHost: RouteCheck
   /** The page's origin: an `https:` page cannot dial an `http:` route. Empty for a native client. */
@@ -77,7 +82,11 @@ export class HostLink {
   readonly supervisor: HostSupervisor
   /** Everything read about this host, shared by every reader (docs/plans/host-model.md). */
   readonly facts: HostFacts
-  private directRecheck: ReturnType<typeof setTimeout> | null = null
+  private earlierRecheck: ReturnType<typeof setTimeout> | null = null
+  /** The route the last dial chose after it answered as this host; null until that dial ends. */
+  private chosenUrl: string | null = null
+  /** A route that answered but did not connect, and when it may be tried again. */
+  private heldBack: { url: string; until: number } | null = null
   private isDestroyed = false
 
   constructor(private readonly options: HostLinkOptions) {
@@ -94,13 +103,15 @@ export class HostLink {
       },
       onSessionChange: (change) => this.facts.sessionChanged(change),
       onReadinessChange: (readiness, attempt) => {
-        this.scheduleDirectRecheck()
+        this.scheduleEarlierRecheck()
         options.onReadinessChange?.(readiness, attempt)
       },
       setTimeoutFn: options.setTimeoutFn,
       clearTimeoutFn: options.clearTimeoutFn,
     })
     this.transport.attachDialOutcomeReporter((outcome) => {
+      if (outcome.kind === 'dial-failed' && this.chosenUrl) this.heldBack = { url: this.chosenUrl, until: Date.now() + ROUTE_HOLD_BACK_MS }
+      this.chosenUrl = null
       this.supervisor.report(outcome)
       options.onOutcome?.(outcome)
     })
@@ -149,40 +160,66 @@ export class HostLink {
     this.supervisor.dialNow()
   }
 
-  /** A wake is often a network change: a host reached through its tunnel may be on this network now. */
+  /** A wake is often a network change: an earlier route may answer on this network now. */
   wake(signal: WakeSignal): void {
     if (this.options.presence === 'gone') return
     this.supervisor.handleWakeSignal(signal)
-    if (this.readiness === 'ready') void this.returnToDirectRoute()
+    if (this.readiness === 'ready') void this.returnToEarlierRoute()
   }
 
-  /** The host's routes changed: a link aimed at a route no longer listed moves to the first one. */
+  /**
+   * The host's routes or their order changed. A link on a route it may no longer dial
+   * moves to the first one, and a connected link dials there now. Otherwise an earlier
+   * route gets its check now, and the next check runs a full interval from here.
+   */
   followRoutes(): void {
-    const routes = this.options.routes()
-    if (routes.some((route) => route.url === this.transport.serverUrl)) return
-    const [first] = this.dialable()
-    if (first) this.aimAt(first.url)
+    const dialable = this.dialable()
+    if (dialable.some((route) => route.url === this.transport.serverUrl)) {
+      if (this.readiness === 'ready') void this.returnToEarlierRoute()
+      this.scheduleEarlierRecheck()
+      return
+    }
+    const [first] = dialable
+    if (!first) return
+    const wasReady = this.readiness === 'ready'
+    this.aimAt(first.url)
+    if (wasReady) this.supervisor.dialNow()
   }
 
   destroy(): void {
     if (this.isDestroyed) return
     this.isDestroyed = true
-    this.clearDirectRecheck()
+    this.clearEarlierRecheck()
     this.supervisor.destroy()
     this.transport.destroy()
     this.facts.dispose()
   }
 
   private dialable(): HostRoute[] {
-    return dialableRoutes(this.options.routes(), this.options.clientOrigin ?? '', this.options.localHostId ?? null)
+    return dialableRoutes(this.options.routes(), this.options.clientOrigin ?? '', this.options.localHostId ?? null, this.options.dialChoices?.())
+  }
+
+  /** The routes a dial asks: all but a held-back one, unless it is the last. */
+  private candidates(): HostRoute[] {
+    const dialable = this.dialable()
+    const { heldBack } = this
+    if (!heldBack || heldBack.until <= Date.now()) return dialable
+    const others = dialable.filter((route) => route.url !== heldBack.url)
+    return others.length > 0 ? others : dialable
   }
 
   /** One dial, on the route that answers first as this host. */
   private dial(): void {
-    const dialable = this.dialable()
+    this.chosenUrl = null
+    const dialable = this.candidates()
     const fallback = dialableRoutes(this.options.fallbackRoutes?.() ?? [], this.options.clientOrigin ?? '', this.options.localHostId ?? null)
     // A route that needs a proof of the host is always asked first: its credential waits for the proof.
     const needsProof = dialable.some(routeNeedsProof)
+    // Every known route is one this client may not dial: the transport stays on none of them.
+    if (dialable.length === 0 && fallback.length === 0 && this.options.routes().length > 0) {
+      this.reportDialFailed()
+      return
+    }
     if (dialable.length < 2 && fallback.length === 0 && !needsProof) {
       if (dialable[0]) this.aimAt(dialable[0].url)
       this.transport.start()
@@ -194,37 +231,42 @@ export class HostLink {
       if (this.isDestroyed) return
       // No route proved the host: none is dialed, so no credential goes to whatever answers there.
       if (!route && needsProof && dialable.every(routeNeedsProof)) {
-        const outcome: DialOutcome = { kind: 'dial-failed' }
-        this.supervisor.report(outcome)
-        this.options.onOutcome?.(outcome)
+        this.reportDialFailed()
         return
       }
       if (route) this.aimAt(route.url)
+      this.chosenUrl = route?.url ?? null
       this.transport.start({ hostConfirmed: route !== null })
     })()
   }
 
-  private async returnToDirectRoute(): Promise<void> {
-    const route = await directRouteBack(this.dialable(), this.transport.serverUrl, this.options.answersAsHost, this.timers())
+  private reportDialFailed(): void {
+    const outcome: DialOutcome = { kind: 'dial-failed' }
+    this.supervisor.report(outcome)
+    this.options.onOutcome?.(outcome)
+  }
+
+  private async returnToEarlierRoute(): Promise<void> {
+    const route = await earlierRouteBack(this.candidates(), this.transport.serverUrl, this.options.answersAsHost, this.timers())
     if (!route || this.isDestroyed || this.readiness !== 'ready') return
     this.aimAt(route.url)
     this.supervisor.dialNow()
   }
 
-  /** While the host is connected through its tunnel, its direct routes are checked again now and then. */
-  private scheduleDirectRecheck(): void {
-    this.clearDirectRecheck()
-    const current = this.options.routes().find((route) => route.url === this.transport.serverUrl)
-    if (this.isDestroyed || this.readiness !== 'ready' || current?.kind !== 'tunnel') return
-    this.directRecheck = (this.options.setTimeoutFn ?? setTimeout)(() => {
-      this.directRecheck = null
-      void this.returnToDirectRoute().finally(() => this.scheduleDirectRecheck())
-    }, DIRECT_ROUTE_RECHECK_MS)
+  /** While the host is connected on a route that is not its first, the earlier routes are checked again now and then. */
+  private scheduleEarlierRecheck(): void {
+    this.clearEarlierRecheck()
+    if (this.isDestroyed || this.readiness !== 'ready') return
+    if (this.dialable().findIndex((route) => route.url === this.transport.serverUrl) < 1) return
+    this.earlierRecheck = (this.options.setTimeoutFn ?? setTimeout)(() => {
+      this.earlierRecheck = null
+      void this.returnToEarlierRoute().finally(() => this.scheduleEarlierRecheck())
+    }, EARLIER_ROUTE_RECHECK_MS)
   }
 
-  private clearDirectRecheck(): void {
-    if (this.directRecheck) (this.options.clearTimeoutFn ?? clearTimeout)(this.directRecheck)
-    this.directRecheck = null
+  private clearEarlierRecheck(): void {
+    if (this.earlierRecheck) (this.options.clearTimeoutFn ?? clearTimeout)(this.earlierRecheck)
+    this.earlierRecheck = null
   }
 
   private aimAt(url: string): void {

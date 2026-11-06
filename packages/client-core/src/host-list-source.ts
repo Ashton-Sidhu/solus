@@ -1,6 +1,7 @@
 import type { AccountHostListResponse, HostListing } from '@solus/contracts/host-list'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { AccountDocumentCall } from './account-documents'
+import { listedRoutes } from '@solus/contracts/host-routes'
 import { LOCAL_SERVER_ID, type SavedServer } from './server-registry'
 
 /**
@@ -24,7 +25,7 @@ export interface HostListSource {
  */
 export function listingOf(server: SavedServer): HostListing | null {
   if (server.id === LOCAL_SERVER_ID || server.uplink?.kind === 'managed' || !server.sessionToken) return null
-  const listing: HostListing = { id: server.id, label: server.label, installationId: server.installationId, routes: server.routes.filter((route) => route.source !== 'directory'), lastConnected: server.lastConnected }
+  const listing: HostListing = { id: server.id, label: server.label, installationId: server.installationId, routes: listedRoutes(server.routes), lastConnected: server.lastConnected }
   if (server.hasUserLabel) listing.hasUserLabel = true
   if (server.os) listing.os = server.os
   if (server.identityKey) listing.identityKey = server.identityKey

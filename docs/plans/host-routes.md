@@ -43,6 +43,10 @@ Amended 2026-10-25 (implementation). Where the text below differs, this list win
     `/health` checks of their internal addresses. Personal and self-hosted
     machines keep LAN, tailnet, and forwarded routes.
 
+12. **Route control (§12).** A client can add, reorder, and remove routes, and it
+    shows the route in use. Where §12 differs from the text above, §12 wins. It
+    changes D1: the kind order is now only the default order.
+
 Solus has no users yet, so this plan keeps no backward compatibility. Saved
 hosts, contracts, and RPC names change in place.
 
@@ -88,8 +92,8 @@ cites T3 #15467) and the same SSH device host forwarding
 | Term | Meaning |
 | --- | --- |
 | Route | One URL at which a client or host can dial a host. `HostRoute`. |
-| Route kind | `lan`, `tailnet`, `tunnel`, or `forwarded`. The kind replaces `direct`, which put LAN and tailnet together. |
-| Route source | Where the route came from: `directory`, `host` (the host advertised it), `discovery`, `pairing`, or `ssh`. |
+| Route kind | `forwarded`, `lan`, `tailnet`, `vpn`, `public`, or `tunnel` (§12.2). The kind replaces `direct`, which put LAN and tailnet together. |
+| Route source | Where the route came from: `directory`, `host` (the host advertised it), `discovery`, `pairing`, `ssh`, `page`, or `user` (the person typed it, §12). |
 | Learned route | A route that the host advertised, with source `host`. |
 | Forwarded route | `http://127.0.0.1:<port>` on one machine, which an `ssh -N -L` process holds. `viaHostId` names that machine. Only that machine can dial it. |
 | Identity key | One Ed25519 key pair for each installation. It is made at the first start, and it never rotates. It is not the registration key in `host/host-credential.ts`. |
@@ -542,3 +546,129 @@ On real machines, with a local test server on a Mac (`SOLUS_DATA_DIR` in
 
 Not tested end to end: the link to an account (needs an enrollment ticket from a
 signed-in account), and the UI on a device or in a browser.
+
+## 12. Route control (2026-11-04)
+
+Gap found in a comparison with T3 Code (`pingdotgg/t3code` 0.1.7, `dd5f98ee`,
+`docs/user/remote-access.md`, "Reach one machine several ways"). A person can now
+add a route by address, reorder routes, remove a route, and see the route in use.
+
+### 12.1 Assumptions
+
+1. **Routes stay client state.** `SavedServer.routes` and `NativeHost.routes` are
+   kept on each client. Only the device that dials can prove that a route works
+   from where it is, so a host cannot do the check for it. Thus this feature has
+   **no new RPC**. The check is a `/health` read from the client, and the save is a
+   registry write. Host-to-host dials (`remote-hosts.ts`) keep the default order.
+2. **Order and added routes are for one client.** A LAN address and a preference
+   depend on where the device is. `user` routes and the order do not go in a
+   `HostListing`. This is the T3 Code rule, and it means that the feature needs no
+   change in `solus-cloud`. See 12.8 for the open decision.
+3. **A learned route is any route that a read gives back:** source `host`,
+   `discovery`, `directory`, `ssh`, or `page`. Removing one would not last. Only
+   `user` and `pairing` routes can be removed, and never the last route.
+4. **"Plain HTTP" does not include** a confirmed `tailnet` route (WireGuard), a
+   `forwarded` route (SSH), or a loopback address.
+5. **A managed host has no route control.** Solus cloud owns how it is reached
+   (`routesForMachine`), so the list is read-only there.
+
+### 12.2 Honest kinds
+
+`routeKindForUrl` reads an address and says only what the address shows:
+
+| Address | Kind |
+| --- | --- |
+| `*.ts.net` | `tailnet` |
+| `100.64.0.0/10` | `vpn`. Tailscale shares this range with other VPNs, such as Cloudflare WARP. |
+| Private, link-local, or loopback address; a one-label name; `.local`, `.lan`, `.home`, `.internal`, `.intranet`, `.home.arpa` | `lan` |
+| Any other address | `public` |
+
+Only a source that knows can say `tailnet` for a `100.64.0.0/10` address: the host
+(`advertisedRoutes`) or a scan through `tailscale status`. When the host advertises
+a URL that a pairing also saved, the host's kind wins.
+
+`tunnel` is unchanged. Default order: `forwarded`, `lan`, `tailnet`, `vpn`,
+`public`, `tunnel`.
+
+### 12.3 Order
+
+- `routeOrder` is a list of URLs on the saved host. It is apart from `routes`
+  because `mergeRoutes` rewrites `routes` at each read. A learned route that goes
+  away and comes back keeps its place.
+- `dialableRoutes` gives the routes in that order. A route that is not in the list
+  takes its default place by kind. With no list, the order is the default order.
+- `chooseRoute` now obeys the order, not only tunnel against direct. A route that
+  answers wins when no earlier route can still answer. Otherwise the earlier
+  routes get one short grace (`EARLIER_ROUTE_GRACE_MS`), and then the first route
+  that answered wins. Cost: a dead address before a live one adds the grace to a
+  dial. Before this change, only a tunnel waited.
+- **A host stays usable when Solus cloud is down.** The tunnel can be put first, but
+  it never blocks a direct route: a silent tunnel loses after the grace. No part of
+  add, reorder, or remove reads the account.
+- **The 60-second recheck** (`EARLIER_ROUTE_RECHECK_MS`) now runs on any route that
+  is not the first, not only on the tunnel, and it asks only the earlier routes. A
+  wake and a change of order ask at once.
+- **A route that answers but does not connect.** A proxy can pass `/health` and
+  refuse the socket. Each dial would choose that route again, and a working tunnel
+  would never be used. After such a failure the link holds the route back for
+  `ROUTE_HOLD_BACK_MS` (5 minutes, as T3 Code). If no other route is left, the hold
+  does not apply.
+
+### 12.4 Add
+
+`checkRouteToAdd` (client-core) is the one owner, on every client. It sends no
+credential. In order, it refuses:
+
+1. an address that is not `http:` or `https:`;
+2. a managed host;
+3. an address that the host already has;
+4. an `http:` address on an `https:` page (mixed content);
+5. a plain `http:` address for a token paired over HTTPS (12.6);
+6. a host with no saved identity key: "connect to it once first";
+7. an address that does not answer, or answers as another host, or fails the proof.
+
+A `user` route **always needs a proof**, also on `https:`. `routeNeedsProof` said
+that TLS to a name is enough because the host or Solus cloud controls the name. A
+typed name has no such owner: it can expire and go to someone else. So a stale
+address gets the same rule at each dial, not only when it is added.
+
+### 12.5 Remove
+
+- The route leaves `routes` and `routeOrder`. If the socket is on it, the link moves
+  to another route and dials again.
+- A `pairing` route is also in the `HostListing`, so the listing is written again
+  without it. A listing is not copied back into the registry
+  (`host-list-source.ts`), so a read from another device does not bring it back.
+
+### 12.6 A token paired over HTTPS
+
+`tokenPairedOverHttps` is saved when a client pairs over `https:`. It is a field,
+not a read of the pairing route, because the person can remove that route. While it
+is set, `dialableRoutes` drops each route on which the token would travel in clear
+(`carriesTokenInClear`), and the list says why. A learned route is kept in the list,
+so a later pairing over HTTP can use it. This client-side rule covers learned,
+discovered, and listed routes alike.
+
+The account's short grant is not a paired token. D3 lets it travel on a proven
+`http:` route, and this plan does not change that.
+
+### 12.7 Surfaces
+
+| Entry | Applies |
+| --- | --- |
+| Entry points | Desktop and web: host page, Access tab, "Routes". Mobile: Host settings, Connection, "Routes". Not in the command palette: a route needs a host and an address, and no other host action is there. |
+| Clients | All three. Reorder uses Up and Down buttons: they work with a keyboard and on a phone with the same code path. |
+| Providers | None. |
+| Contracts | `contracts/host-routes.ts` and `host-identity.ts`. `rpc.ts` does not change (12.1). |
+| Reverse states | Add has Remove. A move has the opposite move. A removed route can be added again. A learned route shows why it has no Remove. |
+| Connection modes | The desktop's own host has no routes to manage. `https:` page: `http:` routes show as blocked (D5). A forwarded route shows the machine that holds it as blocked on other clients. |
+| Persistence | Web and desktop: `server-registry.ts`. Mobile: `host-registry.ts`. The directory, host list, and pairing merges keep `routeOrder` and `tokenPairedOverHttps`. |
+
+### 12.8 Open product decisions
+
+1. Do added routes and the order sync to a person's other devices? The default is
+   no. If yes, the account document needs a tombstone for a removed route.
+2. Does `solus-cloud` accept the kinds `vpn` and `public` in a `HostListing`? A
+   pairing at such an address now saves that kind. A cloud that validates the kind
+   with its own older enum would refuse the write. Check this before a release.
+3. Should the account grant also keep off plain `http:` routes? This is D3 as it is.

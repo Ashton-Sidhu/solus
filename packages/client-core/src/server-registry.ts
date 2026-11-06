@@ -80,8 +80,13 @@ export interface SavedServer {
   os?: HostOperatingSystem
   lastConnected: number
   /** Every way this client knows to reach the host, each with its source
-   *  (docs/plans/host-routes.md D1). Change it only with `mergeRoutes`. */
+   *  (docs/plans/host-routes.md D1). Change it only with `mergeRoutes` or route
+   *  control (`host-route-control.ts`). */
   routes: HostRoute[]
+  /** Route URLs in the order the person chose on this client (§12). Absent is the default order. */
+  routeOrder?: string[]
+  /** `sessionToken` was paired over HTTPS, so it stays off routes that carry it in clear. */
+  tokenPairedOverHttps?: boolean
   /** The host's identity key (docs/plans/host-routes.md D3), from the pairing, the
    *  SSH connection that added it, or its first connection through the tunnel. An
    *  `http:` route is dialed only after the host proves this key. */
@@ -247,6 +252,8 @@ const savedServerSchema = z.looseObject({
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
   lastConnected: z.number().catch(0),
   routes: z.array(hostRouteSchema),
+  routeOrder: z.array(z.string()).optional().catch(undefined),
+  tokenPairedOverHttps: z.boolean().optional().catch(undefined),
   identityKey: hostIdentityKeySchema.optional().catch(undefined),
   uplink: z.object({
     hostId: z.string().min(1),
@@ -314,6 +321,17 @@ export function upsertServer(server: SavedServer): void {
   else servers.push(server)
   saveServers(servers)
   for (const listener of serverSavedListeners) listener(server)
+}
+
+/** Changes one saved host in place; no listing is written. Null when it is not saved. */
+export function changeServer(id: string, change: (server: SavedServer) => SavedServer): SavedServer | null {
+  const servers = loadServers()
+  const index = servers.findIndex((server) => server.id === id)
+  if (index === -1) return null
+  const changed = change(servers[index]!)
+  servers[index] = changed
+  saveServers(servers)
+  return changed
 }
 
 export function removeServer(id: string): void {

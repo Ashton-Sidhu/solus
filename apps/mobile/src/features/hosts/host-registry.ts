@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { type DirectoryHost } from '@solus/contracts/uplink'
-import { hostRouteSchema, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
+import { hostRouteSchema, listedRoutes, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import type { AdvertisedHost } from '@solus/client-core/host-link'
+import { withoutRoute, withRouteMoved, withUserRoute } from '@solus/client-core/host-route-control'
 import type { DiscoveredServer, HostOperatingSystem } from '@solus/contracts/types'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import { forwardCompatibleArray } from '@solus/client-core/forward-compat'
@@ -29,6 +30,10 @@ export interface NativeHost {
   /** The user typed the label; the host's advertised name then does not replace it. */
   hasUserLabel?: boolean
   routes: HostRoute[]
+  /** Route URLs in the order the person chose on this device (docs/plans/host-routes.md §12). Absent is the default order. */
+  routeOrder?: string[]
+  /** The session token was paired over HTTPS, so it stays off routes that carry it in clear. */
+  tokenPairedOverHttps?: boolean
   os?: HostOperatingSystem
   lastConnected: number
   /** True when the device holds a session token from `/pair` for this host. */
@@ -60,6 +65,8 @@ const hostSchema = z.object({
   label: z.string().catch(''),
   hasUserLabel: z.boolean().optional().catch(undefined),
   routes: forwardCompatibleArray(hostRouteSchema).catch([]),
+  routeOrder: z.array(z.string()).optional().catch(undefined),
+  tokenPairedOverHttps: z.boolean().optional().catch(undefined),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
   lastConnected: z.number().catch(0),
   paired: z.boolean().catch(false),
@@ -79,7 +86,7 @@ export type HostListingChange = { kind: 'put'; listing: HostListing } | { kind: 
 /** A host the person paired on this device, as the account host list holds it: never its token. */
 export function listingOfHost(host: NativeHost): HostListing | null {
   if (!host.paired || host.uplink?.kind === 'managed') return null
-  const listing: HostListing = { id: host.id, label: host.label, installationId: host.id, routes: host.routes.filter((route) => route.source !== 'directory'), lastConnected: host.lastConnected }
+  const listing: HostListing = { id: host.id, label: host.label, installationId: host.id, routes: listedRoutes(host.routes), lastConnected: host.lastConnected }
   if (host.hasUserLabel) listing.hasUserLabel = true
   if (host.os) listing.os = host.os
   if (host.identityKey) listing.identityKey = host.identityKey
@@ -190,6 +197,7 @@ export class HostRegistry {
       routes,
       os: input.os ?? existing?.os,
       identityKey: input.identityKey ?? existing?.identityKey,
+      tokenPairedOverHttps: input.url.startsWith('https:') || undefined,
       lastConnected: Date.now(),
       paired: true,
     }
@@ -242,12 +250,12 @@ export class HostRegistry {
 
   /** A scan of this device's network found saved hosts: each gets the address it answered at (`withReadRoutes`). */
   applyNearby(discovered: readonly DiscoveredServer[]): void {
-    const nearby = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
+    const nearby = new Map(discovered.map((server) => [server.installationId, server]))
     const now = Date.now()
     let changed = false
     const next = this.list.map((host) => {
-      const url = nearby.get(host.id)
-      const routes = url ? withReadRoutes(host.routes, [routeForUrl(url)], 'discovery', now) : null
+      const found = nearby.get(host.id)
+      const routes = found ? withReadRoutes(host.routes, [routeForUrl(`http://${found.host}:${found.port}`, found.source === 'tailnet')], 'discovery', now) : null
       if (!routes) return host
       changed = true
       return { ...host, routes }
@@ -270,6 +278,28 @@ export class HostRegistry {
     const identityKey = host.identityKey ?? advertised.identityKey
     if (!routes && identityKey === host.identityKey) return
     this.replace({ ...host, routes: routes ?? host.routes, identityKey })
+  }
+
+  /** A route the person added and this device checked (`checkRouteToAdd`). It stays on this device. */
+  addRoute(hostId: string, url: string): void {
+    const host = this.host(hostId)
+    if (host) this.replace(withUserRoute(host, url, Date.now()))
+  }
+
+  /** One place earlier (-1) or later (1) in this device's order. */
+  moveRoute(hostId: string, url: string, step: -1 | 1): void {
+    const host = this.host(hostId)
+    if (host) this.replace(withRouteMoved(host, url, step))
+  }
+
+  /** A route the person removed. A pairing route is in the host's listing, so the listing changes with it. */
+  removeRoute(hostId: string, url: string): void {
+    const host = this.host(hostId)
+    if (!host) return
+    const changed = withoutRoute(host, url)
+    this.replace(changed)
+    const listing = listingOfHost(changed)
+    if (listing) this.announceListing({ kind: 'put', listing })
   }
 
   /** Cloud sign-out: cloud-derived hosts leave, the account's listed hosts among them; directly paired hosts stay. */
@@ -297,6 +327,7 @@ export class HostRegistry {
   private fromDirectory(entry: DirectoryHost, directoryUrl: string, accountUserId: string, existing?: NativeHost): NativeHost {
     const saved = savedServerFromDirectory(entry, directoryUrl, Date.now())
     return {
+      ...existing,
       id: entry.installationId,
       label: existing?.hasUserLabel ? existing.label : saved.label,
       hasUserLabel: existing?.hasUserLabel,

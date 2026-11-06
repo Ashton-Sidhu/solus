@@ -3,13 +3,14 @@ import { HostLink, type LinkTransport } from '@solus/client-core/host-link'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi } from '@solus/client-core/host-api'
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
-import type { HostRoute } from '@solus/contracts/host-routes'
+import type { DialChoices, HostRoute } from '@solus/contracts/host-routes'
 
 // docs/plans/simplify-auth-and-sync.md §3 rule 7 and §4.4: one host link on every
 // client. Web and desktop (`ServerConnections`) and mobile (`HostConnections`) hold
 // this one class, so these tests pin the route policy for all three.
 
 const DIRECT: HostRoute = { kind: 'lan', url: 'http://10.0.0.20:51234' }
+const TAILNET: HostRoute = { kind: 'tailnet', url: 'http://100.64.0.2:51234' }
 const TUNNEL: HostRoute = { kind: 'tunnel', url: 'https://build.tunnel.solus.test' }
 const MIRROR: HostRoute = { kind: 'tunnel', url: 'https://app.solus.test/api/mirror' }
 
@@ -46,7 +47,7 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await Promise.resolve()
 }
 
-function link(options: { routes: HostRoute[]; answering: string[]; fallback?: HostRoute[] }) {
+function link(options: { routes: HostRoute[]; answering: string[]; fallback?: HostRoute[]; choices?: DialChoices }) {
   const transport = new FakeTransport(options.routes[0]?.url ?? options.fallback?.[0]?.url ?? '')
   const timers = manualTimers()
   const checked: string[] = []
@@ -56,6 +57,7 @@ function link(options: { routes: HostRoute[]; answering: string[]; fallback?: Ho
     api: asHostApi({}),
     routes: () => options.routes,
     fallbackRoutes: () => options.fallback ?? [],
+    dialChoices: () => options.choices ?? {},
     answersAsHost: async (url) => {
       checked.push(url)
       return options.answering.includes(url)
@@ -158,6 +160,91 @@ describe('one route policy', () => {
     routes.splice(0, 1, { kind: 'tunnel', url: 'https://moved.tunnel.solus.test' })
     hostLink.followRoutes()
     expect(transport.serverUrl).toBe('https://moved.tunnel.solus.test')
+  })
+
+  test('a host on a later route, not only the tunnel, moves to an earlier route at the recheck', async () => {
+    const answering = [TAILNET.url]
+    const { hostLink, transport, timers } = link({ routes: [DIRECT, TAILNET], answering })
+    hostLink.start()
+    await settle()
+    expect(transport.serverUrl).toBe(TAILNET.url)
+    transport.report({ kind: 'accepted', recovered: false })
+    answering.push(DIRECT.url)
+    timers.runAll()
+    await settle()
+    expect(transport.serverUrl).toBe(DIRECT.url)
+  })
+
+  test('a host on its first route checks nothing again', async () => {
+    const { hostLink, transport, timers, checked } = link({ routes: [DIRECT, TUNNEL], answering: [DIRECT.url, TUNNEL.url] })
+    hostLink.start()
+    await settle()
+    transport.report({ kind: 'accepted', recovered: false })
+    checked.length = 0
+    timers.runAll()
+    await settle()
+    expect(checked).toEqual([])
+    expect(transport.serverUrl).toBe(DIRECT.url)
+  })
+
+  test('a new order moves a connected link at once, when the new first route answers', async () => {
+    const choices: DialChoices = {}
+    const { hostLink, transport } = link({ routes: [DIRECT, TUNNEL], answering: [DIRECT.url, TUNNEL.url], choices })
+    hostLink.start()
+    await settle()
+    transport.report({ kind: 'accepted', recovered: false })
+    expect(transport.serverUrl).toBe(DIRECT.url)
+    choices.order = [TUNNEL.url, DIRECT.url]
+    hostLink.followRoutes()
+    await settle()
+    expect(transport.serverUrl).toBe(TUNNEL.url)
+  })
+
+  test('removing the route in use moves the link off it and dials again', async () => {
+    const routes = [DIRECT, TUNNEL]
+    const { hostLink, transport } = link({ routes, answering: [DIRECT.url, TUNNEL.url] })
+    hostLink.start()
+    await settle()
+    transport.report({ kind: 'accepted', recovered: false })
+    const dials = transport.dials.length
+    routes.splice(0, 1)
+    hostLink.followRoutes()
+    await settle()
+    expect(transport.serverUrl).toBe(TUNNEL.url)
+    expect(transport.dials.length).toBeGreaterThan(dials)
+  })
+
+  test('a route that answers but does not connect is held back, so a working route carries the host', async () => {
+    const { hostLink, transport, timers } = link({ routes: [DIRECT, TUNNEL], answering: [DIRECT.url, TUNNEL.url] })
+    hostLink.start()
+    await settle()
+    expect(transport.serverUrl).toBe(DIRECT.url)
+    transport.report({ kind: 'dial-failed' })
+    timers.runAll()
+    await settle()
+    expect(transport.dials.at(-1)?.url).toBe(TUNNEL.url)
+    // Connected on the later route, the recheck does not go back to the route that failed.
+    transport.report({ kind: 'accepted', recovered: false })
+    timers.runAll()
+    await settle()
+    expect(transport.serverUrl).toBe(TUNNEL.url)
+  })
+
+  test('a route held back is still dialed when no other route is left', async () => {
+    const { hostLink, transport, timers } = link({ routes: [TUNNEL], answering: [TUNNEL.url] })
+    hostLink.start()
+    await settle()
+    transport.report({ kind: 'dial-failed' })
+    timers.runAll()
+    await settle()
+    expect(transport.dials.at(-1)?.url).toBe(TUNNEL.url)
+  })
+
+  test('with every route blocked for the token, the transport is never started, not even on the route it was aimed at', async () => {
+    const { hostLink, transport } = link({ routes: [DIRECT], answering: [DIRECT.url], choices: { tokenPairedOverHttps: true } })
+    hostLink.start()
+    await settle()
+    expect(transport.dials).toEqual([])
   })
 
   test('destroying the link destroys its transport, and a late route answer dials nothing', async () => {

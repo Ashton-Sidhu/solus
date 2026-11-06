@@ -53,6 +53,7 @@ import { DeviceSettingsScreen } from '../features/devices/DeviceSettingsScreen'
 import { DevicesScreen } from '../features/devices/DevicesScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
 import { HostAccessScreen } from '../features/settings/HostAccessScreen'
+import { HostRoutesScreen } from '../features/hosts/HostRoutesScreen'
 import { IntegrationsScreen } from '../features/settings/IntegrationsScreen'
 import { WebhooksScreen } from '../features/webhooks/WebhooksScreen'
 import { WebhookScreen } from '../features/webhooks/WebhookScreen'
@@ -175,6 +176,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'DeviceSettings',
   'Devices',
   'HostAccess',
+  'HostRoutes',
   'Integrations',
   'Webhooks',
   'Webhook',
@@ -362,6 +364,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="Devices" component={DevicesScreen} options={{ title: 'Devices' }} />
             <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
             <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
+            <Stack.Screen name="HostRoutes" component={HostRoutesScreen} options={{ title: 'Routes' }} />
             <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
             <Stack.Screen name="Webhooks" component={WebhooksScreen} options={{ title: 'Webhooks' }} />
             <Stack.Screen name="Webhook" component={WebhookScreen} options={{ title: 'Webhook' }} />

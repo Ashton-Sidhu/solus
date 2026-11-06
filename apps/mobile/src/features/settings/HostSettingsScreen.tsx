@@ -100,6 +100,12 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                     confirmForgetHost(app, target, () => navigation.goBack())
                   }
                 />
+                <SettingsRow
+                  icon="arrow.triangle.branch"
+                  label="Routes"
+                  value="The addresses this device tries"
+                  onPress={() => navigation.navigate("HostRoutes", { hostId })}
+                />
               </SettingsSection>
               {!connected ? <SettingsNote>Connect this host to manage it.</SettingsNote> : null}
             </View>

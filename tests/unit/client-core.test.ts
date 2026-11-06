@@ -313,7 +313,7 @@ describe('client core transport helpers', () => {
     expect(server).toMatchObject({
       id: 'ssh-installation',
       label: 'Build Host',
-      routes: [{ kind: 'tailnet', url: 'http://100.64.0.8:3000', source: 'pairing' }],
+      routes: [{ kind: 'vpn', url: 'http://100.64.0.8:3000', source: 'pairing' }],
       sessionToken: 'ssh-issued-session',
       installationId: 'ssh-installation',
       identityKey: identityKeyFor('ssh-installation'),

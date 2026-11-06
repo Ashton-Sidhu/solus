@@ -12,6 +12,6 @@ export function hostMachineKind(host: NativeHost): EnvironmentMachineKind {
 
 /** The address a paired host was reached at, else one on a shared network; a host reached only through Solus Cloud has none to show. */
 export function hostDisplayAddress(host: NativeHost): string | null {
-  const address = routesFrom(host.routes, 'pairing')[0] ?? host.routes.find((route) => route.kind === 'lan' || route.kind === 'tailnet')
+  const address = routesFrom(host.routes, 'pairing')[0] ?? host.routes.find((route) => route.kind !== 'tunnel' && route.kind !== 'forwarded')
   return address ? urlHost(address.url) : null
 }

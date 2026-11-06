@@ -32,11 +32,13 @@ export function hostProofMessage(nonce: string, installationId: string): Uint8Ar
 
 /**
  * Whether a dial on `url` must first prove the host. An `https:` route has TLS to a
- * name the host or Solus cloud controls. The page's own origin served the code
- * that is running, so it is trusted as far as the page is.
+ * name the host or Solus cloud controls. A name a person typed has no such owner: it
+ * can expire and pass to someone else, so that route needs a proof on `https:` too.
+ * The page's own origin served the code that is running, so it is trusted as far as
+ * the page is.
  */
 export function routeNeedsProof(route: { url: string; source?: string }): boolean {
-  return route.url.startsWith('http:') && route.source !== 'page'
+  return route.source === 'user' || (route.url.startsWith('http:') && route.source !== 'page')
 }
 
 export function toBase64Url(bytes: Uint8Array): string {

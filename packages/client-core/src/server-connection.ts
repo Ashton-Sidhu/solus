@@ -11,7 +11,7 @@ import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
 import { organizationIdOfSolusApiId } from '@solus/contracts/uplink'
-import { dialableRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
+import { dialableRoutes, dialChoicesOf, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import { answersAsSavedHost, type SavedHostIdentity } from './host-link'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
@@ -35,6 +35,10 @@ export interface SolusServerTarget {
   local: boolean
   /** Every route known for the host; `url` is the one chosen from them. */
   routes?: HostRoute[]
+  /** Route URLs in the person's order; absent is the default order. */
+  routeOrder?: string[]
+  /** The session token was paired over HTTPS: routes that carry it in clear are not dialed. */
+  tokenPairedOverHttps?: boolean
   /** Routes dialed only when no route in `routes` answers: a guest's read-only mirror of the resource. */
   fallbackRoutes?: HostRoute[]
   /** Present when the host is dialable with a grant from the owner's account. */
@@ -48,10 +52,10 @@ export interface SolusServerTarget {
 
 /** The route a saved host is dialed on first, from this page's origin; empty when it has none this page can dial. */
 export function preferredRouteUrl(
-  server: Pick<SavedServer, 'routes' | 'uplink'>,
+  server: Pick<SavedServer, 'routes' | 'uplink' | 'routeOrder' | 'tokenPairedOverHttps'>,
   clientOrigin = globalThis.location?.origin ?? '',
 ): string {
-  return dialableRoutes(routesForMachine(server.routes, server.uplink?.kind), clientOrigin)[0]?.url ?? ''
+  return dialableRoutes(routesForMachine(server.routes, server.uplink?.kind), clientOrigin, null, dialChoicesOf(server))[0]?.url ?? ''
 }
 
 export interface InstalledSolusConnection {
@@ -89,6 +93,8 @@ export function savedServerTarget(server: SavedServer): SolusServerTarget {
   }
   if (server.uplink) target.uplink = server.uplink
   if (server.identityKey) target.identityKey = server.identityKey
+  if (server.routeOrder) target.routeOrder = server.routeOrder
+  if (server.tokenPairedOverHttps) target.tokenPairedOverHttps = true
   return target
 }
 

@@ -68,3 +68,28 @@ still be read on that network. An SSH forward and the tunnel are encrypted.
 - A link code goes to the installer as a command argument, as in the onboarding
   command. Other users on that machine can see the arguments of running programs for
   a short time.
+
+## Choose how a client reaches a host
+
+A host can have more than one route: an SSH forward, a local address, Tailscale,
+a VPN, a public address, and Solus Cloud. To see them, open the host's page and
+choose **Access**, then **Routes**. On mobile, open the host's settings and choose
+**Routes**. The list shows the route in use.
+
+- **Add a route.** Type an address. Solus adds it only if it answers as this host
+  and signs a fresh challenge with the host's key. Solus sends no credential to do
+  this. The check runs again before each connection, so an address that goes
+  stale receives nothing.
+- **Change the order.** Solus uses the first route that answers. A route that does
+  not answer is passed over after a short wait, and the host stays usable when
+  Solus Cloud is down, also if you put Solus Cloud first. While it is connected on
+  a later route, Solus checks the earlier routes every minute, at each wake, and
+  when you change the order, and it moves back when one answers.
+- **Remove a route.** You can remove an address that you added or paired. You cannot
+  remove a route that was found automatically, because the next read brings it back.
+  You cannot remove the last route that this client can use.
+
+Each client keeps its own list and order. A route shows why a client cannot use it:
+an `https:` page cannot open an `http:` address, and a device that paired over HTTPS
+keeps its token off plain HTTP.
+
