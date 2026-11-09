@@ -7,7 +7,7 @@ import type { MediaActions } from "../lib/mediaActions";
 import { SymbolView } from "./AppSymbol";
 import { ControlPillMenu } from "./ControlPill";
 
-/** Save or share, copy, and open for one image or video: a button, or a long press on `children`. */
+/** Save, share, copy, and open for one image or video: a button, or a long press on `children`. */
 export function MediaActionsMenu(props: {
   readonly media: MediaActions;
   readonly inModal?: boolean;

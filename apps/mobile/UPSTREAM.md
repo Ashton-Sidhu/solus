@@ -349,3 +349,19 @@ read in `packages/server/src/host/host-resources.ts` are adapted from
 selection; Solus does not (`docs/plans/resource-telemetry.md`). The complete upstream
 MIT notice is in `resources/licenses/t3code-resource-monitor.txt`, and
 `native/resource-monitor/LICENSE` ships beside the binary.
+
+## Save image (2026-11-09)
+
+T3 Code [#29598](https://github.com/pingdotgg/t3code/pull/29598), merged at
+`9028d760b4`. The image long-press menu gets "Save image", and "Save or share"
+becomes "Share" when it shows. This change adds native code: the app needs a
+new native build (`expo run:ios` / `expo run:android`), and an older build
+rejects the call with the save error.
+
+| Solus path | T3 reference | Local changes |
+| --- | --- | --- |
+| `modules/solus-file-preview/ios/SolusFilePreviewModule.swift`, `.../SolusFilePreviewModule.kt` | `modules/t3-native-controls/` | `saveImageToLibrary` is in the existing `SolusFilePreview` module (Solus has no controls module), so no new dependency: `expo-media-library` is not a Solus dependency and asks for more access than add-only. Android saves to `Pictures/Solus`; the iOS messages name Solus. |
+| `app.json` | — | `NSPhotoLibraryAddUsageDescription`: the add-only Photos prompt names Solus. |
+| `src/lib/saveImageToLibrary.ts` | `src/lib/saveImageToLibrary.ts` | `canSaveImageToLibrary` takes the platform as an argument, so the test needs no `react-native`. |
+| `src/lib/attachmentDownload.ts` | `src/state/mediaActions.ts` (`localImageFile`, `saveImage`) | `downloadAndSaveImage` uses the one cached-file folder of the share path and removes it after the save. No haptic and no `settlePromise`: Solus shows failures with `Alert`. |
+| `src/lib/mediaActions.ts` | `src/state/mediaActions.ts` | One `busy` state for both actions. Solus has no local draft attachments or filesystem-scope check here: every source resolves a URL. Tests are in `tests/unit/native-mobile-save-image.test.ts`. |
