@@ -160,4 +160,21 @@ describe('request_secret as a session tool', () => {
     secretRequests.removeExpiredSecretFiles(Date.now() + SECRET_FILE_TTL_MS + 1)
     expect(existsSync(file.path!)).toBe(false)
   })
+
+  test('a url must be http(s); a good one reaches the card', async () => {
+    // WHY: the card opens the url, so the agent must not be able to make it open another scheme.
+    const { executeAgentTool } = await import('@solus/server/execution/agents/tools/agent-tool')
+    const refused = await executeAgentTool(toolbox.sessions.requestSecret, { secrets: [{ name: 'x', reason: 'y', url: 'javascript:alert(1)' }] }, context('session-a', []))
+    expect(refused.ok).toBe(false)
+    expect(refused.text).toContain('url must be an http or https link.')
+
+    const events: NormalizedEvent[] = []
+    const asking = toolbox.sessions.requestSecret.execute({ secrets: [{ name: 'GitHub code', reason: 'Enter the code.', url: 'https://github.com/login/device' }] }, context('session-a', events))
+    await Promise.resolve()
+    const card = events.find((event) => event.type === 'question_request')
+    if (card?.type !== 'question_request') throw new Error('no card')
+    expect(card.questions[0].secretUrl).toBe('https://github.com/login/device')
+    secretRequests.answerSecretRequest('session-a', card.questionId, [null])
+    await asking
+  })
 })

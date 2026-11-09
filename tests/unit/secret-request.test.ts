@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message, QuestionRequest } from '@solus/contracts/types'
-import { canSubmitSecret, canSubmitSecrets, isSecretRequest, secretAnswer, secretOutcomesFromResult, secretPrivacyNote, secretReceiptRows, secretRequestPrompts } from '@solus/contracts/secret-request'
+import { canSubmitSecret, canSubmitSecrets, isSecretRequest, secretAnswer, secretOutcomesFromResult, secretPrivacyNote, secretPageUrl, secretReceiptRows, secretRequestLink, secretRequestPrompts } from '@solus/contracts/secret-request'
 import { projectSessionEvent, projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import { groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
 import { summarizeToolGroup, toolRowLabel } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
@@ -113,5 +113,53 @@ describe('the row after a secret card closes', () => {
     expect(toolRowLabel(tool)).toContain('Webhook secret · Saved securely, Cloudflare token')
     expect(summarizeToolGroup([tool])).toBe(toolRowLabel(tool))
     expect(toolRowLabel({ ...tool, secretOutcomes: undefined })).toBe('request_secret')
+  })
+})
+
+// An agent that asks the person to sign a CLI in must give a link the person can
+// open. Every card opens it through these rules, so no card opens another scheme.
+describe('secret card link', () => {
+  test('only an http(s) page with a host is a page the card may open', () => {
+    expect(secretPageUrl('https://github.com/login/device')?.href).toBe('https://github.com/login/device')
+    expect(secretPageUrl('http://localhost:8080/auth')?.host).toBe('localhost:8080')
+    for (const value of ['javascript:alert(1)', 'file:///etc/passwd', 'ftp://a.dev', 'data:text/html,x', 'https://', 'github.com/login', '']) {
+      expect(secretPageUrl(value)).toBeNull()
+    }
+  })
+
+  test('the card shows the url the agent gave, and says that the reason does not show it', () => {
+    expect(secretRequestLink({ url: 'https://github.com/login/device', reason: 'Enter the code.' }))
+      .toEqual({ href: 'https://github.com/login/device', host: 'github.com', isInReason: false })
+    // The url wins over a link in the reason; a bad url opens nothing.
+    expect(secretRequestLink({ url: 'https://a.dev/x', reason: 'See https://b.dev' })?.host).toBe('a.dev')
+    expect(secretRequestLink({ url: 'javascript:alert(1)', reason: 'See https://b.dev' })).toBeNull()
+  })
+
+  test('without a url, the card finds the one link in the reason', () => {
+    const link = (reason: string) => secretRequestLink({ reason })?.href
+    expect(link('Open https://github.com/login/device and enter the code.')).toBe('https://github.com/login/device')
+    expect(link('Sign in at https://a.dev/login.')).toBe('https://a.dev/login')
+    expect(link('Sign in at [the device page](https://a.dev/login?x=1).')).toBe('https://a.dev/login?x=1')
+    expect(link('Sign in at **https://a.dev/login**, then paste the code.')).toBe('https://a.dev/login')
+    expect(link('Sign in at _https://a.dev/login_.')).toBe('https://a.dev/login')
+    expect(link('Sign in at `https://a.dev/login`.')).toBe('https://a.dev/login')
+    expect(link('Sign in at <https://a.dev/login>.')).toBe('https://a.dev/login')
+    expect(link('The page (https://a.dev/wiki/Foo_(bar)) has it.')).toBe('https://a.dev/wiki/Foo_(bar)')
+    expect(secretRequestLink({ reason: 'Open https://a.dev.' })?.isInReason).toBe(true)
+  })
+
+  test('repeats of one link count once; no link or two links give no button', () => {
+    const link = (reason: string) => secretRequestLink({ reason })?.href
+    expect(link('[https://a.dev/login](https://a.dev/login), again https://a.dev/login.')).toBe('https://a.dev/login')
+    expect(link('Open https://a.dev or https://a.dev/ to sign in.')).toBe('https://a.dev/')
+    expect(link('Run `gh auth login` and paste the token.')).toBeUndefined()
+    expect(link('Use https://a.dev/login or https://b.dev/login.')).toBeUndefined()
+    expect(link('Not a page: javascript:alert(1)')).toBeUndefined()
+  })
+
+  test('a url from the agent reaches the card prompt', () => {
+    const [prompt] = secretRequestPrompts(request({ questions: [{ header: 'GitHub code', question: 'Enter the code.', options: [], multiSelect: false, secretUrl: 'https://github.com/login/device' }] }))
+    expect(prompt.url).toBe('https://github.com/login/device')
+    expect(secretRequestPrompts(request({}))[0].url).toBeUndefined()
   })
 })

@@ -4,6 +4,7 @@ import {
   SECRET_PLACEHOLDER,
   secretAnswer,
   secretPrivacyNote,
+  secretRequestLink,
   secretRequestPrompts,
   type SecretField,
 } from "@solus/contracts/secret-request";
@@ -11,6 +12,7 @@ import { requestExpiryText } from "@solus/contracts/types";
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 
+import { useApp } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import type { PendingQuestion } from "../conversation/lib/transcript-model";
@@ -34,6 +36,7 @@ export interface PendingSecretCardProps {
  * they go to the host once. Keyed by the request, so the next card starts empty.
  */
 export function PendingSecretCard(props: PendingSecretCardProps) {
+  const app = useApp();
   const prompts = secretRequestPrompts(props.request);
   const isGroup = prompts.length > 1;
   const [fields, setFields] = useState<SecretField[]>(() =>
@@ -76,12 +79,31 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
         {prompts.map((prompt, index) => {
           const field = fields[index];
           const isFile = prompt.delivery === "file";
+          const link = secretRequestLink(prompt);
           return (
             <View key={index} className="gap-2">
               <View className="gap-0.5">
                 <Text className="font-t3-bold text-lg text-foreground">{prompt.name}</Text>
                 <Text selectable className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
               </View>
+              {link ? (
+                <View className="items-start gap-1">
+                  <Pressable
+                    accessibilityRole="link"
+                    accessibilityLabel={`Open ${link.host}`}
+                    hitSlop={8}
+                    onPress={() => void app.platform.openBrowser(link.href)}
+                    className="min-h-9 flex-row items-center gap-1.5 rounded-full border border-border px-3.5 active:opacity-70"
+                  >
+                    <Text className="font-t3-bold text-xs text-foreground">{`Open ${link.host}`}</Text>
+                    <SymbolView name="arrow.up.right" size={11} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
+                  </Pressable>
+                  {/* A link found in the reason is already shown there. */}
+                  {link.isInReason ? null : (
+                    <Text selectable className="font-mono text-xs text-foreground-muted">{prompt.url}</Text>
+                  )}
+                </View>
+              ) : null}
               {!canRespond ? null : field.isDeclined ? (
                 <View className="flex-row items-center justify-between gap-2">
                   <Text className="flex-1 font-sans text-xs text-foreground-muted">

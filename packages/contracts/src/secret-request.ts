@@ -14,6 +14,8 @@ export interface SecretRequestPrompt {
   reason: string
   /** `file`: the agent's commands can read the value from a private file on the host. */
   delivery: 'ref' | 'file'
+  /** The page the person opens to get the secret, such as a sign-in link. http(s) only. */
+  url?: string
 }
 
 /** One field of the card as the user left it: a typed value, or declined. */
@@ -30,11 +32,62 @@ export function isSecretRequest(request: QuestionRequest): boolean {
 export function secretRequestPrompts(request: Pick<QuestionRequest, 'questions' | 'message'>): SecretRequestPrompt[] {
   const fallbackReason = request.message?.trim() || 'The agent did not say why it asks.'
   if (!request.questions.length) return [{ name: 'A secret', reason: fallbackReason, delivery: 'ref' }]
-  return request.questions.map((question) => ({
-    name: question.header?.trim() || 'A secret',
-    reason: question.question.trim() || fallbackReason,
-    delivery: question.secretDelivery === 'file' ? 'file' : 'ref',
-  }))
+  return request.questions.map((question) => {
+    const prompt: SecretRequestPrompt = {
+      name: question.header?.trim() || 'A secret',
+      reason: question.question.trim() || fallbackReason,
+      delivery: question.secretDelivery === 'file' ? 'file' : 'ref',
+    }
+    if (question.secretUrl) prompt.url = question.secretUrl
+    return prompt
+  })
+}
+
+/** The http(s) page a secret card may open, or null for any other text or scheme. */
+export function secretPageUrl(value: string): URL | null {
+  // React Native's URL has no `canParse`.
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.host !== '' ? url : null
+  } catch {
+    return null
+  }
+}
+
+// Backticks, <angle brackets>, and markdown link targets keep their exact text;
+// a bare link loses the sentence punctuation and emphasis marks after it.
+const REASON_LINK = /`(https?:\/\/[^`\s]+)`|<(https?:\/\/[^>\s]+)>|\]\((https?:\/\/(?:[^()\s]|\([^()\s]*\))+)\)|(https?:\/\/[^\s<>"'`[\]]+)/gi
+
+/** Drops trailing punctuation and `*` or `_`; a `)` stays when the link opened a matching `(`. */
+function trimBareLink(link: string): string {
+  let end = link.length
+  while (end > 0 && '.,;:!?)*_'.includes(link[end - 1])) {
+    const kept = link.slice(0, end)
+    if (link[end - 1] === ')' && kept.split('(').length > kept.split(')').length - 1) break
+    end -= 1
+  }
+  return link.slice(0, end)
+}
+
+/** The one distinct http(s) link in a reason, or undefined for none or for two or more. */
+function reasonLink(reason: string): string | undefined {
+  const links = new Set<string>()
+  for (const [, ticked, angled, target, bare] of reason.matchAll(REASON_LINK)) {
+    const link = ticked ?? angled ?? target ?? trimBareLink(bare)
+    // Two spellings of one page (`https://a.dev` and `https://a.dev/`) count once.
+    links.add(secretPageUrl(link)?.href ?? link)
+  }
+  return links.size === 1 ? [...links][0] : undefined
+}
+
+/**
+ * The page a secret card offers to open: the agent's `url`, else the one link in
+ * its reason. `isInReason` says that the reason already shows the raw link.
+ */
+export function secretRequestLink(prompt: Pick<SecretRequestPrompt, 'url' | 'reason'>): { href: string; host: string; isInReason: boolean } | null {
+  const raw = prompt.url ?? reasonLink(prompt.reason)
+  const url = raw === undefined ? null : secretPageUrl(raw)
+  return url === null ? null : { href: url.href, host: url.host, isInReason: prompt.url === undefined }
 }
 
 /** The empty field's hint. */

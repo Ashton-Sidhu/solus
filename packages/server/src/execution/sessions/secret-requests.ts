@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { SECRET_FILE_TTL_MS, SECRET_REF_TTL_MS } from '@solus/contracts/agent-tools'
+import type { QuestionItem } from '@solus/contracts/types'
 import type { ProcessUser } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { currentIdentity } from '../../vault/acting-scope'
@@ -63,6 +64,8 @@ export interface SecretAsk {
   name: string
   reason: string
   delivery?: 'ref' | 'file'
+  /** The http(s) page where the person gets it; the tool checks the scheme. */
+  url?: string
 }
 
 /** What one secret came to: saved with its ref or its file, or declined by the person. */
@@ -97,13 +100,12 @@ export async function requestSecrets(context: AgentToolContext, asks: SecretAsk[
       questionId,
       kind: 'secret',
       // One field per secret: the header names it and the question says why the agent asks.
-      questions: asks.map((ask) => ({
-        header: ask.name,
-        question: ask.reason,
-        options: [],
-        multiSelect: false,
-        ...(ask.delivery === 'file' ? { secretDelivery: 'file' as const } : {}),
-      })),
+      questions: asks.map((ask) => {
+        const question: QuestionItem = { header: ask.name, question: ask.reason, options: [], multiSelect: false }
+        if (ask.delivery === 'file') question.secretDelivery = 'file'
+        if (ask.url) question.secretUrl = ask.url
+        return question
+      }),
     })
   })
   context.emit({ type: 'permission_resolved', questionId })

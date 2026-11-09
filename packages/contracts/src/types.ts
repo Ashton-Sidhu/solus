@@ -743,6 +743,8 @@ export interface QuestionItem {
   multiSelect: boolean
   /** A `request_secret` card only: `file` saves this secret to a private file that the agent's commands read (docs/plans/webhooks.md §3.6). */
   secretDelivery?: 'file'
+  /** A `request_secret` card only: the http(s) page where the person gets this secret, such as a sign-in link. */
+  secretUrl?: string
 }
 
 export interface QuestionAnswer {

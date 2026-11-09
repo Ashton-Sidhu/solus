@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { secretPageUrl } from '@solus/contracts/secret-request'
 import { requestSecrets } from '../../sessions/secret-requests'
 import type { AgentTool } from './agent-tool'
 
@@ -14,6 +15,7 @@ const requestSecretFields = {
     name: z.string().describe('What it is, for example "GitHub webhook secret".'),
     reason: z.string().describe('Why it is needed and where to find it.'),
     delivery: z.enum(['ref', 'file']).optional().describe('ref (default): a secretRef for a tool. file: a private file path for your own shell commands, such as a CLI token.'),
+    url: z.string().refine((url) => secretPageUrl(url) !== null, 'url must be an http or https link.').optional().describe('A sign-in or setup page the card opens. http(s) only.'),
   })).min(1).max(10).describe('Every secret the task needs, on one card.'),
 }
 

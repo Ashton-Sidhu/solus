@@ -5,7 +5,8 @@
    *  in this card's local state: they are never echoed, never kept in a draft or
    *  in the transcript, and they go to the host once through
    *  `secretRequestAnswer`. The host closes the card with `permission_resolved`. */
-  import { LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
+  import { ExternalLink as ExternalLinkIcon, LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
+  import { localApi } from "@solus/client-core/local-api";
   import type { QuestionRequest } from "@solus/contracts/types";
   import { untrack } from "svelte";
   import { getWorkspaceContext } from "../../contexts";
@@ -16,7 +17,7 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import InterruptCard from "./InterruptCard.svelte";
-  import { canSubmitSecrets, SECRET_PLACEHOLDER, secretAnswer, secretPrivacyNote, secretRequestPrompts, type SecretField } from "@solus/contracts/secret-request";
+  import { canSubmitSecrets, SECRET_PLACEHOLDER, secretAnswer, secretPrivacyNote, secretRequestLink, secretRequestPrompts, type SecretField } from "@solus/contracts/secret-request";
 
   interface Props {
     tabId: string;
@@ -85,6 +86,7 @@
       {#each prompts as prompt, index (index)}
         {@const field = fields[index]}
         {@const inputId = `secret-request-${request.questionId}-${index}`}
+        {@const link = secretRequestLink(prompt)}
         {#if index > 0}
           <div class="h-px bg-(--border) opacity-60"></div>
         {/if}
@@ -93,6 +95,18 @@
             <label for={inputId} class="text-transcript-card font-medium">{prompt.name}</label>
             <p class="m-0 text-transcript-meta text-(--muted-foreground) wrap-anywhere">{prompt.reason}</p>
           </div>
+          {#if link}
+            <div class="flex min-w-0 flex-col items-start gap-1">
+              <Button size="sm" variant="outline" onclick={() => void localApi.openExternal(link.href)}>
+                Open {link.host}
+                <ExternalLinkIcon size={14} />
+              </Button>
+              <!-- A link found in the reason is already shown there. -->
+              {#if !link.isInReason}
+                <p class="m-0 font-mono text-transcript-meta text-(--muted-foreground) wrap-anywhere select-text">{prompt.url}</p>
+              {/if}
+            </div>
+          {/if}
           {#if field.isDeclined}
             <div class="flex min-w-0 items-center justify-between gap-2">
               <p class="m-0 text-transcript-meta text-(--muted-foreground)">Declined. The agent does not get this secret.</p>
