@@ -15,6 +15,7 @@ import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import { readWav } from '@solus/server/transcription/wav'
 import { HOST_SOCKET_CLOSE, HOST_SOCKET_PING_INTERVAL_MS, HOST_SOCKET_PING_TIMEOUT_MS, HOST_SOCKET_PROTOCOL_VERSION, serverFrameSchema, splitTextFrame, TEXT_FRAME_PART_MARK, type ServerFrame } from '@solus/contracts/host-socket'
 import { HostSocket } from '@solus/client-core/host-socket'
+import { setWebSocketFactory } from '@solus/client-core/web-socket'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -678,27 +679,14 @@ describe('large text frames', () => {
     let nextTimer = 1
     const realSetTimeout = globalThis.setTimeout
     const realClearTimeout = globalThis.clearTimeout
-    const realWebSocket = globalThis.WebSocket
     const sent: string[] = []
-    class SlowLinkSocket {
-      static CONNECTING = 0
-      static OPEN = 1
-      readyState = 1
-      binaryType = 'arraybuffer'
-      onopen: (() => void) | null = null
-      onmessage: ((message: { data: string }) => void) | null = null
-      onclose: ((close: { code: number; reason: string }) => void) | null = null
-      onerror: (() => void) | null = null
-      send(frame: string): void { sent.push(frame) }
-      close(): void { this.readyState = 3 }
-    }
-    let wire!: SlowLinkSocket
-    globalThis.WebSocket = class extends SlowLinkSocket {
-      constructor() {
-        super()
-        wire = this
-      }
-    } as unknown as typeof WebSocket
+    const listeners = new Map<string, (event?: { data: string }) => void>()
+    setWebSocketFactory(() => ({
+      readyState: 1,
+      send: (frame: string | Uint8Array) => { sent.push(String(frame)) },
+      close: () => {},
+      addEventListener: (type: string, listener: (event?: { data: string }) => void) => { listeners.set(type, listener) },
+    }))
     globalThis.setTimeout = ((run: () => void, delay: number) => {
       timers.set(nextTimer, { at: now + delay, run })
       return nextTimer++
@@ -713,7 +701,7 @@ describe('large text frames', () => {
         closed: (close) => closes.push(close.code),
         result: (result) => results.push(result.id),
       })
-      wire.onopen?.()
+      listeners.get('open')?.()
       const parts = splitTextFrame(JSON.stringify({ t: 'result', id: '1', result: largeAnswer }))
       const stepMs = (HOST_SOCKET_PING_INTERVAL_MS + HOST_SOCKET_PING_TIMEOUT_MS) / 2
       expect(parts.length * stepMs).toBeGreaterThan(HOST_SOCKET_PING_INTERVAL_MS + HOST_SOCKET_PING_TIMEOUT_MS)
@@ -724,7 +712,7 @@ describe('large text frames', () => {
           timers.delete(id)
           timer.run()
         }
-        wire.onmessage?.({ data: part })
+        listeners.get('message')?.({ data: part })
       }
       expect(closes).toEqual([])
       expect(results).toEqual(['1'])
@@ -733,7 +721,7 @@ describe('large text frames', () => {
     } finally {
       globalThis.setTimeout = realSetTimeout
       globalThis.clearTimeout = realClearTimeout
-      globalThis.WebSocket = realWebSocket
+      setWebSocketFactory(null)
     }
   })
 })

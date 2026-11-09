@@ -18,6 +18,7 @@ import type { SocketHandshake } from '@solus/contracts/uplink'
 import type { BrowserFrameHeader } from '@solus/contracts/browser-types'
 import type { hostEventEnvelopeSchema } from '@solus/contracts/host-events'
 import type { z } from 'zod'
+import { openWebSocket, type ClientWebSocket } from './web-socket'
 
 /** A host event as the frame carries it; `isHostEvent` names its type. */
 export type HostEventEnvelope = z.infer<typeof hostEventEnvelopeSchema>
@@ -60,7 +61,7 @@ export interface HostSocketListener {
  * socket is open. It never redials: the owner makes a new one.
  */
 export class HostSocket {
-  private readonly ws: WebSocket
+  private readonly ws: ClientWebSocket
   private pendingHello: ClientFrame | null = null
   private opened = false
   private welcomed = false
@@ -71,22 +72,22 @@ export class HostSocket {
   private heldParts = ''
 
   constructor(serverUrl: string, private readonly listener: HostSocketListener, options: { openTimeoutMs?: number } = {}) {
-    this.ws = new WebSocket(hostSocketUrl(serverUrl))
-    this.ws.binaryType = 'arraybuffer'
+    this.ws = openWebSocket(hostSocketUrl(serverUrl))
     if (options.openTimeoutMs !== undefined) {
       this.openTimer = setTimeout(() => this.finish({ code: 1006, reason: 'open timeout' }), options.openTimeoutMs)
     }
-    this.ws.onopen = () => {
+    this.ws.addEventListener('open', () => {
+      if (this.finished) return
       this.opened = true
       this.clearOpenTimer()
       this.expectPing()
       if (this.pendingHello) this.send(this.pendingHello)
       this.pendingHello = null
-    }
-    this.ws.onmessage = (message) => this.receive(message.data)
-    this.ws.onclose = (close) => this.finish({ code: close.code, reason: close.reason })
-    // An error is always followed by a close, which reports it.
-    this.ws.onerror = () => {}
+    })
+    // `receive` and `finish` ignore the socket once it ended. An error is always
+    // followed by a close, which reports it.
+    this.ws.addEventListener('message', (message) => this.receive(message.data))
+    this.ws.addEventListener('close', (close) => this.finish({ code: close.code, reason: close.reason }))
   }
 
   /** True once the host sent `welcome` and until the socket ends. */
@@ -113,7 +114,6 @@ export class HostSocket {
     if (this.finished) return
     this.finished = true
     this.clearTimers()
-    this.ws.onopen = this.ws.onmessage = this.ws.onclose = null
     this.ws.close(1000)
   }
 
@@ -184,7 +184,6 @@ export class HostSocket {
     const welcomed = this.welcomed
     this.finished = true
     this.clearTimers()
-    this.ws.onopen = this.ws.onmessage = this.ws.onclose = null
     if (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN) this.ws.close()
     this.listener.closed({ opened: this.opened, welcomed, ...close })
   }
