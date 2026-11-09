@@ -275,6 +275,12 @@ they reach T3 `main`. #18679 is in the Enriched Markdown section. #18527 (native
 | #24273, no perpetual reconnect indicator animation | `src/features/connection/ConnectionStatusDot.tsx` | None. While Solus dials a host, the dot wears a still halo at opacity 0.3 instead of a looping Reanimated pulse. |
 | #24263, bound streaming Markdown cache and pending work | `deps/`, `package.json`, `src/lib/enrichedLinkPresentation.ts` | The native part is the archive (see Enriched Markdown). Solus has no `markdownWithInlineFileLinks`, `markdownWithTableBreaks`, or `markdownForNativeRendering`, so only the inline-code span pattern applies, in `recognizedLinkUrls`. The archive needed the block renderer API of #24534 first. |
 
+## Upstream fixes ported (2026-11-09, T3 `main` at `47e336b131`)
+
+| T3 pull request | Solus files | Local changes |
+| --- | --- | --- |
+| #32812, SVG markers with `orient="auto-start-reverse"` do not crash Android | root `patches/react-native-svg@15.16.0.patch`, `package.json` (`patchedDependencies`) | Same patch as T3, for Bun. The installed react-native-svg is 15.16.0 and the patch applies without change. `auto` keeps the path angle; `auto-start-reverse` adds 180° to the start marker only; another value parses as a number, else 0°. A new Android build is necessary. |
+
 ## Pull requests and the diff surface (2026-10-12, commit `e2e95a39d`)
 
 T3 Code #18126 (browse and review pull requests), #18267 (guided reviews), and
