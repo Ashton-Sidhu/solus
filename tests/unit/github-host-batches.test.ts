@@ -130,7 +130,7 @@ function headRow(repository: string, number: number, branch: string): object {
     author: { login: 'sidhu', avatarUrl: '' }, state: 'OPEN', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', isDraft: false,
     labels: { nodes: [] }, additions: 1, deletions: 1, reviewRequests: { nodes: [] }, assignees: { nodes: [] }, body: '',
     baseRefName: 'main', baseRefOid: 'base', headRefName: branch, changedFiles: 1, mergeable: 'MERGEABLE',
-    reviewDecision: null, reviews: { totalCount: 0 }, baseRepository: { nameWithOwner: repository },
+    reviewDecision: null, latestReviews: { totalCount: 0, nodes: [] }, baseRepository: { nameWithOwner: repository },
     headRepository: { nameWithOwner: repository, name: repository.split('/')[1], owner: { login: 'acme' } },
   }
 }

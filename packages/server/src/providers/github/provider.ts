@@ -191,7 +191,7 @@ const REVIEW_THREADS_QUERY = `
             line
             diffSide
             comments(first: 100) {
-              nodes { id author { login avatarUrl } body createdAt lastEditedAt diffHunk pullRequestReview { id } }
+              nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized diffHunk pullRequestReview { id } }
             }
           }
         }
@@ -242,11 +242,11 @@ const PR_CONVERSATION_QUERY = `
       pullRequest(number: $number) {
         comments(first: 100, after: $commentsCursor) @include(if: $includeComments) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login avatarUrl } body createdAt lastEditedAt url }
+          nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized url }
         }
         reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login avatarUrl } body createdAt lastEditedAt submittedAt state url }
+          nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized submittedAt state url }
         }
         timelineItems(
           first: 100
@@ -312,6 +312,8 @@ interface GqlComment {
   body: string
   createdAt: string
   lastEditedAt?: string | null
+  /** A maintainer hid it. Absent from a mutation's answer, which is never hidden. */
+  isMinimized?: boolean
   diffHunk?: string
   /** The review the comment was submitted with; null on a lone comment. */
   pullRequestReview?: { id: string } | null
@@ -344,6 +346,7 @@ interface GqlConversationNode {
   body: string
   createdAt: string
   lastEditedAt?: string | null
+  isMinimized: boolean
   url?: string
 }
 
@@ -542,7 +545,14 @@ function toComment(c: GqlComment): ReviewComment {
   return comment
 }
 
-function toThread(t: GqlThread): ReviewThread {
+/**
+ * Comments a maintainer hid (minimized) are left out, as they are from the
+ * conversation: they are spam, off-topic, or outdated, and reach no reader or
+ * agent. A thread with no comment left is null.
+ */
+function toThread(t: GqlThread): ReviewThread | null {
+  const comments = t.comments.nodes.filter((comment) => !comment.isMinimized)
+  if (comments.length === 0) return null
   return {
     id: t.id,
     filePath: t.path,
@@ -550,7 +560,7 @@ function toThread(t: GqlThread): ReviewThread {
     side: t.diffSide,
     isResolved: t.isResolved,
     isOutdated: t.isOutdated,
-    comments: t.comments.nodes.map(toComment),
+    comments: comments.map(toComment),
   }
 }
 
@@ -963,7 +973,10 @@ export class GitHubProvider implements ReviewProvider {
           cursor,
         })
         const page = res.repository.pullRequest.reviewThreads
-        for (const node of page.nodes) threads.push(toThread(node))
+        for (const node of page.nodes) {
+          const thread = toThread(node)
+          if (thread) threads.push(thread)
+        }
         if (!page.pageInfo.hasNextPage) break
         cursor = page.pageInfo.endCursor
       }
@@ -1312,7 +1325,9 @@ export class GitHubProvider implements ReviewProvider {
         })
         const conversation: PrConversationResponse['repository']['pullRequest'] = res.repository.pullRequest
         if (conversation.comments) {
-          for (const comment of conversation.comments.nodes) {
+          // A comment or review a maintainer hid (minimized) is left out: it is
+          // spam, off-topic, or outdated, and reaches no reader or agent.
+          for (const comment of conversation.comments.nodes.filter((node) => !node.isMinimized)) {
             const item: PrConversationItem = {
               id: comment.id,
               kind: 'comment',
@@ -1329,7 +1344,7 @@ export class GitHubProvider implements ReviewProvider {
           commentsCursor = conversation.comments.pageInfo.endCursor
         }
         if (conversation.reviews) {
-          for (const review of conversation.reviews.nodes) {
+          for (const review of conversation.reviews.nodes.filter((node) => !node.isMinimized)) {
             // A bodiless review is still an event: an approval, or the owner
             // of inline threads. The client drops one that is neither.
             if (review.state === 'PENDING') continue

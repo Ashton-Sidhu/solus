@@ -39,7 +39,7 @@ export const NEEDS_REVIEW_FIELDS = `
     changedFiles
     mergeable
     reviewDecision
-    reviews(first: 1) { totalCount }
+    latestReviews(first: 20) { totalCount nodes { isMinimized } }
     baseRepository { nameWithOwner defaultBranchRef { name } }
     headRepository { nameWithOwner name owner { login } }
     autoMergeRequest { mergeMethod }
@@ -72,7 +72,7 @@ export interface GqlNeedsReviewPullRequest extends GqlStackMembership {
   changedFiles: number
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
-  reviews: { totalCount: number }
+  latestReviews: GqlLatestReviews
   baseRepository: { nameWithOwner: string; defaultBranchRef?: { name: string } | null } | null
   headRepository: { nameWithOwner: string; name: string; owner: { login: string } } | null
   /** Null while auto-merge is off. Absent from a row that did not select it. */
@@ -143,7 +143,7 @@ export function toNeedsReviewPullRequest(
     // `mergeStateStatus` is behind an Accept-header preview this query does not
     // request; search rows say "not computed" rather than guessing a state.
     mergeStateStatus: null,
-    reviewStatus: reviewStatusOf(pr.reviewDecision, pr.reviews.totalCount),
+    reviewStatus: reviewStatusOf(pr.reviewDecision, shownReviewCount(pr.latestReviews)),
     stack: stackMembershipOf(pr),
     ...autoMergeOfRow(pr),
     ...checksOfRow(pr),
@@ -175,6 +175,21 @@ function autoMergeOfRow(pr: GqlNeedsReviewPullRequest): Pick<PullRequest, 'autoM
 }
 
 export type PullRequestReviewStatus = NonNullable<PullRequest['reviewStatus']>
+
+/** Each reviewer's latest review, as far as the read went. */
+export interface GqlLatestReviews {
+  totalCount: number
+  nodes: Array<{ isMinimized: boolean } | null>
+}
+
+/**
+ * The reviewers whose latest review a maintainer did not hide (minimize). A
+ * hidden review is spam, off-topic, or outdated, and does not make a pull
+ * request "reviewed". Reviews past the page that was read count as shown.
+ */
+export function shownReviewCount(reviews: GqlLatestReviews): number {
+  return reviews.totalCount - reviews.nodes.filter((review) => review?.isMinimized).length
+}
 
 export function reviewStatusOf(
   decision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null,

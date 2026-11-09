@@ -43,7 +43,6 @@ export function githubPullRequestDetailAnswer(options: DetailAnswerOptions = {})
         mergeable: 'MERGEABLE',
         mergeStateStatus: options.mergeStateStatus ?? 'BLOCKED',
         reviewDecision: 'REVIEW_REQUIRED',
-        reviews: { totalCount: 2 },
         autoMergeRequest: null,
         baseRepository: { nameWithOwner: 'acme/app', defaultBranchRef: { name: 'develop' } },
         headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
@@ -51,14 +50,15 @@ export function githubPullRequestDetailAnswer(options: DetailAnswerOptions = {})
         assignees: { nodes: [{ login: 'octocat' }] },
         reviewRequests: { nodes: [{ requestedReviewer: { login: 'hubot', avatarUrl: 'https://avatars.test/hubot' } }] },
         latestReviews: {
+          totalCount: 2,
           nodes: [
-            { state: 'COMMENTED', author: { login: 'monalisa', avatarUrl: 'https://avatars.test/monalisa' } },
-            { state: 'COMMENTED', author: { login: 'linus' } },
+            { state: 'COMMENTED', isMinimized: false, author: { login: 'monalisa', avatarUrl: 'https://avatars.test/monalisa' } },
+            { state: 'COMMENTED', isMinimized: false, author: { login: 'linus' } },
           ],
         },
         // Mona approved before her later comment; the approval stands.
         latestOpinionatedReviews: {
-          nodes: [{ state: 'APPROVED', author: { login: 'monalisa', avatarUrl: 'https://avatars.test/monalisa' } }],
+          nodes: [{ state: 'APPROVED', isMinimized: false, author: { login: 'monalisa', avatarUrl: 'https://avatars.test/monalisa' } }],
         },
         commits: {
           pageInfo: { hasNextPage: commits.hasNextPage, endCursor: commits.endCursor },
