@@ -4,6 +4,8 @@
  * of a simulator.
  */
 
+import { openWebSocket } from './web-socket'
+
 export interface UpstreamSocket {
   send(data: string | Uint8Array): void
   close(): void
@@ -40,11 +42,10 @@ export const webUpstream: DeviceUpstream = {
     }
   },
   openSocket(url, handlers) {
-    const socket = new WebSocket(url)
-    socket.binaryType = 'arraybuffer'
+    const socket = openWebSocket(url)
     socket.addEventListener('open', () => handlers.onOpen())
     socket.addEventListener('message', (event) => {
-      // binaryType is arraybuffer: binary arrives as an ArrayBuffer, text as a string.
+      // Binary arrives as an ArrayBuffer, text as a string (`ClientWebSocket`).
       if (event.data instanceof ArrayBuffer) handlers.onMessage(new Uint8Array(event.data))
       else handlers.onMessage(String(event.data))
     })

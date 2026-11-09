@@ -371,3 +371,15 @@ rejects the call with the save error.
 | `src/lib/saveImageToLibrary.ts` | `src/lib/saveImageToLibrary.ts` | `canSaveImageToLibrary` takes the platform as an argument, so the test needs no `react-native`. |
 | `src/lib/attachmentDownload.ts` | `src/state/mediaActions.ts` (`localImageFile`, `saveImage`) | `downloadAndSaveImage` uses the one cached-file folder of the share path and removes it after the save. No haptic and no `settlePromise`: Solus shows failures with `Alert`. |
 | `src/lib/mediaActions.ts` | `src/state/mediaActions.ts` | One `busy` state for both actions. Solus has no local draft attachments or filesystem-scope check here: every source resolves a URL. Tests are in `tests/unit/native-mobile-save-image.test.ts`. |
+
+## iOS socket compression (2026-11-09, T3 #32288 at `f26623febe`)
+
+| Solus path | T3 source | Local changes |
+| --- | --- | --- |
+| `modules/solus-web-socket/` (`SolusWebSocketModule.swift`, `SolusWebSocket.podspec`) | `modules/t3-web-socket/` | Same `URLSessionWebSocketTask` client, with the Solus names. It offers permessage-deflate on every handshake; the host offers it for frames of 1024 bytes and more. iOS only: Android's OkHttp already negotiates it. |
+| `src/platform/native-web-socket.ios.ts`, `native-web-socket.ts`, `index.ts` | `src/native/nativeWebSocket.ios.ts`, `nativeWebSocket.ts`, `src/lib/runtime.ts` | No Effect layer. At startup the app gives client-core a socket factory (`setWebSocketFactory` in `packages/client-core/src/web-socket.ts`); `HostSocket` and the device upstream dial through `openWebSocket`. Desktop and web keep the browser's WebSocket. Binary frames arrive as an `ArrayBuffer`, as with `binaryType = 'arraybuffer'`. No `once` listeners, `removeEventListener`, or dispose: client-core does not use them, and the sockets live as long as the app. A build without the module keeps React Native's WebSocket. |
+| `tests/unit/native-mobile-web-socket.test.ts` | `src/native/nativeWebSocket.ios.test.ts` | Bun instead of Vitest; adds the fallback and a `HostSocket` close through the wrapper. |
+
+iOS needs a new native build (`pod install`) before the module is in the app.
+Not verified here: the Swift code was not compiled or run, and no iPhone
+traffic was measured. T3 measured 8–11× less data on the wire.
