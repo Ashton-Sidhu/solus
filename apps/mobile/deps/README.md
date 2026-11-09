@@ -31,7 +31,7 @@ record the new source and SHA-256 here, and run `bun install` at the
 repository root. The native clients must be built again when this archive
 changes.
 
-## `react-native-enriched-markdown-1.2.0-t3.16-558767d9.tgz`
+## `react-native-enriched-markdown-1.2.0-t3.16-558767d9-solus.1.tgz`
 
 T3 Code's fork of Software Mansion's Enriched Markdown. It draws all the
 app's Markdown (`src/native/EnrichedMarkdownText.tsx`): native text with
@@ -53,9 +53,19 @@ metadata, and development-host autolinks.
   `558767d9bccec81805d960f792ab0fcda7c1e7c8`, on the upstream commit
   `69c3330dd6d75cacd8d046f4e0c4b8fe5c42a6e1`. The package version is
   `1.2.0-t3.16`.
-- **SHA-256:** `d9b75931bafb1847172550bb4eaafb7b8f59632a79b796e6174a93261e95c0fd`
-- **Integrity:** `sha512-Dl8Raid4175mHijMpsIRLB3yXBZ1s04YxaQoIdHwy64KPHBVdt26x2OYRhYyjMM3VEo4U24AAYNXUh271zYDQw==`
-  (the same in `bun.lock` and in T3's `pnpm-lock.yaml`)
+- **Solus change (`solus.1`):** T3's `558767d9` archive with one change, which
+  T3 ships as `patches/react-native-enriched-markdown@1.2.0-t3.16.patch`
+  (T3 #29355). Copy as Markdown writes a newline inside a table cell as
+  `<br>`, so the copied row stays whole (`serializeTableCell` on Android,
+  `markdownFromTableCellNode` on iOS). Bun 1.3.14 does not apply
+  `patchedDependencies` to a `file:` archive, so the change is in the
+  archive. The archive was packed again with the original file list and order;
+  only those five native files differ. Drop this change when the fork carries
+  it (T3's `fork/t3-mobile` did not on 2026-11-07).
+- **SHA-256:** `4f805e38a0a99ceaf1eefe400f58d3e3b2224e0d10b4aa511db7e4a9d2117dfd`
+  (T3's unchanged `558767d9` archive: `d9b75931bafb1847172550bb4eaafb7b8f59632a79b796e6174a93261e95c0fd`)
+- **Integrity:** `sha512-bQyrcSXsxNyStvjDm1S3YzEyWKBj6Ew5rM64Mlg8POP2Izy2yvBQTrB0VaiFCf0IK93eEzO+Bg3OQRtIRAlNug==`
+  (in `bun.lock`)
 - **Changes from `t3.15`:** the media slots and the document asset manifest
   are removed. `renderMedia` becomes `renderers.image`, `onDocumentAssets`
   becomes `onLinksChange`, and `resolveImageSource` receives a
@@ -77,7 +87,8 @@ The `enriched-markdown` block in `apps/mobile/package.json` turns off math (no
 RaTeX download) and video. T3 turns math on since #18735; Solus keeps it off.
 
 T3's procedure to build an archive is in its `apps/mobile/deps/README.md`. To
-replace this archive, copy the new archive from T3 Code, change the path in
+replace this archive, copy the new archive from T3 Code, apply the Solus
+change above if the new archive lacks it, change the path in
 `apps/mobile/package.json`, record the new source and SHA-256 here, and run
 `bun install` at the repository root. The native clients must be built again
 when this archive changes.
