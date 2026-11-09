@@ -68,6 +68,16 @@ describe('request_secret as a session tool', () => {
     expect(text).toContain('A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one.')
   })
 
+  test('Claude and Codex both learn to ask for a sudo password with a file secret', () => {
+    // WHY: asked to run a command that needs a sudo password, an agent refuses
+    // instead of asking. The recipe must reach both providers and keep stdin for the password.
+    for (const harness of ['Claude Code', 'Codex'] as const) {
+      const text = instructions.runtimeInstructions({ harness, model: 'm', reasoningEffort: 'low' }, sessionTools())
+      expect(text).toContain('if `sudo -n <cmd>` says a password is required, call `request_secret` with `delivery: "file"`')
+      expect(text).toContain("`sudo -S -p '' <cmd> < \"$file\"`")
+    }
+  })
+
   test('the result names the outcome: saved with its ref, or declined, or cancelled', async () => {
     const events: NormalizedEvent[] = []
     const declined = toolbox.sessions.requestSecret.execute({ secrets: [{ name: 'x', reason: 'y' }] }, context('session-a', events))

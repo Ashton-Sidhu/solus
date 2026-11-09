@@ -102,7 +102,7 @@ export interface AgentRuntime {
 }
 
 /** The one rule for credentials across Solus tools: a tool takes a `secretRef`, never a secret; a shell command reads a private file. */
-const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one.'
+const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one. Sudo: if `sudo -n <cmd>` says a password is required, call `request_secret` with `delivery: "file"` and run `sudo -S -p \'\' <cmd> < "$file"`; stdin carries the password, so give other input as a file argument.'
 
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
