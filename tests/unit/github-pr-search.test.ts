@@ -41,7 +41,7 @@ function searchRow(number: number) {
     changedFiles: 1,
     mergeable: 'MERGEABLE' as const,
     reviewDecision: 'APPROVED' as const,
-    reviews: { totalCount: 1 },
+    latestReviews: { totalCount: 1, nodes: [] },
     baseRepository: { nameWithOwner: 'acme/app', defaultBranchRef: { name: 'main' } },
     headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
   }

@@ -65,7 +65,7 @@ const listedRow = {
   changedFiles: 1,
   mergeable: 'MERGEABLE',
   reviewDecision: 'APPROVED',
-  reviews: { totalCount: 1 },
+  latestReviews: { totalCount: 1, nodes: [] },
   baseRepository: { nameWithOwner: 'acme/app' },
   headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
 }

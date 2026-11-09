@@ -52,7 +52,7 @@ function gqlRow(row: FakeRow, nameOf: (repo: string) => string) {
     changedFiles: 1,
     mergeable: 'MERGEABLE',
     reviewDecision: 'APPROVED',
-    reviews: { totalCount: 1 },
+    latestReviews: { totalCount: 1, nodes: [] },
     baseRepository: { nameWithOwner: `acme/${name}` },
     headRepository: { nameWithOwner: `acme/${name}`, name, owner: { login: 'acme' } },
     autoMergeRequest: null,

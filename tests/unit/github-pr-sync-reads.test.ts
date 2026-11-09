@@ -34,7 +34,7 @@ function row(number: number, updatedAt: string) {
     changedFiles: 1,
     mergeable: 'MERGEABLE',
     reviewDecision: null,
-    reviews: { totalCount: 0 },
+    latestReviews: { totalCount: 0, nodes: [] },
     baseRepository: { nameWithOwner: 'acme/app' },
     headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
   }

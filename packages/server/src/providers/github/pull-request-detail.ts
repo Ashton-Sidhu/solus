@@ -10,7 +10,7 @@ import {
   rememberGithubRepositoryFacts,
   type GithubRepositoryFacts,
 } from './pull-request-actions'
-import { githubDefaultBranchOf, headRepoOf, requestedReviewers, reviewStatusOf } from './pull-request-rows'
+import { githubDefaultBranchOf, headRepoOf, requestedReviewers, reviewStatusOf, shownReviewCount } from './pull-request-rows'
 
 // ─── One pull request, read in one GraphQL request ────────────────────────────
 // The detail, the viewer, the repository's merge settings, the base branch's
@@ -50,15 +50,14 @@ const PULL_REQUEST_DETAIL_QUERY = `
         mergeable
         mergeStateStatus
         reviewDecision
-        reviews(first: 1) { totalCount }
         autoMergeRequest { mergeMethod }
         baseRepository { nameWithOwner defaultBranchRef { name } }
         headRepository { nameWithOwner name owner { login } }
         labels(first: 100) { nodes { name color } }
         assignees(first: 100) { nodes { login } }
         reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login avatarUrl } } } }
-        latestReviews(first: 100) { nodes { state author { login avatarUrl } } }
-        latestOpinionatedReviews(first: 100) { nodes { state author { login avatarUrl } } }
+        latestReviews(first: 100) { totalCount nodes { state isMinimized author { login avatarUrl } } }
+        latestOpinionatedReviews(first: 100) { nodes { state isMinimized author { login avatarUrl } } }
         commits(first: ${COMMITS_PER_PAGE}) { ${COMMIT_FIELDS} }
         baseRef {
           branchProtectionRule { requiresLinearHistory requiredApprovingReviewCount }
@@ -99,6 +98,7 @@ interface GqlCommitPage {
 
 interface GqlReview {
   state: string
+  isMinimized: boolean
   author: { login: string; avatarUrl?: string } | null
 }
 
@@ -122,14 +122,13 @@ interface GqlDetailPullRequest {
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   mergeStateStatus: string | null
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
-  reviews: { totalCount: number }
   autoMergeRequest: { mergeMethod: string | null } | null
   baseRepository: { nameWithOwner: string; defaultBranchRef?: { name: string } | null } | null
   headRepository: { nameWithOwner: string; name: string; owner: { login: string } } | null
   labels: { nodes: Array<{ name: string; color: string } | null> }
   assignees: { nodes: Array<{ login: string } | null> }
   reviewRequests: { nodes: Array<{ requestedReviewer: { login?: string; avatarUrl?: string } | null } | null> }
-  latestReviews: { nodes: Array<GqlReview | null> }
+  latestReviews: { totalCount: number; nodes: Array<GqlReview | null> }
   latestOpinionatedReviews: { nodes: Array<GqlReview | null> }
   commits: GqlCommitPage
   /** Null when the base branch is gone. Absent when GitHub refused to say. */
@@ -254,7 +253,7 @@ function toDetailPullRequest(
     // Lowercase, as REST's `mergeable_state` spells the same states.
     mergeStateStatus: pr.mergeStateStatus?.toLowerCase() ?? null,
     requiredApprovingReviewCount: branch.requiredApprovingReviewCount,
-    reviewStatus: reviewStatusOf(pr.reviewDecision, pr.reviews.totalCount),
+    reviewStatus: reviewStatusOf(pr.reviewDecision, shownReviewCount(pr.latestReviews)),
     autoMergeEnabled: pr.autoMergeRequest !== null,
     ...access,
   }
@@ -310,18 +309,19 @@ const REVIEWER_STATES = new Map<string, NonNullable<PrReviewer['state']>>([
  * answered. GitHub's semantics: an approval or a change request holds until it
  * is dismissed or replaced, and a later comment does not demote it. That is
  * `latestOpinionatedReviews`; `latestReviews` names the reviewers who only
- * commented. A pending review is the viewer's own draft, not a state.
+ * commented. A pending review is the viewer's own draft, not a state. A
+ * review a maintainer hid casts no verdict and does not name a reviewer.
  */
 function reviewersOf(pr: GqlDetailPullRequest): PrReviewer[] {
   const reviewers = new Map<string, PrReviewer>()
   const opinionated = new Map<string, GqlReview>()
   for (const review of pr.latestOpinionatedReviews.nodes) {
-    if (review?.author?.login) opinionated.set(review.author.login, review)
+    if (review?.author?.login && !review.isMinimized) opinionated.set(review.author.login, review)
   }
   for (const latest of pr.latestReviews.nodes) {
     const login = latest?.author?.login
     if (!login) continue
-    const review = opinionated.get(login) ?? latest
+    const review = opinionated.get(login) ?? (latest?.isMinimized ? null : latest)
     if (!review) continue
     if (review.state === 'PENDING') continue
     reviewers.set(login, reviewerOf(login, review.author?.avatarUrl, REVIEWER_STATES.get(review.state) ?? 'COMMENTED'))
