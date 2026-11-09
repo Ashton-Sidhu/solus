@@ -1,9 +1,12 @@
 // Adapted from T3 Code apps/mobile/src/lib/attachmentDownload.ts (MIT, see UPSTREAM.md).
-// Only the paths Solus uses: a document opened in another app's viewer (Android)
-// and the original bytes for the save or share sheet. No foreground handoff
-// tracking (Solus has no deferred restart) and no source-anchored iOS share sheet.
+// Only the paths Solus uses: a document opened in another app's viewer (Android),
+// the original bytes for the share sheet, and an image saved to Photos. No
+// foreground handoff tracking (Solus has no deferred restart) and no
+// source-anchored iOS share sheet.
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { Directory } from "expo-file-system";
+
+import { saveImageToLibrary } from "./saveImageToLibrary";
 
 const ATTACHMENT_DOWNLOAD_DIRECTORY = "solus-attachment-downloads";
 const DOWNLOAD_RETENTION_MS = 24 * 60 * 60_000;
@@ -192,6 +195,33 @@ export async function downloadAndShareAttachment(input: {
         throw new Error("Could not open the share sheet. Try again.", { cause });
       }
     }
+  } finally {
+    cached.dispose();
+  }
+}
+
+/** Downloads the original bytes, adds them to Photos (iOS) or Pictures/Solus
+ *  (Android), and removes the cached copy: the library keeps its own. */
+export async function downloadAndSaveImage(input: {
+  readonly url: string;
+  readonly attachment: AttachmentFileMetadata;
+  readonly signal: AbortSignal;
+}): Promise<void> {
+  if (input.signal.aborted) return;
+  const { File } = await import("expo-file-system");
+  const cached = await createCachedAttachmentFile(input.attachment);
+  try {
+    try {
+      if (/^(file|content):/i.test(input.url)) new File(input.url).copy(cached.file);
+      else await File.downloadFileAsync(input.url, cached.file, { idempotent: true });
+    } catch (cause) {
+      if (input.signal.aborted) return;
+      throw new Error("Could not download the image. Check the connection and try again.", {
+        cause,
+      });
+    }
+    if (input.signal.aborted) return;
+    await saveImageToLibrary(cached.file.uri, input.attachment.mimeType, cached.file.name);
   } finally {
     cached.dispose();
   }

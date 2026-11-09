@@ -5,14 +5,21 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 
 import type { MediaActionsSource } from "../components/FilePreview.types";
 import type { RootStackParamList } from "../navigation/routes";
-import { downloadAndShareAttachment } from "./attachmentDownload";
+import { downloadAndSaveImage, downloadAndShareAttachment } from "./attachmentDownload";
 import { copyTextWithHaptic } from "./copyTextWithHaptic";
+import { canSaveImageToLibrary } from "./saveImageToLibrary";
 
-export type MediaActionId = "copy-full-path" | "copy-relative-path" | "copy-url" | "open-file" | "save";
+export type MediaActionId =
+  | "copy-full-path"
+  | "copy-relative-path"
+  | "copy-url"
+  | "open-file"
+  | "save"
+  | "save-image";
 
 export interface MediaAction {
   readonly id: MediaActionId;
@@ -35,28 +42,31 @@ export function useMediaActions(
 ): MediaActions {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const controller = useRef<AbortController | null>(null);
-  const [sharing, setSharing] = useState(false);
+  const [busy, setBusy] = useState<"share" | "save-image" | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
 
-  const share = () => {
+  /** Downloads the original bytes and hands them to the share sheet or to Photos. */
+  const run = (kind: "share" | "save-image") => {
     if (!source || controller.current) return;
     const request = new AbortController();
     controller.current = request;
-    setSharing(true);
+    setBusy(kind);
     void (async () => {
       const uri = await source.resolveUri();
       if (request.signal.aborted) return;
       if (uri === null) throw new Error("The file could not be loaded. Reconnect and try again.");
-      await downloadAndShareAttachment({
+      const input = {
         url: uri,
         attachment: { name: source.name, mimeType: source.mimeType },
         signal: request.signal,
-      });
+      };
+      if (kind === "share") await downloadAndShareAttachment(input);
+      else await downloadAndSaveImage(input);
     })()
       .catch((error: unknown) => {
         if (!request.signal.aborted) {
           Alert.alert(
-            "Could not share file",
+            kind === "share" ? "Could not share file" : "Could not save image",
             error instanceof Error ? error.message : "Try again.",
           );
         }
@@ -64,10 +74,12 @@ export function useMediaActions(
       .finally(() => {
         if (controller.current === request) {
           controller.current = null;
-          if (!request.signal.aborted) setSharing(false);
+          if (!request.signal.aborted) setBusy(null);
         }
       });
   };
+  const share = () => run("share");
+  const canSaveImage = source !== undefined && canSaveImageToLibrary(source.mimeType, Platform);
 
   const reference = source?.reference;
   const relativePath = reference?.kind === "file" ? reference.relativePath : undefined;
@@ -113,18 +125,29 @@ export function useMediaActions(
               },
             ]
           : []),
+        ...(canSaveImage
+          ? [
+              {
+                id: "save-image" as const,
+                title: busy === "save-image" ? "Saving image…" : "Save image",
+                run: () => run("save-image"),
+                disabled: busy !== null,
+              },
+            ]
+          : []),
         {
           id: "save" as const,
-          title: sharing ? "Opening share sheet…" : "Save or share",
+          title:
+            busy === "share" ? "Opening share sheet…" : canSaveImage ? "Share" : "Save or share",
           run: share,
-          disabled: sharing,
+          disabled: busy !== null,
         },
       ]
     : [];
   return {
     title: reference?.kind === "file" ? reference.path : reference?.url,
     actions,
-    sharing,
+    sharing: busy === "share",
     share,
   };
 }

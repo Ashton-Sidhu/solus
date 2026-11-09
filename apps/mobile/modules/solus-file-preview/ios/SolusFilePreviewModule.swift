@@ -1,9 +1,11 @@
 // Adapted from T3 Code apps/mobile/modules/t3-native-controls/ios/T3NativeControlsModule.swift (MIT, see apps/mobile/UPSTREAM.md).
 // The Quick Look file presentation (`presentFiles`, `dismissFile`) and the
-// AVPlayerViewController video presentation (`presentVideo`, `dismissVideo`):
-// no presentation sources or share sheet.
+// AVPlayerViewController video presentation (`presentVideo`, `dismissVideo`),
+// and `saveImageToLibrary`: no presentation sources or share sheet.
 import ExpoModulesCore
+import Photos
 import UIKit
+import UniformTypeIdentifiers
 
 public final class SolusFilePreviewModule: Module {
   private var filePresentation: SolusFilePresentation?
@@ -55,6 +57,11 @@ public final class SolusFilePreviewModule: Module {
       if self.videoPresentation?.identifier == identifier { self.videoPresentation?.dismiss() }
     }.runOnQueue(.main)
 
+    // Photos names the asset itself, so iOS ignores the Android display name.
+    AsyncFunction("saveImageToLibrary") { (url: URL, mimeType: String, name: String, promise: Promise) in
+      Self.saveImageToLibrary(url: url, mimeType: mimeType, name: name, promise: promise)
+    }
+
     OnDestroy {
       let file = self.filePresentation
       let video = self.videoPresentation
@@ -62,6 +69,35 @@ public final class SolusFilePreviewModule: Module {
         file?.dismiss()
         video?.dismiss()
       }
+    }
+  }
+  /// Add-only access: the first save asks, and Solus never reads the library.
+  private static func saveImageToLibrary(url: URL, mimeType: String, name: String, promise: Promise) {
+    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+      guard status == .authorized || status == .limited else {
+        promise.reject(NSError(
+          domain: "SolusPhotos",
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: "Allow Solus to add photos in Settings."]
+        ))
+        return
+      }
+      PHPhotoLibrary.shared().performChanges({
+        let options = PHAssetResourceCreationOptions()
+        options.uniformTypeIdentifier = UTType(mimeType: mimeType)?.identifier
+        options.originalFilename = name
+        PHAssetCreationRequest.forAsset().addResource(with: .photo, fileURL: url, options: options)
+      }, completionHandler: { saved, error in
+        if saved {
+          promise.resolve(nil)
+        } else {
+          promise.reject(error ?? NSError(
+            domain: "SolusPhotos",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Photos could not save this image."]
+          ))
+        }
+      })
     }
   }
 }
