@@ -198,6 +198,25 @@ Solus media), `composerChipPresentation.ts` (only its `mention` accent is used, 
 chip menu), and `scripts/sync-pierre-file-icons.mjs`. `AppSheet` is in Sheets.
 The media viewers and `@path` mentions are in the next section.
 
+## Mermaid diagrams (2026-11-09, T3 #32190 at `d0807b705f`)
+
+T3 Code #32190 draws ```mermaid fences with Pele through react-native-svg,
+with Enriched's code block renderer (`renderers.code`, from the `t3.18`
+archive). Desktop and web draw Mermaid with the `mermaid` package
+(`docs/mermaid-rendering.md`), which needs a DOM.
+
+| Solus path | T3 source | Local changes |
+| --- | --- | --- |
+| `src/native/MermaidCodeBlock.tsx` | the same path | The full-screen PNG is named by a SHA-256 from `expo-crypto` (not Effect's `Hash`) in `solus-diagrams/`, and opens in Solus's `MediaImagePreview` with a local `resolveUri`. The block takes the native code block's 1px border, 10px radius, and code size. The header and the full-screen export are their own components (`MermaidHeader`, `DiagramFullScreen`). |
+| `src/lib/mermaidSvg.ts` | the same path | The theme is typed to Pele's `--pele-*` names (`PeleTheme`), not a broad record. |
+| `src/lib/mermaidFences.ts` | none | Enriched reports `isComplete` only with its streaming animation, which Solus does not use. The closed fences are found in the source with `@solus/document-model/fences`, the rule desktop and web use, so ```mermaid source also stays code. |
+| `src/native/EnrichedMarkdownText.tsx` (`renderers.code`), `src/components/AppSymbol.tsx` (`flowchart`), `package.json` (`pele`) | the same paths | `pele` `^1.13.0` (T3 tested `1.8.0`). |
+| `tests/unit/native-mobile-mermaid.test.ts` | `src/lib/mermaidSvg.test.ts` | Adds the closed-fence tests. |
+
+Not adopted: the ```math fence. Desktop and web do not render math, and Solus
+keeps Enriched's math off (`deps/README.md`), so ```math stays a code block on
+every client. `pele` adds no native code.
+
 ## Media viewers (2026-10-13, T3 `main` at `42160f2925`)
 
 T3 #16979 (`c5d7309152`) restored native image, video, and PDF opening in chat

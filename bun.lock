@@ -231,6 +231,7 @@
         "expo-video": "~58.0.11",
         "expo-web-browser": "~58.0.6",
         "expo-widgets": "58.0.20",
+        "pele": "^1.13.0",
         "react": "19.3.0",
         "react-native": "0.88.0",
         "react-native-enriched-markdown": "file:deps/react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz",
@@ -3080,6 +3081,8 @@
     "pdfjs-dist": ["pdfjs-dist@6.3.289", "", { "optionalDependencies": { "@napi-rs/canvas": "^1.0.0" } }, "sha512-ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw=="],
 
     "pe-library": ["pe-library@0.4.1", "", {}, ""],
+
+    "pele": ["pele@1.13.0", "", {}, "sha512-Ie8UKY9x00MsuR3jO6AzUwzK2Z6MIV3Tf4EDdITiuk8Uaz8K7g0R082WqsqNaSU8DdgkrRvZThzhit83mi/uiw=="],
 
     "pend": ["pend@1.2.0", "", {}, ""],
 

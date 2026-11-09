@@ -1,11 +1,14 @@
 // Adapted from T3 Code apps/mobile/src/native/EnrichedMarkdownText.tsx (MIT, see UPSTREAM.md).
 // No context chips, context clipboard, skills, or file chip menu: Solus has none on the
 // phone, so a link's long press shows the iOS link menu (Open, Copy, Share). The text
-// recognition slot T3 uses for skills finds `@path` mentions.
+// recognition slot T3 uses for skills finds `@path` mentions. A closed ```mermaid fence
+// draws as its diagram (T3 #32190); ```math stays code, as on desktop and web.
+import { isMermaidFence } from "@solus/document-model/fences";
 import { isValidElement, useCallback, useMemo, useState } from "react";
 import { Platform, Share, View } from "react-native";
 import {
   EnrichedMarkdownText,
+  type MarkdownCodeBlock,
   type MarkdownImageBlock,
   type MarkdownLinkOccurrence,
   type MarkdownStyle,
@@ -20,6 +23,8 @@ import {
 } from "../lib/enrichedLinkPresentation";
 import { FILE_MENTION_REGEX } from "../lib/fileMentions";
 import { markdownWithBlockImages, markdownWithCallouts, markdownWithHtml } from "../lib/markdownDocument";
+import { closedMermaidSources, isClosedMermaidBlock } from "../lib/mermaidFences";
+import { MermaidCodeBlock } from "./MermaidCodeBlock";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 import { useEnrichedLinkVariants } from "./useEnrichedLinkVariants";
 import { useRetryingImageSource } from "./useRetryingImageSource";
@@ -212,21 +217,29 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
     () => ({ ...enrichedStyle(props.textStyle, themeAppearance === "dark"), linkVariants }),
     [props.textStyle, themeAppearance, linkVariants],
   );
+  // Changes only when a Mermaid fence closes, so a streamed token keeps the
+  // renderer and the library keeps its rendered blocks.
+  const mermaidSources = useMemo(() => closedMermaidSources(markdown), [markdown]);
+  const { textStyle } = props;
   const renderers = useMemo(
-    () =>
-      renderImage
-        ? {
-            image: (block: MarkdownImageBlock) => {
-              const element = renderImage({
-                href: block.url,
-                alt: block.altText || null,
-                title: block.title || null,
-              });
-              return isValidElement(element) ? element : undefined;
-            },
+    () => ({
+      image: renderImage
+        ? (block: MarkdownImageBlock) => {
+            const element = renderImage({
+              href: block.url,
+              alt: block.altText || null,
+              title: block.title || null,
+            });
+            return isValidElement(element) ? element : undefined;
           }
         : undefined,
-    [renderImage],
+      // Every other code block, and a fence still streaming in, stays native.
+      code: (block: MarkdownCodeBlock) =>
+        isMermaidFence(block.language) && isClosedMermaidBlock(block.code, mermaidSources) ? (
+          <MermaidCodeBlock code={block.code} textStyle={textStyle} />
+        ) : undefined,
+    }),
+    [renderImage, mermaidSources, textStyle],
   );
   const resolveNativeImageSource = useRetryingImageSource(resolveImageSource);
   const pressImage = onImagePress ?? onLinkPress;

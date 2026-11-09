@@ -65,7 +65,7 @@ written as `<br>`.
 - **Integrity:** `sha512-zVB0Kaac8iNHumPDCV/CBR3I8p+lbFIO56kQGyIMH7ja5I6mHBhw1R/l48TkNye3wk2wsXXX51m1FYa9o+OwDQ==`
   (the same in `bun.lock` and in T3's `pnpm-lock.yaml`)
 - **Changes from `t3.16`:** `renderers.code` replaces a code block with a
-  React element, `onTextPress` reports a tap
+  React element (Solus draws closed Mermaid fences with it), `onTextPress` reports a tap
   on plain text (Solus does not use it), a link block's `label` is the URL for
   a bare link (Solus has no link renderer), math has spoken labels, and on iOS
   a new message draws in its first frame. The app now generates the library's
