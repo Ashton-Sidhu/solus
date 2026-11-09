@@ -153,6 +153,13 @@ async function withUnarchivedThread(client: CodexAppServerClient, threadId: stri
   }
 }
 
+/** Config overrides for every thread. Concurrent reasoning summaries stop
+ *  each tool call from waiting on the reasoning summary (openai/codex#31306,
+ *  Codex 0.143.0). Codex sends each summary section whole, not as token deltas,
+ *  and only for its built-in OpenAI provider. An older Codex logs the unknown
+ *  feature key and ignores it. */
+const THREAD_CONFIG = { 'features.concurrent_reasoning_summaries': true } as const
+
 /** Config overrides for a bare run. They keep out the user's and the project's
  *  setup (AGENTS.md, plugins, apps, the skill list, MCP servers), Codex's
  *  permission and environment text, and every built-in tool except web search
@@ -648,8 +655,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         experimentalRawEvents: false,
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
+        config: request.bare ? { ...THREAD_CONFIG, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : THREAD_CONFIG,
       }
-      if (request.bare) threadConfig.config = await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess)
       threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
       // capability — include them unless a prior start rejected them.
@@ -678,6 +685,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           threadId: sourceThreadId,
           lastTurnId,
           developerInstructions,
+          config: THREAD_CONFIG,
         }))
         threadId = response.thread.id
       } else if (!threadId) {

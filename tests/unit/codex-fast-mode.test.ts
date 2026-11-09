@@ -57,6 +57,40 @@ describe('Codex backend configuration', () => {
     })
   }
 
+  for (const method of ['thread/start', 'thread/resume', 'thread/fork'] as const) {
+    test(`turns on concurrent reasoning summaries on ${method}`, async () => {
+      // WHY: without the feature, each tool call waits until Codex has streamed
+      // the reasoning summary. A thread that is resumed or forked keeps the
+      // config of the request that opened it, so each of them must send it.
+      const backend = new CodexBackend()
+      type CapturedParams = { config?: { 'features.concurrent_reasoning_summaries'?: boolean } | null }
+      const requests: Array<{ method: string; params: CapturedParams }> = []
+      const { promise: turnStarted, resolve: markTurnStarted } = Promise.withResolvers<void>()
+      Reflect.set(backend, 'client', {
+        request: async (requestMethod: string, params: CapturedParams) => {
+          requests.push({ method: requestMethod, params })
+          if (requestMethod === method) return { thread: { id: 'thread-1' }, model: 'gpt-5.6-sol' }
+          if (requestMethod === 'turn/start') {
+            markTurnStarted()
+            return { turn: { id: 'turn-1' } }
+          }
+          throw new Error(`Unexpected method: ${requestMethod}`)
+        },
+      })
+      const conversation: AgentRunRequest['conversation'] = method === 'thread/fork'
+        ? { kind: 'fork', sourceThreadId: 'source-thread' }
+        : method === 'thread/resume' ? { kind: 'resume', threadId: 'thread-1' } : { kind: 'start' }
+      backend.startRun({
+        provider: 'codex', prompt: 'Build it', cwd: '/tmp/project', tools: [],
+        model: 'gpt-5.6-sol', permissionMode: 'full-access',
+        persistence: 'ephemeral', service: 'sessions', conversation,
+      })
+      await turnStarted
+      expect(requests.find((request) => request.method === method)?.params.config)
+        .toMatchObject({ 'features.concurrent_reasoning_summaries': true })
+    })
+  }
+
   test('removes tool guidance when Codex rejects dynamic tools', async () => {
     const backend = new CodexBackend()
     const starts: Array<{ developerInstructions?: string | null }> = []
