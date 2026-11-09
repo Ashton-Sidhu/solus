@@ -187,7 +187,7 @@ patches are removed.
 | `src/features/threads/ThreadMarkdownImage.tsx`, `markdownImageSize.ts` | the same paths | T3's SVG drawing (`format: "svg"`, `resolveSvgImageSize`) through react-native-svg, and the media actions menu on a long press. React Native `Image` (not `expo-image`) draws raster images. No `PresentationSource` (no Quick Look zoom transition). `resolveSvgImageSize` takes the three attributes it reads, not a broad record. |
 | `src/features/files/FileMarkdownPreview.tsx` | the same path | Images and links resolve next to the Markdown file and load through `host-media-url.ts`, also for an image Enriched draws itself. A media link opens the image, PDF, or video viewer before the file screen. |
 | `src/features/prs/detail/PullRequestMarkdown.tsx`, `PullRequestDescription.tsx`, `use-pull-request-media-url.ts` (`usePullRequestMarkdownMedia`), `lib/pull-request-markdown.ts` (`pullRequestImageGallery`) | `src/features/pull-requests/PullRequestMarkdown.tsx`, `PullRequestMedia.tsx`, `PullRequestDescription.tsx`, `pullRequestMediaSource.ts` | GitHub media loads through the host's signed URL (`prMediaUrl`, `pull-request-media.ts`) when the host has `githubMediaUrls`, else by its direct address. A tapped image (in the text or the Attachments strip) opens a gallery of every image of the text, bot badges left out. Media links open the viewers. No `githubMarkdownLinks` rewrite and no compact video tile (`VideoAttachmentTile`). |
-| `deps/react-native-enriched-markdown-1.2.0-t3.16-558767d9.tgz`, `package.json` (`enriched-markdown`, `expo.install.exclude`), root `package.json` (`trustedDependencies`) | `apps/mobile/deps/`, `apps/mobile/package.json`, `pnpm-workspace.yaml` (`allowBuilds`) | The `t3.16-558767d9` archive of T3 #24263 (`ba006f2dfa`): upstream's block renderers and image sources (#24534), and the bounded streaming cache and pending renders (see `deps/README.md`). Math stays off, so the LaTeX work of #18735 has no wrapper change. `EnrichedMarkdownText.tsx` sets `enableCodeBlockWrapToggle={false}`, so code blocks keep today's behavior and match desktop and web, which have no wrap toggle. Bun runs the archive's `postinstall` (tree-sitter grammars) only for a trusted package, so the root lists it in `trustedDependencies` with the packages Bun trusted by default. Needs `pod install` and a new native build. |
+| `deps/react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz`, `package.json` (`enriched-markdown`, `expo.install.exclude`), root `package.json` (`trustedDependencies`) | `apps/mobile/deps/`, `apps/mobile/package.json`, `pnpm-workspace.yaml` (`allowBuilds`) | The `t3.18-4287c5d3` archive of T3 #32180 (`986a4f56a8`), unchanged: the fork on upstream `1d00a92a`, with upstream's block renderers (now also for code blocks), image sources, `onLinksChange`, and streaming memory bounds, and the table-cell copy fix of T3 #29355 (see `deps/README.md`). Math stays off, so the LaTeX work of #18735 and #32180 has no wrapper change. `onTextPress` is not used. `EnrichedMarkdownText.tsx` sets `enableCodeBlockWrapToggle={false}`, so code blocks keep today's behavior and match desktop and web, which have no wrap toggle. Bun runs the archive's `postinstall` (tree-sitter grammars) only for a trusted package, so the root lists it in `trustedDependencies` with the packages Bun trusted by default. Not adopted: T3's `.pnpmfile.cjs` check against patches on a fork archive (Bun ignores such a patch; `deps/README.md` says so). Needs `pod install` and a new native build, which also generates the library's codegen. |
 
 Not adopted from #16979: `modules/t3-source-text/` (Solus's `SourceFileSurface`
 is the JavaScript surface), `ContextSheetSize` (Solus never had it; the
@@ -197,6 +197,25 @@ Solus media), `composerChipPresentation.ts` (only its `mention` accent is used, 
 `useEnrichedLinkVariants.ts`) and `fileChipMenu.ts` (no composer chips or file
 chip menu), and `scripts/sync-pierre-file-icons.mjs`. `AppSheet` is in Sheets.
 The media viewers and `@path` mentions are in the next section.
+
+## Mermaid diagrams (2026-11-09, T3 #32190 at `d0807b705f`)
+
+T3 Code #32190 draws ```mermaid fences with Pele through react-native-svg,
+with Enriched's code block renderer (`renderers.code`, from the `t3.18`
+archive). Desktop and web draw Mermaid with the `mermaid` package
+(`docs/mermaid-rendering.md`), which needs a DOM.
+
+| Solus path | T3 source | Local changes |
+| --- | --- | --- |
+| `src/native/MermaidCodeBlock.tsx` | the same path | The full-screen PNG is named by a SHA-256 from `expo-crypto` (not Effect's `Hash`) in `solus-diagrams/`, and opens in Solus's `MediaImagePreview` with a local `resolveUri`. The block takes the native code block's 1px border, 10px radius, and code size. The header and the full-screen export are their own components (`MermaidHeader`, `DiagramFullScreen`). |
+| `src/lib/mermaidSvg.ts` | the same path | The theme is typed to Pele's `--pele-*` names (`PeleTheme`), not a broad record. |
+| `src/lib/mermaidFences.ts` | none | Enriched reports `isComplete` only with its streaming animation, which Solus does not use. The closed fences are found in the source with `@solus/document-model/fences`, the rule desktop and web use, so ```mermaid source also stays code. |
+| `src/native/EnrichedMarkdownText.tsx` (`renderers.code`), `src/components/AppSymbol.tsx` (`flowchart`), `package.json` (`pele`) | the same paths | `pele` `^1.13.0` (T3 tested `1.8.0`). |
+| `tests/unit/native-mobile-mermaid.test.ts` | `src/lib/mermaidSvg.test.ts` | Adds the closed-fence tests. |
+
+Not adopted: the ```math fence. Desktop and web do not render math, and Solus
+keeps Enriched's math off (`deps/README.md`), so ```math stays a code block on
+every client. `pele` adds no native code.
 
 ## Media viewers (2026-10-13, T3 `main` at `42160f2925`)
 

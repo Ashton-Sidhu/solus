@@ -31,31 +31,45 @@ record the new source and SHA-256 here, and run `bun install` at the
 repository root. The native clients must be built again when this archive
 changes.
 
-## `react-native-enriched-markdown-1.2.0-t3.16-558767d9.tgz`
+## `react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz`
 
 T3 Code's fork of Software Mansion's Enriched Markdown. It draws all the
 app's Markdown (`src/native/EnrichedMarkdownText.tsx`): native text with
 selection, pills for file links, iOS link menus, code blocks with a header and
 tree-sitter colors, tables, and images in React block renderers. Upstream now
-ships the block renderers and image sources (`renderers`,
-`resolveImageSource`). The fork adds native streaming memory bounds (an 8 MiB
-budget for iOS measurement keys, and only the newest pending render is kept),
-the `onLinksChange` link list, Android inline image alignment, clipboard link
-metadata, and development-host autolinks.
+ships the block renderers (also for code blocks), image sources, the
+`onLinksChange` link list, Android inline image alignment, and the iOS
+streaming memory bounds. The fork carries only changes with an open upstream
+pull request: clipboard link metadata, development-host autolinks and
+hash-route link fragments, `md4cFlags.preserveWindowsPaths`, GitHub's
+strikethrough rules for `~`, `\(…\)` and `\[…\]` math delimiters, iOS Copy as
+Markdown that keeps bold spans whole, and line breaks in copied table cells
+written as `<br>`.
 
-- **Copied from:** T3 Code, `apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.16-558767d9.tgz`,
-  at the merge of T3 Code #24263 (`ba006f2dfa68962247025dc87dc3be8d637b90ad`).
-  Earlier Solus used `t3.15` (T3 #20400, `6cecd22789`). Solus skips T3's
-  intermediate archives `t3.15-fee84114` (#18735, LaTeX; Solus keeps math off)
-  and `t3.16-8d2f84a8` (#24534, block renderers).
+- **Copied from:** T3 Code, `apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz`,
+  at the merge of T3 Code #32180 (`986a4f56a80963cc139dbc581665b40411855659`).
+  Earlier Solus used `t3.16-558767d9` (T3 #24263) with the table-cell copy fix
+  of T3 #29355 packed in (`solus.1`). Solus skips T3's intermediate archive
+  `t3.16-29ddd424`.
 - **Fork source:** the `t3-fork.json` in the archive records the repository
   `pingdotgg/enriched-markdown`, commit
-  `558767d9bccec81805d960f792ab0fcda7c1e7c8`, on the upstream commit
-  `69c3330dd6d75cacd8d046f4e0c4b8fe5c42a6e1`. The package version is
-  `1.2.0-t3.16`.
-- **SHA-256:** `d9b75931bafb1847172550bb4eaafb7b8f59632a79b796e6174a93261e95c0fd`
-- **Integrity:** `sha512-Dl8Raid4175mHijMpsIRLB3yXBZ1s04YxaQoIdHwy64KPHBVdt26x2OYRhYyjMM3VEo4U24AAYNXUh271zYDQw==`
+  `4287c5d3b306dfc0dca3604606baf7a02a5ec1c4`, on the upstream commit
+  `1d00a92abc3f7cf953946cf42f999523dec699dc`. The package version is
+  `1.2.0-t3.18`.
+- **Unchanged from T3:** the fork now carries the table-cell copy fix
+  (`serializeTableCell` on Android, `markdownFromTableCellNode` on iOS), so
+  Solus uses T3's archive as it is. Do not change an archive in this
+  directory with a patch: Bun does not apply `patchedDependencies` to a
+  `file:` archive, and the next archive drops it without a trace.
+- **SHA-256:** `28dec670d521760cc4ae4e9aeb0a23b5451b60cabfc20f4a137eac5f57aeecd6`
+- **Integrity:** `sha512-zVB0Kaac8iNHumPDCV/CBR3I8p+lbFIO56kQGyIMH7ja5I6mHBhw1R/l48TkNye3wk2wsXXX51m1FYa9o+OwDQ==`
   (the same in `bun.lock` and in T3's `pnpm-lock.yaml`)
+- **Changes from `t3.16`:** `renderers.code` replaces a code block with a
+  React element (Solus draws closed Mermaid fences with it), `onTextPress` reports a tap
+  on plain text (Solus does not use it), a link block's `label` is the URL for
+  a bare link (Solus has no link renderer), math has spoken labels, and on iOS
+  a new message draws in its first frame. The app now generates the library's
+  codegen itself (upstream #1121), so the native clients must be built again.
 - **Changes from `t3.15`:** the media slots and the document asset manifest
   are removed. `renderMedia` becomes `renderers.image`, `onDocumentAssets`
   becomes `onLinksChange`, and `resolveImageSource` receives a

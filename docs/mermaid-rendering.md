@@ -19,9 +19,28 @@ source, with the parser's message under it, and Copy still works.
 
 The same `FencedBlock` renders replies, subagent transcripts, and subagent
 reports, and the web client mounts the same component. Desktop and web
-draw the same diagram. The native mobile Markdown renderer is separate and
-does not use this rendering path. Both providers emit plain markdown; nothing changes at
+draw the same diagram. Both providers emit plain markdown; nothing changes at
 the agent boundary.
+
+## On mobile
+
+The native app draws every Markdown surface (replies, plans, pull request
+text, Markdown file previews) through Enriched Markdown, which cannot run the
+DOM-based Mermaid. A closed ```mermaid fence is replaced with a diagram drawn
+by Pele, which needs no DOM, through react-native-svg
+(`apps/mobile/src/native/MermaidCodeBlock.tsx`). The same fence rules apply: a
+fence stays a native code block while it streams, and ```mermaid source stays
+code. Every other code block stays native.
+
+The block keeps the code block's header, with Show code / Show diagram and Copy
+code. A wide diagram scales down to fit. A diagram that does not parse shows the
+reason above its source. A tap opens the diagram full screen as a PNG in the
+image viewer Markdown images use, with zoom, save, and share. Pele and each
+diagram type load on first use.
+
+Two differences from desktop and web: an unlabelled fence with a Mermaid
+declaration stays code in a Markdown file preview, and a fence inside a
+blockquote or list stays code.
 
 ## In a document or plan
 
