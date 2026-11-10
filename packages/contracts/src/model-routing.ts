@@ -38,7 +38,7 @@ export type ModelRouting = z.infer<typeof modelRoutingSchema>
 export const DEFAULT_MODEL_ROUTING: ModelRouting = {
   ui: 'claude-opus-5-5',
   general: 'gpt-6-sol',
-  exploration: 'claude-fable-5-1',
+  exploration: 'claude-fable-5-2',
   structured: 'gpt-6-sol',
 }
 
