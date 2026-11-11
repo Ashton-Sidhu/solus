@@ -5,7 +5,8 @@
   import McpAppFrame from "../conversation/McpAppFrame.svelte";
   import * as Select from "../ui/select";
   import { Button } from "../ui/button";
-  import { RotateCw as ReloadIcon, Plug as ConnectIcon } from "@lucide/svelte";
+  import { RotateCw as ReloadIcon, Plug as ConnectIcon, ShieldCheck as HostAccessIcon } from "@lucide/svelte";
+  import { appHostAccessNotice, appSourceText, parseAppBundle } from "@solus/contracts/apps";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { FilePayload, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import { getSurfaceContext } from "../../contexts";
@@ -13,10 +14,10 @@
   import { TOOL_CHOICES, WRITE_CHOICES, toolsChoiceLabel, toolsChoiceOf, withToolsChoice, withWritesChoice, writesChoiceLabel } from "./lib/app-permissions";
 
   /**
-   * The pane surface for an `app` work (docs/plans/apps.md §7): the works
-   * header, the app's permissions and connect state, and the MCP App frame
-   * over the document the host composed. The frame's calls name the work; the
-   * host resolves each role to the viewer's own integration on every call.
+   * The pane surface for an `app` work (docs/plans/apps.md §9): the works
+   * header, the app's permissions, connect state, and host access, and the
+   * MCP App frame over the document the host composed. The frame's calls name
+   * the work; the host checks each one on every call.
    */
   interface Props {
     content: string;
@@ -40,6 +41,7 @@
   const read = $derived(appsStore.read(workId));
   const snapshot = $derived(read.phase === "ready" ? read.snapshot : null);
   const missingRoles = $derived(snapshot?.roles.filter((role) => !role.connected) ?? []);
+  const hostAccessNotice = $derived(snapshot ? appHostAccessNotice(snapshot.hostAccess) : null);
   // Renaming and changing permissions are the same right: the owner's or an editor's.
   const canChangePermissions = $derived(!!onRename && !!api);
 
@@ -65,14 +67,19 @@
   let renaming = $state(false);
   let copied = $state(false);
   function copySource() {
-    void navigator.clipboard.writeText(content).then(() => {
+    void navigator.clipboard.writeText(appSourceText(content)).then(() => {
       copied = true;
       setTimeout(() => (copied = false), 1500);
     });
   }
 
   const sourcePayload = (): FilePayload | null => (content.trim() ? { contents: content, encoding: "utf8" } : null);
-  const exportFormats: WorkExportFormat[] = [{ extension: "tsx", label: "Component source", mimeType: "text/plain", produce: sourcePayload }];
+  // A component saves as its source; a bundle saves as the file an app project built.
+  const exportFormats: WorkExportFormat[] = $derived(
+    parseAppBundle(content)
+      ? [{ extension: "json", label: "App bundle", mimeType: "application/json", produce: sourcePayload }]
+      : [{ extension: "tsx", label: "Component source", mimeType: "text/plain", produce: sourcePayload }],
+  );
 
   /** Bumping this re-creates the frame: the only way to restart an app. */
   let frameKey = $state(0);
@@ -205,6 +212,24 @@
     </div>
   {/if}
 
+  {#if snapshot && hostAccessNotice}
+    <div class="flex min-h-11 flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-workspace-chrome text-muted-foreground" role="status" data-testid="app-shell-host-access">
+      <HostAccessIcon size={14} class="shrink-0" />
+      <span class="min-w-0 flex-1">{hostAccessNotice}</span>
+      {#if snapshot.hostAccess.canDecide && api}
+        {#if snapshot.hostAccess.state === "pending"}
+          <Button size="sm" class="shrink-0 rounded-full text-workspace-chrome pointer-coarse:h-10" data-testid="app-shell-host-access-allow" onclick={() => void appsStore.decideHostAccess(api, workId, true)}>
+            Allow
+          </Button>
+        {:else}
+          <Button variant="outline" size="sm" class="shrink-0 rounded-full text-workspace-chrome pointer-coarse:h-10" data-testid="app-shell-host-access-revoke" onclick={() => void appsStore.decideHostAccess(api, workId, false)}>
+            Revoke
+          </Button>
+        {/if}
+      {/if}
+    </div>
+  {/if}
+
   <div class="min-h-0 flex-1 overflow-auto p-4" data-testid="app-shell-body">
     {#if !api}
       <div class="flex min-h-40 items-center justify-center text-sm text-muted-foreground" role="status">This app's host is not connected.</div>
@@ -214,7 +239,8 @@
         <Button variant="ghost" size="sm" class="pointer-coarse:h-10" onclick={reload}>Try again</Button>
       </div>
     {:else if snapshot}
-      {#key `${workId}-${snapshot.contentVersion}-${frameKey}`}
+      <!-- A host access decision changes the document's policy, so it is a new frame. -->
+      {#key `${workId}-${snapshot.contentVersion}-${snapshot.hostAccess.state}-${frameKey}`}
         <McpAppFrame
           snapshot={{ html: snapshot.html, csp: snapshot.csp, toolInputJson: "{}", toolResultJson: "{}" }}
           {calls}

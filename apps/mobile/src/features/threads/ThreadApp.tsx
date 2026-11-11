@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostApi } from "@solus/client-core/host-api";
-import { describeAppPermissions, type AppSnapshot } from "@solus/contracts/apps";
+import { appHostAccessNotice, describeAppPermissions, type AppSnapshot } from "@solus/contracts/apps";
 
 import { useApp } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
@@ -17,8 +17,9 @@ type AppRead = { phase: "loading" } | { phase: "ready"; snapshot: AppSnapshot } 
 
 /**
  * An app work (docs/plans/apps.md) as a row of the feed: the host's composed
- * document in the MCP App web view, with calls that name the work. A row an
- * earlier revision made is one line that opens the app in place.
+ * document in the MCP App web view, with calls that name the work, and the
+ * host access bar. A row an earlier revision made is one line that opens the
+ * app in place.
  */
 export const ThreadApp = memo(function ThreadApp(props: { readonly store: ConversationStore; readonly id: string; readonly superseded: boolean }) {
   const { store, id, superseded } = props;
@@ -65,6 +66,14 @@ function AppCard(props: { readonly store: ConversationStore; readonly api: HostA
     };
   }, [api, workId, generation]);
 
+  /** The host's owner allows what the app asks of the host, or revokes it; the answer is the new document. */
+  const decideHostAccess = (allow: boolean) => {
+    api.appHostAccessDecide({ workId, allow }).then(
+      (snapshot) => setRead({ phase: "ready", snapshot }),
+      (error) => setRead({ phase: "error", message: error instanceof Error ? error.message : "Could not change this app's host access." }),
+    );
+  };
+
   const calls = useMemo<McpAppCalls>(
     () => ({
       toolInfo: (name) => api.appToolInfo({ workId, name }),
@@ -110,8 +119,11 @@ function AppCard(props: { readonly store: ConversationStore; readonly api: HostA
 
   const { snapshot } = read;
   const missing = snapshot.roles.filter((role) => !role.connected);
+  const hostAccessNotice = appHostAccessNotice(snapshot.hostAccess);
   const frame = (fullscreen: boolean) => (
     <McpAppWebView
+      // A host access decision changes the document's policy, so it is a new web view.
+      key={snapshot.hostAccess.state}
       snapshot={webViewSnapshot}
       calls={calls}
       store={store}
@@ -130,6 +142,21 @@ function AppCard(props: { readonly store: ConversationStore; readonly api: HostA
           <Text className="text-sm text-foreground-muted">
             This app uses {missing.map((role) => role.name ?? role.slug).join(", ")} with your own account. Connect {missing.length === 1 ? "it" : "them"} in Settings → MCP, then open the app again.
           </Text>
+        </View>
+      ) : null}
+      {hostAccessNotice ? (
+        <View accessibilityRole="summary" className="mb-2 flex-row items-center gap-2 rounded-lg border border-border px-3 py-2">
+          <Text className="min-w-0 flex-1 text-sm text-foreground-muted">{hostAccessNotice}</Text>
+          {snapshot.hostAccess.canDecide ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={snapshot.hostAccess.state === "pending" ? "Allow this app's host access" : "Revoke this app's host access"}
+              onPress={() => decideHostAccess(snapshot.hostAccess.state === "pending")}
+              className="min-h-11 justify-center px-3"
+            >
+              <Text className="text-sm text-foreground">{snapshot.hostAccess.state === "pending" ? "Allow" : "Revoke"}</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       <View style={{ height }}>

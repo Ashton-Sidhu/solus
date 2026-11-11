@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { appPermissionsSchema, DEFAULT_APP_PERMISSIONS, describeAppHostAccess, describeAppPermissions, parseAppCallName, type AppHostAccess } from '@solus/contracts/apps'
+import { appHostAccessNotice, appPermissionsSchema, appSourceText, DEFAULT_APP_PERMISSIONS, describeAppHostAccess, describeAppPermissions, parseAppBundle, parseAppCallName, type AppHostAccess } from '@solus/contracts/apps'
 import { mcpAppDocument } from '@solus/contracts/mcp-apps'
 import { AppCompileError, appSourceProblem, compileAppComponent, extractAppRoles } from '@solus/server/apps/app-source'
 import { appClientModule, appContentProblem, appRoles, appServerModule, describeAppContent, readAppContent } from '@solus/server/apps/app-content'
 import { composeAppDocument } from '@solus/server/apps/app-shell'
 import { admits, appConnectDomains, hostAccessAsked, hostAccessCovers, hostAccessIsEmpty } from '@solus/server/apps/app-permissions'
 import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
+import { storedExportExtension } from '../../packages/workspace-ui/src/components/work/lib/work-export'
+import { workSourceDiff } from '../../packages/workspace-ui/src/components/work/lib/work-source-diff'
 
 const COMPONENT = `
 import { useQuery } from '@tanstack/react-query'
@@ -157,6 +159,28 @@ describe('app content', () => {
   })
 })
 
+describe('an app\'s source on a client', () => {
+  test('a person reads, copies, and compares the sources of a bundle, never its compiled code', () => {
+    // WHY: the history dialog diffs two revisions. Two bundles differ in a
+    // megabyte of compiled code on one line; what the agent changed is a few source lines.
+    const before = JSON.stringify(BUNDLE)
+    const after = JSON.stringify({ ...BUNDLE, client: 'exports.default = function App() { return 1 } /* recompiled */', sources: { ...BUNDLE.sources, 'server.ts': 'export async function tables() { return ["users"] }' } })
+    expect(appSourceText(before)).toBe('--- src/App.tsx ---\nexport default function App() { return null }\n\n--- server.ts ---\nexport async function tables() { return [] }')
+    expect(appSourceText(COMPONENT)).toBe(COMPONENT)
+    const diff = workSourceDiff('app', before, after)
+    expect({ additions: diff.additions, deletions: diff.deletions }).toEqual({ additions: 1, deletions: 1 })
+    // Recompiled code with the same sources is no change a person made.
+    expect(workSourceDiff('app', before, JSON.stringify({ ...BUNDLE, client: 'exports.default = 2' })).file).toBeNull()
+  })
+
+  test('an app saves as the file its content is: a component as TSX, a bundle as JSON', () => {
+    expect(parseAppBundle(COMPONENT)).toBeNull()
+    expect(parseAppBundle('{"solusApp":1}')).toBeNull()
+    expect(storedExportExtension('app', COMPONENT)).toBe('tsx')
+    expect(storedExportExtension('app', JSON.stringify(BUNDLE))).toBe('json')
+  })
+})
+
 describe('app host access', () => {
   const asks = (access: Partial<AppHostAccess>): AppHostAccess => ({ functions: false, network: [], files: { read: [], write: [] }, ...access })
 
@@ -185,6 +209,16 @@ describe('app host access', () => {
     expect(appConnectDomains(['*'])).toEqual(['https:', 'wss:'])
     expect(mcpAppDocument('', { connectDomains: appConnectDomains(['api.example.com']) })).toContain('connect-src https://api.example.com wss://api.example.com;')
     expect(mcpAppDocument('', {})).toContain("connect-src 'none'")
+  })
+
+  test('the header says what the app asks, what is in force, and who decides', () => {
+    // WHY: the owner decides from this one sentence. It must say that an
+    // agent wrote the code, and it must not offer a decision to a person who cannot make it.
+    const view = { asks: asks({ functions: true, network: ['db.internal:5432'] }), canDecide: true }
+    expect(appHostAccessNotice({ ...view, state: 'none' })).toBeNull()
+    expect(appHostAccessNotice({ ...view, state: 'pending' })).toBe('This app asks to run its own code on this host and reach db.internal:5432. An agent wrote it. Until you allow it, those parts of the app do not work.')
+    expect(appHostAccessNotice({ ...view, state: 'pending', canDecide: false })).toBe('This app asks to run its own code on this host and reach db.internal:5432. Only the owner of its host can allow that.')
+    expect(appHostAccessNotice({ ...view, state: 'allowed' })).toBe('This app can run its own code on this host and reach db.internal:5432.')
   })
 
   test('host access reads as the end of a sentence a person can decide on', () => {

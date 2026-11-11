@@ -247,7 +247,7 @@
     if (!work || !exportStartPath) return;
     exportDraft = "payload" in request
       ? request
-      : { fileName: exportFileName(work.title, storedExportExtension(work.type)), payload: null };
+      : { fileName: exportFileName(work.title, storedExportExtension(work.type, draft?.content ?? "")), payload: null };
   }
 
   /** The work's host writes its stored content to the path the picker chose. */

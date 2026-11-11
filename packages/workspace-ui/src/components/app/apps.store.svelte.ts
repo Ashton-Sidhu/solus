@@ -10,9 +10,10 @@ export type AppRead =
 const IDLE: AppRead = { phase: 'idle' }
 
 /**
- * The composed documents of `app` works (docs/plans/apps.md §7), one per
- * work. A snapshot is for one content version: a newer body, or a permissions
- * change, reads again; a read in flight is shared. A failed read can be retried.
+ * The composed documents of `app` works (docs/plans/apps.md §9), one per
+ * work. A snapshot is for one content version: a newer body, a permissions
+ * change, or a host access decision reads again; a read in flight is shared.
+ * A failed read can be retried.
  */
 export class AppsStore {
   private readonly values = new SvelteMap<string, AppRead>()
@@ -37,6 +38,11 @@ export class AppsStore {
 
   setPermissions(api: HostApi, workId: string, permissions: AppPermissions): Promise<void> {
     return this.run(workId, api.appPermissionsUpdate({ workId, permissions }))
+  }
+
+  /** The host's owner allows what the app asks of the host, or revokes it (docs/plans/apps.md §6). */
+  decideHostAccess(api: HostApi, workId: string, allow: boolean): Promise<void> {
+    return this.run(workId, api.appHostAccessDecide({ workId, allow }))
   }
 
   /** A ready snapshot stays on screen while its replacement loads; an error replaces it only when there was none. */

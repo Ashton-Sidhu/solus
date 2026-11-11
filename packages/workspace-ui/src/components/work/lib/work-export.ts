@@ -1,3 +1,4 @@
+import { parseAppBundle } from "@solus/contracts/apps";
 import type { WorkType } from "@solus/contracts/types";
 
 /** How a payload rides the string-typed `writeFile` contract. */
@@ -32,11 +33,12 @@ export type WorkExportRequest =
   | { source: "host" };
 
 /** The file the host writes for an exported work: Markdown for a document,
- *  JSON for slides, HTML for an artifact. */
-export function storedExportExtension(type: WorkType): string {
+ *  JSON for slides, HTML for an artifact, and for an app its component (TSX)
+ *  or its bundle (JSON). */
+export function storedExportExtension(type: WorkType, content: string): string {
   if (type === "doc") return "md";
   if (type === "artifact") return "html";
-  if (type === "app") return "tsx";
+  if (type === "app") return parseAppBundle(content) ? "json" : "tsx";
   return "json";
 }
 

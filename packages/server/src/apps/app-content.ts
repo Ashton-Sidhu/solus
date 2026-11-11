@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { appBundleSchema, type AppBundle } from '@solus/contracts/apps'
+import { appBundleSchema, appBundleSourceText, type AppBundle } from '@solus/contracts/apps'
 import { appSourceProblem, compileAppComponent, extractAppRoles } from './app-source'
 
 /**
@@ -85,9 +85,8 @@ export function describeAppContent(content: string): string {
     bundle.server ? `host functions ${Math.ceil(bundle.server.length / KIB)} KiB` : 'no host functions',
     bundle.integrations.length ? `integrations ${bundle.integrations.join(', ')}` : 'no integrations',
   ].join('; ')
-  const sources = Object.entries(bundle.sources ?? {})
+  const files = appBundleSourceText(bundle)
   const head = `This app is a bundle built from an app project (${facts}). The compiled code is not shown.`
-  if (!sources.length) return `${head} The bundle carries no sources: revise it from its project folder, or make the project again with the apps skill.`
-  const files = sources.map(([path, text]) => `--- ${path} ---\n${text}`).join('\n\n')
+  if (!files) return `${head} The bundle carries no sources: revise it from its project folder, or make the project again with the apps skill.`
   return `${head} To revise it, put these sources in an app project (apps skill), change them, run \`npm run bundle\`, and call create_app with work_id and path.\n\n${files}`
 }

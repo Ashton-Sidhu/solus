@@ -76,6 +76,33 @@ export const appBundleSchema = z.object({
 })
 export type AppBundle = z.infer<typeof appBundleSchema>
 
+/** A work's content as an app bundle; null when it is a component, or says it is a bundle and is not a valid one. */
+export function parseAppBundle(content: string): AppBundle | null {
+  if (!content.trimStart().startsWith('{')) return null
+  try {
+    const bundle = appBundleSchema.safeParse(JSON.parse(content))
+    return bundle.success ? bundle.data : null
+  } catch {
+    return null
+  }
+}
+
+/** A bundle's sources as one text, each file under a line that names it; empty when it carries none. */
+export function appBundleSourceText(bundle: AppBundle): string {
+  return Object.entries(bundle.sources ?? {}).map(([path, text]) => `--- ${path} ---\n${text}`).join('\n\n')
+}
+
+/**
+ * An app's content as the source a person reads, copies, and compares: a
+ * component is its own source, a bundle is its sources. The compiled code of
+ * a bundle is never source.
+ */
+export function appSourceText(content: string): string {
+  const bundle = parseAppBundle(content)
+  if (!bundle) return content
+  return appBundleSourceText(bundle) || 'This app is a bundle that carries no sources.'
+}
+
 /** One integration the app names (the slug in `tools.<slug>.<tool>`), as the viewer sees it. */
 export interface AppRoleState {
   slug: string
@@ -182,4 +209,14 @@ export function describeAppHostAccess(access: AppHostAccess): string {
   if (access.network.length > 0) clauses.push(`reach ${listed(access.network, 'every network host')}`)
   if (clauses.length <= 2) return clauses.join(' and ')
   return `${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}`
+}
+
+/** What a header says of an app's host access, on every client; null when the app asks for nothing. */
+export function appHostAccessNotice(view: AppHostAccessView): string | null {
+  if (view.state === 'none') return null
+  const access = describeAppHostAccess(view.asks)
+  if (view.state === 'allowed') return `This app can ${access}.`
+  return view.canDecide
+    ? `This app asks to ${access}. An agent wrote it. Until you allow it, those parts of the app do not work.`
+    : `This app asks to ${access}. Only the owner of its host can allow that.`
 }
