@@ -6,6 +6,13 @@
 // clone and entering row gets its own animation — so past this many the list
 // updates without motion. Translating displaced rows is cheap and never counts.
 const MAX_FADED_ROWS_PER_UPDATE = 40
+// A row that changes order crosses its neighbours. It fades out at its old
+// place and in at its new one, and the two fades do not overlap, so the rows
+// never slide through each other.
+const EXIT_FADE_END = 0.4
+const ENTRY_FADE_START = 0.6
+// A move longer than this many row heights also fades instead of slides.
+const MAX_SLIDE_ROWS = 1.5
 
 type RowPosition = { top: number; left: number; width: number; height: number }
 type Band = { top: number; bottom: number }
@@ -14,6 +21,37 @@ function progress(animation: Animation): number {
   return animation.playState === 'finished'
     ? 1
     : (animation.effect?.getComputedTiming().progress ?? 0)
+}
+
+/** The opacity of an entering row, which stays 0 until `ENTRY_FADE_START`. */
+function entryOpacity(animation: Animation): number {
+  return Math.max(0, (progress(animation) - ENTRY_FADE_START) / (1 - ENTRY_FADE_START))
+}
+
+/** Rows kept in the list that changed order: every row out of the longest run
+ *  that kept its previous order. */
+function crossingRows(previousOrder: readonly HTMLElement[], nextOrder: readonly HTMLElement[]) {
+  const previousIndex = new Map(previousOrder.map((node, index) => [node, index] as const))
+  const retained = nextOrder.filter((node) => previousIndex.has(node))
+  const tails: number[] = []
+  const predecessor: number[] = []
+  for (const [index, node] of retained.entries()) {
+    const value = previousIndex.get(node)!
+    let low = 0
+    let high = tails.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (previousIndex.get(retained[tails[middle]!]!)! < value) low = middle + 1
+      else high = middle
+    }
+    predecessor[index] = low > 0 ? tails[low - 1]! : -1
+    tails[low] = index
+  }
+  const ordered = new Set<HTMLElement>()
+  for (let index = tails.at(-1) ?? -1; index >= 0; index = predecessor[index]!) {
+    ordered.add(retained[index]!)
+  }
+  return new Set(retained.filter((node) => !ordered.has(node)))
 }
 
 /**
@@ -101,7 +139,7 @@ export function createSidebarListMotion(
     parent.append(clone)
     const entry = entering.get(node)
     const animation = clone.animate(
-      [{ opacity: entry ? progress(entry) : 1 }, { opacity: 0 }],
+      [{ opacity: entry ? entryOpacity(entry) : 1 }, { opacity: 0, offset: EXIT_FADE_END }, { opacity: 0 }],
       motionTiming(),
     )
     exiting.set(clone, animation)
@@ -137,7 +175,10 @@ export function createSidebarListMotion(
   }
 
   const fadeIn = (node: HTMLElement) => {
-    const animation = node.animate([{ opacity: 0 }, { opacity: 1 }], motionTiming())
+    const animation = node.animate(
+      [{ opacity: 0 }, { opacity: 0, offset: ENTRY_FADE_START }, { opacity: 1 }],
+      motionTiming(),
+    )
     entering.set(node, animation)
     animation.addEventListener(
       'finish',
@@ -174,10 +215,28 @@ export function createSidebarListMotion(
         ]),
     )
 
-  /** Rows in view in one reading and not in the other, which each cost a fade. */
+  /** Rows that change order, or move too far to slide. */
+  const findCrossing = (previous: Map<HTMLElement, RowPosition>, next: Map<HTMLElement, RowPosition>) => {
+    const crossing = crossingRows([...previous.keys()], [...next.keys()])
+    for (const [node, { top, height }] of next) {
+      const previousTop = previous.get(node)?.top
+      if (
+        previousTop !== undefined &&
+        height > 0 &&
+        Math.abs(previousTop + remainingOffset(node) - top) > height * MAX_SLIDE_ROWS
+      ) {
+        crossing.add(node)
+      }
+    }
+    return crossing
+  }
+
+  /** Rows in view in one reading and not in the other, which each cost a fade,
+   *  and crossing rows in view, which cost two. */
   const countFades = (
     previous: Map<HTMLElement, RowPosition>,
     next: Map<HTMLElement, RowPosition>,
+    crossing: Set<HTMLElement>,
     band: Band,
   ) => {
     let count = 0
@@ -186,6 +245,11 @@ export function createSidebarListMotion(
     }
     for (const [node, { top, height }] of next) {
       if (!previous.has(node) && isSeen(band, top, top, height)) count++
+    }
+    for (const node of crossing) {
+      const { top, height } = next.get(node)!
+      const drawnTop = previous.get(node)!.top + remainingOffset(node)
+      if (isSeen(band, drawnTop, top, height)) count += 2
     }
     return count
   }
@@ -204,15 +268,23 @@ export function createSidebarListMotion(
     }
   }
 
-  /** Fade in the rows that arrived and slide the ones that moved, if they are
-   *  in view. A row out of view goes to its place at once. */
+  /** Fade in the rows that arrived or crossed and slide the ones that moved, if
+   *  they are in view. A row out of view goes to its place at once. */
   const animateRemaining = (
     previous: Map<HTMLElement, RowPosition>,
     next: Map<HTMLElement, RowPosition>,
+    crossing: Set<HTMLElement>,
     band: Band,
   ) => {
     for (const [node, { top, height }] of next) {
       const previousTop = previous.get(node)?.top
+      if (crossing.has(node)) {
+        cancel(node)
+        entering.get(node)?.cancel()
+        entering.delete(node)
+        if (isSeen(band, top, top, height)) fadeIn(node)
+        continue
+      }
       if (previousTop === undefined) {
         if (isSeen(band, top, top, height)) fadeIn(node)
         continue
@@ -232,24 +304,25 @@ export function createSidebarListMotion(
       const next = readPositions()
       const previous = positions
       const band = visibleBand()
+      const crossing = previous ? findCrossing(previous, next) : new Set<HTMLElement>()
       const shouldAnimate =
         animate &&
         previous !== null &&
         !reducedMotion?.matches &&
         durationMs() > 0 &&
-        countFades(previous, next, band) <= MAX_FADED_ROWS_PER_UPDATE
+        countFades(previous, next, crossing, band) <= MAX_FADED_ROWS_PER_UPDATE
       if (!shouldAnimate) clearFades()
-      // A leaving row fades from where it is drawn, which includes its own
-      // slide in flight, so it is read before stale slides are cancelled.
+      // A leaving or crossing row fades from where it is drawn, which includes
+      // its own slide in flight, so it is read before stale slides are cancelled.
       else {
         for (const [node, position] of previous) {
-          if (next.has(node)) continue
+          if (next.has(node) && !crossing.has(node)) continue
           const drawnTop = position.top + remainingOffset(node)
           if (isSeen(band, drawnTop, drawnTop, position.height)) fadeOut(node, position)
         }
       }
       settleStale(next, shouldAnimate)
-      if (shouldAnimate) animateRemaining(previous, next, band)
+      if (shouldAnimate) animateRemaining(previous, next, crossing, band)
       positions = next
     },
     dispose() {
