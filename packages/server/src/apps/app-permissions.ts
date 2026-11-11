@@ -1,4 +1,4 @@
-import type { AppHostAccess, AppPermissions } from '@solus/contracts/apps'
+import type { AppAllowedHostAccess, AppHostAccess, AppHostAccessState, AppPermissions } from '@solus/contracts/apps'
 import type { UpstreamTool } from '../integrations/gateway'
 
 /** Whether the app's own permissions admit an integration tool (docs/plans/apps.md §5). Pure, so it is tested as data. */
@@ -36,6 +36,17 @@ export function hostAccessCovers(allowed: AppHostAccess, asked: AppHostAccess): 
     && listCovers(allowed.network, asked.network)
     && listCovers(allowed.files.read, asked.files.read)
     && listCovers(allowed.files.write, asked.files.write)
+}
+
+/**
+ * Whether what the app asks is in force (§6). The owner allowed a host access
+ * for the host code as it was: a wider request asks again, and so does host
+ * code that changed, whoever changed it.
+ */
+export function hostAccessState(asks: AppHostAccess, serverHash: string | null, allowed: AppAllowedHostAccess | undefined): AppHostAccessState {
+  if (hostAccessIsEmpty(asks)) return 'none'
+  if (!allowed || !hostAccessCovers(allowed.access, asks)) return 'pending'
+  return !asks.functions || allowed.serverHash === serverHash ? 'allowed' : 'pending'
 }
 
 /** The frame's `connect-src` for the app's network hosts: each as an HTTPS and a WSS origin. */

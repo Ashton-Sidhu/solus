@@ -132,11 +132,16 @@ status, pending input, and history. There is no separate task-session read tool.
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.
 
-`create_app` makes an app (docs/plans/apps.md): one React component over the
-user's own integrations, saved as an `app` work and opened on desktop, web, and
-mobile. The component reaches a service as `tools.<slug>.<tool>(args)`; every
-call runs with the viewer's own connection under the app's permissions
-(`tools`: all, read-only, or a selected list; `writes`: ask or allow). Pass
+`create_app` makes an app that lives in Solus (docs/plans/apps.md), saved as an
+`app` work and opened on desktop, web, and mobile. It takes one of `code` (one
+React component) or `bundle_path` (the `app.bundle.json` that the apps skill's
+project builds, with any npm package and optional host functions). An app
+builds with `storage` (its own data on the host), `fetch` (the hosts in
+`permissions.network`), `server` (its own functions on the host), and
+`tools.<slug>.<tool>(args)` (the viewer's own integrations, under `tools`: all,
+read-only, or a selected list, and `writes`: ask or allow). Host functions,
+network hosts, and file paths are the app's host access: the host's owner
+allows it in the app's header, and the receipt says when an app waits. Pass
 `work_id` and `expected_content_version` to replace an app in place.
 
 Works includes `publish_work` and `pull_work_upstream` for connected document

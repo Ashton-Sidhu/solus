@@ -73,7 +73,7 @@ import { storage, server, tools, useApp, Button, Card } from '@solus/app'
 ### storage
 
 ```ts
-await storage.set('todos', todos)            // any JSON value, up to 8 MiB for the whole app
+await storage.set('todos', todos)            // any JSON value: 1 MiB a value, 8 MiB for the whole app
 const todos = await storage.get<Todo[]>('todos')   // null when there is none
 await storage.delete('todos')
 const keys = await storage.keys()
@@ -153,7 +153,7 @@ Pass `permissions` to `create_app`. Ask for the least the app needs.
 - `network`: hosts the app reaches from the frame and from host functions. A host, a host with a port, `*.example.com`, or `"*"` for every host.
 - `files`: absolute or `~/` host paths for host functions. `"*"` is every path. A path it may write, it may read.
 
-Host functions, network hosts, and file paths together are the app's **host access**. None of it is in force until the owner of the host allows it in the app's header. A revision that asks for more asks again. So:
+Host functions, network hosts, and file paths together are the app's **host access**. None of it is in force until the owner of the host allows it in the app's header. A revision that asks for more, or that changes `server.ts` or anything it bundles, asks again; a change of the page alone does not. The `create_app` receipt says when the app waits. So:
 
 - Ask for exactly what the app uses. A database browser that takes any URL needs `"network": ["*"]`; one for a single known database needs that one host.
 - When the app must take a value from the user (a database URL, a folder, a base URL), ask for it in the app's own page and keep it in `storage`. Solus has no built-in database connection for an app to borrow.

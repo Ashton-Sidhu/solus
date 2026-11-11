@@ -150,6 +150,9 @@ export async function duplicateWork(scope: RecordScope, id: string, ownerKey: st
     // doc would overwrite each other with no way to tell which won.
     mirroredDoc: undefined,
   }
+  // A copy of an app keeps its permissions and asks for its host access again
+  // (docs/plans/apps.md §6): the owner allowed one app, and a copy can go to another person and other code.
+  if (meta.app) meta.app = { permissions: meta.app.permissions }
   return insertNewWork(row.organization_id, ownerKey, randomUUID(), meta, source.content, source.contentAuthor)
 }
 

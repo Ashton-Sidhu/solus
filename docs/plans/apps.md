@@ -93,10 +93,14 @@ call a host function a tool, an action, or an endpoint.
    under Node's permission model with the app's file paths; it has no child
    processes, no workers, and no native add-ons. §6 says what is enforced by
    the runtime and what is a check in the runner.
-7. **Host access is the owner's decision, made once.** An agent declares what
-   an app needs. Nothing of it is in force until the host's owner allows it in
-   the app's header. A wider request asks again; a narrower one does not. The
-   owner can revoke it.
+7. **Host access is the owner's decision, made for the host code as it is.**
+   An agent declares what an app needs. Nothing of it is in force until the
+   host's owner allows it in the app's header. A wider request asks again; a
+   narrower one does not. Changed host code asks again, whoever changed it:
+   the decision names the server module by its hash, so a person who can edit
+   the app cannot put other code under it. A change of the page alone does
+   not ask again. The owner can revoke the decision, and a copy of an app
+   starts without one.
 8. **Host functions run only for the host's owner in this release.** Code an
    agent wrote runs with the owner's files and network, so only the owner
    starts it. Another person who can open the work sees the app, its storage,
@@ -144,8 +148,8 @@ app's settings on the `meta` JSON column, so no migration:
 ```ts
 interface AppMeta {
   permissions: AppPermissions
-  /** The host access the host's owner allowed. Absent: none allowed. */
-  allowed?: AppHostAccess
+  /** What the host's owner allowed, and the host code it was allowed for. Absent: nothing allowed. */
+  allowed?: { access: AppHostAccess; serverHash: string | null }
 }
 interface AppPermissions {
   tools: 'all' | 'read-only' | { selected: string[] }   // selected: "<slug>/<tool>"
@@ -180,8 +184,10 @@ removes the folder.
   parsed at this boundary.
 - `tools-proxy.ts` — the `tools` object: `tools.<slug>.<tool>(args)` with the
   TanStack Query helpers, keyed by path.
-- `app-data.ts` — `storage` (`get`, `set`, `delete`, `keys`) and `server`
-  (`server.<name>(input)`), each one `tools/call` under a reserved call name.
+- `tools-proxy.ts` also makes `server`: `server.<name>(input)` with the same
+  helpers, one `tools/call` under the call name `@server/<name>`.
+- `app-storage.ts` — `storage` (`get`, `set`, `delete`, `keys`), each one
+  `tools/call` under `@storage/<operation>`.
 - `modules.ts` — what `require` answers: `react`, `react/jsx-runtime`,
   `react-dom`, `@tanstack/react-query`, `recharts`, `lucide-react`, and
   `@solus/app` (`tools`, `storage`, `server`, `useApp()`, and the UI
@@ -237,13 +243,16 @@ bundle has a server module; `network` and `files` are its permissions. An app
 that asks for nothing (a component, or a bundle with no server module and no
 network hosts) needs no decision.
 
-- **Pending.** The app asks for more than `allowed` covers. The header says
-  what it asks for, with **Allow**. Until then the frame has no network and a
-  host function call fails with a message that says so.
-- **Allowed.** `allowed` covers the request. The header says what is in force,
-  with **Revoke**.
+- **Pending.** The app asks for more than `allowed` covers, or its host code
+  is not the code `allowed` names. The header says what it asks for, with
+  **Allow**. Until then the frame has no network and a host function call
+  fails with a message that says so.
+- **Allowed.** `allowed` covers the request and names the host code. The
+  header says what is in force, with **Revoke**.
 - Only the host's owner sees the buttons. Allow writes the current request
-  into `allowed`; Revoke removes it and stops the runner.
+  and the hash of the current server module into `allowed`; Revoke removes it
+  and stops the runner. `create_app` tells the agent when an app waits, so
+  the agent tells the person.
 
 The runner (`apps/app-functions.ts`, `apps/app-runner-script.ts`):
 
@@ -278,6 +287,10 @@ So host access keeps an app the owner allowed inside what the owner read. It
 is not a jail for hostile code, and that is why only the owner runs it and why
 sharing an app with host functions waits (§10).
 
+One limit is the owner's to know: the decision for network hosts does not
+name the page's code. A person with edit rights on an app can change what its
+page sends to the hosts the owner allowed.
+
 ## 7. Server
 
 `packages/server/src/apps/`:
@@ -287,7 +300,8 @@ sharing an app with host functions waits (§10).
   write of an `app` work passes.
 - `app-source.ts` — role extraction and the sucrase compile of a component.
 - `app-permissions.ts` — `admits` for an integration tool; the host access an
-  app asks for, and whether an allowed one covers it.
+  app asks for, and `hostAccessState`: whether what the owner allowed covers
+  it and names its host code.
 - `app-shell.ts` — reads the built shell once, composes the document.
 - `app-storage.ts` — the app's key-value file, with size limits and one
   writer at a time for each app.
@@ -302,7 +316,9 @@ sharing an app with host functions waits (§10).
   `permissions?`, `work_id?` with `expected_content_version`. The receipt
   says what host access the app still waits for.
 
-`read_work` of a bundle answers its sources, not its compiled code.
+`read_work` of a bundle answers its sources, not its compiled code. A
+client reads, copies, and compares a bundle the same way (`appSourceText` in
+the contract).
 
 ## 8. The apps skill
 
@@ -369,14 +385,30 @@ Not started. The call path stays the same; the host becomes the Solus API.
 mobile surfaces, and `tests/unit/apps.test.ts`. An app was UI over
 integration tools and nothing else.
 
-**The general model** changes these decisions of the first release: the
-content may be a bundle (was: the component source only); an app has storage,
-network, and host functions (was: "nothing of it runs on the server but the
-compile and the call check"); and `mcp-integrations.md` no longer puts
-authored apps out of scope.
+**2026-11-11, the general model.** It changes these decisions of the first
+release: the content may be a bundle (was: the component source only); an app
+has storage, network, and host functions (was: "nothing of it runs on the
+server but the compile and the call check"); and `mcp-integrations.md` no
+longer puts authored apps out of scope. What shipped:
+
+- Contract: bundle, permissions with `network` and `files`, host access, call
+  names; `appHostAccessDecide`.
+- Server: `app-content.ts`, `app-storage.ts`, `app-functions.ts`,
+  `app-runner-script.ts`; `create_app` with `bundle_path`; the apps routing
+  text in the runtime instructions.
+- Shell: `storage` and `server` in `@solus/app`.
+- Skill: `resources/plugins/solus/skills/apps/`.
+- Clients: the host access bar on desktop, web, and mobile.
+- Tests: `apps.test.ts`, `apps-service.test.ts`, `app-functions.test.ts` (a
+  real Node under the permission model), `app-shell-calls.test.ts`,
+  `apps-skill.test.ts`. A database browser was built with the skill, saved
+  with `create_app`, and run against a SQLite file through its host
+  functions; its page was rendered in headless Chromium with a scripted host
+  in both themes. A Postgres query was not run: no server was on the machine.
 
 Not in this release: the `selected` tools list, the network hosts, and the
 file paths have no editor in the header (an agent sets them through
 `create_app`); a work in an organization's Solus API keeps the default
-permissions and has no host access; the mobile works list has no app screen,
-as it has none for any work.
+permissions and has no host access; a work that Share moves to an
+organization leaves its app data on the host it left; the mobile works list
+has no app screen, as it has none for any work.

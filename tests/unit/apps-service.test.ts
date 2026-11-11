@@ -189,6 +189,17 @@ describe('app host access', () => {
     await expect(call(apps, work.id, greet, { name: 'Ann' })).rejects.toThrow('waits for its host access')
   })
 
+  test('a copy of an allowed app asks for its host access again', async () => {
+    // WHY: the owner allowed one app. A copy belongs to whoever made it and
+    // can get other code; it must not run under a decision made for the first.
+    const { apps } = service()
+    const work = await createApp(bundle({ server: SERVER }))
+    await apps.hostAccessDecide({ workId: work.id, allow: true }, owner)
+    const copy = await works.duplicateWork('local', work.id)
+    expect((await apps.read({ workId: work.id }, owner)).hostAccess.state).toBe('allowed')
+    expect((await apps.read({ workId: copy.id }, owner)).hostAccess.state).toBe('pending')
+  })
+
   test('an app with no server module has no host functions, and a component is such an app', async () => {
     const { apps } = service()
     const work = await createApp('export default function App() { return null }')
@@ -228,11 +239,19 @@ describe('create_app', () => {
     expect(read.text).toContain('--- server.ts ---\nexport async function greet()')
     expect(read.text).not.toContain('exports.greet = async')
 
-    // A revision that asks for nothing new keeps the owner's decision.
+    // A revision of the page alone, with the same host code and the same request, keeps the owner's decision.
     await apps.hostAccessDecide({ workId, allow: true }, owner)
-    const revised = await appTools.executeCreateAppTool({ title: 'Database browser', bundle_path: file, work_id: workId, expected_content_version: 1 }, { ctx: ctx() })
+    const samePage = writeBundle('app.bundle.json', JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return 1 }', server: SERVER, integrations: [], sources: SOURCES }))
+    const revised = await appTools.executeCreateAppTool({ title: 'Database browser', bundle_path: samePage, work_id: workId, expected_content_version: 1 }, { ctx: ctx() })
     expect(revised.text).toStartWith('Updated the app "Database browser"')
     expect(revised.text).not.toContain('It asks to')
+    expect((await apps.read({ workId }, owner)).hostAccess.state).toBe('allowed')
+
+    // A revision of the host code is other code: it asks again, and the receipt says so.
+    const newCode = writeBundle('app.bundle.json', JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return 1 }', server: `${SERVER}; exports.more = async () => 2`, integrations: [] }))
+    const changed = await appTools.executeCreateAppTool({ title: 'Database browser', bundle_path: newCode, work_id: workId, expected_content_version: 2 }, { ctx: ctx() })
+    expect(changed.text).toContain('It asks to run its own code on this host')
+    expect((await apps.read({ workId }, owner)).hostAccess.state).toBe('pending')
   })
 
   test('a call names one of code or bundle_path, a file that is not a bundle is refused, and permissions that do not parse are refused, never dropped', async () => {

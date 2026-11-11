@@ -20,9 +20,9 @@ import { ownerKeyOf } from '../admission/actor'
 import { Work } from '../data/works/work'
 import type { IntegrationGateway } from '../integrations/gateway'
 import type { IntegrationStore } from '../integrations/integration-store'
-import { appClientModule, appRoles, appServerModule, readAppContent, type AppContent } from './app-content'
+import { appClientModule, appRoles, appServerHash, appServerModule, readAppContent, type AppContent } from './app-content'
 import type { AppFunctions } from './app-functions'
-import { admits, appConnectDomains, hostAccessAsked, hostAccessCovers, hostAccessIsEmpty } from './app-permissions'
+import { admits, appConnectDomains, hostAccessAsked, hostAccessState } from './app-permissions'
 import { composeAppDocument, loadAppShell } from './app-shell'
 import type { AppStorage, StoredValue } from './app-storage'
 
@@ -41,6 +41,13 @@ function valueResult(value: StoredValue) {
 
 /** What a call answers: an integration tool's own result, or a value of the app's storage or host functions. */
 type CallResult = Awaited<ReturnType<IntegrationGateway['callAppTool']>> | ReturnType<typeof valueResult>
+
+/** One revision of an app as it was read: its content, and the name of its host code. */
+interface AppRevision {
+  contentVersion: number
+  content: AppContent
+  serverHash: string | null
+}
 
 /** What a call does once it may run. */
 type CallRun = (input: CallArguments) => Promise<CallResult>
@@ -65,8 +72,8 @@ function refused(title: string, refusal?: string): ResolvedCall {
  * owner allowed.
  */
 export class Apps {
-  /** A bundle is megabytes of JSON, so its parsed content is kept for the revision it was read from. */
-  private readonly contents = new Map<string, { contentVersion: number; content: AppContent }>()
+  /** A bundle is megabytes of JSON, so its parsed content and the hash of its host code are kept for the revision they were read from. */
+  private readonly contents = new Map<string, AppRevision>()
 
   constructor(
     private readonly gateway: Pick<IntegrationGateway, 'callAppTool' | 'toolsFor' | 'connectionStatus'>,
@@ -89,7 +96,7 @@ export class Apps {
   async hostAccessDecide(request: AppHostAccessDecision, ctx: HandlerCtx): Promise<AppSnapshot> {
     if (!isHostOwner(ctx.principal)) throw new Error('Only the owner of this host can allow or revoke an app\'s host access.')
     const work = await this.app(request, ctx)
-    await work.setAppAllowed(request.allow ? this.hostAccess(work, ctx).asks : null)
+    await work.setAppAllowed(request.allow ? { access: this.hostAccess(work, ctx).asks, serverHash: this.revisionOf(work).serverHash } : null)
     // A runner started under the old decision must not answer under the new one.
     this.functions.stop(work.id)
     return this.snapshot(work, ctx)
@@ -122,19 +129,23 @@ export class Apps {
     return work
   }
 
-  private contentOf(work: Work): AppContent {
+  private revisionOf(work: Work): AppRevision {
     const kept = this.contents.get(work.id)
-    if (kept?.contentVersion === work.contentVersion) return kept.content
+    if (kept?.contentVersion === work.contentVersion) return kept
     const content = readAppContent(work.content)
-    this.contents.set(work.id, { contentVersion: work.contentVersion, content })
-    return content
+    const revision = { contentVersion: work.contentVersion, content, serverHash: appServerHash(content) }
+    this.contents.set(work.id, revision)
+    return revision
+  }
+
+  private contentOf(work: Work): AppContent {
+    return this.revisionOf(work).content
   }
 
   private hostAccess(work: Work, ctx: HandlerCtx): AppHostAccessView {
-    const asks = hostAccessAsked(work.app?.permissions ?? DEFAULT_APP_PERMISSIONS, appServerModule(this.contentOf(work)) !== null)
-    const allowed = work.app?.allowed
-    const state = hostAccessIsEmpty(asks) ? 'none' : allowed && hostAccessCovers(allowed, asks) ? 'allowed' : 'pending'
-    return { asks, state, canDecide: isHostOwner(ctx.principal) }
+    const { content, serverHash } = this.revisionOf(work)
+    const asks = hostAccessAsked(work.app?.permissions ?? DEFAULT_APP_PERMISSIONS, appServerModule(content) !== null)
+    return { asks, state: hostAccessState(asks, serverHash, work.app?.allowed), canDecide: isHostOwner(ctx.principal) }
   }
 
   private async snapshot(work: Work, ctx: HandlerCtx): Promise<AppSnapshot> {

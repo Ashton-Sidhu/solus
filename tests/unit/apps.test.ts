@@ -4,7 +4,7 @@ import { mcpAppDocument } from '@solus/contracts/mcp-apps'
 import { AppCompileError, appSourceProblem, compileAppComponent, extractAppRoles } from '@solus/server/apps/app-source'
 import { appClientModule, appContentProblem, appRoles, appServerModule, describeAppContent, readAppContent } from '@solus/server/apps/app-content'
 import { composeAppDocument } from '@solus/server/apps/app-shell'
-import { admits, appConnectDomains, hostAccessAsked, hostAccessCovers, hostAccessIsEmpty } from '@solus/server/apps/app-permissions'
+import { admits, appConnectDomains, hostAccessAsked, hostAccessCovers, hostAccessIsEmpty, hostAccessState } from '@solus/server/apps/app-permissions'
 import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import { storedExportExtension } from '../../packages/workspace-ui/src/components/work/lib/work-export'
 import { workSourceDiff } from '../../packages/workspace-ui/src/components/work/lib/work-source-diff'
@@ -202,6 +202,21 @@ describe('app host access', () => {
     expect(hostAccessCovers(allowed, asks({ functions: true, files: { read: ['~/data'], write: ['~/data'] } }))).toBe(false)
     expect(hostAccessCovers(asks({ network: ['api.example.com'] }), asks({ functions: true, network: ['api.example.com'] }))).toBe(false)
     expect(hostAccessCovers(asks({ network: ['*'] }), asks({ network: ['anything.example.com'] }))).toBe(true)
+  })
+
+  test('the owner allows host code as it is: changed host code asks again, and a change of the page alone does not', () => {
+    // WHY: a host function runs with the owner's files and network. If a
+    // revision could put other code under an old decision, anyone who can
+    // edit the app could run code as the owner.
+    const withCode = asks({ functions: true, network: ['api.example.com'] })
+    const allowed = { access: withCode, serverHash: 'hash-of-v1' }
+    expect(hostAccessState(withCode, 'hash-of-v1', allowed)).toBe('allowed')
+    expect(hostAccessState(withCode, 'hash-of-v2', allowed)).toBe('pending')
+    expect(hostAccessState(withCode, 'hash-of-v1', undefined)).toBe('pending')
+    // An app with network hosts and no host code has no code on the host to name.
+    const networkOnly = asks({ network: ['api.example.com'] })
+    expect(hostAccessState(networkOnly, null, { access: networkOnly, serverHash: null })).toBe('allowed')
+    expect(hostAccessState(asks({}), null, undefined)).toBe('none')
   })
 
   test('the frame reaches only the allowed hosts, and no host until one is allowed', () => {

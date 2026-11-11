@@ -53,10 +53,21 @@ export const appHostAccessSchema = z.object({
 })
 export type AppHostAccess = z.infer<typeof appHostAccessSchema>
 
-/** What rides a work's meta for an app: its permissions, and the host access the host's owner allowed. */
+/**
+ * The owner's decision (§6): the host access they allowed, and the host code
+ * they allowed it for. `serverHash` names the server module as it was then;
+ * changed host code is other code, and asks again. Null when the app had none.
+ */
+export const appAllowedHostAccessSchema = z.object({
+  access: appHostAccessSchema,
+  serverHash: z.string().nullable(),
+})
+export type AppAllowedHostAccess = z.infer<typeof appAllowedHostAccessSchema>
+
+/** What rides a work's meta for an app: its permissions, and what the host's owner allowed. */
 export const appMetaSchema = z.object({
   permissions: appPermissionsSchema,
-  allowed: appHostAccessSchema.optional(),
+  allowed: appAllowedHostAccessSchema.optional(),
 })
 export type AppMeta = z.infer<typeof appMetaSchema>
 

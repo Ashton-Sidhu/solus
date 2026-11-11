@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { appBundleSchema, appBundleSourceText, type AppBundle } from '@solus/contracts/apps'
 import { appSourceProblem, compileAppComponent, extractAppRoles } from './app-source'
@@ -62,6 +63,12 @@ export function appClientModule(content: AppContent): string {
 /** The CommonJS module the runner loads on the host, when the app has host functions. */
 export function appServerModule(content: AppContent): string | null {
   return content.kind === 'bundle' ? content.bundle.server ?? null : null
+}
+
+/** The name of the host code the owner allows: changed code has another name. Null when the app has none. */
+export function appServerHash(content: AppContent): string | null {
+  const server = appServerModule(content)
+  return server === null ? null : createHash('sha256').update(server).digest('hex')
 }
 
 const KIB = 1024

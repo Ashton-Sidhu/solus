@@ -5,8 +5,8 @@ import { SolusApiError } from '../../../admission/workspace-error'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import { Work } from '../../../data/works/work'
-import { appContentProblem, appRoles, appServerModule, readAppContent, type AppContent } from '../../../apps/app-content'
-import { hostAccessAsked, hostAccessCovers, hostAccessIsEmpty } from '../../../apps/app-permissions'
+import { appContentProblem, appRoles, appServerHash, appServerModule, readAppContent, type AppContent } from '../../../apps/app-content'
+import { hostAccessAsked, hostAccessState } from '../../../apps/app-permissions'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import type { AgentTool, AgentToolResult } from './agent-tool'
@@ -74,7 +74,7 @@ async function applySettings(workId: string, permissions: AppPermissions | undef
   if (!work) return permissions ? ` Permissions stay at the default (${describeAppPermissions(DEFAULT_APP_PERMISSIONS)}) until the app's page sets them.` : ''
   if (permissions) await work.setAppPermissions(permissions)
   const asks = hostAccessAsked(work.app?.permissions ?? DEFAULT_APP_PERMISSIONS, appServerModule(content) !== null)
-  const waits = !hostAccessIsEmpty(asks) && !(work.app?.allowed && hostAccessCovers(work.app.allowed, asks))
+  const waits = hostAccessState(asks, appServerHash(content), work.app?.allowed) === 'pending'
   return [
     permissions ? ` Permissions: ${describeAppPermissions(permissions)}.` : '',
     waits ? ` It asks to ${describeAppHostAccess(asks)}. Tell the user to allow that in the app's header: until then, those parts of the app do not work.` : '',

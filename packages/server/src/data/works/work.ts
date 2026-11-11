@@ -10,7 +10,7 @@ import type {
   WorkType,
 } from '@solus/contracts/types'
 import type { WorkExternalLink } from '@solus/contracts/docs'
-import { DEFAULT_APP_PERMISSIONS, type AppHostAccess, type AppMeta, type AppPermissions } from '@solus/contracts/apps'
+import { DEFAULT_APP_PERMISSIONS, type AppAllowedHostAccess, type AppMeta, type AppPermissions } from '@solus/contracts/apps'
 import { appContentProblem } from '../../apps/app-content'
 import type { Attribution } from '@solus/contracts/user'
 import { workPreview } from '@solus/contracts/work-preview'
@@ -497,8 +497,8 @@ export class Work implements WorkRecord {
     })
   }
 
-  /** The host access the host's owner allowed for an app (docs/plans/apps.md §6); null revokes it. */
-  async setAppAllowed(allowed: AppHostAccess | null): Promise<this> {
+  /** What the host's owner allowed for an app (docs/plans/apps.md §6); null revokes it. */
+  async setAppAllowed(allowed: AppAllowedHostAccess | null): Promise<this> {
     return this.mutate(async (db, row) => {
       const meta = metaFromRow(row)
       const permissions = meta.app?.permissions ?? DEFAULT_APP_PERMISSIONS
