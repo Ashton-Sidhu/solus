@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import type { PrInterdiffResult, ReviewThreadHunkMatch } from '@solus/contracts/types'
 import type { ReviewThread } from '@solus/contracts/providers'
 
@@ -11,7 +12,7 @@ export function unmatchedReviewComments(result: PrInterdiffResult): ReviewThread
 
 export function reviewCommentPreview(thread: ReviewThread, maxLength = 96): string {
   const body = thread.comments[0]?.body.replace(/\s+/g, ' ').trim() ?? 'Review comment'
-  return body.length > maxLength ? `${body.slice(0, maxLength - 1)}…` : body
+  return body.length > maxLength ? `${cutText(body, maxLength - 1)}…` : body
 }
 
 export function reviewedAtLabel(reviewedAt: string): string {
