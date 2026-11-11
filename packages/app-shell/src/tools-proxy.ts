@@ -1,13 +1,12 @@
 /**
- * The `tools` object a component reaches an integration through
- * (docs/plans/apps.md §4). `tools.linear.issues.list({ team })` is one call;
- * `.queryOptions(args)` and `.mutationOptions()` hand the same call to
- * TanStack Query with keys built from the path, so a mutation can invalidate
- * the reads of its path with `.pathFilter()`.
+ * The callable paths an app reaches the host through (docs/plans/apps.md §4):
+ * `tools.<integration>.<tool>(args)` for an integration, and
+ * `server.<function>(input)` for one of the app's own host functions. Each is
+ * one call; `.queryOptions(args)` and `.mutationOptions()` hand the same call
+ * to TanStack Query with keys built from the path, so a mutation can
+ * invalidate the reads of its path with `.pathFilter()`.
  *
- * The first segment is the integration's slug and the rest is the upstream
- * tool's name; the wire name is `<slug>/<tool>`. Nothing here knows about
- * frames: the transport is injected.
+ * Nothing here knows about frames or call names: the transport is injected.
  */
 
 import { mutationOptions, queryOptions, type QueryFilters, type QueryKey, type UseMutationOptions, type UseQueryOptions } from '@tanstack/react-query'
@@ -26,47 +25,64 @@ export function toolWireName(path: readonly string[]): string {
   return `${slug}/${tool.join('.')}`
 }
 
-const pathKey = (path: readonly string[]): QueryKey => ['solus-tool', ...path]
-const queryKey = (path: readonly string[], args: ToolArguments | undefined): QueryKey => [...pathKey(path), { args: args ?? {}, type: 'query' }]
-const mutationKey = (path: readonly string[]): QueryKey => [...pathKey(path), { type: 'mutation' }]
+/** The call name of a host function: `@server/<function>` (`appFunctionCallName` in `@solus/contracts/apps`). */
+export function functionWireName(path: readonly string[]): string {
+  return `@server/${path.join('.')}`
+}
+
+/** What a proxy is rooted at, and how many segments a path needs before it names a call. */
+export interface CallProxyRoot {
+  /** The object's name in the app's code, used in query keys and messages. */
+  name: 'tools' | 'server'
+  /** 2 for `tools.<integration>.<tool>`; 1 for `server.<function>`. */
+  depth: number
+  /** What to write instead, when a path is too short to name a call. */
+  usage: string
+}
+
+export const TOOLS_ROOT: CallProxyRoot = { name: 'tools', depth: 2, usage: 'tools.<integration>.<tool>(args)' }
+export const SERVER_ROOT: CallProxyRoot = { name: 'server', depth: 1, usage: 'server.<function>(input)' }
 
 type QueryExtras = Omit<UseQueryOptions, 'queryKey' | 'queryFn'>
 type MutationExtras = Omit<UseMutationOptions<ToolValue, Error, ToolArguments | undefined>, 'mutationKey' | 'mutationFn'>
 
-/** The helpers at tool depth, built for one path. Each is a plain function, so it survives being destructured. */
-function helpers(path: string[], transport: ToolCallTransport) {
+/** The helpers at call depth, built for one path. Each is a plain function, so it survives being destructured. */
+function helpers(root: CallProxyRoot, path: string[], transport: ToolCallTransport) {
+  const pathKey = (): QueryKey => [`solus-${root.name}`, ...path]
+  const queryKey = (args?: ToolArguments): QueryKey => [...pathKey(), { args: args ?? {}, type: 'query' }]
+  const mutationKey = (): QueryKey => [...pathKey(), { type: 'mutation' }]
   return {
     queryOptions: (args?: ToolArguments, extras?: QueryExtras) =>
-      queryOptions({ ...extras, queryKey: queryKey(path, args), queryFn: () => transport({ path, args: args ?? {} }) }),
-    queryKey: (args?: ToolArguments) => queryKey(path, args),
+      queryOptions({ ...extras, queryKey: queryKey(args), queryFn: () => transport({ path, args: args ?? {} }) }),
+    queryKey,
     mutationOptions: (extras?: MutationExtras) =>
-      mutationOptions({ ...extras, mutationKey: mutationKey(path), mutationFn: (args: ToolArguments | undefined) => transport({ path, args: args ?? {} }) }),
-    mutationKey: () => mutationKey(path),
-    pathKey: () => pathKey(path),
-    pathFilter: (filters?: Omit<QueryFilters, 'queryKey'>): QueryFilters => ({ ...filters, queryKey: pathKey(path) }),
+      mutationOptions({ ...extras, mutationKey: mutationKey(), mutationFn: (args: ToolArguments | undefined) => transport({ path, args: args ?? {} }) }),
+    mutationKey,
+    pathKey,
+    pathFilter: (filters?: Omit<QueryFilters, 'queryKey'>): QueryFilters => ({ ...filters, queryKey: pathKey() }),
   }
 }
 
 type Helpers = ReturnType<typeof helpers>
 type Helper = keyof Helpers
 type ToolTarget = ((args?: ToolArguments) => Promise<ToolValue>) & Helpers
-/** What a component sees at any depth of `tools`: a callable path with the query helpers, and every deeper path. */
+/** What a component sees at any depth of `tools` or `server`: a callable path with the query helpers, and every deeper path. */
 export type ToolPath = ToolTarget & { [segment: string]: ToolPath }
 const HELPER_NAMES = new Set<string>(['queryOptions', 'queryKey', 'mutationOptions', 'mutationKey', 'pathKey', 'pathFilter'])
 
-export function createToolsProxy(transport: ToolCallTransport): ToolPath {
+export function createCallProxy(root: CallProxyRoot, transport: ToolCallTransport): ToolPath {
   const nest = (path: string[]): ToolPath => {
     const call = (args?: ToolArguments): Promise<ToolValue> => {
-      if (path.length < 2) return Promise.reject(new Error(`tools.${path.join('.')} names no tool. Write tools.<integration>.<tool>(args).`))
+      if (path.length < root.depth) return Promise.reject(new Error(`${[root.name, ...path].join('.')} names nothing to call. Write ${root.usage}.`))
       return transport({ path, args: args ?? {} })
     }
-    const target: ToolTarget = Object.assign(call, helpers(path, transport))
+    const target: ToolTarget = Object.assign(call, helpers(root, path, transport))
     const proxy = new Proxy(target, {
       get(own, key) {
         // A symbol key (`Symbol.toPrimitive`, inspection) and `then` must stay undefined, or an await would never settle.
         const name = String(key)
         if (key !== name || name === 'then' || name === 'toJSON') return undefined
-        if (path.length >= 2 && HELPER_NAMES.has(name)) {
+        if (path.length >= root.depth && HELPER_NAMES.has(name)) {
           // SAFETY: `HELPER_NAMES` holds exactly the keys of `Helpers`.
           return own[name as Helper]
         }

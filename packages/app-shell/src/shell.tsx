@@ -13,10 +13,11 @@ import '@tailwindcss/browser'
 import { Component, StrictMode, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AppContext, type AppPermissionsState, type AppRoleState } from './app-context'
+import { AppContext, type AppHostAccessState, type AppPermissionsState, type AppRoleState } from './app-context'
+import { createStorage } from './app-storage'
 import { HostBridge, type HostTheme } from './host-bridge'
 import { createRequire, type ComponentRequire } from './modules'
-import { createToolsProxy, toolWireName } from './tools-proxy'
+import { createCallProxy, functionWireName, SERVER_ROOT, TOOLS_ROOT, toolWireName } from './tools-proxy'
 import { Card, CardDescription, CardTitle } from './ui/index'
 
 /** What the compiled module may export: its default is the component the shell mounts. */
@@ -29,11 +30,15 @@ type ComponentBody = (require: ComponentRequire, module: { exports: ComponentExp
 export interface ShellConfig {
   roles: AppRoleState[]
   permissions: AppPermissionsState
+  hostAccess: AppHostAccessState
 }
 
 const bridge = new HostBridge()
-const tools = createToolsProxy(({ path, args }) => bridge.callTool(toolWireName(path), args))
-const componentRequire = createRequire(tools)
+const componentRequire = createRequire({
+  tools: createCallProxy(TOOLS_ROOT, ({ path, args }) => bridge.callTool(toolWireName(path), args)),
+  storage: createStorage((name, args) => bridge.callValue(name, args)),
+  server: createCallProxy(SERVER_ROOT, ({ path, args }) => bridge.callValue(functionWireName(path), args)),
+})
 let definedBody: ComponentBody | null = null
 
 /** Registers the compiled component. Called by the inline script the server writes before `mount`. */
@@ -84,7 +89,7 @@ class Boundary extends Component<{ children: ReactNode }, BoundaryState> {
       <Card role="alert" className="border-destructive/40">
         <CardTitle>This app hit an error</CardTitle>
         <pre className="mt-2 overflow-auto whitespace-pre-wrap font-mono text-xs text-destructive">{error.message}</pre>
-        <CardDescription className="mt-2">Ask the agent to fix it with update_work, then reload the app.</CardDescription>
+        <CardDescription className="mt-2">Ask the agent to fix it with create_app, then reload the app.</CardDescription>
       </Card>
     )
   }
@@ -98,6 +103,18 @@ function RolesNotice({ roles }: { roles: AppRoleState[] }) {
       <CardTitle>Connect to use this app</CardTitle>
       <CardDescription className="mt-1">
         This app reads {missing.map((role) => role.name ?? role.slug).join(', ')} with your own account. Connect {missing.length === 1 ? 'it' : 'them'} in Settings → MCP, then reload the app.
+      </CardDescription>
+    </Card>
+  )
+}
+
+function HostAccessNotice({ hostAccess }: { hostAccess: AppHostAccessState }) {
+  if (hostAccess !== 'pending') return null
+  return (
+    <Card className="mb-3">
+      <CardTitle>This app waits for its host access</CardTitle>
+      <CardDescription className="mt-1">
+        It asks to run code on its host or to reach the network. The owner of the host allows that in the app's header. Until then, those parts of the app do not work.
       </CardDescription>
     </Card>
   )
@@ -135,13 +152,14 @@ function Root({ config }: { config: ShellConfig }) {
   }, [theme])
   useHeightReporter()
 
-  const state = useMemo(() => ({ roles: config.roles, permissions: config.permissions, theme }), [config, theme])
+  const state = useMemo(() => ({ roles: config.roles, permissions: config.permissions, hostAccess: config.hostAccess, theme }), [config, theme])
   const AppComponent = loaded.component
   return (
     <AppContext.Provider value={state}>
       <QueryClientProvider client={queryClient}>
         <div className="p-3 font-sans text-sm text-foreground">
           <RolesNotice roles={config.roles} />
+          <HostAccessNotice hostAccess={config.hostAccess} />
           {loaded.error ? (
             <Card role="alert" className="border-destructive/40">
               <CardTitle>This app could not start</CardTitle>

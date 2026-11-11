@@ -30,6 +30,8 @@ const toolCallResultSchema = z.object({
 })
 export type ToolCallResult = z.infer<typeof toolCallResultSchema>
 
+const hostValueSchema = z.object({ value: toolValueSchema })
+
 const envelopeSchema = z.object({
   jsonrpc: z.literal('2.0'),
   id: z.union([z.string(), z.number()]).optional(),
@@ -78,6 +80,16 @@ export class HostBridge {
   async callTool(name: string, args: ToolArguments): Promise<ToolValue> {
     const result = toolCallResultSchema.safeParse(await this.request('tools/call', { name, arguments: args }))
     return unwrapToolResult(result.success ? result.data : null)
+  }
+
+  /**
+   * A call the host itself answers: the app's storage, or one of its host
+   * functions. The host wraps the answer as `{ value }`, because a tool
+   * result's structured content is always an object.
+   */
+  async callValue(name: string, args: ToolArguments): Promise<ToolValue> {
+    const answer = hostValueSchema.safeParse(await this.callTool(name, args))
+    return answer.success ? answer.data.value : null
   }
 
   reportHeight(height: number): void {

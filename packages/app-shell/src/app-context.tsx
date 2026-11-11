@@ -12,15 +12,26 @@ export interface AppRoleState {
 export interface AppPermissionsState {
   tools: 'all' | 'read-only' | { selected: string[] }
   writes: 'ask' | 'allow'
+  network: string[]
+  files: { read: string[]; write: string[] }
 }
+
+/** Whether what the app asks of the host is in force: it asks for nothing, it waits for the host's owner, or the owner allowed it. */
+export type AppHostAccessState = 'none' | 'pending' | 'allowed'
 
 export interface AppState {
   roles: AppRoleState[]
   permissions: AppPermissionsState
+  hostAccess: AppHostAccessState
   theme: HostTheme
 }
 
-export const AppContext = createContext<AppState>({ roles: [], permissions: { tools: 'all', writes: 'ask' }, theme: 'light' })
+export const AppContext = createContext<AppState>({
+  roles: [],
+  permissions: { tools: 'all', writes: 'ask', network: [], files: { read: [], write: [] } },
+  hostAccess: 'none',
+  theme: 'light',
+})
 
 /** What a component may ask about the app it runs in. */
 export function useApp(): AppState {
