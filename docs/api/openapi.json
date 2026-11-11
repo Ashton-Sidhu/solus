@@ -362,7 +362,8 @@
               "enum": [
                 "doc",
                 "slides",
-                "artifact"
+                "artifact",
+                "app"
               ]
             }
           }
@@ -500,7 +501,8 @@
                             "enum": [
                               "doc",
                               "slides",
-                              "artifact"
+                              "artifact",
+                              "app"
                             ]
                           },
                           "preview": {
@@ -610,6 +612,63 @@
                               "url",
                               "scope",
                               "syncState"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "app": {
+                            "type": "object",
+                            "properties": {
+                              "permissions": {
+                                "type": "object",
+                                "properties": {
+                                  "tools": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "all"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "read-only"
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "selected": {
+                                            "maxItems": 256,
+                                            "type": "array",
+                                            "items": {
+                                              "type": "string",
+                                              "minLength": 3,
+                                              "maxLength": 512,
+                                              "pattern": "^[^/\\s]+\\/[^\\s]+$"
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "selected"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "writes": {
+                                    "type": "string",
+                                    "enum": [
+                                      "ask",
+                                      "allow"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "tools",
+                                  "writes"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "permissions"
                             ],
                             "additionalProperties": false
                           },
@@ -977,7 +1036,8 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "artifact"
+                        "artifact",
+                        "app"
                       ]
                     },
                     "preview": {
@@ -1087,6 +1147,63 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "permissions": {
+                          "type": "object",
+                          "properties": {
+                            "tools": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "all"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "read-only"
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "selected": {
+                                      "maxItems": 256,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 3,
+                                        "maxLength": 512,
+                                        "pattern": "^[^/\\s]+\\/[^\\s]+$"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "selected"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "writes": {
+                              "type": "string",
+                              "enum": [
+                                "ask",
+                                "allow"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "tools",
+                            "writes"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "permissions"
                       ],
                       "additionalProperties": false
                     },
@@ -1695,7 +1812,8 @@
                     "enum": [
                       "doc",
                       "slides",
-                      "artifact"
+                      "artifact",
+                      "app"
                     ]
                   },
                   "content": {
@@ -2575,7 +2693,8 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "artifact"
+                        "artifact",
+                        "app"
                       ]
                     },
                     "preview": {
@@ -2685,6 +2804,63 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "permissions": {
+                          "type": "object",
+                          "properties": {
+                            "tools": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "all"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "read-only"
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "selected": {
+                                      "maxItems": 256,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 3,
+                                        "maxLength": 512,
+                                        "pattern": "^[^/\\s]+\\/[^\\s]+$"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "selected"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "writes": {
+                              "type": "string",
+                              "enum": [
+                                "ask",
+                                "allow"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "tools",
+                            "writes"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "permissions"
                       ],
                       "additionalProperties": false
                     },
@@ -3346,7 +3522,8 @@
               "enum": [
                 "doc",
                 "slides",
-                "artifact"
+                "artifact",
+                "app"
               ]
             }
           },
@@ -3396,7 +3573,8 @@
                             "enum": [
                               "doc",
                               "slides",
-                              "artifact"
+                              "artifact",
+                              "app"
                             ]
                           },
                           "updatedAt": {
@@ -3697,7 +3875,8 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "artifact"
+                        "artifact",
+                        "app"
                       ]
                     },
                     "preview": {
@@ -3807,6 +3986,63 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "permissions": {
+                          "type": "object",
+                          "properties": {
+                            "tools": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "all"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "read-only"
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "selected": {
+                                      "maxItems": 256,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 3,
+                                        "maxLength": 512,
+                                        "pattern": "^[^/\\s]+\\/[^\\s]+$"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "selected"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "writes": {
+                              "type": "string",
+                              "enum": [
+                                "ask",
+                                "allow"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "tools",
+                            "writes"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "permissions"
                       ],
                       "additionalProperties": false
                     },
@@ -4547,7 +4783,8 @@
                       "enum": [
                         "doc",
                         "slides",
-                        "artifact"
+                        "artifact",
+                        "app"
                       ]
                     },
                     "preview": {
@@ -4657,6 +4894,63 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "permissions": {
+                          "type": "object",
+                          "properties": {
+                            "tools": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "const": "all"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "read-only"
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "selected": {
+                                      "maxItems": 256,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 3,
+                                        "maxLength": 512,
+                                        "pattern": "^[^/\\s]+\\/[^\\s]+$"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "selected"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            "writes": {
+                              "type": "string",
+                              "enum": [
+                                "ask",
+                                "allow"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "tools",
+                            "writes"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "permissions"
                       ],
                       "additionalProperties": false
                     },
