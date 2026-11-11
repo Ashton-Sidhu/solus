@@ -36,6 +36,7 @@ export interface WatchRead {
 
 export type WatchNews =
   | { kind: 'checks-failed'; checks: CheckItem[] }
+  | { kind: 'checks-awaiting-approval'; checks: CheckItem[] }
   | { kind: 'checks-passed'; checks: string[] }
   | { kind: 'all-checks-passed'; checks: string[] }
   | { kind: 'no-checks'; minutes: number }
@@ -68,7 +69,7 @@ export const REMARK_ONLY_WAKE_LIMIT = 10
  *  none reported: a workflow can skip every job for a change (paths-ignore). */
 export const NO_CHECKS_GRACE_MS = 15 * 60_000
 
-const FAILED_CONCLUSIONS = new Set<CheckConclusion>(['failure', 'cancelled', 'timed_out', 'action_required'])
+const FAILED_CONCLUSIONS = new Set<CheckConclusion>(['failure', 'cancelled', 'timed_out'])
 const PASSING_CONCLUSIONS = new Set<CheckConclusion>(['success', 'neutral', 'skipped'])
 
 export function initialWatchState(startedAt: number): PullRequestWatchState {
@@ -83,6 +84,7 @@ export function initialWatchState(startedAt: number): PullRequestWatchState {
     remarkOnlyWakes: 0,
     owedChecks: [],
     checksAwaitedSince: null,
+    approvalChecks: [],
   }
 }
 
@@ -95,7 +97,7 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   // conflict is void, so a conflict a push did not fix is news again.
   const headMoved = pullRequest.headSha !== state.headSha
   const next: PullRequestWatchState = headMoved
-    ? { ...state, headSha: pullRequest.headSha, failedChecks: [], passReported: false, passedChecks: [], owedChecks: [], conflicting: false }
+    ? { ...state, headSha: pullRequest.headSha, failedChecks: [], passReported: false, passedChecks: [], owedChecks: [], approvalChecks: [], conflicting: false }
     : { ...state }
   const news: WatchNews[] = []
 
@@ -105,8 +107,12 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   next.failedChecks = failed.map((check) => check.id)
   if (newlyFailed.length) news.push({ kind: 'checks-failed', checks: newlyFailed })
 
+  news.push(...approvalNews(next, checks))
+
   const gate = read.checks.required.length ? read.checks.required : checks
-  news.push(...(gate.some(isFailed) ? failedGateNews(next, checks, failed, newlyFailed) : passNews(next, read)))
+  if (gate.some(isFailed)) news.push(...failedGateNews(next, checks, failed, newlyFailed))
+  // While the hold is set, a read without the awaited check is not a pass.
+  else if (!next.approvalChecks.length) news.push(...passNews(next, read))
   news.push(...noChecksNews(next, read, headMoved))
 
   // Unknown mergeability keeps the last answer.
@@ -176,6 +182,21 @@ function passNews(next: PullRequestWatchState, read: WatchRead): WatchNews[] {
 }
 
 /**
+ * A workflow that waits for a maintainer's approval (a fork's first run) is
+ * not a failure: the agent is told once that it waits. The hold keeps the
+ * check names until a check of that name finishes or the head moves, because
+ * a later read can leave the waiting check out and must not look green.
+ */
+function approvalNews(next: PullRequestWatchState, checks: CheckItem[]): WatchNews[] {
+  const awaiting = checks.filter(isAwaitingApproval)
+  const finished = new Set(checks.filter((check) => !isAwaitingApproval(check) && !check.inFlight && check.conclusion !== null).map((check) => check.name))
+  const held = next.approvalChecks.filter((name) => !finished.has(name))
+  const fresh = awaiting.filter((check) => !held.includes(check.name))
+  next.approvalChecks = [...held, ...fresh.map((check) => check.name)]
+  return fresh.length ? [{ kind: 'checks-awaiting-approval', checks: fresh }] : []
+}
+
+/**
  * A head with no check at all may never get one (a workflow can skip every
  * job for a change), so the agent is told once after a grace period. A head
  * that had checks is never waited on again.
@@ -192,6 +213,10 @@ function noChecksNews(next: PullRequestWatchState, read: WatchRead, headMoved: b
 
 function isFailed(check: CheckItem): boolean {
   return !check.inFlight && check.conclusion !== null && FAILED_CONCLUSIONS.has(check.conclusion)
+}
+
+function isAwaitingApproval(check: CheckItem): boolean {
+  return !check.inFlight && check.conclusion === 'action_required'
 }
 
 function isPassing(check: CheckItem): boolean {
@@ -235,6 +260,9 @@ function newsLines(item: WatchNews): string[] {
     case 'checks-failed':
       return [`- Checks failed:`, ...limited(item.checks.map((check) =>
         `  - ${check.name}${check.appName ? ` (${check.appName})` : ''}: ${check.conclusion}${check.detailsUrl ? ` — ${check.detailsUrl}` : ''}`))]
+    case 'checks-awaiting-approval':
+      return [`- Checks wait for a maintainer to approve the workflow run. They have not failed. Do not push to work around this: Solus wakes you when they finish.`, ...limited(item.checks.map((check) =>
+        `  - ${check.name}${check.appName ? ` (${check.appName})` : ''}${check.detailsUrl ? ` — ${check.detailsUrl}` : ''}`))]
     case 'checks-passed':
       return [`- Every check that gates the merge passed: ${item.checks.slice(0, LIST_LIMIT).join(', ')}${item.checks.length > LIST_LIMIT ? `, and ${item.checks.length - LIST_LIMIT} more` : ''}.`]
     case 'all-checks-passed':

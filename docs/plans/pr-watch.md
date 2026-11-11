@@ -28,8 +28,8 @@ fingerprint.
 - **watch read** — the full read of one pull request: the pull request, its
   checks, its conversation and its review threads.
 - **news** — one thing a watch read found that the agent has not been told:
-  `checks-failed`, `checks-passed`, `all-checks-passed`, `no-checks`,
-  `remarks`, `conflicting`, `closed`.
+  `checks-failed`, `checks-awaiting-approval`, `checks-passed`,
+  `all-checks-passed`, `no-checks`, `remarks`, `conflicting`, `closed`.
 - **wake** — the prompt the watcher queues on the session with the news.
 
 Do not say "monitor", "babysit", "subscription" or "PR watch job". A watch
@@ -53,10 +53,17 @@ belongs to a session, not to a task.
 4. **Only an open pull request.** Watching a merged or closed pull request is
    refused. A watch is refused on a settled session.
 5. **What wakes the agent** (`prs/pr-watch-rules.ts`, pure):
-   - `checks-failed`: a check finished as failure, cancelled, timed out or
-     action required. Each failed check is reported once per head, as soon as
+   - `checks-failed`: a check finished as failure, cancelled or timed out.
+     Each failed check is reported once per head, as soon as
      it fails, so a check that never finishes cannot hold back the news. A
      rerun that fails again on the same head is reported again.
+   - `checks-awaiting-approval`: a check finished as action required, for
+     example a fork's workflow run that waits for a maintainer's approval. It
+     is not a failure. Each such check is reported once per head. The watch
+     keeps an approval hold (`approvalChecks`) until a check of that name
+     finishes or the head moves. While the hold is set, no `checks-passed`,
+     `all-checks-passed` or `no-checks` is reported, also when a later read
+     does not include the waiting check.
    - `checks-passed`: every required check passed (every check when none is
      required), reported once per head. If a required check appears later that
      the agent was not told about, it is reported again.
@@ -163,7 +170,8 @@ the same transaction. Baselines generated with `bun run db:generate`.
 `state` is `PullRequestWatchState`: the head it last saw, the failed checks
 reported on that head, whether the pass was reported and the required checks it
 named, the optional checks owed a wake (`owedChecks`), when the head was first
-read with no check (`checksAwaitedSince`), the remark watermark (time and the ids at that time), whether it
+read with no check (`checksAwaitedSince`), the checks that wait for approval
+(`approvalChecks`, empty in a state stored before it), the remark watermark (time and the ids at that time), whether it
 conflicts, and the number of remark-only wakes in a row.
 
 `SessionPullRequestLink.watch?: { startedAt: number }` tells clients that the
