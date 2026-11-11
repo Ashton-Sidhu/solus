@@ -9,6 +9,10 @@
  *
  * Each mark animates once and removes itself; nothing repaints while the page
  * is idle. Keys typed into a password field show as dots.
+ *
+ * A modal dialog, a popover, or a fullscreen element paints in the top layer,
+ * above any z-index. So the root is a manual popover in the top layer too, and
+ * it moves back to the front each time the page adds to that layer.
  */
 
 const GLOBAL = '__solusRecordingOverlay'
@@ -27,7 +31,10 @@ export function recordingOverlayExpression(enabled: boolean): string {
   const HIGHLIGHT = ${JSON.stringify(HIGHLIGHT)};
   const root = document.createElement('div');
   root.setAttribute('data-solus-recording-overlay', '');
-  root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;overflow:hidden;';
+  root.popover = 'manual';
+  // Reset the popover UA styles, so the root still covers the viewport.
+  root.style.cssText = 'position:fixed;inset:0;width:auto;height:auto;margin:0;border:0;padding:0;background:transparent;'
+    + 'pointer-events:none;z-index:2147483647;overflow:hidden;';
   const keys = document.createElement('div');
   keys.style.cssText = 'position:absolute;left:50%;bottom:24px;transform:translateX(-50%);display:flex;gap:6px;';
   root.appendChild(keys);
@@ -90,10 +97,26 @@ export function recordingOverlayExpression(enabled: boolean): string {
   window.addEventListener('pointerdown', onPointer, true);
   window.addEventListener('keydown', onKey, true);
   (document.body || document.documentElement).appendChild(root);
+  const raise = () => {
+    if (!root.isConnected || typeof root.showPopover !== 'function') return;
+    if (root.matches(':popover-open')) root.hidePopover();
+    root.showPopover();
+  };
+  raise();
+  const topLayerObserver = new MutationObserver(raise);
+  topLayerObserver.observe(document, { subtree: true, attributes: true, attributeFilter: ['open'] });
+  const onToggle = (event) => {
+    if (event.target !== root && event.newState === 'open') raise();
+  };
+  document.addEventListener('toggle', onToggle, true);
+  document.addEventListener('fullscreenchange', raise);
   window[${JSON.stringify(GLOBAL)}] = {
     remove() {
       window.removeEventListener('pointerdown', onPointer, true);
       window.removeEventListener('keydown', onKey, true);
+      topLayerObserver.disconnect();
+      document.removeEventListener('toggle', onToggle, true);
+      document.removeEventListener('fullscreenchange', raise);
       root.remove();
       delete window[${JSON.stringify(GLOBAL)}];
     },
