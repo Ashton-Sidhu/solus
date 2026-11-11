@@ -104,11 +104,18 @@ export interface AgentRuntime {
 /** The one rule for credentials across Solus tools: a tool takes a `secretRef`, never a secret; a shell command reads a private file. */
 const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one. Sudo: if `sudo -n <cmd>` says a password is required, call `request_secret` with `delivery: "file"` and run `sudo -S -p \'\' <cmd> < "$file"`; stdin carries the password, so give other input as a file argument.'
 
+/** `create_app` loads behind tool search, and "an app" also reads as a web
+ *  project to scaffold, so the prompt says which is which (docs/plans/apps.md §8). */
+const APP_INSTRUCTIONS = `## Apps
+
+When the user asks for an app, a tool, a tracker, or a browser for their data, and names no codebase for it, build an app that lives in Solus: load the apps skill and save the result with create_app. The app is a work that opens on desktop, web, and mobile. It keeps its own data, can run its own code on the host, and can use the user's connected integrations. Use the building-for-web skill only when the user wants a web project as a codebase to deploy.`
+
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
   ['device_list', DEVICE_INSTRUCTIONS],
   ['create_automation', AUTOMATION_INSTRUCTIONS],
   ['request_secret', SECRET_REF_INSTRUCTIONS],
+  ['create_app', APP_INSTRUCTIONS],
 ]
 
 function singleLine(value: string): string {
@@ -119,7 +126,7 @@ function singleLine(value: string): string {
  *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions,
  *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
  *  `device_list` for Devices, `create_automation` for Automations,
- *  `request_secret` for the secretRef rule. */
+ *  `request_secret` for the secretRef rule, `create_app` for Apps. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[]): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 

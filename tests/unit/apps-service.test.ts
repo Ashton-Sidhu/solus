@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,6 +9,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { memberPrincipal, withActor } from './helpers/actors'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import { resetTestDatabase } from './helpers/test-db'
+import { installTestWorkspaceTools } from './helpers/workspace-tools'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -17,6 +18,8 @@ type WorksModule = typeof import('@solus/server/data/works/works')
 type AppsModule = typeof import('@solus/server/apps/apps')
 type AppStorageModule = typeof import('@solus/server/apps/app-storage')
 type AppFunctionsModule = typeof import('@solus/server/apps/app-functions')
+type AppToolsModule = typeof import('@solus/server/execution/agents/tools/app-tools')
+type WorkToolsModule = typeof import('@solus/server/execution/agents/tools/work-tools')
 
 /** The runner needs a real Node with the permission model; a machine without one skips the host function cases. */
 const nodeVersion = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' })
@@ -28,6 +31,8 @@ let works: WorksModule
 let appsModule: AppsModule
 let storageModule: AppStorageModule
 let functionsModule: AppFunctionsModule
+let appTools: AppToolsModule
+let workTools: WorkToolsModule
 let functions: InstanceType<AppFunctionsModule['AppFunctions']> | null = null
 const previousDataDir = process.env.SOLUS_DATA_DIR
 const previousInstallDir = process.env.SOLUS_INSTALL_DIR
@@ -54,11 +59,15 @@ beforeAll(async () => {
   appsModule = await import('@solus/server/apps/apps')
   storageModule = await import('@solus/server/apps/app-storage')
   functionsModule = await import('@solus/server/apps/app-functions')
+  appTools = await import('@solus/server/execution/agents/tools/app-tools')
+  workTools = await import('@solus/server/execution/agents/tools/work-tools')
   // The shell is a build output that a test run may not have; the document needs only that one exists.
   mkdirSync(join(dataDir, 'install', 'resources', 'app-shell'), { recursive: true })
   writeFileSync(join(dataDir, 'install', 'resources', 'app-shell', 'shell.js'), 'window.SolusAppShell = {}')
   process.env.SOLUS_INSTALL_DIR = join(dataDir, 'install')
 })
+
+beforeEach(async () => { await installTestWorkspaceTools() })
 
 afterEach(async () => {
   functions?.dispose()
@@ -184,5 +193,59 @@ describe('app host access', () => {
     const { apps } = service()
     const work = await createApp('export default function App() { return null }')
     expect(await apps.toolInfo({ workId: work.id, name: appFunctionCallName('greet') }, owner)).toMatchObject({ callable: false, refusal: 'This app has no host functions.' })
+  })
+})
+
+describe('create_app', () => {
+  const ctx = () => ({ sessionId: undefined, agentProvider: 'claude-code' as const, cwd: dataDir })
+  const SOURCES = { 'src/App.tsx': 'export default function App() { return null }', 'server.ts': 'export async function greet() { return 1 }' }
+
+  function writeBundle(name: string, content: string): string {
+    writeFileSync(join(dataDir, name), content)
+    return name
+  }
+
+  test('an app project\'s bundle is saved from its file, with the host access it waits for in the receipt', async () => {
+    // WHY: a bundle is megabytes, so it is read from the host and never passes
+    // through the model. The receipt is the agent's only word that the owner
+    // must allow the app before its host functions work.
+    const file = writeBundle('app.bundle.json', JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return null }', server: SERVER, integrations: [], sources: SOURCES }))
+    const created = await appTools.executeCreateAppTool(
+      { title: 'Database browser', bundle_path: file, permissions: { ...DEFAULT_APP_PERMISSIONS, network: ['*'], files: { read: ['*'], write: [] } } },
+      { ctx: ctx() },
+    )
+    expect(created.ok).toBe(true)
+    expect(created.text).toStartWith('Created the app "Database browser" (id: ')
+    expect(created.text).toContain('It asks to run its own code on this host, read every file, and reach every network host. Tell the user to allow that')
+    const workId = /\(id: ([^)]+)\)/.exec(created.text)?.[1] ?? ''
+
+    const { apps } = service()
+    const snapshot = await apps.read({ workId }, owner)
+    expect(snapshot.hostAccess).toMatchObject({ state: 'pending', asks: { functions: true, network: ['*'], files: { read: ['*'], write: [] } } })
+
+    // read_work answers the sources, so a later session can rebuild the project.
+    const read = await workTools.executeWorkTool('read_work', { work_id: workId }, { ctx: ctx() })
+    expect(read.text).toContain('--- server.ts ---\nexport async function greet()')
+    expect(read.text).not.toContain('exports.greet = async')
+
+    // A revision that asks for nothing new keeps the owner's decision.
+    await apps.hostAccessDecide({ workId, allow: true }, owner)
+    const revised = await appTools.executeCreateAppTool({ title: 'Database browser', bundle_path: file, work_id: workId, expected_content_version: 1 }, { ctx: ctx() })
+    expect(revised.text).toStartWith('Updated the app "Database browser"')
+    expect(revised.text).not.toContain('It asks to')
+  })
+
+  test('a call names one of code or bundle_path, a file that is not a bundle is refused, and permissions that do not parse are refused, never dropped', async () => {
+    const component = 'export default function App() { return null }'
+    expect((await appTools.executeCreateAppTool({ title: 'A' }, { ctx: ctx() })).text).toBe('create_app takes one of code or bundle_path.')
+    expect((await appTools.executeCreateAppTool({ title: 'A', code: component, bundle_path: 'app.bundle.json' }, { ctx: ctx() })).text).toBe('create_app takes one of code or bundle_path.')
+    // An agent that fills the unused input with an empty string still means one of them.
+    expect((await appTools.executeCreateAppTool({ title: 'A', code: component, bundle_path: '' }, { ctx: ctx() })).ok).toBe(true)
+    expect((await appTools.executeCreateAppTool({ title: 'A', bundle_path: writeBundle('notes.json', '{"hello":1}') }, { ctx: ctx() })).text).toContain('create_app refused the app')
+    expect((await appTools.executeCreateAppTool({ title: 'A', bundle_path: writeBundle('bad.json', '{"solusApp":1}') }, { ctx: ctx() })).text).toContain('The app bundle is not valid: client')
+    expect((await appTools.executeCreateAppTool({ title: 'A', bundle_path: 'missing.json' }, { ctx: ctx() })).text).toContain('bundle_path not found')
+    // SAFETY: the malformed input is the case under test.
+    const refused = await appTools.executeCreateAppTool({ title: 'A', code: component, permissions: { network: ['https://api.example.com'] } as never }, { ctx: ctx() })
+    expect(refused).toMatchObject({ ok: false, text: expect.stringContaining('create_app refused the permissions: network.0') })
   })
 })

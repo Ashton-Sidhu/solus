@@ -6,16 +6,18 @@ import { resolveHomePath } from '../../../platform/paths'
 const MAX_WORK_FILE_BYTES = 8 * 1024 * 1024
 
 /** The input that names a work's file, and the extensions it accepts. */
-export type WorkFileInput = 'html_path' | 'markdown_path'
+export type WorkFileInput = 'html_path' | 'markdown_path' | 'bundle_path'
 
 const EXTENSIONS = {
   html_path: ['.html'],
   markdown_path: ['.md', '.markdown'],
+  bundle_path: ['.json'],
 } satisfies { [input in WorkFileInput]: string[] }
 
 /**
  * The body of a work, read from the file the agent wrote on this host: a
- * compiled artifact (`html_path`) or a markdown document (`markdown_path`).
+ * compiled artifact (`html_path`), a markdown document (`markdown_path`), or
+ * an app project's bundle (`bundle_path`).
  * The agent and this server share a filesystem, so the body does not have to
  * pass through the model as tool input. A relative path is relative to the
  * agent's working directory. Returns error text the agent can act on.

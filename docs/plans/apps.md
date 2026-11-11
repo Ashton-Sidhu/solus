@@ -298,8 +298,9 @@ sharing an app with host functions waits (§10).
 - `transport/handlers/app-handlers.ts` — `appRead`, `appToolInfo`,
   `appCallTool`, `appPermissionsUpdate`, `appHostAccessDecide`.
 - `execution/agents/tools/app-tools.ts` — `create_app`: `title`, one of `code`
-  (a component) or `path` (the bundle file the skill's build wrote),
-  `permissions?`, `work_id?` with `expected_content_version`.
+  (a component) or `bundle_path` (the bundle file the skill's build wrote),
+  `permissions?`, `work_id?` with `expected_content_version`. The receipt
+  says what host access the app still waits for.
 
 `read_work` of a bundle answers its sources, not its compiled code.
 
@@ -315,7 +316,7 @@ how an agent finds `create_app`, which loads behind tool search.
 - `npm run bundle` — typechecks, bundles `src/App.tsx` for the frame and
   `server.ts` (when present) for Node with esbuild, reads the roles from the
   sources, and writes `app.bundle.json`.
-- `create_app` with `path` saves it. A revision is the same build and
+- `create_app` with `bundle_path` saves it. A revision is the same build and
   `create_app` with `work_id`.
 
 The runtime instructions name the skill for a run that has `create_app`, and

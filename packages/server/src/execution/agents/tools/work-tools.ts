@@ -13,6 +13,7 @@ import type { WorkspaceRecordHome } from '@solus/contracts/solus-api'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { readWorkFile } from './work-file'
+import { describeAppContent } from '../../../apps/app-content'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -239,6 +240,11 @@ function staleWrite(title: string, expectedContentVersion: number): WorkToolResu
   }
 }
 
+/** A work's body as an agent reads it. An app's bundle is megabytes of compiled code, so it reads as its sources. */
+function readableContent(work: { type: WorkType; content: string }): string {
+  return work.type === 'app' ? describeAppContent(work.content) : work.content
+}
+
 export async function executeWorkTool(
   name: string,
   args: WorkToolArgs,
@@ -307,7 +313,7 @@ export async function executeWorkTool(
       }
       // An organization's work: its content from the Solus API; its comment threads are on its page there.
       // A mention reads as `@Name`: an agent reads people, it does not write mentions (plan 004 item 13).
-      if (remote) return { ok: true, text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}:\n\n${work.content}`) }
+      if (remote) return { ok: true, text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}:\n\n${readableContent(work)}`) }
       // Surface the open threads alongside the content so the agent sees
       // feedback without the user having to paste it into chat. Rendered by the
       // same formatter as read_plan, so both read identically.
@@ -315,7 +321,7 @@ export async function executeWorkTool(
       const annotations = await loadWorkAnnotations(ANY_ORGANIZATION, workId)
       return {
         ok: true,
-        text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined, work.mirroredDoc?.url)}`),
+        text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${readableContent(work)}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined, work.mirroredDoc?.url)}`),
       }
     }
 
