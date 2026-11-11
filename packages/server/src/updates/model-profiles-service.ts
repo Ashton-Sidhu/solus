@@ -44,6 +44,8 @@ interface ModelProfilesServiceDeps {
   cachePath: string
   download(): Promise<ModelProfiles>
   publish(status: ModelProfilesStatus): void
+  /** A downloaded list differs from the one in effect. */
+  onProfilesChanged?: () => void
   now?: () => number
 }
 
@@ -115,9 +117,11 @@ export class ModelProfilesService {
         const profiles = await this.deps.download()
         const fetchedAt = this.now()
         this.writeCache({ fetchedAt, profiles })
+        const changed = JSON.stringify(profiles) !== JSON.stringify(this.status.profiles)
         replaceModelProfiles(profiles)
         log.info('model_profiles_updated', { models: Object.values(profiles).reduce((count, models) => count + Object.keys(models ?? {}).length, 0) })
         this.update({ source: 'remote', fetchedAt, checkedAt: fetchedAt, checking: false, error: null, profiles })
+        if (changed) this.deps.onProfilesChanged?.()
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         log.warn('model_profiles_check_failed', { error: message, clearCache })

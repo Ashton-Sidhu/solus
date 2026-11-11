@@ -34,7 +34,10 @@ long. Thus a model released today shows in the picker within minutes, and an
 open costs no download most of the time.
 
 A model works only if the provider CLI installed on the host accepts its ID.
-The list does not install or update Claude Code or Codex.
+The list does not install or update Claude Code or Codex. When a downloaded list
+is different from the list in effect, the host checks for Claude Code and Codex
+updates at once, so the release that runs a new model shows with that model.
+A cloud host does not check.
 
 ## Models a provider reports
 

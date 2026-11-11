@@ -69,6 +69,13 @@ export class UpdateStatusService {
     return this.pending
   }
 
+  /** A new model usually ships with the provider release that runs it, so a changed
+   *  model list checks the providers now instead of at the next scheduled check. */
+  refreshProviders(): Promise<void> {
+    if (this.deps.install === 'cloud') return Promise.resolve()
+    return Promise.all([this.refreshProvider('claude'), this.refreshProvider('codex')]).then(() => {})
+  }
+
   /** An install must win over a version read started before it finished. */
   async providerInstalled(agent: SetupAgent): Promise<void> {
     if (this.deps.install === 'cloud') return

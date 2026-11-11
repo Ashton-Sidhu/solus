@@ -1119,6 +1119,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     cachePath: join(solusDir(), 'model-profiles.json'),
     download: downloadModelProfiles,
     publish: (status) => { events.broadcast('host.modelProfilesChanged', status) },
+    onProfilesChanged: () => { void hostUpdates.refreshProviders() },
   })
   if (opts.sessionRuntime.getBackendIds().includes('claude-code')) {
     opts.sessionRuntime.backendFor('claude-code').on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
