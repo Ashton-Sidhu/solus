@@ -255,7 +255,10 @@ shows only when the running turn can take a steer. The clients do not reorder
 the queue; the host `move` mutation stays for agents and older clients.
 Edits have a separate draft, so the main composer's text and files stay intact.
 Save checks the entry revision. If another client changed or started the entry,
-the host refuses the edit and the draft remains available.
+the host refuses the edit and the draft remains available. If the entry leaves
+the queue while its edit is open, the edit ends. A changed edit with text goes
+back to the composer when the composer is empty; otherwise a notice says that
+the edit was discarded. A changed attachment counts as a change.
 
 After a host restart, all saved entries are held. A started entry also shows
 that its result is uncertain. Each author resumes their own work with a fresh

@@ -10,10 +10,12 @@ export class QueueEdit {
   busy = $state(false)
   error = $state('')
   private attachmentsChanged = false
-  constructor(private readonly queue: SessionQueueController, private readonly tabId: string, private readonly source: OutboundPrompt) {
+  constructor(private readonly queue: SessionQueueController, private readonly tabId: string, readonly source: OutboundPrompt) {
     this.text = source.text
     this.attachments = source.queueAttachments?.map((item) => ({ ...item }))
   }
+  /** A removed attachment is an edit even when the text is unchanged. */
+  get changed(): boolean { return this.text !== this.source.text || this.attachmentsChanged }
   removeAttachment(index: number): void { this.attachments?.splice(index, 1); this.attachmentsChanged = true }
   async add(files: File[]): Promise<void> {
     this.busy = true

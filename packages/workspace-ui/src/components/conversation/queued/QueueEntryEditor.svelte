@@ -1,14 +1,10 @@
 <script lang="ts">
   import { Paperclip as PaperclipIcon, X as XIcon } from '@lucide/svelte';
-  import type { OutboundPrompt } from '@solus/contracts/types';
-  import { getWorkspaceContext } from '../../../contexts';
-  import { QueueEdit } from './lib/queue-edit.svelte';
+  import type { QueueEdit } from './lib/queue-edit.svelte';
   import { requestInputFocus } from '../../../lib/inputFocus';
   import { formatComboText } from '../../../lib/keybindings/match';
   const saveKey = formatComboText({ mod: true, code: 'Enter' });
-  let { tabId, prompt, onClose }: { tabId: string; prompt: OutboundPrompt; onClose: () => void } = $props();
-  const workspace = getWorkspaceContext();
-  const edit = new QueueEdit(workspace.queue, tabId, prompt);
+  let { tabId, edit, onClose }: { tabId: string; edit: QueueEdit; onClose: () => void } = $props();
   let fileInput = $state<HTMLInputElement | null>(null);
   async function save() { if (await edit.save()) close(); }
   function close() { onClose(); requestInputFocus({ tabId }); }
