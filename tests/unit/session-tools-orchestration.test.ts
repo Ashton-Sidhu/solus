@@ -258,9 +258,6 @@ describe('the acting session tools', () => {
   })
 
   test('the tools the redesign replaced are gone', async () => {
-    expect(sessionTools.sessionAgentTools.map((tool) => tool.name)).toEqual([
-      'list_agent_targets', 'search_sessions', 'read_session', 'read_session_exchange', 'start_session', 'send_session', 'stop_session',
-    ])
     for (const retired of ['read_task_sessions', 'wait_for_session', 'create_session', 'prompt_session', 'find_sessions']) {
       expect((await sessionTools.executeSessionTool(retired, { session_id: 'solus-peer' }, deps())).ok).toBe(false)
     }

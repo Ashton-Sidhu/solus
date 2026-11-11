@@ -962,13 +962,3 @@ export const startSessionAgentTool = sessionAgentTool('start_session', START_SES
 startSessionAgentTool.alwaysLoad = true
 export const sendSessionAgentTool = sessionAgentTool('send_session', SEND_SESSION_DESC, sendSessionFields, false)
 export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionFields, false)
-
-export const sessionAgentTools: AgentTool[] = [
-  listAgentTargetsAgentTool,
-  searchSessionsAgentTool,
-  readSessionAgentTool,
-  readSessionExchangeAgentTool,
-  startSessionAgentTool,
-  sendSessionAgentTool,
-  stopSessionAgentTool,
-]

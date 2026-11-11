@@ -464,13 +464,3 @@ export const updateAutomationAgentTool = automationAgentTool('update_automation'
 export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, automationIdFields, true)
 export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, automationIdFields, true)
 export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, listRunsFields, false)
-
-export const automationAgentTools: AgentTool[] = [
-  createAutomationAgentTool,
-  listAutomationsAgentTool,
-  readAutomationAgentTool,
-  updateAutomationAgentTool,
-  deleteAutomationAgentTool,
-  runAutomationAgentTool,
-  listAutomationRunsAgentTool,
-]

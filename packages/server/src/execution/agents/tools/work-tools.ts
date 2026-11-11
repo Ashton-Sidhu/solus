@@ -473,10 +473,3 @@ export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkF
 // fence in existing content is a live render. Kept in every prompt.
 export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, createWorkFields, false, true)
 export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkFields, true, true)
-
-export const workAgentTools: AgentTool[] = [
-  findWorksAgentTool,
-  readWorkAgentTool,
-  createWorkAgentTool,
-  updateWorkAgentTool,
-]
