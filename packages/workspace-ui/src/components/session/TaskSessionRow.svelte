@@ -137,7 +137,7 @@
       : ''}"
   >
     <span
-      class="flex items-center transition-opacity duration-150 pointer-fine:group-hover/session:pointer-events-none pointer-fine:group-hover/session:absolute pointer-fine:group-hover/session:right-0 pointer-fine:group-hover/session:opacity-0 pointer-fine:group-has-[:focus-visible]/session:pointer-events-none pointer-fine:group-has-[:focus-visible]/session:absolute pointer-fine:group-has-[:focus-visible]/session:right-0 pointer-fine:group-has-[:focus-visible]/session:opacity-0"
+      class="flex items-center pointer-fine:group-hover/session:pointer-events-none pointer-fine:group-hover/session:absolute pointer-fine:group-hover/session:right-0 pointer-fine:group-hover/session:opacity-0 pointer-fine:group-has-[:focus-visible]/session:pointer-events-none pointer-fine:group-has-[:focus-visible]/session:absolute pointer-fine:group-has-[:focus-visible]/session:right-0 pointer-fine:group-has-[:focus-visible]/session:opacity-0"
     >
       {#if mark?.kind === "glyph"}
         <TaskStatusGlyph
@@ -195,7 +195,7 @@
 
     {#if session.tabId}
       <span
-        class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 transition-opacity duration-150 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/session:pointer-events-auto pointer-fine:group-hover/session:static pointer-fine:group-hover/session:opacity-100 pointer-fine:group-has-[:focus-visible]/session:pointer-events-auto pointer-fine:group-has-[:focus-visible]/session:static pointer-fine:group-has-[:focus-visible]/session:opacity-100"
+        class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/session:pointer-events-auto pointer-fine:group-hover/session:static pointer-fine:group-hover/session:opacity-100 pointer-fine:group-has-[:focus-visible]/session:pointer-events-auto pointer-fine:group-has-[:focus-visible]/session:static pointer-fine:group-has-[:focus-visible]/session:opacity-100"
       >
         <button
           class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
