@@ -2,8 +2,8 @@ import type { ReactNode } from 'react'
 import { View } from 'react-native'
 import type { KeyboardCommand } from './keyboard-commands'
 
-/** Android and other platforms: no hardware command surface yet, so the app
- *  renders as is. iOS uses `KeyboardCommandsView.ios.tsx`. */
+/** Platforms with no native module: the app renders as is. iOS and Android
+ *  use `KeyboardCommandsView.native.tsx`. */
 export function KeyboardCommandsView({ children }: {
   enabledCommands: readonly KeyboardCommand[]
   onCommand: (command: KeyboardCommand) => void

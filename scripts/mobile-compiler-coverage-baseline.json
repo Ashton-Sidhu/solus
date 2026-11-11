@@ -843,7 +843,7 @@
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/keyboard/KeyboardCommandsView.ios.tsx": {
+    "apps/mobile/src/features/keyboard/KeyboardCommandsView.native.tsx": {
       "compiled": [
         "KeyboardCommandsView"
       ],
