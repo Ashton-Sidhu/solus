@@ -138,6 +138,31 @@ describe('each way a session starts names its starter on the run', () => {
     expect(runs[1]?.startedBy).toBeUndefined()
   })
 
+  test('a run is offered every tool of the toolbox; an unattended session is not offered automations or webhooks', async () => {
+    // WHY: each run names the toolbox groups it offers. A group nobody names
+    // is a tool no agent can call, on either provider, with no error anywhere:
+    // create_app shipped that way.
+    const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
+    const { HOST_ACTOR } = await import('@solus/server/admission/actor')
+    const namesOf = (groups: Array<Record<string, { name: string }>>) => groups.flatMap((group) => Object.values(group)).map((tool) => tool.name).sort()
+    const { automations, webhooks, ...unattended } = solusToolbox
+    const { dispatch, runs } = await dispatchWithRuns()
+
+    await dispatch.submitPrompt(ctx('new', null), { prompt: 'Go.' })
+    await dispatch.submitPrompt(ctx('existing', 'thread-1'), { prompt: 'Again.' })
+    await dispatch.startUnattendedSession({
+      prompt: 'Review.', provider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: '/repo', actor: HOST_ACTOR,
+      startedBy: { kind: 'webhook', webhookId: 'w-1', deliveryId: 'd-1' },
+    })
+
+    const offered = runs.map((run) => run.tools.map((tool) => tool.name).sort())
+    expect(offered[0]).toEqual(namesOf(Object.values(solusToolbox)))
+    expect(offered[1]).toEqual(namesOf(Object.values(solusToolbox)))
+    expect(offered[2]).toEqual(namesOf(Object.values(unattended)))
+    expect(offered[0]).toContain('create_app')
+    expect(Object.values(automations).length + Object.values(webhooks).length).toBeGreaterThan(0)
+  })
+
   test('a webhook delivery names its webhook and delivery', async () => {
     const { HOST_ACTOR } = await import('@solus/server/admission/actor')
     const { dispatch, runs } = await dispatchWithRuns()

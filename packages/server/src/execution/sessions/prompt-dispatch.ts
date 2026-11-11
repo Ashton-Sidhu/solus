@@ -165,6 +165,7 @@ export class PromptDispatch {
         tools: selectAgentTools(
           solusToolbox.works,
           solusToolbox.artifact,
+          solusToolbox.apps,
           solusToolbox.automations,
           solusToolbox.webhooks,
           solusToolbox.connections,
@@ -270,6 +271,7 @@ export class PromptDispatch {
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.artifact,
+        solusToolbox.apps,
         solusToolbox.automations,
         solusToolbox.webhooks,
         solusToolbox.connections,
@@ -362,6 +364,7 @@ export class PromptDispatch {
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.artifact,
+        solusToolbox.apps,
         solusToolbox.automations,
         solusToolbox.webhooks,
         solusToolbox.connections,
@@ -441,6 +444,7 @@ export class PromptDispatch {
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.artifact,
+        solusToolbox.apps,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.browser,
@@ -504,6 +508,7 @@ export class PromptDispatch {
     const tools = selectAgentTools(
       solusToolbox.works,
       solusToolbox.artifact,
+      solusToolbox.apps,
       solusToolbox.automations,
       solusToolbox.webhooks,
       solusToolbox.connections,
