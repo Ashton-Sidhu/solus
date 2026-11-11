@@ -21,25 +21,22 @@ const log = createLogger('apps', 'app-tools.ts')
  */
 
 const appFields = {
-  title: z.string().describe('A short, human-readable title for the app, as it reads in the works list.'),
-  code: z.string().describe(
-    'The app as ONE TSX module that `export default`s a React component. It may import react, react-dom, @tanstack/react-query, recharts, lucide-react, and @solus/app. Live data comes from `tools`, never from a hard-coded array.',
-  ),
+  title: z.string().describe('A short title, as it reads in the works list.'),
+  code: z.string().describe('ONE TSX module that `export default`s a React component.'),
   permissions: appPermissionsSchema.optional().describe(
-    'The app\'s own ceiling. tools: "all" (default), "read-only", or { selected: ["<slug>/<tool>", …] }. writes: "ask" (default; each write shows an approval) or "allow" (a write runs on click).',
+    'The app\'s own ceiling. tools: "all" (default), "read-only", or { selected: ["<slug>/<tool>"] }. writes: "ask" (default) or "allow" (a write runs on click).',
   ),
-  work_id: z.string().optional().describe('An existing app to replace in place (from find_works). Omit to make a new one.'),
-  expected_content_version: z.number().int().min(0).optional().describe('With work_id: the content_version read_work returned. Nothing is saved when the app changed since.'),
+  work_id: z.string().optional().describe('An existing app to replace in place. Omit to make a new one.'),
+  expected_content_version: z.number().int().min(0).optional().describe('Required with work_id: the content_version read_work returned.'),
 } as const
 
+// Every byte here is in each agent's tool list (tests/unit/agent-context-budget.json): say only what the code cannot be written without.
 const CREATE_APP_TOOL_DESC = [
-  'Create an app: an interactive React component over the user\'s own integrations, shown in Solus as a work and opened on desktop, web, and mobile.',
-  'Write ONE TSX module that `export default`s a component. Imports allowed: react, react-dom, @tanstack/react-query, recharts, lucide-react, and @solus/app.',
-  '`@solus/app` exports `tools`, `useApp()`, and the primitives Button, Card, CardTitle, CardDescription, Input, Select, Badge, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, Tabs, Skeleton, Empty, Stat. Tailwind utilities work, with the Solus palette: bg-background, text-foreground, bg-card, text-muted-foreground, border-border, bg-primary, text-destructive, and chart-1 … chart-6.',
-  'Reach an integration as `tools.<slug>.<tool>(args)`, where <slug> is the integration\'s slug from connection_status or Settings → MCP, and <tool> is the upstream tool\'s name. With TanStack Query: `useQuery(tools.linear.list_issues.queryOptions({ team: "ENG" }))` and `useMutation(tools.github.create_issue.mutationOptions())`; invalidate a path with `queryClient.invalidateQueries(tools.linear.list_issues.pathFilter())`. A call returns the tool\'s structured content when it has one, else its text parsed as JSON, else the text.',
-  'Every call runs with the VIEWER\'s own connection to that integration and under the app\'s permissions; a write asks the viewer first unless permissions.writes is "allow". Never name an account or a credential in the code. `useApp().roles` lists each integration the code names with `connected`; the shell shows a connect notice for one that is not.',
-  'Do not write a page: no <html>, no fetch, no CDN scripts. Render loading, empty, and error states; the frame grows to the content, so avoid viewport heights.',
-  'The result names the work id. Revise the app with create_app and work_id, or with update_work; do not create a second copy.',
+  'Create an app: one interactive React component over the user\'s own integrations, saved as a work and opened on desktop, web, and mobile.',
+  '`code` may import react, react-dom, @tanstack/react-query, recharts, lucide-react, and @solus/app, which has `tools`, `useApp()`, and Button, Card, CardTitle, CardDescription, Input, Select, Badge, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, Tabs, Skeleton, Empty, Stat. Tailwind works with the Solus palette (bg-card, text-muted-foreground, border-border, bg-primary, chart-1 … chart-6).',
+  'Call an integration as `tools.<slug>.<tool>(args)`: <slug> from connection_status, <tool> the upstream tool name. With TanStack Query: `useQuery(tools.linear.list_issues.queryOptions({ team: "ENG" }))`, `useMutation(tools.github.create_issue.mutationOptions())`, and `tools.linear.list_issues.pathFilter()` to invalidate. A call answers the tool\'s structured content, else its text parsed as JSON.',
+  'Each call runs with the VIEWER\'s own connection under the app\'s permissions; a write asks first unless writes is "allow". Name no account or credential. No <html>, fetch, or CDN scripts. Live data comes from `tools`, never a hard-coded array. Render loading, empty, and error states.',
+  'Revise with work_id or update_work; do not create a second copy.',
 ].join('\n')
 
 interface CreateAppArgs {
