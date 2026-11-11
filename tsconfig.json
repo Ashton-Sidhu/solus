@@ -43,6 +43,7 @@
     "node_modules",
     "dist",
     "packages/server/src/execution/agents/codex/generated/**",
+    "packages/app-shell/**",
     "apps/mobile/**"
   ]
 }
