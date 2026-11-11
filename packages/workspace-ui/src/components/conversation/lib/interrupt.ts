@@ -1,7 +1,7 @@
 import type { PermissionOption, PermissionRequest, Session } from '@solus/contracts/types'
 import { z } from 'zod'
 import { checkoutGit, checkoutPlace } from '../../../contexts/workspace/run-location'
-import { hostPathBaseName, trimTrailingSeparators } from '@solus/contracts/host-path'
+import { hostPathBaseName, relativeHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
 
 const permissionCommandSchema = z.object({ command: z.string().optional() })
 const permissionCwdSchema = z.object({ cwd: z.string().optional() })
@@ -85,6 +85,16 @@ export function permissionCwd(
   const parsed = permissionCwdSchema.safeParse(permission.toolInput)
   if (parsed.success && parsed.data.cwd) return parsed.data.cwd
   return checkoutGit(session?.run)?.worktreePath || checkoutPlace(session?.run)?.path || ''
+}
+
+/**
+ * A file's label on the card: its path from the card's cwd when the file is
+ * inside it, so the name the reader decides by is not lost behind a long
+ * checkout prefix. A file outside cwd, or cwd itself, keeps its full path.
+ */
+export function permissionFileLabel(path: string, cwd: string): string {
+  if (!cwd) return path
+  return relativeHostPath(cwd, path) || path
 }
 
 /**

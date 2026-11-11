@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { optionLabelParts } from '@solus/workspace-ui/components/conversation/lib/interrupt'
+import { optionLabelParts, permissionFileLabel } from '@solus/workspace-ui/components/conversation/lib/interrupt'
 
 /**
  * §11 — an option label is one line the reader chooses by, so a recommendation is
@@ -49,5 +49,29 @@ describe('permission scope', () => {
 
   test('an unknown id gets no sentence rather than a wrong one', () => {
     expect(permissionScope('acceptWithCustomRule', 'Bash', 'Claude')).toBe('')
+  })
+})
+
+/**
+ * A file the agent asks to change is named from the card's cwd, so the reader
+ * sees which file it is without the long checkout prefix. A file outside cwd
+ * keeps its full path: a short name there would hide that it leaves the checkout.
+ */
+describe('permission file labels', () => {
+  test('a file inside cwd shows its path from cwd', () => {
+    expect(permissionFileLabel('/Users/me/code/app/src/a.ts', '/Users/me/code/app')).toBe('src/a.ts')
+  })
+
+  test('a file outside cwd keeps its full path', () => {
+    expect(permissionFileLabel('/etc/hosts', '/Users/me/code/app')).toBe('/etc/hosts')
+    expect(permissionFileLabel('/Users/me/code/app-other/a.ts', '/Users/me/code/app')).toBe('/Users/me/code/app-other/a.ts')
+  })
+
+  test('a trailing slash on cwd does not change the answer', () => {
+    expect(permissionFileLabel('/Users/me/code/app/src/a.ts', '/Users/me/code/app/')).toBe('src/a.ts')
+  })
+
+  test('no cwd keeps the full path', () => {
+    expect(permissionFileLabel('/Users/me/code/app/src/a.ts', '')).toBe('/Users/me/code/app/src/a.ts')
   })
 })
