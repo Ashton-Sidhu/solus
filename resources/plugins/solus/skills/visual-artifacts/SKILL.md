@@ -1,6 +1,6 @@
 ---
 name: visual-artifacts
-description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, and render as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use web-building skills for deployed apps.
+description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, and render as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use the apps skill for an app the user keeps and that holds data or runs code; use web-building skills for deployed apps.
 ---
 
 # Visual artifacts
