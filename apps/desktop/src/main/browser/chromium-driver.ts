@@ -389,7 +389,20 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
 
   async navigate(op: BrowserNavigateOp): Promise<void> {
     if (op.kind === 'goto') {
-      await this.contents.loadURL(op.url)
+      // A redirect while the page loads replaces this load, and Electron rejects
+      // it with ERR_ABORTED (-3). A page that blocks its unload rejects with the
+      // same code, so only that case stays an error.
+      let unloadPrevented = false
+      const onPreventUnload = () => { unloadPrevented = true }
+      this.contents.on('will-prevent-unload', onPreventUnload)
+      try {
+        await this.contents.loadURL(op.url)
+      } catch (error) {
+        const isSuperseded = !unloadPrevented && typeof error === 'object' && error !== null && 'errno' in error && error.errno === -3
+        if (!isSuperseded) throw error
+      } finally {
+        this.contents.off('will-prevent-unload', onPreventUnload)
+      }
       return
     }
     if (op.kind === 'reload') {
