@@ -396,7 +396,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   attachUpload: 'drive.attach', attachUploadToken: 'drive.attach',
   deviceOpen: 'drive.devices', deviceClose: 'drive.devices',
   mcpAppToolInfo: 'drive.apps', mcpAppCallTool: 'drive.apps', mcpAppReadResource: 'drive.apps',
-  appToolInfo: 'drive.apps', appCallTool: 'drive.apps', appPermissionsUpdate: 'drive.apps',
+  appToolInfo: 'drive.apps', appCallTool: 'drive.apps', appPermissionsUpdate: 'drive.apps', appHostAccessDecide: 'drive.apps',
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit',
   sessionPullRequestWatch: 'edit',

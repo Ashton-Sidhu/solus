@@ -75,6 +75,8 @@ import { registerIntegrationHandlers } from './transport/handlers/integration-ha
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
 import { registerAppHandlers } from './transport/handlers/app-handlers'
 import { Apps } from './apps/apps'
+import { AppFunctions } from './apps/app-functions'
+import { AppStorage } from './apps/app-storage'
 import { IntegrationApps } from './integrations/mcp-apps'
 import { ClaudeAppProcesses, useClaudeAppCapture } from './execution/agents/claude/claude-mcp-apps'
 import { IntegrationStore } from './integrations/integration-store'
@@ -773,8 +775,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
-  // Apps (docs/plans/apps.md): agent-built UI over the caller's own integrations.
-  registerAppHandlers(server, new Apps(integrationGateway, integrations))
+  // Apps (docs/plans/apps.md): what a person builds to live in Solus. An app's
+  // integration calls go through the gateway; its host functions run in its own runner.
+  const appFunctions = new AppFunctions()
+  const apps = new Apps(integrationGateway, integrations, new AppStorage(), appFunctions)
+  registerAppHandlers(server, apps)
+  // A deleted app's runner stops and its data on this host goes with it.
+  domainEventUnsubscribes.push(onWorkDeleted(async (change) => async () => { await apps.forget(change.workId); return 0 }))
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
@@ -1942,6 +1949,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopSupervisor?.()
         codeIntel.dispose()
         await claudeAppProcesses.closeAll()
+        appFunctions.dispose()
         devices.runs.dispose()
         await devices.manager.dispose()
         await devices.bridge.stop()

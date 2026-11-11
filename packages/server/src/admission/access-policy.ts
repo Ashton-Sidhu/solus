@@ -101,6 +101,7 @@ export const RESOURCE_LOCATORS = {
   appToolInfo: workFieldAt(0),
   appCallTool: workFieldAt(0),
   appPermissionsUpdate: workFieldAt(0),
+  appHostAccessDecide: workFieldAt(0),
   loadSessionPreview: sessionIdAt(0),
   loadSessionMessageWindow: sessionFieldAt(0, 'sessionId'),
   getSessionInfo: sessionIdAt(0),

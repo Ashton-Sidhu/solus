@@ -179,6 +179,7 @@ export const RPC_INVOKE_METHODS = [
   'appToolInfo',
   'appCallTool',
   'appPermissionsUpdate',
+  'appHostAccessDecide',
   'loadSessionPreview',
   'loadSessionMessageWindow',
   'getSessionInfo',

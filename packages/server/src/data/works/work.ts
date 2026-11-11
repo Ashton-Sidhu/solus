@@ -10,8 +10,8 @@ import type {
   WorkType,
 } from '@solus/contracts/types'
 import type { WorkExternalLink } from '@solus/contracts/docs'
-import type { AppMeta, AppPermissions } from '@solus/contracts/apps'
-import { appSourceProblem } from '../../apps/app-source'
+import { DEFAULT_APP_PERMISSIONS, type AppHostAccess, type AppMeta, type AppPermissions } from '@solus/contracts/apps'
+import { appContentProblem } from '../../apps/app-content'
 import type { Attribution } from '@solus/contracts/user'
 import { workPreview } from '@solus/contracts/work-preview'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
@@ -74,7 +74,7 @@ export type WorkContentChangeReason = 'edit' | 'agent'
 
 /** A write named a version the work has moved past. `content` is the body's
  * `contentVersion`; `record` is the whole record's `updatedAt`. */
-/** A body its work type cannot hold: an `app` whose source does not compile (docs/plans/apps.md §2 decision 4). */
+/** A body its work type cannot hold: an `app` whose component does not compile or whose bundle is not valid (docs/plans/apps.md §2 decision 4). */
 export class WorkContentInvalidError extends Error {
   constructor(message: string) {
     super(message)
@@ -85,7 +85,7 @@ export class WorkContentInvalidError extends Error {
 /** Every body that reaches storage as a new or changed work passes here, whoever writes it. */
 export function validateWorkContent(type: WorkType, content: string): void {
   if (type !== 'app') return
-  const problem = appSourceProblem(content)
+  const problem = appContentProblem(content)
   if (problem) throw new WorkContentInvalidError(problem)
 }
 
@@ -492,7 +492,17 @@ export class Work implements WorkRecord {
   async setAppPermissions(permissions: AppPermissions): Promise<this> {
     return this.mutate(async (db, row) => {
       const meta = metaFromRow(row)
-      meta.app = { permissions }
+      meta.app = { ...meta.app, permissions }
+      await db.run(sql`UPDATE ${works} SET meta = ${metaJson(meta)} WHERE id = ${row.id}`)
+    })
+  }
+
+  /** The host access the host's owner allowed for an app (docs/plans/apps.md §6); null revokes it. */
+  async setAppAllowed(allowed: AppHostAccess | null): Promise<this> {
+    return this.mutate(async (db, row) => {
+      const meta = metaFromRow(row)
+      const permissions = meta.app?.permissions ?? DEFAULT_APP_PERMISSIONS
+      meta.app = allowed ? { permissions, allowed } : { permissions }
       await db.run(sql`UPDATE ${works} SET meta = ${metaJson(meta)} WHERE id = ${row.id}`)
     })
   }

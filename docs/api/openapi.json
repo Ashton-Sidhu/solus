@@ -622,6 +622,7 @@
                                 "type": "object",
                                 "properties": {
                                   "tools": {
+                                    "default": "all",
                                     "anyOf": [
                                       {
                                         "type": "string",
@@ -653,16 +654,114 @@
                                     ]
                                   },
                                   "writes": {
+                                    "default": "ask",
                                     "type": "string",
                                     "enum": [
                                       "ask",
                                       "allow"
                                     ]
+                                  },
+                                  "network": {
+                                    "default": [],
+                                    "maxItems": 32,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 256,
+                                      "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                                    }
+                                  },
+                                  "files": {
+                                    "default": {
+                                      "read": [],
+                                      "write": []
+                                    },
+                                    "type": "object",
+                                    "properties": {
+                                      "read": {
+                                        "default": [],
+                                        "maxItems": 32,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "maxLength": 1024,
+                                          "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                        }
+                                      },
+                                      "write": {
+                                        "default": [],
+                                        "maxItems": 32,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "maxLength": 1024,
+                                          "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "read",
+                                      "write"
+                                    ],
+                                    "additionalProperties": false
                                   }
                                 },
                                 "required": [
                                   "tools",
-                                  "writes"
+                                  "writes",
+                                  "network",
+                                  "files"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "allowed": {
+                                "type": "object",
+                                "properties": {
+                                  "functions": {
+                                    "type": "boolean"
+                                  },
+                                  "network": {
+                                    "maxItems": 32,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 256,
+                                      "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                                    }
+                                  },
+                                  "files": {
+                                    "type": "object",
+                                    "properties": {
+                                      "read": {
+                                        "maxItems": 32,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "maxLength": 1024,
+                                          "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                        }
+                                      },
+                                      "write": {
+                                        "maxItems": 32,
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "maxLength": 1024,
+                                          "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "read",
+                                      "write"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "functions",
+                                  "network",
+                                  "files"
                                 ],
                                 "additionalProperties": false
                               }
@@ -1157,6 +1256,7 @@
                           "type": "object",
                           "properties": {
                             "tools": {
+                              "default": "all",
                               "anyOf": [
                                 {
                                   "type": "string",
@@ -1188,16 +1288,114 @@
                               ]
                             },
                             "writes": {
+                              "default": "ask",
                               "type": "string",
                               "enum": [
                                 "ask",
                                 "allow"
                               ]
+                            },
+                            "network": {
+                              "default": [],
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "default": {
+                                "read": [],
+                                "write": []
+                              },
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
                             "tools",
-                            "writes"
+                            "writes",
+                            "network",
+                            "files"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allowed": {
+                          "type": "object",
+                          "properties": {
+                            "functions": {
+                              "type": "boolean"
+                            },
+                            "network": {
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "functions",
+                            "network",
+                            "files"
                           ],
                           "additionalProperties": false
                         }
@@ -2814,6 +3012,7 @@
                           "type": "object",
                           "properties": {
                             "tools": {
+                              "default": "all",
                               "anyOf": [
                                 {
                                   "type": "string",
@@ -2845,16 +3044,114 @@
                               ]
                             },
                             "writes": {
+                              "default": "ask",
                               "type": "string",
                               "enum": [
                                 "ask",
                                 "allow"
                               ]
+                            },
+                            "network": {
+                              "default": [],
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "default": {
+                                "read": [],
+                                "write": []
+                              },
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
                             "tools",
-                            "writes"
+                            "writes",
+                            "network",
+                            "files"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allowed": {
+                          "type": "object",
+                          "properties": {
+                            "functions": {
+                              "type": "boolean"
+                            },
+                            "network": {
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "functions",
+                            "network",
+                            "files"
                           ],
                           "additionalProperties": false
                         }
@@ -3996,6 +4293,7 @@
                           "type": "object",
                           "properties": {
                             "tools": {
+                              "default": "all",
                               "anyOf": [
                                 {
                                   "type": "string",
@@ -4027,16 +4325,114 @@
                               ]
                             },
                             "writes": {
+                              "default": "ask",
                               "type": "string",
                               "enum": [
                                 "ask",
                                 "allow"
                               ]
+                            },
+                            "network": {
+                              "default": [],
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "default": {
+                                "read": [],
+                                "write": []
+                              },
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
                             "tools",
-                            "writes"
+                            "writes",
+                            "network",
+                            "files"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allowed": {
+                          "type": "object",
+                          "properties": {
+                            "functions": {
+                              "type": "boolean"
+                            },
+                            "network": {
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "functions",
+                            "network",
+                            "files"
                           ],
                           "additionalProperties": false
                         }
@@ -4904,6 +5300,7 @@
                           "type": "object",
                           "properties": {
                             "tools": {
+                              "default": "all",
                               "anyOf": [
                                 {
                                   "type": "string",
@@ -4935,16 +5332,114 @@
                               ]
                             },
                             "writes": {
+                              "default": "ask",
                               "type": "string",
                               "enum": [
                                 "ask",
                                 "allow"
                               ]
+                            },
+                            "network": {
+                              "default": [],
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "default": {
+                                "read": [],
+                                "write": []
+                              },
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "default": [],
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
                             "tools",
-                            "writes"
+                            "writes",
+                            "network",
+                            "files"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "allowed": {
+                          "type": "object",
+                          "properties": {
+                            "functions": {
+                              "type": "boolean"
+                            },
+                            "network": {
+                              "maxItems": 32,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 256,
+                                "pattern": "^(?:\\*|(?:\\*\\.)?[a-z0-9.-]+(?::\\d{1,5})?)$"
+                              }
+                            },
+                            "files": {
+                              "type": "object",
+                              "properties": {
+                                "read": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                },
+                                "write": {
+                                  "maxItems": 32,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "maxLength": 1024,
+                                    "pattern": "^(?:\\*|~(?:[\\\\/].*)?|\\/.*|[A-Za-z]:[\\\\/].*)$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "read",
+                                "write"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "functions",
+                            "network",
+                            "files"
                           ],
                           "additionalProperties": false
                         }
