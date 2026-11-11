@@ -190,7 +190,7 @@ function readQuoted(text: string, start: number): { value: string; end: number }
   return null
 }
 
-const WORK_TYPES: readonly WorkType[] = ['doc', 'slides', 'artifact']
+const WORK_TYPES: readonly WorkType[] = ['doc', 'slides', 'artifact', 'app']
 
 function parseOutput(line: string): SessionOutput | null {
   if (line.startsWith('- question ')) {

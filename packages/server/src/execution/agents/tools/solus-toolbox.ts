@@ -8,6 +8,7 @@ import {
   updateWorkAgentTool,
 } from './work-tools'
 import { renderArtifactAgentTool } from './artifact-tools'
+import { createAppAgentTool } from './app-tools'
 import { requestWorkReviewAgentTool } from './work-review-tools'
 import {
   createAutomationAgentTool,
@@ -99,6 +100,9 @@ export const solusToolbox = {
   },
   artifact: {
     render: renderArtifactAgentTool,
+  },
+  apps: {
+    create: createAppAgentTool,
   },
   automations: {
     create: createAutomationAgentTool,

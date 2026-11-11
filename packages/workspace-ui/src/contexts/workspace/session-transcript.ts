@@ -23,6 +23,11 @@ function isCreateWorkTool(name: string | undefined): boolean {
   return !!name && name.endsWith('create_work')
 }
 
+/** Matches both Claude (`mcp__solus__create_app`) and Codex (`create_app`). */
+function isCreateAppTool(name: string | undefined): boolean {
+  return !!name && name.endsWith('create_app')
+}
+
 /** Matches both Claude (`mcp__solus__render_artifact`) and Codex (`render_artifact`). */
 function isRenderArtifactTool(name: string | undefined): boolean {
   return !!name && name.endsWith('render_artifact')
@@ -437,6 +442,21 @@ export function materializeSessionTranscript(
       const result = resultsByToolId.get(m.toolId ?? '') ?? m
       const revision = workUpdateFromHistory(m, result, (workId) => ctx.worksStore.get(workId), artifactFileBodies?.get(m.toolId ?? ''))
       if (revision) messages.push(revision)
+      continue
+    } else if (m.role === 'tool' && isCreateAppTool(m.toolName)) {
+      // A create_app call replays as a tool row followed by the app's work card
+      // (docs/plans/apps.md). Its receipt names the work, so nothing is guessed.
+      messages.push(msg)
+      const ref = resultsByToolId.get(m.toolId ?? '')?.artifactWorkRef
+      if (ref) {
+        messages.push({
+          id: nextMsgId(),
+          role: 'assistant' as const,
+          content: '',
+          workRef: { workId: ref.workId, title: ref.title, workType: 'app', contentVersion: ref.contentVersion },
+          timestamp: m.timestamp ?? Date.now(),
+        })
+      }
       continue
     } else if (m.role === 'tool' && isRenderArtifactTool(m.toolName)) {
       // A render_artifact call replays as a tool row (debug visibility) followed by

@@ -32,6 +32,7 @@ export const SOLUS_TOOL_GROUPS = [
     'create_work',
     'update_work',
     'render_artifact',
+    'create_app',
     'read_plan',
     'comment_document',
     'reply_comment',

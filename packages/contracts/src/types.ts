@@ -1,3 +1,4 @@
+import type { AppMeta } from './apps'
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
@@ -1538,7 +1539,7 @@ export interface Message {
 /** How a work's `content` renders: markdown for `doc` and `slides`, and a
  *  self-contained HTML document for `artifact` (the `render_artifact` tool's
  *  output, shown in a sandbox). */
-export type WorkType = 'doc' | 'slides' | 'artifact'
+export type WorkType = 'doc' | 'slides' | 'artifact' | 'app'
 
 export interface WorkMeta {
   /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */
@@ -1562,6 +1563,8 @@ export interface WorkMeta {
   /** The upstream doc this work mirrors, when the user has published or
    *  imported it. Absent for the great majority of works, which are local only. */
   mirroredDoc?: WorkExternalLink
+  /** An `app` work's own settings (docs/plans/apps.md §3). Absent on every other type. */
+  app?: AppMeta
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
 }

@@ -7,6 +7,7 @@ import type { WorkType } from './types'
  */
 export function workPreview(type: WorkType, content: string): string {
   if (type === 'artifact') return artifactPreview(content)
+  if (type === 'app') return 'App'
   return content.slice(0, 200).replace(/[#*_`]/g, '').trim()
 }
 

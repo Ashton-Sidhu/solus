@@ -30,6 +30,7 @@ import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, 
 import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
+import type { AppCallRequest, AppPermissionsUpdate, AppRequest, AppSnapshot, AppToolRequest } from './apps'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
@@ -494,6 +495,14 @@ export interface SolusAPI {
   mcpAppCallTool(request: McpAppCallRequest): Promise<string>
   /** Reads a resource of the app's integration with the caller's connection. Returns the result as JSON. */
   mcpAppReadResource(request: McpAppResourceRequest): Promise<string>
+  /** Apps (docs/plans/apps.md): the composed document of an `app` work with its roles and permissions, in the caller's scope. */
+  appRead(request: AppRequest): Promise<AppSnapshot>
+  /** Whether the app may call `<slug>/<tool>` now, with the caller's own integration and the app's permissions. */
+  appToolInfo(request: AppToolRequest): Promise<McpAppToolInfo>
+  /** Runs one tool for the app as the caller; a write needs `approved`. Answers the result as JSON text. */
+  appCallTool(request: AppCallRequest): Promise<string>
+  /** Changes the app's own permissions; takes effect on the next call. */
+  appPermissionsUpdate(request: AppPermissionsUpdate): Promise<AppSnapshot>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
   /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */

@@ -73,6 +73,8 @@ import { GUEST_VISIT_TTL_MS } from './admission/doors'
 import { profileTargetFor, registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
+import { registerAppHandlers } from './transport/handlers/app-handlers'
+import { Apps } from './apps/apps'
 import { IntegrationApps } from './integrations/mcp-apps'
 import { ClaudeAppProcesses, useClaudeAppCapture } from './execution/agents/claude/claude-mcp-apps'
 import { IntegrationStore } from './integrations/integration-store'
@@ -771,6 +773,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
+  // Apps (docs/plans/apps.md): agent-built UI over the caller's own integrations.
+  registerAppHandlers(server, new Apps(integrationGateway, integrations))
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })

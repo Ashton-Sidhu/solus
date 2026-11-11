@@ -41,6 +41,7 @@ const SOLUS_TOOL_LABELS = new Map([
   ['create_work', 'Create work'],
   ['update_work', 'Update work'],
   ['render_artifact', 'Render artifact'],
+  ['create_app', 'Create app'],
   ['start_session', 'Start session'],
   ['send_session', 'Send to session'],
   ['codex_subagent', 'Codex subagent'],

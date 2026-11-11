@@ -19,7 +19,7 @@ import { workspaceResourceVisibility } from '../tasks/resource-visibility'
 import { getSessionRecord } from '../sessions/session-records'
 import { works } from './schema'
 import { createWork, loadWork, readWorkMetadataPage } from './works'
-import { Work, WorkMovedError, WorkVersionConflictError } from './work'
+import { Work, WorkContentInvalidError, WorkMovedError, WorkVersionConflictError } from './work'
 import { workLocation } from './work-rows'
 import { workMembership } from './session-access'
 import { announceWorkDeleted } from './work-events'
@@ -33,6 +33,7 @@ async function domainAnswer<T>(write: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof WorkVersionConflictError) throw new SolusApiError(412, 'STALE_VERSION', error.message)
     if (error instanceof WorkMovedError) throw new SolusApiError(404, 'MOVED', error.message)
+    if (error instanceof WorkContentInvalidError) throw new SolusApiError(400, 'INVALID_REQUEST', error.message)
     throw error
   }
 }
@@ -62,7 +63,7 @@ export class WorkApiOperations {
         createdAt: work.createdAt, updatedAt: work.updatedAt, title: work.title, type: work.type,
         preview: work.preview, sessionIds: work.sessionIds ?? (work.sessionId ? [work.sessionId] : []),
         projectId: projects.get(work.organizationId)?.get(work.cwd) ?? null, pinned: work.pinned ?? false,
-        editable: work.mirroredDoc?.provider !== 'gdrive', cwd: work.cwd, agentProvider: work.agentProvider, mirroredDoc: work.mirroredDoc,
+        editable: work.mirroredDoc?.provider !== 'gdrive', cwd: work.cwd, agentProvider: work.agentProvider, mirroredDoc: work.mirroredDoc, app: work.app,
         share: owned.share,
       }
     })

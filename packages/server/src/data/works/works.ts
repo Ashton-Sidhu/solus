@@ -11,7 +11,7 @@ import { documentContentHash } from '../../docs/content-hash'
 import { workRevisions, works } from './schema'
 import { type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
-import { Work as WorkEntity } from './work'
+import { Work as WorkEntity, validateWorkContent } from './work'
 import { workLiveBridge } from './work-live-bridge'
 import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
@@ -60,7 +60,7 @@ const log = createLogger('folio', 'works.ts')
 const workRefRowSchema = z.object({
   id: z.string(),
   title: z.string(),
-  type: z.enum(['doc', 'slides', 'artifact']),
+  type: z.enum(['doc', 'slides', 'artifact', 'app']),
   session_id: z.string(),
 })
 
@@ -110,6 +110,7 @@ export async function createWork(
   /** The person the work belongs to: its creator. The host's own work, which no person made, is the host's user's. */
   ownerKey: string = hostUserKey(),
 ): Promise<Work> {
+  validateWorkContent(type, content)
   const now = new Date().toISOString()
   const meta: WorkMeta = {
     organizationId,
@@ -234,12 +235,14 @@ export async function listWorkRefsForSessions(
 }
 
 /** The file a work exports as: the content is already in that form. */
-export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
+export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' | 'tsx' {
   switch (type) {
     case 'doc':
       return 'md'
     case 'artifact':
       return 'html'
+    case 'app':
+      return 'tsx'
     case 'slides':
       return 'json'
   }
