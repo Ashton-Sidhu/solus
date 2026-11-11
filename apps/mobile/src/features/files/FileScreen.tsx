@@ -1,4 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx (MIT, see UPSTREAM.md).
+import { usePreventRemove } from '@react-navigation/native'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Pressable, View } from 'react-native'
 import { hostPathBaseName, isAbsoluteHostPath } from '@solus/contracts/host-path'
@@ -116,6 +117,27 @@ function HostFileMedia(props: {
 }
 
 /**
+ * Selection mode shows the whole file as one selectable surface at the
+ * long-pressed line. Back leaves it and keeps that line in view; any other way
+ * out of the screen still leaves. It belongs to one file, so another file
+ * opens without it.
+ */
+function useFileSelection(path: string, navigation: ScreenProps<'File'>['navigation']) {
+  const [selection, setSelection] = useState<{ readonly path: string; readonly line: number; readonly active: boolean } | null>(null)
+  const fileSelection = selection?.path === path ? selection : null
+  const selecting = fileSelection?.active === true
+  usePreventRemove(selecting, ({ data }) => {
+    setSelection((value) => value && { ...value, active: false })
+    if (data.action.type !== 'GO_BACK' && data.action.type !== 'POP') navigation.dispatch(data.action)
+  })
+  return {
+    line: fileSelection?.line ?? null,
+    selecting,
+    select: (line: number) => setSelection({ path, line, active: true }),
+  }
+}
+
+/**
  * One file, read-only, as T3 Code's file screen: numbered source with Shiki
  * colors, a rendered preview for Markdown, and media through the host. The
  * header menu wraps long lines, switches Markdown between preview and
@@ -128,6 +150,7 @@ export function FileScreen({ navigation, route }: ScreenProps<'File'>) {
   const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const [view, setView] = useState<FileView>({ kind: 'loading' })
   const [markdownMode, setMarkdownMode] = useState<'source' | 'preview'>('source')
+  const selection = useFileSelection(path, navigation)
   const contents = view.kind === 'loaded' && view.file.ok && view.file.kind === 'text' ? view.file.contents : null
   const truncated = view.kind === 'loaded' && view.file.ok && view.file.kind === 'text' && view.file.truncated
   const markdown = contents !== null && isMarkdownFile(path)
@@ -233,7 +256,14 @@ export function FileScreen({ navigation, route }: ScreenProps<'File'>) {
           onRefresh={read}
         />
       ) : (
-        <SourceFileSurface contents={view.file.contents} path={path} onRefresh={read} />
+        <SourceFileSurface
+          contents={view.file.contents}
+          path={path}
+          onRefresh={read}
+          line={selection.line}
+          selecting={selection.selecting}
+          onLongPressLine={selection.select}
+        />
       )}
     </View>
   )
