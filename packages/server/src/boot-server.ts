@@ -974,6 +974,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getSessionInfo: (sessionId) => opts.sessionRuntime.history.getSessionInfo(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.sessionRuntime.history.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
+    executedModel: (sessionId) => orchestrator.executedModelOf(sessionId),
     pendingInputEvents: (sessionId) => opts.sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
     loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
       opts.sessionRuntime.history.loadPlanContent(provider, sessionId, projectPath, planToolUseId),

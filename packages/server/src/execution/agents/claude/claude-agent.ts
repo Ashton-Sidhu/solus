@@ -282,6 +282,7 @@ export interface ClaudeRunResult {
   sessionId: string | null
   toolCallCount: number
   permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
+  executedModel?: string
   exitCode: 0 | null
   signal: 'SIGINT' | null
 }
@@ -512,6 +513,7 @@ export class ClaudeAgent {
           sessionId: state.sessionId,
           toolCallCount: normalizer.summary.toolCallCount,
           permissionDenials: normalizer.summary.permissionDenials,
+          executedModel: normalizer.summary.executedModel,
           exitCode: 0,
           signal: null,
         })
@@ -534,6 +536,7 @@ export class ClaudeAgent {
             sessionId: state.sessionId,
             toolCallCount: normalizer.summary.toolCallCount,
             permissionDenials: normalizer.summary.permissionDenials,
+            executedModel: normalizer.summary.executedModel,
             exitCode: null,
             signal: 'SIGINT',
           })

@@ -6,6 +6,7 @@ import { isAuthFailureMessage } from '../auth-failure'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import { catalogClaudeModelId } from './claude-models'
 import { z } from 'zod'
 
 export const SDK_TO_UI_PERMISSION_MODE = {
@@ -172,6 +173,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       if (!parent_tool_use_id && message?.id) {
         this.advisorUsage.set(message.id, advisorUsageFrom(message.usage))
         this.messageUsage.set(message.id, normalizeClaudeUsage(message.usage))
+      }
+      // A sub-agent runs its own model. CLI notices and API errors arrive from "<synthetic>".
+      if (!parent_tool_use_id && message?.model && message.model !== '<synthetic>') {
+        this.turnSummary.executedModel = catalogClaudeModelId(message.model)
       }
     }
 

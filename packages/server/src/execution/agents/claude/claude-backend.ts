@@ -411,6 +411,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       handle.agentSessionId = final.sessionId
       handle.toolCallCount = final.toolCallCount
       handle.permissionDenials = final.permissionDenials
+      handle.executedModel = final.executedModel
       const sessionId = handle.agentSessionId
       this.finishRun(handle)
       log.info('run_complete', { sessionId, denials: handle.permissionDenials.length })

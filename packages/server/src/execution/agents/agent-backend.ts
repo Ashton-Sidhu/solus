@@ -43,6 +43,9 @@ export interface RunHandle {
   runPromise: Promise<void>
   /** Final assistant result reported by task_complete, when the provider supplies it. */
   resultText?: string
+  /** The model the provider reported running for the root agent, which can
+   *  differ from the one requested. Absent when the provider named none. */
+  executedModel?: string
   _resolveRun: () => void
   _rejectRun: (err: Error) => void
 }

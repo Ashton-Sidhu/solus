@@ -5,6 +5,8 @@ export interface TurnSummary {
   sawRateLimit: boolean
   sawProtocolError: boolean
   permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
+  /** The model the provider reported running for the root agent. */
+  executedModel?: string
 }
 
 /**

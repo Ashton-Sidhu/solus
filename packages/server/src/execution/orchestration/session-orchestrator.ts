@@ -537,6 +537,16 @@ export class SessionOrchestrator {
     return progress
   }
 
+  /** The model the provider reported running for the latest settled message to `targetSessionId`. */
+  executedModelOf(targetSessionId: string): string | undefined {
+    let latest: Exchange | undefined
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.targetSessionId !== targetSessionId || !exchange.report?.executedModel) continue
+      if (!latest || (exchange.settledAt ?? 0) > (latest.settledAt ?? 0)) latest = exchange
+    }
+    return latest?.report?.executedModel
+  }
+
   /** Children whose turn the previous process never settled. A parent that
    *  delegated to one gets a report instead of waiting for a reply nothing will
    *  send; boot marks each record interrupted, so a child is reported once. */
@@ -868,6 +878,8 @@ export class SessionOrchestrator {
         sessionId: draft.targetSessionId,
         taskId,
         provider: draft.provider,
+        model: run?.model,
+        executedModel: run?.executedModel,
         status: outcome,
         durationMs: run?.durationMs,
         outputs: draft.outputs,

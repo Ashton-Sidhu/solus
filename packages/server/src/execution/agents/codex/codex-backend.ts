@@ -1399,6 +1399,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const normalized = handle?.normalizer.push({ method: msg.method, params }) ?? []
     if (handle) {
       handle.toolCallCount = handle.normalizer.summary.toolCallCount
+      // A native sub-agent's thread can run another model than the root run.
+      const eventThreadId = optionalString(params?.threadId)
+      for (const event of normalized) {
+        if (event.type === 'model_rerouted' && (!eventThreadId || eventThreadId === handle.threadId)) handle.executedModel = event.toModel
+      }
     }
 
     if (msg.method === 'turn/completed') {

@@ -58,8 +58,13 @@ or disconnecting a client leaves remote work running and does not invoke recover
   request is answered, or the limit ends, before the parent reads the notice, it
   is taken back out of the parent's queue.
 - **A report when the child's turn ends.** Its first line is metadata (message,
-  session, task, provider, status, duration). Then the outputs, one line each,
-  and the child's last message.
+  session, task, provider, requested model, executed model, status, duration).
+  The executed model is the model the provider reported running for the root
+  agent: Claude's main-thread assistant messages (a sub-agent's are skipped, and
+  a dated id the model list does not know loses its date), or Codex's
+  `model/rerouted`. When it differs from the requested model, the next line is
+  `Requested model X; the provider reported running Y.` Then the outputs, one
+  line each, and the child's last message.
 - Everything that waits for a busy parent reaches it as one prompt. Nothing is
   lost while the parent itself is rate limited.
 - **One report per turn.** When one turn of the child answers several
@@ -172,7 +177,7 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on `start_session`) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
-| `read_session` | A session's status, task, pending input and timeline, in T3 Code's thread-read model. Every item has a fixed `position` and an `itemId`; a tool call and its result are one item, and rows inside a subagent are not on the timeline. `view` `messages` (default) gives the user and assistant messages and plans; `activity` gives every item, with tool input and output, reasoning and notices. A read starts at the beginning; `after_position=nextPosition` reads on. `limit` (default 50, at most 100) and `max_chars_per_item` (default 20,000, at most 50,000) keep a read small; a value over the bound reads the bound. A cut item continues with `item_id` and `text_offset=nextTextOffset`. The result is JSON. |
+| `read_session` | A session's status, task, pending input and timeline, in T3 Code's thread-read model. Every item has a fixed `position` and an `itemId`; a tool call and its result are one item, and rows inside a subagent are not on the timeline. `view` `messages` (default) gives the user and assistant messages and plans; `activity` gives every item, with tool input and output, reasoning and notices. A read starts at the beginning; `after_position=nextPosition` reads on. `limit` (default 50, at most 100) and `max_chars_per_item` (default 20,000, at most 50,000) keep a read small; a value over the bound reads the bound. A cut item continues with `item_id` and `text_offset=nextTextOffset`. The result is JSON. Beside the requested `model`, `executedModel` names the model the provider reported running for the session's latest report, when one did. |
 | `read_task` + `read_session` | Read the task for its linked session IDs, then read a session for its status, pending input and history. |
 | `search_sessions` | Search past conversations by title, branch, pull request and what was said. Every word must be somewhere in the session (docs/plans/unified-search.md). Each result names the `item id` of the matched message, which `read_session` opens with `item_id`. A Claude history row has no provider id, so its item id is its role and time (`assistant@<ms>`). |
 | `list_agent_targets` | Providers and models this host can run, and the other hosts it can start sessions on. With `host`, what that host offers. |

@@ -422,6 +422,8 @@ export class SessionRuntime extends EventEmitter {
       durationMs: runMeta.durationMs,
       toolCallCount: runMeta.toolCallCount,
       provider: run.input.provider,
+      model: run.input.model,
+      executedModel: handle.executedModel,
       projectScope: projectScopeOf(run.input),
       gitContext: session?.gitContext ?? run.input.gitContext,
       hasBackgroundWork,

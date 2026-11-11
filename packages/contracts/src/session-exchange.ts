@@ -273,6 +273,10 @@ export interface SessionReport {
   sessionId: string
   taskId?: string
   provider?: AgentId
+  /** The model the run asked for. */
+  model?: string
+  /** The model the provider reported running, which can differ from `model`. */
+  executedModel?: string
   status: ExchangeOutcome
   durationMs?: number
   outputs: SessionOutput[]
@@ -300,11 +304,16 @@ export function formatSessionReport(report: SessionReport): string {
     ['session', report.sessionId],
     ['task', report.taskId],
     ['provider', report.provider],
+    ['model', report.model],
+    ['executed_model', report.executedModel],
     ['status', report.status],
     ['duration_ms', report.durationMs === undefined ? undefined : Math.round(report.durationMs)],
     ['shortened', report.shortened ? 1 : undefined],
   ])]
   if (report.shortened) return lines[0]!
+  if (report.model && report.executedModel && report.executedModel !== report.model) {
+    lines.push(`Requested model ${report.model}; the provider reported running ${report.executedModel}.`)
+  }
   const shown = report.outputs.slice(0, ORCHESTRATION_LIMITS.outputs)
   if (shown.length) {
     lines.push('Outputs:', ...shown.map(formatSessionOutput))
@@ -329,6 +338,10 @@ function parseReport(headText: string, body: string): SessionReport | null {
   if (taskId) report.taskId = taskId
   const provider = agentIdOf(values.get('provider'))
   if (provider) report.provider = provider
+  const model = values.get('model')
+  if (model) report.model = model
+  const executedModel = values.get('executed_model')
+  if (executedModel) report.executedModel = executedModel
   const durationMs = Number(values.get('duration_ms'))
   if (values.has('duration_ms') && Number.isFinite(durationMs)) report.durationMs = durationMs
   if (values.get('shortened') === '1') report.shortened = true

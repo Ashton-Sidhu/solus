@@ -37,6 +37,9 @@ export interface SettledRun extends RunExchanges {
   durationMs?: number
   toolCallCount?: number
   provider: AgentId
+  /** The model the run asked for, and the one the provider reported running. */
+  model?: string
+  executedModel?: string
   projectScope?: string
   gitContext?: GitCheckout | null
   /** Work the agent left running outlives the turn (Codex); its wake turn answers. */
