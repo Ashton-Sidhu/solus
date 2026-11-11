@@ -7,7 +7,7 @@ import { createGoalCommand } from './goal-command';
 import { loadPromptHistory, savePromptToHistory } from './prompt-history';
 import { pendingPlanForPrompt } from './pending-plan';
 import { pendingQuestionForPrompt, answersForQuestionNote } from './pending-question';
-import { isTextOnly, permissionForFeedback, type PermissionFeedbackTarget } from './pending-permission';
+import { isTextOnly, permissionForFeedback, promptSendPath, type PermissionFeedbackTarget } from './pending-permission';
 import { requestInputFocus } from '../../../lib/inputFocus';
 import { isMac } from '../../../lib/keybindings/match';
 import { toasts } from '../../../lib/toasts';
@@ -190,17 +190,26 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     )
       ? "Please address these UI concerns"
       : "See attached files";
+    const path = promptSendPath({
+      background: Boolean(options.background && onDispatchInBackground),
+      delivery: options.delivery,
+      hasPendingPlan: Boolean(pendingPlan),
+      hasPendingQuestion: Boolean(pendingQuestion),
+      hasFeedbackTarget: Boolean(feedbackTarget),
+      hasText: Boolean(text),
+      hasTargetTab: Boolean(targetTabId),
+    });
     let accepted = true;
-    if (options.background && onDispatchInBackground) {
+    if (path === "background" && onDispatchInBackground) {
       // A draft only, so none of the session-shaped branches below can apply:
       // there is no held plan or question behind a composer with no session.
       accepted = onDispatchInBackground(text || fallbackText);
-    } else if (pendingPlan) {
+    } else if (path === "plan-feedback" && pendingPlan) {
       // Match the plan surface's Revise action: answer the held ExitPlanMode
       // request, keep the provider in plan mode, and send this text as feedback
       // instead of letting it become an ordinary queued prompt.
       void session.rejectPlan(pendingPlan.id, text || fallbackText);
-    } else if (pendingQuestion && text && targetTabId) {
+    } else if (path === "question-answer" && pendingQuestion && targetTabId) {
       // Match the question card's free-text answer. Responding releases the held
       // provider turn; queuing this as a normal prompt would leave it blocked.
       session.controls.respondQuestion(
@@ -208,7 +217,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
         pendingQuestion.questionId,
         answersForQuestionNote(pendingQuestion, text),
       );
-    } else if (feedbackTarget && targetTabId) {
+    } else if (path === "permission-feedback" && feedbackTarget && targetTabId) {
       // The card's request waits on the agent that asked, a subagent's
       // included. The text goes with its denial to that agent; sent as a
       // prompt it would reach the parent while the request stayed open.

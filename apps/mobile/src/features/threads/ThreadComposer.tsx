@@ -506,7 +506,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         return;
       }
       const prompt = draftMessage.trim();
-      const feedbackTarget = permissionForFeedback(meta.permissions);
+      // An explicit Queue answers no request: the text waits behind the turn.
+      const feedbackTarget = followUp === "queue" ? null : permissionForFeedback(meta.permissions);
       if (feedbackTarget) {
         // The card's request waits on the agent that asked, a subagent's
         // included. The text goes with its denial to that agent; sent as a
