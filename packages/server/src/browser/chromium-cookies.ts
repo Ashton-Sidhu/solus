@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createDecipheriv, createHash, pbkdf2Sync } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { BrowserCookieSkipCounts } from '@solus/contracts/browser-types'
@@ -58,15 +59,24 @@ const WEBKIT_EPOCH_OFFSET_SECONDS = 11_644_473_600
 
 const execFileAsync = promisify(execFile)
 
+/** Chrome's own root on Linux. Chrome reads `CHROME_CONFIG_HOME` first and the
+ *  XDG base directory second, and ignores a relative value of either, so the
+ *  same order and the same rule find the profile Chrome itself uses. */
+function linuxChromeRoot(): string {
+  const configHome = [process.env.CHROME_CONFIG_HOME, process.env.XDG_CONFIG_HOME]
+    .find((candidate) => !!candidate && isAbsolute(candidate))
+  return join(configHome ?? join(homedir(), '.config'), 'google-chrome')
+}
+
 function profileRoots(): string[] {
-  return homeCandidates({
+  const roots = homeCandidates({
     darwin: [join('Library', 'Application Support', 'Google', 'Chrome')],
     win32: [join('Google', 'Chrome', 'User Data')],
-    linux: [
-      join('.config', 'google-chrome'),
-      join('.var', 'app', 'com.google.Chrome', 'config', 'google-chrome'),
-    ],
+    // The Flatpak keeps its own config directory, whatever the host's XDG says.
+    linux: [join('.var', 'app', 'com.google.Chrome', 'config', 'google-chrome')],
   })
+  if (process.platform === 'darwin' || process.platform === 'win32') return roots
+  return [linuxChromeRoot(), ...roots]
 }
 
 const infoCacheSchema = z.object({

@@ -510,6 +510,69 @@ describe('Chrome: cookies behind a key', () => {
   })
 })
 
+describe('Chrome on Linux: the profile Chrome itself uses', () => {
+  // WHY: Chrome on Linux moves its whole root when CHROME_CONFIG_HOME or
+  // XDG_CONFIG_HOME is set. A scan that looks only under ~/.config offers
+  // nothing to a user who set either one, though Chrome is right there.
+  const PROFILE = 'Profile Linux'
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  const previousEnv = { CHROME_CONFIG_HOME: process.env.CHROME_CONFIG_HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME }
+  const scratch = mkdtempSync(join(realOs.tmpdir(), 'solus-chrome-linux-'))
+
+  /** A profile the scan can see. It only checks that the store exists, so an
+   *  empty file is enough and no database is opened. */
+  function seedLinuxProfile(configHome: string): string {
+    const store = join(configHome, 'google-chrome', PROFILE, 'Network', 'Cookies')
+    mkdirSync(join(store, '..'), { recursive: true })
+    writeFileSync(store, '')
+    return store
+  }
+
+  function linuxStore(env: { CHROME_CONFIG_HOME?: string; XDG_CONFIG_HOME?: string }): string | undefined {
+    Object.defineProperty(process, 'platform', { ...realPlatform, value: 'linux' })
+    for (const name of ['CHROME_CONFIG_HOME', 'XDG_CONFIG_HOME'] as const) {
+      if (env[name] === undefined) delete process.env[name]
+      else process.env[name] = env[name]
+    }
+    try {
+      return chromium.chromiumProfiles().find((profile) => profile.id === `chrome:${PROFILE}`)?.storePath
+    } finally {
+      Object.defineProperty(process, 'platform', realPlatform)
+      for (const [name, value] of Object.entries(previousEnv)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  }
+
+  afterEach(() => {
+    rmSync(join(fakeHome, '.config', 'google-chrome', PROFILE), { recursive: true, force: true })
+  })
+
+  afterAll(() => {
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  test('a profile under XDG_CONFIG_HOME is found', () => {
+    const xdg = join(scratch, 'xdg')
+    const store = seedLinuxProfile(xdg)
+    expect(linuxStore({ XDG_CONFIG_HOME: xdg })).toBe(store)
+  })
+
+  test('CHROME_CONFIG_HOME wins over XDG_CONFIG_HOME', () => {
+    const chromeHome = join(scratch, 'chrome-home')
+    const xdg = join(scratch, 'xdg-loses')
+    seedLinuxProfile(xdg)
+    const store = seedLinuxProfile(chromeHome)
+    expect(linuxStore({ CHROME_CONFIG_HOME: chromeHome, XDG_CONFIG_HOME: xdg })).toBe(store)
+  })
+
+  test('a relative XDG_CONFIG_HOME is ignored, as Chrome ignores it', () => {
+    const store = seedLinuxProfile(join(fakeHome, '.config'))
+    expect(linuxStore({ XDG_CONFIG_HOME: 'relative-config' })).toBe(store)
+  })
+})
+
 describe('Safari: cookies behind macOS itself', () => {
   test.skipIf(!ON_MACOS)('the binarycookies format is parsed, not shelled out to', () => {
     const read = safari.readSafariCookies(sources.resolveCookieSource(SAFARI_ID))
