@@ -13,7 +13,8 @@
    */
   interface Props {
     priority: TaskPriority | undefined;
-    disabled?: boolean;
+    /** Why the provider does not take a change of the priority. Null enables the menu. */
+    lock: string | null;
     onSelect: (priority: TaskPriority | null) => void;
     align?: "start" | "end";
     triggerClass: string;
@@ -21,7 +22,7 @@
   }
   let {
     priority,
-    disabled = false,
+    lock,
     onSelect,
     align = "start",
     triggerClass,
@@ -30,7 +31,7 @@
 </script>
 
 <DropdownMenu.Root>
-  <DropdownMenu.Trigger {disabled} class={triggerClass}>
+  <DropdownMenu.Trigger disabled={lock !== null} title={lock ?? undefined} class={triggerClass}>
     {@render trigger()}
   </DropdownMenu.Trigger>
   <DropdownMenu.Content {align} class="w-[182px]">

@@ -1,7 +1,7 @@
 import { createWork, loadWork } from './works'
 import { Work, WorkVersionConflictError } from './work'
 import { workPreview } from '@solus/contracts/work-preview'
-import { Task } from '../tasks/task'
+import { linkSessionOutput, linkTask } from '../tasks/task-attachments'
 import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
 import { createLogger } from '../../logger'
 import { agentAttribution } from '../stored-attribution'
@@ -75,15 +75,15 @@ export function registerWorkOutboxApplier(): void {
       }
       const originSessionId = payload.originSessionId ?? op.sessionId
       const link = payload.taskId
-        ? Task.byId(organizationId, payload.taskId).then((task) => task.link({
+        ? linkTask(organizationId, payload.taskId, {
             kind: 'work',
             targetScope: '',
             targetKey: op.resourceId,
             title: payload.title,
             originSessionId: originSessionId ?? null,
-          }, agentAttribution(op.sessionId)))
+          }, agentAttribution(op.sessionId))
         : payload.linkToSessionTask && originSessionId
-          ? Task.linkSessionOutput(organizationId, originSessionId, { kind: 'work', targetKey: op.resourceId, title: payload.title })
+          ? linkSessionOutput(organizationId, originSessionId, { kind: 'work', targetKey: op.resourceId, title: payload.title })
           : null
       await link?.catch((error) => {
         log.warn('work_op_task_link_failed', {

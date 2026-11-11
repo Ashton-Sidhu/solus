@@ -7,16 +7,22 @@ session is published either, and Insights reports are not shared (§8). Since
 link names its host and needs no sign-in, so §2's "sharing requires sign-in"
 and decision 2 hold for works and tasks only.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, each statement about a
+> task is history: the task upload (`taskExportForCloud`, `taskUpload`,
+> `taskMarkMoved`), `tasks.location` and the "Tasks" and "Sessions of a shared
+> task" items of §3a, the Task row of §4, step 3 of §7, and decisions 1, 4 and 7
+> of §8. This plan applies to works only. The shared resource kinds are
+> `session` and `work`.
+
 Where it lives:
 
-- Host: `workExportForCloud`, `workMarkMoved`, `taskExportForCloud`, and
-  `taskMarkMoved` (`transport/handlers/organization-handlers.ts`, over
-  `data/works/works.ts` and `data/tasks/task-transfer.ts`).
-- Solus API: `workUpload` and `taskUpload`
-  (`transport/solus-api/cloud-uploads.ts`).
+- Host: `workExportForCloud` and `workMarkMoved`
+  (`transport/handlers/organization-handlers.ts`, over `data/works/works.ts`).
+- Solus API: `workUpload` (`transport/solus-api/cloud-uploads.ts`).
 - Client: `CloudPublication` (`contexts/sharing/cloud-publication.ts`) uploads
-  a Local work or task; `TaskLinks` (`contexts/tasks/task-links.ts`) copies a
-  task's link. `SharesStore` keeps the dialog and the share lists.
+  a Local work. `SharesStore` keeps the dialog and the share lists.
 - A session stays on its host: Share opens the host's own share list. The
   host has no publication operation.
 
@@ -53,7 +59,7 @@ There are two kinds of share.
 
 | Kind | Resources | Needs the host link | Path |
 |---|---|---|---|
-| **Cloud copy** | work, task | No | The client writes a copy to the Solus API with the person's sign-in. The link points at the cloud copy. |
+| **Cloud copy** | work | No | The client writes a copy to the Solus API with the person's sign-in. The link points at the cloud copy. |
 | **Live session** | session | Yes | The session stays on its host. Share opens the host's own share list and uploads nothing. |
 
 For a cloud copy, the host is only a source of content. The client reads the
@@ -218,28 +224,26 @@ with their own sign-in; anyone else signs in first and returns to it.
 
 ## 4b. A task is not shared
 
-A task has no Share, no share rows, and no guest link. Its organization sees
-it: the workspace service gives the organization the editor entry when the
-task is made there (`ShareManager.shareWithOrganization`). The sessions and works
-linked to it keep their own access: a link to a task shares nothing (decision
-2026-10-06). Each of them is shared on its own.
+Changed 2026-11-10 ([Provider-owned tasks](provider-owned-tasks.md) §4.3). A
+task is not a Solus resource. It has no Share, no share rows, no guest link, no
+organization, and no owner in Solus. The caller's own GitHub or Jira connection
+decides who can read or change it. The sessions and works linked to it keep
+their own access: a link to a task shares nothing (decision 2026-10-06). Each
+of them is shared on its own.
 
-The task's control is **Copy link** (`SharesStore.copyTaskLink`). For a Local
-task it first runs the upload in §3 and §4: the task, its comments, and its
-linked Local works go to the window's organization. Then it copies the app's
-own route for the task on the account origin
-(`contexts/sharing/task-link.ts`), which opens it for anyone in the
-organization.
+The task's control is **Copy link**. It copies the task's URL on the provider.
+A GitHub Project draft item has no URL, thus it has no Copy link. There is no
+upload of a task and no Solus route for a task on the account origin.
 
-The host refuses `shareSet` and `shareSetLink` for a task, and a task link made
-before this change admits nobody (`resolveLinkSecret`).
+`task` is not a share resource kind (`shareResourceKindSchema` is `session` or
+`work`), thus `shareSet` and `shareSetLink` cannot name a task.
 
 ## 4c. One table of access
 
 Decision 2026-10-06, to make each access check one query; changed 2026-10-14 by
 `access-model.md` §2.2: the owner is no longer a row of this table.
 
-- **The owner is on the resource.** Every session record, work, and task has
+- **The owner is on the resource.** Every session record and work has
   `owner_key`, written when the record is created: its creator, or the host's
   user for the host's own work. A transfer changes `owner_key`.
 - **One table of ACL entries.** `acl_entry` holds only what the owner gave

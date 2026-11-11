@@ -16,7 +16,7 @@ import {
   type NotificationReader,
 } from './store'
 
-const READ_SCOPE = { session: 'sessions:read', task: 'tasks:read', work: 'works:read' } as const satisfies Record<ShareResource['kind'], SolusApiScope>
+const READ_SCOPE = { session: 'sessions:read', work: 'works:read' } as const satisfies Record<ShareResource['kind'], SolusApiScope>
 
 /**
  * The caller's notifications on the record API (plans/015-notifications-hub.md §4).

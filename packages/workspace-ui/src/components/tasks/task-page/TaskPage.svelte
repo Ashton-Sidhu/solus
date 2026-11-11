@@ -1,23 +1,13 @@
 <script lang="ts">
   import { projectDirLabel } from "../../../lib/paths";
   import { tick, untrack } from "svelte";
-  import type {
-    Task,
-    TaskLink,
-    TaskLinkInput,
-    TaskUpdatePatch,
-  } from "@solus/contracts/task-types";
   import {
-    getProjectConfigStore,
     getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
-    sharesStore,
-    taskLinks,
+    taskSourcesStore,
     groupKeyFor,
   } from "../../../contexts";
-  import { attemptServerId } from "../../../lib/sessionUtils";
-  import { toasts } from "../../../lib/toasts";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
@@ -29,35 +19,33 @@
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import {
-    authorInitials,
     DEFAULT_TASK_SORT,
+    PROVIDER_NAMES,
     sortTasks,
+    taskPlacementLabels,
+    taskRef,
   } from "../lib/tasks-api";
   import {
     isTaskRailFolded,
     taskDetailsSummary,
+    taskFieldLocks,
     linkedWorkProvider,
-    taskPageCapabilities,
-    taskRef,
   } from "./lib/task-page";
-  import {
-    heldBackCommentIds,
-    taskPublishTarget,
-    taskUpstreamState,
-  } from "./lib/task-upstream";
+  import { taskMoveGroups } from "./lib/task-move";
+  import { createTaskPageCommands, toastTaskError } from "./lib/task-page-commands";
   import { taskPrRows } from "./lib/task-prs";
-  import { linkedPrNavigationTarget } from "./lib/linked-pr-navigation";
   import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
   import TaskActivityFeed from "./TaskActivityFeed.svelte";
+  import TaskBottomBar from "./TaskBottomBar.svelte";
   import TaskPrList from "./TaskPrList.svelte";
   import TaskChromeBar from "./TaskChromeBar.svelte";
   import TaskRecordBar from "./TaskRecordBar.svelte";
-  import TaskCommentComposer from "./TaskCommentComposer.svelte";
-  import { provideMentionScope } from "../../mentions/lib/mention-scope.svelte";
+  import TaskDetailsTrigger from "./TaskDetailsTrigger.svelte";
   import TaskHeader from "./TaskHeader.svelte";
   import TaskLinkPicker from "./TaskLinkPicker.svelte";
   import TaskLinkedTable from "./TaskLinkedTable.svelte";
   import TaskPinnedArtifact from "./TaskPinnedArtifact.svelte";
+  import TaskPageNotices from "./TaskPageNotices.svelte";
   import TaskPageSkeleton from "./TaskPageSkeleton.svelte";
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import TaskSessionsList from "./TaskSessionsList.svelte";
@@ -65,12 +53,6 @@
   import TaskTabStrip from "./TaskTabStrip.svelte";
   import type { TaskTabId } from "./lib/task-tabs";
   import { isStackedPane, observePaneWidth } from "../../../lib/pane-width";
-  import {
-    CalendarDays as CalendarIcon,
-    ChevronDown as CaretDownIcon,
-    Plus as PlusIcon,
-    Tag as TagIcon,
-  } from "@lucide/svelte";
 
   interface Props extends Omit<RouteSurfaceProps<"task">, "paneId"> {
     paneId?: RouteSurfaceProps<"task">["paneId"];
@@ -98,7 +80,6 @@
   const pullRequests = getPullRequestsContext();
   const shell = getClientShellContext();
   const store = session.tasksStore;
-  const projectConfig = getProjectConfigStore();
   const outbox = session.outboxStore;
   const pane = paneActions(() => paneId);
 
@@ -110,7 +91,6 @@
   const failedSyncCount = $derived(
     syncOps.filter((op) => op.state === "failed").length,
   );
-  const pendingSyncCount = $derived(syncOps.length - failedSyncCount);
   const task = $derived(store.peek(taskId));
   const details = $derived(store.get(taskId).details);
   const links = $derived(details?.links ?? []);
@@ -130,13 +110,26 @@
   $effect(() => {
     if (surfaceVisible && detailsSettled && sessions.length) void store.repairWorkerTitles(taskId, sessions);
   });
-  const projectCwd = $derived(
-    task?.projectKey ?? session.tasksProjectCwd ?? undefined,
-  );
 
-  // The task's lead, when one is linked. The conversation with it is the
-  // lead's own tab, opened with this page beside it; the page only offers to
-  // start one while there is none (docs/plans/task-conversation.md).
+  // A task has no project of its own: the task sources of a project list it.
+  // The page works in the first project that lists the task, in a checkout of
+  // that project on a connected host.
+  const taskServerId = $derived(store.get(taskId).serverId);
+  const listingProjectKey = $derived(task ? (store.projectKeysOf(task)[0] ?? null) : null);
+  const projectCwd = $derived.by(() => {
+    if (task && listingProjectKey) {
+      for (const placement of task.placements) {
+        const checkout = taskSourcesStore.checkoutForSource(listingProjectKey, placement.sourceKey);
+        if (checkout) return checkout.cwd;
+      }
+    }
+    return session.tasksProjectCwd ?? undefined;
+  });
+  const taskProjectKey = $derived(
+    listingProjectKey ??
+      (projectCwd && taskServerId ? groupKeyFor(taskServerId, projectCwd) : null),
+  );
+  const projectLabel = $derived(projectCwd ? projectDirLabel(projectCwd) : null);
 
   // The pinned render is open by default, so its body is fetched as soon as the
   // page is visible rather than on a disclosure the reader never has to press.
@@ -148,59 +141,25 @@
 
   setMarkdownImageContext({
     cwd: () => projectCwd,
-    serverId: () => store.get(taskId).serverId ?? LOCAL_SERVER_ID,
+    serverId: () => taskServerId ?? LOCAL_SERVER_ID,
     ctx: () => projectCwd ? session.ctxForDirectory(projectCwd) : undefined,
-    api: () => {
-      const serverId = store.get(taskId).serverId;
-      return serverId ? serverConnections.apiFor(serverId) : undefined;
-    },
+    api: () => taskServerId ? serverConnections.apiFor(taskServerId) : undefined,
   });
-  const projectLabel = $derived(
-    projectCwd ? projectDirLabel(projectCwd) : "Inbox",
-  );
-  const upstream = $derived(
-    task
-      ? taskUpstreamState({
-          task,
-          externalLink: details?.externalLink,
-          comments: details?.comments ?? [],
-        })
-      : null,
-  );
+
+  const commands = createTaskPageCommands({
+    session,
+    shell,
+    taskId: () => taskId,
+    projectCwd: () => projectCwd,
+    onOpenSession: () => onOpenSession,
+    onClose: () => (onRequestClose ? onRequestClose() : pane.close()),
+  });
 
   // The PR store owns linked identity, saved observations and background reads.
   const prs = pullRequests.projects;
-  const taskServerId = $derived(store.get(taskId).serverId);
-  // A task is not shared on its own: its link opens it for everyone in its organization.
-  const linkServerId = $derived(taskServerId ?? serverConnections.defaultServerId());
-  const taskProjectKey = $derived(
-    (task && store.projectKeyOf(task)) ??
-      (projectCwd && linkServerId ? groupKeyFor(linkServerId, projectCwd) : null),
-  );
-  const canCopyLink = $derived(!!linkServerId && taskLinks.canCopy(linkServerId));
-  // An organization task's comments mention its members (plan 004 D17). Task
-  // comments carry no account id, so the picker orders people by name.
-  provideMentionScope(() => task && taskServerId
-    ? { serverId: taskServerId, organizationId: task.organizationId ?? "local", resource: { kind: "task", id: task.id }, title: task.title, recentUserIds: [] }
-    : null);
-  // A session on a machine's task runs on that machine. A cloud task's home runs
-  // nothing (docs/plans/workspace-and-machines.md §5.4), so `openTaskSession`
-  // opens it on a machine the Run-on picker chooses, or asks for one. A guest
-  // shell has no workspace to start from.
+  // A session of a task runs on a machine. A client with no workspace (a guest
+  // shell) has none to start from.
   const canStartSession = $derived(!!session.workspace);
-  // Only a comment's author or a moderator (the task's owner; on a host that
-  // keeps no share list, its own user) may delete it; the host refuses others.
-  const canModerateComments = $derived.by(() => {
-    if (!taskServerId) return true;
-    const role = sharesStore.listFor(taskServerId, { kind: "task", id: taskId })?.callerRole;
-    return role === undefined || role === "owner";
-  });
-  $effect(() => {
-    if (taskServerId) void sharesStore.load(taskServerId, { kind: "task", id: taskId });
-  });
-  function copyLink(record: Task): void {
-    if (linkServerId) void taskLinks.copy(linkServerId, record.id);
-  }
   $effect(() => {
     const workIds = linkedWorkIds;
     if (!surfaceVisible || workIds.length === 0) return;
@@ -213,7 +172,7 @@
   const prRows = $derived(
     taskPrRows(
       links,
-      (link) => prs.linkedPr(taskServerId, link, projectCwd),
+      (link) => prs.linkedPr(taskServerId, link, projectCwd ?? null),
     ),
   );
   $effect(() => {
@@ -227,53 +186,16 @@
     ));
   });
 
-  // Auto-post is a project decision, not a per-task one: it is the same choice
-  // for every ticket filed against this repo, and it already lives in the
-  // project config the Tasks page writes.
-  const configHost = $derived(
-    taskServerId
-      ? { serverId: taskServerId, api: serverConnections.apiFor(taskServerId) }
-      : null,
-  );
-  const autoPost = $derived(
-    upstream?.canSync && taskServerId && projectCwd
-      ? (projectConfig.configFor(taskServerId, projectCwd)?.tasksAutoPushComments ?? false)
-      : null,
-  );
-  const heldBack = $derived(
-    heldBackCommentIds(details?.comments ?? [], !!upstream?.canSync),
-  );
-  const providerStatus = $derived(store.providerStatus(projectCwd));
-  const assigneeCandidates = $derived(store.assigneeCandidates(projectCwd));
-  const assigneeCandidatesLoading = $derived(
-    projectCwd ? (store.assigneeCandidatesLoadingByCwd.get(projectCwd) ?? false) : false,
-  );
-  const assigneeCandidatesError = $derived(
-    projectCwd ? store.assigneeCandidatesErrorByCwd.get(projectCwd) : undefined,
-  );
-  const capabilities = $derived(task ? taskPageCapabilities(task, providerStatus) : null);
+  // The provider decides which fields this task takes, and each source that
+  // lists the task owns the columns it can move to.
+  const locks = $derived(task ? taskFieldLocks(task) : null);
+  const placements = $derived(task ? taskPlacementLabels(task, taskSourcesStore.sourceByKey) : []);
+  const moveGroups = $derived(task ? taskMoveGroups(task, taskSourcesStore.sourceByKey) : []);
+  const assigneeTarget = $derived({ taskId });
   const labelCandidates = $derived(store.knownLabels(taskServerId, projectCwd));
-  const publishTarget = $derived(
-    task ? taskPublishTarget({ task, upstream, status: providerStatus }) : null,
-  );
-
-  // Both reads answer "where could this task be filed, and what happens to a
-  // comment when it is": the page cannot draw its sync controls without them.
-  $effect(() => {
-    const host = configHost;
-    const cwd = projectCwd;
-    if (!host || !cwd) return;
-    if (projectConfig.configFor(host.serverId, cwd) === undefined) {
-      void projectConfig.load(host, cwd).catch(() => {});
-    }
-    if (!store.providerStatus(cwd)) {
-      void store.loadProviderStatus(cwd, { serverId: host.serverId }).catch(() => {});
-    }
-  });
 
   let picking = $state(false);
   let refreshing = $state(false);
-  let syncing = $state(false);
   let scrollViewport = $state<HTMLElement | null>(null);
 
   // The route param is the request: whenever it names a task we haven't read the
@@ -292,10 +214,15 @@
       loadedId = id;
       loadingTaskId = id;
       void store.ensureLoaded().catch(() => {});
+      // The columns of the move menu come with the task sources. A page opened
+      // from a link can be the first surface that needs them.
+      if (untrack(() => taskSourcesStore.sourceByKey.size === 0)) {
+        void taskSourcesStore.load().catch(() => {});
+      }
       void store
-        .get(id, projectCwd)
+        .get(id)
         .loadDetails()
-        .catch((err) => toastError("open task", err))
+        .catch((err) => toastTaskError("open task", err))
         .finally(() => {
           if (loadingTaskId === id) loadingTaskId = null;
         });
@@ -306,10 +233,9 @@
 
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
   // user actually saw underneath this one. ──
-  const siblingProjectKey = $derived(task ? store.projectKeyOf(task) : null);
   const siblings = $derived(
     sortTasks(
-      siblingProjectKey ? store.tasksInProject(siblingProjectKey) : store.inbox,
+      listingProjectKey ? store.tasksInProject(listingProjectKey) : [],
       DEFAULT_TASK_SORT,
     ),
   );
@@ -321,271 +247,25 @@
       : null,
   );
 
-  function toastError(action: string, err: Parameters<typeof String>[0]) {
-    toasts.error(`Couldn't ${action}`, {
-      description: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  function notifySessionUnavailable() {
-    toasts.error("Session no longer available", {
-      description:
-        "This task still has the session link, but its history is not available on the host that owns it.",
-    });
-  }
-
-  async function save(patch: TaskUpdatePatch): Promise<void> {
-    if (!taskId) return;
-    try {
-      await store.get(taskId).update(patch);
-    } catch (err) {
-      toastError("save task", err);
-    }
-  }
-
-  function openAssigneeMenu(): void {
-    if (!projectCwd || !taskServerId) return;
-    void store
-      .loadAssigneeCandidates(projectCwd, { serverId: taskServerId })
-      .catch(() => {});
-  }
-
   async function refresh() {
-    if (!taskId || !projectCwd || refreshing) return;
+    if (refreshing) return;
     refreshing = true;
     try {
-      await store.get(taskId, projectCwd).loadDetails();
-    } catch (err) {
-      toastError("refresh issue", err);
+      await commands.refresh();
     } finally {
       refreshing = false;
     }
   }
 
-  /** Exchange with the ticket now rather than on the engine's own debounce. */
-  async function syncNow() {
-    if (!taskId || syncing) return;
-    syncing = true;
-    try {
-      await store.get(taskId).syncNow();
-    } catch (err) {
-      toastError("sync with the provider", err);
-    } finally {
-      syncing = false;
-    }
+  async function comment(body: string) {
+    await commands.comment(body);
+    await tick();
+    scrollViewport?.scrollTo({ top: scrollViewport.scrollHeight });
   }
 
-  async function comment(body: string, alsoPost: boolean) {
-    if (!taskId) return;
-    try {
-      // The host uploads pasted attachments the provider can host and refuses
-      // the rest, so the rule lives there rather than in a string check here.
-      await store.get(taskId).comment(body, { pushToExternal: alsoPost });
-      await tick();
-      scrollViewport?.scrollTo({ top: scrollViewport.scrollHeight });
-    } catch (err) {
-      toastError("post comment", err);
-      throw err;
-    }
-  }
-
-  async function publishComments(commentIds: string[]) {
-    if (!taskId || !commentIds.length) return;
-    try {
-      await store.get(taskId).publishComments(commentIds);
-    } catch (err) {
-      // The host names the attachment it cannot publish and says to use the
-      // provider composer, which the masthead's open-source control reaches.
-      toastError("publish that comment", err);
-    }
-  }
-
-  async function deleteComment(commentId: string) {
-    if (!taskId) return;
-    try {
-      await store.get(taskId).deleteComment(commentId);
-    } catch (err) {
-      toastError("delete that comment", err);
-    }
-  }
-
-  /** File this task with the project's provider for the first time. */
-  async function publishTask() {
-    if (!taskId || !projectCwd || syncing) return;
-    syncing = true;
-    try {
-      await store.get(taskId).publishUpstream(projectCwd);
-    } catch (err) {
-      toastError("publish this task", err);
-    } finally {
-      syncing = false;
-    }
-  }
-
-  function setAutoPost(next: boolean) {
-    const host = configHost;
-    if (!host || !projectCwd) return;
-    void projectConfig
-      .save(host, projectCwd, { tasksAutoPushComments: next })
-      .catch((err) => toastError("save the auto-post setting", err));
-  }
-
-  function addLink(input: TaskLinkInput) {
-    if (!taskId) return;
-    void store.get(taskId).link(input).catch((err) => toastError("link this", err));
-  }
-
-  function removeLink(link: TaskLink) {
-    void store
-      .get(link.taskId)
-      .unlink(link.kind, link.targetKey, link.targetScope)
-      .catch((err) => toastError("unlink this", err));
-  }
-
-  /** The host draws the still, so this waits on a browser; the row shows it. */
-  async function pinArtifact(link: TaskLink, pinned: boolean) {
-    try {
-      await store.get(link.taskId).link({
-        kind: "work",
-        targetScope: link.targetScope,
-        targetKey: link.targetKey,
-        pinned,
-      });
-    } catch (err) {
-      toastError(pinned ? "pin the artifact" : "unpin the artifact", err);
-    }
-  }
-
-  async function attachArtifact(link: TaskLink) {
-    try {
-      await store.get(link.taskId).attachArtifact(link.targetKey);
-      toasts.success(
-        upstream?.canSync
-          ? `Preview queued for ${upstream.provider}`
-          : "Preview attached to this task",
-      );
-    } catch (err) {
-      toastError("attach the artifact preview", err);
-    }
-  }
-
-  /** A linked row opens wherever that kind lives. */
-  function openLink(link: TaskLink) {
-    switch (link.kind) {
-      case "work":
-        shell.openResource({
-          kind: "work",
-          workId: link.targetKey,
-          title: link.liveTitle || link.title,
-          via: "click",
-        });
-        break;
-      // A plan and an automation live on the machine that holds them; only the
-      // workspace can open one.
-      case "plan":
-        void session.workspace?.openPlanModal(`${link.targetScope}__${link.targetKey}`);
-        break;
-      case "automation":
-        session.workspace?.openAutomationBuilder(link.targetKey);
-        break;
-      case "pr": {
-        const number = Number(link.targetKey);
-        if (Number.isFinite(number)) {
-          const target = linkedPrNavigationTarget({
-            taskServerId: store.get(taskId).serverId,
-            taskProjectDirectory: projectCwd,
-            linkProjectDirectory: link.targetScope,
-          });
-          shell.openResource({
-            kind: "pull-request",
-            target: { number, title: link.title, url: link.url },
-            projectDirectory: target.projectDirectory ?? undefined,
-            serverId: target.serverId ?? undefined,
-          });
-        }
-        break;
-      }
-    }
-  }
-
-  /** Focus an open session once, or resume a closed one with the activation
-   *  policy the action needs. `resumeSession` activates a foreground resume by
-   *  itself, so the caller must not select its returned tab a second time: an
-   *  already-active tab treats a second selection as an expand/collapse toggle.
-   *
-   *  Resolve the indexed record first. The link stores a stable session id,
-   *  not which agent backend wrote it. */
-  async function reveal(sessionId: string, background: boolean): Promise<string | null> {
-    const workspace = session.workspace;
-    if (!workspace) return null;
-    const taskFrame = store.get(taskId);
-    const link = taskFrame.sessions.find((candidate) => candidate.sessionId === sessionId);
-    // A directly opened local task can already have loaded through the default
-    // API before its Task frame was stamped with a host. `ownerHost` normally
-    // repairs that placement. Keep the same default that served the page as the
-    // final local fallback instead of treating an unplaced frame as a deleted
-    // session.
-    const taskServerId =
-      (await taskFrame.ownerHost()) ?? serverConnections.defaultServerId();
-    const serverId = attemptServerId({
-      link: link ?? { executionServerId: null },
-      taskServerId: taskServerId ?? null,
-    });
-    if (!serverId) return null;
-    return workspace.revealSession(sessionId, serverConnections.resolveId(serverId), { background });
-  }
-
-  /** A session opened from the task is a new surface beside it, so the task
-   *  stays on screen (docs/plans/companion-surfaces.md, rule 6). A client with
-   *  one pane shows the conversation in place of the page. */
-  async function openSession(sessionId: string) {
-    if (onOpenSession) { onOpenSession(sessionId); return; }
-    if (session.workspace?.hasCompanionPanes) return openSessionSplit(sessionId);
-    try {
-      const tabId = await reveal(sessionId, false);
-      if (!tabId) return notifySessionUnavailable();
-    } catch (err) {
-      toastError("open this session", err);
-    }
-  }
-
-  async function openSessionSplit(sessionId: string) {
-    try {
-      // A split resume stays in the background. A foreground resume would make
-      // the conversation the destination and put this task's strip away.
-      const tabId = await reveal(sessionId, true);
-      if (!tabId) return notifySessionUnavailable();
-      const revealed = session.workspace?.sessionFor(tabId);
-      if (revealed) session.workspace?.openChatSurface(revealed.id);
-    } catch (err) {
-      toastError("open this session in a split", err);
-    }
-  }
-
-  /** Compose a new session already bound to this task. The link lands when the
-   *  draft is sent, so an abandoned composer leaves nothing behind. */
-  function startSession(record: Task) {
-    void session.workspace
-      ?.opening.openTaskSession(record)
-      .catch((err) => toastError("start a session", err));
-  }
-
-  function unlinkSession(sessionId: string) {
-    void store
-      .get(taskId)
-      .unlinkSession(sessionId)
-      .catch((err) => toastError("unlink this session", err));
-  }
-
-
-  /** `serverId` is the host running the session, not the task's: a cloud
-   *  task's home serves no execution RPC (TaskSessionsList resolves it). */
-  async function stopSession(sessionId: string, serverId: string) {
-    try {
-      await serverConnections.apiFor(serverId).stopSession(sessionId);
-    } catch (err) {
-      toastError("stop session", err);
-    }
+  function openAssigneeMenu(): void {
+    // The menu shows the error of a failed read.
+    void store.loadAssigneeCandidates(assigneeTarget).catch(() => {});
   }
 
   // ── The stacked rung ──
@@ -614,10 +294,9 @@
   // past everything.
   const railFolded = $derived(isTaskRailFolded(paneWidth));
 
-
   let tab = $state<TaskTabId>("overview");
   let detailsOpen = $state(false);
-  let detailsButton = $state<HTMLButtonElement | null>(null);
+  let detailsTriggerRef = $state<TaskDetailsTrigger | null>(null);
   // Where the rail folds, its fields open in place under the title, inside
   // this pane.
   const detailsSummary = $derived(task ? taskDetailsSummary(task) : null);
@@ -639,16 +318,6 @@
     if (activityVisible) activityMountedFor = taskId;
   });
 
-  // ── The bottom bar belongs to the tab, not to the page ──
-  // Where the four sections scroll past each other there is one thing to do at
-  // the foot of the page: comment. Where only one section is on screen, the
-  // move that section is for is the one the thumb should land on — Linked wants
-  // a link, Sessions wants a run — and the composer is what steps aside for it.
-  // It is hidden rather than unmounted, so a half-written comment survives a
-  // trip through the other tabs.
-  const bottomAction = $derived(
-    stacked && (tab === "linked" || tab === "sessions") ? tab : null,
-  );
   // The picker reads a machine's docs, plans, automations and PRs through the
   // workspace index; the console has none to pick from.
   const openPicker = session.workspace ? () => (picking = true) : null;
@@ -662,64 +331,16 @@
 </script>
 
 {#snippet detailsTrigger()}
-  <!-- Where the rail has folded, the status line ends in a Details disclosure,
-       drawn like the status and priority menus beside it: text and a chevron,
-       a wash only under the pointer. It leads with what a reader looks for
-       first — who has it, when it is due, how it is labelled — and only what is
-       set; status and priority are already on the line. A narrow pane sheds
-       the labels, then the due date, so the assignee keeps its room. It opens
-       the rail's fields under the title. -->
-  <button
-    bind:this={detailsButton}
-    type="button"
-    class="-mx-1.5 inline-flex h-[26px] max-w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-1.5 font-normal text-muted-foreground outline-none transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground aria-expanded:text-foreground pointer-coarse:h-9 [-webkit-tap-highlight-color:transparent]"
-    onclick={() => (detailsOpen = !detailsOpen)}
-    aria-controls="task-details-panel"
-    aria-expanded={detailsOpen}
-  >
-    {#if detailsSummary?.assignee}
-      <span class="inline-flex min-w-0 items-center gap-1.5 text-foreground">
-        {#if task?.assigneeAvatarUrl}
-          <img src={task.assigneeAvatarUrl} alt="" class="size-4 shrink-0 rounded-full" />
-        {:else}
-          <span
-            class="flex size-4 shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-semibold"
-            style="background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 74%, var(--foreground))"
-            aria-hidden="true">{authorInitials(detailsSummary.assignee)}</span
-          >
-        {/if}
-        <span class="truncate">{detailsSummary.assignee}</span>
-      </span>
-    {/if}
-    {#if detailsSummary?.due}
-      <span
-        class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap @max-[26rem]:hidden {detailsSummary.due.tone === 'overdue'
-          ? 'text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]'
-          : detailsSummary.due.tone === 'soon'
-            ? 'text-foreground'
-            : ''}"
-      >
-        <CalendarIcon size={13} class="shrink-0 opacity-70" aria-hidden="true" />
-        <span class="sr-only">Due</span>{detailsSummary.due.label}
-      </span>
-    {/if}
-    {#if detailsSummary?.labels}
-      <span class="inline-flex min-w-0 items-center gap-1 @max-[34rem]:hidden">
-        <TagIcon size={13} class="shrink-0 opacity-70" aria-hidden="true" />
-        <span class="sr-only">Labels</span><span class="truncate">{detailsSummary.labels}</span>
-      </span>
-    {/if}
-    <span class="inline-flex shrink-0 items-center gap-1">
-      Details
-      <CaretDownIcon
-        size={13}
-        class="shrink-0 opacity-70 transition-transform duration-150 motion-reduce:transition-none {detailsOpen
-          ? 'rotate-180'
-          : ''}"
-        aria-hidden="true"
-      />
-    </span>
-  </button>
+  {#if detailsSummary}
+    <TaskDetailsTrigger
+      bind:this={detailsTriggerRef}
+      summary={detailsSummary}
+      assigneeAvatarUrl={task?.assigneeAvatarUrl}
+      open={detailsOpen}
+      controls="task-details-panel"
+      onToggle={() => (detailsOpen = !detailsOpen)}
+    />
+  {/if}
 {/snippet}
 
 {#snippet detailsPanel()}
@@ -736,7 +357,7 @@
         event.preventDefault();
         event.stopPropagation();
         detailsOpen = false;
-        detailsButton?.focus();
+        detailsTriggerRef?.focus();
       }}
     >
       {@render propertiesPanel("panel")}
@@ -744,89 +365,37 @@
   {/if}
 {/snippet}
 
-{#snippet bottomBar(record: Task)}
-  <!-- The composer is outside the tabs on purpose: a comment is about the task,
-       not about whichever section is on screen, and rule one of the redesign is
-       that the input is always reachable. -->
-  {#if capabilities?.canComment}
-    <div class="flex items-end gap-2" class:hidden={bottomAction !== null}>
-      <div class="min-w-0 flex-1">
-        <!-- Where the bar is pinned by the page, the composer's own sticky
-             offset and scrim are the second copy of a job already done, and
-             they were what padded it into a floating card. -->
-        <TaskCommentComposer
-          onSubmit={comment}
-          provider={upstream?.canSync ? upstream.provider : null}
-          autoPost={autoPost ?? false}
-          class={stacked ? "static bottom-auto p-0 [background:none]" : undefined}
-          compact={stacked}
-          placeholder={stacked ? `Comment on ${taskRef(record)}…` : undefined}
-        />
-      </div>
-      {#if stacked && tab === "overview" && canStartSession}
-        <button
-          type="button"
-          class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.2)] [-webkit-tap-highlight-color:transparent]"
-          onclick={() => startSession(record)}
-          aria-label="New session"
-        >
-          <PlusIcon size={18} />
-        </button>
-      {/if}
-    </div>
-  {/if}
-
-  <!-- Linked and Sessions each have one move worth a whole bar. Primary for
-       Sessions, because starting a run is the page's own verb; outlined for
-       Linked, because attaching something is a reference, not a commitment. -->
-  {#if bottomAction === "sessions" && canStartSession}
-    <button
-      type="button"
-      class="flex h-12 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-primary font-semibold tracking-[-0.006em] text-primary-foreground active:opacity-90 [-webkit-tap-highlight-color:transparent]"
-      onclick={() => startSession(record)}
-    >
-      <PlusIcon size={16} />
-      New session
-    </button>
-  {:else if bottomAction === "linked" && openPicker}
-    <button
-      type="button"
-      class="flex h-12 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-transparent font-medium text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
-      onclick={openPicker}
-    >
-      <PlusIcon size={15} />
-      Link an item
-    </button>
+{#snippet bottomBar()}
+  {#if task}
+    <TaskBottomBar
+      {stacked}
+      {tab}
+      providerName={PROVIDER_NAMES[task.providerId]}
+      taskRef={taskRef(task)}
+      onComment={comment}
+      onStartSession={canStartSession ? commands.startSession : null}
+      onOpenPicker={openPicker}
+    />
   {/if}
 {/snippet}
 
 {#snippet propertiesPanel(variant: "column" | "panel")}
-  {#if task}
+  {#if task && locks}
     <TaskSidebar
       {task}
       {variant}
       {projectLabel}
       projectKey={taskProjectKey}
-      canEdit={capabilities?.canEditContent ?? false}
-      canEditPlanningFields={capabilities?.canEditPlanningFields ?? false}
-      canEditPriority={capabilities?.canEditPriority ?? false}
-      canEditLabels={capabilities?.canEditLabels ?? false}
+      {locks}
+      {placements}
+      {moveGroups}
       {labelCandidates}
-      canEditAssignee={capabilities?.canEditAssignee ?? false}
-      {assigneeCandidates}
-      {assigneeCandidatesLoading}
-      {assigneeCandidatesError}
-      editableStatuses={capabilities?.editableStatuses ?? []}
-      {upstream}
-      {publishTarget}
-      {syncing}
-      {autoPost}
-      onSyncNow={syncNow}
-      onSetAutoPost={setAutoPost}
-      onPublishAll={() => void publishComments(heldBack)}
-      onPublishTask={publishTask}
-      onOpenUpstream={(url) => void localApi.openExternal(url)}
-      onSave={save}
+      assigneeCandidates={store.assigneeCandidates(assigneeTarget)}
+      assigneeCandidatesLoading={store.assigneeCandidatesLoading(assigneeTarget)}
+      assigneeCandidatesError={store.assigneeCandidatesError(assigneeTarget)}
+      onMove={(target) => void commands.move(target)}
+      onSave={commands.save}
+      onOpenExternal={(url) => void localApi.openExternal(url)}
       onOpenAssigneeMenu={openAssigneeMenu}
     />
   {/if}
@@ -843,16 +412,11 @@
        only the detail read (links, comments, activity) is still in flight. -->
   {#if !task && (taskId !== loadedId || loadingTaskId === taskId || !store.loaded)}
     <TaskPageSkeleton />
-  {:else if task}
+  {:else if task && locks}
     <!-- Two heads, one set of decisions. The wide bar and the record bar take
          the same handlers; what differs is how much of the page's chrome each
          has room to state, which is why they are two components rather than one
          with a rung's worth of hidden branches inside it. -->
-    {@const chromeSync = upstream?.canSync
-      ? syncNow
-      : task.providerId === "github"
-        ? refresh
-        : null}
     {@const chromePrevious = embedded
       ? onRequestPrevious
       : previous
@@ -867,31 +431,35 @@
       ? () => void localApi.openExternal(task.url!)
       : null}
     {@const chromeOpenList = onRequestClose ?? (() => session.openTasks("click"))}
+    <!-- The provider link is the task's only address. A draft has none. -->
+    {@const chromeCopyLink = task.url ? () => void commands.copyLink() : null}
+    <!-- Only a draft can be deleted. An issue is closed or moved on its provider. -->
+    {@const chromeDelete = task.canDelete ? commands.deleteDraft : null}
     {#if stacked}
       <TaskRecordBar
         {task}
         {projectLabel}
-        {upstream}
-        syncing={syncing || refreshing}
-        onSync={chromeSync}
+        {refreshing}
+        onRefresh={() => void refresh()}
         onPrevious={chromePrevious}
         onNext={chromeNext}
         onOpenSource={chromeOpenSource}
         onOpenPage={embedded ? onOpenRoute : undefined}
-        onCopyLink={canCopyLink ? () => copyLink(task) : null}
+        onCopyLink={chromeCopyLink}
+        onDelete={chromeDelete}
         onOpenList={chromeOpenList}
       />
     {:else}
       <TaskChromeBar
         {task}
-        {upstream}
-        syncing={syncing || refreshing}
-        onSync={chromeSync}
+        {refreshing}
+        onRefresh={() => void refresh()}
         onPrevious={chromePrevious}
         onNext={chromeNext}
         onOpenSource={chromeOpenSource}
         onOpenPage={embedded ? onOpenRoute : undefined}
-        onCopyLink={canCopyLink ? () => copyLink(task) : null}
+        onCopyLink={chromeCopyLink}
+        onDelete={chromeDelete}
         onOpenList={chromeOpenList}
         onClose={onRequestClose ?? (() => pane.close())}
       />
@@ -910,33 +478,13 @@
       bind:this={scrollViewport}
       class="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:w-0"
     >
-      {#if syncOps.length}
-        <div class="mx-auto w-full max-w-[1420px] px-[52px] pt-4">
-          <div
-            class="flex items-center gap-2 rounded-md border-[.5px] border-[var(--hairline)] bg-[var(--wash-1)] px-3 py-2 text-xs text-muted-foreground"
-            role="status"
-          >
-            <span
-              class="size-1.5 shrink-0 rounded-full {failedSyncCount
-                ? 'bg-red-500'
-                : 'bg-amber-500'}"
-              aria-hidden="true"
-            ></span>
-            {#if pendingSyncCount}
-              <span
-                >{pendingSyncCount} update{pendingSyncCount === 1 ? "" : "s"} from
-                a dispatched session waiting to sync</span
-              >
-            {/if}
-            {#if failedSyncCount}
-              <span
-                >{failedSyncCount} update{failedSyncCount === 1 ? "" : "s"} failed
-                to sync</span
-              >
-            {/if}
-          </div>
-        </div>
-      {/if}
+      <TaskPageNotices
+        fromCache={details?.fromCache === true}
+        {refreshing}
+        onRefresh={() => void refresh()}
+        pendingSyncCount={syncOps.length - failedSyncCount}
+        {failedSyncCount}
+      />
       <div
         class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-3 @max-[60rem]:px-6 @max-[42rem]:px-4"
       >
@@ -947,13 +495,12 @@
           <div class="flex flex-col" class:hidden={hiddenTab("overview")}>
             <TaskHeader
               {task}
-              canEdit={capabilities?.canEditContent ?? false}
-              onSaveTitle={(title) => save({ title })}
-              onSaveBody={(body) => save({ body })}
-              editableStatuses={capabilities?.editableStatuses ?? []}
-              canEditPriority={capabilities?.canEditPriority ?? false}
-              onSaveStatus={(status) => save({ status })}
-              onSavePriority={(priority) => save({ priority })}
+              {locks}
+              onSaveTitle={(title) => commands.save({ title })}
+              onSaveBody={(body) => commands.save({ body })}
+              {moveGroups}
+              onMove={(target) => void commands.move(target)}
+              onSavePriority={(priority) => void commands.save({ priority })}
               detailsTrigger={railFolded ? detailsTrigger : undefined}
               detailsPanel={railFolded ? detailsPanel : undefined}
             />
@@ -962,9 +509,9 @@
               <TaskPrList
                 rows={prRows}
                 {stacked}
-                onOpen={openLink}
+                onOpen={commands.openLink}
                 onOpenExternal={(url) => void localApi.openExternal(url)}
-                onUnlink={removeLink}
+                onUnlink={commands.removeLink}
                 onAdd={openPicker}
               />
             {/if}
@@ -982,15 +529,15 @@
               link={pinnedArtifact}
               html={session.worksStore.savedWork(pinnedArtifact.targetKey)?.content || null}
               enabled={surfaceVisible}
-              onOpen={openLink}
-              onUnpin={(link) => void pinArtifact(link, false)}
+              onOpen={commands.openLink}
+              onUnpin={(link) => void commands.pinArtifact(link, false)}
             />
           {/if}
           <TaskLinkedTable
             {links}
             {stacked}
-            onOpen={openLink}
-            onUnlink={removeLink}
+            onOpen={commands.openLink}
+            onUnlink={commands.removeLink}
             onAdd={openPicker}
             upstreamProvider={(link) =>
               linkedWorkProvider(link, (workId) => session.worksStore.get(workId))}
@@ -998,9 +545,9 @@
             onExpandArtifact={(link) =>
               void session.worksStore.ensureContent(link.targetKey, "task-artifact-preview")}
             previewsEnabled={surfaceVisible}
-            onAttachArtifact={attachArtifact}
-            attachLabel={upstream?.canSync ? `Send to ${upstream.provider}` : "Attach preview"}
-            onPin={(link, pinned) => void pinArtifact(link, pinned)}
+            onAttachArtifact={commands.attachArtifact}
+            attachLabel={`Send to ${PROVIDER_NAMES[task.providerId]}`}
+            onPin={(link, pinned) => void commands.pinArtifact(link, pinned)}
           />
           </div>
 
@@ -1009,11 +556,11 @@
               {sessions}
               {stacked}
               taskTitle={task.title}
-              onOpen={openSession}
-              onOpenSplit={shell.hasCompanionPanes ? openSessionSplit : null}
-              onStop={stopSession}
-              onUnlink={unlinkSession}
-              onNewSession={canStartSession ? () => startSession(task) : null}
+              onOpen={commands.openSession}
+              onOpenSplit={shell.hasCompanionPanes ? commands.openSessionSplit : null}
+              onStop={commands.stopSession}
+              onUnlink={commands.unlinkSession}
+              onNewSession={canStartSession ? commands.startSession : null}
             />
           </div>
 
@@ -1027,12 +574,11 @@
                 {links}
                 enabled={surfaceVisible && !hiddenTab("activity")}
                 {sessions}
-                onOpenSession={(sessionId) => void openSession(sessionId)}
+                onOpenSession={(sessionId) => void commands.openSession(sessionId)}
                 currentUserId={taskServerId ? presenceStore.currentUserId(taskServerId) : null}
-                provider={upstream?.canSync ? upstream.provider : null}
-                onPublish={(commentId) => publishComments([commentId])}
-                canModerate={canModerateComments}
-                onDelete={deleteComment}
+                providerName={PROVIDER_NAMES[task.providerId]}
+                onRetry={commands.retryComment}
+                onDiscard={commands.discardComment}
               />
               {/key}
             {/if}
@@ -1047,7 +593,7 @@
                Where the rail folds, its fields are reached from Details at the
                end of the status line, not from a button beside the composer. -->
           {#if !stacked}
-            {@render bottomBar(task)}
+            {@render bottomBar()}
           {/if}
           {:else}
             <ContentSkeleton label="Loading task details" />
@@ -1070,14 +616,14 @@
          length, which is what the spec draws. -->
     {#if stacked}
       <div class="shrink-0 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
-        {@render bottomBar(task)}
+        {@render bottomBar()}
       </div>
     {/if}
   {:else if !store.loaded}
     <TaskPageSkeleton />
   {:else}
     <div class="flex flex-1 items-center justify-center text-muted-foreground">
-      That task no longer exists.
+      Solus cannot find this task on a connected host.
     </div>
   {/if}
 </div>
@@ -1085,7 +631,7 @@
 {#if picking && session.workspace}
   <TaskLinkPicker
     {projectCwd}
-    onPick={addLink}
+    onPick={commands.addLink}
     onClose={() => (picking = false)}
   />
 {/if}

@@ -29,10 +29,15 @@ test('the data service boots alone, serves HTTP, and exposes no execution or rep
   expect(service).toBeDefined()
   const url = `http://127.0.0.1:${service!.port}`
   expect((await fetch(url + '/v1/openapi.json')).status).toBe(200)
-  expect((await fetch(url + '/v1/tasks')).status).toBe(401)
+  expect((await fetch(url + '/v1/works')).status).toBe(401)
   expect(service!.server.hasHandler('prompt')).toBe(false)
   expect(service!.server.hasHandler('automationRun')).toBe(false)
-  expect(service!.server.hasHandler('tasksReadExtras')).toBe(true)
+  // The service holds the attachments of tasks and no task: GitHub or Jira is read on a host that has the project.
+  expect(service!.server.hasHandler('tasksAttachments')).toBe(true)
+  expect(service!.server.hasHandler('tasksLink')).toBe(true)
+  for (const method of ['tasksGet', 'tasksCreate', 'tasksUpdate', 'tasksMove', 'tasksDelete', 'tasksComment', 'tasksSources'] as const) {
+    expect({ method, served: service!.server.hasHandler(method) }).toEqual({ method, served: false })
+  }
   expect(service!.server.hasHandler('workspaceProjectAdd')).toBe(true)
 })
 

@@ -24,7 +24,7 @@ import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL } from '../../../admission/princip
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { scheduleHasEnded, validateTrigger } from '../../../data/automations/automation-schedule'
 import { hasActiveRun, triggerAutomationRun } from '../../automations/automation-runner'
-import { Task } from '../../../data/tasks/task'
+import { linkSessionOutput } from '../../../data/tasks/task-attachments'
 import { foreignTaskLinksFor } from '../../../data/tasks/foreign-tasks'
 import { resolveAutomationCwd } from '../../automations/automation-cwd'
 
@@ -306,7 +306,7 @@ export async function executeAutomationTool(
           ? 'Trigger it with run_automation.'
           : `Scheduled (${created.trigger.type})${created.nextRunAt ? `; next run ${created.nextRunAt}` : ''}.`
       if (deps.ctx?.sessionId) {
-        await Task.linkSessionOutput(ANY_ORGANIZATION, deps.ctx.sessionId, {
+        await linkSessionOutput(ANY_ORGANIZATION, deps.ctx.sessionId, {
           kind: 'automation',
           targetKey: created.id,
           title: created.name,
@@ -364,7 +364,7 @@ export async function executeAutomationTool(
       }
       const updated = await updateAutomation(id, automationPatch)
       if (updated && deps.ctx?.sessionId) {
-        await Task.linkSessionOutput(ANY_ORGANIZATION, deps.ctx.sessionId, {
+        await linkSessionOutput(ANY_ORGANIZATION, deps.ctx.sessionId, {
           kind: 'automation',
           targetKey: updated.id,
           title: updated.name,

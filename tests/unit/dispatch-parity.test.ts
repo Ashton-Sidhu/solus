@@ -5,16 +5,19 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TaskSnapshot } from '@solus/contracts/task-types'
+import { FakeTaskProviders, githubIssue, jiraIssue, JIRA, jiraRead, seedTask } from './helpers/task-fixtures'
 
-/** The person every change in this file is made by. */
-const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
 /** An agent's session, as the doer of what it wrote. */
 const AGENT = { kind: 'agent' as const, sessionId: 'agent-session' }
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-let createTask: typeof import('@solus/server/data/tasks/task-store')['createTask']
 let TaskModule: typeof import('@solus/server/data/tasks/task')
+let attachments: typeof import('@solus/server/data/tasks/task-attachments')
+let taskStore: typeof import('@solus/server/data/tasks/task-store')
+let registry: typeof import('@solus/server/data/tasks/providers/registry')
+/** GitHub and Jira for this file: a write of a task goes to a provider, here a fake one. */
+let providers: FakeTaskProviders
 let outbox: typeof import('@solus/server/sync/outbox/outbox-store')
 let foreignTasks: typeof import('@solus/server/data/tasks/foreign-tasks')
 let taskApplier: typeof import('@solus/server/data/tasks/task-applier')
@@ -30,7 +33,11 @@ let closeDb: typeof import('@solus/server/db')['closeDb']
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 
-beforeEach(async () => { await installTestWorkspaceTools() })
+beforeEach(async () => {
+  await installTestWorkspaceTools()
+  providers = new FakeTaskProviders()
+  registry.useTaskAdaptersForTests(providers.adapters())
+})
 
 beforeAll(async () => {
   // An earlier file may leave the shared connection open on a folder it removed.
@@ -38,8 +45,10 @@ beforeAll(async () => {
   closeDb()
   dataDir = mkdtempSync(join(tmpdir(), 'solus-dispatch-parity-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
   TaskModule = await import('@solus/server/data/tasks/task')
+  attachments = await import('@solus/server/data/tasks/task-attachments')
+  taskStore = await import('@solus/server/data/tasks/task-store')
+  registry = await import('@solus/server/data/tasks/providers/registry')
   outbox = await import('@solus/server/sync/outbox/outbox-store')
   foreignTasks = await import('@solus/server/data/tasks/foreign-tasks')
   taskApplier = await import('@solus/server/data/tasks/task-applier')
@@ -55,6 +64,7 @@ beforeAll(async () => {
 })
 
 afterAll(() => {
+  registry.useTaskAdaptersForTests(null)
   closeDb?.()
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
@@ -65,28 +75,39 @@ beforeEach(() => {
   outbox.ackOutboxOps(outbox.listOutboxOps().map((op) => op.id))
 })
 
-/** A snapshot the way a dispatching client would ship it — the task exists
- *  only "elsewhere", so nothing here writes a local row for it. */
+/** A snapshot the way a dispatching client would ship it: another host reads
+ *  the task, so nothing here writes a copy of it. */
 function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['details']['task']> = {}): TaskSnapshot {
   return {
     details: {
       task: {
         id: taskId,
-        providerId: 'local',
-        projectKey: '/home/dev/solus',
+        providerId: 'github',
+        kind: 'issue',
+        reference: 'acme/solus#41',
         title: 'Fix the scroll bug',
         body: 'Restore scrollback after refresh.',
-        status: 'in_progress',
-        url: null,
+        url: 'https://github.com/acme/solus/issues/41',
+        state: { name: 'Open', category: 'open' },
+        category: 'active',
+        placements: [],
         labels: [],
+        writableFields: ['title', 'body', 'labels', 'assignee'],
+        updatedAt: 1,
         ...overrides,
-      } as TaskSnapshot['details']['task'],
+      },
       comments: [],
       links: [],
-      events: [],
+      activity: [],
     },
     sessions: [],
   }
+}
+
+/** A task that this host has a copy of, and that the fake provider holds. */
+async function heldTask(task = githubIssue(1)) {
+  providers.hold(task)
+  return seedTask(task)
 }
 
 /** The two-id reality the real backends present: `sessionId()` reports the
@@ -112,23 +133,33 @@ describe('agent task lifecycle policy', () => {
 
   test('none prevents every agent status change', async () => {
     await dispatchedWith('none-policy', 'none')
-    const task = await createTask('local', { title: 'User controlled', projectKey: '/p', body: '' })
+    const task = await heldTask(jiraIssue(1))
 
     const result = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'in_progress' },
+      { task_id: task.id, status: 'active' },
       toolContext('none-policy'),
     )
 
     expect(result.ok).toBe(false)
     expect(result.text).toContain('user controls')
-    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('todo')
+    // Nothing reached Jira, and the copy did not change.
+    expect(providers.callsOf('setState:')).toEqual([])
+    expect((await taskStore.loadTask(task.id))?.category).toBe('open')
   })
 
   test('moderate permits progress but prevents Done', async () => {
     // No preferences were dispatched for this session, so the built-in moderate policy applies.
-    const task = await createTask('local', { title: 'User closes this', projectKey: '/p', body: '' })
-    const reviewed = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: task.id, status: 'in_review' },
+    // The task is on a Jira project source, so its columns are its statuses.
+    await (await import('@solus/server/data/tasks/task-cache')).storeSourceRead(JIRA, jiraRead([jiraIssue(1)]))
+    providers.hold(jiraIssue(1))
+    const task = { id: 'jira:site:10001' }
+    const moved = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: task.id, status: 'In Progress' },
+      toolContext('moderate-policy'),
+    )
+    // A column whose category is done is refused as the category is.
+    const doneColumn = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: task.id, status: 'Done' },
       toolContext('moderate-policy'),
     )
     const done = await taskTools.updateTaskStatusAgentTool.execute(
@@ -136,15 +167,16 @@ describe('agent task lifecycle policy', () => {
       toolContext('moderate-policy'),
     )
 
-    expect(reviewed.ok).toBe(true)
+    expect(moved.ok).toBe(true)
+    expect(doneColumn.ok).toBe(false)
     expect(done.ok).toBe(false)
     expect(done.text).toContain('Moderate mode')
-    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('in_review')
+    expect((await taskStore.loadTask(task.id))?.state).toEqual({ name: 'In Progress', category: 'active' })
   })
 
   test('autonomous permits Done', async () => {
     await dispatchedWith('autonomous-policy', 'autonomous')
-    const task = await createTask('local', { title: 'Agent controlled', projectKey: '/p', body: '' })
+    const task = await heldTask(githubIssue(2))
 
     const result = await taskTools.updateTaskStatusAgentTool.execute(
       { task_id: task.id, status: 'done' },
@@ -152,7 +184,9 @@ describe('agent task lifecycle policy', () => {
     )
 
     expect(result.ok).toBe(true)
-    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('done')
+    // The issue is closed on GitHub, and the copy follows the provider's answer.
+    expect(providers.tasks.get(task.id)?.state.name).toBe('Closed')
+    expect((await taskStore.loadTask(task.id))?.category).toBe('done')
   })
 })
 
@@ -160,12 +194,12 @@ describe('the host outbox (ADR-0007)', () => {
   test('record → list → apply → ack is the whole lifecycle, and redelivery is a no-op', async () => {
     // WHY: the op id is the idempotence key end to end. A lost ack means the
     // client redelivers, and the applied-ops guard must make that harmless.
-    const task = await createTask('local', { title: 'Owned here', projectKey: '/p', body: '' })
+    const task = await heldTask(githubIssue(3))
     const op = outbox.recordOutboxOp({
       domain: 'tasks',
       resourceId: task.id,
       name: 'comment',
-      payload: { body: 'from the borrowed machine', author: 'agent' },
+      payload: { body: 'from the borrowed machine', author: AGENT },
       sessionId: 'session-1',
     })
 
@@ -176,10 +210,12 @@ describe('the host outbox (ADR-0007)', () => {
     const redelivered = await outbox.applyOutboxOps([op])
     expect(redelivered.applied).toEqual([op.id])
 
-    const details = await (await TaskModule.Task.byId('local', task.id)).details()
+    const details = await TaskModule.taskDetails('local', task.id)
     const matching = details.comments.filter((comment) => comment.id === op.id)
     expect(matching.length).toBe(1)
     expect(matching[0].body).toBe('from the borrowed machine')
+    // The comment is a provider comment, posted one time.
+    expect(providers.comments.get(task.id)?.map((comment) => comment.body)).toEqual(['from the borrowed machine'])
 
     outbox.ackOutboxOps([op.id])
     expect(outbox.listOutboxOps().find((listed) => listed.id === op.id)).toBeUndefined()
@@ -188,34 +224,34 @@ describe('the host outbox (ADR-0007)', () => {
   test('a replayed status op cannot regress a later human change', async () => {
     // WHY: last-write-wins must mean "last recorded", not "last delivered". The
     // guard skips an already-applied op instead of trusting timestamps.
-    const task = await createTask('local', { title: 'Status races', projectKey: '/p', body: '' })
+    const task = await heldTask(jiraIssue(4))
     const op = outbox.recordOutboxOp({
       domain: 'tasks',
       resourceId: task.id,
       name: 'set-status',
-      payload: { status: 'in_review' },
+      payload: { status: 'active' },
       sessionId: 'session-1',
     })
     await outbox.applyOutboxOps([op])
-    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('in_review')
+    expect((await taskStore.loadTask(task.id))?.category).toBe('active')
 
     // A human moves it afterwards; the same op redelivers (lost ack).
-    await (await TaskModule.Task.byId('local', task.id)).update({ status: 'done' }, BY)
+    await TaskModule.moveTask(task.id, { category: 'done' })
     const redelivered = await outbox.applyOutboxOps([op])
     expect(redelivered.applied).toEqual([op.id])
-    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('done')
+    expect((await taskStore.loadTask(task.id))?.category).toBe('done')
+    expect(providers.callsOf('setState:')).toEqual([`setState:${task.id}:active`, `setState:${task.id}:done`])
     outbox.ackOutboxOps([op.id])
   })
 
-  test('an op against a deleted task dead-letters instead of redelivering forever', async () => {
-    const task = await createTask('local', { title: 'Doomed', projectKey: '/p', body: '' })
+  test('an op against an id that is not a task key dead-letters instead of redelivering forever', async () => {
+    // WHY: an op recorded before tasks were provider-owned names a task that no provider has. No retry can deliver it.
     const op = outbox.recordOutboxOp({
       domain: 'tasks',
-      resourceId: task.id,
+      resourceId: '01JOLDLOCALTASKXXXXXXXXXXX',
       name: 'comment',
-      payload: { body: 'too late', author: 'agent' },
+      payload: { body: 'too late', author: AGENT },
     })
-    await (await TaskModule.Task.byId('local', task.id)).delete()
 
     const result = await outbox.applyOutboxOps([op])
     expect(result.failed.length).toBe(1)
@@ -230,15 +266,15 @@ describe('the host outbox (ADR-0007)', () => {
 
 describe('task tools on a dispatched session (foreign task)', () => {
   const sessionId = 'dispatched-session'
-  const foreignTaskId = '01JFOREIGNTASKXXXXXXXXXXXX'
+  const foreignTaskId = 'github:I_foreign'
 
   beforeEach(() => {
     foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot(foreignTaskId))
   })
 
-  test('read_task answers from the shipped snapshot, not this host’s store', async () => {
-    // WHY: the task's row lives on another machine. Before this, the Work
-    // contract told the agent to call read_task and the call threw "not found".
+  test('read_task answers from the shipped snapshot, and asks no provider', async () => {
+    // WHY: another host reads the task with its person's connection. This
+    // machine may have no connection that can read it at all.
     const result = await taskTools.readTaskAgentTool.execute(
       { task_id: foreignTaskId },
       toolContext(sessionId),
@@ -246,6 +282,9 @@ describe('task tools on a dispatched session (foreign task)', () => {
     expect(result.ok).toBe(true)
     expect(result.text).toContain('Fix the scroll bug')
     expect(result.text).toContain('Restore scrollback after refresh.')
+    expect(result.text).toContain('GitHub acme/solus#41')
+    expect(result.text).toContain('status category: active')
+    expect(providers.calls).toEqual([])
   })
 
   test('comment_task records an op and the agent reads its own write back', async () => {
@@ -268,11 +307,21 @@ describe('task tools on a dispatched session (foreign task)', () => {
 
   test('update_task_status records an op and later snapshots re-overlay it', async () => {
     const moved = await taskTools.updateTaskStatusAgentTool.execute(
-      { task_id: foreignTaskId, status: 'in_review' },
+      { task_id: foreignTaskId, status: 'done' },
       toolContext(sessionId),
     )
-    expect(moved.ok).toBe(true)
-    expect(moved.text).toContain('in_review')
+    // No session settings were dispatched: the built-in moderate policy refuses done here too.
+    expect(moved.ok).toBe(false)
+    const { recordSessionSettings } = await import('@solus/server/execution/sessions/session-settings')
+    recordSessionSettings(sessionId, { organizationId: 'local', preferences: { agentTaskLifecyclePolicy: 'autonomous' } })
+    const allowed = await taskTools.updateTaskStatusAgentTool.execute(
+      { task_id: foreignTaskId, status: 'done' },
+      toolContext(sessionId),
+    )
+    expect(allowed.ok).toBe(true)
+    // The host that reads the task makes the move: nothing reaches a provider from here.
+    expect(providers.calls).toEqual([])
+    expect(outbox.pendingOutboxOpsFor('tasks', foreignTaskId).map((op) => [op.name, op.payload])).toEqual([['set-status', expect.objectContaining({ status: 'done' })]])
 
     // The next prompt re-ships a snapshot the owner host rendered *before* the
     // op drained; the pending overlay keeps the agent's own move visible.
@@ -281,7 +330,7 @@ describe('task tools on a dispatched session (foreign task)', () => {
       { task_id: foreignTaskId },
       toolContext(sessionId),
     )
-    expect(read.text).toContain('status: in_review')
+    expect(read.text).toContain('status category: done')
   })
 
   test('session links reject a task destination even on a dispatched host', async () => {
@@ -294,16 +343,26 @@ describe('task tools on a dispatched session (foreign task)', () => {
     expect(linked.text).toContain('Invalid arguments for link')
   })
 
-  test('a local task is untouched by the foreign branch', async () => {
-    const task = await createTask('local', { title: 'Local as ever', projectKey: '/p', body: '' })
+  test('a task that is not the shipped one is written to its provider from this host', async () => {
+    const task = await heldTask(githubIssue(5))
     const commented = await taskTools.commentTaskAgentTool.execute(
-      { task_id: task.id, body: 'plain local comment' },
+      { task_id: task.id, body: 'plain comment' },
       toolContext(sessionId),
     )
     expect(commented.ok).toBe(true)
     expect(outbox.pendingOutboxOpsFor('tasks', task.id).length).toBe(0)
-    const details = await (await TaskModule.Task.byId('local', task.id)).details()
-    expect(details.comments.some((comment) => comment.body === 'plain local comment')).toBe(true)
+    expect(providers.comments.get(task.id)?.map((comment) => comment.body)).toEqual(['plain comment'])
+  })
+
+  test('comment_task says so when the provider did not take the comment, and Solus holds it as unsent', async () => {
+    // WHY: an agent that believes its handoff note is on GitHub when it is not leaves the next person with nothing.
+    const task = await heldTask(githubIssue(6))
+    providers.failure = new Error('socket hang up')
+    const commented = await taskTools.commentTaskAgentTool.execute({ task_id: task.id, body: 'handoff note' }, toolContext(sessionId))
+    providers.failure = null
+    expect(commented.ok).toBe(false)
+    expect(commented.text).toContain('socket hang up')
+    expect((await TaskModule.taskDetails('local', task.id)).comments).toMatchObject([{ body: 'handoff note', unsent: true }])
   })
 })
 
@@ -314,17 +373,19 @@ describe('read_task returns what the task packet no longer carries', () => {
     return taskTools.readTaskAgentTool.execute({ task_id: snapshot.details.task.id }, toolContext(sessionId))
   }
 
-  test('names the project the task belongs to', async () => {
-    // WHY: the packet printed the project; read_task is now the only place the
-    // agent learns it.
-    const result = await read(shippedSnapshot('01JREADPROJECTXXXXXXXXXXXX'))
-    expect(result.text).toContain('project: /home/dev/solus')
+  test('names the task as its provider does, with its state', async () => {
+    // WHY: the packet carries the task key and the title only; read_task is
+    // where the agent learns what the task is on GitHub or Jira.
+    const result = await read(shippedSnapshot('github:I_readstate', { state: { name: 'Closed', category: 'done' }, category: 'done' }))
+    expect(result.text).toContain('GitHub acme/solus#41 — https://github.com/acme/solus/issues/41')
+    expect(result.text).toContain('status category: done')
+    expect(result.text).toContain('state: Closed')
   })
 
   test('names every linked item and the tool that reads it', async () => {
     // WHY: links rendered nowhere agent-visible, so a dispatched agent had no
     // way to discover the design doc its task pointed at.
-    const snapshot = shippedSnapshot('01JREADLINKSXXXXXXXXXXXXXX')
+    const snapshot = shippedSnapshot('github:I_readlinks')
     snapshot.details.links = [{
       taskId: snapshot.details.task.id,
       kind: 'work',
@@ -339,10 +400,10 @@ describe('read_task returns what the task packet no longer carries', () => {
     expect(result.text).toContain('work work-1 — "Design doc" (read_work)')
   })
 
-  test('prints the upstream epic with its description, clipped', async () => {
-    // WHY: the epic is context the agent cannot read any other way: it may not
-    // be a Solus task at all. A long epic must not crowd out the task itself.
-    const result = await read(shippedSnapshot('01JREADEPICXXXXXXXXXXXXXXX', {
+  test('prints the epic with its description, clipped', async () => {
+    // WHY: the epic is context the agent cannot read any other way: the host
+    // may hold no copy of it. A long epic must not crowd out the task itself.
+    const result = await read(shippedSnapshot('github:I_readepic', {
       epic: { provider: 'jira', externalId: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7', title: 'Release 2.0', body: `Ship the release.\n${'x'.repeat(5000)}` },
     }))
     const lines = result.text.split('\n')
@@ -354,7 +415,7 @@ describe('read_task returns what the task packet no longer carries', () => {
   })
 
   test('a GitHub parent issue reads as its number', async () => {
-    const result = await read(shippedSnapshot('01JREADGHEPICXXXXXXXXXXXXX', {
+    const result = await read(shippedSnapshot('github:I_readghepic', {
       epic: { provider: 'github', externalId: '12', url: 'https://github.com/o/r/issues/12', title: 'Roadmap', body: '' },
     }))
     expect(result.text).toContain('Epic: github #12 — "Roadmap" — https://github.com/o/r/issues/12')
@@ -363,7 +424,7 @@ describe('read_task returns what the task packet no longer carries', () => {
 
 describe('linked-item tools on a dispatched session', () => {
   const sessionId = 'dispatched-session-with-links'
-  const foreignTaskId = '01JFOREIGNWORKTASKXXXXXXXX'
+  const foreignTaskId = 'github:I_foreignwork'
   const shippedWork = {
     kind: 'work' as const,
     key: 'work-on-the-task-host',
@@ -495,7 +556,8 @@ describe('works from a dispatched session travel through the outbox', () => {
   test('create_work records an op, reads back pre-drain, and lands linked on the owner host', async () => {
     // WHY: before this, a dispatched create_work persisted onto the borrowed
     // machine and vanished from the user's world when that machine did.
-    const task = await createTask('local', { title: 'Owns the doc', projectKey: '/p', body: '' })
+    // The owner host holds the task's attachments; a link needs no copy of the task.
+    const task = { id: 'github:I_ownsdoc' }
     foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot(task.id))
 
     const created = await workTools.createWorkAgentTool.execute(
@@ -527,7 +589,7 @@ describe('works from a dispatched session travel through the outbox', () => {
     expect(first.applied).toEqual(pending.map((op) => op.id))
     const landed = await works.loadWork('local', workId)
     expect(landed?.content).toBe('# Authored elsewhere')
-    const details = await (await TaskModule.Task.byId('local', task.id)).details()
+    const details = await attachments.taskAttachments('local', task.id)
     expect(details.links.some((link) => link.kind === 'work' && link.targetKey === workId)).toBe(true)
 
     // Redelivery (lost ack) is a no-op.
@@ -571,25 +633,24 @@ describe('the task host ships linked content with the snapshot', () => {
     // WHY: the execution host cannot read this host's folio store, so the
     // snapshot is the only way a dispatched agent can read the task's docs.
     const created = await works.createWork('local', 'Design doc', 'doc', '# The plan', '', undefined, 'claude-code', '/p')
-    const task = await createTask('local', { title: 'Task with a doc', projectKey: '/p', body: '' })
-    await (await TaskModule.Task.byId('local', task.id)).link({
+    const task = await heldTask(githubIssue(7))
+    await attachments.linkTask('local', task.id, {
       kind: 'work',
       targetScope: '',
       targetKey: created.id,
       title: created.title,
     }, AGENT)
-    const snapshot = await linkedContent.attachLinkedContent(await TaskModule.taskSnapshot('local', task.id))
+    const snapshot = await linkedContent.attachLinkedContent('local', await TaskModule.taskSnapshot('local', task.id))
     expect(snapshot.linked?.map((item) => item.key)).toEqual([created.id])
     expect(snapshot.linked?.[0].content).toBe('# The plan')
     expect(snapshot.linked?.[0].workType).toBe('doc')
   })
 
   test('an unresolvable plan link is skipped, and a PR link ships no content', async () => {
-    const task = await createTask('local', { title: 'Task with dead links', projectKey: '/p', body: '' })
-    const bound = await TaskModule.Task.byId('local', task.id)
-    await bound.link({ kind: 'plan', targetScope: 'gone-session', targetKey: 'plan-x', title: 'Lost plan' }, AGENT)
-    await bound.link({ kind: 'pr', targetScope: '/p', targetKey: '7', title: '#7', url: 'https://github.com/acme/app/pull/7' }, AGENT)
-    const snapshot = await linkedContent.attachLinkedContent(await TaskModule.taskSnapshot('local', task.id))
+    const task = await heldTask(githubIssue(8))
+    await attachments.linkTask('local', task.id, { kind: 'plan', targetScope: 'gone-session', targetKey: 'plan-x', title: 'Lost plan' }, AGENT)
+    await attachments.linkTask('local', task.id, { kind: 'pr', targetScope: '/p', targetKey: '7', title: '#7', url: 'https://github.com/acme/app/pull/7' }, AGENT)
+    const snapshot = await linkedContent.attachLinkedContent('local', await TaskModule.taskSnapshot('local', task.id))
     expect(snapshot.linked ?? []).toEqual([])
   })
 })

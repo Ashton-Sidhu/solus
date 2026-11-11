@@ -28,7 +28,7 @@ export const demoFixtures: DemoFixtures = {
   plans: fixture<DemoFixtures['plans']>('plans', devFixtures.plans, emptyArray),
   works: fixture<DemoFixtures['works']>('works', devFixtures.works, emptyArray),
   pr: fixture('pr', devFixtures.pr, (value) => value.list.length === 0 && value.guide.sections.length === 0),
-  tasks: fixture('tasks', devFixtures.tasks, (value) => value.list.tasks.length === 0),
+  tasks: fixture('tasks', devFixtures.tasks, (value) => value.tasks.length === 0),
   automations: fixture('automations', devFixtures.automations, (value) => value.list.length === 0),
   diffs: fixture<DemoFixtures['diffs']>('diffs', devFixtures.diffs, emptyObject),
   gitStatus: fixture<DemoFixtures['gitStatus']>('git-status', devFixtures.gitStatus, emptyObject),

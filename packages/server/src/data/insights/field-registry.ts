@@ -212,7 +212,7 @@ export const KIND_REGISTRY = {
         attr('has_thinking', 'hasThinking', 'boolean', 'True when the turn contained extended thinking'),
       ]),
       ...withGroup('identity', [
-        attr('task_id', 'taskId', 'string', 'Id of the task the turn ran under — `task` is its title'),
+        attr('task_id', 'taskId', 'string', 'Task key of the GitHub or Jira task the turn ran under (`github:<node id>`, `jira:<site>:<issue id>`); `task` is its title'),
         attr('automation_id', 'automationId', 'string', 'Id of the automation that dispatched the turn — `automation` is its name'),
       ]),
       ...withGroup('detail', [

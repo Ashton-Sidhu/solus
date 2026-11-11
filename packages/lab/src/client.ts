@@ -95,7 +95,7 @@ export class LabClient {
       acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.grant(),
       organizationId: () => options.persona.kind === 'org-member' ? options.persona.organizationId : null,
     }))
-    this.records = workspaceRecordMethods(this.api, (id) => this.rpc('tasksReadExtras', id))
+    this.records = workspaceRecordMethods(this.api)
   }
 
   get connected(): boolean {

@@ -1,15 +1,14 @@
-import type { TaskStatus } from '@solus/contracts/task-types'
-
 /** Where a lifted card would land: which column, and at what index among that
  *  column's remaining visible cards. */
 export interface DropTarget {
-  status: TaskStatus
+  /** A board column's id (`BoardColumn.id`). */
+  columnId: string
   index: number
 }
 
 export interface DragState {
   taskId: string
-  from: TaskStatus
+  from: string
   /** The lifted card's own box, so the floating copy is the same size as the
    *  hole it left rather than a generic ghost. */
   width: number
@@ -23,11 +22,11 @@ export interface DragState {
 }
 
 interface Wiring {
-  /** The board's columns, left to right. */
-  columns: () => TaskStatus[]
+  /** The ids of the board's columns, left to right. */
+  columns: () => string[]
   /** A column's visible task ids, in render order. */
-  idsIn: (status: TaskStatus) => string[]
-  onDrop: (taskId: string, from: TaskStatus, target: DropTarget) => void
+  idsIn: (columnId: string) => string[]
+  onDrop: (taskId: string, from: string, target: DropTarget) => void
 }
 
 // A press has to travel this far before it becomes a drag, so a click on a card
@@ -54,8 +53,8 @@ export class BoardDrag {
 
   #wiring: Wiring
   #cards = new Map<string, HTMLElement>()
-  #columns = new Map<TaskStatus, HTMLElement>()
-  #pending: { taskId: string; from: TaskStatus; startX: number; startY: number; rect: DOMRect } | null = null
+  #columns = new Map<string, HTMLElement>()
+  #pending: { taskId: string; from: string; startX: number; startY: number; rect: DOMRect } | null = null
   #onMove?: (event: PointerEvent) => void
   #onUp?: () => void
   #flashTimer?: ReturnType<typeof setTimeout>
@@ -72,14 +71,14 @@ export class BoardDrag {
   }
 
   /** Svelte action: give the controller a column well's element to hit-test. */
-  column = (node: HTMLElement, status: TaskStatus) => {
-    this.#columns.set(status, node)
-    return { destroy: () => this.#columns.delete(status) }
+  column = (node: HTMLElement, columnId: string) => {
+    this.#columns.set(columnId, node)
+    return { destroy: () => this.#columns.delete(columnId) }
   }
 
   /** Arm a drag on pointer-down. Nothing visible happens until the pointer
    *  actually travels — see `DRAG_THRESHOLD_PX`. */
-  press(event: PointerEvent, taskId: string, from: TaskStatus): void {
+  press(event: PointerEvent, taskId: string, from: string): void {
     if (event.button !== 0) return
     const node = this.#cards.get(taskId)
     if (!node) return
@@ -140,7 +139,7 @@ export class BoardDrag {
         y: event.clientY,
       }
       this.target = {
-        status: pending.from,
+        columnId: pending.from,
         index: Math.max(0, this.#wiring.idsIn(pending.from).indexOf(pending.taskId)),
       }
       return
@@ -160,27 +159,27 @@ export class BoardDrag {
     const drag = this.drag
     if (!drag) return null
 
-    let inside: TaskStatus | null = null
-    let nearest: TaskStatus | null = null
+    let inside: string | null = null
+    let nearest: string | null = null
     let bestDistance = Infinity
-    for (const status of this.#wiring.columns()) {
-      const node = this.#columns.get(status)
+    for (const columnId of this.#wiring.columns()) {
+      const node = this.#columns.get(columnId)
       if (!node) continue
       const rect = node.getBoundingClientRect()
-      if (x >= rect.left && x <= rect.right) inside = status
+      if (x >= rect.left && x <= rect.right) inside = columnId
       const distance = Math.abs(x - (rect.left + rect.right) / 2)
       if (distance < bestDistance) {
         bestDistance = distance
-        nearest = status
+        nearest = columnId
       }
     }
 
-    const status = inside ?? nearest
-    if (!status) return null
+    const columnId = inside ?? nearest
+    if (columnId === null) return null
 
     // Index by card midpoints: the drop lands above the first card whose middle
     // the cursor has passed, which is the rule the placeholder draws.
-    const ids = this.#wiring.idsIn(status).filter((id) => id !== drag.taskId)
+    const ids = this.#wiring.idsIn(columnId).filter((id) => id !== drag.taskId)
     let index = ids.length
     for (let i = 0; i < ids.length; i++) {
       const node = this.#cards.get(ids[i])
@@ -191,7 +190,7 @@ export class BoardDrag {
         break
       }
     }
-    return { status, index }
+    return { columnId, index }
   }
 
   #release(): void {

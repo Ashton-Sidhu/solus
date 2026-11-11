@@ -56,7 +56,7 @@
 
 <SettingsSection
   label="Solus Cloud projects"
-  description="All members see these projects and PRs. Only tasks made on a Cloud host are shared."
+  description="All members see these projects and PRs. Each member reads tasks with their own GitHub or Jira connection."
   visible={!!cloudServerId}
 >
   {#if !online}

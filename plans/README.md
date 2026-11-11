@@ -123,8 +123,11 @@ implementation completion is claimed by these documentation changes.
 ## API implementation plan
 
 008 implements a small API beneath the original feature work's product model.
-The generated contract in `docs/api/openapi.json` contains task/work CRUD, stored session
-reads and Insights list/get, plus authentication and discovery. Organization
+The generated contract in `docs/api/openapi.json` contains work CRUD, stored session
+reads and Insights list/get, plus authentication and discovery. The task record
+routes that 008 added were removed on 2026-11-10: GitHub and Jira own every task
+([provider-owned tasks](../docs/plans/provider-owned-tasks.md)), and the links of
+a task (`PUT /links`, `DELETE /links`) take a task key. Organization
 context comes from verified credentials. Cursor pagination, bounded time ranges
 and database query limits address scale. GitHub operations, sharing administration
 and session creation remain outside this initial contract. Automation storage and

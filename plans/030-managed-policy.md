@@ -9,6 +9,8 @@
   `docs/user/managed-policy.md`, `packages/contracts/src/managedPolicy.ts`,
   `apps/server/src/policy/`, `apps/server/src/orchestration-v2/DispatchModeLimit.ts`).
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the task as a kind of work that has an organization (§3) and the stored preferences of a task (§6.6) are history.
+
 ## 1. Purpose
 
 An administrator restricts what Solus does and locks settings. Every policy uses one

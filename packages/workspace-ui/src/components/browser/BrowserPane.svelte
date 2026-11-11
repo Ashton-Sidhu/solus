@@ -29,6 +29,7 @@
   import BrowserCaptureButton from "./BrowserCaptureButton.svelte";
   import BrowserRecordControl from "./BrowserRecordControl.svelte";
   import BrowserProfileChip from "./BrowserProfileChip.svelte";
+  import { attachableTasks } from "./lib/evidence-menu";
   import { openRequestFor, projectRootOf } from "./lib/profiles";
   import {
     createAnnotationAttachment,
@@ -355,6 +356,15 @@
   let evidenceOptions = $state<BrowserEvidenceOptions | null>(null);
   const pageWorktree = $derived(
     entry?.page.target.kind === "url" ? entry.page.target.worktreePath : undefined,
+  );
+  const evidenceTasks = $derived(
+    attachableTasks(
+      session.tasksStore.tasks,
+      session.tasksStore.tasksForCheckout(
+        entry?.serverId,
+        evidenceOptions?.worktreePath ?? pageWorktree,
+      ),
+    ),
   );
   let capturing = $state(false);
   /** Bumped once per completed capture, so the stage can flash the shutter. A
@@ -907,13 +917,13 @@
           {paneId}
           {surfaceVisible}
           options={evidenceOptions}
-          tasks={session.tasksStore.tasks}
+          tasks={evidenceTasks}
           cwd={pageWorktree}
           onOpenDestinations={loadEvidenceOptions}
         />
         <BrowserCaptureButton
           options={evidenceOptions}
-          tasks={session.tasksStore.tasks}
+          tasks={evidenceTasks}
           cwd={pageWorktree}
           busy={capturing}
           onOpen={loadEvidenceOptions}

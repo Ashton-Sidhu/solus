@@ -1,790 +1,447 @@
 import { sql } from 'drizzle-orm'
-import { ulid } from '@solus/contracts/ulid'
-import { taskExternalLinks, tasks } from './schema'
-import { resourceLinks } from '../links/schema'
-import { deleteEdgesOf } from '../links/resource-links'
-import { sameUser, type Attribution } from '@solus/contracts/user'
-import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, taskAssigneeKey, TASK_ACTIVITY_LIMIT } from './task-activity'
-import { activityFor, deleteActivityFor } from '../activity/activity'
-import { removeNotificationsFor } from '../notifications/store'
-import { deleteTaskPersonalState } from './task-snoozes'
-import { agentAttribution } from '../stored-attribution'
-import { creatorKeyOf, deleteThread, deleteThreadsOf, insertThread, newestThreadCreatedAt, readThread, type ThreadSubject } from '../comments/comment-threads'
-import { claimSessionOutputLink, deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink, type TaskLinkWrite } from './task-links'
-import { readSessionOutputs } from './session-outputs'
-import {
-  assertTaskStatus,
-  commentsForTask,
-  database,
-  emitChanged,
-  normalizedOptional,
-  requireTask,
-  TASK_HERE,
-  taskFromRow,
-  type TaskLocation,
-  type TaskRow,
-} from './task-store'
-import { deleteSessionLink, taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
-import { linkSessionPullRequest, unlinkSessionPullRequest } from '../sessions/session-pull-requests'
-import { SessionShelf } from '../sessions/session-states'
-import { scopeClause } from '../scope'
-import type { RecordScope } from '../../admission/principal'
-import { createLogger } from '../../logger'
-import { loadProjectConfig } from '../../project-config/project-config'
-import {
-  externalLinkForTask,
-  queueCommentsForPush,
-  markTaskFieldsDirty,
-  notifyTaskSyncDirty,
-} from './task-sync-store'
-import { blockedAssetReferences } from './adapters/registry'
+import { parseTaskKey, taskKey, taskSourceKey, type TaskRef, type TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {
-  Task as TaskRecord,
+  Task,
+  TaskAssigneeCandidate,
+  TaskCreateInput,
   TaskDetails,
-  TaskLink,
-  TaskLinkInput,
-  TaskLinkKind,
-  TaskPriority,
-  TaskSessionRole,
+  TaskField,
+  TaskMoveTarget,
   TaskSnapshot,
-  TaskSource,
-  TaskStatus,
-  TaskTitleSource,
+  TaskSummary,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
-import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import { resolvePullRequestUrl } from '../../providers/pull-request-url'
-import { z } from 'zod'
+import type { RecordScope } from '../../admission/principal'
+import { createLogger } from '../../logger'
+import { deleteActivityFor } from '../activity/activity'
+import { deleteThreadsOf } from '../comments/comment-threads'
+import { deleteEdgesOf } from '../links/resource-links'
+import { personalResourceState } from '../personal-state/schema'
+import { removeNotificationsFor } from '../notifications/store'
+import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { taskWriteError } from './providers/failures'
+import { taskAdapters } from './providers/registry'
+import type { ProviderTask, TaskHome } from './providers/types'
+import { taskSourceItems, tasks } from './schema'
+import { assetReferencesIn } from './task-assets'
+import { notifyTaskAssignments } from './task-assignment'
+import { taskAttachments } from './task-attachments'
+import { stateColumnOf, storeProviderTask, storeTaskColumn } from './task-cache'
+import {
+  commentsForTask,
+  discardUnsentComment,
+  hasComment,
+  markCommentFailed,
+  markCommentSent,
+  requireUnsentComment,
+  storeProviderComments,
+  storeSentComment,
+  storeUnsentComment,
+  taskThreads,
+  type NewTaskComment,
+} from './task-comments'
+import { taskSessions } from './task-sessions'
+import { loadTaskSource, loadTaskSources, sourceItemsOfTask, type StoredTaskSource } from './task-source-store'
+import { projectTaskSources, readTaskSource } from './task-sources'
+import { database, emitChanged, loadTask, loadTaskSummaries, taskHomeOf } from './task-store'
+
+/**
+ * The task itself, as GitHub or Jira owns it
+ * (docs/plans/provider-owned-tasks.md §5). A read asks the provider and writes
+ * the answer over the host's copy. A write goes to the provider first: on
+ * success the copy takes the provider's answer and clients are told; on
+ * failure the caller gets the error and the copy does not change. There is no
+ * local write that waits for the provider, except a comment that was not sent.
+ *
+ * What Solus owns about a task (session links, links, snoozes) is in
+ * `task-attachments.ts` and needs no copy of the task.
+ */
 
 const log = createLogger('main', 'task')
-const taskIdRowSchema = z.object({ task_id: z.string() })
-const existingPrLinkRowSchema = z.object({
-  target_scope: z.string(),
-  url: z.string().nullable(),
-  title: z.string(),
-  origin_session_id: z.string().nullable(),
-})
 
-interface PrLinkIdentity {
-  title: string
-  originSessionId: string | null
+function refOf(taskId: string): TaskRef {
+  const ref = parseTaskKey(taskId)
+  if (!ref) throw new Error(`"${taskId}" is not a task of GitHub or Jira.`)
+  return ref
+}
+
+/** Read one task from its provider with its comments, and write it over the host's copy. */
+async function fetchTask(taskId: string): Promise<Task> {
+  const ref = refOf(taskId)
+  const answer = await taskAdapters().provider(ref.provider).fetch(ref)
+  const task = await storeProviderTask(answer.task, { detail: true })
+  await database().transaction((db) => storeProviderComments(db, taskId, answer.comments, answer.commentsTruncated))
+  return task
+}
+
+/** The host's copy of a task; a task the host never read is read from its provider first. */
+export async function cachedTask(taskId: string): Promise<Task> {
+  return await loadTask(taskId) ?? await fetchTask(taskId)
+}
+
+/** The copy and what the adapter needs to write to it. */
+async function writableTask(taskId: string): Promise<{ task: Task; home: TaskHome }> {
+  const task = await cachedTask(taskId)
+  const home = await taskHomeOf(taskId)
+  if (!home) throw new Error(`Solus cannot write to task ${task.reference ?? taskId}: read it again.`)
+  return { task, home }
+}
+
+/** The host's copy of a task with its comments and its attachments in `scope`. */
+export async function taskDetails(scope: RecordScope, taskId: string): Promise<TaskDetails> {
+  const task = await loadTask(taskId)
+  if (!task) throw new Error(`Task ${taskId} not found.`)
+  return { task, comments: await commentsForTask(taskId), ...await taskAttachments(scope, taskId) }
 }
 
 /**
- * Who a pull request link belongs to once the row exists.
- *
- * A system write only reports what one checkout observed, so a second session
- * observing the same pull request must not take the row over: rewriting the
- * title and the origin on every discovery pass makes two mounted checkouts
- * trade the row back and forth, and each trade broadcasts a task change that
- * starts the next pass. User and agent writes are explicit intent, so they
- * stay authoritative and may still fill a gap the system left.
+ * Read one task from its provider, with its comments and its attachments on
+ * this host. When the provider does not answer and the host has a copy, the
+ * answer is that copy with `fromCache`. `personKey` is the person who reads:
+ * they are told when the read shows that the task became theirs.
  */
-/** A finished task is done or dropped: no work goes on under it. */
-function isFinishedStatus(status: string): boolean {
-  return status === 'done' || status === 'dropped'
-}
-
-/** A moderator may delete any comment; anyone may delete an agent's or an
- *  automation's; a person may delete only their own (as `mayChangeThread`). */
-function mayDeleteComment(author: Attribution | null, actor: { by: Attribution; canModerate: boolean }): boolean {
-  if (actor.canModerate) return true
-  if (author?.kind === 'agent' || author?.kind === 'automation') return true
-  return author?.kind === 'user' && actor.by.kind === 'user' && sameUser(author.user.id, actor.by.user.id)
-}
-
-function nextPrLinkIdentity(
-  existing: z.infer<typeof existingPrLinkRowSchema>,
-  input: { title?: string; originSessionId: string | null; claimsRow: boolean },
-): PrLinkIdentity {
-  const suppliedTitle = input.title?.trim()
-  if (input.claimsRow) {
-    return {
-      title: suppliedTitle || existing.title,
-      originSessionId: input.originSessionId ?? existing.origin_session_id,
-    }
-  }
-  return {
-    title: existing.title || suppliedTitle || '',
-    originSessionId: existing.origin_session_id ?? input.originSessionId,
-  }
-}
-
-interface AddTaskCommentOptions {
-  /** Who wrote it: the admitted actor, or the agent that asked. */
-  by: Attribution
-  originSessionId?: string | null
-  /** Caller-supplied comment id (an outbox op id, so a redelivered op inserts
-   *  the same row and `INSERT OR IGNORE` makes the write idempotent). Omitted
-   *  for ordinary comments, which mint their own ULID. */
-  id?: string
-  /** Queue this local-first comment for the linked external ticket. */
-  pushToExternal?: boolean
-}
-
-interface TaskUpdateOptions {
-  /** External pulls must not immediately mark the fields dirty again. */
-  markSyncDirty?: boolean
-}
-
-export interface TaskPullRequestInput {
-  number: number
-  title?: string
-  url?: string | null
-  targetScope: string
-  originSessionId?: string | null
-  /** Solus made the link by itself, so it is recorded as the system's. */
-  automatic?: boolean
-}
-
-export interface TaskLinkOptions {
-  title?: string
-  url?: string | null
-  originSessionId?: string | null
-  automatic?: boolean
-  /** Pin this link, or unpin it. Omitted leaves the current pin alone. */
-  pinned?: boolean
-}
-
-/** One task in Solus: its fields, and everything you can do to it.
- *
- * `TaskRecord` is the same shape as the wire and the row, and this class
- * implements it — a Task *is* a task, not a handle wrapped around one. Methods
- * do not survive serialization, so anything crossing RPC returns `record()`,
- * never the instance.
- *
- * Collection- and session-scoped work (`listTasks`, `createTask`,
- * `tasksForSession`, `prepareSessionTask`,
- * `onTasksChanged`) is not about one task and stays as free functions in
- * `task-store.ts` / `task-sessions.ts`.
- */
-export class Task implements TaskRecord {
-  id!: string
-  providerId!: TaskRecord['providerId']
-  organizationId!: string
-  shortId?: number
-  projectKey?: string | null
-  title!: string
-  titleSource?: TaskTitleSource
-  body!: string
-  status!: TaskStatus
-  url!: string | null
-  assignee?: string
-  assigneeUserId?: string
-  labels!: string[]
-  epic?: TaskRecord['epic']
-  dueDate?: string
-  priority?: TaskPriority
-  pr?: TaskRecord['pr']
-  canEditPlanningFields?: boolean
-  source?: TaskSource
-  originSessionId?: string
-  originAutomationId?: string
-  createdAt?: number
-  updatedAt!: TaskRecord['updatedAt']
-  triagedAt?: number
-  doneAt?: number
-  raw?: unknown
-  /** The organization every write to this task and its child rows lands in
-   * (organization-scope R10). Set from the row, never from the caller: a
-   * caller names the scope it may read, and the row names where it lives. */
-  readonly #organizationId: string
-
-  private constructor(row: TaskRow) {
-    this.#organizationId = row.organization_id
-    this.hydrate(taskFromRow(row))
-  }
-
-  /** Replace the fields wholesale rather than merging: `taskFromRow` omits an
-   * absent optional instead of setting it null, so a plain assign would leave a
-   * cleared `doneAt` or `dueDate` standing from the previous read. */
-  private hydrate(record: TaskRecord): void {
-    for (const key of Object.keys(this)) {
-      if (!(key in record)) Reflect.deleteProperty(this, key)
-    }
-    Object.assign(this, record)
-  }
-
-  /** Loads the row inside `scope`. Throws when the id is unknown there — the
-   * `requireTask` contract, now with the operations attached. */
-  static async byId(scope: RecordScope, id: string): Promise<Task> {
-    return new Task(await requireTask(scope, id))
-  }
-
-  /** Resolve the task that owns a session before invoking task-owned domain
-   * operations such as `linkPullRequest`. */
-  static async forSession(scope: RecordScope, sessionId: string): Promise<Task | null> {
-    const parsed = taskIdRowSchema.safeParse(await database().get(sql`
-      SELECT resource_links.source_id AS task_id
-      FROM ${resourceLinks}
-      WHERE ${scopeClause(scope, sql`resource_links.organization_id`)}
-        AND resource_links.source_kind = 'task' AND resource_links.target_kind = 'session' AND resource_links.status = 'active'
-        AND resource_links.target_key = ${sessionId}
-      ORDER BY CASE resource_links.relation WHEN 'works-on' THEN 0 ELSE 1 END,
-        resource_links.created_at DESC
-      LIMIT 1
-    `))
-    if (!parsed.success) {
-      // A task-free session is ordinary, so this is not a warning. It is the
-      // only trace a missed artifact link leaves, so it must be greppable.
-      log.debug('task_for_session_unresolved', { sessionId })
-      return null
-    }
-    return Task.byId(scope, parsed.data.task_id)
-  }
-
-  /**
-   * Show what a session made on the task the session works on
-   * (docs/plans/session-outputs.md). The link follows the session: it leaves
-   * the task when the session does. A session with no task is left alone, and
-   * the item waits until the session joins one. A session that a task only
-   * references brings nothing. Accepts either session id, as `forSession`.
-   */
-  static async linkSessionOutput(
-    scope: RecordScope,
-    sessionId: string,
-    input: Omit<TaskLinkInput, 'automatic' | 'originSessionId'>,
-  ): Promise<TaskDetails | null> {
-    const owner = z.object({ task_id: z.string(), session_id: z.string() }).nullish().parse(await database().get(sql`
-      SELECT resource_links.source_id AS task_id, resource_links.target_key AS session_id
-      FROM ${resourceLinks}
-      WHERE ${scopeClause(scope, sql`resource_links.organization_id`)}
-        AND resource_links.source_kind = 'task' AND resource_links.target_kind = 'session'
-        AND resource_links.target_key = ${sessionId}
-        AND resource_links.relation = 'works-on' AND resource_links.status = 'active'
-      ORDER BY resource_links.created_at DESC
-      LIMIT 1
-    `))
-    if (!owner) {
-      log.debug('task_for_session_unresolved', { sessionId })
-      return null
-    }
-    const task = await Task.byId(scope, owner.task_id)
-    return task.linkWorkspaceObject(
-      { ...input, originSessionId: sessionId, outputOfSessionId: owner.session_id },
-      agentAttribution(sessionId),
-    )
-  }
-
-  /** The plain serializable shape. Everything crossing RPC returns this. */
-  record(): TaskRecord {
-    return structuredClone(this)
-  }
-
-  private async refresh(): Promise<this> {
-    this.hydrate(taskFromRow(await requireTask(this.#organizationId, this.id)))
-    return this
-  }
-
-  async details(): Promise<TaskDetails> {
-    const db = database()
-    const externalLink = await externalLinkForTask(this.id, db)
-    const details: TaskDetails = {
-      task: this.record(),
-      comments: await commentsForTask(this.#organizationId, this.id, db),
-      links: await readTaskLinks(db, this.#organizationId, this.id),
-      activity: await activityFor(this.#organizationId, { kind: 'task', id: this.id }, { limit: TASK_ACTIVITY_LIMIT, db }),
-    }
-    if (externalLink) details.externalLink = externalLink
-    return details
-  }
-
-  async links(): Promise<TaskLink[]> {
-    return readTaskLinks(database(), this.#organizationId, this.id)
-  }
-
-  async update(
-    patch: TaskUpdatePatch,
-    by: Attribution,
-    options: TaskUpdateOptions = {},
-  ): Promise<this> {
-    let syncDirty = false
-    let wasFinished = false
-    let isFinished = false
-    await database().transaction(async (db) => {
-      const existing = await requireTask(this.#organizationId, this.id, db)
-      const now = Math.max(Date.now(), existing.updated_at + 1)
-      const projectKey = patch.projectKey === undefined
-        ? existing.project_key
-        : normalizedOptional(patch.projectKey)
-      const title = patch.title === undefined ? existing.title : patch.title.trim()
-      if (!title) throw new Error('Task title cannot be empty.')
-      const status = patch.status ?? existing.status
-      assertTaskStatus(status)
-      const assigneeUserId = patch.assigneeUserId === undefined ? undefined : taskAssigneeKey(patch.assigneeUserId)
-      if (assigneeUserId !== undefined) assertTaskAssignee(this.#organizationId, assigneeUserId)
-      const triagedAt = status === 'inbox' && projectKey === null
-        ? null
-        : existing.triaged_at ?? now
-      const doneAt = status === 'done' ? existing.done_at ?? now : null
-      wasFinished = isFinishedStatus(existing.status)
-      isFinished = isFinishedStatus(status)
-
-      await db.run(sql`
-        UPDATE ${tasks} SET
-          project_key = ${projectKey}, title = ${title},
-          title_source = ${patch.title === undefined ? existing.title_source : 'manual'},
-          body = ${patch.body ?? existing.body},
-          status = ${status},
-          assignee = ${patch.assignee === undefined ? existing.assignee : normalizedOptional(patch.assignee)},
-          assignee_user_id = ${assigneeUserId === undefined ? existing.assignee_user_id : assigneeUserId},
-          due_date = ${patch.dueDate === undefined ? existing.due_date : normalizedOptional(patch.dueDate)},
-          priority = ${patch.priority === undefined ? existing.priority : patch.priority},
-          labels = ${patch.labels === undefined ? existing.labels : JSON.stringify(patch.labels)},
-          updated_at = ${now},
-          triaged_at = ${triagedAt}, done_at = ${doneAt}
-        WHERE id = ${this.id}
-      `)
-
-      // One diff of the whole row is the only place field history is produced,
-      // so no field can be changed here and silently go unrecorded.
-      const updated = await requireTask(this.#organizationId, this.id, db)
-      await diffTaskActivity(db, this.#organizationId, this.id, existing, updated, by, now)
-      await notifyTaskAssignment(db, this.#organizationId, updated, existing.assignee_user_id, updated.assignee_user_id, by, now)
-      if (options.markSyncDirty !== false) {
-        const provider = (await externalLinkForTask(this.id, db))?.provider ?? null
-        const changedFields: string[] = []
-        if (existing.title !== updated.title) changedFields.push('title')
-        if (existing.body !== updated.body && !blockedAssetReferences(updated.body, provider).length) {
-          changedFields.push('body')
-        }
-        if (existing.status !== updated.status) changedFields.push('status')
-        if (existing.labels !== updated.labels) changedFields.push('labels')
-        if (existing.priority !== updated.priority) changedFields.push('priority')
-        if (existing.assignee !== updated.assignee) changedFields.push('assignee')
-        syncDirty = await markTaskFieldsDirty(db, this.id, changedFields)
-      }
-    })
-    emitChanged(this.id)
-    if (syncDirty) notifyTaskSyncDirty(this.#organizationId, this.id)
-    if (wasFinished !== isFinished) await this.#settleSessions(isFinished)
-    return this.refresh()
-  }
-
-  /**
-   * Link a pull request that a session of this task works on. The session
-   * owns that link and the task reads it
-   * (docs/plans/session-pull-requests.md). Returns false for a session that
-   * does not work on this task: the link then belongs on the task itself.
-   */
-  async linkWorkingSessionPullRequest(sessionId: string, input: { url: string; title?: string }, by: Attribution): Promise<boolean> {
-    const works = ((await taskSessions(this.#organizationId, this.id))[this.id] ?? []).some((link) =>
-      link.role !== 'referenced' && link.sessionId === sessionId)
-    if (!works) return false
-    await linkSessionPullRequest(sessionId, { ...input, source: 'agent', by })
-    return true
-  }
-
-  /**
-   * A finished task ends the work of its sessions, so each one is settled
-   * unless another task that is not finished still holds it. Reopening the
-   * task makes the sessions it settled active again.
-   */
-  async #settleSessions(isFinished: boolean): Promise<void> {
-    const working = ((await taskSessions(this.#organizationId, this.id))[this.id] ?? [])
-      .filter((link) => link.role !== 'referenced')
-      .map((link) => link.sessionId)
-    if (!isFinished) {
-      for (const sessionId of working) await new SessionShelf(sessionId).reopenFromTask()
-      return
-    }
-    for (const sessionId of working) {
-      const heldByLiveTask = z.object({ id: z.string() }).nullish().parse(await database().get(sql`
-        SELECT tasks.id FROM ${resourceLinks}
-        JOIN ${tasks} ON tasks.id = resource_links.source_id
-        WHERE resource_links.source_kind = 'task' AND resource_links.target_kind = 'session' AND resource_links.target_key = ${sessionId}
-          AND resource_links.relation = 'works-on' AND resource_links.status = 'active'
-          AND tasks.id <> ${this.id} AND ${TASK_HERE} AND tasks.status NOT IN ('done', 'dropped')
-        LIMIT 1
-      `))
-      if (!heldByLiveTask) await new SessionShelf(sessionId).settle('task')
-    }
-  }
-
-  async comment(body: string, options: AddTaskCommentOptions): Promise<TaskDetails> {
-    const text = body.trim()
-    if (!text) throw new Error('Task comment cannot be empty.')
-    const existing = await requireTask(this.#organizationId, this.id)
-    const autoPush = existing.project_key
-      ? (await loadProjectConfig(existing.project_key))?.tasksAutoPushComments === true
-      : false
-    const link = await externalLinkForTask(this.id)
-    const shouldPush = link !== null
-      && (options.pushToExternal === true || autoPush)
-      && !blockedAssetReferences(text, link.provider).length
-    await database().transaction(async (db) => {
-      await requireTask(this.#organizationId, this.id, db)
-      // Written after the comment before it, even within one millisecond: the
-      // comments read in `(created_at, id)` order, and ids are not ordered within a millisecond.
-      const now = Math.max(Date.now(), await newestThreadCreatedAt(db, this.#threads()) + 1)
-      // A redelivered outbox op inserts under the same id, so the second insert is a no-op.
-      await insertThread(db, this.#threads(), {
-        threadId: options.id ?? ulid(now),
-        body: text,
-        author: options.by,
-        createdBy: creatorKeyOf(options.by),
-        originSessionId: normalizedOptional(options.originSessionId),
-        createdAt: now,
-        deliveryState: shouldPush ? 'pending' : 'private',
-      })
-      // No mirrored event: the thread already is that log, and a second row
-      // would be one more thing to keep in sync.
-      await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${this.id}`)
-    })
-    emitChanged(this.id)
-    if (shouldPush) notifyTaskSyncDirty(this.#organizationId, this.id)
-    await this.refresh()
-    return this.details()
-  }
-
-  /**
-   * Delete one unpublished comment. An editor may comment, but only the person
-   * who wrote a comment, or a moderator (the task's owner or a host admin), may
-   * delete it: the same rule a work's threads follow (`mayChangeThread`).
-   */
-  async deleteComment(commentId: string, actor: { by: Attribution; canModerate: boolean }): Promise<TaskDetails> {
-    const deleted = await database().transaction(async (db) => {
-      await requireTask(this.#organizationId, this.id, db)
-      const comment = await readThread(db, this.#threads(), commentId)
-      if (!comment) throw new Error('This task comment no longer exists.')
-      if (comment.source !== 'local' || comment.external !== null) {
-        throw new Error('Only unpublished local task comments can be deleted in Solus.')
-      }
-      if (comment.author.kind === 'external' || !mayDeleteComment(comment.author, actor)) {
-        throw new Error('Only the person who wrote a comment or the task owner may delete it.')
-      }
-      // The same rule again on the row: a comment sent while this ran stays.
-      const removed = await deleteThread(db, this.#threads(), commentId, sql`source = 'local' AND external_id IS NULL`)
-      if (removed) await db.run(sql`UPDATE ${tasks} SET updated_at = ${Date.now()} WHERE id = ${this.id}`)
-      return removed
-    })
-    if (deleted) emitChanged(this.id)
-    await this.refresh()
-    return this.details()
-  }
-
-  /**
-   * Send comments upstream that were written while auto-posting was off.
-   *
-   * Queueing is the whole action: the sync engine owns the exchange itself, so
-   * this marks the rows and wakes it rather than posting inline. A task with no
-   * linked ticket has nowhere to send them and says so instead of silently
-   * marking rows that nothing will ever read.
-   */
-  async publishComments(commentIds: string[]): Promise<TaskDetails> {
-    await requireTask(this.#organizationId, this.id)
-    const link = await externalLinkForTask(this.id)
-    if (!link) {
-      throw new Error('This task is not linked to an upstream ticket.')
-    }
-    const details = await this.details()
-    const blocked = details.comments
-      .filter((comment) => commentIds.includes(comment.id))
-      .flatMap((comment) => blockedAssetReferences(comment.body, link.provider))
-    if (blocked.length) {
-      throw new Error(
-        `${link.provider} cannot host .${blocked[0].extension} attachments. `
-        + 'Add the file with the provider composer before publishing this comment.',
-      )
-    }
-    const queued = await database().transaction((db) => queueCommentsForPush(db, this.#organizationId, this.id, commentIds))
-    if (queued) {
-      emitChanged(this.id)
-      notifyTaskSyncDirty(this.#organizationId, this.id)
-    }
-    return this.details()
-  }
-
-  /** `by` is who linked it: the admitted actor, or the agent that asked. */
-  async link(input: TaskLinkInput, by: Attribution): Promise<TaskDetails> {
-    const options: TaskLinkOptions = {
-      title: input.title,
-      url: input.url,
-      originSessionId: input.originSessionId,
-      automatic: input.automatic,
-      pinned: input.pinned,
-    }
-    // A deliberate link: `TaskLinkInput` cannot name a session's output.
-    switch (input.kind) {
-      case 'work':
-        return this.linkWork(input.targetKey, by, options)
-      case 'plan':
-        return this.linkPlan(input.targetScope ?? '', input.targetKey, by, options)
-      case 'automation':
-        return this.linkAutomation(input.targetKey, by, options)
-      case 'pr':
-        return this.linkPullRequest({
-          number: Number(input.targetKey),
-          targetScope: input.targetScope ?? '',
-          ...options,
-        }, by)
-    }
-  }
-
-  async linkWork(workId: string, by: Attribution, options: TaskLinkOptions = {}): Promise<TaskDetails> {
-    return this.linkWorkspaceObject({ kind: 'work', targetKey: workId, ...options }, by)
-  }
-
-  async linkPlan(planSessionId: string, planToolUseId: string, by: Attribution, options: TaskLinkOptions = {}): Promise<TaskDetails> {
-    return this.linkWorkspaceObject({
-      kind: 'plan',
-      targetScope: planSessionId,
-      targetKey: planToolUseId,
-      ...options,
-    }, by)
-  }
-
-  async linkAutomation(automationId: string, by: Attribution, options: TaskLinkOptions = {}): Promise<TaskDetails> {
-    return this.linkWorkspaceObject({ kind: 'automation', targetKey: automationId, ...options }, by)
-  }
-
-  /** Shared persistence for the three workspace-owned link kinds. Their public
-   * methods keep target identity explicit instead of exposing storage keys. */
-  private async linkWorkspaceObject(input: TaskLinkWrite, by: Attribution): Promise<TaskDetails> {
-    const changed = await database().transaction(async (db) => {
-      await requireTask(this.#organizationId, this.id, db)
-      const target = {
-        kind: input.kind,
-        targetScope: input.targetScope ?? '',
-        targetKey: input.targetKey,
-      }
-      const existing = await db.get(sql`
-        SELECT 1 AS present FROM ${resourceLinks}
-        WHERE resource_links.source_kind = 'task' AND resource_links.source_id = ${this.id} AND resource_links.target_kind = ${target.kind}
-          AND resource_links.target_scope = ${target.targetScope} AND resource_links.target_key = ${target.targetKey}
-      `)
-      // Already linked: the only thing left to say is which artifact the page
-      // opens with, and that is a pin, not a second link. A deliberate link
-      // of a session's output also makes the link stay when the session leaves.
-      if (existing) {
-        const claimed = input.outputOfSessionId ? false : await claimSessionOutputLink(db, this.id, target)
-        const pinChanged = input.pinned === undefined
-          ? false
-          : await setTaskLinkPin(db, this.id, target, input.pinned)
-        return claimed || pinChanged
-      }
-      await writeTaskLink(db, this.#organizationId, this.id, input, by)
-      return true
-    })
-    if (changed) {
-      emitChanged(this.id)
-      await this.refresh()
-    }
-    return this.details()
-  }
-
-  /** Link a pull request to the task itself and keep the task/session's compact
-   * PR capture in sync for sidebar rendering. Idempotent. A pull request that a
-   * session works on is that session's link (`linkSessionPullRequest`), which
-   * the task reads and does not copy. */
-  async linkPullRequest(
-    input: TaskPullRequestInput,
-    by: Attribution,
-  ): Promise<TaskDetails> {
-    if (!Number.isSafeInteger(input.number) || input.number <= 0) {
-      throw new Error('A task pull request needs a positive integer number.')
-    }
-    const taskLog = log.child({ taskId: this.id, prNumber: input.number })
-    const suppliedUrl = input.url?.trim() || null
-    taskLog.info('task_pr_link_requested', {
-      hasSuppliedUrl: !!suppliedUrl,
-      projectKey: this.projectKey ?? null,
-    })
-    const lookupCwd = this.projectKey ?? input.targetScope.trim()
-    if (!suppliedUrl && !lookupCwd) {
-      throw new Error(`Task pull request #${input.number} needs a project before Solus can resolve its URL.`)
-    }
-    const resolvedUrl = suppliedUrl ?? await resolvePullRequestUrl(lookupCwd, input.number)
-    const parsedUrl = parseGitHubPullRequestUrl(resolvedUrl)
-    if (!parsedUrl || parsedUrl.number !== input.number) {
-      taskLog.error('task_pr_link_url_invalid', { url: resolvedUrl })
-      throw new Error(`Task pull request #${input.number} needs its full GitHub pull request URL.`)
-    }
-    const url = parsedUrl.url
-    // A project path is only where Solus discovered the PR. The repository is
-    // the PR's durable identity, so every entry point must persist one scope.
-    const targetScope = [
-      parsedUrl.baseRepo.host,
-      parsedUrl.baseRepo.owner,
-      parsedUrl.baseRepo.repo,
-    ].join('/').toLowerCase()
-    const targetKey = String(input.number)
-    const originSessionId = normalizedOptional(input.originSessionId)
-    // The task's compact pull request (`Task.pr`) is read from this edge; nothing else captures it.
-    const changed = await database().transaction(async (db) => {
-      await requireTask(this.#organizationId, this.id, db)
-      const existingLink = existingPrLinkRowSchema.nullish().parse(await db.get(sql`
-        SELECT resource_links.target_scope, resource_links.url, resource_links.title, resource_links.origin_session_id
-        FROM ${resourceLinks}
-        WHERE resource_links.source_kind = 'task' AND resource_links.source_id = ${this.id} AND resource_links.target_kind = 'pr'
-          AND resource_links.target_key = ${targetKey}
-          AND (LOWER(resource_links.target_scope) = LOWER(${targetScope}) OR LOWER(resource_links.url) = LOWER(${url}))
-        LIMIT 1
-      `))
-      if (existingLink) {
-        const { title, originSessionId: nextOriginSessionId } = nextPrLinkIdentity(existingLink, {
-          title: input.title,
-          originSessionId,
-          claimsRow: !input.automatic,
-        })
-        const needsLinkUpdate = existingLink.target_scope !== targetScope
-          || existingLink.url !== url
-          || existingLink.title !== title
-          || existingLink.origin_session_id !== nextOriginSessionId
-        if (needsLinkUpdate) {
-          await db.run(sql`
-            UPDATE ${resourceLinks}
-            SET target_scope = ${targetScope}, url = ${url}, title = ${title}, origin_session_id = ${nextOriginSessionId},
-              repository = ${targetScope}, number = ${input.number}
-            WHERE resource_links.source_kind = 'task' AND resource_links.source_id = ${this.id} AND resource_links.target_kind = 'pr'
-              AND resource_links.target_scope = ${existingLink.target_scope} AND resource_links.target_key = ${targetKey}
-          `)
-        }
-        return needsLinkUpdate
-      }
-
-      await writeTaskLink(db, this.#organizationId, this.id, {
-        kind: 'pr',
-        targetScope,
-        targetKey,
-        title: input.title?.trim() || undefined,
-        url,
-        automatic: input.automatic,
-        originSessionId,
-      }, by)
-      return true
-    })
-    if (changed) {
-      emitChanged(this.id)
-      await this.refresh()
-      taskLog.info('task_pr_linked', { targetScope, url: parsedUrl.url })
-    } else {
-      taskLog.debug('task_pr_link_unchanged', { targetScope })
-    }
-    return this.details()
-  }
-
-  async unlink(
-    kind: TaskLinkKind,
-    targetKey: string,
-    targetScope: string,
-    by: Attribution,
-  ): Promise<TaskDetails> {
-    let removed = await database().transaction(async (db) => {
-      await requireTask(this.#organizationId, this.id, db)
-      return deleteTaskLink(db, this.#organizationId, this.id, kind, targetKey, targetScope, by)
-    })
-    // A pull request the task reads through its sessions has no row here:
-    // removing it from the task removes it from each session that owns it.
-    const number = Number(targetKey)
-    if (!removed && kind === 'pr' && Number.isSafeInteger(number)) {
-      const owners = (await taskSessions(this.#organizationId, this.id))[this.id] ?? []
-      for (const owner of owners) {
-        if (owner.role === 'referenced') continue
-        if (await unlinkSessionPullRequest(owner.sessionId, targetScope, number)) removed = true
-      }
-    }
-    if (removed) {
-      emitChanged(this.id)
-      await this.refresh()
-    }
-    return this.details()
-  }
-
-  /** Explicitly attach this task to one session attempt. */
-  async linkSession(
-    sessionId: string,
-    role: TaskSessionRole = 'working',
-    details: SessionLinkDetails = {},
-  ): Promise<void> {
-    const isNewLink = await database().transaction((db) => writeSessionLink(db, this.#organizationId, this.id, sessionId, role, details, Date.now()))
-    // A session that joins the task brings what it made. Only a first link
-    // does this, so an output that a person removed from the task stays removed.
-    if (isNewLink && role !== 'referenced') await this.#adoptSessionOutputs(sessionId)
-    emitChanged(this.id)
-    await this.refresh()
-  }
-
-  async #adoptSessionOutputs(sessionId: string): Promise<void> {
-    for (const output of await readSessionOutputs(this.#organizationId, sessionId)) {
-      await this.linkWorkspaceObject(
-        { ...output, originSessionId: sessionId, outputOfSessionId: sessionId },
-        agentAttribution(sessionId),
-      ).catch((error) => {
-        log.warn('task_session_output_link_failed', {
-          taskId: this.id,
-          sessionId,
-          kind: output.kind,
-          targetKey: output.targetKey,
-          error: error instanceof Error ? error.message : String(error),
-        })
+export async function getTask(scope: RecordScope, taskId: string, personKey?: string): Promise<TaskDetails> {
+  const before = await loadTask(taskId)
+  try {
+    const task = await fetchTask(taskId)
+    if (!before || before.updatedAt !== task.updatedAt || before.category !== task.category) emitChanged(taskId)
+    if (personKey && before && task.assignee && task.assignee !== before.assignee) {
+      const assignment = { taskId, title: task.title, provider: task.providerId, assignee: task.assignee, updatedAt: task.updatedAt }
+      await notifyTaskAssignments([assignment], personKey).catch((error) => {
+        log.warn('task_assignment_notify_failed', { taskId, error: error instanceof Error ? error.message : String(error) })
       })
     }
-  }
-
-  /** The reverse of `linkSession`: drop the relationship and record it. */
-  async unlinkSession(
-    sessionId: string,
-    by: Attribution,
-  ): Promise<void> {
-    const removed = await database().transaction((db) => deleteSessionLink(db, this.#organizationId, this.id, sessionId, by))
-    if (removed) {
-      emitChanged(this.id)
-      await this.refresh()
-    }
-  }
-
-  /**
-   * Keep only where the task went (cloud-sharing.md §3a): the organization's copy
-   * is now the only copy, so the body, comments, ticket link, history, and
-   * notifications go. The row, its title, and its links stay, so a session or a
-   * work that names the task here is answered with its location.
-   */
-  async moveTo(location: TaskLocation): Promise<void> {
-    await database().transaction(async (db) => {
-      await requireTask(this.#organizationId, this.id, db)
-      await deleteThreadsOf(db, this.#threads())
-      await db.run(sql`DELETE FROM ${taskExternalLinks} WHERE task_id = ${this.id}`)
-      await deleteActivityFor({ kind: 'task', id: this.id }, db)
-      await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
-      await db.run(sql`
-        UPDATE ${tasks} SET body = '', location = ${JSON.stringify(location)}
-        WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
-      `)
-    })
-    emitChanged()
-  }
-
-  /** The task's comment threads: the subject every thread write names. */
-  #threads(): ThreadSubject {
-    return { organizationId: this.#organizationId, kind: 'task', id: this.id }
-  }
-
-  async delete(): Promise<boolean> {
-    const deleted = await database().transaction(async (db) => {
-      const removed = (await db.run(sql`
-        DELETE FROM ${tasks} WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
-      `)).changes > 0
-      // The task's edges, its comment threads, its history, and everyone's snooze of it go with it: none has a foreign key to the row.
-      if (removed) {
-        await deleteEdgesOf(db, 'task', this.id)
-        await deleteThreadsOf(db, this.#threads())
-      }
-      if (removed) await deleteActivityFor({ kind: 'task', id: this.id }, db)
-      if (removed) await deleteTaskPersonalState(db, this.#organizationId, this.id)
-      if (removed) await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
-      return removed
-    })
-    if (deleted) emitChanged()
-    return deleted
+    return await taskDetails(scope, taskId)
+  } catch (error) {
+    if (!before) throw taskWriteError(error)
+    log.warn('task_read_from_cache', { taskId, error: error instanceof Error ? error.message : String(error) })
+    return { ...await taskDetails(scope, taskId), fromCache: true }
   }
 }
 
-/** Assemble the serializable state a dispatched prompt carries — what
- * `read_task` on the execution host answers from, read on the task's own host
- * (docs/plans/dispatch-parity.md). The RPC layer attaches linked-item content
- * (`attachLinkedContent`) before shipping, so this stays a pure store read. */
+/** What a dispatched prompt carries: the task as the host holds it, read on the
+ * task's own host (docs/plans/dispatch-parity.md). The RPC layer attaches the
+ * content of linked items (`attachLinkedContent`) before it ships. */
 export async function taskSnapshot(scope: RecordScope, taskId: string): Promise<TaskSnapshot> {
-  const details = await (await Task.byId(scope, taskId)).details()
-  return { details, sessions: (await taskSessions(scope, taskId))[taskId] ?? [] }
+  await cachedTask(taskId)
+  return { details: await taskDetails(scope, taskId), sessions: (await taskSessions(scope, taskId))[taskId] ?? [] }
+}
+
+const PATCH_FIELDS: TaskField[] = ['title', 'body', 'labels', 'assignee', 'priority', 'dueDate']
+const FIELD_NAMES = {
+  title: 'the title',
+  body: 'the description',
+  labels: 'labels',
+  assignee: 'the assignee',
+  priority: 'the priority',
+  dueDate: 'the due date',
+} satisfies Record<TaskField, string>
+
+/** Refuse a body with a local asset that the provider cannot hold for this task: it could never be sent. */
+function assertPublishable(home: TaskHome, body: string): void {
+  const blocked = taskAdapters().provider(home.provider).unpublishableAssets(home, body)
+  if (!blocked.length) return
+  const where = home.provider === 'jira' ? 'Jira' : home.kind === 'draft' ? 'A GitHub draft item' : 'GitHub'
+  throw new Error(`${where} cannot hold .${blocked[0].extension} attachments. Remove the file, or add it on the provider.`)
+}
+
+/** The body to send: its local assets are uploaded to the provider first. */
+async function publishedBody(home: TaskHome, body: string): Promise<string> {
+  if (!assetReferencesIn(body).length) return body
+  assertPublishable(home, body)
+  const provider = taskAdapters().provider(home.provider)
+  return provider.publishAssets(home, body)
+}
+
+/** Change a task's fields on the provider. A field the provider does not take for this task is refused. */
+export async function updateTask(taskId: string, patch: TaskUpdatePatch): Promise<Task> {
+  const { task, home } = await writableTask(taskId)
+  const fields = PATCH_FIELDS.filter((field) => patch[field] !== undefined)
+  if (!fields.length) return task
+  const refused = fields.find((field) => !task.writableFields.includes(field))
+  if (refused) throw new Error(`${task.reference ?? 'This task'} does not take a change of ${FIELD_NAMES[refused]} from Solus.`)
+  if (patch.title !== undefined && !patch.title.trim()) throw new Error('Task title cannot be empty.')
+  let updated: ProviderTask
+  try {
+    const body = patch.body === undefined ? undefined : await publishedBody(home, patch.body)
+    updated = await taskAdapters().provider(home.provider).update(home, body === undefined ? patch : { ...patch, body })
+  } catch (error) {
+    throw taskWriteError(error)
+  }
+  const stored = await storeProviderTask(updated)
+  emitChanged(taskId)
+  return stored
+}
+
+/** The first column of a source that has the category: where a move to a category puts a board item. */
+function firstColumnOf(source: StoredTaskSource, category: TaskStatusCategory): string | null {
+  return source.columns.find((column) => column.category === category)?.id ?? null
+}
+
+/**
+ * Move a task to one column of one source that lists it, or to a status
+ * category. For a category the host chooses: a GitHub issue is closed or
+ * reopened, and each GitHub Project that lists the task gets its first column
+ * of that category; a Jira issue makes a legal transition to a status of that
+ * category, and fails loudly when there is none.
+ */
+export async function moveTask(taskId: string, target: TaskMoveTarget): Promise<Task> {
+  const { task, home } = await writableTask(taskId)
+  const items = await sourceItemsOfTask(taskId)
+  const sources = await loadTaskSources(items.map((item) => item.sourceKey))
+  const adapters = taskAdapters()
+  try {
+    if ('sourceKey' in target) {
+      const item = items.find((candidate) => candidate.sourceKey === target.sourceKey)
+      const source = sources.get(target.sourceKey)
+      if (!item || !source) throw new Error(`${task.reference ?? 'This task'} is not in that task source.`)
+      if (!source.columns.some((column) => column.id === target.columnId)) throw new Error(`${source.label} has no such column.`)
+      const moved = await adapters.source(source.source.kind).move({
+        source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId: target.columnId,
+      })
+      if (moved) await storeProviderTask(moved)
+      await storeTaskColumn(taskId, target.sourceKey, target.columnId)
+    } else if (home.provider === 'jira') {
+      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider('jira').setState(home, target.category))
+    } else {
+      const wantsDone = target.category === 'done'
+      if (home.kind === 'issue' && (task.state.category === 'done') !== wantsDone) {
+        await storeProviderTask(await adapters.provider('github').setState(home, target.category))
+      }
+      for (const item of items) {
+        const source = sources.get(item.sourceKey)
+        if (source?.source.kind !== 'github-project') continue
+        const columnId = firstColumnOf(source, target.category)
+        if (!columnId || columnId === item.columnId) continue
+        await adapters.source('github-project').move({ source: source.source, writeState: source.writeState, home, itemId: item.itemId, columnId })
+        await storeTaskColumn(taskId, item.sourceKey, columnId)
+      }
+    }
+  } catch (error) {
+    throw taskWriteError(error)
+  } finally {
+    // A move of several boards can stop part way: clients read what the copy holds now.
+    emitChanged(taskId)
+  }
+  const moved = await loadTask(taskId)
+  if (!moved) throw new Error(`Task ${taskId} not found.`)
+  return moved
+}
+
+const STATUS_CATEGORIES: readonly TaskStatusCategory[] = ['open', 'active', 'done']
+
+/** A status that a caller named in words, as the move it means. */
+export interface NamedTaskStatus {
+  target: TaskMoveTarget
+  /** The status category the move gives the task. */
+  category: TaskStatusCategory
+}
+
+/**
+ * Read a status that a caller names in words: a status category (`open`,
+ * `active`, `done`) or the name of a column of a source that lists the task.
+ * This is what an agent and a dispatched session send. A name that is neither
+ * is refused with the columns the task can take.
+ */
+export async function namedTaskStatus(taskId: string, status: string): Promise<NamedTaskStatus> {
+  const wanted = status.trim().toLowerCase()
+  const category = STATUS_CATEGORIES.find((candidate) => candidate === wanted)
+  if (category) return { target: { category }, category }
+  await cachedTask(taskId)
+  const items = await sourceItemsOfTask(taskId)
+  const sources = await loadTaskSources(items.map((item) => item.sourceKey))
+  for (const item of items) {
+    const column = sources.get(item.sourceKey)?.columns.find((candidate) => candidate.name.toLowerCase() === wanted)
+    if (column) return { target: { sourceKey: item.sourceKey, columnId: column.id }, category: column.category }
+  }
+  const names = [...new Set(items.flatMap((item) => sources.get(item.sourceKey)?.columns.map((column) => column.name) ?? []))]
+  throw new Error(`"${status}" is not a status of this task. Use open, active or done${names.length ? `, or a column: ${names.join(', ')}` : ''}.`)
+}
+
+/** Move a task to a status that a caller names in words (`namedTaskStatus`). */
+export async function moveTaskToStatus(taskId: string, status: string): Promise<Task> {
+  return moveTask(taskId, (await namedTaskStatus(taskId, status)).target)
+}
+
+/**
+ * Create a task on the provider, in `sourceKey` or in the default source of
+ * the project. A project with no task source has no place for a task, and the
+ * error says so. `personKey` is whose connection reads the source when the
+ * host has not read it yet.
+ */
+export async function createTask(input: TaskCreateInput, personKey: string): Promise<Task> {
+  const title = input.title.trim()
+  if (!title) throw new Error('Task title cannot be empty.')
+  const project = await projectTaskSources(input.cwd)
+  if (!project.sources.length) {
+    throw new Error('This project has no task source. Add a GitHub or Jira task source to the project, then create the task.')
+  }
+  const sourceKey = input.sourceKey ?? project.defaultSourceKey
+  const source = project.sources.find((candidate) => taskSourceKey(candidate) === sourceKey)
+  if (!source || !sourceKey) throw new Error(`The task source ${input.sourceKey} is not one of this project's task sources.`)
+  // A board write needs what a read of the board gives (the Project's id, the board's project).
+  let stored = await loadTaskSource(sourceKey)
+  if (stored?.fetchedAt == null) {
+    await readTaskSource(source, personKey)
+    stored = await loadTaskSource(sourceKey)
+  }
+  if (input.columnId !== undefined && !stored?.columns.some((column) => column.id === input.columnId)) {
+    throw new Error(`${stored?.label ?? 'This task source'} has no such column.`)
+  }
+  let task: Task
+  try {
+    const item = await taskAdapters().source(source.kind).create({
+      source,
+      writeState: stored?.writeState ?? null,
+      draft: {
+        title, body: input.body, columnId: input.columnId, assignee: input.assignee,
+        dueDate: input.dueDate, priority: input.priority, labels: input.labels,
+      },
+    })
+    task = await storeProviderTask(item.task, { place: { sourceKey, columnId: item.columnId, itemId: item.itemId } })
+  } catch (error) {
+    throw taskWriteError(error)
+  }
+  emitChanged(task.id)
+  return task
+}
+
+/**
+ * Delete a draft item from its GitHub Project. An issue is closed or moved,
+ * never deleted. The attachments of the draft go with it: nothing can name it
+ * again.
+ */
+export async function deleteTask(taskId: string): Promise<boolean> {
+  const { task, home } = await writableTask(taskId)
+  if (task.kind !== 'draft') throw new Error(`${task.reference ?? 'This task'} is an issue. Close it or move it; Solus deletes only a draft item.`)
+  try {
+    await taskAdapters().provider(home.provider).remove(home)
+  } catch (error) {
+    throw taskWriteError(error)
+  }
+  await database().transaction(async (db) => {
+    await db.run(sql`DELETE FROM ${tasks} WHERE id = ${taskId}`)
+    await db.run(sql`DELETE FROM ${taskSourceItems} WHERE task_id = ${taskId}`)
+    // None of these has a foreign key to the row: the task key is polymorphic.
+    await deleteEdgesOf(db, 'task', taskId)
+    await deleteThreadsOf(db, taskThreads(taskId))
+    await deleteActivityFor({ kind: 'task', id: taskId }, db)
+    await db.run(sql`DELETE FROM ${personalResourceState} WHERE resource_kind = 'task' AND resource_id = ${taskId}`)
+    // A notification about a task is the reader's own, in Local (`notifyTaskAssignments`).
+    await removeNotificationsFor(db, LOCAL_ORGANIZATION_ID, { kind: 'task', taskId })
+  })
+  emitChanged()
+  return true
+}
+
+/** Mark the host's copy of a task read or not read. */
+export async function markTaskRead(taskId: string, read: boolean): Promise<Task> {
+  await database().run(sql`UPDATE ${tasks} SET last_read_at = ${read ? Date.now() : null} WHERE id = ${taskId}`)
+  const task = await loadTask(taskId)
+  if (!task) throw new Error(`Task ${taskId} not found.`)
+  emitChanged(taskId)
+  return task
+}
+
+/** Send one comment to the provider. Throws when the provider does not take it. */
+async function sendComment(home: TaskHome, body: string) {
+  const published = await publishedBody(home, body)
+  return taskAdapters().provider(home.provider).comment(home, published)
+}
+
+/**
+ * Post a comment to the provider. A comment the provider did not take stays on
+ * this host as `unsent` with the reason, and shows in the answer; a body with
+ * an asset the provider cannot hold is refused, because it could never be sent.
+ */
+export async function commentOnTask(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<TaskDetails> {
+  const body = input.body.trim()
+  if (!body) throw new Error('Task comment cannot be empty.')
+  const { home } = await writableTask(taskId)
+  if (input.id && await hasComment(taskId, input.id)) return taskDetails(scope, taskId)
+  assertPublishable(home, body)
+  try {
+    await storeSentComment(taskId, { ...input, body }, await sendComment(home, body))
+  } catch (error) {
+    const sendError = taskWriteError(error).message
+    log.warn('task_comment_not_sent', { taskId, error: sendError })
+    await storeUnsentComment(taskId, { ...input, body }, sendError)
+  }
+  emitChanged(taskId)
+  return taskDetails(scope, taskId)
+}
+
+/** Send an unsent comment again. It stays unsent, with the new reason, when the provider refuses it again. */
+export async function retryTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+  const { home } = await writableTask(taskId)
+  const thread = await requireUnsentComment(taskId, commentId)
+  try {
+    await markCommentSent(taskId, thread, await sendComment(home, thread.body))
+  } catch (error) {
+    const sendError = taskWriteError(error).message
+    log.warn('task_comment_not_sent', { taskId, commentId, error: sendError })
+    await markCommentFailed(taskId, thread, sendError)
+  }
+  emitChanged(taskId)
+  return taskDetails(scope, taskId)
+}
+
+/** Discard an unsent comment. A sent comment is deleted on the provider, not here. */
+export async function deleteTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+  await requireUnsentComment(taskId, commentId)
+  if (await discardUnsentComment(taskId, commentId)) emitChanged(taskId)
+  return taskDetails(scope, taskId)
+}
+
+/** The people the provider permits to be assigned: for one task, or for a new task in one source of a project. */
+export async function listTaskAssignees(target: { taskId: string } | { cwd: string; sourceKey: string }): Promise<TaskAssigneeCandidate[]> {
+  try {
+    if ('taskId' in target) {
+      const { home } = await writableTask(target.taskId)
+      return await taskAdapters().provider(home.provider).assignees(home)
+    }
+    const source = (await projectTaskSources(target.cwd)).sources.find((candidate) => taskSourceKey(candidate) === target.sourceKey)
+    if (!source) throw new Error(`The task source ${target.sourceKey} is not one of this project's task sources.`)
+    return await taskAdapters().source(source.kind).assignees(source)
+  } catch (error) {
+    throw taskWriteError(error)
+  }
+}
+
+/**
+ * Ask the provider for the tasks of a project's sources that match `query`:
+ * the only way to reach a task that a truncated source did not list. Each
+ * found task gets a copy on this host, so a link or a session can name it. A
+ * source that fails is left out; when each source fails the first error is
+ * thrown.
+ */
+export async function searchTasks(cwd: string, query: string): Promise<TaskSummary[]> {
+  const text = query.trim()
+  if (!text) return []
+  const { sources } = await projectTaskSources(cwd)
+  const stored = await loadTaskSources(sources.map(taskSourceKey))
+  const found = new Map<string, { sourceKey: string; columnId: string | null }>()
+  let firstError: Error | null = null
+  let answered = false
+  for (const source of sources) {
+    const sourceKey = taskSourceKey(source)
+    try {
+      for (const task of await taskAdapters().source(source.kind).search(source, text)) {
+        const taskId = taskKey(task.ref)
+        await storeProviderTask(task)
+        const held = stored.get(sourceKey)
+        if (!found.has(taskId)) found.set(taskId, { sourceKey, columnId: (held ? stateColumnOf(held, task) : null) ?? null })
+      }
+      answered = true
+    } catch (error) {
+      log.warn('task_search_failed', { sourceKey, error: error instanceof Error ? error.message : String(error) })
+      firstError ??= taskWriteError(error)
+    }
+  }
+  if (!answered && firstError) throw firstError
+  // A task past the cap of a source has no placement on this host: it is named in the source that found it.
+  return (await loadTaskSummaries([...found.keys()])).map((task) => {
+    const place = found.get(task.id)
+    return task.placements.length || !place ? task : { ...task, placements: [place] }
+  })
 }

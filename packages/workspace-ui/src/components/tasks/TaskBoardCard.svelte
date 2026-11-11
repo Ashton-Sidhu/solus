@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { TaskStatus } from "@solus/contracts/task-types";
   import { ListAvatar, SourceLogo } from "../ui/list-page";
   import { avatarTint, chipSkin } from "../ui/list-page/list-page";
   import type { BoardCardSpec } from "./lib/tasks-list-view";
@@ -29,8 +28,9 @@
      *  but its slot within one isn't the user's to set. */
     canReorder?: boolean;
     onSelect: () => void;
-    /** 1 / 2 / 3 on a focused card move it without reaching for the pointer. */
-    onSetStatus: (status: TaskStatus) => void;
+    /** 1 to 9 on a focused card move it to that column of the board, counted
+     *  from the left, without reaching for the pointer. */
+    onMoveToColumn: (index: number) => void;
     /** ⌥ + an arrow moves the card itself. Returns whether the board took it. */
     onMove: (key: string) => boolean;
     onContextMenu?: (event: MouseEvent) => void;
@@ -43,19 +43,11 @@
     floating = false,
     canReorder = true,
     onSelect,
-    onSetStatus,
+    onMoveToColumn,
     onMove,
     onContextMenu,
     onPress,
   }: Props = $props();
-
-  // The three columns worth a keystroke. In review is a decision, not a nudge,
-  // so it stays a drag or a menu choice.
-  const QUICK_STATUS = {
-    "1": "todo",
-    "2": "in_progress",
-    "3": "done",
-  } satisfies Record<string, TaskStatus>;
 
   const hasFooter = $derived(card.chips.length > 0 || card.people.length > 0);
 
@@ -91,7 +83,7 @@
  ? ''
  : 'shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]'}"
   title={canReorder
-    ? `Open task · drag to reorder · ${moveKey}↑↓ ${moveKey}←→ move · 1/2/3 set status`
+    ? `Open task · drag to reorder · ${moveKey}↑↓ ${moveKey}←→ move · 1-9 move to that column`
     : "Open task · drag to change column · clear the search to reorder"}
   onclick={onSelect}
   onkeydown={(event) => {
@@ -109,11 +101,10 @@
       event.stopPropagation();
       return;
     }
-    const next = QUICK_STATUS[event.key];
-    if (next) {
+    if (/^[1-9]$/.test(event.key)) {
       event.preventDefault();
       event.stopPropagation();
-      onSetStatus(next);
+      onMoveToColumn(Number(event.key) - 1);
     }
   }}
   oncontextmenu={onContextMenu}
@@ -121,10 +112,8 @@
 >
   <!-- Where it lives, and when it last moved. -->
   <span class="flex min-w-0 items-center gap-1.5">
-    <TaskStatusGlyph status={card.lifecycle} size={20} />
-    {#if card.source.id !== "local"}
-      <SourceLogo source={card.source.id} title={card.source.title} />
-    {/if}
+    <TaskStatusGlyph category={card.category} size={20} />
+    <SourceLogo source={card.source.id} title={card.source.title} />
     <span
       class="shrink-0 whitespace-nowrap tabular-nums text-muted-foreground opacity-60"
     >
@@ -153,8 +142,6 @@
     <span
       class="flex min-w-0 items-center gap-[5px] {card.live
  ? 'text-[color-mix(in_oklch,var(--running)_66%,var(--foreground))]'
- : card.attention
- ? 'text-[color-mix(in_oklch,var(--primary)_76%,var(--foreground))]'
  : 'text-muted-foreground'}"
     >
       <!-- The one moving thing on the board. It rides the status line's colour,

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { ShareList, ShareResource } from '@solus/contracts/sharing'
-import type { CloudPublication } from '@solus/workspace-ui/contexts/sharing/cloud-publication'
 import { configureUplinkAccountSource } from '@solus/client-core/uplink-account'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -342,76 +341,13 @@ describe('sharing a Local work', () => {
   })
 })
 
-/** Task links over the store's own publication, as the app wires them. */
-async function taskLinksFor(store: { publication: CloudPublication }) {
-  const { TaskLinks } = await import('@solus/workspace-ui/contexts/tasks/task-links')
-  return new TaskLinks(store.publication)
-}
-
-/** What a copied task link opens: the app's own route, read back the way the web client reads it. */
-async function opensTaskOf(url: string): Promise<{ origin: string; taskId?: string; serverId?: string }> {
-  const { parseRoute } = await import('@solus/workspace-ui/contexts/workspace/routing/codec')
-  const parsed = new URL(url)
-  const ref = parseRoute(parsed.pathname)
-  return ref?.name === 'task' ? { origin: parsed.origin, taskId: ref.params.taskId, serverId: ref.params.serverId } : { origin: parsed.origin }
-}
-
-describe('a task\'s link', () => {
-  const taskTransfer = { task: { id: 't1' }, comments: [], workIds: ['w1'], fingerprint: 'task-fp' }
-  const workTransfer = { work: { id: 'w1' }, previousRevisionId: null, revisions: [], annotations: null, fingerprint: 'work-fp' }
-  let copied: string[] = []
-  beforeEach(() => {
-    copied = []
-    account.state = { kind: 'signed-in', consoleUrl: 'https://app.example.test' }
-    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (text: string) => { copied.push(text) } } } })
-  })
-
-  test('Copy link puts a Local task in the organization with everything linked to it, then copies the address that opens it', async () => {
-    // WHY: a task is not shared on its own; its organization sees it. Its link
-    // must open the task there, so a Local task goes first, with its linked
-    // works ahead of it (docs/plans/cloud-sharing.md §8), and leaves the machine.
-    const calls: string[] = []
-    connections.registerPrimary('local', {
-      taskExportForCloud: async (taskId: string) => { calls.push(`export:${taskId}`); return { task: taskTransfer, works: [workTransfer] } },
-      taskMarkMoved: async (taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>) => {
-        calls.push(`mark-moved:${taskId}:${fingerprint}:${works.map((work) => `${work.workId}:${work.fingerprint}`).join(',')}`)
-      },
-    })
-    connections.registerHost(CLOUD, {
-      workUpload: async (sent: { work: { id: string } }) => { calls.push(`upload-work:${sent.work.id}`); return { workId: sent.work.id, organizationId: 'org-1' } },
-      taskUpload: async (sent: { task: { id: string } }) => { calls.push(`upload-task:${sent.task.id}`); return { taskId: sent.task.id, organizationId: 'org-1' } },
-    })
-    const { store, published } = await newStore()
-    const links = await taskLinksFor(store)
-
-    await links.copy('local', 't1')
-
-    expect(calls).toEqual(['export:t1', 'upload-work:w1', 'upload-task:t1', 'mark-moved:t1:task-fp:w1:work-fp'])
-    expect(published).toEqual([['w1', 'org-1', CLOUD]])
-    expect(await Promise.all(copied.map(opensTaskOf))).toEqual([{ origin: 'https://app.example.test', taskId: 't1', serverId: CLOUD }])
-    expect(store.dialog).toBeNull()
-  })
-
-  test('a task already in the organization copies its link with no upload, and a task is never offered Share', async () => {
-    const { store } = await newStore()
-    await (await taskLinksFor(store)).copy(CLOUD, 't1')
-    expect(await Promise.all(copied.map(opensTaskOf))).toEqual([{ origin: 'https://app.example.test', taskId: 't1', serverId: CLOUD }])
-    expect(store.canShareFrom('local', 'task')).toBe(false)
-    expect(store.canShareFrom(CLOUD, 'task')).toBe(false)
-  })
-
-  test('without an account or an organization there is no link, and nothing leaves the machine', async () => {
-    const links = await taskLinksFor((await newStore()).store)
-    account.state = { kind: 'signed-out' }
-    expect(links.canCopy('local')).toBe(false)
-    await links.copy('local', 't1')
-    account.state = { kind: 'signed-in', consoleUrl: 'https://app.example.test' }
-    window.activeOrganizationId = null
-    expect(links.canCopy('local')).toBe(false)
-    expect(links.canCopy(CLOUD)).toBe(true)
-    await links.copy('local', 't1')
-    expect(copied).toEqual([])
-    expect(toastCalls.every((call) => call.startsWith('error:'))).toBe(true)
+describe('a task', () => {
+  test('is not a thing Solus shares: only a session and a work are', async () => {
+    // WHY: GitHub or Jira owns a task and decides who reads it. A Solus share
+    // list or a cloud copy of one would be a second owner of the same task, so
+    // no surface can name a task as a share resource.
+    const { shareResourceKindSchema } = await import('@solus/contracts/sharing')
+    expect(shareResourceKindSchema.options).toEqual(['session', 'work'])
   })
 })
 

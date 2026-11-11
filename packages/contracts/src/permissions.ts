@@ -212,7 +212,7 @@ const PERMISSION_OF_METHOD = {
   projectConfigSave: HOST_USE, listProjectIdentities: HOST_USE, resolveDispatchHistoryRoots: HOST_USE,
   untrackProject: HOST_USE, skillsSearch: HOST_USE, skillsInstall: HOST_USE, skillsList: HOST_USE,
   skillsRemove: HOST_USE, connectionsListEndpoints: HOST_USE, connectionsListSessions: HOST_USE,
-  uplinkStatus: HOST_USE, hostSelfTest: HOST_USE, hostOrganizations: HOST_USE, hostPolicy: HOST_USE, workUpload: HOST_USE, taskUpload: HOST_USE,
+  uplinkStatus: HOST_USE, hostSelfTest: HOST_USE, hostOrganizations: HOST_USE, hostPolicy: HOST_USE, workUpload: HOST_USE,
   shareLinkOrigin: HOST_USE, providerInstanceStatus: HOST_USE, providerInstanceSignIn: HOST_USE, providerInstanceSubmitCode: HOST_USE, providerInstanceCancelSignIn: HOST_USE, providerInstanceSignOut: HOST_USE, providerInstancesGet: HOST_USE, providerInstancesWrite: HOST_USE, seatList: HOST_USE, seatConnectStart: HOST_USE, seatConnectSubmitCode: HOST_USE,
   seatConnectCancel: HOST_USE, seatConnectToken: HOST_USE, seatDisconnect: HOST_USE, agentAuthStart: HOST_USE,
   agentAuthSubmit: HOST_USE, agentAuthCancel: HOST_USE, agentAuthSignOut: HOST_USE, integrationCatalogList: HOST_USE,
@@ -241,9 +241,15 @@ const PERMISSION_OF_METHOD = {
   writeReviewState: HOST_USE, readReviewLens: HOST_USE, prLensRevisions: HOST_USE, requestReviewLens: HOST_USE,
   editReviewLens: HOST_USE, cancelReviewLens: HOST_USE, restoreReviewLens: HOST_USE,
   updateReviewLensComments: HOST_USE, postReviewLensComment: HOST_USE, retractReviewLensComment: HOST_USE,
-  tasksProviderStatus: HOST_USE, inboxListUpstream: HOST_USE, tasksListUpstream: HOST_USE,
-  tasksGetUpstream: HOST_USE, tasksUpdateUpstream: HOST_USE, tasksCommentUpstream: HOST_USE,
-  tasksListAssigneeCandidates: HOST_USE, tasksListCandidates: HOST_USE, tasksImport: HOST_USE,
+  // A task is GitHub's or Jira's, not a Solus resource: who may read or change
+  // one is decided by the caller's own provider connection, so every task
+  // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
+  tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
+  tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
+  tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,
+  tasksComment: HOST_USE, tasksRetryComment: HOST_USE, tasksDeleteComment: HOST_USE,
+  tasksListAssigneeCandidates: HOST_USE, tasksSessions: HOST_USE, tasksSnapshot: HOST_USE,
+  tasksLink: HOST_USE, tasksUnlink: HOST_USE, tasksAttachArtifact: HOST_USE,
   tasksSearchComments: HOST_USE, tasksPrepareForSession: HOST_USE, tasksLinkedTo: HOST_USE, outboxList: HOST_USE,
   outboxAck: HOST_USE, outboxApply: HOST_USE, automationCreate: HOST_USE, automationList: HOST_USE,
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
@@ -410,12 +416,8 @@ export const RESOURCE_ACTION_OF_METHOD = {
   pullWorkUpstream: 'edit', refreshWorkUpstream: 'edit', unlinkWorkUpstream: 'edit',
   // The share list
   shareSet: 'share', shareSetLink: 'share',
-  // Tasks
-  tasksReadExtras: 'read', tasksSessions: 'read', tasksSnapshot: 'read', tasksMarkRead: 'read', tasksSnooze: 'read',
-  tasksRecordActivity: 'read', tasksComment: 'edit', tasksDeleteComment: 'edit', tasksPublishComments: 'edit', tasksPublish: 'edit',
-  tasksSyncNow: 'edit', tasksLink: 'edit', tasksUnlink: 'edit', tasksAttachArtifact: 'edit',
   // Owner only: transfer, and taking the record off its host (docs/plans/cloud-sharing.md)
-  workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
+  workExportForCloud: 'own', workMarkMoved: 'own',
   // Automations (access-model.md §4 D4): the owner, or an administrator as an editor, reads,
   // changes, runs, and deletes one. Listing and creating are host-wide; a list is filtered.
   automationRead: 'read', automationListRuns: 'read', automationReadRun: 'read',

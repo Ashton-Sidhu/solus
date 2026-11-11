@@ -100,7 +100,7 @@ describe('task lifecycle work contracts', () => {
 
   test('autonomous permits the agent to finish the task', () => {
     const packet = formatTaskContext(task, 'autonomous')
-    expect(packet).toContain('or done when the work is complete without review')
+    expect(packet).toContain('Move it to done when the work is complete without review.')
   })
 
   // The pull request linking rule is in the runtime instructions of every

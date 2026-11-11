@@ -444,7 +444,7 @@
              you are leaving alone, and it stays on the context menu with the
              rest of the session's lifecycle. Wake is not — it is a snoozed
              row's only way back, so it holds at every width. -->
-        {#if canSnooze && task.status !== "done" && task.status !== "dropped"}
+        {#if canSnooze && task.status !== "done"}
           {#if task.lifecycle === "snoozed"}
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"

@@ -1,5 +1,5 @@
 import type {
-  WorkspaceCreateTask, WorkspaceCreateTaskComment, WorkspaceTaskComment, WorkspaceLink, WorkspaceLinkDelete, WorkspaceUpdateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery,
+  WorkspaceLink, WorkspaceLinkDelete,
   WorkspaceCreateWork, WorkspaceImportWork, WorkspacePublishWork, WorkspaceRequestWorkReview, WorkspaceWorkReview, WorkspaceWorkUpstream, WorkspaceUpdateWork, WorkspaceWork, WorkspaceWorkPage, WorkspaceWorkQuery, WorkspaceWorkSearchQuery, WorkspaceWorkSearchResult,
   WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceSessionLinkList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
   WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery, WorkspaceInsightTree,
@@ -11,12 +11,6 @@ import type { WorkspaceRequestContext } from '../../admission/workspace-credenti
 
 /** Transport-independent operations: HTTP and admitted in-process tools share these rules. */
 export interface WorkspaceOperations {
-  listTasks(context: WorkspaceRequestContext, query: WorkspaceTaskQuery): Promise<WorkspaceTaskPage>
-  getTask(context: WorkspaceRequestContext, taskId: string): Promise<WorkspaceTask>
-  createTask(context: WorkspaceRequestContext, input: WorkspaceCreateTask, key: string): Promise<WorkspaceTask>
-  updateTask(context: WorkspaceRequestContext, taskId: string, input: WorkspaceUpdateTask, version: string): Promise<WorkspaceTask>
-  deleteTask(context: WorkspaceRequestContext, taskId: string, version: string): Promise<void>
-  createTaskComment(context: WorkspaceRequestContext, taskId: string, input: WorkspaceCreateTaskComment, key: string): Promise<WorkspaceTaskComment>
   listWorks(context: WorkspaceRequestContext, query: WorkspaceWorkQuery): Promise<WorkspaceWorkPage>
   searchWorks(context: WorkspaceRequestContext, query: WorkspaceWorkSearchQuery): Promise<WorkspaceWorkSearchResult>
   importWork(context: WorkspaceRequestContext, input: WorkspaceImportWork, key: string): Promise<WorkspaceWork>
@@ -45,7 +39,6 @@ export interface WorkspaceOperations {
   listInsights(context: WorkspaceRequestContext, query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   getInsight(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsight>
   getInsightSpans(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsightTree>
-  listTaskActivity(context: WorkspaceRequestContext, taskId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listWorkActivity(context: WorkspaceRequestContext, workId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listSessionActivity(context: WorkspaceRequestContext, sessionId: string, query: WorkspaceActivityQuery): Promise<WorkspaceActivityList>
   listMyActivity(context: WorkspaceRequestContext, query: WorkspaceMyActivityQuery): Promise<WorkspaceActivityList>

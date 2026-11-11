@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { TaskPrSnapshot } from '@solus/contracts/task-types'
-import { latestPrObservation, prChipForChoices } from '@solus/workspace-ui/components/session/lib/task-list'
+import { prChipForChoices } from '@solus/workspace-ui/components/session/lib/task-list'
+import { latestPrObservation } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { samePrLinks } from '@solus/workspace-ui/contexts/tasks/task-reconcile'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 

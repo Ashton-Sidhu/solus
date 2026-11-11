@@ -4,7 +4,7 @@ Workspace, Automations, and Tasks group controls that change which records are s
 
 - Workspace groups project, type, time, Pinned, and Needs my review. It is global: it opens on all projects, and its Project filter is local to the page, so it never changes the scope of Tasks, Pull requests, or Automations. Plans stay with their sessions.
 - Automations groups Starred and status. Status remains a single choice, including Archived.
-- Tasks groups Running, Overdue, Assigned, and status. Inbox project and involvement controls also appear in Filters. Board view omits status because its columns show every status.
+- Tasks groups Agent running, Overdue, Assigned, Snoozed, and the columns of the view. The columns come from the task source on screen, or are Open, Active, and Done for All sources ([tasks](tasks.md)). Board view omits the column filter because its columns show every task.
 
 The row uses the Pull Requests toolbar sizing: 32 px search and buttons, 40 px on narrow panes. Sort precedes Filters. Filter choices use dropdown submenus.
 

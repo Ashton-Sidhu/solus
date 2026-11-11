@@ -1,7 +1,10 @@
+import { HostPolicies } from '@solus/contracts/host-policies'
 import { arg, optionalArg, textArg } from './args'
 import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, type HostConfigSnapshot, type TypeSafeKeyStatus } from '@solus/contracts/host-config'
 import type {
   HostCapabilities,
+  ProjectConfig,
+  ProjectEntry,
   RuntimeSessionInfo,
   VoiceModelStatus,
   WatchSessionInput,
@@ -11,6 +14,10 @@ import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { HostWebhookSettings, Webhook } from '@solus/contracts/webhooks'
 import type { DemoBackend } from '../server'
 import { DEMO_USER, type DemoStore } from '../store'
+
+/** The folders the demo's sessions run in. Each one is a project the page filters offer. */
+const DEMO_PROJECT_FOLDERS = ['api-gateway', 'web-dashboard', 'billing-service', 'marketing-site', 'infra', 'ios-app']
+const DEMO_PROJECTS_ADDED_AT = '2026-01-12T09:00:00.000Z'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let config = structuredClone(DEFAULT_HOST_CONFIG)
@@ -83,7 +90,15 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     return runtimeInfo(ctx.session.preferredModel)
   })
   backend.register('listRecentProjects', () => [])
-  backend.register('listProjects', () => [])
+  backend.register('listProjects', (): ProjectEntry[] => DEMO_PROJECT_FOLDERS.map((folderName, index) => ({
+    key: folderName,
+    path: `/home/demo/${folderName}`,
+    folderName,
+    addedAt: DEMO_PROJECTS_ADDED_AT,
+    // The list orders by last use: the demo's own project leads.
+    lastUsedAt: new Date(Date.parse(DEMO_PROJECTS_ADDED_AT) - index * 60_000).toISOString(),
+    repositoryKey: `github.com/acme/${folderName}`,
+  })))
   backend.register('worktreeBranches', () => [])
   backend.register('listAttention', () => [])
   // The marketing replay is presentation, not a background client. Its iframe
@@ -116,14 +131,14 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     deliveryError: null,
   })
   backend.register('hostOrganizations', hostOrganizations)
+  // The demo host has no MDM policy and no organization policy.
+  backend.register('hostPolicy', () => HostPolicies.none.set)
   backend.register('hostSetInsightsOptIn', hostOrganizations)
   backend.register('workExportForCloud', () => {
     throw new Error('Sharing is not available in the demo.')
   })
-  backend.register('taskExportForCloud', () => {
-    throw new Error('Sharing is not available in the demo.')
-  })
   backend.register('outboxList', () => [])
-  backend.register('projectConfigLoad', () => ({ version: 1 }))
+  backend.register('projectConfigLoad', (): ProjectConfig => store.projectConfig())
+  backend.register('projectConfigSave', (args): ProjectConfig => store.saveProjectConfig(arg<ProjectConfig>(args, 1)))
   backend.register('detectEditors', () => ({ editors: [], terminals: [] }))
 }

@@ -6,7 +6,8 @@
  * chips, which verbs. Everything about how a row is *drawn* lives in
  * `components/ui/list-page`.
  */
-import type { Task, TaskStatus } from '@solus/contracts/task-types'
+import type { Task } from '@solus/contracts/task-types'
+import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import {
   absoluteTime,
   compactRelativeTime,
@@ -18,9 +19,8 @@ import {
   type ListRowSource,
   type ListRowSpec,
 } from '../../ui/list-page/list-page'
-import { PROVIDER_NAMES, ticketRef } from '../task-page/lib/task-upstream'
 import { formatWakeIn } from '../../session/lib/task-list'
-import { visibleLabels } from './tasks-api'
+import { PROVIDER_NAMES, taskRef, type BoardColumn } from './tasks-api'
 
 /** A snoozed task is out of the task lists until it wakes. The snooze is
  *  independent of the status: any task can sleep, and its agents keep working. */
@@ -39,78 +39,31 @@ export function nextTaskWake(tasks: readonly Pick<Task, 'snoozedUntil'>[], now: 
 }
 
 /**
- * Lifecycle state is carried by the section a row sits in, so it costs no row
- * width and sorts the page for you. Fixed order — the further down, the less it
- * wants your attention.
- *
- * These double as the status filter's options: one entry per state a person
- * would name, which is why `inbox` (untriaged) sits inside Todo, while finished
- * and abandoned work is split — "I closed this without doing it" is a different
- * answer from "I did it", and either one may be the one you came looking for.
+ * What a list opens on: the columns of work that is not done. Finished work
+ * is history — reachable in one click, but never in the way of what is still
+ * moving. The column of a board's items that have no column yet is open work.
  */
-export const TASK_STATUS_GROUPS: { key: string; label: string; statuses: TaskStatus[] }[] = [
-  { key: 'in_progress', label: 'In progress', statuses: ['in_progress'] },
-  { key: 'in_review', label: 'In review', statuses: ['in_review'] },
-  { key: 'todo', label: 'Todo', statuses: ['inbox', 'todo'] },
-  { key: 'done', label: 'Done', statuses: ['done'] },
-  { key: 'dropped', label: 'Closed', statuses: ['dropped'] },
-]
-
-/** What a list opens on: live work only. Finished and abandoned work is history
- *  — reachable in one click, but never in the way of what is still moving. */
-export const OPEN_TASK_STATUS_KEYS = ['in_progress', 'in_review', 'todo']
-
-/** Whether the status filter is the one a list opens on, so it counts as no filter. */
-export function isOpenTaskStatusFilter(keys: readonly string[]): boolean {
-  return keys.length === OPEN_TASK_STATUS_KEYS.length && OPEN_TASK_STATUS_KEYS.every((key) => keys.includes(key))
+export function openColumnIds(columns: readonly Pick<BoardColumn<Task>, 'id' | 'category'>[]): string[] {
+  return columns.filter((column) => column.category !== 'done').map((column) => column.id)
 }
 
-/** Expand picked group keys into the raw statuses a row is matched against. */
-export function taskStatusesFor(keys: readonly string[]): Set<TaskStatus> {
-  const statuses = new Set<TaskStatus>()
-  for (const group of TASK_STATUS_GROUPS) {
-    if (keys.includes(group.key)) for (const status of group.statuses) statuses.add(status)
-  }
-  return statuses
+/** Whether the column filter is the one a list opens on, so it counts as no filter. */
+export function isOpenColumnFilter(
+  columns: readonly Pick<BoardColumn<Task>, 'id' | 'category'>[],
+  selected: readonly string[],
+): boolean {
+  const open = openColumnIds(columns)
+  return selected.length === open.length && open.every((id) => selected.includes(id))
 }
 
-/**
- * `T-412`, the human-referenceable per-install id.
- *
- * A provider-owned ticket has no Solus number — its `id` *is* the provider's
- * own reference — so it keeps that reference (`#412`, `ACME-12`) rather than
- * being dressed as a native task. Slicing it produced `T-ACME`: an id the user
- * cannot look up, and one that reads as a truncated cell.
- */
-function identFor(task: Task): string {
-  if (task.providerId !== 'local') return ticketRef(task.providerId, task.id)
-  return task.shortId ? `T-${task.shortId}` : `T-${task.id.slice(0, 4)}`
-}
-
-/** Slot 2a — the provider the task lives in, shown as its brand logo before the
- *  id. Local (native) tasks read as a quiet dot; upstream tickets say they sync
- *  back so the mark isn't mistaken for a decoration. */
+/** Slot 2a — the provider that owns the task, shown as its brand logo before
+ *  the reference. The title names the whole reference, which the cell shortens. */
 function sourceFor(task: Task): ListRowSource {
-  if (task.providerId !== 'local') {
-    return {
-      id: task.providerId,
-      title: `${PROVIDER_NAMES[task.providerId]} · status and comments sync back`,
-    }
+  const provider = PROVIDER_NAMES[task.providerId]
+  return {
+    id: task.providerId,
+    title: task.reference ? `${provider} · ${task.reference}` : `${provider} · draft item`,
   }
-  // A published or imported task is filed upstream even though Solus still owns
-  // the row, and where other people can see the work is the more useful fact —
-  // so the ticket's provider wins over "local" here.
-  const mirrored = task.mirroredTicket
-  if (mirrored) {
-    return {
-      id: mirrored.provider,
-      title: `${PROVIDER_NAMES[mirrored.provider]} · synced with ${ticketRef(
-        mirrored.provider,
-        mirrored.externalId,
-      )}`,
-    }
-  }
-  return { id: 'local', title: 'Local task · lives in Solus' }
 }
 
 /**
@@ -129,11 +82,11 @@ function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpe
   const chips: ListChipSpec[] = []
   const home = homeFor?.(task.id)
   if (home) chips.push({ label: home })
-  const label = visibleLabels(task)[0]
+  const label = task.labels[0]
   if (label) chips.push({ label, labelColor: 'var(--solus-accent)' })
 
   const overdue =
-    task.dueDate && task.status !== 'done' && task.status !== 'dropped'
+    task.dueDate && task.category !== 'done'
       ? Date.parse(`${task.dueDate}T23:59:59`) < now
       : false
   // Only the Snoozed filter shows a sleeping task, so its return time is the
@@ -149,19 +102,13 @@ function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpe
 
 /**
  * Slot 6 — the page's one sentence of machine state: what is happening to this
- * task, or what it wants from you. Work that has reached review or closed says
- * so in words, because on the board that sentence is the whole middle line of
- * the card. Todo is deliberately silent — nothing has happened to it yet, and
- * "—" reads worse than nothing.
+ * task. Finished work says so in words, because on the board that sentence is
+ * the whole middle line of the card. Open work is deliberately silent — nothing
+ * has happened to it yet, and "—" reads worse than nothing.
  */
 function metaFor(task: Task, activeSessions: number): string {
   if (activeSessions > 0) return `agent · ${activeSessions} session${activeSessions === 1 ? '' : 's'}`
-  if (task.status === 'in_review') {
-    return task.pr ? `review requested · #${task.pr.number}` : 'review requested'
-  }
-  if (task.status === 'done' || task.status === 'dropped') {
-    return task.pr ? `closed · #${task.pr.number}` : 'closed'
-  }
+  if (task.category === 'done') return task.pr ? `closed · #${task.pr.number}` : 'closed'
   if (task.pr) return `PR #${task.pr.number}`
   return ''
 }
@@ -171,7 +118,7 @@ function metaFor(task: Task, activeSessions: number): string {
 export function taskRow(task: Task, activeSessions: number, now: number, placeFor?: TaskPlaceFor): ListRowSpec {
   return {
     key: task.id,
-    ident: identFor(task),
+    ident: taskRef(task),
     source: sourceFor(task),
     title: task.title,
     chips: chipsFor(task, now),
@@ -197,7 +144,7 @@ export interface BoardCardSpec {
   /** Drives the card's status glyph. The column already says this, but the card
    *  travels — under the cursor mid-drag, and in a column you may have scrolled
    *  past the head of — so it carries its own mark. */
-  lifecycle: TaskStatus
+  category: TaskStatusCategory
   title: string
   /** The Done column's titles step back — they are history, not work. */
   dimmed: boolean
@@ -205,9 +152,6 @@ export interface BoardCardSpec {
   status: string
   /** An agent is running on this task — the status line takes the running tint. */
   live: boolean
-  /** The status line is asking for something from you, so it takes the brand
-   *  tint rather than reading as inert metadata. */
-  attention: boolean
   chips: ListChipSpec[]
   people: ListPerson[]
   time: string
@@ -217,14 +161,13 @@ export interface BoardCardSpec {
 export function taskBoardCard(task: Task, activeSessions: number, now: number, homeFor?: TaskHomeLabel): BoardCardSpec {
   return {
     key: task.id,
-    ident: identFor(task),
+    ident: taskRef(task),
     source: sourceFor(task),
-    lifecycle: task.status,
+    category: task.category,
     title: task.title,
-    dimmed: task.status === 'done' || task.status === 'dropped',
+    dimmed: task.category === 'done',
     status: metaFor(task, activeSessions),
     live: activeSessions > 0,
-    attention: activeSessions === 0 && task.status === 'in_review',
     chips: chipsFor(task, now, homeFor),
     people: task.assignee ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)] : [],
     time: compactRelativeTime(task.updatedAt, now),
@@ -232,24 +175,24 @@ export function taskBoardCard(task: Task, activeSessions: number, now: number, h
   }
 }
 
-/** The grouped global list. Empty groups are dropped rather than shown at zero. */
+/** The grouped list: one section for each column of the view, in the view's
+ *  order, so the list and the board group the same way. Empty sections are
+ *  dropped rather than shown at zero. */
 export function taskGroups(
-  tasks: Task[],
+  columns: readonly BoardColumn<Task>[],
   runningSessionsFor: (taskId: string) => number,
   now: number,
   placeFor?: TaskPlaceFor,
 ): ListGroupSpec[] {
-  return TASK_STATUS_GROUPS.map((group) => ({
-    key: group.key,
-    label: group.label,
-    rows: tasks
-      .filter((task) => group.statuses.includes(task.status))
-      .map((task) => taskRow(task, runningSessionsFor(task.id), now, placeFor)),
-  })).filter((group) => group.rows.length > 0)
+  return columns
+    .filter((column) => column.tasks.length > 0)
+    .map((column) => ({
+      key: column.id,
+      label: column.label,
+      rows: column.tasks.map((task) => taskRow(task, runningSessionsFor(task.id), now, placeFor)),
+    }))
 }
 
-/** Closed work, either way it closed. The board dims both and the card's meta
- *  line calls both "closed"; only the filter tells them apart. */
-export function isDone(task: Task): boolean {
-  return task.status === 'done' || task.status === 'dropped'
+export function isDone(task: Pick<Task, 'category'>): boolean {
+  return task.category === 'done'
 }

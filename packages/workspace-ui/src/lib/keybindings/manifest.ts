@@ -6,8 +6,8 @@ export const KEYBINDINGS = {
   'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
   'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Open project',             group: 'General' },
   // A session has no task unless it joins one. `global.new-session` starts a
-  // session on its own; `global.new-task` files a task and opens its page. It
-  // has no default key.
+  // session on its own; `global.new-task` opens the composer of the Tasks page.
+  // It has no default key.
   'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Tasks' },
   'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
   // A chat has no project. ⌘⌥N sits beside the new-session family, and no

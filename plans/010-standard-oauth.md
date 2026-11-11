@@ -7,6 +7,8 @@ proven yet. It replaces the credential design of plan 009
 change: attachment, new root versus continuation, API admission before the provider,
 agent tools that follow the record home, and the setup wizard.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the task delivery of §5 is history: the Solus API stores no tasks.
+
 ## 1. Outcome
 
 app.solus.sh becomes a standard OAuth 2.1 and OpenID Connect authorization server

@@ -179,7 +179,7 @@ cannot change them.
 
 Clients send the person's `executionPreferences` (`EXECUTION_PREFERENCE_KEYS`) with
 prompts, git actions, reviews, headless sessions, and automations. The host stores
-them with the run, the automation, or the task, so background work keeps the
+them with the run or the automation, so background work keeps the
 preferences of the person who started it. If a run has no preferences, the host uses
 the built-in defaults, not its owner's settings. The host refuses a request whose
 preferences contain an unknown key or a bad value. It does not drop the bad value.

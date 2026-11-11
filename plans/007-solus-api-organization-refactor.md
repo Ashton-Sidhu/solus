@@ -18,6 +18,8 @@
 - **Supersedes:** structural guidance from deleted plans 005/006 and the earlier
   mixed feature/refactor version of 007. Do not restore the deleted plans.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the task sharing files and `task-store.test.ts` that the layout tables name are history. `data/tasks/` now holds the task cache and the attachments.
+
 Make existing responsibilities easier to find and change. Keep domain rules and
 persistence together, give the execution coordinator an accurate internal name,
 and separate transport from execution and delivery. Keep the current repositories,

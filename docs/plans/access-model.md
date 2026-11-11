@@ -5,6 +5,14 @@ Extends `docs/plans/permissions.md` (the host permission table stays; its names 
 Changes `plans/019-acting-identity.md` (the acting scope) and
 `plans/020-agent-profile.md` §5 (where a connection lives).
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, `task` as a resource
+> is history (§0, §2.3.1, the build steps 4 and 7 of §3). A task has no owner,
+> no ACL entries and no role. Each task method needs only `host.use`, and the
+> caller's own GitHub or Jira connection decides who can read or change a
+> task.
+
 Solus has no users yet, so this is a clean change: no migration of old rows,
 no compatibility readers.
 
@@ -49,7 +57,7 @@ plan and its code.
   The table is RBAC: `PERMISSION_OF_METHOD` names each method's permission,
   and `permissionsFor` gives a host role's permissions (step 6, which renamed
   the old "host action" code).
-- **resource** — a record a person can own: `session`, `work`, `task`,
+- **resource** — a record a person can own: `session`, `work`,
   `integration`, `automation`, `project`, `notification`, `insight`,
   `browserProfile`. A pull
   request is part of its session.
@@ -128,7 +136,7 @@ What this gives, by resource:
 
 | Resource | Owner | Others | Administrator |
 |---|---|---|---|
-| session, work, task | owner | ACL entries | editor |
+| session, work | owner | ACL entries | editor |
 | automation (D4) | owner | — | editor |
 | project | owner | lists the directory (§2.3.2) | editor |
 | insight (D2) | the person who ran the turn | — | editor (reads all) |
@@ -246,9 +254,11 @@ rule reads, and they are the only places outside `roleOf` that touch a role:
   host's marks in `solus.db`, not filtered by person; saved Insights queries
   are host-wide text.
 
-Not changed here: a Solus API list of works or sessions also returns what a
-task the caller can open links to (`workspaceResourceVisibility`), and a get
+Not changed here: a Solus API list of works also returns what a session the
+caller can open made or links (`workspaceResourceVisibility`), and a get
 does not. That expansion is outside `roleOf` and stays until it is decided.
+(Changed 2026-11-10: the expansion was through a task. A task gives no access
+now.)
 
 ### 2.3.3 A session passes its role down to its works (decided 2026-10-30)
 
@@ -436,7 +446,7 @@ the session, a permission, a question, a plan, a usage limit, or a worktree
 offer shows "Waiting for an editor" in place of its actions, and Stop is not
 shown. The composer says "Shared with you to view".
 
-On the wire the names are the names of §1. A Solus API record (task, work,
+On the wire the names are the names of §1. A Solus API record (work,
 session, session admission) and a share list carry `ownerKey`, the owner's
 person key. A share list has `entries`, each an `AclEntry`, and `shareSet`
 takes `entries`. `share.changed` names no owner: a client reads the session again.
@@ -446,7 +456,7 @@ its list and its writes answer `NOT_FOUND`. They never name the host's user as
 its owner. A record page whose row is gone between the read and the role read
 answers `NOT_FOUND`.
 
-A record listed through a task the caller can open (`workspaceResourceVisibility`,
+A work listed through a session the caller can open (`workspaceResourceVisibility`,
 §2.3.2) carries the role `roleOf` gives, which can be `none`: the role says
 what a get and a change allow, not why the list held it.
 

@@ -5,21 +5,21 @@ import { loadWork } from '../works/works'
 import { createLogger } from '../../logger'
 import { writeAssetUpload } from '../assets/assets'
 import type { RecordScope } from '../../admission/principal'
-import { blockedAssetReferences } from './adapters/registry'
-import { Task } from './task'
-import { externalLinkForTask } from './task-sync-store'
+import { taskAdapters } from './providers/registry'
+import { cachedTask, commentOnTask } from './task'
+import { taskHomeOf } from './task-store'
+import type { TaskHome } from './providers/types'
 
 const log = createLogger('main', 'task-artifacts.ts')
 
 /**
- * Put an `artifact` work on a task's ticket.
+ * Put an `artifact` work on a task.
  *
- * A ticket cannot run the artifact, so it gets what it can show: a still of
- * the render, and the HTML document itself where the provider takes files.
- * Both land as host-owned assets (ADR-0015) in one task comment, which is the
- * one path that already knows how to publish an asset to each provider and
- * keep a retry from uploading it twice. The comment is the durable record;
- * the ticket is derived from it at sync time and never written back.
+ * A provider cannot run the artifact, so the task gets what it can show: a
+ * still of the render, and the HTML document itself where the provider takes
+ * files. Both are host-owned assets (ADR-0015) in one task comment, which is
+ * the one path that knows how to publish an asset to each provider and keep a
+ * retry from uploading it twice.
  */
 
 export interface ArtifactCommentParts {
@@ -57,10 +57,10 @@ export async function attachArtifactToTask(
   /** Who attached it: the comment is theirs. */
   by: Attribution,
 ): Promise<TaskDetails> {
-  const task = await Task.byId(scope, taskId)
-  // The work is read from the task's organization: the comment that carries it
-  // lands there, and a ticket of one organization never shows another's file.
-  const work = await loadWork(task.organizationId, workId)
+  await cachedTask(taskId)
+  const home = await taskHomeOf(taskId)
+  // The work is read in the caller's scope: a task never shows a file its reader cannot open.
+  const work = await loadWork(scope, workId)
   if (!work) throw new Error('This artifact no longer exists.')
   if (work.type !== 'artifact') throw new Error(`"${work.title}" is a ${work.type}, not an artifact.`)
   if (!work.content.trim()) throw new Error(`"${work.title}" is empty; there is nothing to render.`)
@@ -74,9 +74,8 @@ export async function attachArtifactToTask(
     dataUrl: `data:text/html;base64,${Buffer.from(work.content, 'utf8').toString('base64')}`,
   })
 
-  const provider = (await externalLinkForTask(taskId))?.provider ?? null
   const sourceFileName = `${fileBase}.html`
-  const includeSource = sourceTravelsTo(provider, source.uri, sourceFileName)
+  const includeSource = home !== null && sourceTravelsTo(home, source.uri, sourceFileName)
 
   const body = artifactCommentBody({
     title: work.title,
@@ -85,18 +84,16 @@ export async function attachArtifactToTask(
     sourceFileName,
     includeSource,
   })
-  log.info('task_artifact_attached', { taskId, workId, provider, includeSource })
-  return task.comment(body, { pushToExternal: true, by })
+  log.info('task_artifact_attached', { taskId, workId, provider: home?.provider ?? null, includeSource })
+  return commentOnTask(scope, taskId, { body, by })
 }
 
 /**
- * Whether the HTML rides along with the still. With no ticket the comment
- * stays local and Solus renders both; with one, the source goes only where
- * the provider can host it, so the still is never held back by a file the
- * ticket cannot take — GitHub's upload endpoint accepts images and video
- * only, while Jira attaches any file.
+ * Whether the HTML goes with the still. The source goes only where the
+ * provider can hold it, so the still is never held back by a file the task
+ * cannot take: GitHub's upload endpoint accepts images and video only, while
+ * Jira attaches any file.
  */
-export function sourceTravelsTo(provider: string | null, sourceUri: string, sourceFileName: string): boolean {
-  if (!provider) return true
-  return blockedAssetReferences(`[${sourceFileName}](${sourceUri})`, provider).length === 0
+export function sourceTravelsTo(home: TaskHome, sourceUri: string, sourceFileName: string): boolean {
+  return taskAdapters().provider(home.provider).unpublishableAssets(home, `[${sourceFileName}](${sourceUri})`).length === 0
 }

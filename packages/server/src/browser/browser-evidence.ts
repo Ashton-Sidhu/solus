@@ -16,7 +16,7 @@ import { providerForRepo } from '../providers/registry'
 import { videoMimeType } from '@solus/contracts/media-types'
 import { writeAssetUpload } from '../data/assets/assets'
 import { storedAssetPath } from '../data/assets/asset-paths'
-import { Task } from '../data/tasks/task'
+import { commentOnTask } from '../data/tasks/task'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { browserRegistry } from './browser-registry'
 import type { BrowserRecorder } from './browser-recorder'
@@ -118,13 +118,11 @@ async function fileEvidence(
   by: Attribution,
 ): Promise<{ attachedTo: string; publishedUrl?: string }> {
   if (target.kind === 'task') {
-    // Evidence is filed on the host that holds the page, on that host's own task.
-    const task = await Task.byId(ANY_ORGANIZATION, target.taskId)
-    // A local asset URI, on purpose: Solus renders it inline, and the task
-    // domain already refuses to push a body containing one to an upstream
-    // ticket, where the link would resolve to nothing.
-    await task.comment(`![${caption}](asset://${assetId})\n\n${caption}`, { by })
-    return { attachedTo: `task ${target.taskId}` }
+    // The capture is a provider comment: the asset is published to GitHub or
+    // Jira first. A file the provider cannot hold is refused with the reason,
+    // so the capture control can say so; nothing stays on this host only.
+    const details = await commentOnTask(ANY_ORGANIZATION, target.taskId, { body: `![${caption}](asset://${assetId})\n\n${caption}`, by })
+    return { attachedTo: `task ${details.task.reference ?? target.taskId}` }
   }
 
   const repo = await resolveRepoRef(target.cwd)

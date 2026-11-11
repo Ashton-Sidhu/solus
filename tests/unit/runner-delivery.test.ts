@@ -8,6 +8,7 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { z } from 'zod'
 import type { HostRegistration } from '@solus/contracts/uplink'
 import { resetTestDatabase } from './helpers/test-db'
+import { FakeTaskProviders, githubIssue, seedTask } from './helpers/task-fixtures'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -26,7 +27,7 @@ let queue: typeof import('@solus/server/sync/delivery-queue')
 let principal: typeof import('@solus/server/admission/principal')
 let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
 let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
+let linkTools: typeof import('@solus/server/execution/agents/tools/session-link-tools')
 let works: typeof import('@solus/server/data/works/works')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
@@ -48,7 +49,7 @@ beforeAll(async () => {
   principal = await import('@solus/server/admission/principal')
   taskTools = await import('@solus/server/execution/agents/tools/task-tools')
   workTools = await import('@solus/server/execution/agents/tools/work-tools')
-  taskStore = await import('@solus/server/data/tasks/task-store')
+  linkTools = await import('@solus/server/execution/agents/tools/session-link-tools')
   works = await import('@solus/server/data/works/works')
   records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
@@ -269,17 +270,23 @@ describe('runner delivery', () => {
     }
   })
 
-  test("an organization session's comment and links reach its Solus API directly; nothing is queued and nothing is applied here", async () => {
+  test("an organization session's links reach its Solus API directly, and its task comment goes to the provider; nothing is queued and nothing is applied here", async () => {
     // WHY (docs/plans/simplify-auth-and-sync.md §4.5): a runner's remaining organization
-    // writes call the Solus API, as task and work creation do; the delivery stream carries none.
+    // writes call the Solus API, as work creation does; the delivery stream carries none.
+    // A task comment is a GitHub or Jira comment (provider-owned-tasks.md decision 8),
+    // so it goes to neither.
     const api = new FakeApi()
     await api.start()
     const runner = startDelivery(api)
     const calls: Array<[string, unknown]> = []
     const stopTools = await installOrganizationSession('solus-org', 'org1', {
-      createTaskComment: async (_context, taskId, input) => { calls.push(['createTaskComment', { taskId, ...input }]); return { id: 'c1', taskId, body: input.body, author: null, originSessionId: input.originSessionId ?? null, createdAt: new Date().toISOString() } },
       putLink: async (_context, input) => { calls.push(['putLink', input]) },
     })
+    const providers = new FakeTaskProviders()
+    providers.hold(githubIssue(1))
+    const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
+    useTaskAdaptersForTests(providers.adapters())
+    const task = await seedTask(githubIssue(1))
     const inOrganizationSession = (): AgentToolContext => ({ ...toolContext(), sessionId: () => 'solus-org' })
     try {
       // The published session's own record goes first, as its owner.
@@ -287,17 +294,21 @@ describe('runner delivery', () => {
       await until(() => queue.deliveryDestinations().length === 0)
       const sent = api.items().length
 
-      const commented = await taskTools.commentTaskAgentTool.execute({ task_id: 'task-org', body: 'note' }, inOrganizationSession())
-      expect(commented).toEqual({ ok: true, text: 'Comment added to task task-org.' })
+      const url = 'https://github.com/acme/app/pull/7'
+      const linked = await linkTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, inOrganizationSession())
+      expect(linked.ok).toBe(true)
+      const commented = await taskTools.commentTaskAgentTool.execute({ task_id: task.id, body: 'note' }, inOrganizationSession())
+      expect(commented).toEqual({ ok: true, text: 'Comment posted on acme/app#1 on GitHub.' })
       expect(calls).toEqual([
-        ['createTaskComment', { taskId: 'task-org', body: 'note', originSessionId: 'solus-org' }],
+        ['putLink', { from: { kind: 'session', id: 'solus-org' }, to: { kind: 'pr', url } }],
       ])
+      expect(providers.callsOf('comment:')).toEqual([`comment:${task.id}`])
       await tick()
       expect(queue.deliveryDestinations()).toEqual([])
       expect(api.items()).toHaveLength(sent)
       expect(outbox.listOutboxOps()).toEqual([])
-      expect((await taskStore.listTasks(principal.ANY_ORGANIZATION)).tasks).toEqual([])
     } finally {
+      useTaskAdaptersForTests(null)
       stopTools()
       await runner.stop()
       await api.stop()
@@ -641,16 +652,13 @@ describe('runner delivery', () => {
     }
   })
 
-  test('a linked personal machine keeps its agent\'s tasks and works local; nothing is queued for any organization', async () => {
+  test('a linked personal machine keeps its agent\'s works local; nothing is queued for any organization', async () => {
     onManagedHost(null)
     const api = new FakeApi()
     await api.start()
     const delegations = new FakeDelegations()
     const runner = startDelivery(api, delegations)
     try {
-      const created = await taskTools.createTaskAgentTool.execute({ title: 'Personal task' }, toolContext())
-      expect(created.ok).toBe(true)
-      expect((await taskStore.listTasks('local')).tasks.map((row) => row.title)).toContain('Personal task')
       const work = await workTools.createWorkAgentTool.execute({ title: 'Personal doc', doc_type: 'doc', content: '# Doc' }, toolContext())
       expect(work.ok).toBe(true)
       expect((await works.listWorks('local')).map((row) => row.title)).toEqual(['Personal doc'])

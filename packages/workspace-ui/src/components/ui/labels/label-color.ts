@@ -12,7 +12,7 @@ export function labelChipColor(color: string): string {
 }
 
 /** The tint a chip or a picker row draws: the host's colour when the label
- *  has one, the brand accent for a label with none (a local task label). */
+ *  has one, the brand accent for a label with none. */
 export function labelTint(color: string | undefined): string {
   return color === undefined ? 'var(--solus-accent)' : labelChipColor(color)
 }

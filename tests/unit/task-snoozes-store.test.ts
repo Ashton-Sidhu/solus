@@ -1,16 +1,23 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { TaskSnooze } from '@solus/contracts/task-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import { SvelteRunes } from './helpers/svelte-runes'
 
+// The store is compiled with its own connection registry. A module mock of
+// `server-connections` would stay in place for each test file that runs after
+// this one in the same process.
 const connections = singleHostServerConnections()
+;(globalThis as unknown as { __taskSnoozeConnections: object }).__taskSnoozeConnections = connections
 
-mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-
-let TaskSnoozesStore: typeof import('@solus/workspace-ui/contexts/tasks/task-snoozes.store.svelte')['TaskSnoozesStore']
-
-beforeAll(async () => {
-  ;({ TaskSnoozesStore } = await import('@solus/workspace-ui/contexts/tasks/task-snoozes.store.svelte'))
+const runes = new SvelteRunes()
+afterAll(() => runes.dispose())
+const snoozesModule = runes.source('task-snoozes', 'packages/workspace-ui/src/contexts/tasks/task-snoozes.store.svelte.ts', {
+  'svelte/reactivity': SvelteRunes.file('node_modules/svelte/src/reactivity/index-client.js'),
+  '@solus/client-core/server-connections': runes.module('connections', 'export const serverConnections = globalThis.__taskSnoozeConnections'),
 })
+const { TaskSnoozesStore } = await import(snoozesModule) as {
+  TaskSnoozesStore: typeof import('@solus/workspace-ui/contexts/tasks/task-snoozes.store.svelte')['TaskSnoozesStore']
+}
 
 beforeEach(() => connections.reset())
 

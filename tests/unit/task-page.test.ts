@@ -2,7 +2,8 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import { linkedPrIdentity, type LinkedPr } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { describe, expect, test } from 'bun:test'
 import {
-  canDeleteTaskComment,
+  commentAuthorName,
+  commentDelivery,
   commentSessionLink,
   commentSessionName,
   linkGroups,
@@ -10,23 +11,18 @@ import {
   linkedArtifactForActivity,
   linkedTableLinks,
   linkedWorkProvider,
-  taskPageCapabilities,
-  taskProviderLabel,
+  statusTextColor,
   taskDetailsSummary,
+  taskFieldLocks,
   taskSessionRow,
+  taskStateLabel,
 } from '@solus/workspace-ui/components/tasks/task-page/lib/task-page'
 import { taskTabs } from '@solus/workspace-ui/components/tasks/task-page/lib/task-tabs'
-import {
-  commentSyncState,
-  heldBackCommentIds,
-  taskEpicRow,
-  taskPublishTarget,
-  taskUpstreamState,
-} from '@solus/workspace-ui/components/tasks/task-page/lib/task-upstream'
+import { taskEpicRow } from '@solus/workspace-ui/components/tasks/task-page/lib/task-epic'
+import { taskMoveGroups } from '@solus/workspace-ui/components/tasks/task-page/lib/task-move'
 import { taskPrRows } from '@solus/workspace-ui/components/tasks/task-page/lib/task-prs'
 import { taskRow } from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
-import { upstreamTaskDetails } from '@solus/workspace-ui/contexts/tasks/upstream-task-details'
-import type { Task, TaskComment, TaskExternalLink, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Task, TaskField, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
 import type { Activity } from '@solus/contracts/activity'
 import { activityLine } from '@solus/workspace-ui/components/activity/lib/activity-line'
 import type { Work } from '@solus/contracts/types'
@@ -38,18 +34,6 @@ const ALICE: User = { id: { kind: 'account', accountId: 'alice' }, displayName: 
 
 // Attempt naming is `sessionDisplayName`, shared by every surface that lists a
 // session — see session-utils.test.ts.
-
-describe('task page provider labels', () => {
-  test('identifies GitHub as the owner of an upstream task', () => {
-    // WHY: the task page action opens the upstream ticket, so its label must
-    // name that provider rather than incorrectly describing it as local.
-    expect(taskProviderLabel({ providerId: 'github' } as Task)).toBe('GitHub')
-  })
-
-  test('identifies a local task as living in Solus', () => {
-    expect(taskProviderLabel({ providerId: 'local' } as Task)).toBe('Local task')
-  })
-})
 
 describe('an artifact on the task activity feed', () => {
   const linked = {
@@ -118,27 +102,6 @@ describe('task comment session attribution', () => {
     expect(commentSessionName({ originSessionId: '01M0B1F57R0HSH0R0SY2P9AMYX' }, []))
       .toBe('01M0B1F5')
     expect(commentSessionName({}, [session])).toBeNull()
-  })
-})
-
-describe('who is offered Delete on a task comment', () => {
-  // WHY: the host refuses a delete by anyone but the comment's author or the
-  // task's owner. Offering Delete to another editor would only end in an error.
-  const me = { kind: 'account' as const, accountId: 'me' }
-  const them = { kind: 'account' as const, accountId: 'them' }
-  const byUser = (id: typeof me) => ({ source: 'local' as const, externalId: null, author: { kind: 'user' as const, user: { id, displayName: id.accountId } } })
-
-  test('a reader may delete their own comment but not another person\'s', () => {
-    expect(canDeleteTaskComment(byUser(me), { userId: me, canModerate: false })).toBe(true)
-    expect(canDeleteTaskComment(byUser(them), { userId: me, canModerate: false })).toBe(false)
-  })
-
-  test('the task owner may delete anyone\'s unpublished comment', () => {
-    expect(canDeleteTaskComment(byUser(them), { userId: me, canModerate: true })).toBe(true)
-  })
-
-  test('a published comment is never deleted in Solus', () => {
-    expect(canDeleteTaskComment({ ...byUser(me), externalId: 'gh-1' }, { userId: me, canModerate: true })).toBe(false)
   })
 })
 
@@ -227,57 +190,21 @@ describe('task label activity', () => {
   })
 })
 
-describe('task page capabilities', () => {
-  test('allows comments but keeps edits unavailable until provider capabilities arrive', () => {
-    // An upstream task alone does not establish which fields the provider can write.
-    expect(taskPageCapabilities({ providerId: 'github' } as Task)).toEqual({
-      canEditContent: false,
-      canEditPlanningFields: false,
-      canEditPriority: false,
-      canEditLabels: false,
-      canEditAssignee: false,
-      editableStatuses: [],
-      canComment: true,
-    })
-  })
-
-  test('uses provider status capabilities for an unstored ticket', () => {
-    // WHY: Jira and GitHub distinguish different statuses and writable fields;
-    // the page must not offer a write the active adapter cannot take.
-    expect(taskPageCapabilities({ providerId: 'jira' } as Task, {
-      provider: 'jira', ok: true, reason: 'ok', message: '',
-      writableFields: ['title', 'body', 'status', 'labels', 'priority'],
-      statuses: ['todo', 'in_progress', 'in_review', 'done'],
-    })).toEqual({
-      canEditContent: true,
-      canEditPlanningFields: false,
-      canEditPriority: true,
-      canEditLabels: true,
-      canEditAssignee: false,
-      editableStatuses: ['todo', 'in_progress', 'in_review', 'done'],
-      canComment: true,
-    })
-  })
-
-  test('offers assignment when the provider can list and write assignees', () => {
-    expect(taskPageCapabilities({ providerId: 'github' } as Task, {
-      provider: 'github', ok: true, reason: 'ok', message: '',
-      writableFields: ['title', 'body', 'status', 'labels', 'assignee'],
-      statuses: ['todo', 'in_progress', 'done'],
-    }).canEditAssignee).toBe(true)
-  })
-})
-
 describe('task list assignee avatars', () => {
   test('uses the provider avatar for an assigned GitHub task', () => {
     // WHY: an issue assigned to the connected GitHub user should show their
     // recognizable profile image on the tasks page, not generated initials.
     const task = {
-      id: '31',
+      id: 'github:I_31',
       providerId: 'github',
+      kind: 'issue',
+      reference: 'example/solus#31',
       title: 'GitHub issue',
       body: '',
-      status: 'todo',
+      state: { name: 'Open', category: 'open' },
+      category: 'open',
+      placements: [],
+      writableFields: [],
       url: 'https://github.com/example/solus/issues/31',
       assignee: 'octocat',
       assigneeAvatarUrl: 'https://avatars.githubusercontent.com/u/583231?v=4',
@@ -292,119 +219,6 @@ describe('task list assignee avatars', () => {
         avatarUrl: task.assigneeAvatarUrl,
       }),
     ])
-  })
-})
-
-describe('upstream task details', () => {
-  test('adapts hydrated GitHub issue comments for the task page', () => {
-    // WHY: selecting a GitHub row must use its upstream hydration instead of
-    // asking the local SQLite task store for an unrelated numeric id.
-    const task: Task = {
-      id: '31',
-      providerId: 'github',
-      projectKey: '/workspace/solus',
-      title: 'GitHub issue',
-      body: 'Issue body',
-      status: 'todo',
-      url: 'https://github.com/example/solus/issues/31',
-      labels: [],
-      updatedAt: Date.parse('2026-08-04T12:00:00Z'),
-      raw: {
-        comments: [{
-          id: 'comment-1',
-          author: { login: 'octocat' },
-          body: 'A provider comment',
-          createdAt: '2026-08-04T12:30:00Z',
-        }],
-      },
-    }
-
-    expect(upstreamTaskDetails(task)).toMatchObject({
-      task,
-      links: [],
-      activity: [],
-      comments: [{
-        id: 'comment-1',
-        taskId: '31',
-        externalAuthor: 'octocat',
-        source: 'external',
-        externalId: 'comment-1',
-        body: 'A provider comment',
-        createdAt: Date.parse('2026-08-04T12:30:00Z'),
-      }],
-    })
-  })
-})
-
-describe('upstream sync state', () => {
-  const linkedTask = { id: '01J', providerId: 'local', url: null } as Task
-  const link = {
-    taskId: '01J',
-    provider: 'github',
-    externalKey: 'Ashton-Sidhu/solus',
-    externalId: '412',
-    url: 'https://github.com/Ashton-Sidhu/solus/issues/412',
-    dirtyFields: [],
-    syncState: 'ok',
-    lastSyncedAt: 1_000_000,
-    failureCount: 0,
-  } satisfies TaskExternalLink
-
-  test('a task with no upstream has none, so the page shows no sync affordance', () => {
-    // WHY: a purely local task must not grow a provider row that implies an
-    // exchange it has never had.
-    expect(taskUpstreamState({ task: linkedTask, comments: [] })).toBeNull()
-  })
-
-  test('counts dirty fields and queued comments as writes the ticket has not taken', () => {
-    // WHY: "Synced" while a comment is still queued is the lie this page exists
-    // to prevent — the count is the user's only sign that we are holding writes.
-    const state = taskUpstreamState({
-      task: linkedTask,
-      externalLink: { ...link, dirtyFields: ['title', 'status'] },
-      comments: [
-        { id: 'c1', taskId: '01J', source: 'local', body: 'a', createdAt: 1, syncPending: true },
-        { id: 'c2', taskId: '01J', source: 'local', body: 'b', createdAt: 2 },
-      ],
-      now: 1_000_000,
-    })
-    expect(state?.pendingCount).toBe(3)
-    expect(state?.tone).toBe('pending')
-    expect(state?.label).toBe('3 to push')
-    expect(state?.pendingLabel).toBe('3 changes to push')
-  })
-
-  test('reads as synced, with the ticket reference, when nothing is held back', () => {
-    const state = taskUpstreamState({ task: linkedTask, externalLink: link, comments: [], now: 1_000_000 })
-    expect(state?.label).toBe('Synced')
-    expect(state?.tone).toBe('ok')
-    expect(state?.ref).toBe('#412')
-    expect(state?.canSync).toBe(true)
-  })
-
-  test('an auth failure asks for a reconnect rather than reporting a sync', () => {
-    // WHY: an expired token is not a transient sync error; retrying it silently
-    // leaves the page quietly stale forever.
-    const state = taskUpstreamState({
-      task: linkedTask,
-      externalLink: { ...link, syncState: 'auth_error', syncError: 'Bad credentials' },
-      comments: [],
-      now: 1_000_000,
-    })
-    expect(state?.label).toBe('Reconnect GitHub')
-    expect(state?.tone).toBe('error')
-  })
-
-  test('a provider-owned ticket is read live, so it offers no push', () => {
-    // WHY: every read of a GitHub-owned task goes to GitHub, so there is no
-    // local backlog — offering "Sync now" would overstate what happens.
-    const state = taskUpstreamState({
-      task: { id: '412', providerId: 'github', url: 'https://github.com/o/r/issues/412' } as Task,
-      comments: [],
-    })
-    expect(state?.canSync).toBe(false)
-    expect(state?.ref).toBe('#412')
-    expect(state?.pendingCount).toBe(0)
   })
 })
 
@@ -537,7 +351,7 @@ describe('linked work providers', () => {
     linkedAt: 1,
   } satisfies TaskLink
 
-  test('shows a provider only when the linked work has an upstream mirror', () => {
+  test('shows a provider only when the linked work has a mirrored doc', () => {
     const linkedWork = {
       id: 'work-1',
       mirroredDoc: { provider: 'confluence' },
@@ -588,94 +402,14 @@ describe('the Kind column becomes a group header where there is no column', () =
   })
 })
 
-describe('comment publishing', () => {
-  const comment = (over: Partial<TaskComment>): TaskComment => ({
-    id: 'c1',
-    taskId: '01J',
-    source: 'local',
-    body: 'note',
-    createdAt: 1,
-    ...over,
-  })
-
-  test('a task with no ticket asks nothing of its comments', () => {
-    // WHY: a publish button on a task with nowhere to publish to is a dead end.
-    expect(commentSyncState(comment({}), false)).toBe('none')
-  })
-
-  test('separates posted, queued and held-back comments', () => {
-    // WHY: these three drive three different affordances — a check, a spinner
-    // and a Publish button — and confusing them either hides the action or
-    // offers to post the same comment twice.
-    expect(commentSyncState(comment({ source: 'external' }), true)).toBe('published')
-    expect(commentSyncState(comment({ externalId: 'gh-1' }), true)).toBe('published')
-    expect(commentSyncState(comment({ syncPending: true }), true)).toBe('queued')
-    expect(commentSyncState(comment({}), true)).toBe('held')
-  })
-
-  test('Publish all acts only on the comments that are actually held back', () => {
-    const ids = heldBackCommentIds(
-      [
-        comment({ id: 'a' }),
-        comment({ id: 'b', syncPending: true }),
-        comment({ id: 'c', externalId: 'gh-2' }),
-        comment({ id: 'd' }),
-      ],
-      true,
-    )
-    expect(ids).toEqual(['a', 'd'])
-  })
-})
-
-describe('publishing a task that has no ticket', () => {
-  const localTask = { id: '01J', providerId: 'local', url: null } as Task
-  const status = { provider: 'github', ok: true, scopeLabel: 'Ashton-Sidhu/solus' } as const
-
-  test('offers the project provider, naming where the ticket would land', () => {
-    // WHY: publishing writes to somewhere other people can see. The page names
-    // which place before the user commits to it.
-    expect(taskPublishTarget({ task: localTask, upstream: null, status })).toEqual({
-      provider: 'GitHub',
-      providerId: 'github',
-      scope: 'Ashton-Sidhu/solus',
-    })
-  })
-
-  test('names a Jira project the same way, without a second display path', () => {
-    // WHY: the scope label is the provider's own word for where a ticket lands.
-    // A second provider must not need a second field to be nameable.
-    expect(taskPublishTarget({
-      task: localTask,
-      upstream: null,
-      status: { provider: 'jira', ok: true, scopeLabel: 'ACME' },
-    })).toEqual({ provider: 'Jira', providerId: 'jira', scope: 'ACME' })
-  })
-
-  test('offers nothing when the provider cannot be reached', () => {
-    // WHY: a publish that is going to fail should not be offered as if it works.
-    expect(taskPublishTarget({ task: localTask, upstream: null, status: { ...status, ok: false } }))
-      .toBeNull()
-  })
-
-  test('offers nothing for a project with no provider, or a task already filed', () => {
-    expect(taskPublishTarget({ task: localTask, upstream: null, status: { provider: 'local', ok: true } }))
-      .toBeNull()
-    const upstream = taskUpstreamState({
-      task: { id: '412', providerId: 'github', url: null } as Task,
-      comments: [],
-    })
-    expect(taskPublishTarget({ task: localTask, upstream, status })).toBeNull()
-  })
-})
-
 describe('the Epic row', () => {
-  test('is absent for a task with no upstream epic', () => {
+  test('is absent for a task with no epic', () => {
     // WHY: Solus never assigns an epic, so an empty row would offer an action
     // that does not exist.
     expect(taskEpicRow({})).toBeNull()
   })
 
-  test('names the epic by title and provider reference, and opens it upstream', () => {
+  test('names the epic by title and provider reference, and opens it on the provider', () => {
     expect(taskEpicRow({
       epic: { provider: 'github', externalId: '3', url: 'https://github.com/acme/app/issues/3', title: 'Release 2.0', body: 'long description' },
     })).toEqual({
@@ -719,5 +453,134 @@ describe('taskDetailsSummary', () => {
       due: { label: 'Today', tone: 'soon' },
       labels: 'bug',
     })
+  })
+})
+
+describe('the status of a task', () => {
+  test('is the provider\'s own state name, with the category for the glyph and colour', () => {
+    // WHY: GitHub and Jira own the status. "In QA" must read "In QA", not a
+    // Solus word for it; only the colour comes from the coarse category.
+    expect(taskStateLabel({ state: { name: 'In QA', category: 'active' }, category: 'active' })).toBe('In QA')
+    expect(statusTextColor('active')).toContain('var(--running)')
+    expect(statusTextColor('done')).toContain('var(--success)')
+  })
+
+  test('a task that no host described yet reads as its category, not as a blank', () => {
+    expect(taskStateLabel({ state: { name: '', category: 'open' }, category: 'open' })).toBe('Open')
+  })
+})
+
+describe('the move menu', () => {
+  const board = {
+    label: 'Roadmap',
+    columns: [
+      { id: 'c1', name: 'Backlog', category: 'open' as const },
+      { id: 'c2', name: 'Doing', category: 'active' as const },
+      { id: 'c3', name: 'Shipped', category: 'done' as const },
+    ],
+  }
+  const repo = {
+    label: 'acme/app',
+    columns: [
+      { id: 'open', name: 'Open', category: 'open' as const },
+      { id: 'closed', name: 'Closed', category: 'done' as const },
+    ],
+  }
+  const sources = new Map([['github-project:acme/1', board], ['github-repo:acme/app', repo]])
+
+  test('offers the columns of each source that lists the task, in the provider\'s order', () => {
+    // WHY: a column belongs to one source, and the columns of two sources do
+    // not line up. A move must name the source and its column, or the host
+    // cannot know which board the person meant.
+    const groups = taskMoveGroups({
+      category: 'active',
+      placements: [
+        { sourceKey: 'github-project:acme/1', columnId: 'c2' },
+        { sourceKey: 'github-repo:acme/app', columnId: 'open' },
+      ],
+    }, sources)
+    expect(groups.map((group) => group.label)).toEqual(['Roadmap', 'acme/app'])
+    expect(groups[0]?.options.map((option) => option.label)).toEqual(['Backlog', 'Doing', 'Shipped'])
+    expect(groups[0]?.options[2]?.target).toEqual({ sourceKey: 'github-project:acme/1', columnId: 'c3' })
+    expect(groups[1]?.options[1]?.target).toEqual({ sourceKey: 'github-repo:acme/app', columnId: 'closed' })
+  })
+
+  test('marks the column the task is in, and none for a board item with no column', () => {
+    const placed = taskMoveGroups({ category: 'active', placements: [{ sourceKey: 'github-project:acme/1', columnId: 'c2' }] }, sources)
+    expect(placed[0]?.options.filter((option) => option.current).map((option) => option.label)).toEqual(['Doing'])
+    const unplaced = taskMoveGroups({ category: 'open', placements: [{ sourceKey: 'github-project:acme/1', columnId: null }] }, sources)
+    expect(unplaced[0]?.options.some((option) => option.current)).toBe(false)
+  })
+
+  test('offers the three status categories when no source of the task has columns', () => {
+    // WHY: a task that only a session link brought here, or a source that no
+    // host described yet, has no columns to show. The person can still move
+    // the task: the host chooses the column for a status category.
+    for (const placements of [[], [{ sourceKey: 'jira-board:x/9', columnId: 'c' }]]) {
+      const groups = taskMoveGroups({ category: 'active', placements }, sources)
+      expect(groups).toHaveLength(1)
+      expect(groups[0]?.label).toBeNull()
+      expect(groups[0]?.options.map((option) => option.target)).toEqual([
+        { category: 'open' }, { category: 'active' }, { category: 'done' },
+      ])
+      expect(groups[0]?.options.find((option) => option.current)?.label).toBe('Active')
+    }
+  })
+})
+
+describe('which fields the page lets the person edit', () => {
+  const taskWith = (writable: TaskField[]) => ({
+    providerId: 'github' as const,
+    canWrite: (field: TaskField) => writable.includes(field),
+  })
+
+  test('an editor is enabled only for a field that the provider takes for this task', () => {
+    // WHY: a GitHub issue takes a due date only when a Project it is on has
+    // that field. An editor for another field would end in a refused write.
+    const locks = taskFieldLocks(taskWith(['title', 'body', 'labels']))
+    expect(locks.title).toBeNull()
+    expect(locks.body).toBeNull()
+    expect(locks.labels).toBeNull()
+    expect(locks.dueDate).not.toBeNull()
+    expect(locks.priority).not.toBeNull()
+    expect(locks.assignee).not.toBeNull()
+  })
+
+  test('a disabled editor says which provider does not take the field', () => {
+    expect(taskFieldLocks(taskWith([])).dueDate)
+      .toBe('GitHub does not take a change of the due date for this task')
+  })
+})
+
+describe('a comment that the provider did not take', () => {
+  test('a comment on the provider has no delivery state to show', () => {
+    expect(commentDelivery({})).toEqual({ state: 'sent' })
+    // A send error left from an earlier attempt does not make a sent comment unsent.
+    expect(commentDelivery({ unsent: false, sendError: 'old' })).toEqual({ state: 'sent' })
+  })
+
+  test('an unsent comment shows why, so the person can retry or discard it', () => {
+    // WHY: the comment is on this host only. Without the reason the person
+    // cannot tell a lost connection from a refused comment.
+    expect(commentDelivery({ unsent: true, sendError: 'Resource not accessible' }))
+      .toEqual({ state: 'unsent', error: 'Resource not accessible' })
+  })
+
+  test('an unsent comment with no recorded reason still says that it was not sent', () => {
+    expect(commentDelivery({ unsent: true })).toEqual({ state: 'unsent', error: 'The provider did not take this comment.' })
+  })
+})
+
+describe('who wrote a comment', () => {
+  test('a comment sent from Solus names its person, and "You" for the reader', () => {
+    expect(commentAuthorName({ author: { kind: 'user', user: ALICE } }, ME.id)).toBe('Alice Chen')
+    expect(commentAuthorName({ author: { kind: 'user', user: ME } }, ME.id)).toBe('You')
+  })
+
+  test('a comment read from the provider names the provider\'s author', () => {
+    // WHY: Solus did not send it, so it has no Solus attribution. The
+    // provider's login is the only name there is.
+    expect(commentAuthorName({ externalAuthor: 'octocat' }, ME.id)).toBe('octocat')
+    expect(commentAuthorName({ externalAuthor: null }, ME.id)).toBe('Unknown')
   })
 })

@@ -7,6 +7,12 @@ roles on 2026-10-25 (`custom-roles.md`); that plan's §14 is the current shape. 
 `resource`, `system-only`) and the guest allowlist, and the client's guesses
 (`canDriveSession` on its own, sign-in checks standing in for permission).
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. A task is not a resource and has no
+> resource verb. Each task method needs only `host.use`; the caller's own
+> GitHub or Jira connection decides who can read or change a task.
+
 Where it lives:
 
 - Contracts: `packages/contracts/src/permissions.ts` — the permission table
@@ -37,9 +43,9 @@ Where it lives:
   `host.git.read`, `host.git.write`, and anything added under it later; `host`
   covers everything. Deny is absence; there is no deny list.
 - **resource verb** — `read`, `comment`, `drive`, `edit`, `share`, `own` on one
-  resource: a session, work, task, automation, project, or notification. Held through the resource role `roleOf` gives
+  resource: a session, work, automation, project, or notification. Held through the resource role `roleOf` gives
   (`access-model.md` §2.3), never held on the host. `drive` is a session's turns and cards; `edit` is its record (title,
-  links, goal, plans) or a work's or task's body.
+  links, goal, plans) or a work's body.
 - **scope** — the bound on a permission. Only a guest has one today: `host.git.read`
   and `host.files.read` reach the shared session's checkout and nothing else
   (`assertPathInScope`).

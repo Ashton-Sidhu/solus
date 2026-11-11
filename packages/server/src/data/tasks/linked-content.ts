@@ -2,6 +2,7 @@ import { createLogger } from '../../logger'
 import { loadWork } from '../works/works'
 import { findSession, getSessionController } from '../../execution/agents/tools/session-tools'
 import type { TaskLinkedItemSnapshot, TaskSnapshot } from '@solus/contracts/task-types'
+import type { RecordScope } from '../../admission/principal'
 
 const log = createLogger('main', 'linked-content.ts')
 
@@ -15,16 +16,14 @@ const log = createLogger('main', 'linked-content.ts')
  *
  * Best effort per item: a work or plan that no longer resolves is skipped with
  * a log line, never allowed to fail the prompt that ships the snapshot.
+ *
+ * `scope` is what the reader of the snapshot may see: a linked work is read in it.
  */
-export async function attachLinkedContent(snapshot: TaskSnapshot): Promise<TaskSnapshot> {
+export async function attachLinkedContent(scope: RecordScope, snapshot: TaskSnapshot): Promise<TaskSnapshot> {
   const linked: TaskLinkedItemSnapshot[] = []
-  // A linked work is read from the task's own organization (organization-scope R10).
-  const organizationId = snapshot.details.task.organizationId
   for (const link of snapshot.details.links) {
     if (link.kind === 'work') {
-      const work = organizationId === undefined
-        ? null
-        : await loadWork(organizationId, link.targetKey).catch(() => null)
+      const work = await loadWork(scope, link.targetKey).catch(() => null)
       if (!work) {
         log.warn('linked_work_unreadable', { taskId: snapshot.details.task.id, workId: link.targetKey })
         continue

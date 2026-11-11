@@ -1,72 +1,58 @@
-// Native local-first task data model shared across the host and every client.
-// Configured upstream tickets use the same normalized rendering contract while
-// retaining provider ownership.
+// The task model shared across the host and every client. GitHub and Jira own
+// every task: Solus reads them from the task sources a project lists, writes a
+// change to the provider, and adds only its own attachments
+// (docs/plans/provider-owned-tasks.md).
 
 import type { AgentId, WorkType } from './types'
 import type { Attribution } from './user'
 import type { Activity } from './activity'
-import type { ResourceRole } from './sharing'
+import type { TaskSource, TaskStatusCategory } from './task-sources'
 
-export type TaskProviderId = 'github' | 'jira' | 'local'
+export type TaskProviderId = 'github' | 'jira'
 
-/** The one task lifecycle, shared by local tasks and upstream tickets. Upstream
- * providers normalize their states into this vocabulary at their own boundary
- * (e.g. an open GitHub issue reads as `todo`). */
-export type TaskStatus =
-  | 'inbox'
-  | 'todo'
-  | 'in_progress'
-  | 'in_review'
-  | 'done'
-  | 'dropped'
+/** A GitHub issue or a Jira issue is an `issue`. A `draft` is a GitHub Project
+ *  item that is not an issue yet: it has no repository, reference or URL. */
+export type TaskKind = 'issue' | 'draft'
 
-export type TaskTitleSource = 'prompt' | 'generated' | 'manual'
-export type TaskSource = 'user' | 'agent' | 'automation' | 'import'
 /** How a session relates to a task. `working` is an attempt; `referenced` is
  *  a relationship, not ownership. */
 export type TaskSessionRole = 'working' | 'referenced'
-export type TaskSyncState = 'ok' | 'dirty' | 'error' | 'auth_error'
 
-export interface ExternalTicketRef {
-  provider: Exclude<TaskProviderId, 'local'>
-  /** Provider-owned scope: `owner/repo` on GitHub, `<cloudId>/<projectKey>` on
-   *  Jira. Opaque to everything outside that provider's adapter. */
-  externalKey: string
-  externalId: string
-  url: string
+/** The provider's own state of a task, in the provider's words: a Jira status,
+ *  or `Open` / `Closed` on GitHub. */
+export interface TaskState {
+  name: string
+  category: TaskStatusCategory
 }
 
-/** A task field the sync engine can hold a pending local write for. Whether a
- *  given provider can actually take one is the adapter's own declaration. */
-export type TaskSyncField = 'title' | 'body' | 'status' | 'labels' | 'priority' | 'assignee'
-
-export interface TaskExternalLink extends ExternalTicketRef {
-  taskId: string
-  externalUpdatedAt?: string | null
-  snapshot?: unknown
-  dirtyFields: TaskSyncField[]
-  syncState: TaskSyncState
-  syncError?: string | null
-  lastSyncedAt?: number | null
-  retryAt?: number | null
-  failureCount: number
+/** A status grouping that a task source owns: a GitHub Project Status option, a
+ *  Jira board column, `Open` / `Closed` for a repository, a workflow status of
+ *  a Jira project. Solus shows the provider's names in the provider's order. */
+export interface TaskColumn {
+  id: string
+  name: string
+  category: TaskStatusCategory
 }
 
-export interface NormalizedTaskComment {
-  externalId: string
-  author?: string | null
-  body: string
-  createdAt: number
+/** Where a task is in one source that lists it. `columnId` is null for a board
+ *  item that has no column yet. */
+export interface TaskPlacement {
+  sourceKey: string
+  columnId: string | null
 }
+
+/** A task field that Solus can send a change of to the provider. Which of them
+ *  one task takes is `Task.writableFields`. */
+export type TaskField = 'title' | 'body' | 'labels' | 'assignee' | 'priority' | 'dueDate'
 
 /**
- * The upstream epic (a Jira parent, a GitHub parent issue) a ticket belongs to,
- * as a snapshot taken on each read. Solus shows it and gives its description to
- * the agent; it never creates, moves, or closes one, and never writes this link
- * upstream. The epic need not be a Solus task.
+ * The epic (a Jira parent, a GitHub parent issue) a task belongs to, as a
+ * snapshot taken on each read. Solus shows it and gives its description to the
+ * agent; it never creates, moves, or closes one.
  */
 export interface TaskEpic {
-  provider: Exclude<TaskProviderId, 'local'>
+  provider: TaskProviderId
+  /** The epic as a person reads it: an issue number or a Jira key. */
   externalId: string
   url: string
   title: string
@@ -74,69 +60,18 @@ export interface TaskEpic {
   body: string
 }
 
-export interface NormalizedTicket extends ExternalTicketRef {
-  title: string
-  body: string
-  /** The upstream state, already spoken in the one Solus vocabulary. Adapters
-   *  report the finest status they can genuinely observe — GitHub can only see
-   *  `todo`/`in_progress`/`done`, Jira can name a real "In Review" — and
-   *  `TaskSyncAdapter.statusKey` states which of these are indistinguishable
-   *  upstream, so the engine never mistakes coarseness for a real change. */
-  status: TaskStatus
-  labels: string[]
-  assignee?: string
-  assigneeAvatarUrl?: string
-  externalUpdatedAt: string
-  comments: NormalizedTaskComment[]
-  snapshot?: unknown
-  priorityHint?: TaskPriority
-  /** Null when the ticket has no epic; undefined when this read cannot tell
-   *  (a list read that does not carry the parent). */
-  epic?: TaskEpic | null
-}
-
-export interface TicketPatch {
-  title?: string
-  body?: string
-  /** Full local fidelity. An adapter that cannot express a status collapses it
-   *  itself; the engine must not decide that on the provider's behalf. */
-  status?: TaskStatus
-  labels?: string[]
-  priority?: TaskPriority | null
-  assignee?: string | null
-}
-
-/** A person the configured task provider permits an issue to be assigned to. */
+/** A person the provider permits a task to be assigned to. */
 export interface TaskAssigneeCandidate {
   login: string
   avatarUrl?: string
 }
 
-export interface CandidateTicket extends ExternalTicketRef {
-  title: string
-  status: TaskStatus
-  labels: string[]
-  externalUpdatedAt: string
-  priorityHint?: TaskPriority
-}
-
-export interface TaskCandidateOptions {
-  query?: string
-  limit?: number
-  /** Provider-native attention filter. Used by the cross-project inbox; normal
-   * project lists omit it and continue to show the complete bound scope. */
-  involvement?: import('./inbox-types').InboxInvolvement
-}
-
-/** Normalized priority (undefined = unset). For GitHub it's inferred from
- *  conventional priority labels; for local it's an explicit field. Drives the
- *  "what's next" sort and the priority badge. */
+/** Normalized priority (undefined = unset). On GitHub it is read from a
+ *  board's Priority field, or from conventional priority labels off a board.
+ *  Drives the "what's next" sort and the priority badge. */
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low'
 
-/** A pull request attached to a task. Hydrated from the issue's active linked
- *  PR for GitHub tickets; local rows only carry one captured by earlier
- *  versions. Distinct from a GitHub ticket's read-only `linkedPrs` (those
- *  describe the upstream issue, this describes our work). */
+/** The newest pull request linked to a task in Solus, for compact display. */
 export interface TaskPr {
   url: string
   /** Parsed from the URL for compact display (`#123`); 0 if unparseable. */
@@ -176,72 +111,43 @@ export interface TaskSidebarPrLink {
   ownerSessionId?: string
 }
 
-/**
- * The upstream ticket a native task mirrors, once it has been published or
- * imported. Ownership stays local — every read and write still goes through the
- * native path — but surfaces name the provider, because that is where other
- * people see this work. Absent on a task that lives only in Solus.
- */
-export interface TaskMirroredTicket {
-  provider: Exclude<TaskProviderId, 'local'>
-  externalId: string
-  url: string
-}
-
 export interface Task {
-  /** Globally unique local id (a ULID for local tasks, the issue number for
-   * upstream ones). */
+  /** The task key (`taskKey` in `task-sources.ts`): the only id of a task. */
   id: string
-  /** `local` for Solus-owned tasks; anything else marks an upstream ticket the
-   * renderer routes through the `tasks*Upstream` RPCs. */
   providerId: TaskProviderId
-  /** Human-referenceable per-install id, rendered as `T-<n>`. */
-  shortId?: number
-  /** The organization the task's row belongs to (organization-scope §3):
-   * `local` while unassigned, else an organization id that never changes. Set
-   * on every native task read from a host's store; an upstream ticket has none. */
-  organizationId?: string
-  /** Null/undefined means the global inbox. */
-  projectKey?: string | null
+  kind: TaskKind
+  /** The task as a person reads it: `owner/repo#123` or `PROJ-12`. Absent on a draft. */
+  reference?: string
   title: string
-  titleSource?: TaskTitleSource
   /** Markdown description. */
   body: string
-  /** Normalized status; carry the provider's raw state in `raw` if needed. */
-  status: TaskStatus
-  /** Deep link back to the source (null for local tasks). */
+  /** Deep link to the task on its provider. Null for a draft. */
   url: string | null
-  /** The upstream ticket this native task is linked to, when there is one. */
-  mirroredTicket?: TaskMirroredTicket
+  state: TaskState
+  /** The one coarse status of the task: `done` when the provider closed it,
+   *  `active` when its state or one of its columns is active, else `open`. */
+  category: TaskStatusCategory
+  /** The sources that list the task, with its column in each. */
+  placements: TaskPlacement[]
   assignee?: string
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string
-  /** The Solus person assigned, by user key (plans/015-notifications-hub.md §5).
-   *  Set only by a Solus assignee choice; a provider login in `assignee` is never
-   *  read as an account. */
-  assigneeUserId?: string
   labels: string[]
-  /** The upstream epic this ticket belongs to. Set only from a provider read. */
+  /** The epic this task belongs to. Set only from a provider read. */
   epic?: TaskEpic
   /** Due date as an ISO calendar day (`YYYY-MM-DD`); drives sorting + overdue cues. */
   dueDate?: string
   /** Priority; drives the "what's next" sort and the priority badge. */
   priority?: TaskPriority
-  /** PR opened for this task — auto-captured (branch → `gh pr view`), editable. */
+  /** The newest pull request linked to the task in Solus. */
   pr?: TaskPr
-  /** Whether due date + priority are editable for *this* task. Local tasks are
-   *  always true; a GitHub issue is true only when it's on a Projects v2 board
-   *  (those fields live on the project item, not the issue). Undefined ⇒ false. */
-  canEditPlanningFields?: boolean
-  source?: TaskSource
-  originSessionId?: string
-  originAutomationId?: string
+  /** The fields the provider takes a change of for this task. A GitHub issue
+   *  takes a priority or a due date only when a Project it is on has that field. */
+  writableFields: TaskField[]
+  /** Epoch milliseconds, as the provider reports them. */
   createdAt?: number
-  /** Epoch milliseconds. Providers parse their own timestamp format into this. */
   updatedAt: number
-  triagedAt?: number
-  doneAt?: number
-  /** Last time the task rollup was visited or explicitly marked read. */
+  /** Last time the task was visited or explicitly marked read on this host. */
   lastReadAt?: number
   /** The reading person's own snooze (`TaskSnooze`), in epoch ms: their task
    *  lists hide the task until then. A host never sends it on a task record; a
@@ -250,10 +156,6 @@ export interface Task {
   snoozedUntil?: number
   /** The reminder the reading person wrote with their snooze. */
   snoozeNote?: string
-  /** Full provider payload, kept for hydration / context injection at session start. */
-  raw?: unknown
-  /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
-  role?: ResourceRole
 }
 
 /** One person's snooze of a task (docs/task-snooze.md). Only that person reads
@@ -266,56 +168,58 @@ export interface TaskSnooze {
   snoozeNote?: string
 }
 
-export interface TaskListFilter {
-  projectKey?: string | null
-  status?: TaskStatus | TaskStatus[]
-  scope?: 'all' | 'inbox' | 'project' | 'up_next'
-}
-
+/** A new task. It is created on the provider, in `sourceKey` or in the
+ *  project's default source. A GitHub Project source creates a draft item. */
 export interface TaskCreateInput {
+  /** The project the task is created for: its config names the sources. */
+  cwd: string
+  /** One source of that project. Absent = the project's default source. */
+  sourceKey?: string
   title: string
-  projectKey?: string | null
   body?: string
-  status?: TaskStatus
+  /** A column of the source to start in. Absent = where the provider starts a task. */
+  columnId?: string
   assignee?: string | null
-  assigneeUserId?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
   labels?: string[]
-  source?: TaskSource
-  originSessionId?: string | null
-  originAutomationId?: string | null
 }
 
+/** A change of a task's fields, sent to the provider. A field outside the
+ *  task's `writableFields` is refused. */
 export interface TaskUpdatePatch {
-  projectKey?: string | null
   title?: string
   body?: string
-  status?: TaskStatus
   assignee?: string | null
-  assigneeUserId?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
   labels?: string[]
 }
 
-/** First-class local comment. Upstream provider comments stay in the task's
- * `raw` payload (`TaskCommentData`) and are only rendered, never stored. */
+/** Where to move a task: to one column of one source that lists it, or to a
+ *  status category, where the host chooses the column of each source. */
+export type TaskMoveTarget =
+  | { sourceKey: string; columnId: string }
+  | { category: TaskStatusCategory }
+
+/** A comment on a task. Each comment is a provider comment; one that Solus
+ *  could not send yet is `unsent` and stays on this host until it is sent or
+ *  discarded. */
 export interface TaskComment {
   id: string
   taskId: string
-  /** Who wrote a local comment. Absent on an upstream comment, which names its
-   *  author in the other system's words (`externalAuthor`). */
+  /** Who wrote a comment that Solus sent or holds. Absent on a comment that
+   *  Solus only read from the provider. */
   author?: Attribution
-  /** The upstream author's name or login, on an `external` comment only. */
+  /** The provider's name or login for the author of a comment read from it. */
   externalAuthor?: string | null
-  source: 'local' | 'external'
-  externalId?: string | null
   originSessionId?: string | null
   body: string
   createdAt: number
-  /** True only when this local-first comment was explicitly queued upstream. */
-  syncPending?: boolean
+  /** The comment is not on the provider yet. */
+  unsent?: boolean
+  /** Why the last send failed. */
+  sendError?: string
 }
 
 /** What a task can be linked to. `work` is the storage noun for what the
@@ -377,9 +281,8 @@ export interface TaskLinkTarget {
 export interface TaskLinkedTask extends TaskLinkTarget {
   taskId: string
   title: string
-  status: TaskStatus
-  shortId?: number
-  projectKey?: string | null
+  category: TaskStatusCategory
+  reference?: string
 }
 
 /** What a caller passes to link something; the store fills in the snapshot
@@ -402,10 +305,9 @@ export interface TaskLinkInput {
   pinned?: boolean
 }
 
-/** What a `task_changed` activity says changed. Interleaved with
- *  `TaskComment[]` to build the feed. Comments deliberately have no activity of
- *  their own — their `comment_threads` rows already are that log, and a mirrored row would be
- *  a second thing to keep in sync. */
+/** What a `task_changed` activity says Solus did to a task. Interleaved with
+ *  `TaskComment[]` to build the feed. A change made on the provider has no
+ *  activity here: the provider keeps that history. */
 export type TaskEventKind =
   | 'created'
   | 'status_changed'
@@ -420,7 +322,8 @@ export type TaskEventKind =
 
 
 
-/** The detail read deliberately carries no session links. Attempts live in one
+/** A task with its comments and its Solus attachments, read from the provider
+ * by the host that lists it. The detail read deliberately carries no session links. Attempts live in one
  * place — the renderer's `sessionsByTask`, fed by `taskSessions()` — because a
  * second copy on this object could only ever disagree with it, and the detail
  * surfaces that would render it are the ones that overwrite it. */
@@ -431,18 +334,20 @@ export interface TaskDetails {
   /** The task's `task_changed` activity, newest last, capped at
    *  `TASK_ACTIVITY_LIMIT`. Merge with `comments` by time to build the feed. */
   activity: Activity[]
-  /** The external ticket this native task synchronizes with, when linked. */
-  externalLink?: TaskExternalLink
+  /** The provider did not answer, so `task` and `comments` are the host's last copy. */
+  fromCache?: boolean
 }
+
+/** What Solus holds about a task on one host: the answer of a host that has
+ *  attachments of a task but does not read it from a provider, such as the
+ *  organization's Solus API. */
+export type TaskAttachments = Pick<TaskDetails, 'links' | 'activity'>
 
 export interface TaskForSessionResult {
   task: Task
   attempts: TaskSessionLink[]
 }
 
-/** One authoritative renderer snapshot for native task rows and their session
- * ownership. These collections are read together so the sidebar never has to
- * reconcile independently timed task and link responses. */
 /**
  * What a client sends to a host to bind the task a session is about to start
  * under. A session never makes a task of its own, so the request always names
@@ -455,7 +360,6 @@ export interface TaskForSessionResult {
 export interface PrepareSessionTaskRequest {
   /** The task the session joins. */
   taskId: string
-  projectKey?: string | null
   /** Also return a `TaskSnapshot` of the bound task. Set by a client about to
    *  dispatch to a different execution host, which needs the snapshot to ride
    *  the prompt (see docs/plans/dispatch-parity.md). */
@@ -514,6 +418,11 @@ export interface TaskSnapshot {
  *  which only the detail read carries (plans/029 §8). */
 export type TaskSummary = Omit<Task, 'body' | 'epic'>
 
+/** One authoritative renderer snapshot of the tasks a host holds for the reader
+ * and their session ownership, read together so the sidebar never has to
+ * reconcile independently timed task and link responses. A host that holds
+ * only attachments (the organization's Solus API) answers no tasks, and the
+ * links of the task keys it knows. */
 export interface TaskSidebarSnapshot {
   tasks: TaskSummary[]
   sessionsByTask: Record<string, TaskSessionLink[]>
@@ -560,83 +469,59 @@ export interface TaskSidebarFilter {
  *  changes waiting reads the whole list instead. */
 export const MAX_SIDEBAR_TASK_IDS = 200
 
-/** One comment on a task, as providers surface it (also the shape stored in a
- *  task's `raw.comments`). Returned from `postComment` so callers can patch a
- *  just-posted comment into a stale re-read (GitHub's GraphQL reads lag its
- *  REST writes). */
-export interface TaskCommentData {
-  id?: string
-  author: { login: string } | null
-  body: string
-  createdAt: string
-}
+/** Why a task source cannot be read. `reconnect` means the connection exists
+ *  but lacks a permission the source needs (the GitHub `project` scope, the
+ *  Jira Software scopes). */
+export type TaskSourceHealth = 'ok' | 'not_connected' | 'reconnect' | 'no_access' | 'error'
 
-/** A provider's list read. `truncated` marks a capped result (GitHub stops at
- *  its page budget) so the UI can say the list is partial instead of implying
- *  it is everything. */
-export interface TaskList {
-  tasks: Task[]
-  truncated?: boolean
-}
-
-/** What `tasksList` returns to the renderer: the provider list plus how it was
- *  obtained — `fromCache` (+ `fetchedAt`) when a live fetch failed and the
- *  last-seen snapshot was served instead. */
-export interface TaskListResult extends TaskList {
-  fromCache?: boolean
-  /** Epoch ms the served list was actually fetched from the provider. */
+/** One task source of a project, as the host last read it for the reader. */
+export interface TaskSourceState {
+  sourceKey: string
+  source: TaskSource
+  /** The source as a person reads it: `acme/app`, a Project's title, `SOL`, a board's name. */
+  label: string
+  columns: TaskColumn[]
+  health: TaskSourceHealth
+  /** Why `health` is not `ok`, in words a person can read. */
+  message?: string
+  /** Epoch ms of the last read that the provider answered. Absent = never read. */
   fetchedAt?: number
+  /** The source holds more tasks than the host read. Search reaches the rest. */
+  truncated?: boolean
+  /** The host reads the source now; `tasks.sourcesChanged` says when it ends. */
+  refreshing?: boolean
 }
 
-interface TaskProviderRepoRef {
-  owner: string
-  repo: string
+/** The task sources of one project, in config order. */
+export interface TaskProjectSources {
+  sources: TaskSourceState[]
+  /** The `sourceKey` where a new task is created. Absent when the project has no source. */
+  defaultSourceKey?: string
 }
 
-/** Why a project's task provider is or is not usable. Provider-neutral: a
- *  second provider must not need a second copy of the same four outcomes.
- *  Which system is being talked about is `provider`. */
-type TaskProviderStatusReason =
-  | 'ok'
-  /** The provider is chosen but not pointed at anything — no repo, no project. */
-  | 'missing_binding'
-  | 'not_connected'
-  | 'access_failed'
-  | 'unsupported_provider'
-
-/** Project-scoped provider health for onboarding and repair UI. This is a
- *  lightweight preflight: it reports the configured provider, the resolved
- *  binding, auth state, and whether tasks can be listed without falling back. */
-export interface TaskProviderStatus {
-  provider: TaskProviderId
-  ok: boolean
-  reason: TaskProviderStatusReason
-  message: string
-  /** The binding as the user reads it — `owner/repo`, or a Jira project key.
-   *  Every provider fills this; `repo` below stays GitHub's own shape for the
-   *  repair UI that compares it with the checkout's detected repository. */
-  scopeLabel?: string
-  repo?: TaskProviderRepoRef & { source: 'config' | 'origin' }
-  detectedRepo?: TaskProviderRepoRef
-  /** Fields an unstored provider ticket accepts as immediate writes. */
-  writableFields?: TaskSyncField[]
-  /** The distinct statuses this provider can represent. */
-  statuses?: TaskStatus[]
-  auth?: {
+/** What a person can choose as a task source for a project. */
+export interface TaskSourceOptions {
+  github: {
     connected: boolean
     login?: string
+    /** False when the connection cannot read Projects: connect GitHub again. */
     hasProjectScope?: boolean
+    /** The project's GitHub origin, the suggested first source. */
+    originRepository?: { owner: string; repo: string }
+    projects: Array<{ owner: string; number: number; title: string }>
   }
-  liveCheck?: {
-    checkedAt: number
-    issueCount: number
-    truncated?: boolean
-    planningFieldsDetected?: boolean
+  jira: {
+    connected: boolean
+    cloudId?: string
+    siteUrl?: string
+    projects: Array<{ projectKey: string; name: string }>
+    boards: Array<{ boardId: number; name: string; projectKey?: string }>
+    /** Why the boards could not be listed, such as a missing Jira Software scope. */
+    boardsError?: string
   }
-  warning?: string
 }
 
-/** Stable marker prepended to auth/connection failures from remote providers,
+/** Stable marker prepended to auth/connection failures from a task provider,
  *  so the renderer can offer "Connect GitHub" without sniffing error prose. */
 export const TASKS_AUTH_ERROR_PREFIX = '[tasks-auth] '
 
@@ -662,8 +547,8 @@ export interface SessionExecutionHost {
 }
 
 /** A Solus session linked to a task, surfaced on the task card as a back-link so
- *  the user can jump from a ticket to the work happening on it. Stored locally
- *  (never written upstream) keyed by task id — see `task-sessions.ts`. */
+ *  the user can jump from a task to the work happening on it. An attachment:
+ *  Solus stores it by task key and never writes it to the provider. */
 export interface TaskSessionLink {
   taskId?: string
   sessionId: string
@@ -705,45 +590,4 @@ export interface TaskSessionLink {
   linkedAt: number
   /** Who started the session. Absent when nobody recorded it. */
   startedBy?: Attribution
-}
-
-/**
- * A Local task for its upload into an organization (docs/plans/cloud-sharing.md
- * §4). The cloud copy keeps the task's id and its comments' ids, so the same
- * upload again changes nothing. `workIds` are the linked works the cloud task
- * links to; they are uploaded first. The fingerprint covers all of it, so the
- * host keeps a task that changed after it was read.
- */
-export interface TaskTransfer {
-  task: {
-    id: string
-    title: string
-    projectKey: string | null
-    body: string
-    status: TaskStatus
-    priority: TaskPriority | null
-    labels: string[]
-    dueDate: string | null
-    source: TaskSource | null
-    originSessionId: string | null
-    createdAt: number
-  }
-  comments: Array<{ id: string; body: string; author: Attribution | null; originSessionId: string | null }>
-  workIds: string[]
-  /** The sessions linked to the task. Only what the task page shows goes: the
-   *  session itself stays on the host that runs it. */
-  sessions: TaskTransferSession[]
-  fingerprint: string
-}
-
-export interface TaskTransferSession {
-  sessionId: string
-  role: TaskSessionRole
-  linkedAt: number
-  title: string | null
-  provider: string | null
-  startedBy: Attribution | null
-  /** The installation id of the host that runs the session: the one id every
-   *  client of that host knows it by. */
-  hostInstallationId: string
 }

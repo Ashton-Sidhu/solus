@@ -4,6 +4,8 @@ Status: TODO — independent review corrections incorporated. Priority P1. Effor
 Risk MED–HIGH. Category correctness/tech-debt. Planned at `c4c64aff2`, 2026-11-01.
 Execute after 026 to serialize generated migrations. Table delta: −2.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the task create receipt is history: Solus creates a task on GitHub or Jira, not through the `/v1` API.
+
 ## Intent and current code
 
 Replace `workspace_api_receipts`, `applied_ops`, and `webhook_seen_keys` with one

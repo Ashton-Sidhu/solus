@@ -10,7 +10,7 @@ import type { ExternalCommentCommand, WorkExternalComments } from './work-commen
 import type { WorkCommentCommand } from './comment-commands'
 import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, BranchRef, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkListingMeta, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus, IgnoredProjectFiles, WorktreeIncludeChange, CopiedProjectFile } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrFilterChoice, PrFilterField, PrInterest, PrLabel, PrListPage, PrProjectCursor, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
-import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
+import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskAttachments, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskMoveTarget, TaskProjectSources, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskSourceOptions, TaskSummary, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionArtifacts } from './session-artifacts'
@@ -36,7 +36,6 @@ import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './h
 import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences } from './settings'
 import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
 import type { PolicySet } from './policy'
-import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, SignInEnd } from './account-types'
 import type { ConnectionTokenResource } from './auth/clients'
@@ -449,12 +448,6 @@ export interface SolusAPI {
   workMarkMoved(workId: string, fingerprint: string, organizationId: string): Promise<void>
   /** Solus API: store an uploaded work in the caller's organization under its own id; the same work again answers as before. */
   workUpload(transfer: WorkTransfer): Promise<{ workId: string; organizationId: string }>
-  /** A Local task with its local comments and its linked Local works, for its upload into an organization. */
-  taskExportForCloud(taskId: string): Promise<{ task: TaskTransfer; works: WorkTransfer[] }>
-  /** The Local task and its uploaded works after the upload: each points at the organization only when it did not change since that export. */
-  taskMarkMoved(taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>, organizationId: string): Promise<void>
-  /** Solus API: store an uploaded task in the caller's organization under its own id; the same task again answers as before. */
-  taskUpload(transfer: TaskTransfer): Promise<{ taskId: string; organizationId: string }>
   /** Sharing (docs/plans/multiplayer-sharing.md §3–§4). Reading needs viewer access; the list is replaced whole. */
   shareGet(request: { resource: ShareResource }): Promise<ShareList>
   shareSet(request: ShareSetRequest): Promise<ShareList>
@@ -881,31 +874,38 @@ export interface SolusAPI {
   importDocFromUrl(url: string, cwd?: string): Promise<Work>
   getPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
 
-  tasksProviderStatus(cwd: string, opts?: { checkAccess?: boolean }): Promise<TaskProviderStatus>
-  inboxListUpstream(involvement: InboxInvolvement): Promise<InboxUpstreamResult>
-  /** `query` searches the provider itself rather than the loaded page, which is
-   *  the only way to reach an issue older than the provider list's cap. */
-  tasksListUpstream(
-    cwd: string,
-    opts?: { query?: string },
-  ): Promise<TaskListResult>
-  tasksGetUpstream(cwd: string, id: string): Promise<Task>
-  tasksUpdateUpstream(cwd: string, id: string, patch: TaskUpdatePatch): Promise<Task>
-  tasksCommentUpstream(cwd: string, id: string, body: string): Promise<Task>
-  tasksListAssigneeCandidates(cwd: string): Promise<TaskAssigneeCandidate[]>
-  tasksListCandidates(cwd: string, opts?: TaskCandidateOptions): Promise<CandidateTicket[]>
-  tasksImport(cwd: string, externalIds: string[]): Promise<TaskDetails[]>
-  tasksPublish(id: string, cwd: string): Promise<TaskDetails>
-  tasksSyncNow(id?: string): Promise<TaskExternalLink[]>
+  /**
+   * The task sources of each project, as this host last read them for the
+   * caller (docs/plans/provider-owned-tasks.md §5). The call also says that the
+   * caller wants these sources: the host reads each one that is not fresh, or
+   * every one with `refresh: 'force'`, and `tasks.sourcesChanged` says when a
+   * read ends. The tasks themselves come with `tasksSidebarSnapshot`.
+   */
+  tasksSources(cwds: string[], opts?: { refresh?: 'stale' | 'force' }): Promise<Record<string, TaskProjectSources>>
+  /** What the caller can choose as a task source for one project. */
+  tasksSourceOptions(cwd: string): Promise<TaskSourceOptions>
+  /** Ask the provider for the tasks of a project's sources that match `query`.
+   *  The only way to reach a task that a truncated source did not list. */
+  tasksSearch(cwd: string, query: string): Promise<TaskSummary[]>
   tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
   tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
-  tasksReadExtras(id: string): Promise<Omit<TaskDetails, 'task'>>
+  /** Read one task from its provider, with its comments and its attachments on
+   *  this host. Answers the host's last copy, with `fromCache`, when the
+   *  provider does not answer. */
   tasksGet(id: string): Promise<TaskDetails>
+  /** The attachments of a task on a host that does not read the task itself. */
+  tasksAttachments(id: string): Promise<TaskAttachments>
+  /** Create a task on the provider. */
   tasksCreate(input: TaskCreateInput): Promise<Task>
   tasksPrepareForSession(input: PrepareSessionTaskRequest): Promise<PrepareSessionTaskResult>
   tasksSnapshot(taskId: string): Promise<TaskSnapshot>
-  tasksUpdate(id: string, patch: TaskUpdatePatch, expectedUpdatedAt?: number): Promise<Task>
+  /** Change a task's fields on the provider. */
+  tasksUpdate(id: string, patch: TaskUpdatePatch): Promise<Task>
+  /** Move a task to a column of one source, or to a status category. */
+  tasksMove(id: string, target: TaskMoveTarget): Promise<Task>
+  /** Delete a draft item from its GitHub Project. An issue is closed or moved, never deleted. */
+  tasksDelete(id: string): Promise<boolean>
   tasksMarkRead(id: string, read: boolean): Promise<Task>
   /** Hide the task from the caller's own task lists until `until`, or wake it
    *  now with null. Nobody else's lists change, and its agents keep working
@@ -913,12 +913,16 @@ export interface SolusAPI {
   tasksSnooze(id: string, until: number | null, note?: string): Promise<TaskSnooze | null>
   /** The caller's own task snoozes. `tasks.snoozesChanged` says to read again. */
   tasksSnoozes(): Promise<TaskSnooze[]>
-  tasksRecordActivity(id: string): Promise<Task>
-  tasksDelete(id: string): Promise<boolean>
-  tasksComment(id: string, body: string, opts?: { pushToExternal?: boolean }): Promise<TaskDetails>
+  /** Post a comment to the provider. A comment the provider did not take stays
+   *  on this host as `unsent`. */
+  tasksComment(id: string, body: string): Promise<TaskDetails>
+  /** Send an unsent comment again. */
+  tasksRetryComment(id: string, commentId: string): Promise<TaskDetails>
+  /** Discard an unsent comment. A sent comment is deleted on the provider, not here. */
   tasksDeleteComment(id: string, commentId: string): Promise<TaskDetails>
-  /** Queue comments that were written while auto-posting was off. */
-  tasksPublishComments(id: string, commentIds: string[]): Promise<TaskDetails>
+  /** The people the provider permits to be assigned: for one task, or for a
+   *  new task in one source of a project. */
+  tasksListAssigneeCandidates(target: { taskId: string } | { cwd: string; sourceKey: string }): Promise<TaskAssigneeCandidate[]>
   tasksLinkSession(
     taskId: string,
     sessionId: string,
@@ -930,14 +934,13 @@ export interface SolusAPI {
   tasksUnlinkSession(taskId: string, sessionId: string): Promise<void>
   tasksSessions(taskId?: string): Promise<Record<string, TaskSessionLink[]>>
   tasksForSession(sessionId: string): Promise<TaskForSessionResult | null>
-  tasksLink(taskId: string, input: TaskLinkInput): Promise<TaskDetails>
-  tasksUnlink(taskId: string, kind: TaskLinkKind, targetKey: string, targetScope?: string): Promise<TaskDetails>
+  tasksLink(taskId: string, input: TaskLinkInput): Promise<TaskAttachments>
+  tasksUnlink(taskId: string, kind: TaskLinkKind, targetKey: string, targetScope?: string): Promise<TaskAttachments>
   /** The reverse read: which tasks on this host link each target. A card
    *  batches the targets it shows; the answer lists one row per edge. */
   tasksLinkedTo(targets: TaskLinkTarget[]): Promise<TaskLinkedTask[]>
-  /** Render a linked `artifact` work to a still and file it, with the HTML
-   *  where the provider takes files, as a task comment queued for the ticket.
-   *  `cwd` locates a project-stored work. */
+  /** Render a linked `artifact` work to a still and post it, with the HTML
+   *  where the provider takes files, as a comment on the task. */
   tasksAttachArtifact(taskId: string, workId: string): Promise<TaskDetails>
 
   outboxList(): Promise<OutboxOp[]>

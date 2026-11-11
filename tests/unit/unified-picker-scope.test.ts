@@ -6,18 +6,22 @@ import {
 } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-scope'
 import { pickerProjectKeys } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
 
-function task(id: string, projectKey: string): Task {
+/** A task that the named task sources list. */
+function task(id: string, ...sourceKeys: string[]): Task {
   return {
     id,
+    providerId: 'github',
+    kind: 'issue',
     title: id,
     body: '',
-    status: 'in_progress',
-    priority: null,
-    projectKey,
-    providerId: 'local',
-    createdAt: 0,
+    url: null,
+    state: { name: 'Open', category: 'open' },
+    category: 'open',
+    placements: sourceKeys.map((sourceKey) => ({ sourceKey, columnId: null })),
+    labels: [],
+    writableFields: [],
     updatedAt: 0,
-  } as unknown as Task
+  }
 }
 
 /**
@@ -52,32 +56,41 @@ describe('picker scope', () => {
 
 describe('picker project keys', () => {
   const tasks = [
-    task('a', '/Users/me/model-routing'),
-    task('b', '/Users/me/solus'),
-    task('c', '/home/me/solus'),
+    task('a', 'github-repo:me/model-routing'),
+    task('b', 'github-repo:me/solus'),
+    task('c', 'github-repo:me/solus', 'github-project:me/1'),
   ]
-  // Both checkouts of solus belong to one repository.
-  const projectKeyOf = (item: Task) => item.projectKey?.endsWith('/solus') ? 'github.com/me/solus' : item.projectKey ?? null
+  // A project lists task sources. The board is a source of two projects.
+  const projectKeysBySource = new Map([
+    ['github-repo:me/model-routing', ['github.com/me/model-routing']],
+    ['github-repo:me/solus', ['github.com/me/solus']],
+    ['github-project:me/1', ['github.com/me/solus', 'github.com/me/site']],
+  ])
+  const projectKeysOf = (item: Task) => [...new Set(item.placements.flatMap((placement) => projectKeysBySource.get(placement.sourceKey) ?? []))]
 
-  test('every checkout of a project is one scope', () => {
-    // A project checked out in several folders or on several hosts was offered
-    // once per folder, every row with the same name.
-    expect(pickerProjectKeys(null, tasks, projectKeyOf, [])).toEqual(['/Users/me/model-routing', 'github.com/me/solus'])
+  test('each project that lists a task is one scope, offered once', () => {
+    // WHY: a task belongs to no project by itself. A source that two projects
+    // list puts its tasks in both scopes, and two tasks of one project must not
+    // offer that project two times.
+    expect(pickerProjectKeys(null, tasks, projectKeysOf, []))
+      .toEqual(['github.com/me/model-routing', 'github.com/me/solus', 'github.com/me/site'])
   })
 
   test('the composer’s project leads and is offered even with no task yet', () => {
     // Leaving it out would make the default scope unnameable in its own menu.
-    expect(pickerProjectKeys('github.com/me/fresh', tasks, projectKeyOf, [])[0]).toBe('github.com/me/fresh')
-    expect(pickerProjectKeys('github.com/me/solus', tasks, projectKeyOf, [])).toEqual(['github.com/me/solus', '/Users/me/model-routing'])
+    expect(pickerProjectKeys('github.com/me/fresh', tasks, projectKeysOf, [])[0]).toBe('github.com/me/fresh')
+    expect(pickerProjectKeys('github.com/me/solus', tasks, projectKeysOf, []))
+      .toEqual(['github.com/me/solus', 'github.com/me/model-routing', 'github.com/me/site'])
   })
 
   test('a known project with no task is still offered, once', () => {
     // A project whose work is all sessions has no task to name it.
-    expect(pickerProjectKeys(null, tasks, projectKeyOf, ['github.com/me/solus', 'github.com/me/sessions-only']))
-      .toEqual(['/Users/me/model-routing', 'github.com/me/solus', 'github.com/me/sessions-only'])
+    expect(pickerProjectKeys(null, [tasks[0]], projectKeysOf, ['github.com/me/model-routing', 'github.com/me/sessions-only']))
+      .toEqual(['github.com/me/model-routing', 'github.com/me/sessions-only'])
   })
 
-  test('a chat is not a project to scope to', () => {
-    expect(pickerProjectKeys(null, [task('chat', '/Users/me/.solus/solus-chats/abc')], (item) => item.projectKey ?? null, [])).toEqual([])
+  test('a task that no known project lists adds no scope', () => {
+    // WHY: a task that only a session link brought here has no project to name.
+    expect(pickerProjectKeys(null, [task('loose')], projectKeysOf, [])).toEqual([])
   })
 })

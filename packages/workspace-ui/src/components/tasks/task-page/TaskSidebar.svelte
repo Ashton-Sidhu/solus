@@ -1,21 +1,32 @@
 <script lang="ts">
-  import type { Task, TaskAssigneeCandidate, TaskStatus, TaskUpdatePatch } from "@solus/contracts/task-types";
+  import type {
+    Task,
+    TaskAssigneeCandidate,
+    TaskMoveTarget,
+    TaskUpdatePatch,
+  } from "@solus/contracts/task-types";
   import { GROUP, ROW, ROW_LABEL, VALUE, VALUE_BUTTON } from "./lib/sidebar-styles";
-  import { RefreshCw as ArrowsClockwiseIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { SourceLogo } from "../../ui/list-page";
-  import { relativeTime, STATUS_META } from "../lib/tasks-api";
+  import {
+    CATEGORY_META,
+    PROVIDER_NAMES,
+    relativeTime,
+    taskRef,
+    type TaskPlacementLabel,
+  } from "../lib/tasks-api";
   import TaskPriorityMenu from "./TaskPriorityMenu.svelte";
   import TaskStatusMenu from "./TaskStatusMenu.svelte";
   import TaskAssigneeMenu from "./TaskAssigneeMenu.svelte";
-  import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
   import {
-    syncToneColor,
-    taskEpicRow,
-    type TaskPublishTarget,
-    type TaskUpstreamState,
-  } from "./lib/task-upstream";
-  import { Switch } from "../../ui/switch";
+    priorityBars,
+    priorityLabel,
+    statusTextColor,
+    taskStateLabel,
+    type TaskFieldLocks,
+  } from "./lib/task-page";
+  import { taskEpicRow } from "./lib/task-epic";
+  import type { TaskMoveGroup } from "./lib/task-move";
   import LabelPicker from "../../ui/labels/LabelPicker.svelte";
 
   interface Props {
@@ -24,35 +35,25 @@
      *  panel opened under the task's title where the rail has folded. The panel
      *  takes the column's rhythm. */
     variant?: "column" | "panel";
-    projectLabel: string;
+    /** The task's project, as a person reads it. Null when no project of this
+     *  client lists the task. */
+    projectLabel: string | null;
     /** The task's project, as `projectsStore` keys it. */
     projectKey?: string | null;
-    canEdit: boolean;
-    canEditPlanningFields: boolean;
-    canEditPriority: boolean;
-    canEditLabels: boolean;
+    /** Why each field editor is disabled (`taskFieldLocks`). */
+    locks: TaskFieldLocks;
+    /** The task's column in each source that lists it. */
+    placements: TaskPlacementLabel[];
+    /** What the move menu offers (`taskMoveGroups`). */
+    moveGroups: TaskMoveGroup[];
     labelCandidates: string[];
-    canEditAssignee: boolean;
     assigneeCandidates: TaskAssigneeCandidate[];
     assigneeCandidatesLoading: boolean;
-    assigneeCandidatesError?: string;
-    editableStatuses: TaskStatus[];
-    /** Null for a task with no upstream: the whole group is then absent, rather
-     *  than present and empty. */
-    upstream: TaskUpstreamState | null;
-    /** Where this task could be filed when it has no ticket yet. Null when the
-     *  project has no provider, or when it already has one. */
-    publishTarget: TaskPublishTarget | null;
-    syncing: boolean;
-    /** The project posts every comment upstream. Null when the setting cannot
-     *  be read or written from here, which hides the toggle. */
-    autoPost: boolean | null;
-    onSyncNow: () => void;
-    onSetAutoPost: (next: boolean) => void;
-    onPublishAll: () => void;
-    onPublishTask: () => void;
-    onOpenUpstream: (url: string) => void;
-    onSave: (patch: TaskUpdatePatch) => Promise<void> | void;
+    assigneeCandidatesError: string | null;
+    onMove: (target: TaskMoveTarget) => void;
+    /** Answers false when the provider refused the change. */
+    onSave: (patch: TaskUpdatePatch) => Promise<boolean>;
+    onOpenExternal: (url: string) => void;
     onOpenAssigneeMenu: () => void;
   }
 
@@ -61,26 +62,16 @@
     variant = "column",
     projectLabel,
     projectKey,
-    canEdit,
-    canEditPlanningFields,
-    canEditPriority,
-    canEditLabels,
+    locks,
+    placements,
+    moveGroups,
     labelCandidates,
-    canEditAssignee,
     assigneeCandidates,
     assigneeCandidatesLoading,
     assigneeCandidatesError,
-    editableStatuses,
-    upstream,
-    publishTarget,
-    syncing,
-    autoPost,
-    onSyncNow,
-    onSetAutoPost,
-    onPublishAll,
-    onPublishTask,
-    onOpenUpstream,
+    onMove,
     onSave,
+    onOpenExternal,
     onOpenAssigneeMenu,
   }: Props = $props();
 
@@ -89,18 +80,19 @@
   // of the card empty, so where a row still gets a rail's width the rows pair
   // up into two columns.
   const panel = $derived(variant === "panel");
-  const ROWS = $derived(
-    panel
-      ? "grid grid-cols-1 gap-x-8 gap-y-1 @[40rem]:grid-cols-2"
-      : "flex flex-col gap-1",
-  );
 
-  const status = $derived(STATUS_META[task.status]);
   const bars = $derived(priorityBars(task.priority));
   // Task labels are names alone; the picker draws them in the accent.
   const taskLabels = $derived(task.labels.map((name) => ({ name })));
   const labelCandidateOptions = $derived(labelCandidates.map((name) => ({ name })));
   const epic = $derived(taskEpicRow(task));
+
+  /** The date input holds what the person chose. When the provider refuses
+   *  the change, the input takes the task's date back. */
+  async function saveDueDate(input: HTMLInputElement): Promise<void> {
+    const saved = await onSave({ dueDate: input.value || null });
+    if (!saved) input.value = task.dueDate ?? "";
+  }
 </script>
 
 
@@ -109,15 +101,14 @@
     ? "@container flex w-full flex-col rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
     : "sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)]"}
 >
-  <div class={panel ? `${ROWS} px-3.5 pt-[15px] pb-4` : GROUP}>
+  <div class={panel ? "grid grid-cols-1 gap-x-8 gap-y-1 px-3.5 pt-[15px] pb-4 @[40rem]:grid-cols-2" : GROUP}>
     <div class={ROW}>
       <span class={ROW_LABEL}>Status</span>
       <TaskStatusMenu
-        status={task.status}
-        options={editableStatuses}
-        onSelect={(next) => onSave({ status: next })}
+        groups={moveGroups}
+        onSelect={onMove}
         align="start"
-        triggerClass={VALUE_BUTTON}
+        triggerClass="{VALUE_BUTTON} min-w-0 overflow-hidden"
       >
         {#snippet trigger()}
           <svg
@@ -130,22 +121,42 @@
             stroke-linecap="round"
             stroke-linejoin="round"
             class="shrink-0"
-            style="color:{statusTextColor(task.status)}"
-            aria-hidden="true"><path d={status.glyph} /></svg
+            style="color:{statusTextColor(task.category)}"
+            aria-hidden="true"><path d={CATEGORY_META[task.category].glyph} /></svg
           >
-          {status.label}
+          <span class="truncate">{taskStateLabel(task)}</span>
         {/snippet}
       </TaskStatusMenu>
     </div>
+
+    <!-- The task's column in each source that lists it. The Status menu above
+         moves the task; these rows only say where it is. -->
+    {#each placements as placement (placement.sourceKey)}
+      <div class={ROW}>
+        <span class={ROW_LABEL}>Column</span>
+        <span
+          class="{VALUE} min-w-0"
+          title="{placement.sourceLabel}: {placement.columnName ?? 'No column'}"
+        >
+          <span class="truncate {placement.columnName ? '' : 'text-muted-foreground'}">
+            {placement.columnName ?? "No column"}
+          </span>
+          <span class="flex-1"></span>
+          <span class="max-w-[50%] shrink-0 truncate text-muted-foreground opacity-80">
+            {placement.sourceLabel}
+          </span>
+        </span>
+      </div>
+    {/each}
 
     <div class={ROW}>
       <span class={ROW_LABEL}>Priority</span>
       <TaskPriorityMenu
         priority={task.priority}
-        disabled={!canEditPriority}
-        onSelect={(next) => onSave({ priority: next })}
+        lock={locks.priority}
+        onSelect={(next) => void onSave({ priority: next })}
         align="start"
-        triggerClass={VALUE_BUTTON}
+        triggerClass="{VALUE_BUTTON} disabled:cursor-default disabled:hover:bg-transparent"
       >
         {#snippet trigger()}
           <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
@@ -169,29 +180,55 @@
         candidates={assigneeCandidates}
         loading={assigneeCandidatesLoading}
         error={assigneeCandidatesError}
-        disabled={!canEditAssignee}
+        lock={locks.assignee}
         align="start"
-        triggerClass={canEditAssignee ? VALUE_BUTTON : VALUE}
+        triggerClass={locks.assignee === null ? VALUE_BUTTON : VALUE}
         onOpen={onOpenAssigneeMenu}
-        onSelect={(assignee) => onSave({ assignee })}
+        onSelect={(assignee) => void onSave({ assignee })}
       />
     </div>
 
+    {#if projectLabel}
+      <div class={ROW}>
+        <span class={ROW_LABEL}>Project</span>
+        <span class="{VALUE} min-w-0">
+          {#if projectKey}
+            <ProjectFavicon {projectKey} class="size-3" />
+          {/if}
+          <span class="truncate">{projectLabel}</span>
+        </span>
+      </div>
+    {/if}
+
     <div class={ROW}>
-      <span class={ROW_LABEL}>Project</span>
-      <span class="{VALUE} min-w-0">
-        {#if projectKey}
-          <ProjectFavicon {projectKey} class="size-3" />
-        {:else}
-          <FolderIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
-        {/if}
-        <span class="truncate">{projectLabel}</span>
-      </span>
+      <span class={ROW_LABEL}>Provider</span>
+      {#if task.url}
+        {@const url = task.url}
+        <button
+          type="button"
+          class="{VALUE_BUTTON} min-w-0 overflow-hidden"
+          onclick={() => onOpenExternal(url)}
+          title="Open {task.reference ?? 'this task'} in {PROVIDER_NAMES[task.providerId]}"
+        >
+          <SourceLogo source={task.providerId} />
+          <span class="truncate">{PROVIDER_NAMES[task.providerId]}</span>
+          <span class="flex-1"></span>
+          <span class="shrink-0 text-muted-foreground opacity-80">{taskRef(task)}</span>
+        </button>
+      {:else}
+        <!-- A draft is on a board only: it has no page on the provider. -->
+        <span class="{VALUE} min-w-0">
+          <SourceLogo source={task.providerId} />
+          <span class="truncate">{PROVIDER_NAMES[task.providerId]}</span>
+          <span class="flex-1"></span>
+          <span class="shrink-0 text-muted-foreground opacity-80">{taskRef(task)}</span>
+        </span>
+      {/if}
     </div>
 
-    <!-- Read-only: the epic comes with the upstream ticket, and Solus never
-         moves a task between epics. Its description is agent context, so the
-         row only names it and opens it upstream. -->
+    <!-- Read-only: the epic comes with the task from its provider, and Solus
+         never moves a task between epics. Its description is agent context, so
+         the row only names it and opens it on the provider. -->
     {#if epic}
       {@const epicUrl = epic.url}
       <div class={ROW}>
@@ -199,7 +236,7 @@
         <button
           type="button"
           class="{VALUE_BUTTON} min-w-0 overflow-hidden"
-          onclick={() => onOpenUpstream(epicUrl)}
+          onclick={() => onOpenExternal(epicUrl)}
           disabled={!epicUrl}
           title={epic.hint}
         >
@@ -211,7 +248,7 @@
       </div>
     {/if}
 
-    <div class="flex min-h-[34px] items-center">
+    <div class="flex min-h-[34px] items-center" title={locks.labels ?? undefined}>
       <span class={ROW_LABEL}>Labels</span>
       <span class="flex min-w-0 flex-1 items-center pl-2">
         <LabelPicker
@@ -220,192 +257,31 @@
           allowCreate
           align="start"
           menuLabel="Edit task labels"
-          onSet={canEditLabels ? (labels) => onSave({ labels }) : undefined}
+          onSet={locks.labels === null ? async (labels) => { await onSave({ labels }); } : undefined}
         />
       </span>
     </div>
 
     <div class={ROW}>
-      <span class={ROW_LABEL}>Target</span>
-      {#if canEditPlanningFields}
+      <span class={ROW_LABEL}>Due</span>
+      {#if locks.dueDate === null}
         <input
           type="date"
-          class="h-[34px] cursor-pointer rounded-md bg-transparent text-muted-foreground outline-none hover:bg-[var(--wash-2)] hover:text-foreground flex-1 px-2"
+          class="h-[34px] flex-1 cursor-pointer rounded-md bg-transparent px-2 text-muted-foreground outline-none hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground"
           value={task.dueDate ?? ""}
-          onchange={(e) => onSave({ dueDate: e.currentTarget.value || null })}
-          aria-label="Target date"
+          onchange={(event) => void saveDueDate(event.currentTarget)}
+          aria-label="Due date"
         />
       {:else}
-        <span class="flex h-[34px] flex-1 items-center px-2  text-muted-foreground">
+        <span
+          class="flex h-[34px] flex-1 items-center px-2 text-muted-foreground"
+          title={locks.dueDate}
+        >
           {task.dueDate ?? "None"}
         </span>
       {/if}
     </div>
   </div>
-
-  {#if upstream}
-    {@const tone = syncToneColor(upstream.tone)}
-    <div
-      class="flex flex-col gap-[11px] border-t-[.5px] border-[var(--hairline)] px-3.5 pt-[15px] pb-4"
-    >
-      <span class="pl-0.5 font-normal text-muted-foreground uppercase">Upstream</span>
-      <div class={ROWS}>
-        <div class={ROW}>
-          <span class={ROW_LABEL}>Provider</span>
-          {#if upstream.url}
-            {@const url = upstream.url}
-            <button
-              type="button"
-              class="{VALUE_BUTTON} min-w-0 overflow-hidden"
-              onclick={() => onOpenUpstream(url)}
-              title="Open {upstream.provider} {upstream.ref} in the browser"
-            >
-              <SourceLogo source={upstream.providerId} />
-              <span class="truncate">{upstream.provider}</span>
-              <span class="flex-1"></span>
-              <span class="shrink-0  text-muted-foreground opacity-80">
-                {upstream.ref}
-              </span>
-            </button>
-          {:else}
-            <span class="{VALUE} min-w-0">
-              <SourceLogo source={upstream.providerId} />
-              <span class="truncate">{upstream.provider}</span>
-            </span>
-          {/if}
-        </div>
-
-        <div class={ROW}>
-          <span class={ROW_LABEL}>State</span>
-          <span
-            class="{VALUE} min-w-0"
-            title={upstream.title}
-          >
-            <span class="size-[6px] shrink-0 rounded-full" style="background:{tone}"></span>
-            <span class="truncate" style="color:{tone}">{upstream.label}</span>
-          </span>
-        </div>
-
-        {#if upstream.canSync && autoPost !== null}
-          <div class={ROW}>
-            <span class={ROW_LABEL}>Auto-post</span>
-            <span class="{VALUE} min-w-0">
-              <Switch
-                size="sm"
-                checked={autoPost}
-                onCheckedChange={onSetAutoPost}
-                aria-label="Post every comment to {upstream.provider}"
-              />
-              <span class="truncate {autoPost ? '' : 'text-muted-foreground'}">
-                {autoPost ? "Every comment" : "Off"}
-              </span>
-            </span>
-          </div>
-        {/if}
-
-        {#if upstream.canSync}
-          <div class={ROW}>
-            <span class={ROW_LABEL}>Pending</span>
-            <span class="{VALUE} min-w-0">
-              <span
-                class="truncate {upstream.pendingCount ? '' : 'text-muted-foreground'}"
-                title={upstream.title}
-              >
-                {upstream.pendingLabel}
-              </span>
-              <span class="flex-1"></span>
-              {#if upstream.heldBackCount}
-                <button
-                  type="button"
-                  class="flex h-[22px] shrink-0 cursor-pointer items-center rounded-md px-2  font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
-                  onclick={onPublishAll}
-                  title="Publish {upstream.heldBackCount} held-back comment{upstream.heldBackCount ===
-                  1
-                    ? ''
-                    : 's'} to {upstream.provider}"
-                >
-                  Publish all
-                </button>
-              {/if}
-              <!-- The engine pushes on its own debounce; this is the user saying
-                   don't wait — after repairing auth, or before trusting the page. -->
-              <button
-                type="button"
-                class="flex h-[22px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2  font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] disabled:pointer-events-none disabled:opacity-45"
-                onclick={onSyncNow}
-                disabled={syncing}
-              >
-                {#if syncing}
-                  <CircleNotchIcon
-                    size={11}
-                    class="animate-spin motion-reduce:animate-none"
-                    aria-hidden="true"
-                  />
-                  Syncing
-                {:else}
-                  <ArrowsClockwiseIcon size={11} aria-hidden="true" />
-                  Sync now
-                {/if}
-              </button>
-            </span>
-          </div>
-        {/if}
-      </div>
-    </div>
-
-  {/if}
-
-  {#if publishTarget}
-    <!-- A local task in a project that files tickets: the page says where it
-         would go and offers to put it there, rather than leaving the provider
-         reachable only from the Tasks list. -->
-    <div
-      class="flex flex-col gap-[11px] border-t-[.5px] border-[var(--hairline)] px-3.5 pt-[15px] pb-4"
-    >
-      <span class="pl-0.5 font-normal text-muted-foreground uppercase">Upstream</span>
-      <div class={ROWS}>
-        <div class={ROW}>
-          <span class={ROW_LABEL}>Provider</span>
-          <!-- Only the provider: the repository is the project this page is
-               already in, so naming it here spends the row's width on something
-               the user knows. It rides the Publish button's title instead. -->
-          <span
-            class="{VALUE} min-w-0"
-            title={publishTarget.scope ?? undefined}
-          >
-            <SourceLogo source={publishTarget.providerId} />
-            <span class="truncate">{publishTarget.provider}</span>
-          </span>
-        </div>
-        <div class={ROW}>
-          <span class={ROW_LABEL}>State</span>
-          <span class="{VALUE} min-w-0">
-            <span class="truncate text-muted-foreground">Solus only</span>
-            <span class="flex-1"></span>
-            <button
-              type="button"
-              class="flex h-[22px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2  font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] disabled:pointer-events-none disabled:opacity-45"
-              onclick={onPublishTask}
-              disabled={syncing}
-              title="Create an issue in {publishTarget.scope ??
-                publishTarget.provider} for this task and keep the two in sync"
-            >
-              {#if syncing}
-                <CircleNotchIcon
-                  size={11}
-                  class="animate-spin motion-reduce:animate-none"
-                  aria-hidden="true"
-                />
-                Publishing
-              {:else}
-                Publish
-              {/if}
-            </button>
-          </span>
-        </div>
-      </div>
-    </div>
-  {/if}
 
   <div
     class="flex items-center gap-2 border-t-[.5px] border-[var(--hairline)] px-4 pt-[13px] pb-3.5"

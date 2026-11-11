@@ -3,6 +3,15 @@
 Status: implemented, 2026-09-29. §12 lists where the build differs from this plan. Replaces the current pull request read and refresh
 code. There are no users, so this plan removes the old code instead of migrating it.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. The rules of this plan stay. In this
+> plan, "a task that is not done or dropped" (§3) now means a task whose
+> status category is not `done`, `data/tasks/inbox.ts` (§6) is removed, and a
+> merge that completes a task (§3) moves the task to the category `done`
+> on its provider (`data/tasks/done-on-merge.ts`). A task is named by its
+> task key.
+
 ## 1. Why
 
 At startup the desktop app sends about 30 GitHub requests in 3 minutes. After that

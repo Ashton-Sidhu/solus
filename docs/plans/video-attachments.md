@@ -3,6 +3,14 @@
 Status: implemented. User documentation: [Browser recordings and video
 attachments](../browser-recordings.md).
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. Evidence filed on a task is a
+> comment on GitHub or Jira with a published asset. In this plan, "When GitHub
+> refuses a video, the recording stays on the task" is history: nothing stays
+> as a private comment in Solus, and the capture control and the tool result
+> give the provider's reason. `attach_to_task_id` takes a task key.
+
 Changes from this plan during implementation:
 
 - `BrowserRecordingEncoder.frame()` returns `{ recordedBytes }`, so the recorder

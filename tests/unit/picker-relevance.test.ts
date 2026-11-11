@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SearchQuery } from '@solus/contracts/search-query'
-import type { Task, TaskStatus } from '@solus/contracts/task-types'
+import type { Task } from '@solus/contracts/task-types'
+import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import {
@@ -14,12 +15,14 @@ import type { PickerSort } from '@solus/workspace-ui/components/session/unified-
 const NOW = 1_800_000_000_000
 const DAY = 86_400_000
 
-function task(id: string, title: string, options: { ageDays?: number; status?: TaskStatus; shortId?: number; body?: string } = {}): Task {
+function task(id: string, title: string, options: { ageDays?: number; category?: TaskStatusCategory; reference?: string; body?: string } = {}): Task {
   const updatedAt = NOW - (options.ageDays ?? 0) * DAY
+  const category = options.category ?? 'active'
   return {
-    id, title, body: options.body ?? '', status: options.status ?? 'in_progress', shortId: options.shortId,
-    priority: null, projectKey: 'solus', providerId: 'local', createdAt: updatedAt, updatedAt,
-  } as unknown as Task
+    id, providerId: 'jira', kind: 'issue', reference: options.reference, title, body: options.body ?? '', url: null,
+    state: { name: category, category }, category, placements: [], labels: [], writableFields: [],
+    createdAt: updatedAt, updatedAt,
+  }
 }
 
 function child(sessionId: string, label: string, ageDays = 0): SidebarSessionChild {
@@ -70,13 +73,15 @@ describe('picker relevance', () => {
   })
 
   test('recency still decides between equal names, and open work leads closed work', () => {
-    const tasks = [task('done', 'Update dependencies', { ageDays: 1, status: 'done' }), task('open', 'Update dependencies', { ageDays: 3 })]
+    const tasks = [task('done', 'Update dependencies', { ageDays: 1, category: 'done' }), task('open', 'Update dependencies', { ageDays: 3 })]
     expect(build(tasks, {}, 'update dep').entries.map(idOf)).toEqual(['open', 'done'])
   })
 
-  test('a task\'s exact id comes first', () => {
-    const tasks = [task('forty-two', 'Unrelated', { shortId: 42, ageDays: 90 }), task('four-two-one', 'Other', { shortId: 421 })]
-    expect(idOf(build(tasks, {}, 'T-42').entries[0]!)).toBe('forty-two')
+  test('a task\'s exact reference comes first', () => {
+    // WHY: "SOL-42" names SOL-42 itself. A newer task whose title holds the
+    // same words must not sit above it.
+    const tasks = [task('forty-two', 'Unrelated', { reference: 'SOL-42', ageDays: 90 }), task('titled', 'Follow up on SOL 42 rollout')]
+    expect(idOf(build(tasks, {}, 'SOL-42').entries[0]!)).toBe('forty-two')
   })
 
   test('a name scores by how much of it the query is, not only whether it matches', () => {

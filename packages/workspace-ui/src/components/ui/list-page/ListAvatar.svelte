@@ -14,14 +14,17 @@
   let { person, size = 20 }: Props = $props();
 
   const tint = $derived(avatarTint(person.id));
+  // Two capital letters must stay inside the circle at each size: the type
+  // follows the circle, not the text rung of the row.
+  const initialsSize = $derived(Math.round(size * 0.45));
 </script>
 
 <span
-  class="relative flex shrink-0 items-center justify-center text-xs font-medium {person.fallback ===
+  class="relative flex shrink-0 items-center justify-center font-medium {person.fallback ===
  'solus'
  ? ''
  : 'rounded-full shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)_inset]'}"
-  style="width: {size}px; height: {size}px; {person.fallback === 'solus'
+  style="width: {size}px; height: {size}px; font-size: {initialsSize}px; {person.fallback === 'solus'
     ? ''
     : `background: color-mix(in oklch, var(${tint}) 22%, transparent); color: color-mix(in oklch, var(${tint}) 72%, var(--foreground))`}"
   title={person.name ?? person.id}
@@ -37,7 +40,12 @@
          `size`, and it stays correct at every size because it is a ratio. -->
     <img src={solusIcon} alt="" class="size-[133%] shrink-0 object-contain" />
   {:else}
-    {person.initials}
+    <!-- The line box of a font is taller than its capitals and not even above
+         and below them, so centring the line puts the letters off centre.
+         The trim leaves the capitals alone as the box, as `ProjectFavicon`
+         does. No letter spacing: it adds space after the last letter only,
+         which moves the pair to one side. -->
+    <span class="leading-none [text-box:trim-both_cap_alphabetic]">{person.initials}</span>
     {#if person.avatarUrl}
       <img
         src={person.avatarUrl}

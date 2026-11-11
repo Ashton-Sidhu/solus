@@ -3,8 +3,6 @@ import type { HostOrganizationsStatus } from '@solus/contracts/organization-scop
 import type { ShareResource } from '@solus/contracts/sharing'
 import { LOCAL_ORGANIZATION_ID, recordScopeOf } from '../../admission/principal'
 import { exportWorkForCloud, markWorkMoved } from '../../data/works/works'
-import { exportTaskForCloud, markTaskMoved } from '../../data/tasks/task-transfer'
-import { getInstallationId } from '../../admission/auth'
 import { hostCategory } from '../../host/host-category'
 import { organizationAttachedAt } from '../../host/organization-attachment'
 import type { HostOrganizations } from '../../host/organizations'
@@ -15,8 +13,8 @@ import type { SolusServer } from '../server'
 
 /**
  * Organization scope over RPC (docs/plans/organization-scope.md): what this
- * machine stands in, the person's Insights opt-ins, and the moves of a Local
- * work or task into an organization.
+ * machine stands in, the person's Insights opt-ins, and the move of a Local
+ * work into an organization.
  */
 
 export interface OrganizationHandlerDeps {
@@ -88,14 +86,4 @@ export function registerOrganizationHandlers(server: SolusServer, deps: Organiza
     await markWorkMoved(recordScopeOf(ctx.principal), workId, fingerprint, z.string().min(1).parse(organizationId))
     await deps.forgetResource({ kind: 'work', id: workId })
   })
-
-  // A task leaves the same way, with its linked Local works (cloud-sharing.md §4).
-  server.register('taskExportForCloud', async ([taskId], ctx) => exportTaskForCloud(recordScopeOf(ctx.principal), taskId, getInstallationId()))
-
-  server.register('taskMarkMoved', async ([taskId, fingerprint, works, organizationId], ctx) => {
-    await markTaskMoved(recordScopeOf(ctx.principal), taskId, fingerprint, works, z.string().min(1).parse(organizationId), getInstallationId())
-    await deps.forgetResource({ kind: 'task', id: taskId })
-    for (const work of works) await deps.forgetResource({ kind: 'work', id: work.workId })
-  })
-
 }

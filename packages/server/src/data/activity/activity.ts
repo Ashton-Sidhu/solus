@@ -18,9 +18,35 @@ import { activity as activityTable } from './schema'
  * `SessionRuntime.recordActivity`, which also sends the row live.
  */
 
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+let lastActivityAt = -1
+let lastActivityId = ''
+
+/** The id after `id` in text order: its last character that is not the highest one moves up by one. */
+function nextId(id: string): string {
+  for (let index = id.length - 1; index >= 0; index--) {
+    const digit = CROCKFORD.indexOf(id[index])
+    if (digit < CROCKFORD.length - 1) return id.slice(0, index) + CROCKFORD[digit + 1] + '0'.repeat(id.length - index - 1)
+  }
+  return id
+}
+
+/**
+ * The id of a new activity. A feed reads in `(at, id)` order, and the random
+ * part of a ULID has no order, so two activities of one millisecond would read
+ * in a random order ("renamed to Plan" before "renamed to Spec"). An id made
+ * in the millisecond of the id before it is the next id after that one.
+ */
+function activityId(at: number): string {
+  const id = at === lastActivityAt ? nextId(lastActivityId) : ulid(at)
+  lastActivityAt = at
+  lastActivityId = id
+  return id
+}
+
 /** A new activity, stamped now. */
 export function newActivity(subject: ActivitySubject, by: Attribution, kind: ActivityKind, at = Date.now()): Activity {
-  return { ...kind, id: ulid(at), subject, at, by }
+  return { ...kind, id: activityId(at), subject, at, by }
 }
 
 /** Append one activity. Pass the caller's transaction when the row must commit with the change that caused it. */

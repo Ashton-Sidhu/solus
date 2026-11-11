@@ -64,10 +64,6 @@ const workFieldAt = (index: number): ArgLocator => (args) => {
   const request = fieldSchema('workId').safeParse(args[index])
   return request.success ? { kind: 'work', id: request.data.workId } : null
 }
-const taskIdAt = (index: number): ArgLocator => (args) => {
-  const id = idSchema.safeParse(args[index])
-  return id.success ? { kind: 'task', id: id.data } : null
-}
 /** The id of a resource that is not shared (an automation, a project), as a bare argument. */
 const ownedIdAt = (kind: ResourceKind, index: number): ArgLocator => (args) => {
   const id = idSchema.safeParse(args[index])
@@ -198,29 +194,11 @@ export const RESOURCE_LOCATORS = {
   unlinkWorkUpstream: workIdAt(0),
   shareSet: sharedResourceAt(0),
   shareSetLink: sharedResourceAt(0),
-  // Tasks — a task shared with someone shares its page and everything linked to it (§3.4).
-  tasksReadExtras: taskIdAt(0),
-  tasksSessions: taskIdAt(0),
-  tasksSnapshot: taskIdAt(0),
-  tasksMarkRead: taskIdAt(0),
-  // A snooze is the caller's own view of a task they can read (docs/task-snooze.md).
-  tasksSnooze: taskIdAt(0),
-  tasksRecordActivity: taskIdAt(0),
-  tasksComment: taskIdAt(0),
-  tasksDeleteComment: taskIdAt(0),
-  tasksPublishComments: taskIdAt(0),
-  tasksPublish: taskIdAt(0),
-  tasksSyncNow: taskIdAt(0),
-  tasksLink: taskIdAt(0),
-  tasksUnlink: taskIdAt(0),
-  tasksAttachArtifact: taskIdAt(0),
   // Owner only. A host admin may also transfer what a departed member owned, which
   // the share manager decides from the organization standing (plan 004 item 10).
   // A Local work leaves its host by its owner's Share (docs/plans/cloud-sharing.md).
   workExportForCloud: workIdAt(0),
   workMarkMoved: workIdAt(0),
-  taskExportForCloud: taskIdAt(0),
-  taskMarkMoved: taskIdAt(0),
   // Showing a device in a session changes that session's workspace. The device
   // handler also refuses guests: a session share grants no host device access.
   deviceOpen: sessionFieldAt(0, 'sessionId'),

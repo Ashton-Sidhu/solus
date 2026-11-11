@@ -16,7 +16,7 @@ import {
   withAutomationRole,
 } from '../../data/automations/automations-store'
 import { triggerAutomationRun, cancelAutomationRun } from '../../execution/automations/automation-runner'
-import { Task } from '../../data/tasks/task'
+import { linkSessionOutput } from '../../data/tasks/task-attachments'
 import { createLogger } from '../../logger'
 
 const log = createLogger('main', 'automation-handlers')
@@ -27,7 +27,7 @@ async function linkAutomationToSessionTask(
 ): Promise<void> {
   const sessionId = automation?.createdBy.kind === 'agent' ? automation.createdBy.sessionId : ''
   if (!automation || !sessionId) return
-  await Task.linkSessionOutput(scope, sessionId, {
+  await linkSessionOutput(scope, sessionId, {
     kind: 'automation',
     targetKey: automation.id,
     title: automation.name,

@@ -66,7 +66,7 @@ const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner
   kind: 'org-member', userId, organizationId, organizationRole, teamIds, hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 
-const seed = (kind: 'session' | 'work' | 'task', id: string, ownerKey: string, organizationId = 'local') =>
+const seed = (kind: 'session' | 'work', id: string, ownerKey: string, organizationId = 'local') =>
   seedResource(database.getDatabase(), kind, id, ownerKey, organizationId)
 
 function manager(): { shares: ShareManagerType; changes: ShareChange[] } {
@@ -366,33 +366,25 @@ describe('one decision per check', () => {
 describe('tasks', () => {
   const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
 
-  test('a task is its organization\'s and is not shared on its own; what is linked to it keeps its own access', async () => {
-    // WHY: a task is born with its organization's entry. If a session or work took
-    // access from a task it is linked to, linking it would silently open it to the
-    // whole organization (decision 2026-10-06). Each resource is shared on its own.
-    const { shares } = manager()
-    await seed('task', 't1', 'alice', 'org1')
-    await seed('session', 's1', 'alice', 'org1')
-    await shares.shareWithOrganization({ kind: 'task', id: 't1' }, cloud('alice'))
-    expect(await shares.roleFor(cloud('bob'), { kind: 'task', id: 't1' })).toBe('editor')
-    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's1' })).toBe('none')
-    expect((await shares.filterVisible(cloud('bob'), 'session', [{ id: 's1' }], (session) => session.id))).toEqual([])
-    await expect(shares.setEntries({ resource: { kind: 'task', id: 't1' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, cloud('alice'))).rejects.toThrow(ShareAccessError)
-    await expect(shares.setLink({ resource: { kind: 'task', id: 't1' }, role: 'viewer' }, cloud('alice'))).rejects.toThrow(ShareAccessError)
+  test('a task is not a share resource: a request that names one is refused before it reaches the share manager', async () => {
+    // WHY (provider-owned-tasks.md §4.3): GitHub or Jira decides who opens a task.
+    // A share dialog that took an entry would promise an access Solus cannot give,
+    // so the kind does not exist on the wire.
+    const { shareResourceSchema } = await import('@solus/contracts/sharing')
+    expect(shareResourceSchema.safeParse({ kind: 'task', id: 'github:I_1' }).success).toBe(false)
+    expect(shareResourceSchema.safeParse({ kind: 'work', id: 'w1' }).success).toBe(true)
   })
 
-  test('a guest bound to a task reaches nothing', async () => {
+  test('a session linked to a task keeps its own access', async () => {
+    // WHY: if a session took access from a task it is linked to, a link to a
+    // public issue would open the session to each person who reads that issue
+    // (decision 2026-10-06). Each resource is shared on its own.
     const { shares } = manager()
-    await seed('task', 't1', 'alice', 'org1')
     await seed('session', 's1', 'alice', 'org1')
-    // A guest from a task link made before tasks stopped being shared opens nothing.
-    const maya: Principal = {
-      kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
-      share: { resource: { kind: 'task', id: 't1' }, role: 'editor', sharedByUserId: 'alice', linkSecretHash: 'legacy' },
-      expiresAt: 0, deviceLabel: 'Guest link',
-    }
-    expect(await shares.roleFor(maya, { kind: 'task', id: 't1' })).toBe('none')
-    expect(await shares.filterVisible(maya, 'session', [{ id: 's1' }], (session) => session.id)).toEqual([])
+    const { linkTaskSession } = await import('@solus/server/data/tasks/task-attachments')
+    await linkTaskSession('org1', 'github:I_1', 's1')
+    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's1' })).toBe('none')
+    expect((await shares.filterVisible(cloud('bob'), 'session', [{ id: 's1' }], (session) => session.id))).toEqual([])
   })
 })
 

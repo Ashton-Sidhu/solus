@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { TaskStatus } from "@solus/contracts/task-types";
+  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
   import type { ListRowSpec } from "../ui/list-page/list-page";
   import { swipeActions } from "../../lib/swipe-actions";
-  import { STATUS_META, TASK_STATUS_SWIPE_REVEAL_WIDTH } from "./lib/tasks-api";
+  import { CATEGORY_META, TASK_CATEGORY_SWIPE_REVEAL_WIDTH } from "./lib/tasks-api";
   import TaskStatusSwipeControls from "./TaskStatusSwipeControls.svelte";
 
   /** One task in the list below the record rung — the redesign's drawer row.
@@ -30,10 +30,10 @@
   interface Props {
     row: ListRowSpec;
     /** Drives the leading tile's glyph and tint — the row's one use of colour. */
-    status: TaskStatus;
+    category: TaskStatusCategory;
     selected?: boolean;
     onSelect?: () => void;
-    onSetStatus: (status: TaskStatus) => void;
+    onSetCategory: (category: TaskStatusCategory) => void;
     revealed?: boolean;
     onRevealChange?: (revealed: boolean) => void;
     onContextMenu?: (event: MouseEvent) => void;
@@ -43,21 +43,21 @@
   }
   let {
     row,
-    status,
+    category,
     selected = false,
     onSelect,
-    onSetStatus,
+    onSetCategory,
     revealed = false,
     onRevealChange,
     onContextMenu,
     leading,
   }: Props = $props();
 
-  const meta = $derived(STATUS_META[status]);
+  const meta = $derived(CATEGORY_META[category]);
   const lead = $derived(row.people[0] ?? null);
-  function setStatus(next: TaskStatus) {
+  function setCategory(next: TaskStatusCategory) {
     onRevealChange?.(false);
-    if (next !== status) onSetStatus(next);
+    if (next !== category) onSetCategory(next);
   }
 </script>
 
@@ -67,14 +67,14 @@
   oncontextmenu={onContextMenu}
   role="group"
 >
-  <TaskStatusSwipeControls {status} {revealed} onSelect={setStatus} />
+  <TaskStatusSwipeControls {category} {revealed} onSelect={setCategory} />
 
   <div
     class="relative flex h-full w-full items-center gap-[0.6875rem] px-3 shadow-[0.375rem_0_0.875rem_-0.375rem_rgba(0,0,0,0.28)] {selected
       ? 'bg-[color-mix(in_oklch,var(--foreground)_7%,var(--background))]'
       : 'bg-background hover:bg-[var(--wash-1)] active:bg-[var(--wash-1)]'}"
     use:swipeActions={{
-      revealWidth: TASK_STATUS_SWIPE_REVEAL_WIDTH,
+      revealWidth: TASK_CATEGORY_SWIPE_REVEAL_WIDTH,
       open: revealed,
       onRevealChange: (open) => onRevealChange?.(open),
     }}
@@ -93,7 +93,7 @@
     <span
       class="flex size-7 shrink-0 items-center justify-center rounded-lg"
       style:background={`color-mix(in oklch, var(${meta.token}) 20%, transparent)`}
-      style:color={status === "done"
+      style:color={category === "done"
         ? "var(--solus-art-positive)"
         : `color-mix(in oklch, var(${meta.token}) 62%, var(--foreground))`}
       aria-hidden="true"

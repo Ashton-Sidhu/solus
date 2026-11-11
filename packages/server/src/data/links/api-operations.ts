@@ -7,8 +7,10 @@ import type { WorkspaceRequestContext } from '../../admission/workspace-credenti
 import { SolusApiError } from '../../admission/workspace-error'
 import type { ShareManager } from '../../sharing/share-manager'
 import { isApiMode } from '../../host/api-mode'
-import { apiScope, requireResource, requireScope, writerAttribution } from '../workspace/context'
-import { Task } from '../tasks/task'
+import { apiOrganization, apiScope, requireResource, requireScope, writerAttribution } from '../workspace/context'
+import { parseTaskKey } from '@solus/contracts/task-sources'
+import type { RecordScope } from '../../admission/principal'
+import { linkTask, linkTaskSession, linkWorkingSessionPullRequest, unlinkTask, unlinkTaskSession } from '../tasks/task-attachments'
 import { Work } from '../works/work'
 import { automationHomeOf } from '../automations/automations-store'
 import { getSessionRecord } from '../sessions/session-records'
@@ -17,7 +19,10 @@ import { linkSessionPullRequest, unlinkSessionPullRequest } from '../sessions/se
 
 /**
  * One route links a task or a session to another record (`PUT /links`, `DELETE /links`).
- * Every link needs editor on `from`. The rule of each (from, to) pair checks its
+ * A link from a session needs editor on the session. A task is not a Solus
+ * resource (docs/plans/provider-owned-tasks.md §4.3): `from.id` is a task key,
+ * the link is made in the caller's organization, and the caller needs the
+ * `tasks:write` scope alone. The rule of each (from, to) pair checks its
  * target — readable, and in the organization of `from` — and writes the table that
  * pair has always used, through the store functions that emit its activity and events.
  */
@@ -45,7 +50,13 @@ interface LinkRule<From, K extends TargetKind> {
   delete(request: LinkRequest<From, K>): Promise<void>
 }
 
-type TaskRules = { [K in 'work' | 'plan' | 'pr' | 'automation' | 'session']: LinkRule<Task, K> }
+/** The task end of a link: its key, and the scope a removal reads. No copy of the task is needed. */
+interface TaskEnd {
+  taskId: string
+  scope: RecordScope
+}
+
+type TaskRules = { [K in 'work' | 'plan' | 'pr' | 'automation' | 'session']: LinkRule<TaskEnd, K> }
 type SessionRules = { [K in 'work' | 'file' | 'automation' | 'pr']: LinkRule<SessionRecord, K> }
 
 const sameOrganization = () => new SolusApiError(400, 'INVALID_REQUEST', 'Both ends of a link belong to one organization.')
@@ -94,36 +105,37 @@ function sessionHostOf(request: Pick<LinkRequest<SessionRecord, TargetKind>, 'co
 const TASK_RULES: TaskRules = {
   work: {
     check: request => readableWork(request, request.to.id, 'read'),
-    put: async ({ from, to, title, originSessionId, by }) => { await from.linkWork(to.id, by, { title, originSessionId }) },
-    delete: async ({ from, to, by }) => { await from.unlink('work', to.id, '', by) },
+    put: ({ from, organizationId, to, title, originSessionId, by }) => linkTask(organizationId, from.taskId, { kind: 'work', targetKey: to.id, title, originSessionId }, by),
+    delete: ({ from, to, by }) => unlinkTask(from.scope, from.taskId, 'work', to.id, '', by),
   },
   plan: {
     check: request => readableSession(request, request.to.sessionId),
-    put: async ({ from, to, title, originSessionId, by }) => { await from.linkPlan(to.sessionId, to.planId, by, { title, originSessionId }) },
-    delete: async ({ from, to, by }) => { await from.unlink('plan', to.planId, to.sessionId, by) },
+    put: ({ from, organizationId, to, title, originSessionId, by }) => linkTask(organizationId, from.taskId, { kind: 'plan', targetScope: to.sessionId, targetKey: to.planId, title, originSessionId }, by),
+    delete: ({ from, to, by }) => unlinkTask(from.scope, from.taskId, 'plan', to.planId, to.sessionId, by),
   },
   pr: {
     check: async ({ to }) => { pullRequestOf(to.url) },
-    put: async ({ from, to, title, originSessionId, by }) => {
+    put: async ({ from, organizationId, to, title, originSessionId, by }) => {
       const identity = pullRequestOf(to.url)
       // A pull request of a session that works on the task is that session's link, which the task reads.
-      if (originSessionId && await from.linkWorkingSessionPullRequest(originSessionId, { url: identity.url, title }, by)) return
-      await from.link({ kind: 'pr', targetScope: identity.repository, targetKey: String(identity.number), title, url: identity.url, originSessionId }, by)
+      if (originSessionId && await linkWorkingSessionPullRequest(from.scope, from.taskId, originSessionId, { url: identity.url, title }, by)) return
+      await linkTask(organizationId, from.taskId, { kind: 'pr', targetScope: identity.repository, targetKey: String(identity.number), title, url: identity.url, originSessionId }, by)
     },
     delete: async ({ from, to, by }) => {
       const identity = pullRequestOf(to.url)
-      await from.unlink('pr', String(identity.number), identity.repository, by)
+      await unlinkTask(from.scope, from.taskId, 'pr', String(identity.number), identity.repository, by)
     },
   },
   automation: {
     check: request => readableAutomation(request, request.to),
-    put: async ({ from, to, title, originSessionId, by }) => { await from.linkAutomation(to.id, by, { title, originSessionId }) },
-    delete: async ({ from, to, by }) => { await from.unlink('automation', to.id, '', by) },
+    put: ({ from, organizationId, to, title, originSessionId, by }) => linkTask(organizationId, from.taskId, { kind: 'automation', targetKey: to.id, title, originSessionId }, by),
+    delete: ({ from, to, by }) => unlinkTask(from.scope, from.taskId, 'automation', to.id, '', by),
   },
   session: {
     check: request => readableSession(request, request.to.id),
-    put: async ({ from, to, role }) => { await from.linkSession(to.id, role ?? 'working') },
-    delete: async ({ from, to, by }) => { await from.unlinkSession(to.id, by) },
+    // The link takes the organization of the session; the check made it the caller's.
+    put: ({ from, organizationId, to, role, by }) => linkTaskSession(organizationId, from.taskId, to.id, role ?? 'working', { startedBy: by }),
+    delete: ({ from, to, by }) => unlinkTaskSession(from.scope, from.taskId, to.id, by),
   },
 }
 
@@ -183,15 +195,14 @@ export class LinkApiOperations {
   private async apply(context: WorkspaceRequestContext, input: WorkspaceLink, verb: 'put' | 'delete'): Promise<void> {
     const { from, to } = input
     requireScope(context, from.kind === 'task' ? 'tasks:write' : 'sessions:write')
-    await requireResource(this.shares, context, from, 'edit')
+    if (from.kind === 'session') await requireResource(this.shares, context, { kind: 'session', id: from.id }, 'edit')
     if (input.originSessionId) await requireResource(this.shares, context, { kind: 'session', id: input.originSessionId }, 'edit')
     const by = writerAttribution(context, input.originSessionId ?? (from.kind === 'session' ? from.id : undefined))
     const shared = { context, shares: this.shares, to, title: input.title, role: input.role, originSessionId: input.originSessionId, by }
     if (from.kind === 'task') {
-      const task = await Task.byId(apiScope(context), from.id).catch(() => null)
-      if (!task) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
-      const rule = ruleOf<Task>(TASK_RULES, 'task', to.kind)
-      const request = { ...shared, from: task, organizationId: task.record().organizationId ?? 'local' }
+      if (!parseTaskKey(from.id)) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+      const rule = ruleOf<TaskEnd>(TASK_RULES, 'task', to.kind)
+      const request = { ...shared, from: { taskId: from.id, scope: apiScope(context) }, organizationId: apiOrganization(context) }
       if (verb === 'put') await rule.check(request)
       await rule[verb](request)
       return

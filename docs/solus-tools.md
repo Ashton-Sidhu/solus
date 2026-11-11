@@ -96,9 +96,38 @@ it does not delete the target. It can remove a file link after the file is gone.
 Use the optional `kind` filter to select one type. PRs include their last known
 state. Removed PRs stay excluded from automatic linking until explicitly linked again. See [Session pull requests](plans/session-pull-requests.md).
 
+GitHub and Jira own every task (see
+[Provider-owned tasks](plans/provider-owned-tasks.md)). The Tasks group reads
+the host's copy of the tasks and writes to the provider, with the connection of
+the person the turn acts for. This is the same on a personal host and on an
+organization machine: a task tool never calls the Solus API. A task id is a
+task key (`github:<node id>` or `jira:<site>:<issue id>`).
+
+- `list_tasks` lists the tasks of the task sources of the calling project, with
+  their task keys and status category (`open`, `active`, `done`). It reads the
+  host's copy only.
+- `read_task` asks the provider for one task and answers its description,
+  state, columns, epic, comments, linked items, and linked session IDs. When
+  the provider does not answer, it answers the host's last copy and says so.
+- `create_task` creates a real task in the default task source of the calling
+  project: a GitHub issue, a draft item of a GitHub Project, or a Jira issue.
+  A project with no task source gives an error that says so. It takes a
+  permission prompt in a supervised session.
+- `update_task_status` takes a status category or the exact name of a column of
+  a board that lists the task. A category closes or reopens a GitHub issue and
+  moves it on each GitHub Project that lists it; a Jira issue makes a legal
+  workflow transition, and the tool says so when there is none. The lifecycle
+  policy still applies: `none` refuses each change, and `moderate` refuses a
+  move to `done`.
+- `comment_task` posts a comment on the provider. A comment the provider did
+  not take stays on the task as unsent, and the tool reports the reason.
+
+In a dispatched session the task is read on another host, so `read_task`
+answers from the snapshot the prompt carried, and `update_task_status` and
+`comment_task` go through the outbox to the host that reads the task.
+
 `read_task` includes linked session IDs. Use `read_session` for a session's
 status, pending input, and history. There is no separate task-session read tool.
-Organization task reads include only sessions the caller may read.
 
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.

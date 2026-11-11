@@ -46,7 +46,7 @@ mock.module('@solus/server/git/git-helpers', () => ({
   computeGitState: async () => null,
 }))
 const completed: number[] = []
-mock.module('@solus/server/data/tasks/sync-engine', () => ({
+mock.module('@solus/server/data/tasks/done-on-merge', () => ({
   completeTasksForMergedPullRequest: async (_scope: object, _target: string, number: number) => { completed.push(number); return [] },
 }))
 

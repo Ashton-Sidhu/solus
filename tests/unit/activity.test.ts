@@ -8,6 +8,7 @@ import type { Activity } from '@solus/contracts/activity'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { resetTestDatabase } from './helpers/test-db'
+import { FakeTaskProviders, githubDraft, seedTask } from './helpers/task-fixtures'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -19,7 +20,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 let dataDir: string
 let db: typeof import('@solus/server/db')
 let activityModule: typeof import('@solus/server/data/activity/activity')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
+let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 let tasks: typeof import('@solus/server/data/tasks/task')
 let hostUser: typeof import('@solus/server/host/host-user')
 let sessionRuntimeModule: typeof import('@solus/server/execution/session-runtime')
@@ -32,7 +33,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
   activityModule = await import('@solus/server/data/activity/activity')
-  taskStore = await import('@solus/server/data/tasks/task-store')
+  attachments = await import('@solus/server/data/tasks/task-attachments')
   tasks = await import('@solus/server/data/tasks/task')
   hostUser = await import('@solus/server/host/host-user')
   sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
@@ -237,13 +238,25 @@ describe('who an activity names', () => {
 })
 
 describe('task changes on the activity record', () => {
-  test('a new task change is a `task_changed` activity with its doer, and goes with its task', async () => {
+  test('a change of a task\'s attachments is a `task_changed` activity with its doer, and goes with its task', async () => {
+    // WHY: the provider keeps the history of the task itself. The activity record
+    // keeps what Solus did to it and who did it, and a deleted draft leaves none behind.
+    const providers = new FakeTaskProviders()
+    const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
+    useTaskAdaptersForTests(providers.adapters())
+    cleanups.push(() => useTaskAdaptersForTests(null))
     const by = { kind: 'user' as const, user: BOB }
-    const task = await taskStore.createTask('local', { title: 'New' }, undefined, by)
-    const entity = await tasks.Task.byId('local', task.id)
-    await entity.update({ status: 'todo' }, by)
-    expect((await entity.details()).activity.map((entry) => entry.kind === 'task_changed' && [entry.change, entry.by])).toEqual([['created', by], ['status_changed', by]])
-    await entity.delete()
+    const draft = githubDraft('DI_1')
+    providers.hold(draft)
+    const task = await seedTask(draft)
+    await attachments.linkTask('local', task.id, { kind: 'work', targetKey: 'w1', title: 'Spec' }, by)
+    await attachments.unlinkTask('local', task.id, 'work', 'w1', '', by)
+    // Two rows of one millisecond have no fixed order, so the order is not asserted here.
+    const changes = (await tasks.taskDetails('local', task.id)).activity.map((entry) => entry.kind === 'task_changed' && { change: entry.change, by: entry.by })
+    expect(changes).toHaveLength(2)
+    expect(changes).toContainEqual({ change: 'linked', by })
+    expect(changes).toContainEqual({ change: 'unlinked', by })
+    await tasks.deleteTask(task.id)
     expect(await activityModule.activityFor('local', { kind: 'task', id: task.id })).toEqual([])
   })
 })

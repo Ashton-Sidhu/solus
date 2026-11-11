@@ -2,6 +2,8 @@
 
 Status: TODO. Findings only; no source, schema, or database changed.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, finding C5 (the task board selects `tasks.*`) and the task delete of D3 describe the old `tasks` table and are history. The `tasks` table is now the task cache.
+
 A second pass over the Solus host database, after the table consolidation
 review (plans 022–027). That review asked which tables should exist. This one
 asked what the application's SQL does to the tables that remain. Every

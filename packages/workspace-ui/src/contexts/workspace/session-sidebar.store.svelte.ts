@@ -493,7 +493,7 @@ export class SessionSidebarStore {
     this.session.projectOptionsFor(pickerProjectKeys(
       this.currentProjectKey,
       this.session.tasksStore.tasks,
-      (task) => this.session.tasksStore.projectKeyOf(task),
+      (task) => this.session.tasksStore.projectKeysOf(task),
       this.session.logicalProjects.map((project) => project.key),
     )).map((option) => ({ ...option, available: true })),
   )
@@ -1217,7 +1217,8 @@ export class SessionSidebarStore {
   /** One linked session: a mounted one as its tab states it, any other from
    *  its link and the status feed. */
   private linkedSessionChild(record: Task, link: TaskSessionLink, linkServerId: string | null): SidebarSessionChild {
-    const projectKey = record.projectKey ?? undefined
+    // The folder of the session's own project: a task names no folder.
+    const projectKey = link.checkoutPath ? worktreeProjectRoot(link.checkoutPath) : undefined
     const tabId = this.tabIdBySessionId.get(link.sessionId)
     if (tabId) {
       const child = this.liveChildFor(tabId)

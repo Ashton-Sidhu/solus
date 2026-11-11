@@ -240,8 +240,8 @@ export const devFixtures: DemoFixtures = {
     filePatches: {},
   },
   tasks: {
-    list: { tasks: [], fromCache: false, fetchedAt: timestamp },
-    details: {},
+    sources: [],
+    tasks: [],
     comments: {},
     sessions: {},
     links: {},

@@ -9,6 +9,8 @@ the uncommitted plans 007 (server layout), 008 (Workspace HTTP API) and 009
 (organization VMs).
 Task: `01M36BCWFTJS1DVN3A6S9EHCNB` — Design Collaborative Multi-Host Sessions.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, organization tasks and Local tasks (D17, item 13, and the records of stages 5 and 6), a task comment that Solus keeps and then posts upstream (`sync-engine.ts`), and the `task-sync-engine` test are history. Each task comment is now a provider comment.
+
 ## Related plans and ownership
 
 - **Solus Cloud feature plan** (Solus work `de142de0-7fbf-4ed2-a7e6-4cb982a733f2`,

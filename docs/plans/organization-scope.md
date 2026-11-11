@@ -11,6 +11,15 @@ Insights decision below was added on 2026-09-27. It replaces the earlier
 proposal that selecting an organization automatically uploads new scratch work.
 The existing host/service split in `workspace-and-machines.md` remains valid.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, each statement that
+> gives a task a record home, an organization, a publication, an upload, or a
+> share is history (§3, §4, §8, §9 and the proofs of §10). A task has no record
+> home. Only a task's attachments (session links, links to works, plans,
+> automations and pull requests, snoozes, read marks) have an organization:
+> that of the session or person that made them.
+
 ## 0. Where the implementation lives
 
 | Concern | Solus | solus-cloud |
@@ -19,7 +28,7 @@ The existing host/service split in `workspace-and-machines.md` remains valid.
 | Host category and standing | `host/host-category.ts`, `host/organizations.ts` (`GET /v1/hosts/:id/organizations`) | `host.category`, `host_organization` shares, `uplink/hosts.ts readHostOrganizations` |
 | Organization policy | `allow_personal_hosts` decides whether a person may link their own computer to the cloud and expose it; it refuses no turn. `sync_all_insights` is held against in `sync/mirror/insight-mirror.ts` | `organization_host_policy.allow_personal_hosts`, `sync_all_insights`; owner-only edit |
 | Per-organization delivery | `sync/mirror/mirror-log.ts`, `sync/outbox/outbox-store.ts`, `sync/runner-delivery.ts` (one queue per organization and person), `sync/delegations.ts` | OAuth token endpoint: token exchange and refresh for the host's client (plans/010-standard-oauth.md) |
-| Share on a Local work or task | client upload with the person's sign-in (`cloud-sharing.md`); `workExportForCloud`, `workMarkMoved`, `taskExportForCloud`, `taskMarkMoved` | — |
+| Share on a Local work | client upload with the person's sign-in (`cloud-sharing.md`); `workExportForCloud`, `workMarkMoved` | — |
 | Insights attribution | `spans.user_id/user_email/organization_id`, `insight_spans` copies, `data/insights/api-turns.ts` | — |
 | Client window scope | `packages/client-core/src/organization-selection.ts`, `workspace-ui/src/lib/organization-filter.ts`, the switcher, Share on submit, Insights settings | console: organization settings and host shares |
 
@@ -41,12 +50,13 @@ from record publication.
 | Record home | Authority for durable collaboration records | Local host, or cloud organization |
 | Execution scope | Bounds an admitted session or operation on a host | Local, or account service + organization ID |
 | Host share | Lets organization members use a personal host | Host + organization |
-| Resource share | Grants access to a session, task, work, or published report | Resource home + resource ID + access rules |
+| Resource share | Grants access to a session or a work | Resource home + resource ID + access rules |
 | Window selection | Chooses organization records and eligible shared hosts to show beside Local | Local only, or one organization |
 | Connection | Access to an endpoint with verified identity and fixed scope | Endpoint + account identity + scope |
 
 In the implementation, use the existing `organization_id` field on sessions,
-tasks, works, and their dependent rows: `'local'` names machine-local records;
+works, and their dependent rows (a task has no organization; its attachments
+have one): `'local'` names machine-local records;
 an organization ID names cloud records. A Local record's storing host is known
 from its server, and a cross-server reference carries that host ID. A cloud
 reference carries the account service and organization ID. Do not add a second
@@ -88,9 +98,9 @@ Keep all three sources accessible, subject to access and availability:
 
 | Source | Contents | Availability |
 |---|---|---|
-| Own machines / Local | Local sessions, tasks, works, projects, and insights | Read from the relevant machine; a remote machine must be reachable |
+| Own machines / Local | Local sessions, works, projects, and insights, and the host's task cache | Read from the relevant machine; a remote machine must be reachable |
 | Shared hosts, including managed VMs | Authorized sessions, runtime state, checkouts, and host insights in the selected organization | Runtime operations require a reachable host |
-| Organization cloud | Cloud tasks, works, session mirrors, shared reports, and their access rules | Published content remains readable when its execution host is offline |
+| Organization cloud | Cloud works, session mirrors, task attachments, and their access rules | Published content remains readable when its execution host is offline |
 
 Local remains available while an organization is selected. The organization
 selection changes the cloud and shared-host context; it does not hide the
@@ -120,7 +130,7 @@ shows Local only. An explicit public share link opens its limited guest view.
 | Starting action | Record home |
 |---|---|
 | New scratch session on an owned personal host | That host, even if an organization is selected |
-| Start from an organization cloud task or project | That organization's cloud records |
+| Start from an organization cloud project | That organization's cloud records |
 | Explicitly start a new session in an organization | That organization's cloud records |
 | Start on an organization's managed host, or as a member using a shared host | That organization's cloud records |
 | Start a new root session on a self-hosted server attached for organization work | That organization's cloud records, admitted by the Solus API before the provider starts; new personal roots are refused there (plans/009-organization-vms.md §9) |
@@ -140,14 +150,15 @@ state, and restart continuation stay on its machine.
 
 The host is a separate choice. An organization session can run on the owner's
 laptop without granting other members general access to that laptop.
-A task created by an agent normally inherits its session's record home.
+A task that an agent creates is created on GitHub or Jira, in the default task
+source of the session's project. It has no record home.
 A record's share rows always carry the record's organization. Rows written
 while a session was Local move with it when it is assigned, by any path
 (`ShareManager.followRecordOrganization`); otherwise no member could open it.
 An operation on an existing record always uses that record's explicit home.
 
 A cloud home does not mean every member can read the record. Preserve the
-resource's existing owner, team, organization, task-inherited, and link access
+resource's existing owner, team, organization, and link access
 rules. Do not silently change the current managed-host sharing defaults as
 part of this work.
 
@@ -165,7 +176,7 @@ all in scope. A fix limited to the Share dialog's error message is incomplete.
 
 Superseded for sessions on 2026-10-09 by `host-sharing.md`: a session's link
 names the host that holds it, and that host admits the guest, signed in or
-not. The rules below stay for a work or a task that an account publishes into
+not. The rules below stay for a work that an account publishes into
 an organization (the document model). Keep the existing cloud-resource links
 for those.
 
@@ -191,21 +202,18 @@ A session stays on its host for now (maintainer decision 2026-10-07): Share on a
 session uploads nothing and opens the host's own share list at once. There is
 no server publication operation.
 
-A work or a task uploads with the person's sign-in, and the host link plays no
+A work uploads with the person's sign-in, and the host link plays no
 part (`cloud-sharing.md`). Concurrent actions for one resource join the same
-upload and keep its original destination. An uploaded work or task leaves its
+upload and keep its original destination. An uploaded work leaves its
 host only after the Solus API has it, and only if it did not change after it
 was read. Insights reports are not shared (`cloud-sharing.md` §8, decision 7).
 
 Sharing an individual work publishes that work and the assets needed to read
-it. It does not publish its surrounding scratch conversation. Task sharing
-retains its existing access inheritance for linked sessions and works; a task's
-linked Local works upload with it, and its linked sessions keep their homes:
-the organization's task lists them by title and host, and the host keeps the
-task's row with its location and links (`cloud-sharing.md` §3a, §8). Do not sweep every session in the project into the upload.
+it. It does not publish its surrounding scratch conversation. A task is not
+shared and is not uploaded (`cloud-sharing.md` §4b). Do not sweep every session in the project into the upload.
 
 Revoking a link removes link access. It does not delete cloud content, move it
-back to Local, or remove access independently granted through a task or team.
+back to Local, or remove access independently granted through a team.
 Records cannot move from one organization to another (maintainer decision
 2026-09-27). Local content can be published to an authorized organization; once
 published, its organization home is fixed. A change of execution host does not

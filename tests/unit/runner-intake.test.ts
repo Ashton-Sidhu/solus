@@ -19,7 +19,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let intake: typeof import('@solus/server/sync/runner-intake')
 let principalModule: typeof import('@solus/server/admission/principal')
-let TaskModule: typeof import('@solus/server/data/tasks/task')
+let taskAttachments: typeof import('@solus/server/data/tasks/task-attachments')
 let taskStore: typeof import('@solus/server/data/tasks/task-store')
 let works: typeof import('@solus/server/data/works/works')
 let records: typeof import('@solus/server/data/sessions/session-records')
@@ -36,7 +36,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   intake = await import('@solus/server/sync/runner-intake')
   principalModule = await import('@solus/server/admission/principal')
-  TaskModule = await import('@solus/server/data/tasks/task')
+  taskAttachments = await import('@solus/server/data/tasks/task-attachments')
   taskStore = await import('@solus/server/data/tasks/task-store')
   works = await import('@solus/server/data/works/works')
   records = await import('@solus/server/data/sessions/session-records')
@@ -128,7 +128,8 @@ describe('runner intake', () => {
     const other = principalModule.runnerPrincipalFor({ hostId: 'runner-2', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
     expect(await deliver([{ seq: 1, kind: 'session', payload: { sessionId: 's2', provider: 'codex', projectPath: '-repo', lastActivityAt: 1 } }], other)).toEqual({ lastSeq: 1, failed: [] })
     expect([...(await records.getSessionRecords('org1', ['s0', 's1', 's2'])).keys()].sort()).toEqual(['s0', 's1', 's2'])
-    expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
+    // Session facts make no task: a task comes only from GitHub or Jira.
+    expect(await taskStore.listTasks({ personKey: 'alice', scope: principalModule.ANY_ORGANIZATION })).toEqual([])
   })
 
   test('an uploaded work is linked to its session task, and the same upload again does not duplicate the link', async () => {
@@ -136,9 +137,9 @@ describe('runner intake', () => {
     const { SolusServer } = await import('@solus/server/transport/server')
     const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
     const apiMode = await import('@solus/server/host/api-mode')
-    await taskStore.createTask('org1', { title: 'From the API', projectKey: '/repo', body: '', priority: null, dueDate: null, status: 'todo', source: 'agent', originSessionId: null }, { id: 'task-a', now: 1 }, undefined, 'alice')
-    const task = await TaskModule.Task.byId('org1', 'task-a')
-    await task.linkSession('thread-1')
+    // The API holds no copy of the task: the link needs only its key.
+    const taskKey = 'github:I_1'
+    await taskAttachments.linkTaskSession('org1', taskKey, 'thread-1')
     const work = await works.createWork('local', 'Published', 'doc', '# Published', '', 'thread-1', 'claude-code', '/repo')
     const transfer = await works.exportWorkForCloud('local', work.id)
     // This fixture uses one database to represent the service; delete the
@@ -161,7 +162,7 @@ describe('runner intake', () => {
       else process.env.SOLUS_API = previous
       apiMode.resetApiModeForTests()
     }
-    const links = (await task.details()).links.filter((link) => link.targetKey === work.id)
+    const links = (await taskAttachments.taskAttachments('org1', taskKey)).links.filter((link) => link.targetKey === work.id)
     expect(links).toHaveLength(1)
     expect(links[0]).toMatchObject({ kind: 'work', title: 'Published', originSessionId: 'thread-1' })
     expect((await shares.homeOf({ kind: 'work', id: work.id }))?.ownerKey).toBe('alice')

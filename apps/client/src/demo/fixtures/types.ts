@@ -19,10 +19,10 @@ import type {
 } from '@solus/contracts/providers'
 import type {
   Task,
-  TaskCommentData,
+  TaskComment,
   TaskLink,
-  TaskListResult,
   TaskSessionLink,
+  TaskSourceState,
 } from '@solus/contracts/task-types'
 import type { ReviewGuide } from '@solus/contracts/review'
 import type { CheckItem } from '@solus/contracts/checks-types'
@@ -73,9 +73,13 @@ export interface DemoFixtures {
     sessionLinks?: Record<string, SessionPullRequestLink[]>
   }
   tasks: {
-    list: TaskListResult
-    details: Record<string, Task>
-    comments: Record<string, TaskCommentData[]>
+    /** The task sources of the demo project, as a healthy read left them. */
+    sources: TaskSourceState[]
+    /** The source where a new task is created. */
+    defaultSourceKey?: string
+    tasks: Task[]
+    /** Keyed, as `sessions` and `links` are, by task key. */
+    comments: Record<string, TaskComment[]>
     sessions: Record<string, TaskSessionLink[]>
     /** Docs, plans, PRs and automations already attached to a task. */
     links: Record<string, TaskLink[]>

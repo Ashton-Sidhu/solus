@@ -1,45 +1,31 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { localApi } from "@solus/client-core/local-api";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import {
     RotateCw as ArrowClockwiseIcon,
     CalendarX as CalendarXIcon,
     Moon as MoonIcon,
-    Columns3Cog as KanbanIcon,
-    List as ListIcon,
     Plus as PlusIcon,
     Activity as PulseIcon,
-    Trash2 as TrashIcon,
     CircleAlert as WarningCircleIcon,
-    Dot as DotOutlineIcon,
-    Check as CheckIcon,
     CircleDashed as CircleDashedIcon,
-    ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
-  import * as DropdownMenu from "../ui/dropdown-menu";
-  import {
-    TASKS_AUTH_ERROR_PREFIX,
-    type Task,
-    type TaskStatus,
-    type TaskPriority,
-  } from "@solus/contracts/task-types";
-  import type { ProjectConfig } from "@solus/contracts/types";
-  import { UNTITLED_TASK_TITLE } from "../../contexts/tasks/task.svelte";
-  import TaskProviderPicker from "./provider/TaskProviderPicker.svelte";
-  import type { TaskProviderChoice } from "./provider/lib/task-provider";
+  import { TASKS_AUTH_ERROR_PREFIX, type TaskMoveTarget } from "@solus/contracts/task-types";
+  import type { Task } from "../../contexts/tasks/task.svelte";
+  import TaskSourceSetup from "./sources/TaskSourceSetup.svelte";
+  import TaskSourceSwitcher from "./TaskSourceSwitcher.svelte";
+  import TasksBulkBar from "./TasksBulkBar.svelte";
   import {
     getSurfaceContext,
-    getProjectConfigStore,
     getSessionSidebarStore,
+    taskSourcesStore,
     runtime,
     projectsStore,
     serversStore,
     workspaceProjectsStore,
   } from "../../contexts";
-  import { atlassianStore } from "../../contexts/atlassian/atlassian.store.svelte";
   import { isRepositoryKey } from "@solus/contracts/repository-key";
   import { Button } from "../ui/button";
   import { toasts } from "../../lib/toasts";
@@ -53,48 +39,28 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import {
-    STATUS_META,
-    BOARD_COLUMNS,
-    DEFAULT_TASK_SORT,
-    sortTasks,
-    type TaskSort,
-  } from "./lib/tasks-api";
-  import {
-    OPEN_TASK_STATUS_KEYS,
-    TASK_STATUS_GROUPS,
-    isOpenTaskStatusFilter,
-    isTaskSnoozed,
-    nextTaskWake,
-    taskGroups,
-    taskStatusesFor,
-  } from "./lib/tasks-list-view";
-  import { ownsTask } from "./lib/task-ownership";
+  import { TASK_SORT_OPTIONS, boardColumnIdOf, moveTargetFor } from "./lib/tasks-api";
+  import { isOpenColumnFilter, nextTaskWake } from "./lib/tasks-list-view";
+  import { TasksPageView } from "./tasks-page-view.svelte";
+  import { ProviderTaskSearch } from "./lib/provider-search.svelte";
+  import type { TaskComposerInput } from "./lib/task-composer";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
     ListEmpty,
     ListFilterBar,
     ListProjectFilter,
-    ListGroup,
     ListPage,
-    ListRailRow,
-    ListRow,
     ListFilterGroup,
     ListSortMenu,
     ListSkeleton,
-    VirtualList,
-    LIST_GROUP_HEADER_HEIGHT,
-    listRowHeight,
-    virtualGroupItems,
     type ListFilterSpec,
     type ListProjectOption,
-    type ListRowPlace,
-    type ListStatusOption,
   } from "../ui/list-page";
   import { isStackedPane } from "../../lib/pane-width";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import TaskComposer from "./TaskComposer.svelte";
-  import TaskListRow from "./TaskListRow.svelte";
+  import TasksList from "./TasksList.svelte";
+  import TaskLayoutToggle from "./TaskLayoutToggle.svelte";
   import TaskBoard from "./TaskBoard.svelte";
   import TaskBoardSkeleton from "./TaskBoardSkeleton.svelte";
   import TaskPage from "./task-page/TaskPage.svelte";
@@ -118,7 +84,6 @@
   }
   const pane = paneActions(() => paneId);
   const store = session.tasksStore;
-  const projectConfig = getProjectConfigStore();
   const sessionSidebar = workspace ? getSessionSidebarStore() : null;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -139,11 +104,11 @@
   // where the input bar's project would.
   const taskContext = $derived(
     pageKey
-      ? session.taskContextForProject(pageKey, pageProject)
+      ? session.taskContextForProject(pageProject)
       : session.taskCreationContext,
   );
-  // Host-side facts — the project's configuration, its task provider, its
-  // provider tickets — are read through one checkout on one host.
+  // Host-side facts — the project's configuration and its task sources — are
+  // read through one checkout on one host.
   const hostCheckout = $derived(pageProject);
   const cwd = $derived(hostCheckout?.projectRoot ?? null);
   // One row per project, never one per host.
@@ -158,8 +123,8 @@
         : session.logicalProjects.map((project) => project.key),
     ),
   );
-  // A project's tasks: its cloud tasks and the host tasks of every checkout of
-  // it, on any host. Across every project, the same list for each of them.
+  // A project's tasks: the tasks that its task sources list. Across every
+  // project, the same list for each of them.
   const projectTasks = $derived(
     pageKey ? store.tasksInProject(pageKey) : store.tasksInProjects(sidebarProjectKeys),
   );
@@ -171,7 +136,8 @@
   );
   function projectLabelFor(taskId: string): string | null {
     if (pageKey) return null;
-    const projectKey = store.projectKeyOf(store.get(taskId));
+    // One source can be in many projects; a row has room to name one of them.
+    const projectKey = store.projectKeysOf(store.get(taskId)).find((key) => projectLabels.has(key));
     return projectKey ? (projectLabels.get(projectKey) ?? null) : null;
   }
   // Across every project a card names its project, beside where it lives.
@@ -181,18 +147,19 @@
   // The host of the checkout host-side facts are read through; never the
   // default host, which a bare path would have fallen back to.
   const projectServerId = $derived(hostCheckout?.serverId ?? null);
-  const projectHost = $derived(
-    projectServerId
-      ? {
-          serverId: projectServerId,
-          api: serverConnections.apiFor(projectServerId),
-        }
-      : null,
-  );
+
+  // ── Task sources ──
+  // The sources of the project on screen. Every project together has no
+  // switcher: columns of different projects' sources do not line up.
+  const projectSources = $derived(taskSourcesStore.sourcesOfProject(pageKey));
+  // The scoped project's own answer. Null until its host answers.
+  const checkoutSources = $derived(taskSourcesStore.sourcesFor(projectServerId, cwd));
+  const sourcesError = $derived(taskSourcesStore.errorFor(projectServerId));
+  const hasNoSource = $derived(!!hostCheckout && !!checkoutSources && projectSources.length === 0);
 
   // Machines that hold a checkout of the scoped project but are not connected:
-  // their host-only tasks are missing from the list, and the page says so
-  // rather than read as empty (docs/plans/project-model.md §4).
+  // the tasks of a source that only such a machine lists are missing from the
+  // list, and the page says so rather than read as empty.
   const offlineCheckoutHosts = $derived(
     pageKey
       ? [
@@ -207,7 +174,7 @@
   );
 
   // A repository becomes one of the organization's projects when a member adds
-  // it (docs/plans/project-model.md §2); its new tasks then live in the cloud.
+  // it (docs/plans/project-model.md §2).
   const cloudServerId = $derived(serversStore.activeCloudServerId);
   const canAddToCloud = $derived(
     !!workspace &&
@@ -235,116 +202,25 @@
     }
   }
 
-  let configReady = $state(false);
-  let taskLoadEpoch = 0;
-  const canCreate = $derived(!!taskContext);
+  // A new task is created on the provider, in a source of one project.
+  const createSources = $derived(
+    taskContext
+      ? (taskSourcesStore.sourcesFor(taskContext.serverId, taskContext.projectKey) ?? null)
+      : null,
+  );
+  const canCreate = $derived(!!taskContext && !!createSources?.sources.length);
 
   // ── List-view multi-select ── owned by a context store so the selection isn't
   // threaded through the row components.
   const selection = new TasksSelectionStore();
   setTasksSelection(selection);
-  // Composer state for adding into a board column: the column's status, null =
-  // closed. The task it makes stays on the list; New task opens its page
-  // instead (`startNewTask`). It files into the page's current project, so a
+  // The composer: open for a new task, with the column it was opened from on a
+  // board. Null = closed. It creates in the page's current project, so a
   // project switch keeps the composer and its draft open for the new project.
-  let composingStatus = $state<TaskStatus | null>(null);
-  // Detail view: the task whose full ticket (body, comments, PRs) is open.
+  let composing = $state<{ columnId?: string } | null>(null);
   // Existing labels across the project, offered as composer suggestions.
   const knownLabels = $derived(
     Array.from(new Set(projectTasks.flatMap((t) => t.labels))).sort(),
-  );
-
-  // ── View state ──
-  // One grouped list, for one project or every project. `layout` re-plots it
-  // as a kanban board.
-  let layout = $state<"list" | "board">("list");
-  const boardLayout = $derived(layout === "board");
-  let query = $state("");
-  let sort = $state<TaskSort>(DEFAULT_TASK_SORT);
-  let runningOnly = $state(false);
-  let overdueOnly = $state(false);
-  let assignedOnly = $state(false);
-  // A snoozed task is out of the list until it wakes; this shows only those.
-  let snoozedOnly = $state(false);
-  // Which lifecycle states the list is showing. Opens on live
-  // work only, so finished and dropped tasks stay out of the way until asked
-  // for. The board is exempt — its columns *are* this filter, and a kanban
-  // whose last column is always empty reads as broken.
-  let statusKeys = $state<string[]>([...OPEN_TASK_STATUS_KEYS]);
-  const statuses = $derived(taskStatusesFor(statusKeys));
-  let searchEl = $state<HTMLInputElement | null>(null);
-  let listEl = $state<HTMLDivElement | null>(null);
-  let contentHeight = $state(0);
-  let pageWidth = $state(0);
-  let selectedKey = $state<string | null>(null);
-  let revealedTaskId = $state<string | null>(null);
-  let openTaskId = $state<string | null>(null);
-  let collapsedGroups = $state<Record<string, boolean>>({});
-  let taskContextMenu = $state<{
-    task: Task;
-    x: number;
-    y: number;
-    /** False until the task's host says the reader owns it. */
-    canDelete: boolean;
-  } | null>(null);
-
-  function clearFilters() {
-    query = "";
-    runningOnly = false;
-    overdueOnly = false;
-    assignedOnly = false;
-    snoozedOnly = false;
-    statusKeys = [...OPEN_TASK_STATUS_KEYS];
-  }
-
-  /** Clears what the Filters badge counts. The search stays. */
-  function clearMenuFilters() {
-    runningOnly = false;
-    overdueOnly = false;
-    assignedOnly = false;
-    snoozedOnly = false;
-    statusKeys = [...OPEN_TASK_STATUS_KEYS];
-    if (!splitList) session.setProjectPageScope({ kind: "all" });
-  }
-
-  const SORT_OPTIONS: { value: TaskSort; label: string }[] = [
-    { value: "created", label: "Created" },
-    { value: "updated", label: "Updated" },
-    { value: "priority", label: "Priority" },
-    { value: "due", label: "Due" },
-  ];
-
-  const providerStatus = $derived(store.providerStatus(cwd));
-  const upstreamError = $derived(
-    cwd ? (store.upstreamErrorByProject.get(cwd) ?? null) : null,
-  );
-  const refreshing = $derived(
-    store.loading || !!(cwd && store.upstreamLoadingByProject.get(cwd)),
-  );
-  const upstreamRefreshedAt = $derived(
-    cwd ? (store.upstreamRefreshedAtByProject.get(cwd) ?? null) : null,
-  );
-  const upstreamFromCache = $derived(
-    !!(cwd && store.upstreamFromCacheByProject.get(cwd)),
-  );
-  const upstreamTruncated = $derived(
-    !!(cwd && store.upstreamTruncatedByProject.get(cwd)),
-  );
-  // The provider search the loaded rows answer, if any.
-  const upstreamQuery = $derived(
-    cwd ? (store.upstreamQueryByProject.get(cwd) ?? "") : "",
-  );
-  // Once the provider list is capped, filtering what is loaded answers "of the
-  // 200 most recent" while looking like it answered "in the project". Send the
-  // text to the provider instead — and keep doing so until the search is
-  // cleared, or clearing it would leave the search results on screen.
-  $effect(() => {
-    if (!open || !cwd) return;
-    if (!upstreamTruncated && !upstreamQuery) return;
-    if (projectServerId) store.searchUpstream(projectServerId, cwd, query);
-  });
-  const displayError = $derived(
-    (store.error ?? upstreamError)?.replace(TASKS_AUTH_ERROR_PREFIX, "") ?? null,
   );
 
   // Tick the clock so relative row times ("12m") age instead of freezing at the
@@ -354,6 +230,14 @@
     if (!open) return;
     const interval = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(interval);
+  });
+  // Bring a snoozed task back the moment it wakes, not on the next 30s tick.
+  $effect(() => {
+    if (!open) return;
+    const wake = nextTaskWake(projectTasks, now);
+    if (wake === null) return;
+    const timeout = setTimeout(() => (now = Date.now()), Math.max(1, wake - Date.now()));
+    return () => clearTimeout(timeout);
   });
 
   // Running, not linked: a link outlives the agent that worked on it.
@@ -366,77 +250,61 @@
     ).length;
   }
 
-  function isOverdue(task: Task): boolean {
-    if (!task.dueDate || task.status === "done" || task.status === "dropped")
-      return false;
-    return Date.parse(`${task.dueDate}T23:59:59`) < now;
-  }
-
-  // ── Filtering ──
-  // Counts are over the search-filtered set but ignore the *other* toggles, so a
-  // chip's count still means "how many more this would show" once another chip
-  // is already on.
-  const searched = $derived(
-    projectTasks.filter((task) => {
-      if (!query.trim()) return true;
-      const haystack =
-        `${task.title} ${task.shortId ?? ""} ${task.labels.join(" ")}`.toLowerCase();
-      return haystack.includes(query.trim().toLowerCase());
-    }),
-  );
-
-  // The snoozed tasks, or every other task: the list shows one of the two.
-  const inView = $derived(
-    searched.filter((task) => isTaskSnoozed(task, now) === snoozedOnly),
-  );
-
-  // Bring a snoozed task back the moment it wakes, not on the next 30s tick.
+  // ── View state ──
+  // Which source is on screen, the search, the filters and the sort, and the
+  // rows and columns that follow from them.
+  const providerSearch = new ProviderTaskSearch(store);
+  const view = new TasksPageView({
+    tasks: () => projectTasks,
+    sources: () => projectSources,
+    now: () => now,
+    runningSessionsFor,
+    projectLabelFor,
+    homeFor,
+    showsEveryProject: () => !pageKey,
+    providerSearch,
+  });
+  // A truncated source did not list every task, so filtering what is loaded
+  // answers "of the tasks the host read" while looking like it answered "in
+  // the project". The search text then goes to the provider too.
   $effect(() => {
-    if (!open) return;
-    const wake = nextTaskWake(projectTasks, now);
-    if (wake === null) return;
-    const timeout = setTimeout(() => (now = Date.now()), Math.max(1, wake - Date.now()));
-    return () => clearTimeout(timeout);
+    const target = open && view.truncated && cwd && projectServerId ? { serverId: projectServerId, cwd } : null;
+    const text = view.query;
+    untrack(() => {
+      if (target) providerSearch.request(target.serverId, target.cwd, text);
+      else providerSearch.clear();
+    });
   });
 
-  const visibleTasks = $derived.by(() => {
-    let rows = inView;
-    if (!boardLayout) rows = rows.filter((task) => statuses.has(task.status));
-    if (runningOnly) rows = rows.filter((task) => runningSessionsFor(task.id) > 0);
-    if (overdueOnly) rows = rows.filter(isOverdue);
-    if (assignedOnly) rows = rows.filter((task) => !!task.assignee);
-    return sortTasks(rows, sort);
-  });
-
-  // The board's manual order renumbers the column a card lands in, so it only
-  // means anything when `visibleTasks` *is* the board. (The status filter is
-  // exempt — the board already ignores it.)
-  const boardUnfiltered = $derived(
-    !query.trim() && !runningOnly && !overdueOnly && !assignedOnly && !snoozedOnly,
+  // On a source's own board the task is created in that source; else in the
+  // project's default source.
+  const composerSourceKey = $derived(
+    view.source && createSources?.sources.some((source) => source.sourceKey === view.source?.sourceKey)
+      ? view.source.sourceKey
+      : createSources?.defaultSourceKey,
   );
 
-  // The list is a table: project and host take one column of their own. The
-  // column is drawn only when some row has something to put in it, and then on
-  // every row, so the cells stay on one x.
-  const showPlaceColumn = $derived(
-    !pageKey || visibleTasks.some((task) => homeFor(task.id) !== null),
-  );
-  function rowPlaceFor(taskId: string): ListRowPlace | undefined {
-    if (!showPlaceColumn) return undefined;
-    return { project: projectLabelFor(taskId), host: homeFor(taskId) };
+  let searchEl = $state<HTMLInputElement | null>(null);
+  let listEl = $state<HTMLDivElement | null>(null);
+  let contentHeight = $state(0);
+  let pageWidth = $state(0);
+  let selectedKey = $state<string | null>(null);
+  let openTaskId = $state<string | null>(null);
+  let taskContextMenu = $state<{
+    task: Task;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  /** Clears what the Filters badge counts. The search stays. */
+  function clearMenuFilters() {
+    view.clearMenuFilters();
+    if (!splitList) session.setProjectPageScope({ kind: "all" });
   }
-  const groups = $derived(taskGroups(visibleTasks, runningSessionsFor, now, rowPlaceFor));
-  const globalVirtualItems = $derived(
-    virtualGroupItems(
-      groups,
-      (row) => row.key,
-      (group) => !collapsedGroups[group.key],
-    ),
-  );
-  const globalActiveKey = $derived(
-    globalVirtualItems.find(
-      (item) => item.kind === "row" && item.row.key === selectedKey,
-    )?.key ?? null,
+
+  const refreshing = $derived(store.loading || taskSourcesStore.refreshing);
+  const displayError = $derived(
+    (store.error ?? sourcesError)?.replace(TASKS_AUTH_ERROR_PREFIX, "") ?? null,
   );
 
   const filters = $derived<ListFilterSpec[]>([
@@ -444,74 +312,44 @@
       key: "running",
       label: "Agent running",
       icon: PulseIcon,
-      count: inView.filter((task) => runningSessionsFor(task.id) > 0).length,
-      active: runningOnly,
-      toggle: () => (runningOnly = !runningOnly),
+      count: view.filterCounts.running,
+      active: view.runningOnly,
+      toggle: () => (view.runningOnly = !view.runningOnly),
     },
     {
       key: "overdue",
       label: "Overdue",
       icon: CalendarXIcon,
-      count: inView.filter(isOverdue).length,
-      active: overdueOnly,
-      toggle: () => (overdueOnly = !overdueOnly),
+      count: view.filterCounts.overdue,
+      active: view.overdueOnly,
+      toggle: () => (view.overdueOnly = !view.overdueOnly),
     },
     {
       key: "assigned",
       label: "Assigned",
       icon: TaskIcon,
-      count: inView.filter((task) => !!task.assignee).length,
-      active: assignedOnly,
-      toggle: () => (assignedOnly = !assignedOnly),
+      count: view.filterCounts.assigned,
+      active: view.assignedOnly,
+      toggle: () => (view.assignedOnly = !view.assignedOnly),
     },
     {
       key: "snoozed",
       label: "Snoozed",
       icon: MoonIcon,
-      count: searched.filter((task) => isTaskSnoozed(task, now)).length,
-      active: snoozedOnly,
-      toggle: () => (snoozedOnly = !snoozedOnly),
+      count: view.filterCounts.snoozed,
+      active: view.snoozedOnly,
+      toggle: () => (view.snoozedOnly = !view.snoozedOnly),
     },
   ]);
 
-  // Counts are over the searched set, not the status-filtered one — the number
-  // beside a status has to say what picking it would show, which is exactly the
-  // question a filter that is currently hiding it needs to answer.
-  const statusOptions = $derived<ListStatusOption[]>(
-    TASK_STATUS_GROUPS.map((group) => ({
-      value: group.key,
-      label: group.label,
-      count: inView.filter((task) =>
-        group.statuses.includes(task.status),
-      ).length,
-    })),
-  );
-
-  // Running, open and closed-this-week used to be restated here; the list's own
-  // section headers already say all three and are clickable, so the counts kept
-  // their filtering job and lost only the duplicate. What the headers cannot
-  // say is that the answer behind these rows is incomplete — that note stays,
-  // on the narrowing row, beside the search it explains.
-  const truncationNote = $derived.by(() => {
-    // Says where the rows came from: these are the provider's matches for the
-    // search, not the slice of the list that happens to be loaded.
-    if (upstreamQuery) return `searched ${providerStatus?.scopeLabel ?? "upstream"}`;
-    return upstreamTruncated ? `most recent ${projectTasks.length}` : null;
-  });
-
-  // The selectable rows in render order, for Shift range-select, arrow
-  // navigation, and detail-panel stepping.
-  const flatVisibleIds = $derived(
-    groups
-      .flatMap((group) => group.rows)
-      .map((row) => row.key),
-  );
   $effect(() => {
-    selection.setOrder(flatVisibleIds);
+    selection.setOrder(view.flatVisibleIds);
   });
 
+  // Through the store, not the project's list: a row can be a task that only
+  // the provider's search found.
   function taskById(id: string): Task | undefined {
-    return projectTasks.find((task) => task.id === id);
+    return store.peek(id) ?? undefined;
   }
 
   const openTask = $derived(openTaskId ? (taskById(openTaskId) ?? null) : null);
@@ -521,7 +359,7 @@
   // virtualiser is told a row's height as a number. Same 30rem the stylesheet
   // uses, so the layout and the positions cannot disagree.
   const recordRows = $derived(isStackedPane(pageWidth));
-  const boardPanel = $derived(panelOpen && boardLayout);
+  const boardPanel = $derived(panelOpen && view.boardLayout);
   const splitList = $derived(panelOpen && roomForSplit && !boardPanel);
 
   function closePanel() {
@@ -536,78 +374,57 @@
   }
 
   function stepPanel(delta: number) {
-    if (!openTaskId || flatVisibleIds.length === 0) return;
-    const index = flatVisibleIds.indexOf(openTaskId);
+    if (!openTaskId || view.flatVisibleIds.length === 0) return;
+    const index = view.flatVisibleIds.indexOf(openTaskId);
     if (index === -1) return;
     const nextId =
-      flatVisibleIds[
-        (index + delta + flatVisibleIds.length) % flatVisibleIds.length
+      view.flatVisibleIds[
+        (index + delta + view.flatVisibleIds.length) % view.flatVisibleIds.length
       ];
     if (!nextId) return;
     selectedKey = nextId;
     openTaskId = nextId;
   }
 
-  function beginComposing(status: TaskStatus) {
-    if (!taskContext) return;
-    composingStatus = status;
+  // New task opens the composer: a task is created on the provider, so it
+  // needs a title and a source first.
+  function startNewTask(columnId?: string) {
+    if (!canCreate) return;
+    composing = { columnId };
   }
 
-  // New task files an untitled task and opens it the way a row opens.
-  async function startNewTask() {
-    if (!taskContext) return;
-    try {
-      onOpen(await store.create(
-        { title: UNTITLED_TASK_TITLE, projectKey: taskContext.projectKey },
-        taskContext.serverId,
-      ));
-    } catch (err) {
-      toastTaskError("create task", err);
-    }
-  }
+  // New task from the command palette or the global shortcut
+  // (`composeNewTask`): open the composer when the project's sources are known.
+  // A project with no source opens no composer; the page then shows the source
+  // setup, which is the step that is missing.
+  $effect(() => {
+    if (!open || !workspace?.taskComposerRequested) return;
+    if (taskContext && !createSources) return;
+    workspace.taskComposerRequested = false;
+    if (canCreate) composing = {};
+  });
 
   // ── Data loading ──
+  // The tasks come with each host's snapshot; the sources say which of them
+  // the project shows. The scoped checkout is named, because the host's
+  // project list may not hold it.
   $effect(() => {
-    if (open && !hostCheckout) {
-      // Every project, or a cloud project no known host holds: no one host's
-      // configuration applies, and the tasks already held are the whole list.
-      configReady = true;
+    if (!open) return;
+    const serverId = projectServerId;
+    const projectRoot = cwd;
+    // The reads start from this effect, but their own state is not what it
+    // waits on: only the page being open and its scope start a read.
+    untrack(() => {
       void store.load();
-      return;
-    }
-    if (!open || !cwd || !projectHost) {
-      configReady = false;
-      return;
-    }
-    const currentCwd = cwd;
-    const currentHost = projectHost;
-    const currentServerId = projectServerId;
-    const epoch = ++taskLoadEpoch;
-    configReady = false;
-    void (async () => {
-      await projectConfig.load(currentHost, currentCwd);
-      if (
-        epoch !== taskLoadEpoch ||
-        !open ||
-        cwd !== currentCwd ||
-        projectServerId !== currentServerId
-      )
-        return;
-      configReady = true;
-      await Promise.all([
-        store.load(),
-        store.loadUpstream(currentCwd, { serverId: currentHost.serverId }),
-        // Names the provider on the header control, and is what tells a Jira
-        // project it is bound to a site the host is no longer connected to.
-        store.loadProviderStatus(currentCwd, { serverId: currentHost.serverId }),
-      ]);
-    })();
+      if (serverId && projectRoot) void taskSourcesStore.loadHost(serverId, { cwd: projectRoot });
+      else void taskSourcesStore.load();
+    });
   });
 
   $effect(() => {
     if (open) {
-      clearFilters();
-      composingStatus = null;
+      view.clearFilters();
+      composing = null;
       if (!runtime.shouldSuppressFocus) {
         void tick().then(() => searchEl?.focus());
       }
@@ -627,8 +444,8 @@
       // search, and only then the panel itself.
       if (panelOpen) closePanel();
       else if (selection.size > 0) selection.clear();
-      else if (query) {
-        query = "";
+      else if (view.query) {
+        view.query = "";
         searchEl?.focus();
       } else close();
     },
@@ -636,7 +453,7 @@
   );
   // The global binding, taken over while this page is up: the composer must
   // target the project the header is pinned to, not the active session's.
-  useKeybinding("global.new-task", () => void startNewTask(), {
+  useKeybinding("global.new-task", () => startNewTask(), {
     enabled: () => open && canCreate,
   });
   function close() {
@@ -646,18 +463,17 @@
 
   // A different project is a different list, so nothing about how the old one
   // was being read survives the switch — except an open composer, which now
-  // files into the new project. The load effect keys off `cwd` and
-  // refetches on its own. Picking the input bar's own project unpins, so the
-  // list goes back to following it.
+  // creates in the new project. The load effect keys off `cwd` and reads on
+  // its own.
   function selectProject(option: ListProjectOption) {
     if (!option.available) return;
     session.scopePageToProject(option.key);
-    clearFilters();
+    view.clearFilters();
+    view.showSource(null);
     selection.clear();
     selectedKey = null;
     openTaskId = null;
-    collapsedGroups = {};
-    if (composingStatus === null) void tick().then(() => searchEl?.focus());
+    if (composing === null) void tick().then(() => searchEl?.focus());
   }
 
   let observedPageScopeKey = "";
@@ -666,75 +482,30 @@
     const nextKey = pageKey ?? "all";
     if (observedPageScopeKey === nextKey) return;
     observedPageScopeKey = nextKey;
-    clearFilters();
+    view.clearFilters();
+    view.showSource(null);
     selection.clear();
     selectedKey = null;
     openTaskId = null;
-    collapsedGroups = {};
-    if (composingStatus === null) void tick().then(() => searchEl?.focus());
+    if (composing === null) void tick().then(() => searchEl?.focus());
   });
 
   function removeProject(option: ListProjectOption) {
     void projectsStore.removeProject(option.key);
   }
 
-  // Re-read native tasks and explicitly poll the active scope.
+  // A person's refresh: each host reads its sources from the provider again,
+  // and says when the read ends.
   function refresh() {
     if (refreshing) return;
-    if (!cwd || !projectServerId) {
-      void store.load();
-      return;
-    }
-    const currentCwd = cwd;
-    configReady = true;
-    void Promise.all([
-      store.load(),
-      store.loadUpstream(currentCwd, { serverId: projectServerId }),
-    ]);
+    void store.load();
+    if (projectServerId && cwd) void taskSourcesStore.loadHost(projectServerId, { refresh: "force", cwd });
+    else void taskSourcesStore.load({ refresh: "force" });
   }
 
-  async function switchTaskProvider(choice: TaskProviderChoice) {
-    if (!cwd || !projectHost) return;
-    const currentCwd = cwd;
-    const currentHost = projectHost;
-    // A Jira binding is provider *and* project: saving one without the other
-    // leaves a configuration that cannot sync and cannot explain why.
-    const patch: Partial<ProjectConfig> = { taskProvider: choice.provider };
-    if (choice.provider === "jira") {
-      const providerConfig = {
-        ...projectConfig.configFor(currentHost.serverId, currentCwd)
-          ?.taskProviderConfig,
-        projectKey: choice.projectKey,
-      };
-      // Pinned at bind time, so the `<cloudId>/<projectKey>` keys already
-      // written keep pointing at the site they were written for.
-      const cloudId = atlassianStore.status(currentHost.serverId)?.cloudId;
-      if (cloudId) providerConfig.cloudId = cloudId;
-      patch.taskProviderConfig = providerConfig;
-    } else if (choice.provider === "github") {
-      const detectedRepo = providerStatus?.detectedRepo;
-      if (!detectedRepo) {
-        toasts.error("Couldn't bind GitHub", {
-          description: "Add a GitHub origin remote to this project first.",
-        });
-        return;
-      }
-      patch.taskProviderConfig = {
-        ...projectConfig.configFor(currentHost.serverId, currentCwd)
-          ?.taskProviderConfig,
-        owner: detectedRepo.owner,
-        repo: detectedRepo.repo,
-      };
-    }
-    await projectConfig.save(currentHost, currentCwd, patch);
-    await projectConfig.load(currentHost, currentCwd);
-    void store.loadProviderStatus(currentCwd, { serverId: currentHost.serverId });
-    if (cwd !== currentCwd || projectServerId !== currentHost.serverId) return;
-    configReady = true;
-    await Promise.all([
-      store.load(),
-      store.loadUpstream(currentCwd, { serverId: currentHost.serverId }),
-    ]);
+  function selectViewSource(sourceKey: string | null) {
+    view.showSource(sourceKey);
+    selection.clear();
   }
 
   // A row opens its task page over the list.
@@ -743,18 +514,10 @@
     openTaskId = task.id;
   }
 
-  // A provider ticket becomes a native task before a session can be bound to
-  // it, the same as the input bar's task picker does.
-  async function nativeTask(task: Task): Promise<Task> {
-    return task.providerId === "local"
-      ? task
-      : await store.get(task.id, task.projectKey ?? undefined).promote();
-  }
-
   async function onStart(task: Task) {
     if (!workspace) return;
     try {
-      await workspace.opening.openTaskSession(await nativeTask(task));
+      await workspace.opening.openTaskSession(task);
     } catch (error) {
       toastTaskError("start task", error);
     }
@@ -777,10 +540,7 @@
     event.preventDefault();
     event.stopPropagation();
     selectedKey = task.id;
-    taskContextMenu = { task, x: event.clientX, y: event.clientY, canDelete: false };
-    void canDeleteTask(task).then((owns) => {
-      if (taskContextMenu?.task.id === task.id) taskContextMenu.canDelete = owns;
-    });
+    taskContextMenu = { task, x: event.clientX, y: event.clientY };
   }
 
   function toastTaskError(action: string, err: Parameters<typeof String>[0]) {
@@ -788,68 +548,70 @@
     toasts.error(`Couldn't ${action}`, { description: message });
   }
 
-  async function onSetStatus(task: Task, status: TaskStatus) {
+  // The move goes to the provider. A refused move shows its error, and the
+  // task goes back to where it was.
+  async function onMoveTask(task: Task, target: TaskMoveTarget) {
     try {
-      await store.get(task.id, task.projectKey ?? undefined).setStatus(status);
+      await task.move(target);
     } catch (err) {
-      toastTaskError("update status", err);
+      toastTaskError("move the task", err);
     }
   }
 
-  /** Delete is a Local task's, and its owner's alone. */
-  async function canDeleteTask(task: Task): Promise<boolean> {
-    return task.providerId === "local" && ownsTask(store, task.id);
+  function moveToColumn(task: Task, columnId: string) {
+    const target = moveTargetFor(view.board, columnId);
+    if (target && boardColumnIdOf(task, view.board) !== columnId) void onMoveTask(task, target);
   }
 
-  async function deleteTasks(ids: string[], label: string) {
+  /** Only a draft item of a GitHub Project can be deleted. An issue is closed
+   *  or moved on its provider. */
+  function deleteTasks(ids: string[], label: string) {
     const tasks = ids.map((id) => taskById(id)).filter((task): task is Task => !!task);
-    const owned = await Promise.all(tasks.map(canDeleteTask));
-    const localIds = tasks.filter((_, i) => owned[i]).map((task) => task.id);
-    const notOwned = tasks.filter((task, i) => task.providerId === "local" && !owned[i]).length;
-    if (notOwned) toasts.error(`Couldn't delete ${notOwned} task${notOwned === 1 ? "" : "s"}`, { description: "Only the owner can delete a task." });
-    const pending = store.softRemove(localIds);
+    const draftIds = tasks.filter((task) => task.canDelete).map((task) => task.id);
+    const issueCount = tasks.length - draftIds.length;
+    if (issueCount) {
+      toasts.error(`Couldn't delete ${issueCount} task${issueCount === 1 ? "" : "s"}`, {
+        description: "Only a draft item can be deleted. Close an issue on its provider, or move it to a done column.",
+      });
+    }
+    const pending = store.softRemove(draftIds);
     if (!pending.length) return;
     toasts.undo(label, () => store.restorePending(pending), {
       // commitPending restores any rows whose delete failed; surface why.
       onDismiss: () =>
         store
           .commitPending(pending)
-          .catch((err) => toastTaskError("delete task", err)),
+          .catch((err) => toastTaskError("delete the draft item", err)),
     });
   }
 
   function onDelete(task: Task) {
-    void deleteTasks([task.id], "Task deleted");
+    deleteTasks([task.id], "Draft item deleted");
   }
 
   // ── Bulk actions over the current selection ──
-  function bulkSetStatus(status: TaskStatus) {
-    const ids = [...selection.ids];
+  const selectedTasks = $derived(
+    [...selection.ids].map((id) => taskById(id)).filter((task): task is Task => !!task),
+  );
+
+  function bulkMove(columnId: string) {
+    const tasks = selectedTasks;
     selection.clear();
-    for (const id of ids) {
-      const t = taskById(id);
-      if (t && t.status !== status) void onSetStatus(t, status);
-    }
+    for (const task of tasks) moveToColumn(task, columnId);
   }
 
   function bulkDelete() {
-    const ids = [...selection.ids];
+    const ids = selectedTasks.filter((task) => task.canDelete).map((task) => task.id);
     selection.clear();
-    void deleteTasks(
-      ids,
-      `${ids.length} task${ids.length === 1 ? "" : "s"} deleted`,
-    );
+    deleteTasks(ids, `${ids.length} draft item${ids.length === 1 ? "" : "s"} deleted`);
   }
 
-
   async function bulkComplete() {
-    const tasks = [...selection.ids]
-      .map((id) => taskById(id))
-      .filter((task): task is Task => !!task);
+    const tasks = selectedTasks;
     selection.clear();
     for (const task of tasks) {
       try {
-        await store.get(task.id).setStatus("done");
+        await task.move({ category: "done" });
       } catch (error) {
         toastTaskError(`complete “${task.title}”`, error);
         break;
@@ -858,13 +620,11 @@
   }
 
   async function bulkMarkUnread() {
-    const tasks = [...selection.ids]
-      .map((id) => taskById(id))
-      .filter((task): task is Task => !!task);
+    const tasks = selectedTasks;
     selection.clear();
     for (const task of tasks) {
       try {
-        await store.get(task.id).markRead(false);
+        await task.markRead(false);
       } catch (error) {
         toastTaskError(`mark “${task.title}” unread`, error);
         break;
@@ -875,13 +635,13 @@
   // The board is a single-selection surface. Both list views share this one
   // selection store and the same bulk-action bar.
   $effect(() => {
-    if (layout === "board" || !open) selection.clear();
+    if (view.boardLayout || !open) selection.clear();
   });
 
   // ── Keyboard nav over the rendered rows ──
   function onBodyKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      const ids = flatVisibleIds;
+      const ids = view.flatVisibleIds;
       if (!ids.length) return;
       e.preventDefault();
       const idx = selectedKey ? ids.indexOf(selectedKey) : -1;
@@ -900,22 +660,12 @@
     }
   }
 
-  async function onCreate(input: {
-    title: string;
-    body: string;
-    dueDate?: string;
-    priority?: TaskPriority;
-    status?: TaskStatus;
-    labels?: string[];
-  }) {
+  async function onCreate(input: TaskComposerInput) {
     if (!taskContext) return;
     try {
-      await store.create(
-        { ...input, projectKey: taskContext.projectKey },
-        taskContext.serverId,
-      );
+      await store.create({ ...input, cwd: taskContext.projectKey }, taskContext.serverId);
     } catch (err) {
-      toastTaskError("create task", err);
+      toastTaskError("create the task", err);
       // Rethrow so the composer keeps the modal (and the user's draft) open; the
       // composer owns dismissal on success so "Create more" can stay open.
       throw err;
@@ -923,19 +673,13 @@
   }
 </script>
 
-<!-- Where this project files its tasks, and the only way to change it. It sits
-     on the crumb line rather than the empty state so a project that already has
-     tasks can still be moved — and moved back; the empty state renders the same
-     control, because that is the moment the question is actually being asked. -->
-{#snippet providerControl()}
-  {#if cwd}
-    <TaskProviderPicker
-      provider={providerStatus?.provider ?? "local"}
-      scopeLabel={providerStatus?.scopeLabel ?? null}
-      serverId={projectServerId}
-      detectedRepo={providerStatus?.detectedRepo ?? null}
-      onSelect={(choice) => void switchTaskProvider(choice)}
-    />
+<!-- Where this project's tasks come from, and the one place to change it. It
+     sits on the crumb line so a project that has sources can still change
+     them; the empty state renders the same control, because that is the moment
+     the question is actually being asked. -->
+{#snippet sourceControl()}
+  {#if cwd && projectServerId}
+    <TaskSourceSetup serverId={projectServerId} {cwd} onChanged={() => void store.load()} />
   {/if}
   {#if canAddToCloud}
     <Button variant="ghost" size="sm" disabled={addingToCloud} onclick={() => void addProjectToCloud()}>
@@ -944,53 +688,14 @@
   {/if}
 {/snippet}
 
-{#snippet layoutToggle()}
-  <!-- The layout control re-plots the active task view rather than replacing
-       it, so it stays visible beside sort. -->
-  {#if !splitList}
-    <div
-      class="flex h-8 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--wash-2)] p-1 @max-[30rem]/pane:h-10"
-      role="group"
-      aria-label="Layout"
-    >
-      <button
-        type="button"
-        class="grid size-6 cursor-pointer place-items-center rounded-md border-0 transition-colors @max-[30rem]/pane:size-8 {layout ===
-        'list'
-          ? 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-          : 'bg-transparent text-muted-foreground hover:text-foreground'}"
-        onclick={() => (layout = "list")}
-        aria-pressed={layout === "list"}
-        aria-label="List layout"
-        title="List"
-      >
-        <ListIcon size={14} weight="bold" />
-      </button>
-      <button
-        type="button"
-        class="grid size-6 cursor-pointer place-items-center rounded-md border-0 transition-colors @max-[30rem]/pane:size-8 {layout ===
-        'board'
-          ? 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-          : 'bg-transparent text-muted-foreground hover:text-foreground'}"
-        onclick={() => (layout = "board")}
-        aria-pressed={layout === "board"}
-        aria-label="Board layout"
-        title="Board"
-      >
-        <KanbanIcon size={14} weight="bold" />
-      </button>
-    </div>
-  {/if}
-{/snippet}
-
 {#snippet filterBar()}
   <ListFilterBar
-    bind:query
+    bind:query={view.query}
     bind:searchEl
     compactText
     placeholder={splitList ? "Search tasks…" : "Search tasks, labels, assignees…"}
     {filters}
-    activeCount={Number(!boardLayout && !isOpenTaskStatusFilter(statusKeys)) + Number(!splitList && !!activeProjectOptionKey)}
+    activeCount={Number(!view.boardLayout && !isOpenColumnFilter(view.columns, view.columnIds)) + Number(!splitList && !!activeProjectOptionKey)}
     onClearFilters={clearMenuFilters}
   >
     {#snippet filterContent()}
@@ -1008,49 +713,33 @@
           onRemoveProject={workspace ? removeProject : undefined}
         />
       {/if}
-      <!-- The board plots every status as a column of its own, so a status
-           filter there would only ever empty one. -->
-      {#if !boardLayout}
-        <ListFilterGroup label="Status" icon={CircleDashedIcon} options={statusOptions} selected={statusKeys} onChange={(next) => (statusKeys = next)} multiple showAll emptyLabel="None" />
+      <!-- The board plots every column itself, so a column filter there
+           would only ever empty one. -->
+      {#if !view.boardLayout}
+        <ListFilterGroup label={view.source ? "Column" : "Status"} icon={CircleDashedIcon} options={view.columnOptions} selected={view.columnIds} onChange={(next) => (view.selectedColumnIds = next)} multiple showAll emptyLabel="None" />
       {/if}
     {/snippet}
     {#snippet trailing()}
-      {#if truncationNote}
+      {#if view.truncationNote}
         <!-- Why the list is short, said where the narrowing is done. -->
         <span
           class="shrink-0 text-xs whitespace-nowrap text-muted-foreground @max-[44rem]:hidden"
-          >{truncationNote}</span
+          >{view.truncationNote}</span
         >
       {/if}
-      {@render layoutToggle()}
+      {#if pageKey && projectSources.length > 1 && !splitList}
+        <TaskSourceSwitcher sources={projectSources} sourceKey={view.source?.sourceKey ?? null} onSelect={selectViewSource} />
+      {/if}
       {#if !splitList}
+        <TaskLayoutToggle bind:layout={view.layout} />
         <ListSortMenu
-          bind:value={sort}
-          options={SORT_OPTIONS}
+          bind:value={view.sort}
+          options={TASK_SORT_OPTIONS}
           ariaLabel="Sort tasks"
         />
       {/if}
     {/snippet}
   </ListFilterBar>
-{/snippet}
-
-{#snippet rowCheckbox(taskId: string)}
-  {@const task = taskById(taskId)}
-  {#if task}
-    <button
-      type="button"
-      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {selection.has(
-        taskId,
-      )
-        ? 'bg-primary text-primary-foreground opacity-100'
-        : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'}"
-      onclick={(e) => selection.toggle(task, e)}
-      aria-pressed={selection.has(taskId)}
-      aria-label={selection.has(taskId) ? "Deselect task" : "Select task"}
-    >
-      ✓
-    </button>
-  {/if}
 {/snippet}
 
 {#if open}
@@ -1070,16 +759,16 @@
       split={splitList}
       hideHeader={splitList}
       page="tasks"
-      actions={providerControl}
+      actions={sourceControl}
       onRefresh={refresh}
       {refreshing}
-      syncedAt={upstreamRefreshedAt}
-      syncFromCache={upstreamFromCache}
+      syncedAt={view.syncState.syncedAt}
+      syncFromCache={view.syncState.fromCache}
       primaryAction={canCreate && !splitList
         ? {
             label: "New task",
             shortcut: comboHint("global.new-task"),
-            run: () => void startNewTask(),
+            run: () => startNewTask(),
           }
         : undefined}
       onClose={workspace ? close : undefined}
@@ -1093,20 +782,33 @@
            that layout the body becomes a flex column the board can fill. -->
       <div
         bind:this={listEl}
-        class={boardLayout ? "flex h-full min-h-0 flex-col" : ""}
+        class={view.boardLayout ? "flex h-full min-h-0 flex-col" : ""}
         onkeydown={onBodyKeydown}
         role="presentation"
       >
         {#if offlineCheckoutHosts.length > 0}
           <p class="px-4 pt-2 text-workspace-chrome text-muted-foreground" role="status">
             {offlineCheckoutHosts.join(", ")}
-            {offlineCheckoutHosts.length === 1 ? "is" : "are"} offline. Tasks kept only on
-            {offlineCheckoutHosts.length === 1 ? "that machine" : "those machines"} appear when
+            {offlineCheckoutHosts.length === 1 ? "is" : "are"} offline. Tasks that only
+            {offlineCheckoutHosts.length === 1 ? "that machine reads" : "those machines read"} appear when
             {offlineCheckoutHosts.length === 1 ? "it reconnects" : "they reconnect"}.
           </p>
         {/if}
-        {#if !configReady || (!store.loaded && store.loading) || (refreshing && projectTasks.length === 0)}
-          {#if boardLayout}
+        <!-- A source that cannot be read, or that holds more tasks than the
+             host read. Said above the rows it explains; the source setup on
+             the crumb line is where a person repairs it. -->
+        {#each view.notices as notice (notice.sourceKey)}
+          <p
+            class="px-4 pt-2 text-workspace-chrome {notice.tone === 'failure'
+              ? 'text-(--failure)'
+              : 'text-muted-foreground'}"
+            role="status"
+          >
+            {notice.text}
+          </p>
+        {/each}
+        {#if (!store.loaded && store.loading) || (!!hostCheckout && !checkoutSources && !sourcesError) || (refreshing && projectTasks.length === 0 && !hasNoSource)}
+          {#if view.boardLayout}
             <TaskBoardSkeleton />
           {:else}
             <ListSkeleton identWidth={62} />
@@ -1129,173 +831,85 @@
               </button>
             {/snippet}
           </PageEmpty>
-        {:else if projectTasks.length === 0}
+        {:else if hasNoSource}
+          <!-- GitHub and Jira own every task, so a project with no task source
+               has no tasks. The empty state is the source setup. -->
+          <PageEmpty icon={TaskIcon} title="No task source.">
+            Tasks come from GitHub and Jira. Add a GitHub repository, a GitHub
+            Project, a Jira project or a Jira board to this project.
+            {#snippet actions()}
+              {@render sourceControl()}
+            {/snippet}
+          </PageEmpty>
+        {:else if projectTasks.length === 0 && view.searched.length === 0}
           <PageEmpty icon={TaskIcon} title="No tasks yet.">
             {#if !pageKey}
-              Tasks in the projects your session sidebar shows appear here.
+              Tasks from the task sources of the projects your session sidebar
+              shows appear here.
             {:else if !hostCheckout}
-              A task made in the workspace, or by an agent on a machine linked to
-              this organization, appears here for everyone.
+              No connected machine has this project, so its task sources cannot
+              be read.
             {:else}
-              Create a task, then start a
-              session from it to give the agent its full context.
+              The task sources of this project list no task. Create one, then
+              start a session from it to give the agent its full context.
             {/if}
             {#snippet actions()}
               {#if canCreate}
                 <button
                   type="button"
                   class={PAGE_PRIMARY_BTN}
-                  onclick={() => void startNewTask()}
+                  onclick={() => startNewTask()}
                 >
                   <PlusIcon size={14} weight="bold" />
                   <span>New task</span>
                 </button>
-                <!-- The same control the header carries. The old button here
-                     filed in GitHub unconditionally, which a checkout with no
-                     GitHub origin cannot do and a Jira project should not. -->
-                {@render providerControl()}
               {/if}
+              {@render sourceControl()}
             {/snippet}
           </PageEmpty>
-        {:else if boardLayout}
+        {:else if view.boardLayout}
           <TaskBoard
-            tasks={visibleTasks}
+            tasks={view.visibleTasks}
             homeFor={rowHomeFor}
-            projectKey={cwd}
-            canReorder={!!pageKey && boardUnfiltered}
+            view={view.board}
+            projectKey={pageKey}
+            canReorder={!!pageKey && view.boardUnfiltered}
             {selectedKey}
             onOpen={(task) => {
               selectedKey = task.id;
               onOpen(task);
             }}
-            {onSetStatus}
+            {onMoveTask}
             {runningSessionsFor}
             {now}
             onContextMenu={openTaskContextMenu}
-            onAddInColumn={canCreate
-              ? (status) => beginComposing(status)
-              : undefined}
+            onAddInColumn={canCreate ? (columnId) => startNewTask(columnId) : undefined}
           />
-        {:else if groups.length === 0}
+        {:else if view.groups.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.
             {#snippet actions()}
               <button
                 type="button"
                 class={PAGE_SECONDARY_BTN}
-                onclick={clearFilters}
+                onclick={() => view.clearFilters()}
               >
                 Clear filters
               </button>
             {/snippet}
           </ListEmpty>
         {:else}
-          <VirtualList
-            items={globalVirtualItems}
+          <TasksList
+            groups={view.groups}
             height={contentHeight}
-            itemSize={(index) =>
-              globalVirtualItems[index].kind === "header"
-                ? LIST_GROUP_HEADER_HEIGHT
-                : listRowHeight({
-                    record: recordRows,
-                    split: splitList,
-                    drawerRow: true,
-                  })}
-            keyOf={(item) => item.key}
-            activeKey={globalActiveKey}
-          >
-            {#snippet children(item, _index, style)}
-              <div {style}>
-                {#if item.kind === "header"}
-                  <ListGroup
-                    label={item.group.label}
-                    count={item.group.rows.length}
-                    open={!collapsedGroups[item.group.key]}
-                    onToggle={() =>
-                      (collapsedGroups = {
-                        ...collapsedGroups,
-                        [item.group.key]: !collapsedGroups[item.group.key],
-                      })}
-                  >
-                    {#snippet children()}{/snippet}
-                  </ListGroup>
-                {:else}
-                  {#if recordRows}
-                    <!-- The drawer row, not the three-line record: a task's
-                         title is nearly the whole row, and a fixed height is
-                         what keeps the painted row inside the slot the
-                         virtualiser gave it. -->
-                    {@const recordTask = taskById(item.row.key)}
-                    <TaskListRow
-                      row={item.row}
-                      status={recordTask?.status ?? "todo"}
-                      selected={selectedKey === item.row.key ||
-                        selection.has(item.row.key)}
-                      onSelect={() => {
-                        if (recordTask) onOpen(recordTask);
-                      }}
-                      onSetStatus={(status) => {
-                        revealedTaskId = null;
-                        if (recordTask) void onSetStatus(recordTask, status);
-                      }}
-                      revealed={revealedTaskId === item.row.key}
-                      onRevealChange={(revealed) =>
-                        (revealedTaskId = revealed ? item.row.key : null)}
-                      onContextMenu={(event) => {
-                        if (recordTask) openTaskContextMenu(event, recordTask);
-                      }}
-                    >
-                      {#snippet leading()}
-                        {@render rowCheckbox(item.row.key)}
-                      {/snippet}
-                    </TaskListRow>
-                  {:else if splitList}
-                    <ListRailRow
-                      row={item.row}
-                      fallbackAvatar="solus"
-                      responsiveTitle
-                      showTime={false}
-                      selected={selectedKey === item.row.key ||
-                        selection.has(item.row.key)}
-                      onSelect={() => {
-                        const task = taskById(item.row.key);
-                        if (task) onOpen(task);
-                      }}
-                      onContextMenu={(event) => {
-                        const task = taskById(item.row.key);
-                        if (task) openTaskContextMenu(event, task);
-                      }}
-                    >
-                      {#snippet leading()}
-                        {@render rowCheckbox(item.row.key)}
-                      {/snippet}
-                    </ListRailRow>
-                  {:else}
-                    <ListRow
-                      row={item.row}
-                      identWidth={62}
-                      fallbackAvatar="solus"
-                      responsiveTitle
-                      selected={selectedKey === item.row.key ||
-                        selection.has(item.row.key)}
-                      onSelect={() => {
-                        const task = taskById(item.row.key);
-                        if (task) onOpen(task);
-                      }}
-                      onContextMenu={(event) => {
-                        const task = taskById(item.row.key);
-                        if (task) openTaskContextMenu(event, task);
-                      }}
-                    >
-                      {#snippet leading()}
-                        {@render rowCheckbox(item.row.key)}
-                      {/snippet}
-                    </ListRow>
-                  {/if}
-                {/if}
-              </div>
-            {/snippet}
-          </VirtualList>
+            {recordRows}
+            split={splitList}
+            {selectedKey}
+            taskFor={taskById}
+            {onOpen}
+            onMove={(task, target) => void onMoveTask(task, target)}
+            onContextMenu={openTaskContextMenu}
+          />
         {/if}
       </div>
     </ListPage>
@@ -1325,154 +939,36 @@
           surfaceVisible={open}
           onRequestClose={closePanel}
           onOpenRoute={() => openTaskRoute(openTask)}
-          onRequestPrevious={flatVisibleIds.length > 1
+          onRequestPrevious={view.flatVisibleIds.length > 1
             ? () => stepPanel(-1)
             : null}
-          onRequestNext={flatVisibleIds.length > 1 ? () => stepPanel(1) : null}
+          onRequestNext={view.flatVisibleIds.length > 1 ? () => stepPanel(1) : null}
         />
       </div>
     {/if}
 
-    <!-- Bulk action bar — floats over the list while a selection is held.
-         ── The record rung (`@max-[30rem]/pane`) ──
-         Eleven controls on one line is a desktop pill. At 393px it was wider
-         than the pane, so it clipped at both edges, wrapped "In progress" onto
-         two lines, and painted over the row underneath with no inset for the
-         home indicator. The ladder: the count and Clear take a line of their
-         own, the four status buttons collapse into one Status menu, and the
-         remaining actions wrap rather than clip — a control that does not fit
-         gets its own line, it never loses its label. -->
-    {#if layout === "list" && selection.size > 0 && !panelOpen}
-      <div
-        class="pointer-events-none absolute inset-x-0 bottom-14 z-10 flex justify-center px-4 @max-[30rem]/pane:bottom-0 @max-[30rem]/pane:px-2 @max-[30rem]/pane:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
-      >
-        <div
-          class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-2 py-1.5 shadow-[var(--solus-popover-shadow)] @max-[30rem]/pane:w-full @max-[30rem]/pane:flex-col @max-[30rem]/pane:items-stretch @max-[30rem]/pane:gap-2 @max-[30rem]/pane:rounded-2xl @max-[30rem]/pane:p-2.5"
-          role="toolbar"
-          aria-label="Bulk actions"
-        >
-          <!-- `contents` keeps the wide pill one flat line; at the rung this
-               becomes the header line, with Clear held to the right by the
-               `order-last` that also puts it at the end of the pill. -->
-          <div
-            class="contents @max-[30rem]/pane:flex @max-[30rem]/pane:items-center @max-[30rem]/pane:justify-between"
-          >
-            <span class="px-1.5 font-medium tabular-nums whitespace-nowrap">
-              {selection.size} selected
-            </span>
-            <button
-              type="button"
-              class="order-last cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:px-3 @max-[30rem]/pane:text-workspace-chrome"
-              onclick={() => selection.clear()}
-              title="Clear selection (Esc)"
-            >
-              Clear
-            </button>
-          </div>
-          <span
-            class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
-            aria-hidden="true"
-          ></span>
-          <div
-            class="contents @max-[30rem]/pane:flex @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:items-center @max-[30rem]/pane:gap-1.5"
-          >
-            <button
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome"
-              onclick={() => void bulkComplete()}
-              ><CheckIcon size={14} class="shrink-0" />Complete</button
-            >
-            {#if sessionSidebar}
-              <button
-                type="button"
-                class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome"
-                onclick={() => void bulkMarkUnread()}
-                ><DotOutlineIcon size={14} weight="fill" class="shrink-0" />Unread</button
-              >
-            {/if}
-            <span
-              class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
-              aria-hidden="true"
-            ></span>
-            {#each BOARD_COLUMNS as col (col.status)}
-              <button
-                type="button"
-                class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:hidden"
-                onclick={() => bulkSetStatus(col.status)}
-                title={`Set ${col.label}`}
-              >
-                <span
-                  class="block size-2 shrink-0 rounded-full {STATUS_META[
-                    col.status
-                  ].dotClass}"
-                ></span>
-                {col.label}
-              </button>
-            {/each}
-            <!-- Four statuses are four labels the rung has no room for, so they
-                 become one menu. The label still says which four they are. -->
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="hidden cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:inline-flex @max-[30rem]/pane:h-9 @max-[30rem]/pane:text-workspace-chrome"
-                    aria-label="Set status on the selected tasks"
-                  >
-                    <CircleDashedIcon size={14} class="shrink-0 opacity-75" />
-                    Status
-                    <CaretDownIcon size={9} class="shrink-0 opacity-60" />
-                  </button>
-                {/snippet}
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content
-                side="top"
-                align="start"
-                sideOffset={6}
-                class="w-[190px]"
-              >
-                {#each BOARD_COLUMNS as col (col.status)}
-                  <DropdownMenu.Item onSelect={() => bulkSetStatus(col.status)}>
-                    <span
-                      class="mr-2 block size-2 shrink-0 rounded-full {STATUS_META[
-                        col.status
-                      ].dotClass}"
-                    ></span>
-                    <span class="flex-1">{col.label}</span>
-                  </DropdownMenu.Item>
-                {/each}
-              </DropdownMenu.Content>
-            </DropdownMenu.Root>
-            <span
-              class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
-              aria-hidden="true"
-            ></span>
-            <button
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
-              onclick={bulkDelete}
-              title="Delete selected"
-            >
-              <TrashIcon size={14} class="shrink-0" />
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
+    {#if !view.boardLayout && selection.size > 0 && !panelOpen}
+      <TasksBulkBar
+        count={selection.size}
+        moveOptions={view.moveOptions}
+        onClear={() => selection.clear()}
+        onComplete={() => void bulkComplete()}
+        onMarkUnread={sessionSidebar ? () => void bulkMarkUnread() : undefined}
+        onMove={bulkMove}
+        onDelete={selectedTasks.some((task) => task.canDelete) ? bulkDelete : undefined}
+      />
     {/if}
 
-
-    {#if composingStatus && taskContext}
+    {#if composing && taskContext && createSources}
       <TaskComposer
-        canSetStatus
-        canPlan
+        sources={createSources.sources}
+        initialSourceKey={composerSourceKey}
+        initialColumnId={view.source ? composing.columnId : undefined}
         {knownLabels}
         workingDirectory={taskContext.workingDirectory}
         provider={session.settings.activeAgent}
-        initialStatus={composingStatus}
         {onCreate}
-        onCancel={() => (composingStatus = null)}
+        onCancel={() => (composing = null)}
       />
     {/if}
 
@@ -1489,10 +985,8 @@
         onResume={workspace && linkedSessionCount > 0 ? () => onResume(menuTask) : undefined}
         onOpenTask={() => onOpen(menuTask)}
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
-        onSetStatus={(status) => void onSetStatus(menuTask, status)}
-        onDelete={taskContextMenu.canDelete
-          ? () => onDelete(menuTask)
-          : undefined}
+        onSetStatus={(category) => void onMoveTask(menuTask, { category })}
+        onDelete={menuTask.canDelete ? () => onDelete(menuTask) : undefined}
         onClose={() => (taskContextMenu = null)}
       />
     {/if}

@@ -41,7 +41,7 @@ mock.module('@solus/server/git/git-helpers', () => ({
 }))
 const completedScopes: string[] = []
 beforeEach(() => { completedScopes.length = 0 })
-mock.module('@solus/server/data/tasks/sync-engine', () => ({
+mock.module('@solus/server/data/tasks/done-on-merge', () => ({
   // The host owner reads the whole disk (organization-scope §3): the scope is `ANY_ORGANIZATION`, not a string.
   completeTasksForMergedPullRequest: async (scope: string | { kind: string }, targetScope: string) => { completedScopes.push(`${typeof scope === 'string' ? scope : scope.kind}:${targetScope}`); return [] },
 }))

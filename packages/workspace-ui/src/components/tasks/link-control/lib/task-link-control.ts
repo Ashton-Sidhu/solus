@@ -1,4 +1,5 @@
-import type { TaskLinkedTask, TaskStatus } from '@solus/contracts/task-types'
+import type { TaskLinkedTask } from '@solus/contracts/task-types'
+import { taskRef } from '../../lib/tasks-api'
 
 /**
  * What the Link control on a conversation card says, from the edges the store
@@ -14,10 +15,10 @@ export interface TaskLinkContext {
   conversationTaskId?: string | null
 }
 
-/** `T-412`, or the id's head where a task has no short id yet (a task minted
- *  on another host and not yet numbered here). */
-export function linkedTaskRef(task: Pick<TaskLinkedTask, 'taskId' | 'shortId'>): string {
-  return task.shortId ? `T-${task.shortId}` : task.taskId.slice(0, 6)
+/** `#412` or `PROJ-12`, as a task row names the task. A task with no
+ *  reference is a draft item of a board. */
+export function linkedTaskRef(task: Pick<TaskLinkedTask, 'reference'>): string {
+  return taskRef({ reference: task.reference, kind: task.reference ? 'issue' : 'draft' })
 }
 
 export type TaskLinkControlState =
@@ -31,12 +32,7 @@ export type TaskLinkControlState =
   /** Several do: count them, and offer the picker to manage the set. */
   | { kind: 'many'; tasks: TaskLinkedTask[]; label: string }
 
-export interface TaskLinkedTaskSummary {
-  taskId: string
-  title: string
-  status: TaskStatus
-  shortId?: number
-}
+export type TaskLinkedTaskSummary = Pick<TaskLinkedTask, 'taskId' | 'title' | 'category' | 'reference'>
 
 export function taskLinkControlState(
   linked: TaskLinkedTask[] | undefined,
@@ -62,11 +58,7 @@ export function linkVerb(state: Extract<TaskLinkControlState, { kind: 'none' }>)
  * any task that links the target but is finished — it has to stay listed, or
  * there is no way to unlink it. Each row says whether it is checked.
  */
-export interface TaskLinkPickerRow {
-  taskId: string
-  title: string
-  status: TaskStatus
-  shortId?: number
+export interface TaskLinkPickerRow extends TaskLinkedTaskSummary {
   linked: boolean
   /** The conversation's own task, listed first and labelled. */
   current: boolean
@@ -86,8 +78,8 @@ export function taskLinkPickerRows(
     rows.push({
       taskId: task.taskId,
       title: task.title,
-      status: task.status,
-      shortId: task.shortId,
+      category: task.category,
+      reference: task.reference,
       linked: linkedIds.has(task.taskId),
       current: task.taskId === currentTaskId,
     })

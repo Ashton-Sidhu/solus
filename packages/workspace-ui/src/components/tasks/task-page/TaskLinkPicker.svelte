@@ -2,7 +2,7 @@
   import { useScope } from "../../../lib/keybindings/use-keybinding.svelte";
   import { onMount } from "svelte";
   import type { TaskLinkInput, TaskLinkKind } from "@solus/contracts/task-types";
-  import { getPlanStore, getWorkspaceContext } from "../../../contexts";
+  import { getPlanStore, getPullRequestsContext, getWorkspaceContext } from "../../../contexts";
   import { ReferenceIndex } from "../../editor/unified-autocomplete/reference-index.svelte";
   import { rank } from "../../editor/unified-autocomplete/rank";
   import type { MenuItem } from "../../editor/unified-autocomplete/rows";
@@ -23,6 +23,7 @@
   const planStore = getPlanStore();
   const index = new ReferenceIndex({
     session,
+    pullRequests: getPullRequestsContext().projects,
     planStore,
     workingDirectory: () => projectCwd,
   });

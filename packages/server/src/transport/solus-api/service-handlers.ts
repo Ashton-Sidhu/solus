@@ -35,7 +35,7 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   shares: ShareManager; events: HostEventPublisher; workLive: WorkLiveManager; serviceId: string; host: string; port(): number
 }): void {
   registerSharingHandlers(server, { shares: deps.shares })
-  registerTasksHandlers(server, { shares: deps.shares, sync: false })
+  registerTasksHandlers(server, { attachmentsOnly: true })
   registerFolioHandlers(server, { shares: deps.shares })
   registerCloudUploadHandlers(server, { shares: deps.shares })
   registerWorkReviewHandlers(server, { shares: deps.shares })

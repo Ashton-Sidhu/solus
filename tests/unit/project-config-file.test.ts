@@ -42,15 +42,13 @@ describe('project config in the repository', () => {
     // repo root rather than beside the session's working directory.
     await projectConfig.saveProjectConfig(join(repo, 'packages', 'deep'), {
       version: 1,
-      taskProvider: 'jira',
-      taskProviderConfig: { cloudId: 'acme', projectKey: 'SOL' },
+      taskSources: [{ kind: 'jira-project', cloudId: 'acme', projectKey: 'SOL' }],
     })
 
     const fromRoot = await projectConfig.loadProjectConfig(repo)
     const fromElsewhere = await projectConfig.loadProjectConfig(join(repo, 'packages'))
 
-    expect(fromRoot?.taskProvider).toBe('jira')
-    expect(fromRoot?.taskProviderConfig?.projectKey).toBe('SOL')
+    expect(fromRoot?.taskSources).toEqual([{ kind: 'jira-project', cloudId: 'acme', projectKey: 'SOL' }])
     expect(fromElsewhere).toEqual(fromRoot)
   })
 
@@ -61,7 +59,7 @@ describe('project config in the repository', () => {
     const text = readFileSync(path, 'utf-8')
     // Committable: pretty-printed and newline-terminated, not a minified blob.
     expect(text.endsWith('}\n')).toBe(true)
-    expect(text).toContain('"taskProvider": "jira"')
+    expect(text).toContain('"kind": "jira-project"')
   })
 
   test('every worktree of a repo shares one config', async () => {
@@ -90,6 +88,57 @@ describe('project config in the repository', () => {
     }
   })
 
+  test('a project lists many task sources, and each one time', async () => {
+    // A project reads tasks from any number of boards. The same board twice
+    // would show each of its tasks twice.
+    const saved = await projectConfig.saveProjectConfig(repo, {
+      version: 1,
+      taskSources: [
+        { kind: 'github-repo', owner: 'Acme', repo: 'App' },
+        { kind: 'github-project', owner: 'acme', number: 4 },
+        { kind: 'jira-board', cloudId: 'site', boardId: 12 },
+        { kind: 'github-project', owner: 'ACME', number: 4 },
+      ],
+    })
+
+    expect(saved.taskSources?.map((source) => source.kind)).toEqual(['github-repo', 'github-project', 'jira-board'])
+    expect(await projectConfig.loadProjectConfig(repo)).toEqual(saved)
+  })
+
+  test('a project with task sources always has a default source that it lists', async () => {
+    // A new task is created in the default source. A default that names a
+    // removed source would send the task to a board the project does not show.
+    const sources = [
+      { kind: 'github-repo', owner: 'acme', repo: 'app' },
+      { kind: 'jira-project', cloudId: 'site', projectKey: 'SOL' },
+    ] as const
+
+    const unset = await projectConfig.saveProjectConfig(repo, { version: 1, taskSources: [...sources] })
+    expect(unset.defaultTaskSource).toBe('github-repo:acme/app')
+
+    const chosen = await projectConfig.saveProjectConfig(repo, {
+      version: 1, taskSources: [...sources], defaultTaskSource: 'jira-project:site/SOL',
+    })
+    expect(chosen.defaultTaskSource).toBe('jira-project:site/SOL')
+
+    const removed = await projectConfig.saveProjectConfig(repo, {
+      version: 1, taskSources: [sources[0]], defaultTaskSource: 'jira-project:site/SOL',
+    })
+    expect(removed.defaultTaskSource).toBe('github-repo:acme/app')
+
+    const none = await projectConfig.saveProjectConfig(repo, { version: 1, defaultTaskSource: 'github-repo:acme/app' })
+    expect(none.defaultTaskSource).toBeUndefined()
+  })
+
+  test('one malformed task source in a hand-edited file does not remove the others', async () => {
+    writeFileSync(join(repo, '.solus', 'config.json'), JSON.stringify({
+      taskSources: [{ kind: 'trello', board: 'x' }, { kind: 'jira-board', cloudId: 'site', boardId: 12 }],
+    }))
+
+    const config = await projectConfig.loadProjectConfig(repo)
+    expect(config?.taskSources).toEqual([{ kind: 'jira-board', cloudId: 'site', boardId: 12 }])
+  })
+
   test('an unconfigured project reads as null, not as defaults', async () => {
     const fresh = mkdtempSync(join(tmpdir(), 'solus-unconfigured-'))
     try {
@@ -103,7 +152,7 @@ describe('project config in the repository', () => {
     const broken = mkdtempSync(join(tmpdir(), 'solus-broken-'))
     try {
       mkdirSync(join(broken, '.solus'), { recursive: true })
-      writeFileSync(join(broken, '.solus', 'config.json'), '{ taskProvider: jira,,, }')
+      writeFileSync(join(broken, '.solus', 'config.json'), '{ taskSources: jira,,, }')
       expect(await projectConfig.loadProjectConfig(broken)).toBeNull()
     } finally {
       rmSync(broken, { recursive: true, force: true })

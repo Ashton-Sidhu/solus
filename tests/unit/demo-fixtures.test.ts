@@ -19,6 +19,9 @@ import { DemoStore } from '../../apps/client/src/demo/store'
 import { devFixtures } from '../../apps/client/src/demo/fixtures/dev-fixture'
 import { registerBootHandlers } from '../../apps/client/src/demo/handlers/boot'
 import { registerPrHandlers } from '../../apps/client/src/demo/handlers/pr'
+import { registerTasksHandlers } from '../../apps/client/src/demo/handlers/tasks'
+import { parseTaskKey, taskSourceKey } from '@solus/contracts/task-sources'
+import type { Task, TaskDetails, TaskSidebarSnapshot } from '@solus/contracts/task-types'
 import type { PrReviewTarget, PullRequest, PullRequestOverview } from '@solus/contracts/providers'
 
 // The demo backend is the only implementation of the RPC surface that no
@@ -82,10 +85,141 @@ describe('demo task links', () => {
   })
 
   test('each linked task exists in the demo task list', () => {
-    const taskIds = new Set(demoFixtures.tasks.list.tasks.map((task) => task.id))
+    const taskIds = new Set(demoFixtures.tasks.tasks.map((task) => task.id))
     for (const taskId of Object.keys(demoFixtures.tasks.sessions)) {
       expect(taskIds).toContain(taskId)
     }
+  })
+})
+
+describe('demo task sources', () => {
+  const sourcesByKey = new Map(demoFixtures.tasks.sources.map((source) => [source.sourceKey, source]))
+
+  // A client joins a task to its board through the source key, and a host
+  // derives that key from the source. A fixture key that is typed by hand and
+  // differs gives a board with no cards and no error.
+  test('each source is named by the key of its source', () => {
+    expect(demoFixtures.tasks.sources.length).toBeGreaterThan(1)
+    for (const source of demoFixtures.tasks.sources) {
+      expect(source.sourceKey).toBe(taskSourceKey(source.source))
+    }
+    expect(sourcesByKey.has(demoFixtures.tasks.defaultSourceKey!)).toBe(true)
+  })
+
+  test('each task has a task key and is in a column of a demo source', () => {
+    for (const task of demoFixtures.tasks.tasks) {
+      expect(parseTaskKey(task.id)?.provider, task.id).toBe(task.providerId)
+      expect(task.placements.length, task.id).toBeGreaterThan(0)
+      for (const placement of task.placements) {
+        const columnIds = sourcesByKey.get(placement.sourceKey)?.columns.map((column) => column.id)
+        expect(columnIds, task.id).toContain(placement.columnId!)
+      }
+    }
+  })
+
+  // The rule on `Task.category`: a board and a mixed view must not disagree
+  // about whether a task is done.
+  test('each task category follows its state and its columns', () => {
+    for (const task of demoFixtures.tasks.tasks) {
+      const columnCategories = task.placements.map((placement) =>
+        sourcesByKey.get(placement.sourceKey)?.columns.find((column) => column.id === placement.columnId)?.category)
+      const expected = task.state.category === 'done'
+        ? 'done'
+        : task.state.category === 'active' || columnCategories.includes('active') ? 'active' : 'open'
+      expect(task.category, task.id).toBe(expected)
+    }
+  })
+
+  // Only a draft has no page on its provider; an issue without a reference or
+  // a URL cannot be opened or named in a prompt.
+  test('a draft has no reference or URL, and an issue has both', () => {
+    expect(demoFixtures.tasks.tasks.some((task) => task.kind === 'draft')).toBe(true)
+    for (const task of demoFixtures.tasks.tasks) {
+      expect(Boolean(task.reference), task.id).toBe(task.kind === 'issue')
+      expect(Boolean(task.url), task.id).toBe(task.kind === 'issue')
+    }
+  })
+})
+
+describe('demo task writes', () => {
+  const taskFixture = demoFixtures.tasks
+  const githubSourceKey = 'github-project:acme/4'
+  const jiraSourceKey = 'jira-board:acme-cloud/12'
+  const issueId = 'github:I_kwDOWebDash058'
+
+  function demoTasks() {
+    const backend = new DemoBackend()
+    registerTasksHandlers(backend, new DemoStore({ ...devFixtures, tasks: taskFixture }))
+    // SAFETY: each test names a task method and reads the result that method declares.
+    const call = async <T>(method: Parameters<typeof backend.handle>[0], ...args: unknown[]) =>
+      await backend.handle(method, args, TEST_HANDLER_CTX) as T
+    return { backend, call }
+  }
+
+  test('a move to a column gives the state the provider would report', async () => {
+    const { call } = demoTasks()
+    const review = await call<Task>('tasksMove', issueId, { sourceKey: githubSourceKey, columnId: 'in-review' })
+    expect(review.placements).toEqual([{ sourceKey: githubSourceKey, columnId: 'in-review' }])
+    // A GitHub issue stays Open on an active column: only the category says active.
+    expect(review.state).toEqual({ name: 'Open', category: 'open' })
+    expect(review.category).toBe('active')
+
+    const done = await call<Task>('tasksMove', issueId, { category: 'done' })
+    expect(done.placements[0].columnId).toBe('done')
+    expect(done.state).toEqual({ name: 'Closed', category: 'done' })
+    expect(done.category).toBe('done')
+  })
+
+  test('a write names the task and its sources to every client', async () => {
+    const { backend, call } = demoTasks()
+    const seen: string[] = []
+    backend.events.subscribe('tasks.invalidated', ({ taskId }) => seen.push(`task ${taskId}`))
+    backend.events.subscribe('tasks.sourcesChanged', ({ sourceKeys }) => seen.push(`sources ${sourceKeys.join()}`))
+    await call<Task>('tasksMove', issueId, { category: 'active' })
+    expect(seen).toEqual([`task ${issueId}`, `sources ${githubSourceKey}`])
+  })
+
+  test('a new task is a draft in a GitHub Project and an issue in Jira', async () => {
+    const { call } = demoTasks()
+    const draft = await call<Task>('tasksCreate', { cwd: '/home/demo/api-gateway', title: 'Try a sliding window' })
+    expect(draft).toMatchObject({ kind: 'draft', providerId: 'github', url: null })
+    expect(draft.reference).toBeUndefined()
+    expect(draft.placements).toEqual([{ sourceKey: githubSourceKey, columnId: 'backlog' }])
+
+    const issue = await call<Task>('tasksCreate', { cwd: '/home/demo/api-gateway', sourceKey: jiraSourceKey, title: 'Audit key scopes', columnId: 'in-progress' })
+    expect(issue).toMatchObject({ kind: 'issue', providerId: 'jira', category: 'active', state: { name: 'In Progress', category: 'active' } })
+    expect(issue.reference).toMatch(/^ACME-\d+$/)
+    expect(parseTaskKey(issue.id)).toMatchObject({ provider: 'jira', cloudId: 'acme-cloud' })
+  })
+
+  // A provider keeps its issues: only a draft item can go.
+  test('only a draft can be deleted', async () => {
+    const { call } = demoTasks()
+    await expect(call<boolean>('tasksDelete', issueId)).rejects.toThrow()
+    expect(await call<boolean>('tasksDelete', 'github:PVTI_demoBatchTokens')).toBe(true)
+    const snapshot = await call<TaskSidebarSnapshot>('tasksSidebarSnapshot')
+    expect(snapshot.tasks.map((task) => task.id)).not.toContain('github:PVTI_demoBatchTokens')
+    expect(snapshot.tasks.map((task) => task.id)).toContain(issueId)
+  })
+
+  test('an unsent comment can be sent again or discarded, a sent one cannot', async () => {
+    const { call } = demoTasks()
+    const taskId = 'jira:acme-cloud:10214'
+    const before = await call<TaskDetails>('tasksGet', taskId)
+    const unsent = before.comments.find((comment) => comment.unsent)!
+    expect(unsent.sendError).toBeTruthy()
+
+    const retried = await call<TaskDetails>('tasksRetryComment', taskId, unsent.id)
+    expect(retried.comments.some((comment) => comment.unsent)).toBe(false)
+    expect(retried.comments.length).toBe(before.comments.length)
+    await expect(call<TaskDetails>('tasksDeleteComment', taskId, unsent.id)).rejects.toThrow()
+  })
+
+  test('a field the task does not take is refused', async () => {
+    const { call } = demoTasks()
+    await expect(call<Task>('tasksUpdate', 'github:PVTI_demoBatchTokens', { priority: 'high' })).rejects.toThrow()
+    const renamed = await call<Task>('tasksUpdate', 'github:PVTI_demoBatchTokens', { title: 'Batch token cost', assignee: 'acme-dev' })
+    expect(renamed).toMatchObject({ title: 'Batch token cost', assignee: 'acme-dev' })
   })
 })
 

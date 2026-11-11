@@ -7,21 +7,27 @@ check for drift. The JSON file is self-contained.
 
 ## Scope and ownership
 
-There are **23 operations on 17 paths**: task CRUD; work CRUD, work search, and
+There are **33 operations on 28 paths**: work CRUD, work search, and
 the import, publish, and pull of an external document; stored-session
-list/get/text messages; a session admission for an execution host's organization
-run; Insights list/get; credential exchange; capabilities; and OpenAPI discovery. See [routes](routes.md) and [Plan 008](../../plans/008-workspace-http-api.md).
+list/get/update, text messages, links, and pull requests; the links of a task
+or a session; a session admission and a turn admission for an execution host's
+organization run; activity; notifications; Insights list/get; capabilities; and
+OpenAPI discovery. There are no task record routes: GitHub and Jira own every
+task ([tasks](../tasks.md)), and the API stores only what Solus attaches to a
+task. `PUT /v1/links` and `DELETE /v1/links` name a task by its task key. See [routes](routes.md) and [Plan 008](../../plans/008-workspace-http-api.md).
 There is no GitHub PR proxy, automation API, SQL endpoint, aggregate query, or
 caller-supplied organization selector.
 
 Covered record methods now use HTTP in the shared desktop/web/mobile connection
-client. Their previous RPC handlers and registry entries are removed. Agent task
-and work tools call the same authorized data operations in-process. Claude,
+client. Their previous RPC handlers and registry entries are removed. Agent work
+tools call the same authorized data operations in-process. Agent task tools
+write to GitHub or Jira with the acting person's connection; they do not call
+this API. Claude,
 Codex, and OpenCode receive these provider-neutral tools through admitted turn
 context. A member's tools cannot fall back to host authority.
 
-Existing RPC remains for execution and events, task comments/links/sidebar
-projections, work annotations/sharing/provider sync, and rich session history.
+Existing RPC remains for execution and events, task reads and writes on the provider, task comments, the task sidebar
+snapshot, work annotations/sharing/provider sync, and rich session history.
 These operations are outside this small HTTP contract. The API's text projection
 does not replace the rich conversation renderer. The desktop still runs its
 combined server in the existing process; no additional desktop subprocess starts.
@@ -87,7 +93,7 @@ A host or organization change invalidates a client's context and rejects late
 responses. External clients can use the HTTP API without a WebSocket connection.
 
 ```sh
-curl "$SOLUS_URL/v1/tasks?limit=50" \
+curl "$SOLUS_URL/v1/works?limit=50" \
   -H "Authorization: Bearer $SOLUS_ACCESS_TOKEN" \
   -H "Solus-Organization: $SOLUS_ORGANIZATION_ID"
 ```
@@ -95,7 +101,7 @@ curl "$SOLUS_URL/v1/tasks?limit=50" \
 ## Reads, writes, and scale
 
 Lists use keyset cursors: default 50 and maximum 200 items, and an opaque
-`nextCursor` that names the last row. Task and work lists omit bodies. Resource
+`nextCursor` that names the last row. Work lists omit bodies. Resource
 access is checked again on every page, so a cursor grants nothing by itself.
 Repeating a page is safe, but pages are not a database snapshot of later edits
 or deletions.
@@ -123,8 +129,8 @@ their read-only rule. Work polling uses `If-None-Match`: unchanged content retur
 304 without loading or transmitting the document body.
 
 Resource errors have a stable code, message, and request ID. Data responses are
-`Cache-Control: no-store`. The HTTP body is capped before JSON parsing (4 MiB
-for tasks, 16 MiB for works, with additional field bounds). Each replica admits
+`Cache-Control: no-store`. The HTTP body is capped before JSON parsing (16 MiB
+for works, with smaller limits on the other routes and additional field bounds). Each replica admits
 at most 32 concurrent API requests and eight per actor, with a minute budget of
 300 per actor and 60 credential exchanges per source. Busy/rate responses carry
 `Retry-After`. PostgreSQL requests have a five-second statement timeout and a

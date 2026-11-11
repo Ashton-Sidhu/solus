@@ -55,10 +55,14 @@ A client resolves a host and a path to a project key
 
 ## §4 Tasks
 
-A cloud task names its repository key. A host task names a path, and the
-checkout on its host resolves that path to a project key
-(`tasksStore.projectKeyOf`). Thus one project lists the tasks of all its
-checkouts.
+A task belongs to no project by itself (`provider-owned-tasks.md` §4.2,
+`docs/tasks.md`). A project lists **task sources** in its project config, and
+it shows the tasks that its sources list (`Task.placements`,
+`tasksStore.tasksInProject`). One source can be in many projects, thus one
+task can be in more than one project (`tasksStore.projectKeysOf`). Two
+checkouts of one project can list the same source; the client shows that
+source one time (`mergeProjectSources`). A project with no task source has no
+tasks.
 
 ## §4a Sessions
 

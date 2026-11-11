@@ -2,6 +2,48 @@
 // preference, due-date quick presets, and roving-focus keyboard navigation for the property pickers.
 // Kept out of the .svelte file per the renderer guidelines so the component stays
 // markup + thin handlers.
+import type { TaskPriority } from '@solus/contracts/task-types'
+import type { TaskSource } from '@solus/contracts/task-sources'
+
+/** What the composer hands to the page: a new task for one source of the
+ *  project. The page adds the project (`TaskCreateInput.cwd`). */
+export interface TaskComposerInput {
+  sourceKey: string
+  columnId?: string
+  title: string
+  body: string
+  dueDate?: string
+  priority?: TaskPriority
+  labels?: string[]
+}
+
+/** Which optional fields the composer shows for a source. */
+export interface TaskComposerFields {
+  labels: boolean
+  /** Priority and due date. */
+  planning: boolean
+}
+
+/**
+ * The fields a source can take on a new task. The composer hides a field the
+ * provider would drop, rather than take the input and lose it:
+ * a GitHub Project creates a draft item, which has a title and a body only; a
+ * new GitHub issue is on no Project, so it has no priority or due date field;
+ * a Jira issue takes all of them.
+ */
+export function composerFieldsFor(kind: TaskSource['kind'] | undefined): TaskComposerFields {
+  switch (kind) {
+    case 'github-repo':
+      return { labels: true, planning: false }
+    case 'jira-project':
+    case 'jira-board':
+      return { labels: true, planning: true }
+    case 'github-project':
+    case undefined:
+      return { labels: false, planning: false }
+  }
+}
+
 const ANOTHER_KEY = 'solus:task-composer-create-another'
 
 /** "Create another" is a sticky preference so rapid-entry users keep it on. */

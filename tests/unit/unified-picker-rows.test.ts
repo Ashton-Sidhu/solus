@@ -19,15 +19,19 @@ import {
 function task(id: string, title: string, body = ''): Task {
   return {
     id,
+    providerId: 'github',
+    kind: 'issue',
     title,
     body,
-    status: 'in_progress',
-    priority: null,
-    projectKey: 'solus',
-    providerId: 'local',
+    url: null,
+    state: { name: 'In progress', category: 'active' },
+    category: 'active',
+    placements: [{ sourceKey: 'github-repo:acme/solus', columnId: null }],
+    labels: [],
+    writableFields: [],
     createdAt: 0,
     updatedAt: 0,
-  } as unknown as Task
+  }
 }
 
 function child(sessionId: string, label: string): SidebarSessionChild {
@@ -89,10 +93,11 @@ describe('unified picker rows', () => {
     expect(entries.map((entry) => entry.kind)).toEqual(['task', 'task'])
   })
 
-  test('tasks sit under their lifecycle sections, each listed once', () => {
-    // WHY: tasks have no place in the sidebar, so no task is lifted into an
-    // "Open" section above the rest. The Tasks page's sections order them.
-    const todo = { ...task('c', 'Gamma'), status: 'todo' as const }
+  test('tasks sit under their status categories, each listed once', () => {
+    // WHY: the picker mixes task sources, whose columns do not line up. The
+    // status category is the one grouping every task has, with the work in
+    // progress first.
+    const todo: Task = { ...task('c', 'Gamma'), category: 'open', state: { name: 'Todo', category: 'open' } }
     const { rows } = buildPickerRows({
       tasks: [...tasks, todo],
       query: '',
@@ -101,8 +106,8 @@ describe('unified picker rows', () => {
       expandedTaskIds: new Set(),
     })
     expect(rows.filter((row) => row.kind === 'header').map((row) => row.label)).toEqual([
-      'In progress',
-      'Todo',
+      'Active',
+      'Open',
     ])
     expect(rows.filter((row) => row.kind === 'task').map((row) => row.task.id)).toEqual([
       'a',
@@ -173,14 +178,14 @@ describe('unified picker rows', () => {
     const ranked = [
       { ...task('body-new', 'Rollout'), body: 'needs the auth token' },
       task('title-old', 'Auth flow'),
-      { ...task('status-hit', 'Unrelated'), status: 'in_progress' as const },
+      task('status-hit', 'Unrelated'),
       { ...task('body-old', 'Login'), body: 'auth again' },
     ]
     const { rows } = build(ranked, {}, 'auth')
     const taskRows = rows.filter((row) => row.kind === 'task')
     expect(taskRows.map((row) => row.task.id)).toEqual(['title-old', 'body-new', 'body-old'])
     expect(taskRows.map((row) => row.matchedIn)).toEqual(['title', 'body', 'body'])
-    expect(build(ranked, {}, 'in_progress').entries).toEqual([])
+    expect(build(ranked, {}, 'progress').entries).toEqual([])
     expect(build(ranked, {}, 'solus').entries).toEqual([])
   })
 
@@ -212,13 +217,17 @@ describe('unified picker rows', () => {
     expect(build([task('a', 'Alpha')], named, 'retry auth').entries.map((entry) => entry.kind === 'session' && entry.session.sessionId)).toEqual(['a2'])
   })
 
-  test('a task found by its id says so with the id, not a note', () => {
-    const numbered = { ...task('t', 'Rollout'), shortId: 42 } as Task
-    const [row] = build([numbered], {}, 'T-42').rows.filter((row) => row.kind === 'task')
-    expect(row.matchedIn).toBe('id')
-    expect(build([numbered], {}, '42').taskCount).toBe(1)
-    // The uuid is not an id anyone types.
-    expect(build([{ ...numbered, id: 'uuid-9f' } as Task], {}, '9f').taskCount).toBe(0)
+  test('a task found by its reference says so with the reference, not a note', () => {
+    // WHY: a person names a task by what the provider shows: `#42`, `SOL-7`.
+    const issue: Task = { ...task('github:I_9f', 'Rollout'), reference: 'acme/app#42' }
+    const jira: Task = { ...task('jira:c1:10007', 'Cutover'), reference: 'SOL-7' }
+    const [row] = build([issue, jira], {}, '#42').rows.filter((row) => row.kind === 'task')
+    expect(row).toMatchObject({ matchedIn: 'id', task: { id: 'github:I_9f' } })
+    expect(build([issue, jira], {}, 'SOL-7').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['jira:c1:10007'])
+    // The task key is not an id anyone types.
+    expect(build([issue], {}, '9f').taskCount).toBe(0)
+    // A draft has no reference to find it by.
+    expect(build([{ ...task('github:D_1', 'Idea'), kind: 'draft' }], {}, 'draft').taskCount).toBe(0)
   })
 
   test('a body hit shows the passage it hit as the row\'s second line', () => {
@@ -521,22 +530,28 @@ describe('unified picker rows', () => {
  * shapes above.
  */
 describe('unified picker project scope', () => {
-  function inProject(id: string, title: string, projectKey: string): Task {
-    return { ...task(id, title), projectKey } as Task
+  function inSource(id: string, title: string, sourceKey: string): Task {
+    return { ...task(id, title), placements: [{ sourceKey, columnId: null }] }
   }
 
   const mixed = [
-    inProject('a', 'Route models', 'model-routing'),
-    inProject('b', 'Ship the site', 'solus'),
-    inProject('c', 'Route more models', 'model-routing'),
+    inSource('a', 'Route models', 'github-repo:acme/model-routing'),
+    inSource('b', 'Ship the site', 'github-repo:acme/solus'),
+    inSource('c', 'Route more models', 'github-repo:acme/model-routing'),
   ]
+  // A project lists task sources; a task is in each project that lists one of its sources.
+  const projectKeysBySource = new Map([
+    ['github-repo:acme/model-routing', ['model-routing']],
+    ['github-repo:acme/solus', ['solus']],
+  ])
+  const projectKeysOfSources = (item: Task) => item.placements.flatMap((placement) => projectKeysBySource.get(placement.sourceKey) ?? [])
 
-  function scoped(projectKey: string | null, query = '', projectKeyOf?: (task: Task) => string | null) {
+  function scoped(projectKey: string | null, query = '', projectKeysOf: (task: Task) => readonly string[] = projectKeysOfSources) {
     return buildPickerRows({
       tasks: mixed,
       query,
       projectKey,
-      projectKeyOf,
+      projectKeysOf,
       sessionsFor: () => [],
       expandedTaskIds: new Set<string>(),
     })
@@ -548,12 +563,12 @@ describe('unified picker project scope', () => {
     expect(list.hiddenTaskCount).toBe(1)
   })
 
-  test('a scope lists the tasks of every checkout of its project', () => {
-    // One row stands for the project, so choosing it must not keep only the
-    // checkout its row happens to be named by.
-    const list = scoped('github.com/acme/app', '', () => 'github.com/acme/app')
-    expect(list.entries.map((entry) => entry.task.id)).toEqual(['a', 'b', 'c'])
-    expect(list.hiddenTaskCount).toBe(0)
+  test('a task is in the scope of each project that lists it', () => {
+    // WHY: one task source can be in many projects. A task of a shared board
+    // must show in the scope of each of those projects, not in one of them.
+    const list = scoped('site', '', (item) => item.id === 'b' ? ['solus', 'site'] : projectKeysOfSources(item))
+    expect(list.entries.map((entry) => entry.task.id)).toEqual(['b'])
+    expect(list.hiddenTaskCount).toBe(2)
   })
 
   test('no scope lists every project and withholds nothing', () => {
@@ -736,7 +751,7 @@ describe('search across tasks and sessions', () => {
   test('Updated narrows both kinds, Task status narrows tasks, Agent narrows sessions', () => {
     const fresh = { ...task('fresh', 'Fresh task'), updatedAt: now - day / 2 }
     const stale = { ...task('stale', 'Stale task'), updatedAt: now - 40 * day }
-    const done = { ...task('done', 'Done task'), status: 'done', updatedAt: now - day / 2 } as Task
+    const done: Task = { ...task('done', 'Done task'), category: 'done', state: { name: 'Closed', category: 'done' }, updatedAt: now - day / 2 }
     const session = (sessionId: string, provider: string, at: number) =>
       ({ sessionId, serverId: 'local', provider, customTitle: null, firstMessage: sessionId, lastTimestamp: new Date(at).toISOString() }) as unknown as SessionMeta
     const build = (filters: { updated?: 'any' | 'day'; status?: 'any' | 'open' | 'done'; agent?: 'any' | 'codex' }) => buildPickerRows({

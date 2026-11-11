@@ -1,26 +1,33 @@
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
   import type { AgentId } from "@solus/contracts/types";
-  import type { Task, TaskPriority, TaskStatus } from "@solus/contracts/task-types";
+  import type { Task, TaskMoveTarget, TaskPriority } from "@solus/contracts/task-types";
   import { getAgentContext, getSurfaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
   import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
   import { Input } from "../../ui/input";
-  import { relativeTime, STATUS_META } from "../lib/tasks-api";
-  import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
+  import { CATEGORY_META, relativeTime } from "../lib/tasks-api";
+  import {
+    priorityBars,
+    priorityLabel,
+    statusTextColor,
+    taskStateLabel,
+    type TaskFieldLocks,
+  } from "./lib/task-page";
+  import type { TaskMoveGroup } from "./lib/task-move";
   import TaskPriorityMenu from "./TaskPriorityMenu.svelte";
   import TaskStatusMenu from "./TaskStatusMenu.svelte";
 
   interface Props {
     task: Task;
-    canEdit: boolean;
-    onSaveTitle: (title: string) => void;
-    onSaveBody: (body: string) => void;
-    /** The statuses this task's provider accepts. Empty leaves the status chip
-     *  as the label it always was, rather than a control that cannot act. */
-    editableStatuses: TaskStatus[];
-    canEditPriority: boolean;
-    onSaveStatus: (status: TaskStatus) => void;
+    /** Why each field editor is disabled (`taskFieldLocks`). */
+    locks: TaskFieldLocks;
+    /** Each save answers false when the provider refused the change. */
+    onSaveTitle: (title: string) => Promise<boolean>;
+    onSaveBody: (body: string) => Promise<boolean>;
+    /** What the move menu offers (`taskMoveGroups`). */
+    moveGroups: TaskMoveGroup[];
+    onMove: (target: TaskMoveTarget) => void;
     onSavePriority: (priority: TaskPriority | null) => void;
     /** The folded rung's stand-in for the rail: a Details disclosure at the end
      *  of the status line, and the panel it opens under the title. Both are
@@ -31,12 +38,11 @@
 
   let {
     task,
-    canEdit,
+    locks,
     onSaveTitle,
     onSaveBody,
-    editableStatuses,
-    canEditPriority,
-    onSaveStatus,
+    moveGroups,
+    onMove,
     onSavePriority,
     detailsTrigger,
     detailsPanel,
@@ -51,7 +57,6 @@
   );
   const editorCwd = $derived(session.tasksProjectCwd ?? undefined);
 
-  const status = $derived(STATUS_META[task.status]);
   const bars = $derived(priorityBars(task.priority));
   const openedAt = $derived(task.createdAt ? relativeTime(task.createdAt) : "");
 
@@ -59,7 +64,7 @@
   let bodyDraft = $state(untrack(() => task.body));
   // The body editor completes @ and # references against the workspace; a
   // client without one (the cloud console) reads the body and edits the rest.
-  const canEditBody = $derived(canEdit && !!session.workspace);
+  const canEditBody = $derived(locks.body === null && !!session.workspace);
   let bodyEditor: DocumentPromptEditor | undefined = $state();
   // Re-seed when the route swaps to another task: the same component instance
   // is reused, so drafts must follow the id rather than the mount.
@@ -71,42 +76,47 @@
     bodyDraft = task.body;
   });
 
-  function commitTitle() {
+  // The provider takes the change before the task does, so each draft stays on
+  // screen while the write is on its way. A refused write puts the task's own
+  // value back: the page must not show text the provider does not have.
+  async function commitTitle() {
     const next = titleDraft.trim();
     if (!next || next === task.title) {
       titleDraft = task.title;
       return;
     }
-    onSaveTitle(next);
+    await onSaveTitle(next);
+    titleDraft = task.title;
   }
 
   // Reads the editor itself rather than the draft: `onValueChange` is
   // debounced, so the last keystrokes before the blur may not be in it yet.
-  function commitBody() {
+  async function commitBody() {
     const next = bodyEditor?.getMarkdown() ?? bodyDraft;
     bodyDraft = next;
-    if (next !== task.body) onSaveBody(next);
+    if (next === task.body) return;
+    await onSaveBody(next);
+    bodyDraft = task.body;
   }
 </script>
 
 <!-- Status and priority are the two facts in this row that are also decisions,
      so they are the menus that make them. The negative inline margin keeps each
      label optically where it sat as plain text while giving the control a
-     padded hit area, and a task whose provider will not take the change keeps
-     the label and loses only the affordance. The row is workspace chrome, so it
+     padded hit area, and a task whose provider will not take a change of the
+     priority keeps the label and loses only the affordance. The row is workspace chrome, so it
      sets `text-workspace-chrome` once and every label and control in it — the
      Details disclosure too — inherits the one size. It wraps in a narrow pane. -->
 <div class="flex flex-wrap items-center gap-x-[13px] gap-y-1 pb-[11px] text-workspace-chrome">
   <TaskStatusMenu
-    status={task.status}
-    options={editableStatuses}
-    onSelect={onSaveStatus}
+    groups={moveGroups}
+    onSelect={onMove}
     triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent"
   >
     {#snippet trigger()}
       <span
         class="inline-flex items-center gap-1.5"
-        style="color:{statusTextColor(task.status)}"
+        style="color:{statusTextColor(task.category)}"
       >
         <!-- The class carries the size, not the attributes: a CSS width beats
              the presentation attribute, which is what lets the glyph step. -->
@@ -120,9 +130,9 @@
           stroke-linecap="round"
           stroke-linejoin="round"
           class="size-[13px] shrink-0"
-          aria-hidden="true"><path d={status.glyph} /></svg
+          aria-hidden="true"><path d={CATEGORY_META[task.category].glyph} /></svg
         >
-        {status.label}
+        {taskStateLabel(task)}
       </span>
     {/snippet}
   </TaskStatusMenu>
@@ -134,7 +144,7 @@
 
   <TaskPriorityMenu
     priority={task.priority}
-    disabled={!canEditPriority}
+    lock={locks.priority}
     onSelect={onSavePriority}
     triggerClass="-mx-1.5 inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-normal text-muted-foreground transition-colors hover:bg-[var(--wash-2)] disabled:cursor-default disabled:hover:bg-transparent"
   >
@@ -173,11 +183,11 @@
   {/if}
 </div>
 
-{#if canEdit}
+{#if locks.title === null}
   <Input
     class="m-0 h-auto w-full rounded-none border-0 bg-transparent! p-0 text-2xl leading-[1.25] font-medium text-pretty shadow-none outline-none focus-visible:ring-0 dark:bg-transparent!"
     bind:value={titleDraft}
-    onblur={commitTitle}
+    onblur={() => void commitTitle()}
     onkeydown={(e) => {
       if (e.key === "Enter") e.currentTarget.blur();
       if (e.key === "Escape") {
@@ -188,7 +198,7 @@
     aria-label="Task title"
   />
 {:else}
-  <h1 class="m-0 text-2xl leading-[1.25] font-medium text-pretty">
+  <h1 class="m-0 text-2xl leading-[1.25] font-medium text-pretty" title={locks.title}>
     {task.title}
   </h1>
 {/if}
@@ -207,7 +217,7 @@
       bind:this={bodyEditor}
       value={bodyDraft}
       onValueChange={(v) => (bodyDraft = v)}
-      onBlur={commitBody}
+      onBlur={() => void commitBody()}
       dragHandle={false}
       placeholder="Describe the work…"
       dictation
@@ -218,7 +228,7 @@
       maxHeight={4000}
     />
   {:else if task.body.trim()}
-    <div class="prose max-w-[104ch]">
+    <div class="prose max-w-[104ch]" title={locks.body ?? undefined}>
       <GithubMarkdown source={task.body} policy="local" />
     </div>
   {/if}

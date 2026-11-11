@@ -17,7 +17,6 @@ export function appLinkUrl(accountOrigin: string, resource: ShareResource, cloud
 
 function routeFor(resource: ShareResource, serverId: string): RouteRef {
   switch (resource.kind) {
-    case 'task': return { name: 'task', params: { taskId: resource.id, serverId } }
     case 'work': return { name: 'work', params: { workId: resource.id, serverId } }
     case 'session': return { name: 'sessionRecord', params: { sessionId: resource.id, serverId } }
   }

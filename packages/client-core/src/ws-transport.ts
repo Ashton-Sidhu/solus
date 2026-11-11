@@ -423,7 +423,7 @@ export class WsTransport {
     const records = workspaceRecordMethods(new SolusApiClient({
       contextKey: () => JSON.stringify([this.opts.serverUrl, this.opts.serverId, this.opts.organizationId?.() ?? null]),
       send: request => this.invoke('solusApiRequest', [request]),
-    }), id => this.invoke('tasksReadExtras', [id]))
+    }))
     return Object.assign(api, records)
   }
 

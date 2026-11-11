@@ -9,6 +9,8 @@ scenarios on the record API. Verification is recorded in
 Interactive client verification remains to be run. No deployment or pull request
 was requested.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the Tasks row of §1, the `/v1/tasks` paths, the task handlers, stores and agent tools of §3, the task lists of §5 and the task CRUD stage of §6 are history. The API has no task record routes; `PUT /links` and `DELETE /links` stay and take a task key. The current routes are in [docs/api/routes.md](../docs/api/routes.md).
+
 **Outcome:** Provide a small authenticated request API for Solus-owned records.
 Desktop, web, mobile and external callers share the same authorized domain
 operations. The API can run independently of agent execution; desktop continues

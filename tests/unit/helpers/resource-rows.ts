@@ -7,7 +7,7 @@ import type { Db } from '@solus/server/db/database'
  * §2.2), and nothing else a role reads. A test that
  * asks for a role needs the resource to exist: a role is decided from its row.
  */
-export async function seedResource(db: Db, kind: 'session' | 'work' | 'task', id: string, ownerKey: string, organizationId = 'local'): Promise<void> {
+export async function seedResource(db: Db, kind: 'session' | 'work', id: string, ownerKey: string, organizationId = 'local'): Promise<void> {
   switch (kind) {
     case 'session':
       await db.run(sql`
@@ -19,12 +19,6 @@ export async function seedResource(db: Db, kind: 'session' | 'work' | 'task', id
       await db.run(sql`
         INSERT INTO works (id, title, type, content, organization_id, created_by, content_hash, created_at, updated_at)
         VALUES (${id}, ${id}, 'doc', '', ${organizationId}, ${ownerKey}, 'hash', 1, 1)
-      `)
-      return
-    case 'task':
-      await db.run(sql`
-        INSERT INTO tasks (id, title, created_at, updated_at, organization_id, created_by)
-        VALUES (${id}, ${id}, 1, 1, ${organizationId}, ${ownerKey})
       `)
   }
 }

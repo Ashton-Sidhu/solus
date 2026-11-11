@@ -53,7 +53,7 @@ export async function linkSessionItem(sessionId: string, raw: SessionLinkInput, 
       INSERT INTO ${resourceLinks}(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, title, source, status, author, created_by, created_at)
       VALUES (${organizationId}, 'session', ${sessionId}, ${edge.targetKind}, ${edge.targetScope}, ${edge.targetKey}, 'reference', ${title},
         ${provenanceOf(actor)}, 'active', ${attributionJson(actor)}, ${createdBy}, ${Date.now()})
-      ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
+      ON CONFLICT(organization_id, source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
     `)
   })
   if (inserted.changes > 0) await emitSessionArtifactsChanged(sessionId)

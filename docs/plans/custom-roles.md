@@ -4,6 +4,12 @@ Status: built 2026-10-25 (§14 says what was built and how it differs from the
 plan). Changes `permissions.md` (§2, §3, §5) and `host-sharing.md` (§2, §4, §6).
 Read both first.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, the `task.read` and
+> `task.own` actions of §4 are history. A task has no resource action: each
+> task method needs only `host.use`.
+
 ## 0. Why
 
 Three facts from the current code:
@@ -81,7 +87,7 @@ Do not say "scope", "grant", "allowlist", or "capability" for a link's actions.
 
 ## 3. The action tree
 
-The session subtree. Works and tasks keep their flat verbs as single-leaf
+The session subtree. Works keep their flat verbs as single-leaf
 paths until a second leaf is needed.
 
 ```
@@ -337,7 +343,7 @@ verified email, a principal kind for people outside the organization (not
 `org-member`, which holds `PERSON_PERMISSIONS`), and the host as the one writer
 of the row.
 
-Decided 2026-10-25: works and tasks keep their flat verbs (`work.read`,
+Decided 2026-10-25: works keep their flat verbs (`work.read`,
 `work.comment`, `work.edit`, …). A custom role applies to sessions only, and
 the share dialog of a work offers only the presets.
 

@@ -17,7 +17,6 @@ import {
   provenanceOf,
   pullRequestStateSchema,
   sourceClause,
-  taskOwner,
   type LinkEdge,
   type LinkRelation,
 } from '../links/resource-links'
@@ -30,7 +29,7 @@ import {
   recordObservation,
 } from '../links/pull-request-observations'
 import { emitSessionPullRequestsChanged } from '../sessions/session-pull-requests'
-import { database, emitChanged, TASK_HERE } from './task-store'
+import { assertTaskKey, database, emitChanged } from './task-store'
 import { scopeClause } from '../scope'
 import type { RecordScope } from '../../admission/principal'
 import type {
@@ -45,10 +44,12 @@ import type {
 
 /** A task's links to docs, plans, PRs and automations: its edges in
  * `resource_links` to a work, plan, pr, or automation (data/links/schema.ts).
+ * A link is an attachment: it keys on the task key, needs no row in `tasks`,
+ * and has the organization of who made it.
  *
  * These are in-transaction cores, not a public API: they run inside the
- * caller's transaction and never open their own. The public surface is the
- * `Task` object's `link()` / `unlink()` / `links()`.
+ * caller's transaction and never open their own. The public surface is
+ * `task-attachments.ts`.
  */
 
 const linkKindSchema = z.enum(['work', 'plan', 'pr', 'automation'])
@@ -75,7 +76,7 @@ const taskLinkRowSchema = z.object({
   pr_state: pullRequestStateSchema.nullable(),
   pr_title: z.string().nullable(),
 })
-const titleRowSchema = z.object({ title: z.string() })
+const titleRowSchema = z.object({ title: z.string(), organization_id: z.string() })
 const taskPrLinkRowSchema = z.object({
   task_id: z.string(),
   target_scope: z.string(),
@@ -115,10 +116,9 @@ const linkedTaskRowSchema = z.object({
   kind: linkKindSchema,
   target_scope: z.string(),
   target_key: z.string(),
-  title: z.string(),
-  status: z.string(),
-  short_id: z.number().nullable(),
-  project_key: z.string().nullable(),
+  title: z.string().nullable(),
+  category: z.enum(['open', 'active', 'done']).nullable(),
+  reference: z.string().nullable(),
 })
 
 /** A card asks for the handful of targets it shows; a transcript never asks
@@ -139,7 +139,7 @@ export type PrLinkState = 'open' | 'closed' | 'merged' | 'missing'
 
 /** One linked pull request as PR sync reads it (docs/plans/pr-sync.md §3.1). */
 export interface PrLinkInterest extends PrLinkTarget {
-  /** A task that is not done or dropped links it. */
+  /** A task that is not done links it. */
   isActive: boolean
   /** Null until PR sync first answers. */
   state: PrLinkState | null
@@ -264,12 +264,13 @@ export async function writeTaskLink(
   by: Attribution,
   now = Date.now(),
 ): Promise<void> {
+  assertTaskKey(taskId)
   const targetKey = input.targetKey.trim()
   if (!targetKey) throw new Error('A task link needs a target.')
   const targetScope = canonicalTargetScope(input.kind, (input.targetScope ?? '').trim())
   const title = await snapshotTitle(organizationId, { ...input, targetKey, targetScope })
   const facts = await linkFacts(db, organizationId, input, by, targetScope, targetKey)
-  const createdBy = await creatorOf(by, () => taskOwner(db, taskId))
+  const createdBy = await creatorOf(by, async () => null)
 
   // A pin is a choice, and `undefined` is the absence of one: a re-link that
   // knows nothing about pinning must leave the existing pin alone. NULL is how
@@ -287,7 +288,7 @@ export async function writeTaskLink(
       ${facts.repository}, ${facts.number}, ${facts.authorityKey}, 0,
       ${facts.author}, ${createdBy}, ${now}
     )
-    ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO UPDATE SET
+    ON CONFLICT(organization_id, source_kind, source_id, target_kind, target_scope, target_key) DO UPDATE SET
       title = excluded.title,
       url = COALESCE(excluded.url, resource_links.url),
       pinned = COALESCE(${pinned}, resource_links.pinned)
@@ -297,11 +298,10 @@ export async function writeTaskLink(
   if (pinned === 1) {
     await db.run(sql`
       UPDATE ${resourceLinks} SET pinned = 0
-      WHERE ${sourceClause('task', taskId)} AND resource_links.pinned = 1
+      WHERE ${sourceClause('task', taskId)} AND resource_links.organization_id = ${organizationId} AND resource_links.pinned = 1
         AND NOT (resource_links.target_kind = ${input.kind} AND resource_links.target_scope = ${targetScope} AND resource_links.target_key = ${targetKey})
     `)
   }
-  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   await appendActivity(organizationId, taskChanged(taskId, by, 'linked', {
     target: { kind: input.kind, scope: targetScope, key: targetKey, title },
   }, now), db)
@@ -312,18 +312,19 @@ export async function writeTaskLink(
  * output: the link is now deliberate, so it stays when the session leaves.
  * Returns false when the link was deliberate already.
  */
-export async function claimSessionOutputLink(db: Db, taskId: string, target: TaskLinkTarget): Promise<boolean> {
+export async function claimSessionOutputLink(db: Db, organizationId: string, taskId: string, target: TaskLinkTarget): Promise<boolean> {
   return (await db.run(sql`
     UPDATE ${resourceLinks} SET relation = 'reference', via_session_id = NULL
-    WHERE ${edgeClause(taskEdge(taskId, target))} AND resource_links.relation = 'output'
+    WHERE ${edgeClause(taskEdge(taskId, target))} AND resource_links.organization_id = ${organizationId} AND resource_links.relation = 'output'
   `)).changes > 0
 }
 
 /** The outputs of a session leave the task with the session. Returns false
  *  when the task held none. */
-export async function deleteSessionOutputLinks(db: Db, taskId: string, sessionId: string): Promise<boolean> {
+export async function deleteSessionOutputLinks(db: Db, organizationId: string, taskId: string, sessionId: string): Promise<boolean> {
   return (await db.run(sql`
-    DELETE FROM ${resourceLinks} WHERE ${sourceClause('task', taskId)} AND resource_links.relation = 'output' AND resource_links.via_session_id = ${sessionId}
+    DELETE FROM ${resourceLinks} WHERE ${sourceClause('task', taskId)} AND resource_links.organization_id = ${organizationId}
+      AND resource_links.relation = 'output' AND resource_links.via_session_id = ${sessionId}
   `)).changes > 0
 }
 
@@ -337,34 +338,35 @@ export async function deleteSessionOutputLinks(db: Db, taskId: string, sessionId
  */
 export async function setTaskLinkPin(
   db: Db,
+  organizationId: string,
   taskId: string,
   target: TaskLinkTarget,
   pinned: boolean,
-  now = Date.now(),
 ): Promise<boolean> {
   const flag = pinned ? 1 : 0
   const edge = taskEdge(taskId, target)
+  const inOrganization = sql`resource_links.organization_id = ${organizationId}`
   const changed = await db.run(sql`
     UPDATE ${resourceLinks} SET pinned = ${flag}
-    WHERE ${edgeClause(edge)} AND resource_links.pinned <> ${flag}
+    WHERE ${edgeClause(edge)} AND ${inOrganization} AND resource_links.pinned <> ${flag}
   `)
   if (changed.changes === 0) return false
   if (pinned) {
     await db.run(sql`
       UPDATE ${resourceLinks} SET pinned = 0
-      WHERE ${sourceClause('task', taskId)} AND resource_links.pinned = 1
+      WHERE ${sourceClause('task', taskId)} AND ${inOrganization} AND resource_links.pinned = 1
         AND NOT (resource_links.target_kind = ${edge.targetKind} AND resource_links.target_scope = ${edge.targetScope} AND resource_links.target_key = ${edge.targetKey})
     `)
   }
-  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   return true
 }
 
-/** Returns false when there was nothing to unlink, so the caller can skip the
- * change broadcast on a no-op. */
+/** Returns false when there was nothing to unlink in `scope`, so the caller
+ * can skip the change broadcast on a no-op. The history of the unlink is in
+ * the organization of the link. */
 export async function deleteTaskLink(
   db: Db,
-  organizationId: string,
+  scope: RecordScope,
   taskId: string,
   kind: TaskLinkKind,
   targetKey: string,
@@ -373,38 +375,38 @@ export async function deleteTaskLink(
   now = Date.now(),
 ): Promise<boolean> {
   const edge = taskEdge(taskId, { kind, targetScope, targetKey })
+  const inScope = sql`${edgeClause(edge)} AND ${scopeClause(scope, sql`resource_links.organization_id`)}`
   const existing = titleRowSchema.nullish().parse(await db.get(sql`
-    SELECT title FROM ${resourceLinks} WHERE ${edgeClause(edge)}
+    SELECT title, organization_id FROM ${resourceLinks} WHERE ${inScope}
   `))
   if (!existing) return false
 
-  await db.run(sql`DELETE FROM ${resourceLinks} WHERE ${edgeClause(edge)}`)
-  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
+  await db.run(sql`DELETE FROM ${resourceLinks} WHERE ${inScope}`)
   // Carries the title so the feed still reads "unlinked <name>" afterwards.
-  await appendActivity(organizationId, taskChanged(taskId, by, 'unlinked', {
+  await appendActivity(existing.organization_id, taskChanged(taskId, by, 'unlinked', {
     target: { kind, scope: edge.targetScope, key: targetKey, title: existing.title },
   }, now), db)
   return true
 }
 
-/** A task's links: the ones made on it, and the pull requests its sessions
- *  own. A pull request linked both ways is the task's own link. */
-export async function readTaskLinks(db: Db, organizationId: string, taskId: string): Promise<TaskLink[]> {
+/** A task's links in `scope`: the ones made on it, and the pull requests its
+ *  sessions own. A pull request linked both ways is the task's own link. */
+export async function readTaskLinks(db: Db, scope: RecordScope, taskId: string): Promise<TaskLink[]> {
   const rows = taskLinkRowSchema.array().parse(await db.all(sql`
     SELECT resource_links.source_id AS task_id, resource_links.target_kind AS kind, resource_links.target_scope, resource_links.target_key,
       resource_links.title, resource_links.url, resource_links.author, resource_links.origin_session_id, resource_links.via_session_id,
       resource_links.created_at, resource_links.pinned, o.state AS pr_state, o.title AS pr_title
     FROM ${resourceLinks} ${OBSERVATION_JOIN}
-    WHERE ${TASK_LINK} AND resource_links.source_id = ${taskId}
+    WHERE ${TASK_LINK} AND resource_links.source_id = ${taskId} AND ${scopeClause(scope, sql`resource_links.organization_id`)}
     ORDER BY resource_links.created_at DESC, resource_links.target_kind, resource_links.target_key
   `))
   const live = await linkTargetRecordsFor(
-    organizationId,
+    scope,
     rows.map((row) => ({ kind: row.kind, targetScope: row.target_scope, targetKey: row.target_key })),
   )
   const links = rows.map((row) => linkFromRow(row, live))
   const held = new Set(rows.filter((row) => row.kind === 'pr').map((row) => pullRequestKey(row.target_scope, row.target_key)))
-  for (const row of await readSessionOwnedPrRows(db, organizationId, [taskId])) {
+  for (const row of await readSessionOwnedPrRows(db, scope, [taskId])) {
     const key = pullRequestKey(row.repository, row.number)
     if (held.has(key)) continue
     held.add(key)
@@ -428,10 +430,11 @@ export async function readTaskLinks(db: Db, organizationId: string, taskId: stri
 /**
  * The reverse read: which tasks link each of these targets.
  *
- * This is what a conversation card asks so it can say "Linked to T-184"
+ * This is what a conversation card asks so it can say "Linked to acme/app#184"
  * beside the document it just rendered, and offer the way back out. It joins
- * the task row for the title and status the label needs, and nothing more —
- * the card opens the task for the rest. Targets past the cap are dropped
+ * the host's copy of the task for the title and category the label needs, and
+ * nothing more — the card opens the task for the rest. A host that holds the
+ * link but never read the task names it by its key. Targets past the cap are dropped
  * rather than failing the read: a card missing a label is recoverable, a
  * transcript with no labels is not.
  */
@@ -447,10 +450,10 @@ export async function readTasksLinkingTargets(
   const rows = linkedTaskRowSchema.array().parse(await db.all(sql`
     SELECT
       resource_links.source_id AS task_id, resource_links.target_kind AS kind, resource_links.target_scope, resource_links.target_key,
-      tasks.title, tasks.status, tasks.short_id, tasks.project_key
+      tasks.title, tasks.category, tasks.reference
     FROM ${resourceLinks}
-    JOIN ${tasks} ON tasks.id = resource_links.source_id
-    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE} AND ${TASK_LINK} AND (${clause})
+    LEFT JOIN ${tasks} ON tasks.id = resource_links.source_id
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND ${TASK_LINK} AND (${clause})
     ORDER BY resource_links.created_at DESC
   `))
   return rows.map((row) => {
@@ -459,18 +462,17 @@ export async function readTasksLinkingTargets(
       kind: row.kind,
       targetScope: row.target_scope,
       targetKey: row.target_key,
-      title: row.title,
-      // SAFETY: `tasks.status` is written only through `assertTaskStatus`.
-      status: row.status as TaskLinkedTask['status'],
-      projectKey: row.project_key,
+      title: row.title ?? row.task_id,
+      category: row.category ?? 'open',
     }
-    if (row.short_id !== null) linked.shortId = row.short_id
+    if (row.reference !== null) linked.reference = row.reference
     return linked
   })
 }
 
 /**
  * Every pull request linked on a task itself, with whether live work links it
+ * (a task with no copy on this host is not known to be done, so it counts)
  * and what PR sync last saw. Distinct, because several tasks commonly link one
  * pull request and it is one question either way. The links that sessions own
  * are a separate read (`readSessionPullRequestInterests`).
@@ -479,11 +481,11 @@ export async function readPrLinkInterests(db: Db, scope: RecordScope): Promise<P
   const rows = prLinkInterestRowSchema.array().parse(await db.all(sql`
     SELECT resource_links.target_scope, resource_links.target_key, MAX(o.state) AS pr_state,
       MAX(o.updated_at) AS pr_updated_at,
-      MAX(CASE WHEN tasks.status NOT IN ('done', 'dropped') THEN 1 ELSE 0 END) AS active
+      MAX(CASE WHEN tasks.category = 'done' THEN 0 ELSE 1 END) AS active
     FROM ${resourceLinks}
-    JOIN ${tasks} ON tasks.id = resource_links.source_id
+    LEFT JOIN ${tasks} ON tasks.id = resource_links.source_id
     ${OBSERVATION_JOIN}
-    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE}
+    WHERE ${scopeClause(scope, sql`resource_links.organization_id`)}
       AND ${TASK_PR} AND resource_links.target_scope <> ''
     GROUP BY resource_links.target_scope, resource_links.target_key
   `))

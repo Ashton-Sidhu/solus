@@ -1,12 +1,13 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Param, SQL, sql } from 'drizzle-orm'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { FakeTaskProviders, githubDraft, githubIssue, seedTask } from './helpers/task-fixtures'
 import type { Attribution } from '@solus/contracts/user'
-import type { NormalizedTicket, Task } from '@solus/contracts/task-types'
+import type { Task } from '@solus/contracts/task-types'
 import type { PlanAnnotations, PlanComment } from '@solus/contracts/types'
 import type { CommentActor } from '@solus/contracts/comment-commands'
 
@@ -20,9 +21,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 type DbModule = typeof import('@solus/server/db')
 type DatabaseModule = typeof import('@solus/server/db/database')
 type ThreadsModule = typeof import('@solus/server/data/comments/comment-threads')
-type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
+type TaskRegistryModule = typeof import('@solus/server/data/tasks/providers/registry')
 type TaskModule = typeof import('@solus/server/data/tasks/task')
-type TaskSyncStoreModule = typeof import('@solus/server/data/tasks/task-sync-store')
 type WorksModule = typeof import('@solus/server/data/works/works')
 type WorkModule = typeof import('@solus/server/data/works/work')
 type WorkAnnotationsModule = typeof import('@solus/server/data/works/work-annotations')
@@ -34,9 +34,9 @@ let dataDir: string
 let db: DbModule
 let database: DatabaseModule
 let threads: ThreadsModule
-let taskStore: TaskStoreModule
+let registry: TaskRegistryModule
+let providers: FakeTaskProviders
 let tasks: TaskModule
-let syncStore: TaskSyncStoreModule
 let works: WorksModule
 let workModule: WorkModule
 let workAnnotations: WorkAnnotationsModule
@@ -54,31 +54,14 @@ function actor(by: Attribution, now = 10, canModerate = false): CommentActor {
   return { by, canModerate, now }
 }
 
-function ticket(overrides: Partial<NormalizedTicket> = {}): NormalizedTicket {
-  return {
-    provider: 'github',
-    externalKey: 'solus/desktop',
-    externalId: '42',
-    url: 'https://github.com/solus/desktop/issues/42',
-    title: 'Remote',
-    body: '',
-    status: 'todo',
-    labels: [],
-    externalUpdatedAt: 'r1',
-    comments: [],
-    ...overrides,
-  }
-}
-
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-comment-threads-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
   database = await import('@solus/server/db/database')
   threads = await import('@solus/server/data/comments/comment-threads')
-  taskStore = await import('@solus/server/data/tasks/task-store')
+  registry = await import('@solus/server/data/tasks/providers/registry')
   tasks = await import('@solus/server/data/tasks/task')
-  syncStore = await import('@solus/server/data/tasks/task-sync-store')
   works = await import('@solus/server/data/works/works')
   workModule = await import('@solus/server/data/works/work')
   workAnnotations = await import('@solus/server/data/works/work-annotations')
@@ -87,7 +70,15 @@ beforeAll(async () => {
   hostUser = await import('@solus/server/host/host-user')
 })
 
+// GitHub for each test, in memory: a task comment is a provider comment.
+beforeEach(() => {
+  providers = new FakeTaskProviders()
+  registry.useTaskAdaptersForTests(providers.adapters())
+  issues = 0
+})
+
 afterEach(async () => {
+  registry.useTaskAdaptersForTests(null)
   await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
@@ -99,8 +90,13 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
+let issues = 0
+
+/** A GitHub issue that the provider holds and the host has a copy of. */
 async function task(title = 'Task'): Promise<Task> {
-  return taskStore.createTask('local', { title })
+  const issue = githubIssue(++issues, { title })
+  providers.hold(issue)
+  return seedTask(issue)
 }
 
 async function work(title = 'Spec') {
@@ -135,7 +131,7 @@ describe('ordering', () => {
       await threads.insertThread(dbh, subject, { threadId: id, body: 'note', author: ALICE, createdBy: 'alice', createdAt: at })
     }
     expect((await threads.readThreads(dbh, subject)).map((thread) => thread.threadId)).toEqual(['a', 'b', 'z'])
-    expect((await (await tasks.Task.byId('local', created.id)).details()).comments.map((comment) => comment.id)).toEqual(['a', 'b', 'z'])
+    expect((await tasks.taskDetails('local', created.id)).comments.map((comment) => comment.id)).toEqual(['a', 'b', 'z'])
   })
 
   test("a work's and a plan's threads read in the order they were added, by a position the parent allocates", async () => {
@@ -174,83 +170,67 @@ describe('ordering', () => {
 describe('who made a thread', () => {
   test('created_by is the acting person, the person an agent acts for, else the host user', async () => {
     const created = await task()
-    const t = await tasks.Task.byId('local', created.id)
-    await t.comment('by alice', { by: ALICE })
-    await t.comment('by an agent for bob', { by: { kind: 'agent', sessionId: 'a', for: BOB.kind === 'user' ? BOB.user : undefined } })
-    await t.comment('by an agent', { by: AGENT })
+    await tasks.commentOnTask('local', created.id, { body: 'by alice', by: ALICE })
+    await tasks.commentOnTask('local', created.id, { body: 'by an agent for bob', by: { kind: 'agent', sessionId: 'a', for: BOB.kind === 'user' ? BOB.user : undefined } })
+    await tasks.commentOnTask('local', created.id, { body: 'by an agent', by: AGENT })
     const rows = await threads.readThreads(database.getDatabase(), { organizationId: 'local', kind: 'task', id: created.id })
     expect(rows.map((thread) => thread.createdBy)).toEqual(['alice', 'bob', hostUser.hostUserKey()])
     expect(rows.map((thread) => thread.author)).toEqual([ALICE, { kind: 'agent', sessionId: 'a', for: BOB.kind === 'user' ? BOB.user : undefined }, AGENT])
   })
 })
 
-describe('external identity', () => {
-  test('an upstream comment is one row under its target; the same id under another target, task, or organization is another row', async () => {
-    // WHY (correction 3): a task relinked to another ticket must not have the new
-    // ticket's comment 42 collide with the old ticket's comment 42.
-    const dbh = database.getDatabase()
+describe('provider identity', () => {
+  test('a provider comment is one row under its task; the same provider id under another task is another row', async () => {
+    // WHY (correction 3): comment 42 of one task must not collide with comment
+    // 42 of another, and a second read of a task must not write its comments again.
     const first = await task('first')
     const second = await task('second')
-    const other = await taskStore.createTask('org-a', { title: 'theirs' })
-    await syncStore.writeExternalLink(dbh, 'local', first.id, ticket({ comments: [{ externalId: '42', author: 'octocat', body: 'upstream', createdAt: 5 }] }))
-    expect(await syncStore.insertExternalComments(dbh, 'local', first.id, [{ externalId: '42', author: 'octocat', body: 'replayed', createdAt: 5 }])).toBe(0)
-    await syncStore.writeExternalLink(dbh, 'local', second.id, ticket({ externalId: '43', comments: [{ externalId: '42', author: 'octocat', body: 'elsewhere', createdAt: 5 }] }))
-    await syncStore.writeExternalLink(dbh, 'org-a', other.id, ticket({ externalKey: 'theirs/repo', comments: [{ externalId: '42', author: 'octocat', body: 'theirs', createdAt: 5 }] }))
-    expect(await threadCount(sql`external_id = '42'`)).toBe(3)
+    providers.comments.set(first.id, [{ id: '42', author: 'octocat', body: 'upstream', createdAt: 5 }])
+    providers.comments.set(second.id, [{ id: '42', author: 'jane', body: 'elsewhere', createdAt: 5 }])
+    await tasks.getTask('local', first.id)
+    await tasks.getTask('local', first.id)
+    await tasks.getTask('local', second.id)
+    expect(await threadCount(sql`external_id = '42'`)).toBe(2)
 
-    // Relinked to another ticket: its comment 42 is a new row beside the old target's.
-    await syncStore.writeExternalLink(dbh, 'local', first.id, ticket({ provider: 'jira', externalKey: 'cloud/PROJ', externalId: 'PROJ-7', comments: [{ externalId: '42', author: 'jane', body: 'jira', createdAt: 6 }] }))
-    const details = await (await tasks.Task.byId('local', first.id)).details()
-    expect(details.comments.map((comment) => [comment.externalAuthor, comment.externalId, comment.source])).toEqual([['octocat', '42', 'external'], ['jane', '42', 'external']])
+    const details = await tasks.taskDetails('local', first.id)
+    expect(details.comments.map((comment) => [comment.externalAuthor, comment.body])).toEqual([['octocat', 'upstream']])
     expect(details.comments.every((comment) => comment.author === undefined)).toBe(true)
   })
 })
 
 describe('deletion and delivery', () => {
-  test('only an unpublished local comment can be deleted: private and pending yes, sent and imported no', async () => {
-    const dbh = database.getDatabase()
+  test('only an unsent comment can be discarded: a sent comment and a comment read from the provider are the provider\'s', async () => {
+    // WHY: a comment on GitHub is deleted on GitHub. A discard here would hide
+    // it on this host only, and the next read would bring it back.
     const created = await task()
-    await syncStore.writeExternalLink(dbh, 'local', created.id, ticket({ comments: [{ externalId: '1', author: 'octocat', body: 'imported', createdAt: 1 }] }))
-    const t = await tasks.Task.byId('local', created.id)
-    await t.comment('private', { by: ALICE })
-    await t.comment('queued', { by: ALICE })
-    await t.comment('sent', { by: ALICE })
-    const byBody = async () => Object.fromEntries((await t.details()).comments.map((comment) => [comment.body, comment]))
-    let comments = await byBody()
-    await t.publishComments([comments.queued!.id, comments.sent!.id])
-    await syncStore.markCommentSynced(dbh, 'local', created.id, comments.sent!.id, '2')
-    comments = await byBody()
-    expect(comments.queued!.syncPending).toBe(true)
-    expect(comments.sent!.externalId).toBe('2')
-    expect(comments.sent!.syncPending).toBeUndefined()
+    providers.comments.set(created.id, [{ id: '1', author: 'octocat', body: 'read', createdAt: 1 }])
+    await tasks.getTask('local', created.id)
+    await tasks.commentOnTask('local', created.id, { body: 'sent', by: ALICE })
+    providers.failure = new Error('GitHub is down')
+    await tasks.commentOnTask('local', created.id, { body: 'unsent', by: ALICE })
+    providers.failure = null
+    const byBody = async () => Object.fromEntries((await tasks.taskDetails('local', created.id)).comments.map((comment) => [comment.body, comment]))
+    const comments = await byBody()
+    expect(comments.unsent!.unsent).toBe(true)
+    expect(comments.sent!.unsent).toBeUndefined()
 
-    const moderator = { by: BOB, canModerate: true }
-    await t.deleteComment(comments.private!.id, moderator)
-    await t.deleteComment(comments.queued!.id, moderator)
-    await expect(t.deleteComment(comments.sent!.id, moderator)).rejects.toThrow('unpublished')
-    await expect(t.deleteComment(comments.imported!.id, moderator)).rejects.toThrow('unpublished')
-    expect(Object.keys(await byBody()).sort()).toEqual(['imported', 'sent'])
+    await expect(tasks.deleteTaskComment('local', created.id, comments.sent!.id)).rejects.toThrow('on the provider already')
+    await expect(tasks.deleteTaskComment('local', created.id, comments.read!.id)).rejects.toThrow('on the provider already')
+    await tasks.deleteTaskComment('local', created.id, comments.unsent!.id)
+    expect(Object.keys(await byBody()).sort()).toEqual(['read', 'sent'])
   })
 
-  test('queueing selects private local comments once; the acknowledgement dedupes the later import', async () => {
+  test('a comment that Solus sent is not a second row when a read gives it back, and keeps who wrote it', async () => {
     // WHY (correction 4): the delivery state is the comment's own, and the
-    // ticket's copy of a comment Solus posted must not come back as a second row.
+    // provider's copy of a comment Solus posted must not come back as a second row.
     const dbh = database.getDatabase()
     const created = await task()
-    await syncStore.writeExternalLink(dbh, 'local', created.id, ticket())
-    const t = await tasks.Task.byId('local', created.id)
-    const id = (await t.comment('note', { by: ALICE })).comments[0]!.id
-    expect(await syncStore.queueCommentsForPush(dbh, 'local', created.id, [id])).toBe(1)
-    expect(await syncStore.queueCommentsForPush(dbh, 'local', created.id, [id])).toBe(0)
-    expect(await syncStore.pendingCommentsForTask('local', created.id)).toEqual([{ id, body: 'note' }])
-    expect(await syncStore.hasPendingSync('local', created.id)).toBe(true)
-
-    await syncStore.markCommentSynced(dbh, 'local', created.id, id, '44')
-    expect(await syncStore.pendingCommentsForTask('local', created.id)).toEqual([])
-    expect(await syncStore.insertExternalComments(dbh, 'local', created.id, [{ externalId: '44', author: 'me', body: 'note', createdAt: 9 }])).toBe(0)
-    expect((await t.details()).comments).toHaveLength(1)
+    const id = (await tasks.commentOnTask('local', created.id, { body: 'note', by: ALICE })).comments[0]!.id
+    const [posted] = providers.comments.get(created.id)!
+    const read = await tasks.getTask('local', created.id)
+    expect(read.comments).toEqual([expect.objectContaining({ id, body: 'note', author: ALICE })])
     const thread = await threads.readThread(dbh, { organizationId: 'local', kind: 'task', id: created.id }, id)
-    expect(thread).toMatchObject({ deliveryState: 'sent', external: { scope: 'github:solus/desktop:42', id: '44' } })
+    expect(thread).toMatchObject({ deliveryState: 'sent', external: { scope: created.id, id: posted!.id } })
   })
 })
 
@@ -328,27 +308,26 @@ describe('private threads and external state', () => {
 })
 
 describe('the subject\'s lifetime', () => {
-  test('a task move and a task delete remove its threads; a work move keeps them; a work delete removes them; nothing dangles', async () => {
+  test('a task delete removes its threads; a work move keeps them; a work delete removes them; nothing dangles', async () => {
     // WHY (correction 6, P5): the subject is polymorphic, so the parent deletes
-    // its threads itself. A moved task keeps nothing here; a moved work keeps
+    // its threads itself. A deleted draft keeps nothing here; a moved work keeps
     // its body and its comments.
-    const dbh = database.getDatabase()
-    const moved = await task('moved')
-    const deleted = await task('deleted')
+    const draft = githubDraft('DI_1')
+    providers.hold(draft)
+    const deleted = await seedTask(draft)
     const kept = await task('kept')
-    for (const created of [moved, deleted, kept]) await (await tasks.Task.byId('local', created.id)).comment('note', { by: ALICE })
+    for (const created of [deleted, kept]) await tasks.commentOnTask('local', created.id, { body: 'note', by: ALICE })
     const movedWork = await work('moved')
     const deletedWork = await work('deleted')
     for (const created of [movedWork, deletedWork]) {
       await workAnnotations.applyWorkComment('local', created.id, { kind: 'add', comment: { id: 'a', selectedText: 'q', comment: 'note' } }, actor(ALICE, 1))
     }
 
-    await (await tasks.Task.byId('local', moved.id)).moveTo({ organizationId: 'org-a' })
-    expect(await (await tasks.Task.byId('local', deleted.id)).delete()).toBe(true)
+    expect(await tasks.deleteTask(deleted.id)).toBe(true)
     await (await workModule.Work.byId('local', movedWork.id)).moveTo({ organizationId: 'org-a' })
     await (await workModule.Work.byId('local', deletedWork.id)).delete()
 
-    expect(await threadCount(sql`subject_kind = 'task' AND subject_id = ${moved.id}`)).toBe(0)
+    expect(await threadCount(sql`subject_kind = 'task' AND subject_id = ${deleted.id}`)).toBe(0)
     expect(await threadCount(sql`subject_kind = 'task' AND subject_id = ${kept.id}`)).toBe(1)
     expect((await workAnnotations.loadWorkAnnotations('local', movedWork.id))!.comments).toHaveLength(1)
     expect(await threadCount(sql`subject_kind = 'work' AND subject_id = ${deletedWork.id}`)).toBe(0)

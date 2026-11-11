@@ -9,21 +9,24 @@ import type { Task } from '@solus/contracts/task-types'
  *
  * A capture that only the agent saw is the state this feature exists to remove,
  * so what matters here is where a capture can go and how it gets there: a task
- * keeps the local asset (Solus renders it, and the task domain refuses to push
- * it upstream where it would resolve to nothing), while a pull request cannot
- * read a local asset at all and needs the bytes published first.
+ * is GitHub's or Jira's, so the capture is posted there as a comment with the
+ * bytes published first, as it is for a pull request.
  */
 
 function task(overrides: Partial<Task>): Task {
   return {
-    id: 't1',
-    providerId: 'local',
-    kind: 'task',
+    id: 'github:I_1',
+    providerId: 'github',
+    kind: 'issue',
+    reference: 'acme/widgets#1',
     title: 'A task',
     body: '',
-    status: 'todo',
-    url: null,
+    url: 'https://github.com/acme/widgets/issues/1',
+    state: { name: 'Open', category: 'open' },
+    category: 'open',
+    placements: [],
     labels: [],
+    writableFields: [],
     updatedAt: 0,
     ...overrides,
   }
@@ -63,30 +66,32 @@ describe('browser evidence', () => {
       worktreePath: '/repo/wt',
       pullRequest: { number: 7, url: 'https://github.com/acme/widgets/pull/7' },
     }
-    const choices = evidenceChoices(options, [task({ projectKey: '/repo' })], '/repo/wt')
+    const choices = evidenceChoices(options, [task({ title: 'Fix the crash' })], '/repo/wt')
     const [first] = choices
     expect(first.id).toBe('store')
     expect(first.target).toBeUndefined()
+    // A task row names the task and its state in the provider's words, and files by task key.
+    expect(choices.at(-1)).toMatchObject({ label: 'Fix the crash', detail: 'Open', target: { kind: 'task', taskId: 'github:I_1' } })
     // Every choice carries a glyph so the destination kind reads at a glance.
     expect(choices.every((choice) => choice.icon != null)).toBe(true)
   })
 
   test('a finished task is not where the current change files its evidence', () => {
-    const tasks = [
-      task({ id: 'open', status: 'in_progress', projectKey: '/repo' }),
-      task({ id: 'done', status: 'done', projectKey: '/repo' }),
-    ]
-    expect(attachableTasks(tasks, '/repo/wt').map((entry) => entry.id)).toEqual(['open'])
+    const open = task({ id: 'github:I_open', category: 'active' })
+    const done = task({ id: 'github:I_done', state: { name: 'Closed', category: 'done' }, category: 'done' })
+    expect(attachableTasks([open, done], [open, done]).map((entry) => entry.id)).toEqual(['github:I_open'])
   })
 
-  test('a worktree files against its own project, not every open task', () => {
-    const tasks = [
-      task({ id: 'mine', status: 'todo', projectKey: '/repo' }),
-      task({ id: 'elsewhere', status: 'todo', projectKey: '/other' }),
-    ]
-    expect(attachableTasks(tasks, '/repo/wt').map((entry) => entry.id)).toEqual(['mine'])
-    // A page with no worktree cannot be scoped, so scoping must not silently
-    // empty the list and leave the user with nowhere to file.
-    expect(attachableTasks(tasks, undefined).map((entry) => entry.id)).toEqual(['mine', 'elsewhere'])
+  test('a page files against the tasks of its own project, not every open task', () => {
+    // WHY: a task has no project of its own. The caller gives the tasks that
+    // the task sources of the page's project list.
+    const mine = task({ id: 'github:I_mine' })
+    const elsewhere = task({ id: 'github:I_elsewhere' })
+    expect(attachableTasks([mine, elsewhere], [mine]).map((entry) => entry.id)).toEqual(['github:I_mine'])
+    // A project that lists no open task must not silently empty the list and
+    // leave the person with nowhere to file.
+    expect(attachableTasks([mine, elsewhere], []).map((entry) => entry.id)).toEqual(['github:I_mine', 'github:I_elsewhere'])
+    const done = task({ id: 'github:I_done', category: 'done' })
+    expect(attachableTasks([mine, elsewhere], [done]).map((entry) => entry.id)).toEqual(['github:I_mine', 'github:I_elsewhere'])
   })
 })

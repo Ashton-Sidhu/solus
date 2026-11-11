@@ -7,14 +7,6 @@ const empty = z.strictObject({})
 export const solusApiOperations = {
   capabilities: { method: 'get', path: '/capabilities', query: empty, response: schemas.workspaceCapabilitiesSchema, status: 200 },
   openApi: { method: 'get', path: '/openapi.json', query: empty, status: 200 },
-  listTasks: { method: 'get', path: '/tasks', scope: 'tasks:read', query: queries.workspaceTaskQuerySchema, response: schemas.workspaceTaskPageSchema, status: 200 },
-  getTask: { method: 'get', path: '/tasks/:taskId', scope: 'tasks:read', query: empty, response: schemas.workspaceTaskSchema, status: 200 },
-  listTaskActivity: { method: 'get', path: '/tasks/:taskId/activity', scope: 'tasks:read', query: queries.workspaceActivityQuerySchema, response: schemas.workspaceActivityListSchema, status: 200 },
-  createTask: { method: 'post', path: '/tasks', scope: 'tasks:write', query: empty, body: schemas.workspaceCreateTaskSchema, response: schemas.workspaceTaskSchema, status: 201, idempotent: true },
-  updateTask: { method: 'patch', path: '/tasks/:taskId', scope: 'tasks:write', query: empty, body: schemas.workspaceUpdateTaskSchema, response: schemas.workspaceTaskSchema, status: 200, conditional: true },
-  deleteTask: { method: 'delete', path: '/tasks/:taskId', scope: 'tasks:write', query: empty, status: 204, conditional: true },
-  /** Comment on a task as the caller. */
-  createTaskComment: { method: 'post', path: '/tasks/:taskId/comments', scope: 'tasks:write', query: empty, body: schemas.workspaceCreateTaskCommentSchema, response: schemas.workspaceTaskCommentSchema, status: 201, idempotent: true },
   listWorks: { method: 'get', path: '/works', scope: 'works:read', query: queries.workspaceWorkQuerySchema, response: schemas.workspaceWorkPageSchema, status: 200 },
   publishWork: { method: 'post', path: '/works/:workId/publish', scope: 'works:write', query: empty, body: schemas.workspacePublishWorkSchema, response: schemas.workspaceWorkUpstreamSchema, status: 200 },
   pullWorkUpstream: { method: 'post', path: '/works/:workId/pull', scope: 'works:write', query: empty, body: empty, response: schemas.workspaceWorkUpstreamSchema, status: 200 },

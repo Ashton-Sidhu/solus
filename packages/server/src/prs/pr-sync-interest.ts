@@ -6,7 +6,8 @@ import { settledSessionIds } from '../data/sessions/session-states'
 import { recentBranchSessions } from '../data/tasks/host-records'
 import type { PrLinkInterest } from '../data/tasks/task-links'
 import { taskSessions } from '../data/tasks/task-sessions'
-import { unfinishedTaskProjects } from '../data/tasks/task-store'
+import { finishedTaskIds } from '../data/tasks/task-store'
+import { worktreeProjectRoot } from '@solus/contracts/types'
 
 // The live work PR sync keeps fresh: what one read of interest reads from the
 // database (docs/plans/pr-sync.md §3.1).
@@ -27,16 +28,19 @@ export interface LiveTaskSessions {
 }
 
 export async function liveTaskSessions(): Promise<LiveTaskSessions> {
-  const unfinished = await unfinishedTaskProjects(ANY_ORGANIZATION)
-  const sessions = await taskSessions(ANY_ORGANIZATION, [...unfinished.keys()])
+  // A task has no project of its own: the project of a session is its checkout.
+  const sessions = await taskSessions(ANY_ORGANIZATION)
+  const finished = await finishedTaskIds(Object.keys(sessions))
   const checkouts: LiveCheckout[] = []
   const sessionIds = new Set<string>()
-  for (const [taskId, projectKey] of unfinished) {
-    for (const attempt of sessions[taskId] ?? []) {
+  for (const [taskId, attempts] of Object.entries(sessions)) {
+    if (finished.has(taskId)) continue
+    for (const attempt of attempts) {
       if (attempt.role === 'referenced') continue
       sessionIds.add(attempt.sessionId)
-      if (projectKey && attempt.branch) {
-        checkouts.push({ projectScope: projectKey, branch: attempt.branch, sessionId: attempt.sessionId })
+      // A checkout on another host is not this host's to read.
+      if (attempt.checkoutPath && attempt.branch && !attempt.executionServerId) {
+        checkouts.push({ projectScope: worktreeProjectRoot(attempt.checkoutPath), branch: attempt.branch, sessionId: attempt.sessionId })
       }
     }
   }

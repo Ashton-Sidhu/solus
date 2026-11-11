@@ -17,16 +17,13 @@ export function taskOfTab(workspace: SessionTaskLinkWorkspace, tabId: string): T
 }
 
 /**
- * Link a mounted session to a task, now. A provider ticket becomes a native
- * task first, because a session binds only to one. A session that has not
- * started is only aimed at the task: its first prompt makes the link.
+ * Link a mounted session to a task, now. A session link is an attachment: it
+ * needs only the task key. A session that has not started is only aimed at
+ * the task: its first prompt makes the link.
  */
-export async function linkTabToTask(workspace: SessionTaskLinkWorkspace, tabId: string, ticket: Task): Promise<void> {
+export async function linkTabToTask(workspace: SessionTaskLinkWorkspace, tabId: string, task: Task): Promise<void> {
   const session = workspace.sessionFor(tabId)
   if (!session) return
-  const task = ticket.providerId === 'local'
-    ? ticket
-    : await workspace.tasksStore.get(ticket.id, ticket.projectKey ?? undefined).promote()
   const model = workspace.tasksStore.get(task.id)
   const sessionId = session.id
   if (session.agentSessionId) {

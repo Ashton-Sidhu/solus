@@ -4,30 +4,27 @@ import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import type { SessionStatus } from '@solus/contracts/types'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { attemptServerId } from '../../lib/sessionUtils'
-import { recordVisibleInWindow } from '../../lib/organization-filter'
 import { hosts } from '../hosts/hosts.svelte'
-import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { projectsStore } from '../projects/projects.store.svelte'
-import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type {
   PrepareSessionTaskRequest,
   PrepareSessionTaskResult,
-  Task as TaskRecord,
   TaskAssigneeCandidate,
   TaskCreateInput,
   TaskForSessionResult,
   TaskLinkTarget,
   TaskLinkedTask,
-  TaskProviderStatus,
   TaskSessionLink,
   TaskSidebarSnapshot,
+  TaskSummary,
 } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
 import { Task } from './task.svelte'
 import { taskSnoozesStore } from './task-snoozes.store.svelte'
+import { taskSourcesStore } from './task-sources.store.svelte'
+import { tasksInSources } from './task-projects'
 
 const INVALIDATION_DEBOUNCE_MS = 100
-const UPSTREAM_SEARCH_DEBOUNCE_MS = 350
 const TASK_DELETE_CONCURRENCY = 8
 
 /** The statuses in which an agent is working on a task. A session that waits
@@ -56,26 +53,24 @@ function splitLinkTargetKey(key: string): [TaskLinkTarget['kind'], string, strin
 /**
  * Every task this client knows anything about, and how far each read has got.
  *
- * Tasks are host-scoped: each host keeps its own store, and a project's tasks
- * live on the host that project was opened from. This store merges every
- * connected host's snapshot into one list and remembers which host each task
- * came from, so every later read and write goes back to the host that owns it.
- * Ids stay bare strings throughout — they are ULIDs, unique across hosts — which
- * is what keeps routes, deep links and agent tools unaware that hosts exist.
+ * GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). Each
+ * host keeps a copy of the tasks that its projects' task sources list, and the
+ * Solus attachments of a task key. This store merges every connected host's
+ * snapshot into one list. A task is one task key, so two hosts that read the
+ * same issue describe the same `Task`; the first of them in catalog order
+ * reads and writes it. A host that holds only attachments (the organization's
+ * Solus API) answers no tasks, and its session links join the task by its key.
  *
  * Nothing here is about one task. What is known about a task, and everything
  * that can be done to it, lives on `Task` and is reached through `get(id)`.
  *
  * What is left is the collection, and it is left here for one of three reasons.
  * It is about **which tasks exist** (`load`, the groupings, the Undo batch). It
- * is about a **project** rather than a task (the upstream list, provider
- * status). Or it is about a **session**, answering "which task owns this one"
+ * is about a **project** rather than a task (which tasks its sources list). Or
+ * it is about a **session**, answering "which task owns this one"
  * (`taskForSession`, the binding reads) — the reverse direction is a task's own
  * `sessions`. `create` and `prepareForSession` sit here because a task that does
  * not exist yet cannot be a method on one.
- *
- * A row becoming a task is `get(id).hydrate(record)`: this store finds the one
- * `Task` for that id, and the task takes the row and files itself.
  */
 export class TasksStore {
   /** The person's execution preferences for task work (plans/018 §6); the workspace supplies them. */
@@ -127,112 +122,70 @@ export class TasksStore {
    * A plain `Map`, deliberately. `get` mints a missing entity, and render paths
    * legitimately call it (`$derived(store.get(taskId))`); a `SvelteMap`
    * would make that a state write during derivation. Membership is the reactive
-   * part and is tracked by `tasks` and `upstreamTasksByProject` instead, which
-   * is also the honest split: this index is identity, those are "what exists".
+   * part and is tracked by `tasks` instead, which is also the honest split:
+   * this index is identity, that list is "what exists".
    */
   private readonly byId = new Map<string, Task>()
 
-  /** The durable tasks the last snapshot listed, in its order. Membership only —
-   *  each element is the one `Task` for its id, so a field written through it
-   *  redraws the rows reading that field without this list being rebuilt. */
+  /** The tasks that some host's snapshot lists. Membership only — each element
+   *  is the one `Task` for its key, so a field written through it redraws the
+   *  rows reading that field without this list being rebuilt. */
   private listedTasks = $state<Task[]>([])
 
-  /** The listed tasks this window shows: Local ones, the selected organization's,
-   *  and every task of a personal host (organization-scope §2, plans/031 rule 1). */
+  /** The task keys each host's snapshot lists. A task leaves the list when no
+   *  host lists it. */
+  private readonly listedTaskIdsByHost = new Map<string, Set<string>>()
+  /** The task keys each host holds session links or pull request links of. */
+  private readonly attachedTaskIdsByHost = new Map<string, Set<string>>()
+
   get tasks(): Task[] {
-    const activeOrganizationId = organizationSelection.activeOrganizationId
-    return this.listedTasks.filter((task) => recordVisibleInWindow(task.organizationId, activeOrganizationId, this.byId.get(task.id)?.serverId))
+    return this.listedTasks
   }
 
-  /** Puts a task on the durable list, once; the window filter decides whether it shows. */
-  list(task: Task): void {
+  /** Puts a task on the list, once. */
+  private list(task: Task): void {
     if (!this.listedTasks.some((row) => row.id === task.id)) this.listedTasks.push(task)
   }
 
-  /** Provider-owned tickets per project. Live rows answering a provider query,
-   *  never persisted. */
-  upstreamTasksByProject = new SvelteMap<string, Task[]>()
-
-  /**
-   * Tasks by the project they belong to (docs/plans/project-model.md §4): a
-   * cloud task names its repository; a host task names a path, which its host's
-   * checkout resolves to a repository. So one project lists its cloud tasks and
-   * the host tasks of every checkout of it, on any host.
-   */
-  byRepository: Map<string, Task[]> = $derived.by(() => {
-    const grouped = new Map<string, Task[]>()
-    for (const task of this.tasks) {
-      const projectKey = this.projectKeyOf(task)
-      if (!projectKey) continue
-      const tasks = grouped.get(projectKey)
-      if (tasks) tasks.push(task)
-      else grouped.set(projectKey, [task])
-    }
-    return grouped
-  })
-
-  /** The project a task belongs to, or null for an inbox task. */
-  projectKeyOf(task: { id: string; projectKey?: string | null }): string | null {
-    if (!task.projectKey) return null
-    return this.projectKeyAt(this.byId.get(task.id)?.serverId, task.projectKey)
-  }
-
-  /** A task's project key as filed on a host: a repository key stands as it
-   *  is; a path is resolved through that host's checkout. */
-  private projectKeyAt(serverId: string | null | undefined, projectKey: string): string {
-    if (isRepositoryKey(projectKey) || !serverId) return projectKey
-    return projectsStore.projectKeyFor(serverId, projectKey)
-  }
-
-  /** One project's tasks across hosts, and the provider tickets its checkouts
-   *  read, each ticket once. */
-  tasksInProject(projectKey: string | null | undefined): Task[] {
-    if (!projectKey) return []
-    const upstream = new Map<string, Task>()
-    for (const checkout of projectsStore.checkoutsOf(projectKey)) {
-      for (const task of this.upstreamTasksByProject.get(checkout.projectRoot) ?? []) upstream.set(task.id, task)
-    }
-    return [...(this.byRepository.get(projectKey) ?? []), ...upstream.values()]
-  }
-
-  /** Every task of these projects, each once, and every task that belongs to
-   *  no project — the every-project list has no other page to leave those on. */
-  tasksInProjects(projectKeys: ReadonlySet<string>): Task[] {
-    const tasks = new Map<string, Task>()
-    for (const task of this.tasks) {
-      const projectKey = this.projectKeyOf(task)
-      if (!projectKey || projectKeys.has(projectKey)) tasks.set(task.id, task)
-    }
-    for (const projectKey of projectKeys) {
-      for (const checkout of projectsStore.checkoutsOf(projectKey)) {
-        for (const task of this.upstreamTasksByProject.get(checkout.projectRoot) ?? []) tasks.set(task.id, task)
+  /** The projects whose task sources list a task. One source can be in many
+   *  projects, so a task can be in more than one. */
+  projectKeysOf(task: Pick<Task, 'placements'>): string[] {
+    const projectKeys = new Set<string>()
+    for (const placement of task.placements) {
+      for (const projectKey of taskSourcesStore.projectKeysBySource.get(placement.sourceKey) ?? []) {
+        projectKeys.add(projectKey)
       }
     }
-    return [...tasks.values()]
+    return [...projectKeys]
   }
 
-  inbox: Task[] = $derived(this.tasks.filter((task) => !task.projectKey && task.status !== 'dropped'))
-  upNext: Task[] = $derived(
-    this.tasks.filter((task) => task.status === 'todo' || task.status === 'in_progress' || task.status === 'in_review'),
-  )
+  /** The tasks that the task sources of one project list. */
+  tasksInProject(projectKey: string | null | undefined): Task[] {
+    if (!projectKey) return []
+    const sourceKeys = taskSourcesStore.sourceKeysByProject.get(projectKey)
+    return sourceKeys ? tasksInSources(this.tasks, sourceKeys) : []
+  }
 
-  // --- Per-project provider state -----------------------------------------
-  // Facts about a project, not about any one task, so they stay here.
+  /** Every task of these projects, each once, and every task that no known
+   *  project lists (a task that only a session link brought here) — the
+   *  every-project list has no other page to leave those on. */
+  tasksInProjects(projectKeys: ReadonlySet<string>): Task[] {
+    return this.tasks.filter((task) => {
+      const taskProjectKeys = this.projectKeysOf(task)
+      return taskProjectKeys.length === 0 || taskProjectKeys.some((projectKey) => projectKeys.has(projectKey))
+    })
+  }
 
-  providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
-  assigneeCandidatesByCwd = new SvelteMap<string, TaskAssigneeCandidate[]>()
-  assigneeCandidatesLoadingByCwd = new SvelteMap<string, boolean>()
-  assigneeCandidatesErrorByCwd = new SvelteMap<string, string>()
-  upstreamErrorByProject = new SvelteMap<string, string>()
-  upstreamFromCacheByProject = new SvelteMap<string, boolean>()
-  upstreamRefreshedAtByProject = new SvelteMap<string, number>()
-  upstreamTruncatedByProject = new SvelteMap<string, boolean>()
-  upstreamLoadingByProject = new SvelteMap<string, boolean>()
-  /** The provider search the loaded rows answer, empty for the plain list. Read
-   * by the page so it can say the rows are a search result, and by every later
-   * reload so a refresh does not silently drop the search. */
-  upstreamQueryByProject = new SvelteMap<string, string>()
-  private upstreamSearchTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** The tasks that are not done. */
+  upNext: Task[] = $derived(this.tasks.filter((task) => task.category !== 'done'))
+
+  // --- Assignee candidates ----------------------------------------------
+  // The people a provider permits a task to be assigned to: for one task, or
+  // for a new task in one source of a project. Keyed by `assigneeTargetKey`.
+
+  private assigneeCandidatesByTarget = new SvelteMap<string, TaskAssigneeCandidate[]>()
+  private assigneeCandidatesLoadingByTarget = new SvelteMap<string, boolean>()
+  private assigneeCandidatesErrorByTarget = new SvelteMap<string, string>()
 
   /**
    * Which task a session belongs to — what `taskForSession` answers from.
@@ -267,13 +220,8 @@ export class TasksStore {
    *  already changed the same target. Without this guard, an unlink can briefly
    *  restore the stale "Linked to…" label while the next invalidation catches up. */
   private linkedTargetGenerations = new Map<string, number>()
-  /** Provider-owned issue ids are only unique inside a project. Route their
-   * writes by project instead of teaching a bare issue number one host. */
-  private hostByProjectKey = new SvelteMap<string, string>()
   private loadPromise: Promise<void> | null = null
-  private providerStatusLoadsByCwd = new Map<string, Promise<TaskProviderStatus>>()
-  private assigneeCandidateLoadsByCwd = new Map<string, Promise<TaskAssigneeCandidate[]>>()
-  private upstreamLoadsByProject = new Map<string, Promise<void>>()
+  private assigneeCandidateLoads = new Map<string, Promise<TaskAssigneeCandidate[]>>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
   /** The tasks each host named since the debounce began; null when a host
    *  named none, which means "read everything". */
@@ -290,11 +238,12 @@ export class TasksStore {
 
   constructor() {
     taskSnoozesStore.start()
+    taskSourcesStore.start()
     for (const serverId of serverConnections.connectedServerIds()) {
       this.watchHost(serverId)
     }
     // A host connected later — dispatching to it, or opening a project on it —
-    // owns tasks this store has never read. Without this, its work is invisible
+    // has tasks this store has never read. Without this, its work is invisible
     // until something else forces a reload.
     serverConnections.onConnectionCreated((connection) => {
       if (this.subscribedServerIds.has(connection.serverId)) return
@@ -393,10 +342,7 @@ export class TasksStore {
     if (snapshot.changedTaskIds) {
       this.applyTaskRows(serverId, snapshot.changedTaskIds, snapshot)
     } else {
-      // A whole answer covers every task the host listed before, so one it leaves out has gone.
-      const taskIds = new Set(snapshot.tasks.map((record) => record.id))
-      for (const task of this.listedTasks) if (task.serverId === serverId) taskIds.add(task.id)
-      this.applyTaskRows(serverId, [...taskIds], snapshot)
+      this.applyTaskRows(serverId, this.wholeAnswerTaskIds(serverId, snapshot), snapshot)
     }
     if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
     else this.revisionByServerId.delete(serverId)
@@ -420,39 +366,98 @@ export class TasksStore {
     this.applyTaskRows(serverId, taskIds, snapshot)
   }
 
+  /** A whole answer covers every task the host listed or held attachments of
+   *  before, so one it leaves out has gone from that host. */
+  private wholeAnswerTaskIds(serverId: string, snapshot: TaskSidebarSnapshot): string[] {
+    return [...new Set([
+      ...snapshot.tasks.map((record) => record.id),
+      ...Object.keys(snapshot.sessionsByTask),
+      ...Object.keys(snapshot.prLinkListsByTask ?? {}),
+      ...(this.listedTaskIdsByHost.get(serverId) ?? []),
+      ...(this.attachedTaskIdsByHost.get(serverId) ?? []),
+    ])]
+  }
+
   /**
-   * Merge a narrowed snapshot. Each named task takes its row, attempts, and pull
-   * request links from the answer; a named task the answer leaves out was
-   * deleted or is no longer visible, so it leaves the list. A task another host
-   * already lists stays with that host, as in a whole-host snapshot.
+   * Merge one host's answer about the named tasks.
+   *
+   * A task row comes from a host that reads the task from its provider. When
+   * two hosts list one task, the first in catalog order reads and writes it.
+   * The session links and pull request links of a task key are attachments:
+   * each host's are kept apart and the task reads them merged, so a host that
+   * answers no task row (the organization's Solus API) still adds its links.
+   * A named task the answer leaves out is no longer listed by this host; it
+   * leaves the list when no other host lists it.
    */
   private applyTaskRows(serverId: string, taskIds: string[], snapshot: TaskSidebarSnapshot): void {
-    const answered = new Set<string>()
-    for (const record of snapshot.tasks) {
-      const task = this.get(record.id)
-      if (task.serverId && task.serverId !== serverId && this.listedTasks.includes(task)) continue
-      answered.add(record.id)
-      task.serverId = serverId
-      task.hydrate(record)
-    }
+    const listed = this.taskIdsOn(this.listedTaskIdsByHost, serverId)
+    const attached = this.taskIdsOn(this.attachedTaskIdsByHost, serverId)
+    const answered = this.applyTaskRecords(serverId, snapshot.tasks)
     const prLinkLists = snapshot.prLinkListsByTask ?? {}
     for (const taskId of taskIds) {
-      const task = this.byId.get(taskId)
-      if (!task || task.serverId !== serverId) continue
-      for (const link of task.sessions) task.unbindSession(link.sessionId)
-      if (!answered.has(taskId)) {
-        const index = this.listedTasks.indexOf(task)
-        if (index !== -1) this.listedTasks.splice(index, 1)
-        task.replaceSessions([])
-        task.applyPrLinks([])
+      const sessions = snapshot.sessionsByTask[taskId] ?? []
+      const prLinks = prLinkLists[taskId] ?? []
+      const hasAttachments = sessions.length > 0 || prLinks.length > 0
+      // A host that holds only attachments names task keys that no host has
+      // described to this client yet; the task is minted so its links wait for it.
+      const task = answered.has(taskId) || hasAttachments ? this.get(taskId) : this.byId.get(taskId)
+      if (!task) continue
+      if (hasAttachments || attached.has(taskId)) task.applyHostAttachments(serverId, sessions, prLinks)
+      if (hasAttachments) attached.add(taskId)
+      else attached.delete(taskId)
+      if (answered.has(taskId) || !listed.delete(taskId)) continue
+      const otherServerId = this.hostListing(taskId)
+      if (otherServerId) {
+        if (task.serverId === serverId) task.serverId = otherServerId
         continue
       }
-      task.replaceSessions(snapshot.sessionsByTask[taskId] ?? [])
-      task.applyPrLinks(prLinkLists[taskId] ?? [])
-      for (const link of task.sessions) {
-        if (link.role !== 'referenced') task.bindSession(link.sessionId)
-      }
+      const index = this.listedTasks.indexOf(task)
+      if (index !== -1) this.listedTasks.splice(index, 1)
     }
+  }
+
+  /** Take the task rows of one host's answer, and answer their task keys. */
+  private applyTaskRecords(serverId: string, records: TaskSummary[]): Set<string> {
+    const listed = this.taskIdsOn(this.listedTaskIdsByHost, serverId)
+    const answered = new Set<string>()
+    for (const record of records) {
+      const task = this.get(record.id)
+      answered.add(record.id)
+      listed.add(record.id)
+      if (!task.serverId || !this.listedTaskIdsByHost.get(task.serverId)?.has(task.id)
+        || this.hostRank(serverId) < this.hostRank(task.serverId)) {
+        task.serverId = serverId
+      }
+      if (task.serverId === serverId) task.hydrate(record)
+      if (!task.hiddenForUndo) this.list(task)
+    }
+    return answered
+  }
+
+  private taskIdsOn(byHost: Map<string, Set<string>>, serverId: string): Set<string> {
+    let taskIds = byHost.get(serverId)
+    if (!taskIds) byHost.set(serverId, (taskIds = new Set()))
+    return taskIds
+  }
+
+  /** A host's place in the catalog. A host this client does not know is last. */
+  private hostRank(serverId: string): number {
+    const index = serverConnections.connectedServerIds().indexOf(serverId)
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index
+  }
+
+  /** The first host in catalog order whose snapshot lists a task. */
+  private hostListing(taskId: string): string | undefined {
+    return serverConnections.connectedServerIds()
+      .find((serverId) => this.listedTaskIdsByHost.get(serverId)?.has(taskId))
+  }
+
+  /** The connected hosts that can read a task from its provider: only a host
+   *  that runs projects has task sources and a provider connection. */
+  taskReadHosts(): string[] {
+    return serverConnections.connectedServerIds().filter(
+      (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasExecution(serverId),
+    )
   }
 
   /** Whether the host reported this session running, as far as this client heard. */
@@ -557,9 +562,8 @@ export class TasksStore {
       ...target,
       taskId: task.id,
       title: task.title,
-      status: task.status,
-      shortId: task.shortId,
-      projectKey: task.projectKey,
+      category: task.category,
+      reference: task.reference,
     }, ...edges])
   }
 
@@ -576,24 +580,17 @@ export class TasksStore {
   // --- The index ----------------------------------------------------------
 
   /**
-   * The task to act on, by id — the same object every time.
+   * The task to act on, by its task key — the same object every time.
    *
-   * Minted on first mention, so a deep link or an agent tool can act on an id no
+   * Minted on first mention, so a deep link or an agent tool can act on a key no
    * snapshot has listed; until a host describes it, `isKnown` is false and its
    * fields are defaults. Use `peek` to ask whether this client knows a task at
    * all: `get` always answers, and rendering its answer would draw an empty row.
-   *
-   * `projectKey` names the project of a provider ticket, whose issue number is
-   * only unique inside it. A local ULID needs nothing.
    */
-  get(id: string, projectKey?: string): Task {
+  get(id: string): Task {
     const existing = this.byId.get(id)
-    if (existing) {
-      if (projectKey) existing.projectKey = projectKey
-      return existing
-    }
+    if (existing) return existing
     const created = new Task(this, id)
-    if (projectKey) created.projectKey = projectKey
     this.byId.set(id, created)
     return created
   }
@@ -618,126 +615,67 @@ export class TasksStore {
     this.knownTaskCount++
   }
 
-  /** The host a project's provider tickets are read through, once one has been. */
-  providerHostFor(projectKey: string | null | undefined): string | undefined {
-    return projectKey ? this.hostByProjectKey.get(projectKey) : undefined
-  }
-
-  /** Record which host answers for a project's provider tickets. The
-   *  cross-host inbox is the only party that knows, and it says so by homing a
-   *  ticket (`Task.placeIn`). */
-  setProviderHost(projectKey: string, serverId: string): void {
-    this.hostByProjectKey.set(projectKey, serverId)
-  }
-
-  /** The tasks of the project a checkout belongs to — every host's and the
-   *  cloud's, not only those filed under this path. */
+  /** The tasks of the project a checkout belongs to. */
   tasksForCheckout(serverId: string | null | undefined, path: string | null | undefined): Task[] {
-    if (!path) return []
-    return this.tasksInProject(this.projectKeyAt(serverId, path))
+    if (!serverId || !path) return []
+    return this.tasksInProject(projectsStore.projectKeyFor(serverId, path))
   }
 
-  /** Every label in use across a project's tasks — or across the inbox for a
-   *  task with no project — in name order. What a label picker offers beside
-   *  the labels the record already carries. */
-  knownLabels(serverId: string | null | undefined, projectKey: string | null | undefined): string[] {
-    const tasks = projectKey ? this.tasksForCheckout(serverId, projectKey) : this.inbox
-    return Array.from(new Set(tasks.flatMap((task) => task.labels))).sort((a, b) =>
-      a.localeCompare(b),
-    )
+  /** Every label in use across a project's tasks, in name order. What a label
+   *  picker offers beside the labels the task already carries. */
+  knownLabels(serverId: string | null | undefined, path: string | null | undefined): string[] {
+    return Array.from(new Set(this.tasksForCheckout(serverId, path).flatMap((task) => task.labels)))
+      .sort((a, b) => a.localeCompare(b))
   }
 
   taskForSession(sessionId: string | null | undefined): Task | null {
     if (!sessionId) return null
-    const taskId = this.taskIdBySessionId.get(sessionId)
-    return taskId ? (this.tasks.find((task) => task.id === taskId) ?? null) : null
+    return this.peek(this.taskIdBySessionId.get(sessionId))
   }
 
-  providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
-    return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
+  assigneeCandidates(target: TaskAssigneeTarget | null | undefined): TaskAssigneeCandidate[] {
+    return target ? (this.assigneeCandidatesByTarget.get(assigneeTargetKey(target)) ?? []) : []
   }
 
-  assigneeCandidates(cwd: string | null | undefined): TaskAssigneeCandidate[] {
-    return cwd ? (this.assigneeCandidatesByCwd.get(cwd) ?? []) : []
+  assigneeCandidatesLoading(target: TaskAssigneeTarget | null | undefined): boolean {
+    return !!target && this.assigneeCandidatesLoadingByTarget.get(assigneeTargetKey(target)) === true
+  }
+
+  assigneeCandidatesError(target: TaskAssigneeTarget | null | undefined): string | null {
+    return target ? (this.assigneeCandidatesErrorByTarget.get(assigneeTargetKey(target)) ?? null) : null
   }
 
   /** Load provider identities only when the assignee menu opens. */
-  loadAssigneeCandidates(
-    cwd: string,
-    opts: { force?: boolean; serverId: string },
-  ): Promise<TaskAssigneeCandidate[]> {
-    if (!opts.force && this.assigneeCandidatesByCwd.has(cwd)) {
-      return Promise.resolve(this.assigneeCandidatesByCwd.get(cwd) ?? [])
-    }
-    const pending = this.assigneeCandidateLoadsByCwd.get(cwd)
+  loadAssigneeCandidates(target: TaskAssigneeTarget, opts: { force?: boolean } = {}): Promise<TaskAssigneeCandidate[]> {
+    const key = assigneeTargetKey(target)
+    const held = this.assigneeCandidatesByTarget.get(key)
+    if (!opts.force && held) return Promise.resolve(held)
+    const pending = this.assigneeCandidateLoads.get(key)
     if (pending) return pending
-    this.assigneeCandidatesLoadingByCwd.set(cwd, true)
-    this.assigneeCandidatesErrorByCwd.delete(cwd)
+    this.assigneeCandidatesLoadingByTarget.set(key, true)
+    this.assigneeCandidatesErrorByTarget.delete(key)
     const load = (async () => {
       try {
-        const candidates = await serverConnections.apiFor(opts.serverId).tasksListAssigneeCandidates(cwd)
-        this.assigneeCandidatesByCwd.set(cwd, candidates)
+        const serverId = 'taskId' in target ? await this.get(target.taskId).ownerHost() : target.serverId
+        if (!serverId) throw new Error('No connected host has this task.')
+        const candidates = await serverConnections.apiFor(serverId).tasksListAssigneeCandidates(
+          'taskId' in target ? { taskId: target.taskId } : { cwd: target.cwd, sourceKey: target.sourceKey },
+        )
+        this.assigneeCandidatesByTarget.set(key, candidates)
         return candidates
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.assigneeCandidatesErrorByCwd.set(cwd, message)
+        this.assigneeCandidatesErrorByTarget.set(key, error instanceof Error ? error.message : String(error))
         throw error
       } finally {
-        this.assigneeCandidatesLoadingByCwd.set(cwd, false)
-        this.assigneeCandidateLoadsByCwd.delete(cwd)
+        this.assigneeCandidatesLoadingByTarget.set(key, false)
+        this.assigneeCandidateLoads.delete(key)
       }
     })()
-    this.assigneeCandidateLoadsByCwd.set(cwd, load)
+    this.assigneeCandidateLoads.set(key, load)
     return load
-  }
-
-  // --- Ingest -------------------------------------------------------------
-  // The one way a response becomes state. Called by `load`, by the session-tree
-  // reads, and by every `Task` write that gets a row back.
-
-  /** The live provider rows for a project, created empty on first ask. A `Task`
-   *  files and unfiles itself here as its project and provider change. */
-  upstreamRowsFor(projectKey: string): Task[] {
-    const rows = this.upstreamTasksByProject.get(projectKey)
-    if (rows) return rows
-    const created: Task[] = []
-    this.upstreamTasksByProject.set(projectKey, created)
-    return created
   }
 
   // --- Loading ------------------------------------------------------------
-
-  /** `serverId` names the host that holds `cwd`; a path is meaningless on any
-   *  other machine, so a remote project's status must be read from its own. */
-  loadProviderStatus(
-    cwd: string,
-    opts: { checkAccess?: boolean; serverId: string },
-  ): Promise<TaskProviderStatus> {
-    const pending = this.providerStatusLoadsByCwd.get(cwd)
-    if (pending) return pending
-    const load = (async () => {
-      try {
-        const status = await serverConnections.apiFor(opts.serverId).tasksProviderStatus(cwd, { checkAccess: opts.checkAccess })
-        this.providerStatusByCwd.set(cwd, status)
-        return status
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        this.error = message
-        const status: TaskProviderStatus = {
-          provider: this.providerStatus(cwd)?.provider ?? 'local',
-          ok: false,
-          reason: 'access_failed',
-          message,
-        }
-        this.providerStatusByCwd.set(cwd, status)
-        return status
-      } finally {
-        this.providerStatusLoadsByCwd.delete(cwd)
-      }
-    })()
-    this.providerStatusLoadsByCwd.set(cwd, load)
-    return load
-  }
 
   /** `loaded` means "the first attempt finished", which is what the spinners
    *  read — but a failed attempt must not stand in for a successful one here,
@@ -773,7 +711,7 @@ export class TasksStore {
             serverIds.map(async (serverId) => {
               try {
                 const snapshot = await serverConnections.apiFor(serverId).tasksSidebarSnapshot()
-                this.applyHostSnapshot(serverId, snapshot, serverIds)
+                this.applyHostSnapshot(serverId, snapshot)
                 this.loaded = true
                 this.refreshedAt = Date.now()
                 return { serverId }
@@ -814,107 +752,27 @@ export class TasksStore {
   }
 
   /** Apply one whole host response, including its session and PR links.
-   *  Other hosts keep their rows until they answer. If two hosts serve the
-   *  same store, catalog order decides ownership regardless of response order. */
-  private applyHostSnapshot(serverId: string, snapshot: TaskSidebarSnapshot, serverIds: string[]): void {
-    const taskIds = new Set(snapshot.tasks.map((record) => record.id))
-    for (const task of this.listedTasks) if (task.serverId === serverId) taskIds.add(task.id)
-    for (const record of snapshot.tasks) {
-      const task = this.byId.get(record.id)
-      if (!task?.serverId || task.serverId === serverId) continue
-      const ownerIndex = serverIds.indexOf(task.serverId)
-      if (ownerIndex !== -1 && ownerIndex < serverIds.indexOf(serverId)) continue
-      // A preferred host answered after a mirror. Move the one task object
-      // before applying its links so writes follow the preferred host too.
-      task.serverId = serverId
-    }
-    this.applyTaskRows(serverId, [...taskIds], snapshot)
+   *  Other hosts keep their rows until they answer. */
+  private applyHostSnapshot(serverId: string, snapshot: TaskSidebarSnapshot): void {
+    this.applyTaskRows(serverId, this.wholeAnswerTaskIds(serverId, snapshot), snapshot)
     if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
     else this.revisionByServerId.delete(serverId)
   }
 
-  /** Fetch a project's upstream tickets from the live provider. A project with no upstream provider
-   * returns an empty list; errors land in `upstreamErrorByProject` instead of
-   * failing the local list. */
-  async loadUpstream(
-    projectKey: string,
-    opts: { serverId: string; query?: string },
-  ): Promise<void> {
-    // An absent `query` keeps whatever search is active, so an ordinary refresh
-    // does not throw the user back to the unfiltered list. An empty one clears
-    // it — that is how the page says "the search box is empty now".
-    const query = opts.query === undefined
-      ? this.upstreamQueryByProject.get(projectKey) ?? ''
-      : opts.query.trim()
-    const pending = this.upstreamLoadsByProject.get(projectKey)
-    if (pending) {
-      // A different search is a different question, and the answer in flight
-      // does not answer it.
-      if (query === (this.upstreamQueryByProject.get(projectKey) ?? '')) return pending
-      await pending
-    }
-    if (query) this.upstreamQueryByProject.set(projectKey, query)
-    else this.upstreamQueryByProject.delete(projectKey)
-
-    this.upstreamLoadingByProject.set(projectKey, true)
-    this.upstreamErrorByProject.delete(projectKey)
-    const load = (async () => {
-      try {
-        const upstream = await serverConnections.apiFor(opts.serverId)
-          .tasksListUpstream(projectKey, { query })
-        this.hostByProjectKey.set(projectKey, opts.serverId)
-        this.replaceUpstreamRows(projectKey, upstream.tasks)
-        if (upstream.fromCache) this.upstreamFromCacheByProject.set(projectKey, true)
-        else this.upstreamFromCacheByProject.delete(projectKey)
-        if (upstream.fetchedAt !== undefined) {
-          this.upstreamRefreshedAtByProject.set(projectKey, upstream.fetchedAt)
-        } else if (!upstream.fromCache && upstream.tasks.length > 0) {
-          this.upstreamRefreshedAtByProject.set(projectKey, Date.now())
-        }
-        if (upstream.truncated) this.upstreamTruncatedByProject.set(projectKey, true)
-        else this.upstreamTruncatedByProject.delete(projectKey)
-      } catch (error) {
-        this.upstreamErrorByProject.set(
-          projectKey,
-          error instanceof Error ? error.message : String(error),
-        )
-      } finally {
-        this.upstreamLoadingByProject.delete(projectKey)
-        this.upstreamLoadsByProject.delete(projectKey)
-      }
-    })()
-    this.upstreamLoadsByProject.set(projectKey, load)
-    return load
-  }
-
-  private replaceUpstreamRows(projectKey: string, records: TaskRecord[]): void {
-    this.upstreamTasksByProject.set(projectKey, records.map((record) => {
-      const task = this.get(record.id, projectKey)
-      task.hydrate(record)
-      return task
-    }))
-  }
-
   /**
-   * Search the provider for a scope whose list came back capped.
+   * Ask the provider for the tasks of a project's sources that match a query.
    *
-   * Below the cap the page already holds every ticket and filters them as you
-   * type. Past it, the same filter quietly means "of the 200 loaded", so the
-   * text has to go to the provider — an issue nobody has touched this month is
-   * exactly the one being looked for.
-   *
-   * Debounced, because this is a keystroke handler and the far end is a network
-   * search.
+   * The only way to reach a task that a truncated source did not list: an issue
+   * nobody has touched this month is exactly the one being looked for. The
+   * answers are tasks to act on, but they do not join the list; the next
+   * snapshot decides what the list holds.
    */
-  searchUpstream(serverId: string, projectKey: string, query: string): void {
-    const trimmed = query.trim()
-    const timer = this.upstreamSearchTimers.get(projectKey)
-    if (timer) clearTimeout(timer)
-    if (trimmed === (this.upstreamQueryByProject.get(projectKey) ?? '')) return
-    this.upstreamSearchTimers.set(projectKey, setTimeout(() => {
-      this.upstreamSearchTimers.delete(projectKey)
-      void this.loadUpstream(projectKey, { serverId, query: trimmed })
-    }, UPSTREAM_SEARCH_DEBOUNCE_MS))
+  async search(serverId: string, cwd: string, query: string): Promise<Task[]> {
+    const found = await serverConnections.apiFor(serverId).tasksSearch(cwd, query)
+    return found.map((record) => {
+      const task = this.get(record.id)
+      return task.hydrate(record, task.serverId ? undefined : serverId)
+    })
   }
 
   // --- Session binding ----------------------------------------------------
@@ -949,18 +807,23 @@ export class TasksStore {
     const found = await api.tasksForSession(sessionId).catch(() => undefined)
     if (found === undefined) return undefined
     if (found === null) return null
-    return this.applySessionTask(sessionId, found, serverId)
+    return this.applySessionTask(sessionId, found, ownerServerId)
   }
 
-  private applySessionTask(
-    sessionId: string,
-    found: TaskForSessionResult,
-    serverId?: string,
-  ): Task {
-    const task = this.get(found.task.id).hydrate(found.task, serverId)
+  private applySessionTask(sessionId: string, found: TaskForSessionResult, serverId: string): Task {
+    const task = this.get(found.task.id)
+    task.hydrate(found.task, this.readHostFor(task, serverId))
     task.bindSession(sessionId)
-    for (const attempt of found.attempts) task.applyAttempt(attempt)
+    for (const link of found.attempts) task.applySessionLink(serverId, link)
+    this.taskIdsOn(this.attachedTaskIdsByHost, serverId).add(task.id)
     return task
+  }
+
+  /** The host to record as the reader of a task that `serverId` just
+   *  described: undefined when the task has a reader already, or when
+   *  `serverId` holds only attachments and cannot read a task. */
+  private readHostFor(task: Task, serverId: string): string | undefined {
+    return !task.serverId && hosts.hasExecution(serverId) ? serverId : undefined
   }
 
   /** Read a session's binding after a write to its task host. New session
@@ -975,17 +838,20 @@ export class TasksStore {
     return hydrated ?? this.taskForSession(sessionId)
   }
 
-  /** `serverId` is the host the task belongs to — the one that owns the project
-   *  it was created from. Required: a project path alone does not name a host,
-   *  and guessing one filed a remote project's first task on the default host. */
+  /** Create a task on the provider, in a source of the project `input.cwd`.
+   *  `serverId` names the host that has that project: a path alone does not
+   *  name a host. A failed create throws and nothing is listed. */
   async create(input: TaskCreateInput, serverId: string): Promise<Task> {
     const created = await serverConnections.apiFor(serverId).tasksCreate(input)
-    return this.get(created.id).hydrate(created, serverId)
+    const task = this.get(created.id).hydrate(created, serverId)
+    this.taskIdsOn(this.listedTaskIdsByHost, serverId).add(task.id)
+    this.list(task)
+    return task
   }
 
   /**
    * Bind the task a session names, before its first prompt leaves — on the
-   * host that owns the task.
+   * host that files the session link.
    *
    * This is the first-dispatch boundary, moved out of whichever host happens to
    * run the agent. A dispatched session runs on one machine and files here, so
@@ -1000,13 +866,16 @@ export class TasksStore {
     input: PrepareSessionTaskRequest,
   ): Promise<PrepareSessionTaskResult> {
     const result = await serverConnections.apiFor(serverId).tasksPrepareForSession(input)
-    if (result.task) this.get(result.task.id).hydrate(result.task, serverId)
+    if (result.task) {
+      const task = this.get(result.task.id)
+      task.hydrate(result.task, this.readHostFor(task, serverId))
+    }
     return result
   }
 
   // --- Bulk delete --------------------------------------------------------
 
-  /** Hide tasks for their Undo window. The host rows still exist until the
+  /** Hide draft tasks for their Undo window. The drafts still exist until the
    *  toast commits, so a refresh landing in between must not restore them. */
   softRemove(ids: string[]): Task[] {
     const wanted = new Set(ids)
@@ -1023,7 +892,10 @@ export class TasksStore {
 
   restorePending(pending: Task[]): void {
     if (!pending.length) return
-    for (const task of pending) task.restore()
+    for (const task of pending) {
+      task.restore()
+      this.list(task)
+    }
     this.listedTasks.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
@@ -1054,4 +926,14 @@ export class TasksStore {
       throw failureByIndex.get(firstFailureIndex) ?? new Error('Delete failed')
     }
   }
+}
+
+/** Whose assignee candidates to read: the people for one task, or for a new
+ *  task in one source of a project on one host. */
+export type TaskAssigneeTarget =
+  | { taskId: string }
+  | { serverId: string; cwd: string; sourceKey: string }
+
+function assigneeTargetKey(target: TaskAssigneeTarget): string {
+  return 'taskId' in target ? `task:${target.taskId}` : `source:${hostKey(target.serverId, target.cwd)}:${target.sourceKey}`
 }

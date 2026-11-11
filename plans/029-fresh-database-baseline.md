@@ -18,6 +18,8 @@ and are not to be executed on their own. Planned against `c4c64aff2` plus the
 working tree.
 ## 1. Decisions that shape everything below
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, these are history: `task_counters` and `short_id` (§3.7), the task move and task delete rules (§3.4, §5.1, §5.2), `tasks.pr`, the private delivery state of a task comment (§5.2), and `organization_id` on a task (§8). The `tasks` table is now the task cache, and `task_sources`, `task_source_items` and `task_source_access` are new. `resource_links`, `personal_resource_state` and `comment_threads` stay; their task id is the task key. The current tables are in [docs/database-schema.md](../docs/database-schema.md).
+
 User decisions, 2026-11-01:
 
 1. **The database is rebuilt from scratch and the existing one is wiped.** No

@@ -11,7 +11,6 @@ import { ANY_ORGANIZATION, CREDENTIAL_FREE_PRINCIPAL, recordScopeOf, scopeAdmits
 import type { ShareResource } from '@solus/contracts/sharing'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { workOrganizationId } from './data/works/works'
-import { taskOrganizationId } from './data/tasks/task-store'
 import { transcriptDestination } from './sync/mirror/transcript-mirror'
 import { appendDelivery, deliveryBacklog, dropQueuedFor, retryUnsupportedKinds } from './sync/delivery-queue'
 import { RemoteUpdateService } from './updates/remote-update-service'
@@ -221,6 +220,7 @@ import { probeHostCapabilities, registerSetupHandlers } from './transport/handle
 import packageJson from '../../../package.json'
 import { appVersion, dataDir, solusDir } from './platform/paths'
 import { onTasksChanged } from './data/tasks/task-store'
+import { onTaskSourcesChanged, stopTaskSourcePolling } from './data/tasks/task-sources'
 import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
 import { emitSessionArtifactsChanged, onSessionArtifactsChanged } from './data/sessions/session-artifacts'
@@ -449,12 +449,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const shares = new ShareManager({
     db: getDatabase(),
     sessionExists: (sessionId) => opts.sessionRuntime.isKnownSession(sessionId),
-    // Only a session on this host moves from Local here; a Local work or task moves by its upload to the Solus API.
+    // Only a session on this host moves from Local here; a Local work moves by its upload to the Solus API.
     assignOrganization: async (resource, organizationId) => {
       switch (resource.kind) {
         case 'session': return (await assignSessionOrganization(resource.id, organizationId))?.organizationId ?? null
         case 'work': return workOrganizationId(resource.id)
-        case 'task': return taskOrganizationId(resource.id)
       }
     },
     // A member reaches this host with a host access token, which needs the registration (host-sharing.md §4.3), never the link.
@@ -630,6 +629,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       events.forgetRoomAdmissions()
       void events.broadcast('tasks.invalidated', taskId ? { taskId } : {})
     }),
+    // The end of a source read: a client reads the state of its sources again.
+    onTaskSourcesChanged((sourceKeys) => { void events.broadcast('tasks.sourcesChanged', { sourceKeys }) }),
+    // `registerTasksHandlers` starts the timer that keeps the wanted sources fresh.
+    stopTaskSourcePolling,
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
@@ -1015,7 +1018,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let insightPull: InsightPull | null = null
   registerObservabilityHandlers(server, { sessionRuntime: opts.sessionRuntime, insightPull: () => insightPull })
   registerProjectConfigHandlers(server)
-  registerTasksHandlers(server, { shares })
+  registerTasksHandlers(server)
   registerOutboxHandlers(server)
   // Any host can own tasks (and their works), so the owner-side appliers
   // register unconditionally.

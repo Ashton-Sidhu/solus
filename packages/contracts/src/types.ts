@@ -6,7 +6,8 @@ import type { SecretOutcomeRecord } from './secret-request'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
-import type { TaskProviderId, TaskSnapshot } from './task-types'
+import type { TaskSnapshot } from './task-types'
+import type { TaskSource } from './task-sources'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { DeviceRunProfile } from './device-types'
@@ -2965,22 +2966,14 @@ export const DEFAULT_SOURCE_CONTROL_WRITING: SourceControlWritingPreferences = {
 /** Per-project settings read on the project's owner host. */
 export interface ProjectConfig {
   version: 1
-  /** Which task provider this project uses. Absent = local (the default). */
-  taskProvider?: TaskProviderId
-  /** Where the chosen provider points. `owner`/`repo` belong to GitHub and are
-   *  auto-filled from the git remote; `cloudId`/`projectKey` belong to Jira and
-   *  are chosen explicitly, because no Jira project can be inferred from a
-   *  checkout. Only the fields of the configured `taskProvider` are read. */
-  taskProviderConfig?: {
-    owner?: string
-    repo?: string
-    cloudId?: string
-    projectKey?: string
-  }
-  /** Local comments remain private unless this is enabled or a caller opts in. */
-  tasksAutoPushComments?: boolean
-  /** Move in-review tasks to done when their linked pull request merges. */
+  /** Move a task to done when its linked pull request merges. */
   taskDoneOnMerge?: boolean
+  /** Where this project reads its tasks from. Absent or empty = the project
+   *  has no tasks (docs/plans/provider-owned-tasks.md). */
+  taskSources?: TaskSource[]
+  /** The `taskSourceKey` of the source where a new task is created. Always
+   *  names an entry of `taskSources`. */
+  defaultTaskSource?: string
   /** Overrides the host's worktree branch naming for this project. Absent =
    *  the host setting. */
   worktreeBranchNaming?: WorktreeBranchNaming

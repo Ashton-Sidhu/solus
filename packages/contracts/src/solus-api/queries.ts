@@ -11,14 +11,6 @@ const page = {
   cursor: z.string().min(1).max(2048).optional(),
 }
 export const workspacePageQuerySchema = z.strictObject(page)
-export const workspaceTaskQuerySchema = z.strictObject({
-  projectKey: z.string().max(4096).optional(),
-  scope: z.enum(['all', 'inbox', 'project', 'up_next']).optional(),
-  ...page,
-  projectId: workspaceIdSchema.optional(),
-  sessionId: workspaceIdSchema.optional(),
-  status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']).optional(),
-})
 export const workspaceWorkQuerySchema = z.strictObject({
   ...page,
   projectId: workspaceIdSchema.optional(),
@@ -96,7 +88,6 @@ export const workspaceNotificationQuerySchema = z.strictObject({
 })
 export type WorkspaceNotificationQuery = z.input<typeof workspaceNotificationQuerySchema>
 export type WorkspacePageQuery = z.infer<typeof workspacePageQuerySchema>
-export type WorkspaceTaskQuery = z.infer<typeof workspaceTaskQuerySchema>
 export type WorkspaceWorkQuery = z.infer<typeof workspaceWorkQuerySchema>
 export type WorkspaceWorkSearchQuery = z.input<typeof workspaceWorkSearchQuerySchema>
 export type WorkspaceSessionQuery = z.infer<typeof workspaceSessionQuerySchema>

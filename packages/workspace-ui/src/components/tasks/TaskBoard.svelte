@@ -1,8 +1,9 @@
 <script lang="ts">
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import type { Task, TaskStatus } from "@solus/contracts/task-types";
-  import { buildBoard } from "./lib/tasks-api";
+  import type { TaskMoveTarget } from "@solus/contracts/task-types";
+  import type { Task } from "../../contexts/tasks/task.svelte";
+  import { boardViewId, buildBoard, moveTargetFor, type BoardView } from "./lib/tasks-api";
   import { taskBoardCard } from "./lib/tasks-list-view";
   import { orderColumn } from "./lib/board-order";
   import { BoardDrag, type DropTarget } from "./lib/board-drag.svelte";
@@ -11,17 +12,23 @@
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
 
   /**
-   * The global list re-plotted as a kanban board ("Tasks page" spec, board
+   * The task list re-plotted as a kanban board ("Tasks page" spec, board
    * layout). Same tasks, same grammar as the list — only the axis changes: a
    * section becomes a column you can drop into, and within a column you can say
    * what comes first, which the list's sort can't express.
    *
-   * Each column scrolls on its own, so a long In-progress column never pushes
-   * Done off the bottom of the page.
+   * The columns are the view's: the provider's own columns for one task
+   * source, or the three status categories for every source together
+   * (docs/plans/provider-owned-tasks.md §7).
+   *
+   * Each column scrolls on its own, so a long column never pushes the last one
+   * off the bottom of the page.
    */
   interface Props {
     /** The page's visible tasks — already searched, filtered and ordered. */
     tasks: Task[];
+    /** What the board plots: one source's columns, or every source by status category. */
+    view: BoardView;
     /** Scopes the saved card order; null while no project is open. */
     projectKey: string | null;
     /**
@@ -32,7 +39,8 @@
     canReorder: boolean;
     selectedKey: string | null;
     onOpen: (task: Task) => void;
-    onSetStatus: (task: Task, status: TaskStatus) => void;
+    /** Move a task to another column of the view. The page sends it to the provider. */
+    onMoveTask: (task: Task, target: TaskMoveTarget) => void;
     /** Sessions whose agent works on the task now, not every linked one. */
     runningSessionsFor: (taskId: string) => number;
     /** "Solus Cloud" for a task whose home is the workspace service; null for this machine's. */
@@ -40,16 +48,17 @@
     /** Ticking clock, so card times age instead of freezing. */
     now: number;
     onContextMenu?: (event: MouseEvent, task: Task) => void;
-    /** Open the composer pre-set to a column's status (undefined hides the +). */
-    onAddInColumn?: (status: TaskStatus) => void;
+    /** Open the composer for a new task in a column (undefined hides the +). */
+    onAddInColumn?: (columnId: string) => void;
   }
   let {
     tasks,
+    view,
     projectKey,
     canReorder,
     selectedKey,
     onOpen,
-    onSetStatus,
+    onMoveTask,
     runningSessionsFor,
     homeFor,
     now,
@@ -61,28 +70,29 @@
   // column is an archive — it grows without bound and nobody scrolls it — so
   // the board draws a screenful and lets the rest stay out of the DOM.
   const PAGE = 25;
-  const revealed = new SvelteMap<TaskStatus, number>();
+  const revealed = new SvelteMap<string, number>();
 
-  const ranks = $derived(boardOrder.ranksFor(projectKey));
+  // The columns of one view are not the columns of another, so each view of a
+  // project keeps its own card order.
+  const orderKey = $derived(projectKey ? `${projectKey}\n${boardViewId(view)}` : null);
+  const ranks = $derived(boardOrder.ranksFor(orderKey));
   const columns = $derived(
-    buildBoard(tasks).map((col) => {
+    buildBoard(tasks, view).map((col) => {
       // Slice *after* ordering, so what's hidden is always the tail — the cards
       // that sort last. That is what makes renumbering the visible run safe:
       // nothing below the cut can outrank something above it.
       const ordered = orderColumn(col.tasks, ranks);
-      const cards = ordered.slice(0, revealed.get(col.status) ?? PAGE);
+      const cards = ordered.slice(0, revealed.get(col.id) ?? PAGE);
       return { ...col, ordered, cards, hidden: ordered.length - cards.length };
     }),
   );
 
-  // A column is not its status: buildBoard folds inbox into Todo and dropped
-  // into Done. Every move is decided in column terms, so a triaged-but-inbox
-  // task dragged inside Todo doesn't get pointlessly rewritten. Built over the
-  // whole column, not the rendered slice — membership has nothing to do with
-  // how far down you have scrolled.
+  // Every move is decided in column terms. Built over the whole column, not
+  // the rendered slice — membership has nothing to do with how far down you
+  // have scrolled.
   const columnOf = $derived(
     new Map(
-      columns.flatMap((col) => col.ordered.map((task) => [task.id, col.status] as const)),
+      columns.flatMap((col) => col.ordered.map((task) => [task.id, col.id] as const)),
     ),
   );
 
@@ -92,12 +102,12 @@
    * meaningfully, so "the column" for the purposes of a move is what you can
    * see. Hidden cards sort below the whole visible run and stay put.
    */
-  function idsIn(status: TaskStatus): string[] {
-    return columns.find((col) => col.status === status)?.cards.map((task) => task.id) ?? [];
+  function idsIn(columnId: string): string[] {
+    return columns.find((col) => col.id === columnId)?.cards.map((task) => task.id) ?? [];
   }
 
   const drag = new BoardDrag({
-    columns: () => columns.map((col) => col.status),
+    columns: () => columns.map((col) => col.id),
     idsIn,
     onDrop: (taskId, _from, target) => move(taskId, target),
   });
@@ -109,32 +119,36 @@
   $effect(() => () => drag.destroy());
 
   /**
-   * Whether a drop into `status` would do anything. On a filtered board the
+   * Whether a drop into a column would do anything. On a filtered board the
    * cards on screen are not the column, so there is nothing safe to renumber —
-   * but moving a card to a *different* column is still just a status write, and
-   * that stays available.
+   * but moving a card to a *different* column is still one write to the
+   * provider, and that stays available. No provider has the "No column"
+   * column, so a card cannot be moved into it.
    */
-  function acceptsDrop(status: TaskStatus, taskId: string | undefined): boolean {
-    return canReorder || (!!taskId && columnOf.get(taskId) !== status);
+  function acceptsDrop(columnId: string, taskId: string | undefined): boolean {
+    if (!taskId) return canReorder;
+    if (columnOf.get(taskId) === columnId) return canReorder;
+    return moveTargetFor(view, columnId) !== null;
   }
 
   /** The one write path: every drag, key and drop lands here. */
   function move(taskId: string, target: DropTarget) {
     const task = tasks.find((candidate) => candidate.id === taskId);
-    if (!task || !acceptsDrop(target.status, taskId)) return;
+    if (!task || !acceptsDrop(target.columnId, taskId)) return;
 
     // The new order is the column as it will read — the rendered cards with the
     // dragged one lifted out and spliced back at the placeholder. No index to
     // translate, because this array *is* what the user is looking at.
     if (canReorder) {
-      const cards = idsIn(target.status).filter((id) => id !== taskId);
-      boardOrder.setColumnOrder(projectKey, [
+      const cards = idsIn(target.columnId).filter((id) => id !== taskId);
+      boardOrder.setColumnOrder(orderKey, [
         ...cards.slice(0, target.index),
         taskId,
         ...cards.slice(target.index),
       ]);
     }
-    if (columnOf.get(taskId) !== target.status) onSetStatus(task, target.status);
+    const moveTarget = moveTargetFor(view, target.columnId);
+    if (columnOf.get(taskId) !== target.columnId && moveTarget) onMoveTask(task, moveTarget);
   }
 
   /**
@@ -143,9 +157,9 @@
    * same depth it left.
    */
   function moveByKey(taskId: string, key: string): boolean {
-    const status = columnOf.get(taskId);
-    if (!status) return false;
-    const here = idsIn(status);
+    const columnId = columnOf.get(taskId);
+    if (columnId === undefined) return false;
+    const here = idsIn(columnId);
     const at = here.indexOf(taskId);
 
     if (key === "ArrowUp" || key === "ArrowDown") {
@@ -155,26 +169,34 @@
       if (!canReorder) return true;
       const to = key === "ArrowUp" ? at - 1 : at + 1;
       if (to < 0 || to >= here.length) return true;
-      move(taskId, { status, index: to });
+      move(taskId, { columnId, index: to });
     } else {
-      const order = columns.map((col) => col.status);
-      const next = order[order.indexOf(status) + (key === "ArrowLeft" ? -1 : 1)];
-      if (!next) return true;
-      move(taskId, { status: next, index: Math.min(at, idsIn(next).length) });
+      const order = columns.map((col) => col.id);
+      const next = order[order.indexOf(columnId) + (key === "ArrowLeft" ? -1 : 1)];
+      if (next === undefined) return true;
+      move(taskId, { columnId: next, index: Math.min(at, idsIn(next).length) });
     }
     drag.flash(taskId);
     return true;
+  }
+
+  /** A digit on a focused card: move it to that column, counted from the left. */
+  function moveToColumn(taskId: string, index: number) {
+    const column = columns[index];
+    if (!column || columnOf.get(taskId) === column.id) return;
+    move(taskId, { columnId: column.id, index: 0 });
+    drag.flash(taskId);
   }
 </script>
 
 <div
   class="text-xs flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto overflow-y-hidden pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:h-0"
 >
-  {#each columns as col (col.status)}
+  {#each columns as col (col.id)}
     {@const isTarget =
       !!drag.drag &&
-      drag.target?.status === col.status &&
-      acceptsDrop(col.status, drag.drag.taskId)}
+      drag.target?.columnId === col.id &&
+      acceptsDrop(col.id, drag.drag.taskId)}
     {@const cards = col.cards.filter((task) => task.id !== drag.drag?.taskId)}
     <div
       class="flex h-full min-h-0 max-w-[20.625rem] min-w-[14.75rem] flex-1 basis-[16.125rem] flex-col"
@@ -183,17 +205,17 @@
            lets the label drop to sentence case and read as a place rather than
            as a shouted state. -->
       <div class="flex h-8 shrink-0 items-center gap-[7px] pr-1 pl-[3px]">
-        <TaskStatusGlyph status={col.status} />
-        <span class="font-normal ">{col.label}</span>
+        <TaskStatusGlyph category={col.category} />
+        <span class="truncate font-normal" title={col.label}>{col.label}</span>
         <span class="tabular-nums text-muted-foreground opacity-[.65]">
           {col.ordered.length}
         </span>
         <span class="flex-1"></span>
-        {#if onAddInColumn}
+        {#if onAddInColumn && moveTargetFor(view, col.id)}
           <button
             type="button"
             class="flex size-5 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground opacity-50 transition-[background-color,opacity] duration-150 hover:bg-[var(--wash-2)] hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:opacity-100 focus-visible:outline-none"
-            onclick={() => onAddInColumn?.(col.status)}
+            onclick={() => onAddInColumn?.(col.id)}
             aria-label={`New task in ${col.label}`}
             title={`New task in ${col.label}`}
           >
@@ -215,7 +237,7 @@
           : drag.drag
             ? 'bg-[var(--wash-1)] shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_7%,transparent)]'
             : ''}"
-        use:drag.column={col.status}
+        use:drag.column={col.id}
       >
         {#each cards as task, index (task.id)}
           {#if isTarget && drag.target?.index === index}
@@ -236,12 +258,10 @@
                 if (drag.swallowsClick()) return;
                 onOpen(task);
               }}
-              onSetStatus={(status) => {
-                if (task.status !== status) onSetStatus(task, status);
-              }}
+              onMoveToColumn={(index) => moveToColumn(task.id, index)}
               onMove={(key) => moveByKey(task.id, key)}
               onContextMenu={(event) => onContextMenu?.(event, task)}
-              onPress={(event) => drag.press(event, task.id, col.status)}
+              onPress={(event) => drag.press(event, task.id, col.id)}
             />
           </div>
         {/each}
@@ -268,7 +288,7 @@
           <button
             type="button"
             class="flex h-7 w-full shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent  text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground focus-visible:outline-none"
-            onclick={() => revealed.set(col.status, col.cards.length + PAGE)}
+            onclick={() => revealed.set(col.id, col.cards.length + PAGE)}
           >
             Show more
             <span class="tabular-nums opacity-70">{col.hidden}</span>
@@ -293,7 +313,7 @@
       card={taskBoardCard(dragged, runningSessionsFor(dragged.id), now, homeFor)}
       floating
       onSelect={() => {}}
-      onSetStatus={() => {}}
+      onMoveToColumn={() => {}}
       onMove={() => false}
       onPress={() => {}}
     />

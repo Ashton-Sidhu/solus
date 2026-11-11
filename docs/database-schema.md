@@ -22,8 +22,8 @@ records are read through `getDatabase()`, which points at Postgres.
   `session_messages`, `session_fts`), the execution ledger, the delivery
   queues, and host-local settings. They are read synchronously through
   `getDb()`.
-- **Ported records** are the durable, replicated records, such as tasks, works,
-  and `session`. They are written once in `defineTable` and generated
+- **Ported records** are the durable, replicated records, such as works and
+  `session`, and the host's task cache. They are written once in `defineTable` and generated
   for both engines; a read goes through `getDatabase()`.
 - **Metrics** holds this host's spans and log events. Rollover deletes rows
   older than the retention setting and gives the freed pages back to the file
@@ -52,14 +52,43 @@ NOT NULL AND project_path IS NOT NULL)` and `(settled_at IS NULL) =
 A person's own view of a session or a task — settle, archive, snooze, and the
 read boundary `viewed_at` — is a `personal_resource_state` row keyed by
 `(organization_id, resource_kind, resource_id, created_by)`, where
-`created_by` is the person whose state it is. The parent is polymorphic,
-so a session or task delete removes its rows explicitly; so are the session's
+`created_by` is the person whose state it is. A task's row is keyed by the
+task key and needs no copy of the task. The parent is polymorphic,
+so a session delete, or the delete of a draft task, removes its rows explicitly; so are the session's
 edges in `resource_links` (its pull requests with their watches, its file and
 automation links, its work memberships, and the tasks' edges to it), deleted by
 `deleteEdgesOf` in the same transaction; and the host tables that name a
 session (`runs`, `run_queue`, `run_exchanges`, `async_questions`,
 `transcript_mirror_rows`, `activity_mirror_rows`) are deleted by
 `deleteSessionRecord`, because a host table cannot reference a ported one.
+
+## Tasks
+
+GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). The host
+keeps a copy, the task cache, and no task of its own. A task id is a task key:
+`github:<node id>` or `jira:<cloud id>:<issue id>`. A row of the cache has no
+organization and no owner. `packages/server/src/data/tasks/` owns the tables.
+
+| Table | Key | Holds |
+|---|---|---|
+| `tasks` | `id` (task key) | The copy of one task: its provider fields, `state_name` and `state_category` (the provider's own state), `state_id` (the Jira status id), `category` (`Task.category`), `writable_fields`, `home` (what the adapter needs to write), provider times, `fetched_at`, `detail_fetched_at`, `last_read_at`, `comment_position` |
+| `task_sources` | `source_key` | One task source, shared by each project that lists it: `source`, `label`, `columns`, `write_state`, `fetched_at`, `truncated` |
+| `task_source_items` | (`source_key`, `task_id`) | Where a source puts a task: `column_id`, `item_id` (the board item), `position` |
+| `task_source_access` | (`user_id`, `source_key`) | One person's connection to one source: `checked_at` (their own connection read it), and the `health` and `message` of their last read |
+
+- Only a provider answer writes `tasks`: a read of a source, a read of one
+  task, or the answer of a write that the provider took (`task-cache.ts`).
+- A read of a source replaces its `task_source_items`. A task that left its
+  source and that nothing holds (no other source, no link, no session, no
+  snooze, no unsent comment) is deleted from the cache in the same transaction.
+  So is each copy that nothing holds and that no provider answer wrote for one
+  day, such as a task that only a search found.
+- A person sees the tasks of a source only when `task_source_access.checked_at`
+  is set for them. `health` is for each person, because it is about their
+  connection, not about the source.
+- The attachments of a task (`resource_links`, `personal_resource_state`,
+  `activity`) key on the task key, have an organization, and need no row in
+  `tasks`.
 
 ## Relationships
 
@@ -70,14 +99,18 @@ mentions), its links to works, plans, pull requests, and automations
 (`reference`, `pull-request`, or `output` for an item its working session
 made), a session's pull requests (`pull-request`), its works (`member`), and
 its files and automations (`reference`). The edge identity is
-`(source_kind, source_id, target_kind, target_scope, target_key)`, with one
-spelling per target kind: a session target has an empty scope, a repository is
-lower case. The relation is an attribute of the edge, so a task has one edge to
+`(organization_id, source_kind, source_id, target_kind, target_scope,
+target_key)`, with one spelling per target kind: a session target has an empty
+scope, a repository is lower case. The organization is part of the identity
+because a task source id is a task key, which is the provider's: two
+organizations on one host can link one target to one task, and each has its own
+row. The relation is an attribute of the edge, so a task has one edge to
 a session whatever its role, and a claim turns an `output` into a `reference`.
 
 The endpoints are polymorphic, so no foreign key reaches them: every delete of
-a task, a work, or a session runs `deleteEdgesOf` in its transaction, and
-`danglingEdgeCount` (tests) must stay zero. `defineTable` has no CHECK and no
+a work, a session, or a draft task runs `deleteEdgesOf` in its transaction, and
+`danglingEdgeCount` (tests) must stay zero. A task end is not counted: an edge
+needs no copy of its task on the host. `defineTable` has no CHECK and no
 composite foreign key; the commands keep the invariants and the tests encode
 them: `keeps_session` is 1 only on an active session→pull-request edge whose
 pull request is open or not yet observed; the four watch fields are set or
@@ -97,8 +130,9 @@ are never silently merged: the second alias is canonicalized only when it agrees
 with the first on its title and its pin; otherwise it stays unresolved and is
 logged (`resource_link_alias_conflict`), and readers dedupe by canonical key.
 
-Indexes, each with its reader: `resource_links_edge` (unique, the forward
-read), `resource_links_by_target` (the reverse read, key before scope),
+Indexes, each with its reader: `resource_links_edge` (unique, the edge
+identity), `resource_links_by_source` (the forward read of one source in each
+organization), `resource_links_by_target` (the reverse read, key before scope),
 `resource_links_working_owner` (one active working task per session),
 `resource_links_open_session ON (source_id, organization_id) WHERE
 keeps_session = 1` (the session list's candidate query; the join-only
@@ -162,7 +196,7 @@ supplies a TTL.
 
 | Namespace | Scope | Key | Expiry | Duplicate |
 |---|---|---|---|---|
-| `api-create-task`, `api-create-work`, `api-create-comment` | the request authority | the retry key | 24 hours | same fingerprint: the stored result id, read again under current authorization; another fingerprint is a 409 |
+| `api-create-work`, `api-create-comment` | the request authority | the retry key | 24 hours | same fingerprint: the stored result id, read again under current authorization; another fingerprint is a 409 |
 | `applied-operation` | `courier-owner` | the outbox op id | none | the op is applied; the applier does not run |
 | `webhook-delivery`, `webhook-replay` | the webhook id | the proven delivery id, the rendered replay key | 25 hours, 7 days | a duplicate delivery; an expired key is taken again |
 
@@ -178,7 +212,7 @@ scope.
 plan (plans/029-fresh-database-baseline.md §5.2; the model in
 plans/data-model-validation/README.md). One row is one thread, keyed by
 `(organization_id, subject_kind, subject_id, subject_part, thread_id)`: the
-subject is `task:<task id>`, `work:<work id>`, or `plan:<session id>` with the
+subject is `task:<task key>`, `work:<work id>`, or `plan:<session id>` with the
 plan's tool use id as `subject_part`. The row holds the body, `created_by`, the
 `author` attribution (an external comment's upstream author is a name, never a
 local user), `source`, task provenance, times, `position`, `version`,
@@ -196,14 +230,18 @@ owns it.
   plan's by `position`, allocated by advancing the parent row's
   `comment_position` (`tasks`, `works`, `plan_annotations`) in the inserting
   transaction.
-- **Delivery.** A task comment is `private`, `pending` (queued for the linked
-  ticket), or `sent`. Its external id is unique under `external_scope`,
-  `<provider>:<external key>:<ticket id>`, so a relinked task keeps the old
-  target's ids apart. A work's external document state is
+- **Delivery.** Each task comment is a provider comment. A comment the host
+  read from GitHub or Jira, or one the provider took from Solus, is `sent`
+  with the provider's id (`external_scope` is the task key). A comment the
+  provider did not take is `pending`, with the reason in `review.sendError`,
+  until it is sent again or discarded. A task's threads are in the
+  organization `local`: a task has no organization. A work's or a plan's
+  thread is always `private`. A work's external document state is
   `works.external_comments`, guarded by `works.external_comments_version`; a
   refresh that read an older state is refused.
-- **Lifetime.** The subject is polymorphic, so nothing cascades: a task's or a
-  work's delete, and a task's move, delete its threads in the same transaction.
+- **Lifetime.** The subject is polymorphic, so nothing cascades: a work's
+  delete, the delete of a draft task, and the prune of a task copy that nothing
+  holds, delete the threads in the same transaction.
   A work's move keeps them. A plan's threads belong to its `plan_annotations`
   identity, so a rebuild of `indexed_plans` never touches them.
 
@@ -216,7 +254,7 @@ checks every table of both baselines).
 - `created_by TEXT NOT NULL`: the user id of who made the row, set from the
   verified acting identity (`ownerKeyOf`), never from a client value. Ownership
   never transfers, so it is also the owner: `visibleTo` and `roleOf` read it
-  on `tasks`, `works`, `webhooks`, `automations`, `integration`,
+  on `works`, `webhooks`, `automations`, `integration`,
   `workspace_projects`, and `browser_profiles`; on `acl_entry` it is who made
   the grant; on `activity` it is the signed-in person the actor acts for (an
   agent's session owner, an automation's creator, else the host's user), with

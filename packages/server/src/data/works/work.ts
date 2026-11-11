@@ -496,7 +496,7 @@ export class Work implements WorkRecord {
         INSERT INTO ${resourceLinks}(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
         VALUES (${row.organization_id}, 'session', ${sessionId}, 'work', '', ${row.id}, 'member', ${by ? provenanceOf(by) : 'system'}, 'active',
           ${authorJson(by)}, ${createdBy}, ${Date.now()})
-        ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
+        ON CONFLICT(organization_id, source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
       `)).changes > 0
       if (added) await db.run(sql`UPDATE ${works} SET updated_at = ${nextUpdatedAt(row)} WHERE id = ${row.id}`)
     })

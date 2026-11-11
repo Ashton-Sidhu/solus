@@ -161,5 +161,5 @@ edited live. A host from before live editing saves whole bodies as before.
 | Commenter | Yes | Yes | Yes | No | No |
 | Editor, owner | Yes | Yes | Yes | Yes | Yes |
 
-Only a work offers the commenter role in the Share dialog. On a session or a
-task, a commenter is a viewer.
+Only a work offers the commenter role in the Share dialog. On a session, a
+commenter is a viewer. A task cannot be shared ([tasks](tasks.md)).

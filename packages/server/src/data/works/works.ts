@@ -78,7 +78,7 @@ async function insertOriginMembership(db: Db, organizationId: string, workId: st
     INSERT INTO ${resourceLinks}(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, author, created_by, created_at)
     VALUES (${organizationId}, 'session', ${sessionId}, 'work', '', ${workId}, 'member', ${author?.kind === 'user' ? 'manual' : 'agent'}, 'active',
       ${authorJson(author ?? agentAttribution(sessionId))}, ${createdBy}, ${now})
-    ON CONFLICT(source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
+    ON CONFLICT(organization_id, source_kind, source_id, target_kind, target_scope, target_key) DO NOTHING
   `)
 }
 

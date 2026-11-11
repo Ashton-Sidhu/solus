@@ -5,18 +5,21 @@
     Ellipsis as MoreIcon,
     ExternalLink as ArrowSquareOutIcon,
   } from "@lucide/svelte";
-  import type { Task, TaskStatus } from "@solus/contracts/task-types";
+  import type { Task } from "@solus/contracts/task-types";
+  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import { getWorkspaceContext } from "../../../contexts";
   import { toasts } from "../../../lib/toasts";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
-  import { STATUS_META, TASK_STATUSES } from "../../tasks/lib/tasks-api";
+  import { CATEGORY_META, PROVIDER_NAMES, TASK_CATEGORIES } from "../../tasks/lib/tasks-api";
 
   /**
    * The row of things you can do to the previewed task without opening it.
    *
    * Status is an edit to a row you are still choosing between, so it runs
-   * here and leaves the picker open. The two buttons on the right
+   * here and leaves the picker open. The picker mixes task sources, so the
+   * menu offers the three status categories; the host chooses the column of
+   * each source. The two buttons on the right
    * navigate; the parent owns them because they close the picker, and it
    * names them, so the same bar serves a task ("Resume latest") and a session
    * ("Resume") without knowing which it is under.
@@ -52,9 +55,9 @@
 
   const menuPortalProps = $derived({ to: portalTarget ?? undefined });
 
-  async function setStatus(task: Task, next: TaskStatus): Promise<void> {
+  async function moveTo(task: Task, category: TaskStatusCategory): Promise<void> {
     try {
-      await session.tasksStore.get(task.id, task.projectKey ?? undefined).setStatus(next);
+      await session.tasksStore.get(task.id).move({ category });
     } catch (error) {
       toasts.error("Couldn't update status", {
         description: error instanceof Error ? error.message : String(error),
@@ -67,7 +70,6 @@
      leaving buttons first at 50px, and the edits as chips on a second line. -->
 <div class="flex flex-wrap items-center gap-1.5 max-md:gap-[9px]">
   {#if showTaskControls && task}
-    {@const status = STATUS_META[task.status]}
     <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -77,17 +79,17 @@
           class="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-workspace-chrome font-medium text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:h-11 max-md:bg-[var(--wash-2)] max-md:px-3.5"
           aria-label="Set task status"
         >
-          <TaskStatusGlyph status={task.status} size={13} />
-          {status.label}
+          <TaskStatusGlyph category={task.category} size={13} />
+          {task.state.name}
           <CaretDownIcon size={9} class="shrink-0 opacity-60" />
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="top" align="start" sideOffset={6} class="min-w-40" portalProps={menuPortalProps}>
-      {#each TASK_STATUSES as option (option)}
-        <DropdownMenu.Item onSelect={() => void setStatus(task, option)}>
-          <TaskStatusGlyph status={option} size={13} />
-          {STATUS_META[option].label}
+      {#each TASK_CATEGORIES as category (category)}
+        <DropdownMenu.Item onSelect={() => void moveTo(task, category)}>
+          <TaskStatusGlyph {category} size={13} />
+          {CATEGORY_META[category].label}
         </DropdownMenu.Item>
       {/each}
     </DropdownMenu.Content>
@@ -114,7 +116,7 @@
       {#if task.url}
         <DropdownMenu.Item onSelect={() => onOpenSource(task)}>
           <ArrowSquareOutIcon size={13} class="shrink-0 opacity-70" />
-          Source ticket
+          Open on {PROVIDER_NAMES[task.providerId]}
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Content>

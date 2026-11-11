@@ -11,11 +11,11 @@ import { hostRouteSchema } from './host-routes'
 import { sessionActionLeafSchema } from './permissions'
 
 /**
- * What can be shared. A task's share reaches everything in it: the task page and
- * every session and work linked to it, at the task's role (§3.4). A session or a
- * work shared on its own reaches only itself.
+ * What can be shared: a session or a work, each on its own. A task is not a
+ * Solus resource: GitHub or Jira decides who can open it
+ * (docs/plans/provider-owned-tasks.md §4.3).
  */
-export const shareResourceKindSchema = z.enum(['session', 'work', 'task'])
+export const shareResourceKindSchema = z.enum(['session', 'work'])
 export type ShareResourceKind = z.infer<typeof shareResourceKindSchema>
 
 export const shareResourceSchema = z.object({

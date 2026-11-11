@@ -158,11 +158,6 @@ describe('an organization run on a VM, through the real Solus API', () => {
 
       // 3. The agent's writes go to the API as Bob, synchronously; the admission wrote the session, so nothing waits for a delivery.
       const context = { principal: { kind: 'system' as const }, home: { kind: 'local' as const, hostId: 'unused' }, scopes: [] }
-      const task = await operations.createTask(context, { title: 'From the VM', originSessionId: 'solus-flow' }, randomUUID())
-      expect(task).toMatchObject({ title: 'From the VM', organizationId: 'org_a', ownerKey: 'bob', source: 'agent', home: { kind: 'organization', organizationId: 'org_a' } })
-      expect(await operations.getTask(context, task.id)).toMatchObject({ id: task.id })
-      const moved = await operations.updateTask(context, task.id, { status: 'in_review' }, task.version)
-      expect(moved.status).toBe('in_review')
       const work = await operations.createWork(context, { title: 'VM notes', type: 'doc', content: '# Notes about the rollout plan', originSessionId: 'solus-flow' }, randomUUID())
       expect((await operations.getWork(context, work.id)).content).toBe('# Notes about the rollout plan')
       // Content search answers where the works live, for the works Bob may open.
@@ -174,13 +169,17 @@ describe('an organization run on a VM, through the real Solus API', () => {
       // Publishing and pulling happen where the work lives, and say why they cannot.
       await expect(operations.publishWork(context, work.id, {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('never been published') })
       await expect(operations.pullWorkUpstream(context, work.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('not linked to an upstream document') })
+      // A task is GitHub's or Jira's: the API holds only what Solus attaches to it. The link is made in Bob's organization, with no copy of the task.
+      const taskKey = 'github:I_flow'
+      await operations.putLink(context, { from: { kind: 'task', id: taskKey }, to: { kind: 'work', id: work.id }, originSessionId: 'solus-flow' })
+      const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
+      expect((await taskAttachments('org_a', taskKey)).links).toMatchObject([{ kind: 'work', targetKey: work.id, createdBy: { kind: 'agent', sessionId: 'solus-flow', for: { id: { kind: 'account', accountId: 'bob' } } } }])
 
       // 4. The API's record of the session: owned by Bob from the admission, never by the facts or the linker.
       for (let attempt = 0; attempt < 400 && queue.deliveryDestinations().length > 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
       expect(await records.getSessionRecord('org_a', 'solus-flow')).toMatchObject({ ownerKey: 'bob', runnerHostId: VM, title: 'Ship it' })
       const shares = new shareManager.ShareManager({ db: database.getDatabase() })
       expect((await shares.homeOf({ kind: 'session', id: 'solus-flow' }))?.ownerKey).toBe('bob')
-      expect((await shares.homeOf({ kind: 'task', id: task.id }))?.ownerKey).toBe('bob')
       // WHY: nothing was asked of the account plane per prompt or per write — one exchange, no later token yet.
       expect(tokenRequests).toEqual([{ grantType: TOKEN_EXCHANGE_GRANT_TYPE, organizationId: 'org_a' }])
     } finally {

@@ -20,7 +20,6 @@ import { WorksStore, type WorkListing } from '../works/works.store.svelte'
 import { AutomationsStore } from '../automations/automations.store.svelte'
 import { automationDraftSessionRequest } from '../automations/automation-draft-session'
 import { TasksStore } from '../tasks/tasks.store.svelte'
-import { UNTITLED_TASK_TITLE } from '../tasks/task.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import type { PullRequestsContext } from '../prs/pull-requests.context.svelte'
 import type { PrReviewTab } from '../prs/pr-view.svelte'
@@ -29,7 +28,6 @@ import { workspaceProjectsStore } from '../projects/workspace-projects.store.sve
 import { serversStore } from '../connections/servers.store.svelte'
 import { presenceStore } from '../presence/presence.store.svelte'
 import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
-import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { projectOptionsFor, projectScopeOptions, scopeForProject, type LogicalProject, type ProjectPageScope, type ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
@@ -86,6 +84,7 @@ import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
+import { taskProjectRoot } from '../../lib/task-project'
 import { workTitleForMarkdownFile } from '../../components/files/lib/markdown-file'
 import type { WorkspaceFileRef } from '../../components/files/lib/save-file-as-work'
 import {
@@ -554,8 +553,7 @@ export class WorkspaceContext implements SurfaceContext {
    * the same source the input header uses — rather than the tab behind it. */
   get taskCreationContext(): TaskCreationContext | null {
     const run = this.activeRun ?? this.defaultRunConfig
-    const context = taskCreationContextFor(projectHome(run).serverId, checkoutPlace(run).path, checkoutGit(run))
-    return context ? this.taskDestinationFor(runHost(run), context) : null
+    return taskCreationContextFor(projectHome(run).serverId, checkoutPlace(run).path, checkoutGit(run))
   }
 
   projectDefaultBranchFor(run: RunConfig): string | null {
@@ -574,29 +572,23 @@ export class WorkspaceContext implements SurfaceContext {
     return { serverId: place.serverId, projectRoot: worktreeProjectRoot(directory) }
   }
 
-  taskContextForProject(projectKey: string, checkout: ProjectRef | null): TaskCreationContext | null {
-    if (checkout) return this.taskContextForCheckout(checkout.serverId, checkout.projectRoot)
-    // A cloud project no known machine holds has only one place for a task.
-    const cloudServerId = serversStore.activeCloudServerId
-    return cloudServerId && workspaceProjectsStore.projectFor(cloudServerId, projectKey)
-      ? { serverId: cloudServerId, projectKey, workingDirectory: projectKey }
-      : null
+  /** The folder of a task's project on the host that reads the task, for a
+   *  call that names a working directory. Null when that host holds no
+   *  checkout of a project that lists the task. */
+  projectRootOfTask(taskId: string): string | null {
+    const task = this.tasksStore.get(taskId)
+    return taskProjectRoot(
+      this.tasksStore.projectKeysOf(task),
+      task.serverId,
+      (projectKey) => projectsStore.checkoutsOf(projectKey),
+    )
   }
 
-  private taskContextForCheckout(serverId: string, cwd: string): TaskCreationContext | null {
-    const context = taskCreationContextFor(serverId, cwd, null)
-    return context ? this.taskDestinationFor(serverId, context) : null
-  }
-
-  /** Where a new task is stored (docs/plans/project-model.md §4): on the host
-   *  that holds the checkout — tasks are local first, and a person pushes one
-   *  to the cloud on purpose — except on a cloud instance (a managed host),
-   *  whose tasks are the organization's and go to the workspace service. */
-  private taskDestinationFor(checkoutServerId: string, context: TaskCreationContext): TaskCreationContext {
-    const cloudServerId = serversStore.activeCloudServerId
-    const repositoryKey = projectsStore.repositoryKeyFor(checkoutServerId, context.projectKey)
-    if (!hostIsManaged(serversStore.hostFor(checkoutServerId)) || !cloudServerId || !repositoryKey) return context
-    return { ...context, serverId: cloudServerId, projectKey: repositoryKey }
+  /** A task is created on its provider by the host that has the project: only
+   *  that host has the project's task sources and a provider connection. A
+   *  project that no known host holds cannot take a new task. */
+  taskContextForProject(checkout: ProjectRef | null): TaskCreationContext | null {
+    return checkout ? taskCreationContextFor(checkout.serverId, checkout.projectRoot, null) : null
   }
 
   /** The base project whose tasks the page lists, as a path on the input bar's host. */
@@ -1950,30 +1942,18 @@ export class WorkspaceContext implements SurfaceContext {
     this.showPage({ name: 'tasks', params: {} }, via, 'tasks')
   }
 
-  /** New task: file an untitled task and open its page. Current-project entry
-   * points may preserve the active tab's branch/worktree; explicit project
-   * picks do not. */
-  async startNewTask(serverId: string, cwd: string, useActiveEnvironment = false): Promise<void> {
-    const activeContext = this.taskCreationContext
-    const chosen = this.taskContextForCheckout(serverId, cwd)
-    const context = useActiveEnvironment
-      && activeContext
-      && activeContext.serverId === chosen?.serverId
-      && activeContext.projectKey === chosen.projectKey
-      ? activeContext
-      : chosen
-    if (!context) return
-    try {
-      const task = await this.tasksStore.create(
-        { title: UNTITLED_TASK_TITLE, projectKey: context.projectKey },
-        context.serverId,
-      )
-      this.goToTask(task.id, 'click')
-    } catch (error) {
-      toasts.error("Couldn't create task", {
-        description: error instanceof Error ? error.message : String(error),
-      })
-    }
+  /** The Tasks page must open its composer: `composeNewTask` asked for it. The
+   *  Tasks page reads this when it is open, opens the composer for the project
+   *  its header shows, and sets it back to false. */
+  taskComposerRequested = $state(false)
+
+  /** New task: open the Tasks page on one project, with its composer open. A
+   *  task is created on its provider, so it needs a title and a project that
+   *  has a task source; the composer asks for both. */
+  composeNewTask(project: ProjectRef, via: Via = 'click'): void {
+    this.scopeOpenProjectPage(project)
+    this.taskComposerRequested = true
+    this.openTasks(via)
   }
 
   // ─── Pull Requests page ───

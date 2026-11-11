@@ -1,10 +1,26 @@
 // Pure, non-reactive helpers for the tasks UI.
-import type { Task, TaskStatus, TaskPriority } from '@solus/contracts/task-types'
+import type {
+  Task,
+  TaskColumn,
+  TaskMoveTarget,
+  TaskPriority,
+  TaskProviderId,
+  TaskSourceState,
+} from '@solus/contracts/task-types'
+import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 
 /** How the list/board orders tasks. `created` is the default;
  *  `priority` and `due` answer "what's next". */
 export type TaskSort = 'created' | 'updated' | 'priority' | 'due'
 export const DEFAULT_TASK_SORT: TaskSort = 'created'
+
+/** The sort menu's choices, in the order it shows them. */
+export const TASK_SORT_OPTIONS: { value: TaskSort; label: string }[] = [
+  { value: 'created', label: 'Created' },
+  { value: 'updated', label: 'Updated' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'due', label: 'Due' },
+]
 
 /** Display + ordering metadata per priority. `rank` drives the sort (lower =
  *  more urgent); the colour classes drive the badge. */
@@ -26,11 +42,13 @@ export const PRIORITY_META = {
   low: { label: 'Low', rank: 3, chipClass: 'text-(--solus-text-tertiary) bg-(--solus-surface-hover)', flagClass: 'text-(--solus-text-tertiary)' },
 } satisfies Record<TaskPriority, PriorityMeta>
 
-function priorityRank(t: Task): number {
+type SortableTask = Pick<Task, 'priority' | 'dueDate' | 'updatedAt' | 'createdAt'>
+
+function priorityRank(t: SortableTask): number {
   return t.priority ? PRIORITY_META[t.priority].rank : 4
 }
 
-function dueRank(t: Task): number {
+function dueRank(t: SortableTask): number {
   if (!t.dueDate) return Number.POSITIVE_INFINITY
   const ms = Date.parse(`${t.dueDate}T00:00:00`)
   return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms
@@ -38,9 +56,9 @@ function dueRank(t: Task): number {
 
 /** Order tasks for display. Priority/due both tie-break by the other then by
  *  recency, so "what's next" surfaces urgent + soon-due work first. */
-export function sortTasks(tasks: Task[], sort: TaskSort): Task[] {
-  const byUpdated = (a: Task, b: Task) => b.updatedAt - a.updatedAt
-  const byCreated = (a: Task, b: Task) =>
+export function sortTasks<T extends SortableTask>(tasks: readonly T[], sort: TaskSort): T[] {
+  const byUpdated = (a: T, b: T) => b.updatedAt - a.updatedAt
+  const byCreated = (a: T, b: T) =>
     (b.createdAt ?? b.updatedAt) - (a.createdAt ?? a.updatedAt)
   const arr = [...tasks]
   if (sort === 'priority') {
@@ -66,53 +84,45 @@ const STATUS_GLYPHS = {
   slash: `${RING}M3 3l8 8`,
 } as const
 
-/** Display metadata for a normalized status — label, the theme token its dot
+/** Display metadata for a status category — label, the theme token its dot
  *  and glyph use, the dot class, and the SVG path for the glyph form. */
-interface StatusMeta {
+interface CategoryMeta {
   label: string
   dotClass: string
   token: string
   glyph: string
 }
 
-export const STATUS_META = {
-  inbox: { label: 'Inbox', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
-  todo: { label: 'To do', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
-  in_progress: { label: 'In progress', dotClass: 'bg-(--running)', token: '--running', glyph: STATUS_GLYPHS.clock },
-  in_review: { label: 'In review', dotClass: 'bg-(--review)', token: '--review', glyph: STATUS_GLYPHS.eye },
+export const CATEGORY_META = {
+  open: { label: 'Open', dotClass: 'border border-(--solus-text-tertiary)', token: '--idle', glyph: STATUS_GLYPHS.idle },
+  active: { label: 'Active', dotClass: 'bg-(--running)', token: '--running', glyph: STATUS_GLYPHS.clock },
   done: { label: 'Done', dotClass: 'bg-(--success)', token: '--success', glyph: STATUS_GLYPHS.check },
-  dropped: { label: 'Dropped', dotClass: 'bg-(--idle)', token: '--idle', glyph: STATUS_GLYPHS.slash },
-} satisfies Record<TaskStatus, StatusMeta>
+} satisfies Record<TaskStatusCategory, CategoryMeta>
 
-/** Every status a person can move a task to, in lifecycle order. Menus that
- *  offer "set status" walk this list so they all offer the same moves. */
-export const TASK_STATUSES: TaskStatus[] = [
-  'inbox',
-  'todo',
-  'in_progress',
-  'in_review',
-  'done',
-  'dropped',
-]
+/** The three status categories, in the order a view that mixes sources shows them. */
+export const TASK_CATEGORIES: TaskStatusCategory[] = ['open', 'active', 'done']
 
 /** Every priority a person can set, most urgent first. Unset is offered as
  *  "No priority" by the menus rather than living in this list, because it is
  *  the absence of one. */
 export const PRIORITY_OPTIONS: TaskPriority[] = ['urgent', 'high', 'medium', 'low']
 
-export function statusLabel(status: TaskStatus): string {
-  return STATUS_META[status]?.label ?? status
-}
+export const PROVIDER_NAMES = {
+  github: 'GitHub',
+  jira: 'Jira',
+} satisfies Record<TaskProviderId, string>
 
-// The GitHub provider maps the conventional `in-progress` label onto the
-// `in_progress` status (see its IN_PROGRESS_LABEL) but keeps it in `labels`.
-// Rendering it as a chip just repeats the status/column, so it's dropped.
-const STATUS_REDUNDANT_LABELS = new Set(['in-progress', 'in progress'])
-
-/** A task's labels minus those already conveyed by its status, so a card never
- *  shows a chip that duplicates its column (e.g. "in-progress" in In progress). */
-export function visibleLabels(task: Task): string[] {
-  return task.labels.filter((l) => !STATUS_REDUNDANT_LABELS.has(l.trim().toLowerCase()))
+/**
+ * A task as a row names it: `#123` for a GitHub issue, `PROJ-12` for a Jira
+ * issue, `Draft` for a GitHub Project item that is not an issue yet.
+ *
+ * The repository of a GitHub issue is left out: a row has a narrow cell, and
+ * the full reference (`owner/repo#123`) is the cell's title.
+ */
+export function taskRef(task: Pick<Task, 'reference' | 'kind'>): string {
+  if (!task.reference) return task.kind === 'draft' ? 'Draft' : ''
+  const hash = task.reference.lastIndexOf('#')
+  return hash > 0 ? task.reference.slice(hash) : task.reference
 }
 
 /** Up-to-two-letter initials for a comment author's avatar. Splits on the usual
@@ -145,21 +155,8 @@ export function relativeTime(iso: string | number, now = Date.now()): string {
   return `${Math.round(months / 12)}y ago`
 }
 
-/**
- * The kanban columns, in board order. Status is the drop target / drag result.
- *
- * Ordered by lifecycle, from work that is ready to start through completed
- * work, so the board reads from left to right as a workflow.
- */
-export const BOARD_COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'todo', label: 'Todo' },
-  { status: 'in_progress', label: 'In progress' },
-  { status: 'in_review', label: 'In review' },
-  { status: 'done', label: 'Done' },
-]
-
-/** Four 64px controls under a compact mobile task row. */
-export const TASK_STATUS_SWIPE_REVEAL_WIDTH = BOARD_COLUMNS.length * 64
+/** Three 64px controls under a compact task row: one for each status category. */
+export const TASK_CATEGORY_SWIPE_REVEAL_WIDTH = TASK_CATEGORIES.length * 64
 
 /** Presentation for a task's due date: a compact label plus a tone the card uses
  *  to colour it. `overdue` = before today (and not done elsewhere), `soon` =
@@ -183,29 +180,105 @@ export function dueDateMeta(
   return { label, tone }
 }
 
-interface BoardColumn {
-  status: TaskStatus
+// ── The board ──
+
+/** What the Tasks page plots: the columns of one task source, or every source
+ *  of the project grouped by status category. */
+export type BoardView =
+  | { kind: 'all' }
+  | { kind: 'source'; source: Pick<TaskSourceState, 'sourceKey' | 'columns'> }
+
+/** The id of a board view, to key what a person keeps for one view. */
+export function boardViewId(view: BoardView): string {
+  return view.kind === 'all' ? 'all' : view.source.sourceKey
+}
+
+/** The column for the board items of a source that have no column yet. It is
+ *  not a provider column, so nothing can be moved into it. */
+export const NO_COLUMN_ID = ''
+
+export interface BoardColumn<T> {
+  /** A `TaskColumn.id` in a source view, a status category in the mixed view. */
+  id: string
   label: string
-  tasks: Task[]
+  category: TaskStatusCategory
+  tasks: T[]
+}
+
+type BoardTask = Pick<Task, 'category' | 'placements'>
+
+/** The column that holds a task in a view, or null when the view does not
+ *  show the task (a source that does not list it). */
+export function boardColumnIdOf(task: BoardTask, view: BoardView): string | null {
+  if (view.kind === 'all') return task.category
+  const placement = task.placements.find((held) => held.sourceKey === view.source.sourceKey)
+  if (!placement) return null
+  const known = view.source.columns.some((column) => column.id === placement.columnId)
+  return known && placement.columnId !== null ? placement.columnId : NO_COLUMN_ID
 }
 
 /**
- * Bucket tasks into the kanban columns by status. `tasks` arrives already
- * searched, filtered and ordered by the page, so the board is the *same* set as
- * the list re-plotted — a card can never appear in one layout and not the other.
+ * Bucket tasks into the columns of a view. `tasks` arrives already searched,
+ * filtered and ordered by the page, so the board is the *same* set as the list
+ * re-plotted — a card can never appear in one layout and not the other.
+ *
+ * A source view shows the provider's columns with the provider's names in the
+ * provider's order. The mixed view has one column for each status category,
+ * because columns of two sources do not line up, and a task that two sources
+ * list shows one time. A task whose column the source did not report goes to
+ * a leading "No column", so it never vanishes from the board.
  */
-export function buildBoard(tasks: Task[]): BoardColumn[] {
-  return BOARD_COLUMNS.map((col) => ({
-    ...col,
-    // Every status lands somewhere, or a task would silently vanish when the
-    // board is chosen: inbox is a not-yet-triaged todo, dropped is closed work.
-    // Same folding the list's sections do.
-    tasks: tasks.filter((task) =>
-      col.status === 'todo'
-        ? task.status === 'todo' || task.status === 'inbox'
-        : col.status === 'done'
-          ? task.status === 'done' || task.status === 'dropped'
-          : task.status === col.status,
-    ),
-  }))
+export function buildBoard<T extends BoardTask>(tasks: readonly T[], view: BoardView): BoardColumn<T>[] {
+  const columns: BoardColumn<T>[] = view.kind === 'all'
+    ? TASK_CATEGORIES.map((category) => ({ id: category, label: CATEGORY_META[category].label, category, tasks: [] }))
+    : view.source.columns.map((column: TaskColumn) => ({ id: column.id, label: column.name, category: column.category, tasks: [] }))
+  const byId = new Map(columns.map((column) => [column.id, column]))
+  const unplaced: T[] = []
+  for (const task of tasks) {
+    const columnId = boardColumnIdOf(task, view)
+    if (columnId === null) continue
+    const column = byId.get(columnId)
+    if (column) column.tasks.push(task)
+    else unplaced.push(task)
+  }
+  if (unplaced.length === 0) return columns
+  return [{ id: NO_COLUMN_ID, label: 'No column', category: 'open', tasks: unplaced }, ...columns]
+}
+
+/** What `tasksMove` takes to put a task in a column of a view. Null for the
+ *  "No column" column, which no provider has. */
+export function moveTargetFor(view: BoardView, columnId: string): TaskMoveTarget | null {
+  if (columnId === NO_COLUMN_ID) return null
+  if (view.kind === 'source') return { sourceKey: view.source.sourceKey, columnId }
+  const category = TASK_CATEGORIES.find((candidate) => candidate === columnId)
+  return category ? { category } : null
+}
+
+/** Where a task is in one source that lists it, in words a person reads. */
+export interface TaskPlacementLabel {
+  sourceKey: string
+  /** The source as the host names it, or its key until a host describes it. */
+  sourceLabel: string
+  /** Null for a board item that has no column yet. */
+  columnName: string | null
+  columns: TaskColumn[]
+  columnId: string | null
+}
+
+/** A task's column in each source that lists it. */
+export function taskPlacementLabels(
+  task: Pick<Task, 'placements'>,
+  sourceByKey: ReadonlyMap<string, Pick<TaskSourceState, 'label' | 'columns'>>,
+): TaskPlacementLabel[] {
+  return task.placements.map((placement) => {
+    const source = sourceByKey.get(placement.sourceKey)
+    const columns = source?.columns ?? []
+    return {
+      sourceKey: placement.sourceKey,
+      sourceLabel: source?.label ?? placement.sourceKey,
+      columnName: columns.find((column) => column.id === placement.columnId)?.name ?? null,
+      columns,
+      columnId: placement.columnId,
+    }
+  })
 }

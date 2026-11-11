@@ -31,12 +31,8 @@ export async function eventVisibleTo(principal: Principal, event: HostEvent, sha
   if (principal.kind === 'guest') {
     // A session share grants no host device access (docs/plans/native-devices.md, D3).
     if (event.type === 'device.stateChanged' || event.type === 'device.surfaceRequested') return false
-    // A guest on a task page re-reads it when tasks change. An event that names
-    // a task reaches only a guest who can open that task.
-    if (event.type === 'tasks.invalidated') {
-      if (principal.share.resource.kind !== 'task') return false
-      return !resource || await shares.roleFor(principal, resource) !== 'none'
-    }
+    // A guest link never reaches a task (docs/plans/provider-owned-tasks.md §4.3).
+    if (event.type === 'tasks.invalidated' || event.type === 'tasks.sourcesChanged') return false
     return resource !== null && await shares.roleFor(principal, resource) !== 'none'
   }
   const owned = ownedResourceOf(event)
@@ -85,6 +81,7 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'session.indexChanged',
   'attention.snapshotChanged',
   'tasks.invalidated',
+  'tasks.sourcesChanged',
   'workspaceProjects.changed',
   'projects.changed',
   'outbox.changed',
@@ -131,8 +128,6 @@ export function eventResource(event: HostEvent): ShareResource | null {
       return event.payload.sessionId ? { kind: 'session', id: event.payload.sessionId } : null
     case 'share.changed':
       return event.payload.resource
-    case 'tasks.invalidated':
-      return event.payload.taskId ? { kind: 'task', id: event.payload.taskId } : null
     default:
       return null
   }

@@ -68,7 +68,7 @@ function entryNames(actor: Actor, resource: Pick<ResourceRow, 'kind' | 'id'>, en
       if (principal.kind !== 'guest') return false
       const bound = principal.share.resource
       // A guest reaches only the resource its link was made for, while that link is unchanged.
-      return bound.kind !== 'task' && bound.kind === resource.kind && bound.id === resource.id && entry.linkSecretHash === principal.share.linkSecretHash
+      return bound.kind === resource.kind && bound.id === resource.id && entry.linkSecretHash === principal.share.linkSecretHash
     }
   }
 }
@@ -138,7 +138,7 @@ function namingClause(actor: Actor, kind: ResourceKind, id: SQL, now: number): S
   }
   if (principal.kind === 'guest') {
     const bound = principal.share.resource
-    if (bound.kind !== 'task' && bound.kind === kind) {
+    if (bound.kind === kind) {
       clauses.push(sql`(acl.subject_kind = 'everyone' AND acl.link_secret_hash = ${principal.share.linkSecretHash} AND ${id} = ${bound.id}
         AND (acl.expires_at IS NULL OR acl.expires_at > ${now}))`)
     }

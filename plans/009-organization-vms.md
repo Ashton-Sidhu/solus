@@ -4,6 +4,8 @@
 **Depends on:** Plan 008's workspace API and existing organization, link, mirror, outbox, and publication machinery.
 **Scope:** Customer-owned execution VMs connected to a configured shared Solus API, hosted by Solus or self-hosted. API-first setup and the authentication/registration handoff for that endpoint are included. A complete self-hosted control-plane distribution and infrastructure operations are separate.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, tasks as records with an organization and a record home (§1, §3), the agent task tools that call the Solus API (§6, §9) and the `read_task` limit of an API session are history. The agent task tools now write to GitHub or Jira with the acting person's connection.
+
 ## 1. Product model
 
 Use one Solus server and one record API contract. A host runs agents. A record's saved home determines which API stores and serves it. Solus provisioning determines who installs, updates, and stops the machine; it does not determine record operations.

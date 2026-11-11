@@ -1,56 +1,41 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskStatus } from '@solus/contracts/task-types'
+import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import { taskPickerSections } from '@solus/workspace-ui/components/tasks/lib/task-picker-sections'
 
 interface PickerTask {
   id: string
-  status: TaskStatus
+  category: TaskStatusCategory
 }
 
-function task(id: string, status: TaskStatus): PickerTask {
-  return { id, status }
+function task(id: string, category: TaskStatusCategory): PickerTask {
+  return { id, category }
 }
 
-describe('task picker status sections', () => {
-  test('groups tasks in lifecycle order and keeps inbox work under Todo', () => {
-    // WHY: picker users should scan by the same lifecycle names and order as
-    // the Tasks page instead of searching one flat list of unrelated work.
+describe('task picker sections', () => {
+  test('groups tasks by status category: work in progress first, then open, then done', () => {
+    // WHY: a picker mixes the tasks of every source, and the status category
+    // is the one status they share. The task a session most likely joins is
+    // one that is already active, so it must not sit below finished work.
     const sections = taskPickerSections([
-      task('done', 'done'),
-      task('todo', 'todo'),
-      task('review', 'in_review'),
-      task('inbox', 'inbox'),
-      task('active', 'in_progress'),
-      task('dropped', 'dropped'),
+      task('closed', 'done'),
+      task('backlog', 'open'),
+      task('in-review', 'active'),
+      task('new', 'open'),
+      task('in-progress', 'active'),
     ])
 
-    expect(sections.map((section) => section.label)).toEqual([
-      'In progress',
-      'In review',
-      'Todo',
-      'Done',
-      'Closed',
-    ])
-    expect(sections.map((section) => section.startIndex)).toEqual([0, 1, 2, 4, 5])
-    expect(sections.find((section) => section.key === 'todo')?.tasks.map((item) => item.id)).toEqual([
-      'todo',
-      'inbox',
-    ])
+    expect(sections.map((section) => section.label)).toEqual(['Active', 'Open', 'Done'])
+    expect(sections.map((section) => section.key)).toEqual(['active', 'open', 'done'])
+    // The picker moves its selection by one flat index over all sections.
+    expect(sections.map((section) => section.startIndex)).toEqual([0, 2, 4])
+    expect(sections[1].tasks.map((item) => item.id)).toEqual(['backlog', 'new'])
   })
 
-  test('omits empty status sections and preserves order inside each section', () => {
-    const sections = taskPickerSections([
-      task('newer', 'in_progress'),
-      task('older', 'in_progress'),
-    ])
+  test('omits empty sections and preserves order inside each section', () => {
+    const sections = taskPickerSections([task('newer', 'active'), task('older', 'active')])
 
     expect(sections).toEqual([
-      {
-        key: 'in_progress',
-        label: 'In progress',
-        startIndex: 0,
-        tasks: [task('newer', 'in_progress'), task('older', 'in_progress')],
-      },
+      { key: 'active', label: 'Active', startIndex: 0, tasks: [task('newer', 'active'), task('older', 'active')] },
     ])
   })
 })

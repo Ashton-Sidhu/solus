@@ -95,6 +95,9 @@ export interface HostEventMap {
   /** The caller's own task snoozes changed. Delivered only to that person's
    *  connections; they read `tasksSnoozes` again. Names nothing. */
   'tasks.snoozesChanged': Record<string, never>
+  /** The host read these task sources again, or one of them changed health.
+   *  Clients that show a source it names read `tasksSources` again. */
+  'tasks.sourcesChanged': { sourceKeys: string[] }
   'workspaceProjects.changed': Record<string, never>
   /** This host's project list changed: a folder was added, untracked or
    *  deleted, or its last use moved. Clients read `listProjects` again. */
@@ -258,7 +261,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'review.progressChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'Review generation progress changed.' },
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
   'review.lensChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review lens, its comments, or its job changed.' },
-  'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
+  'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The host's copy of one or more tasks, or a task's attachments, changed." },
+  'tasks.sourcesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The host read task sources again; read their state again.' },
   'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'projects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "This host's project list changed." },

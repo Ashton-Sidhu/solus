@@ -1,4 +1,4 @@
-import type { TaskEpic, TaskMirroredTicket, TaskPr, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { TaskEpic, TaskPlacement, TaskPr, TaskSidebarPrLink } from '@solus/contracts/task-types'
 
 // Whether a re-read carries the same value a task already holds.
 //
@@ -34,15 +34,14 @@ export function sameEpic(current: TaskEpic | undefined, next: TaskEpic | undefin
     && current.body === next.body
 }
 
-export function sameMirroredTicket(
-  current: TaskMirroredTicket | undefined,
-  next: TaskMirroredTicket | undefined,
+export function samePlacements(
+  current: readonly TaskPlacement[],
+  next: readonly TaskPlacement[],
 ): boolean {
   if (current === next) return true
-  if (!current || !next) return false
-  return current.provider === next.provider
-    && current.externalId === next.externalId
-    && current.url === next.url
+  if (current.length !== next.length) return false
+  return current.every((placement, index) =>
+    placement.sourceKey === next[index].sourceKey && placement.columnId === next[index].columnId)
 }
 
 export function samePrLinks(

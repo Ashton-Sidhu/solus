@@ -1,70 +1,69 @@
 // One task, as this client can read and act on it.
 //
-// The plane the surfaces work against. Before this, every per-task operation was
-// a method on `TasksStore` taking the id as its first argument, and everything
-// known about a task was spread across seven maps keyed by that id —
-// `hostByTaskId`, `detailsByTask`, `prLinksByTask`, `sessionsByTask`, the detail
-// load and watch counters, and the regenerating-title set. Those were seven
-// indexes of one thing, and a surface reading the wrong one saw a task the rest
-// of the workspace had already moved past.
-//
-// There is **one of these per task id**, held in `TasksStore`'s index, so what
-// one surface writes is what every other surface reads.
+// GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). A host
+// keeps a copy of it and the Solus attachments: session links, links to works,
+// plans, automations and pull requests, and snoozes. There is **one of these
+// per task key**, held in `TasksStore`'s index, so what one surface writes is
+// what every other surface reads.
 //
 // `TaskRecord` is the same shape as the wire, and this class implements it — a
 // Task *is* a task, so a surface reads `task.title`, not `task.record.title`.
-// That mirrors the server's own `Task` (packages/server/src/data/tasks/task.ts). The
-// fields are `$state`, so a snapshot that changes only `status` notifies only
-// what reads `status`. Everything this *client* knows on top of the row — the
-// host serving it, its detail payload, its attempts — is private, so the public
-// surface of a Task is the task plus the things you can do to it.
+// The fields are `$state`, so a snapshot that changes only `category` notifies
+// only what reads `category`.
+//
+// Two kinds of host can know a task. The host that has the project reads the
+// task from its provider: `serverId` names it, and every task read and write
+// goes there. Any host can hold attachments of the task key, and the
+// organization's Solus API holds only those. So the session links and the pull
+// request links are kept per host and read merged.
 
+import { SvelteMap } from 'svelte/reactivity'
 import { taskSnoozesStore } from './task-snoozes.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import type {
   SessionExecutionHost,
   Task as TaskRecord,
+  TaskAttachments,
   TaskDetails,
   TaskEpic,
+  TaskField,
+  TaskKind,
+  TaskLink,
   TaskLinkInput,
   TaskLinkKind,
-  TaskMirroredTicket,
+  TaskMoveTarget,
+  TaskPlacement,
   TaskPr,
   TaskPriority,
   TaskProviderId,
   TaskSessionLink,
   TaskSidebarPrLink,
   TaskSnapshot,
-  TaskSource,
-  TaskStatus,
+  TaskState,
   TaskSummary,
-  TaskTitleSource,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
-import { sameEpic, sameMirroredTicket, samePr, samePrLinks, sameStrings } from './task-reconcile'
-import { upstreamTaskDetails } from './upstream-task-details'
-import { taskTitleRegenerationInput } from './task-title-regeneration'
+import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import { sameEpic, samePlacements, samePr, samePrLinks, sameStrings } from './task-reconcile'
+import { hostOfSessionLink, mergePrLinks, mergeSessionLinks } from './task-projects'
 import type { TasksStore } from './tasks.store.svelte'
-
-/** The title New task gives a task before its lead's first prompt names it. */
-export const UNTITLED_TASK_TITLE = 'Untitled task'
 
 export class Task implements TaskRecord {
   // --- The task -----------------------------------------------------------
-  // `TaskRecord`, field for field. Written only by `hydrate`.
+  // `TaskRecord`, field for field. Written only by `hydrate` and by a move
+  // that waits for its host.
 
   readonly id: string
-  providerId = $state<TaskProviderId>('local')
-  shortId = $state<number | undefined>()
-  organizationId = $state<string | undefined>()
-  projectKey = $state<string | null | undefined>()
+  providerId = $state<TaskProviderId>('github')
+  kind = $state<TaskKind>('issue')
+  reference = $state<string | undefined>()
   title = $state('')
-  titleSource = $state<TaskTitleSource | undefined>()
   body = $state('')
-  status = $state<TaskStatus>('todo')
   url = $state<string | null>(null)
-  mirroredTicket = $state<TaskMirroredTicket | undefined>()
+  state = $state<TaskState>({ name: '', category: 'open' })
+  category = $state<TaskStatusCategory>('open')
+  placements = $state<TaskPlacement[]>([])
   assignee = $state<string | undefined>()
   assigneeAvatarUrl = $state<string | undefined>()
   labels = $state<string[]>([])
@@ -72,34 +71,32 @@ export class Task implements TaskRecord {
   dueDate = $state<string | undefined>()
   priority = $state<TaskPriority | undefined>()
   pr = $state<TaskPr | undefined>()
-  canEditPlanningFields = $state<boolean | undefined>()
-  source = $state<TaskSource | undefined>()
-  originSessionId = $state<string | undefined>()
-  originAutomationId = $state<string | undefined>()
+  writableFields = $state<TaskField[]>([])
   createdAt = $state<number | undefined>()
   updatedAt = $state(0)
-  triagedAt = $state<number | undefined>()
-  doneAt = $state<number | undefined>()
   lastReadAt = $state<number | undefined>()
-  raw = $state<unknown>()
 
   // --- What this client knows besides the row -----------------------------
 
   readonly #store: TasksStore
 
   /** Whether any host has described this task yet. `TasksStore.get` mints a task
-   *  on first mention — a deep link, an id typed into an agent tool — so the
-   *  fields above are defaults until this is true. */
+   *  on first mention — a deep link, a session link from a host that holds only
+   *  attachments — so the fields above are defaults until this is true. */
   #known = $state(false)
 
-  /** The host that serves this task. Null until a snapshot places it, which
-   *  falls back to the default host — where a single-host user's tasks all are. */
+  /** The host that reads this task from its provider. Null until a host
+   *  describes the task. */
   #serverId = $state<string | null>(null)
 
   #details = $state<TaskDetails | null>(null)
-  #sessions = $state<TaskSessionLink[]>([])
-  #prLinks = $state<TaskSidebarPrLink[]>([])
-  #regeneratingTitle = $state(false)
+  /** Session links, by the host that holds them. */
+  #sessionsByHost = new SvelteMap<string, TaskSessionLink[]>()
+  /** Pull request links, by the host that holds them. */
+  #prLinksByHost = new SvelteMap<string, TaskSidebarPrLink[]>()
+  /** The host that holds each link of `details.links` that another host than
+   *  `serverId` answered, so an unlink goes back to that host. */
+  #attachmentHosts = new Map<string, string>()
   #hiddenForUndo = $state(false)
   #detailLoad: Promise<TaskDetails> | null = null
 
@@ -120,15 +117,10 @@ export class Task implements TaskRecord {
 
   // --- Answers ------------------------------------------------------------
 
-  /** True once a host has described this task. A task minted for an id nobody
+  /** True once a host has described this task. A task minted for a key nobody
    *  has listed reads as an empty task until then. */
   get isKnown(): boolean {
     return this.#known
-  }
-
-  /** A provider-owned ticket rather than a Solus-owned task. */
-  get isUpstream(): boolean {
-    return this.#known && this.providerId !== 'local'
   }
 
   get serverId(): string | null {
@@ -139,8 +131,9 @@ export class Task implements TaskRecord {
     this.#serverId = serverId
   }
 
-  /** Hidden while its Undo toast is up. The host row still exists until the
-   *  toast commits, so a refresh landing in that window must not put it back. */
+  /** Hidden while its Undo toast is up. The draft still exists on the provider
+   *  until the toast commits, so a refresh landing in that window must not put
+   *  it back. */
   get hiddenForUndo(): boolean {
     return this.#hiddenForUndo
   }
@@ -151,21 +144,18 @@ export class Task implements TaskRecord {
     return this.#details
   }
 
-  /** This task's own session attempts. `attempts` is the tree-wide view. */
-  get sessions(): TaskSessionLink[] {
-    return this.#sessions
-  }
-
-  get isRegeneratingTitle(): boolean {
-    return this.#regeneratingTitle
-  }
+  /** This task's session links from every host that holds one, newest first. */
+  readonly sessions: TaskSessionLink[] = $derived(
+    mergeSessionLinks(this.#sessionsByHost, this.#hostOrder()),
+  )
 
   /** Every durable pull request link, newest first. The task's own captured
-   *  pull request answers for older hosts and migrated tasks. */
-  get prLinks(): TaskSidebarPrLink[] {
-    if (this.#prLinks.length) return this.#prLinks
+   *  pull request answers when no host listed a link. */
+  readonly prLinks: TaskSidebarPrLink[] = $derived.by(() => {
+    const links = mergePrLinks(this.#prLinksByHost, this.#hostOrder())
+    if (links.length) return links
     return this.pr ? [{ number: this.pr.number, url: this.pr.url }] : []
-  }
+  })
 
   /** The newest durable linked pull request, for callers that need only one. */
   get prLink(): TaskSidebarPrLink | null {
@@ -177,52 +167,52 @@ export class Task implements TaskRecord {
     return this.#watchCount > 0
   }
 
-  /**
-   * The RPC surface that serves this task.
-   *
-   * A provider ticket is routed by its project, because a bare issue number
-   * means nothing without one. Everything else is routed by the host the
-   * snapshot placed the task on, and an unplaced task falls back to the default.
-   */
-  get #api(): HostApi {
-    const serverId = this.#store.providerHostFor(this.projectKey)
-      ?? this.#serverId
-      ?? serverConnections.defaultServerId()
-    if (!serverId) throw new Error('Primary Solus connection has not been registered')
-    return serverConnections.apiFor(serverId)
+  /** Whether the provider takes a change of this field for this task. */
+  canWrite(field: TaskField): boolean {
+    return this.writableFields.includes(field)
   }
 
-  /** The project the `tasks*Upstream` RPCs key their provider on. The host
-   *  always stamps an upstream task with one, so its absence is a real fault. */
-  get #upstreamCwd(): string {
-    if (!this.projectKey) {
-      throw new Error(`Project not found for ${this.providerId} task ${this.id}.`)
-    }
-    return this.projectKey
+  /** Only a draft item of a GitHub Project can be deleted. An issue is closed
+   *  or moved on its provider. */
+  get canDelete(): boolean {
+    return this.#known && this.kind === 'draft'
+  }
+
+  /** The host that reads the task first, then the others in catalog order. */
+  #hostOrder(): string[] {
+    const order = serverConnections.connectedServerIds()
+    return this.#serverId ? [this.#serverId, ...order.filter((serverId) => serverId !== this.#serverId)] : order
+  }
+
+  /** The RPC surface of the host that reads this task from its provider. */
+  get #api(): HostApi {
+    const serverId = this.#serverId ?? serverConnections.defaultServerId()
+    if (!serverId) throw new Error('Primary Solus connection has not been registered')
+    return serverConnections.apiFor(serverId)
   }
 
   // --- Reads --------------------------------------------------------------
 
   /**
-   * Resolve the host that owns this task, trying harder than `serverId`: an
+   * Resolve the host that reads this task, trying harder than `serverId`: an
    * outbox op can name a task this client has never listed (recorded by an agent
-   * on a borrowed machine), so an unplaced id is asked of every connected host
-   * before giving up. Undefined means "no connected host owns it" — the op stays
-   * pending, which is a reported state, not a failure.
+   * on a borrowed machine), so an unplaced key is asked of every connected host
+   * that runs projects before giving up. Undefined means "no connected host has
+   * it" — the op stays pending, which is a reported state, not a failure.
    */
   async ownerHost(): Promise<string | undefined> {
     if (this.#serverId) return this.#serverId
     await this.#store.ensureLoaded()
     if (this.#serverId) return this.#serverId
-    for (const serverId of serverConnections.connectedServerIds()) {
+    for (const serverId of this.#store.taskReadHosts()) {
       try {
         const details = await serverConnections.apiFor(serverId).tasksGet(this.id)
         if (details?.task) {
-          this.#serverId = serverId
+          this.hydrate(details.task, serverId)
           return serverId
         }
       } catch {
-        // Not this host's task.
+        // This host does not have the task.
       }
     }
     return undefined
@@ -236,18 +226,35 @@ export class Task implements TaskRecord {
     }
   }
 
-  /** The detail read behind the task page: comments, links and activity. */
+  /**
+   * The detail read behind the task page: the task from its provider, with its
+   * comments, links and activity. A host that holds session links of this task
+   * but does not read it (the organization's Solus API) adds its links and
+   * activity.
+   */
   loadDetails(): Promise<TaskDetails> {
     if (this.#detailLoad) return this.#detailLoad
     const load = (async () => {
-      if (this.#known ? this.isUpstream : await this.#looksUpstream()) {
-        const cwd = this.#upstreamCwd
-        this.hydrate(await this.#api.tasksGetUpstream(cwd, this.id))
-        const details = upstreamTaskDetails(this)
-        this.#details = details
-        return details
+      const serverId = await this.ownerHost()
+      if (!serverId) throw new Error('No connected host has this task.')
+      const [details, others] = await Promise.all([
+        serverConnections.apiFor(serverId).tasksGet(this.id),
+        this.#readOtherAttachments(serverId),
+      ])
+      this.#attachmentHosts.clear()
+      for (const { serverId: otherServerId, attachments } of others) {
+        for (const link of attachments.links) {
+          const key = attachmentKey(link)
+          if (details.links.some((held) => attachmentKey(held) === key)) continue
+          details.links.push(link)
+          this.#attachmentHosts.set(key, otherServerId)
+        }
+        const activityIds = new Set(details.activity.map((activity) => activity.id))
+        for (const activity of attachments.activity) {
+          if (!activityIds.has(activity.id)) details.activity.push(activity)
+        }
       }
-      const details = await this.#api.tasksGet(this.id)
+      if (others.length) details.activity.sort((a, b) => a.at - b.at)
       this.applyDetails(details)
       return details
     })().finally(() => {
@@ -257,62 +264,51 @@ export class Task implements TaskRecord {
     return load
   }
 
-  /** A directly opened task no snapshot has listed: an issue-number id in a
-   *  project with an upstream provider is a provider ticket (local ids are
-   *  ULIDs), so a deep link hydrates instead of reading as a missing task. */
-  async #looksUpstream(): Promise<boolean> {
-    if (!this.projectKey) return false
-    // Only the host that holds the project can say which provider it uses.
-    const serverId = this.serverId ?? this.#store.providerHostFor(this.projectKey)
-    if (!serverId) return false
-    const status = this.#store.providerStatus(this.projectKey)
-      ?? await this.#store.loadProviderStatus(this.projectKey, { serverId })
-    if (status.provider === 'github') return /^\d+$/.test(this.id)
-    if (status.provider === 'jira') return /^[A-Z][A-Z0-9_]+-\d+$/i.test(this.id)
-    return false
+  async #readOtherAttachments(readServerId: string): Promise<Array<{ serverId: string; attachments: TaskAttachments }>> {
+    const serverIds = [...this.#sessionsByHost.keys()].filter((serverId) => serverId !== readServerId)
+    const answers = await Promise.all(serverIds.map(async (serverId) => {
+      try {
+        return { serverId, attachments: await serverConnections.apiFor(serverId).tasksAttachments(this.id) }
+      } catch {
+        // The task page still shows the task; that host's links come with the next read.
+        return null
+      }
+    }))
+    return answers.filter((answer) => answer !== null)
   }
 
   // --- Writes -------------------------------------------------------------
+  // A write goes to the provider first. When it fails the caller gets the
+  // error and the task keeps its old value: there is no queue of changes.
 
-  async setStatus(status: TaskStatus): Promise<void> {
-    const previous = this.status
-    // Optimistic: the row redraws on this frame, and only what reads `status`
-    // is invalidated.
-    this.status = status
+  /**
+   * Move the task to a column of one source, or to a status category, where
+   * the host chooses the column of each source.
+   *
+   * The card moves on this frame, so a drag does not snap back while the
+   * provider answers. A refused move puts it back and rethrows.
+   */
+  async move(target: TaskMoveTarget): Promise<this> {
+    const previousCategory = this.category
+    const placement = 'sourceKey' in target
+      ? this.placements.find((held) => held.sourceKey === target.sourceKey)
+      : undefined
+    const previousColumnId = placement?.columnId
+    if ('category' in target) this.category = target.category
+    else if (placement) placement.columnId = target.columnId
     try {
-      this.hydrate(this.isUpstream
-        ? await this.#api.tasksUpdateUpstream(this.#upstreamCwd, this.id, { status })
-        : await this.#api.tasksUpdate(this.id, { status }, this.updatedAt))
-    } catch (err) {
-      this.status = previous
-      throw err
+      this.hydrate(await this.#api.tasksMove(this.id, target))
+    } catch (error) {
+      this.category = previousCategory
+      if (placement && previousColumnId !== undefined) placement.columnId = previousColumnId
+      throw error
     }
-  }
-
-  async update(patch: TaskUpdatePatch): Promise<this> {
-    this.hydrate(this.isUpstream
-      ? await this.#api.tasksUpdateUpstream(this.#upstreamCwd, this.id, patch)
-      : await this.#api.tasksUpdate(this.id, patch, this.updatedAt))
     return this
   }
 
-  /** Generate a new name from this task's durable description, then write it
-   *  through the same host/provider path as a manual rename. */
-  async regenerateTitle(): Promise<this> {
-    if (this.#regeneratingTitle) throw new Error('The task title is already regenerating.')
-    if (!this.#known) throw new Error('Task not found.')
-    this.#regeneratingTitle = true
-    try {
-      const metadata = await this.#api.generateSessionMetadata(
-        taskTitleRegenerationInput(this),
-        this.projectKey ?? '~',
-        { executionPreferences: this.#store.executionPreferences() },
-      )
-      if (!metadata) throw new Error("Couldn't generate a new task title.")
-      return await this.update({ title: metadata.title })
-    } finally {
-      this.#regeneratingTitle = false
-    }
+  async update(patch: TaskUpdatePatch): Promise<this> {
+    this.hydrate(await this.#api.tasksUpdate(this.id, patch))
+    return this
   }
 
   async markRead(read: boolean): Promise<this> {
@@ -339,93 +335,26 @@ export class Task implements TaskRecord {
     return this
   }
 
-  async recordActivity(): Promise<this> {
-    this.hydrate(await this.#api.tasksRecordActivity(this.id))
-    return this
-  }
-
+  /** Delete a draft item from its GitHub Project. The host refuses an issue. */
   async delete(): Promise<void> {
     await this.#api.tasksDelete(this.id)
   }
 
-  /**
-   * `pushToExternal` decides whether this comment goes to the linked ticket as
-   * well as into the task. Omitted, the project's auto-post setting decides —
-   * the host reads it, so a client never has to be right about it.
-   */
-  async comment(body: string, opts?: { pushToExternal?: boolean }): Promise<this> {
-    if (this.isUpstream) {
-      const cwd = this.#upstreamCwd
-      this.hydrate(await this.#api.tasksCommentUpstream(cwd, this.id, body))
-      this.#details = upstreamTaskDetails(this)
-      return this
-    }
-    this.applyDetails(await this.#api.tasksComment(this.id, body, opts))
+  /** Post a comment to the provider. A comment the provider did not take comes
+   *  back in the details as `unsent`, with its error. */
+  async comment(body: string): Promise<this> {
+    this.applyDetails(await this.#api.tasksComment(this.id, body))
     return this
   }
 
-  async deleteComment(commentId: string): Promise<void> {
+  /** Send an unsent comment again. */
+  async retryComment(commentId: string): Promise<void> {
+    this.applyDetails(await this.#api.tasksRetryComment(this.id, commentId))
+  }
+
+  /** Discard an unsent comment. */
+  async discardComment(commentId: string): Promise<void> {
     this.applyDetails(await this.#api.tasksDeleteComment(this.id, commentId))
-  }
-
-  /** Send comments upstream that were written while auto-posting was off. The
-   *  host queues them and the sync engine posts them on its own next pass. */
-  async publishComments(commentIds: string[]): Promise<void> {
-    if (!commentIds.length) return
-    this.applyDetails(await this.#api.tasksPublishComments(this.id, commentIds))
-  }
-
-  /** Create the upstream ticket this task does not have yet, in the provider
-   *  the project is configured for, and link the two from then on. */
-  async publishUpstream(cwd: string): Promise<void> {
-    const details = await this.#api.tasksPublish(this.id, cwd)
-    this.applyDetails(details)
-    // The ticket we just created belongs to this task now. The host leaves
-    // mirrored tickets out of its upstream list, but this client is holding one
-    // from before the link existed — drop it here rather than showing the same
-    // work twice until the next provider read.
-    if (details.externalLink) {
-      this.#store.get(details.externalLink.externalId, cwd).forgetUpstreamRow()
-    }
-  }
-
-  /**
-   * Promote this provider ticket to a Solus-owned task, and answer with it.
-   *
-   * The import mints a new task with its own id, so the result is a different
-   * Task — this one goes on standing for the provider's ticket. Import is
-   * idempotent on the host, so two pickers racing resolve to the same task.
-   */
-  async promote(): Promise<Task> {
-    if (!this.#known) throw new Error(`Task ${this.id} has not been read yet.`)
-    if (!this.isUpstream) return this
-    const cwd = this.#upstreamCwd
-    const [details] = await this.#api.tasksImport(cwd, [this.id])
-    if (!details) throw new Error(`Could not import ${this.providerId} ticket ${this.id}.`)
-    const promoted = this.#store.get(details.task.id)
-    promoted.applyDetails(details)
-    this.forgetUpstreamRow()
-    return promoted
-  }
-
-  /**
-   * Home a provider ticket on the host and project that will serve its detail
-   * and action RPCs.
-   *
-   * The row stays provider-owned and is not persisted; this only records who
-   * answers for it. A ticket read from the cross-host inbox reaches this client
-   * from several hosts at once, and which one should own it is the user's choice
-   * after deduplication — the only fact neither the provider nor any host can
-   * supply. Once homed, ordinary `update` and `promote` route themselves.
-   */
-  placeIn(home: { serverId: string; projectKey: string }): this {
-    this.#serverId = home.serverId
-    // The provider does not know which project this client filed the ticket
-    // under, so the caller's choice outranks whatever the row said.
-    this.projectKey = home.projectKey
-    this.#store.setProviderHost(home.projectKey, home.serverId)
-    this.#file()
-    return this
   }
 
   /**
@@ -440,73 +369,79 @@ export class Task implements TaskRecord {
   }
 
   /**
-   * Bind a started session to this task, on the host that owns it.
+   * Link a started session to this task. A session link is an attachment: it
+   * needs only the task key, so the host that files it can be another one than
+   * the host that reads the task.
    *
    * The bind prepares before the prompt and the durable link follows
-   * `session_init`. A dispatch can involve different machines.
+   * `session_init`. A dispatch can involve different machines, and the
+   * execution machine is the one fact neither host can work out for itself, so
+   * the client states it in `execution`. `execution` is null for a run that
+   * stayed on the host that files the link.
    *
-   * That second machine is also the only thing neither host can work out for
-   * itself, so the client states it in `execution` and the task's host records a
-   * session row for it. `execution` is null for a run that stayed on the task's
-   * host — the two ids being equal is the definition of "not a dispatch", and a
-   * host id is only meaningful next to a different one.
-   *
-   * `serverId` names this task's own host for the dispatch boundary, where the
-   * caller knows it from the run and this client may not have placed the task
-   * yet. Given, it is remembered.
+   * `serverId` names the host that files the link. Absent, it is the host that
+   * reads the task.
    */
   async linkSession(
     sessionId: string,
     execution: SessionExecutionHost | null,
     serverId?: string,
   ): Promise<void> {
-    if (serverId) this.#serverId = serverId
-    await this.#api.tasksLinkSession(this.id, sessionId, 'working', execution)
-  }
-
-  /**
-   * Exchange this task with the ticket it is linked to, now: push the fields
-   * and comments the host is holding, then take whatever moved upstream.
-   *
-   * The engine already does this on its own debounce, so this is the user
-   * saying "don't wait" — after an auth repair, or before trusting the page.
-   * The detail re-read is what refreshes the sync state the page renders.
-   */
-  async syncNow(): Promise<void> {
-    await this.#api.tasksSyncNow(this.id)
-    await this.loadDetails()
+    const api = serverId ? serverConnections.apiFor(serverId) : this.#api
+    await api.tasksLinkSession(this.id, sessionId, 'working', execution)
   }
 
   /** Attach a doc, plan, pull request or automation to this task. */
-  async link(input: TaskLinkInput): Promise<TaskDetails> {
-    const details = await this.#api.tasksLink(this.id, input)
-    this.applyDetails(details)
+  async link(input: TaskLinkInput): Promise<void> {
+    this.#applyAttachments(this.#serverId, await this.#api.tasksLink(this.id, input))
     this.#store.noteLinked(
       { kind: input.kind, targetScope: input.targetScope ?? '', targetKey: input.targetKey },
       this,
     )
-    return details
   }
 
-  async unlink(kind: TaskLinkKind, targetKey: string, targetScope = ''): Promise<TaskDetails> {
-    const details = await this.#api.tasksUnlink(this.id, kind, targetKey, targetScope)
-    this.applyDetails(details)
+  async unlink(kind: TaskLinkKind, targetKey: string, targetScope = ''): Promise<void> {
+    const heldBy = this.#attachmentHosts.get(attachmentKey({ kind, targetScope, targetKey }))
+    const api = heldBy ? serverConnections.apiFor(heldBy) : this.#api
+    this.#applyAttachments(heldBy ?? this.#serverId, await api.tasksUnlink(this.id, kind, targetKey, targetScope))
     this.#store.noteUnlinked({ kind, targetScope, targetKey }, this.id)
-    return details
   }
 
-  /** File a linked artifact's still (and its HTML, where the ticket takes it)
-   *  as a comment bound for the ticket. The host renders the still. */
-  async attachArtifact(workId: string): Promise<TaskDetails> {
-    const details = await this.#api.tasksAttachArtifact(this.id, workId)
-    this.applyDetails(details)
-    return details
+  /** Post a linked artifact's still (and its HTML, where the provider takes
+   *  files) as a comment on the task. The host renders the still. */
+  async attachArtifact(workId: string): Promise<void> {
+    this.applyDetails(await this.#api.tasksAttachArtifact(this.id, workId))
+  }
+
+  /**
+   * Take one host's links after a link or an unlink on it. The links that
+   * other hosts hold stay; the detail read is what brings them all together
+   * again.
+   */
+  #applyAttachments(serverId: string | null, attachments: TaskAttachments): void {
+    const details = this.#details
+    if (!details) return
+    const fromOtherHosts = details.links.filter((link) => {
+      const heldBy = this.#attachmentHosts.get(attachmentKey(link)) ?? this.#serverId
+      return heldBy !== serverId
+    })
+    for (const key of this.#attachmentHosts.keys()) {
+      if (this.#attachmentHosts.get(key) === serverId) this.#attachmentHosts.delete(key)
+    }
+    if (serverId && serverId !== this.#serverId) {
+      for (const link of attachments.links) this.#attachmentHosts.set(attachmentKey(link), serverId)
+    }
+    details.links = [...attachments.links, ...fromOtherHosts]
+    if (serverId === this.#serverId) {
+      details.activity = attachments.activity
+      this.#applyDetailPrLinks(details)
+    }
   }
 
   // --- Sessions -----------------------------------------------------------
 
   /**
-   * Expose the binding on the session-init frame while the authoritative
+   * Expose the link on the session-init frame while the authoritative
    * task-session read is still in flight. The host has already persisted this
    * association; the optimistic entry lets every task surface show live work
    * immediately and is replaced by the next authoritative sidebar snapshot.
@@ -514,11 +449,15 @@ export class Task implements TaskRecord {
    * The display fields are genuinely unknown here rather than merely omitted:
    * the session has not reached the index yet, and a just-started session is
    * always mounted, so every surface names it from its live tab regardless.
+   *
+   * `serverId` names the host that filed the link.
    */
-  trackSessionStart(sessionId: string): void {
+  trackSessionStart(sessionId: string, serverId?: string): void {
     this.bindSession(sessionId)
-    if (this.#sessions.some((attempt) => attempt.sessionId === sessionId)) return
-    this.#sessions.push({
+    if (this.sessions.some((link) => link.sessionId === sessionId)) return
+    const heldBy = serverId ?? this.#serverId ?? serverConnections.defaultServerId()
+    if (!heldBy) return
+    this.#sessionsByHost.set(heldBy, [...(this.#sessionsByHost.get(heldBy) ?? []), {
       taskId: this.id,
       sessionId,
       sessionTitle: null,
@@ -527,26 +466,28 @@ export class Task implements TaskRecord {
       startedAt: Date.now(),
       lastActivityAt: null,
       linkedAt: Date.now(),
-    })
+    }])
   }
 
   /**
-   * Record an authoritative attempt row.
+   * Record an authoritative session link that one host answered.
    *
    * Overwrite rather than skip: the entry already here may be the optimistic one
    * from `trackSessionStart`, which carries no display metadata. A read that
    * names the session is authoritative, so it upgrades in place.
    */
-  applyAttempt(attempt: TaskSessionLink): void {
-    const index = this.#sessions.findIndex((existing) => existing.sessionId === attempt.sessionId)
-    if (index === -1) this.#sessions.push(attempt)
-    else this.#sessions[index] = attempt
-    // A `referenced` attempt is listed but does not own the session.
-    if (attempt.role !== 'referenced') this.bindSession(attempt.sessionId)
+  applySessionLink(serverId: string, link: TaskSessionLink): void {
+    // A new array each time: the map notifies on `set`, not on a change inside
+    // a list it holds. One task has few session links.
+    const held = this.#sessionsByHost.get(serverId) ?? []
+    const index = held.findIndex((existing) => existing.sessionId === link.sessionId)
+    this.#sessionsByHost.set(serverId, index === -1 ? [...held, link] : held.with(index, link))
+    // A `referenced` session is listed but the task does not own it.
+    if (link.role !== 'referenced') this.bindSession(link.sessionId)
   }
 
   /** Claim a session for this task in the store's session index, which is what
-   *  `taskForSession` answers from. The attempt row itself is `sessions`. */
+   *  `taskForSession` answers from. The link itself is in `sessions`. */
   bindSession(sessionId: string): void {
     this.#store.taskIdBySessionId.set(sessionId, this.id)
   }
@@ -559,24 +500,51 @@ export class Task implements TaskRecord {
   }
 
   /**
-   * Detach a session from this task, on the host that owns it. The attempt row
+   * Detach a session from this task, on the host that holds the link. The link
    * goes on this frame so every mounted surface drops it now; the next
    * authoritative snapshot agrees rather than restores it.
    */
   async unlinkSession(sessionId: string): Promise<void> {
-    await this.#api.tasksUnlinkSession(this.id, sessionId)
-    const index = this.#sessions.findIndex((attempt) => attempt.sessionId === sessionId)
-    if (index !== -1) this.#sessions.splice(index, 1)
+    const heldBy = hostOfSessionLink(this.#sessionsByHost, this.#hostOrder(), sessionId)
+    const api = heldBy ? serverConnections.apiFor(heldBy) : this.#api
+    await api.tasksUnlinkSession(this.id, sessionId)
+    for (const [serverId, held] of this.#sessionsByHost) {
+      if (!held.some((link) => link.sessionId === sessionId)) continue
+      const kept = held.filter((link) => link.sessionId !== sessionId)
+      if (kept.length) this.#sessionsByHost.set(serverId, kept)
+      else this.#sessionsByHost.delete(serverId)
+    }
     this.unbindSession(sessionId)
   }
 
-  replaceSessions(sessions: TaskSessionLink[]): void {
-    this.#sessions = sessions
+  /** Take the session links and the pull request links that one host holds
+   *  for this task. An empty answer forgets that host. */
+  applyHostAttachments(serverId: string, sessions: TaskSessionLink[], prLinks: TaskSidebarPrLink[]): void {
+    for (const link of this.#sessionsByHost.get(serverId) ?? []) this.unbindSession(link.sessionId)
+    if (sessions.length) this.#sessionsByHost.set(serverId, sessions)
+    else this.#sessionsByHost.delete(serverId)
+    // The equality guard matters as much as the write: most reads answer with
+    // the same links, and a fresh array identity would invalidate the sidebar's
+    // pull request discovery inputs, whose effect issued the read.
+    const heldPrLinks = this.#prLinksByHost.get(serverId)
+    if (!prLinks.length) {
+      if (heldPrLinks) this.#prLinksByHost.delete(serverId)
+    } else if (!samePrLinks(heldPrLinks, prLinks)) {
+      this.#prLinksByHost.set(serverId, prLinks)
+    }
+    for (const link of this.sessions) {
+      if (link.role !== 'referenced') this.bindSession(link.sessionId)
+    }
+  }
+
+  /** Whether a host holds a session link or a pull request link of this task. */
+  hasAttachmentsOn(serverId: string): boolean {
+    return this.#sessionsByHost.has(serverId) || this.#prLinksByHost.has(serverId)
   }
 
   // --- Undo ---------------------------------------------------------------
 
-  /** Leave the lists for an Undo window. The host row still exists until the
+  /** Leave the lists for an Undo window. The draft still exists until the
    *  toast commits, so a refresh landing in between must not restore it. */
   hideForUndo(): void {
     this.#hiddenForUndo = true
@@ -585,7 +553,6 @@ export class Task implements TaskRecord {
   /** Take the Undo back: the task is listed again and refreshes reach it. */
   restore(): void {
     this.#hiddenForUndo = false
-    this.#file()
   }
 
   // --- Ingest -------------------------------------------------------------
@@ -601,10 +568,12 @@ export class Task implements TaskRecord {
    * cleared rather than left standing: the row is authoritative about what it
    * omits — except a list row (`TaskSummary`), which never carries the body or
    * the epic; only a full record speaks for those.
+   *
+   * `serverId` names the host that read the task from its provider.
    */
   hydrate(record: TaskRecord | TaskSummary, serverId?: string): this {
     if (serverId) this.#serverId = serverId
-    // A task inside its Undo window still exists on the host, so a refresh
+    // A draft inside its Undo window still exists on the provider, so a refresh
     // landing here would otherwise put it straight back on screen.
     if (this.#hiddenForUndo) return this
     if (!this.#known) {
@@ -612,103 +581,78 @@ export class Task implements TaskRecord {
       this.#store.noteTaskKnown()
     }
     this.providerId = record.providerId
-    this.shortId = record.shortId
-    this.organizationId = record.organizationId
-    this.projectKey = record.projectKey
+    this.kind = record.kind
+    this.reference = record.reference
     this.title = record.title
-    this.titleSource = record.titleSource
     if ('body' in record) {
       this.body = record.body
       if (!sameEpic(this.epic, record.epic)) this.epic = record.epic
     }
-    this.status = record.status
     this.url = record.url
+    this.category = record.category
     this.assignee = record.assignee
     this.assigneeAvatarUrl = record.assigneeAvatarUrl
     this.dueDate = record.dueDate
     this.priority = record.priority
-    this.canEditPlanningFields = record.canEditPlanningFields
-    this.source = record.source
-    this.originSessionId = record.originSessionId
-    this.originAutomationId = record.originAutomationId
     this.createdAt = record.createdAt
     this.updatedAt = record.updatedAt
-    this.triagedAt = record.triagedAt
-    this.doneAt = record.doneAt
     this.lastReadAt = record.lastReadAt
     // A `$state` write of an equal primitive notifies nobody, so only the
     // composite fields need a guard of their own — each read hands us a fresh
-    // array or object whose identity would otherwise read as a change. `raw` is
-    // the provider's own payload and is only ever re-parsed by the read that
-    // replaced it, so its identity is the honest comparison.
-    if (!sameMirroredTicket(this.mirroredTicket, record.mirroredTicket)) {
-      this.mirroredTicket = record.mirroredTicket
+    // array or object whose identity would otherwise read as a change.
+    if (this.state.name !== record.state.name || this.state.category !== record.state.category) {
+      this.state = record.state
     }
+    if (!samePlacements(this.placements, record.placements)) this.placements = record.placements
     if (!sameStrings(this.labels, record.labels)) this.labels = record.labels
+    if (!sameStrings(this.writableFields, record.writableFields)) this.writableFields = record.writableFields
     if (!samePr(this.pr, record.pr)) this.pr = record.pr
-    this.raw = record.raw
-    this.#file()
     return this
   }
 
   /**
-   * Take the place in the collection this task's own fields call for.
+   * Take a detail payload from the host that reads this task: the task, its
+   * pull request links on that host and the detail itself.
    *
-   * A provider ticket read from the cross-host inbox arrives before anyone has
-   * said which project owns it. It has nowhere to go yet, and the durable list
-   * is not it — `placeIn` files it once the user picks.
-   */
-  #file(): void {
-    if (this.isUpstream) {
-      if (!this.projectKey) return
-      const rows = this.#store.upstreamRowsFor(this.projectKey)
-      if (!rows.some((row) => row.id === this.id)) rows.push(this)
-      return
-    }
-    this.#store.list(this)
-  }
-
-  /** Leave the project's live provider list — this ticket has been imported or
-   *  mirrored, and showing it beside the task it became is the same work twice. */
-  forgetUpstreamRow(): void {
-    if (!this.projectKey) return
-    const rows = this.#store.upstreamRowsFor(this.projectKey)
-    const index = rows.findIndex((row) => row.id === this.id)
-    if (index >= 0) rows.splice(index, 1)
-  }
-
-  /** The equality guard matters as much as the write: a detail read answers
-   *  with the same links most times, and a fresh array identity would invalidate
-   *  the sidebar's pull request discovery inputs, whose effect issued the read. */
-  applyPrLinks(links: TaskSidebarPrLink[]): void {
-    if (!links.length && !this.#prLinks.length) return
-    if (samePrLinks(this.#prLinks, links)) return
-    this.#prLinks = links
-  }
-
-  /**
-   * Take a detail payload: this task, its pull request links and the detail
-   * itself.
-   *
-   * Session links are deliberately not part of this. A task's attempts are
-   * written by the sidebar snapshot and the focused session-tree read and by
+   * Session links are deliberately not part of this. A task's session links
+   * are written by the sidebar snapshot and the focused session read and by
    * nothing else, so no surface can narrow them by opening a task.
    */
   applyDetails(details: TaskDetails): void {
     this.hydrate(details.task)
-    this.applyPrLinks(prLinksOf(details).map((link) => ({
-      ...link,
-      snapshot: this.#prLinks.find((current) => current.number === link.number
-        && current.targetScope === link.targetScope)?.snapshot,
-    })))
     this.#details = details
+    this.#applyDetailPrLinks(details)
+  }
+
+  #applyDetailPrLinks(details: TaskDetails): void {
+    const serverId = this.#serverId
+    if (!serverId) return
+    const held = this.#prLinksByHost.get(serverId) ?? []
+    const links = prLinksOf(details, this.#attachmentHosts).map((link) => ({
+      ...link,
+      snapshot: held.find((current) => current.number === link.number
+        && current.targetScope === link.targetScope)?.snapshot,
+    }))
+    if (!links.length) {
+      if (held.length) this.#prLinksByHost.delete(serverId)
+    } else if (!samePrLinks(held, links)) {
+      this.#prLinksByHost.set(serverId, links)
+    }
   }
 }
 
-/** The sidebar's compact view of a detail read's pull request links. */
-function prLinksOf(details: TaskDetails): TaskSidebarPrLink[] {
+/** The identity of a link on one task (`TaskLink` identity). */
+function attachmentKey(link: Pick<TaskLink, 'kind' | 'targetScope' | 'targetKey'>): string {
+  return `${link.kind}:${link.targetScope}:${link.targetKey}`
+}
+
+/** The sidebar's compact view of the pull request links that the task's own
+ *  host answered in a detail read. */
+function prLinksOf(details: TaskDetails, attachmentHosts: ReadonlyMap<string, string>): TaskSidebarPrLink[] {
   return details.links
-    .filter((link) => link.kind === 'pr' && Number.isSafeInteger(Number(link.targetKey)))
+    .filter((link) => link.kind === 'pr'
+      && Number.isSafeInteger(Number(link.targetKey))
+      && !attachmentHosts.has(attachmentKey(link)))
     .map((pr) => {
       const prLink: TaskSidebarPrLink = {
         number: Number(pr.targetKey),

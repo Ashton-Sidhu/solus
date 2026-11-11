@@ -8,9 +8,10 @@ const STORAGE_KEY = 'solus.tasks.board-ranks'
  * Where each project's manually-placed board cards live.
  *
  * Order is a per-viewer reading of a shared list — "this is what *I* am doing
- * next" — so it is kept client-side and keyed by project, rather than written
- * back to the task record. That also lets an upstream GitHub ticket be dragged
- * beside a local task: neither provider has to own a field for it.
+ * next" — so it is kept client-side, rather than written back to the provider.
+ * It is keyed by project and board view, because the columns of one view are
+ * not the columns of another. That also lets a GitHub issue be dragged beside
+ * a Jira issue: neither provider has to own a field for it.
  *
  * The trade is that the order does not follow you to another machine. If it
  * should, this class is the seam: a rank per task is already the shape a
@@ -19,15 +20,15 @@ const STORAGE_KEY = 'solus.tasks.board-ranks'
  * instead of renumbering the column.
  */
 export class BoardOrderStore {
-  #byProject = new SvelteMap<string, BoardRanks>()
+  #byBoard = new SvelteMap<string, BoardRanks>()
 
   constructor() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const storedRanks = z.record(z.string(), z.record(z.string(), z.number())).parse(JSON.parse(raw))
-        for (const [projectKey, ranks] of Object.entries(storedRanks)) {
-          this.#byProject.set(projectKey, ranks)
+        for (const [boardKey, ranks] of Object.entries(storedRanks)) {
+          this.#byBoard.set(boardKey, ranks)
         }
       }
     } catch {
@@ -36,10 +37,10 @@ export class BoardOrderStore {
     }
   }
 
-  /** A project's card ranks (empty until something is dragged). */
-  ranksFor(projectKey: string | null): BoardRanks {
-    if (!projectKey) return {}
-    return this.#byProject.get(projectKey) ?? {}
+  /** A board's card ranks (empty until something is dragged). */
+  ranksFor(boardKey: string | null): BoardRanks {
+    if (!boardKey) return {}
+    return this.#byBoard.get(boardKey) ?? {}
   }
 
   /**
@@ -49,19 +50,19 @@ export class BoardOrderStore {
    * array index — there is no position to compute. Ranks only ever compare
    * within a column, so numbering columns independently costs nothing.
    */
-  setColumnOrder(projectKey: string | null, orderedIds: string[]): void {
-    if (!projectKey) return
-    const next = { ...this.ranksFor(projectKey) }
+  setColumnOrder(boardKey: string | null, orderedIds: string[]): void {
+    if (!boardKey) return
+    const next = { ...this.ranksFor(boardKey) }
     orderedIds.forEach((id, index) => {
       next[id] = index
     })
-    this.#byProject.set(projectKey, next)
+    this.#byBoard.set(boardKey, next)
     this.#persist()
   }
 
   #persist(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(this.#byProject)))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(this.#byBoard)))
     } catch {
       // Quota or a locked-down storage backend: the in-memory order still works
       // for this sitting.

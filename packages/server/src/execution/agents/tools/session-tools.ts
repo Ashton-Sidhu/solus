@@ -12,7 +12,8 @@ import { MODEL_PROFILES, isLegacyModel, PERMISSION_MODES } from '@solus/contract
 import { formatExchangeTag, formatOrchestrationItem, ORCHESTRATION_LIMITS, type OrchestrationItem } from '@solus/contracts/session-exchange'
 import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, ReasoningEffort, PermissionMode, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
-import { Task } from '../../../data/tasks/task'
+import { taskIdForSession } from '../../../data/tasks/task-sessions'
+import { loadTask } from '../../../data/tasks/task-store'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { toolMayRead } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
@@ -166,7 +167,7 @@ export const startSessionFields = {
     .enum(['attempt', 'none'])
     .default('none')
     .describe("Optional task membership. Defaults to none. Use attempt with task_id to join an existing task."),
-  task_id: z.string().trim().min(1).optional().describe("The existing task for task='attempt'. Defaults to your current task. Omit with task='none'."),
+  task_id: z.string().trim().min(1).optional().describe("The task key of the existing GitHub or Jira task for task='attempt'. Defaults to your current task. Omit with task='none'."),
   agent_provider: z
     .string()
     .optional()
@@ -332,10 +333,11 @@ function resolveProject(
 }
 
 async function taskSummaryForSession(sessionId: string): Promise<string | null> {
-  const boundTask = await Task.forSession(ANY_ORGANIZATION, sessionId)
-  if (!boundTask) return null
-  const task = boundTask.record()
-  return `${task.id} [${task.status}] ${task.title}`
+  const taskId = await taskIdForSession(ANY_ORGANIZATION, sessionId)
+  if (!taskId) return null
+  // A link needs no copy of the task: the key still names it.
+  const task = await loadTask(taskId)
+  return task ? `${task.id} [${task.category}] ${task.title}` : taskId
 }
 
 /** The time window of a search. */
@@ -881,7 +883,7 @@ type StartTaskBinding = { taskId: string | null } | { error: string }
 async function resolveStartTask(task: 'attempt' | 'none', explicitTaskId: string | undefined, callerSessionId: string | undefined): Promise<StartTaskBinding> {
   if (task === 'none') return { taskId: null }
   const taskId = explicitTaskId?.trim()
-    || (callerSessionId ? (await Task.forSession(ANY_ORGANIZATION, callerSessionId))?.id : undefined)
+    || (callerSessionId ? await taskIdForSession(ANY_ORGANIZATION, callerSessionId) ?? undefined : undefined)
   return taskId ? { taskId } : { error: "This session has no task to join. Use task='none', or task='attempt' with a task_id." }
 }
 

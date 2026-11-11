@@ -4,6 +4,16 @@ Status: implemented, 2026-10-27. This replaces the lead-session plan of
 2026-09-27 (task 01M3AZ4M9Z4YNKD6TGDY2300B0) and its sidebar sections of
 2026-09-30.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, the "native entity"
+> storage is history: a task is not a record that Solus owns, and decision 3
+> (New task files an "Untitled task") is replaced, because New task opens the
+> composer and creates the task on the provider. The promote step before a
+> session link is removed. The rules for session links are still the rules:
+> `working` and `referenced`, one owning task for a session, and a session
+> makes no task of its own. A link names the task by its task key.
+
 A task is a record that sessions can be linked to. It does not start its own
 kind of session, and it has no place in the session sidebar. Its description,
 links, works, plans, PRs and comments are the persistent context. A session

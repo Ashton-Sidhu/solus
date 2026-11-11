@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { githubIssue, jiraIssue, seedTask } from './helpers/task-fixtures'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { artifactPreview, resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type DbModule = typeof import('@solus/server/db')
-type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
-type TaskModule = typeof import('@solus/server/data/tasks/task')
+type TaskAttachmentsModule = typeof import('@solus/server/data/tasks/task-attachments')
 type WorksModule = typeof import('@solus/server/data/works/works')
 type ArtifactToolsModule = typeof import('@solus/server/execution/agents/tools/artifact-tools')
 type WorkToolsModule = typeof import('@solus/server/execution/agents/tools/work-tools')
@@ -20,8 +20,7 @@ type TaskArtifactsModule = typeof import('@solus/server/data/tasks/task-artifact
 
 let dataDir: string
 let db: DbModule
-let taskStore: TaskStoreModule
-let tasks: TaskModule
+let attachments: TaskAttachmentsModule
 let works: WorksModule
 let artifactTools: ArtifactToolsModule
 let workTools: WorkToolsModule
@@ -37,8 +36,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-artifact-work-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  tasks = await import('@solus/server/data/tasks/task')
+  attachments = await import('@solus/server/data/tasks/task-attachments')
   works = await import('@solus/server/data/works/works')
   artifactTools = await import('@solus/server/execution/agents/tools/artifact-tools')
   workTools = await import('@solus/server/execution/agents/tools/work-tools')
@@ -80,9 +78,8 @@ describe('render_artifact persists a work', () => {
   test('create_work automatically links a session-authored work to its task', async () => {
     // WHY: the Link control is the manual way in and out. It must not replace
     // the default filing rule for a work created inside a task-owned session.
-    const record = await taskStore.createTask('local', { title: 'Draft release notes' })
-    const task = await tasks.Task.byId('local', record.id)
-    await task.linkSession(SESSION_ID)
+    const task = await seedTask(githubIssue(1, { title: 'Draft release notes' }))
+    await attachments.linkTaskSession('local', task.id, SESSION_ID)
 
     const created: Array<{ workId: string }> = []
     await workTools.executeWorkTool(
@@ -95,7 +92,7 @@ describe('render_artifact persists a work', () => {
     )
 
     expect(created).toHaveLength(1)
-    expect((await task.details()).links).toContainEqual(
+    expect((await attachments.taskAttachments('local', task.id)).links).toContainEqual(
       expect.objectContaining({ kind: 'work', targetKey: created[0].workId }),
     )
   })
@@ -131,9 +128,8 @@ describe('render_artifact persists a work', () => {
   })
 
   test('a saved artifact stays with its session without being filed on its task', async () => {
-    const record = await taskStore.createTask('local', { title: 'Report latency' })
-    const task = await tasks.Task.byId('local', record.id)
-    await task.linkSession(SESSION_ID)
+    const task = await seedTask(githubIssue(1, { title: 'Report latency' }))
+    await attachments.linkTaskSession('local', task.id, SESSION_ID)
     const emitted: Array<{ workId: string }> = []
     const result = await artifactTools.executeArtifactTool(
       { html: HTML, title: 'Latency report' },
@@ -145,7 +141,7 @@ describe('render_artifact persists a work', () => {
     expect(result.ok).toBe(true)
     expect(result.text).toContain('associated with this session')
     expect((await works.loadWork('local', emitted[0].workId))?.sessionIds).toContain(SESSION_ID)
-    expect((await task.details()).links.map((link) => link.targetKey)).not.toContain(emitted[0].workId)
+    expect((await attachments.taskAttachments('local', task.id)).links.map((link) => link.targetKey)).not.toContain(emitted[0].workId)
   })
 
   test('empty html is refused before anything is written', async () => {
@@ -266,11 +262,10 @@ describe('an artifact on a ticket', () => {
   test('the still always goes; the source goes only where the ticket can hold it', () => {
     // WHY: GitHub's upload endpoint takes images and video only, so a comment
     // that named the .html would be held back — and the still with it. Jira
-    // attaches any file, and a local task renders both itself.
+    // attaches any file.
     const uri = `asset://${'c'.repeat(64)}.html`
-    expect(taskArtifacts.sourceTravelsTo('github', uri, 'report.html')).toBe(false)
-    expect(taskArtifacts.sourceTravelsTo('jira', uri, 'report.html')).toBe(true)
-    expect(taskArtifacts.sourceTravelsTo(null, uri, 'report.html')).toBe(true)
+    expect(taskArtifacts.sourceTravelsTo(githubIssue(1).home, uri, 'report.html')).toBe(false)
+    expect(taskArtifacts.sourceTravelsTo(jiraIssue(1).home, uri, 'report.html')).toBe(true)
   })
 
   test('the comment is the durable record: local asset references, never provider URLs', () => {
@@ -301,10 +296,11 @@ describe('an artifact on a ticket', () => {
   test('only an artifact work can be attached', async () => {
     // WHY: a document has no render to take a still of; refusing names the
     // kind rather than drawing an empty page.
-    const record = await taskStore.createTask('local', { title: 'Report latency' })
+    const task = await seedTask(githubIssue(1, { title: 'Report latency' }))
+    const by = { kind: 'system' as const }
     const doc = await works.createWork('local', 'Notes', 'doc', '# Notes', 'Notes', undefined, 'claude-code', '~')
-    await expect(taskArtifacts.attachArtifactToTask('local', record.id, doc.id)).rejects.toThrow(/is a doc, not an artifact/)
-    await expect(taskArtifacts.attachArtifactToTask('local', record.id, 'missing-work')).rejects.toThrow(/no longer exists/)
+    await expect(taskArtifacts.attachArtifactToTask('local', task.id, doc.id, by)).rejects.toThrow(/is a doc, not an artifact/)
+    await expect(taskArtifacts.attachArtifactToTask('local', task.id, 'missing-work', by)).rejects.toThrow(/no longer exists/)
   })
 })
 

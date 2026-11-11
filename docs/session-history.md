@@ -166,7 +166,9 @@ session rename or branch change names the tasks linked to that session. A new
 pull request observation (a detail read, a write, a background check, or branch
 discovery) names the tasks linked to that pull request. A detail read answered
 from memory names no task. An event with no `taskId` makes the client read the
-whole list. Bulk sync, import, and task delete send an event with no `taskId`.
+whole list. A write across many tasks and a task delete send an event with no
+`taskId`. The end of a source read sends `tasks.sourcesChanged`, and the client
+resumes its snapshot ([tasks](tasks.md)).
 
 PR sync on the host (`prs/pr-sync.ts`, docs/plans/pr-sync.md) keeps the pull
 requests of live tasks fresh. Once a minute it asks each repository with a live
@@ -180,14 +182,15 @@ clients through task invalidation and `pr.changed`. A repository that fails
 waits five minutes. An older answer cannot overwrite a newer one.
 
 A merged PR completes the tasks that link it. The host owns that rule in one
-place, `completeTasksForMergedPullRequest`; clients only show the result. A task
-is done when every PR it links is merged, unless the project sets
-`taskDoneOnMerge: false`. Two guards hold it: a task changed after the merge
-(reopened, edited, or given a new session) stays as the user left it until the
-PR itself changes again, and a task whose working session is still busy waits
-for a later pass. PR sync asks again on every pass from the state saved on the
-link, so a wait costs no host request. A closed PR does not complete a
-task.
+place, `completeTasksForMergedPullRequest`; clients only show the result. When
+every PR that a task links is merged, the host moves the task to the status
+category `done` on GitHub or Jira. The rule applies when a project on the host
+lists a task source of the task and does not set `taskDoneOnMerge: false`. A
+task that is already done stays as it is, and a task whose working session is
+still busy waits for a later pass. If the provider refuses the move, the host
+logs it and the task does not change. PR sync asks again on every pass from the
+state saved on the link, so a wait costs no host request. A closed PR does not
+complete a task.
 
 Branch-to-task discovery also runs in the host worker. It groups indexed isolated
 session checkouts by repository and branch, and writes durable task links.

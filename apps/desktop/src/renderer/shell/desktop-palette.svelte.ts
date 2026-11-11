@@ -171,7 +171,7 @@ export function createDesktopPalette(
   // Known projects for the "Create task in…" sub-page, refreshed when the palette
   // opens so the list mirrors what the projects manifest currently holds.
   let paletteProjects = $state<ProjectEntry[]>([]);
-  // The host those projects were listed from: a task filed in one lands there.
+  // The host those projects were listed from: it creates a task of one of them.
   let paletteProjectsServerId = $state<string | null>(null);
   function loadOpenPages() {
     const taskCwd = session.tasksProjectCwd;
@@ -620,7 +620,8 @@ export function createDesktopPalette(
       children: automationChildren,
     });
     // Create a task — one entry scoped to the status-bar project, plus a sub-page
-    // to pick any other known project. Both start a new task (`startNewTask`).
+    // to pick any other known project. Both open the Tasks page composer
+    // (`composeNewTask`).
     const taskContext = session.taskCreationContext;
     const taskCwd = taskContext?.projectKey ?? null;
     if (taskContext && taskCwd) {
@@ -632,7 +633,7 @@ export function createDesktopPalette(
         icon: TaskIcon,
         hint: comboHint("global.new-task"),
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
-        run: () => void session.startNewTask(taskContext.serverId, taskCwd, true),
+        run: () => session.composeNewTask({ serverId: taskContext.serverId, projectRoot: taskCwd }, "palette"),
       });
     }
     const projectsServerId = paletteProjectsServerId;
@@ -644,7 +645,7 @@ export function createDesktopPalette(
           group: "Projects",
           icon: FolderIcon,
           keywords: [p.folderName, p.path],
-          run: () => void session.startNewTask(projectsServerId, p.path),
+          run: () => session.composeNewTask({ serverId: projectsServerId, projectRoot: p.path }, "palette"),
         }))
       : [];
     commands.push({
@@ -668,7 +669,7 @@ export function createDesktopPalette(
           label: t.title,
           group: "Tasks",
           icon: TaskIcon,
-          keywords: ["task", t.id, t.assignee ?? "", ...t.labels],
+          keywords: ["task", t.reference ?? "", t.assignee ?? "", ...t.labels],
           run: () => session.goToTask(t.id),
         }))
       : [];

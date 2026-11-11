@@ -26,10 +26,11 @@ import type { WsTransport } from '@solus/client-core/ws-transport'
 /** The slice of `WsTransport` that `registerPrimary` drives in the demo. */
 type DemoTransport = Pick<
   WsTransport,
-  'events' | 'destroy' | 'start' | 'probe' | 'reconnectNow' | 'onReset' | 'attachDialOutcomeReporter' | 'setUnreachable'
+  'events' | 'destroy' | 'start' | 'probe' | 'reconnectNow' | 'onReset' | 'onServerRequest' | 'attachDialOutcomeReporter' | 'setUnreachable'
 >
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
 import { armReplay, createReplayEngine } from './replay/engine'
+import WebToaster from '../components/WebToaster.svelte'
 import DemoCtaOverlay from './DemoCtaOverlay.svelte'
 import DemoHintsOverlay from './DemoHintsOverlay.svelte'
 import DemoWindowControls from './DemoWindowControls.svelte'
@@ -82,6 +83,8 @@ const demoTransport: DemoTransport = {
   reconnectNow: () => {},
   setUnreachable: () => {},
   onReset: () => () => {},
+  // The demo host sends no request to its client.
+  onServerRequest: () => () => {},
   attachDialOutcomeReporter: (report: (outcome: DialOutcome) => void) => {
     reportDialOutcome = report
     // The reporter is attached mid-`registerPrimary`; let it finish wiring the
@@ -103,7 +106,10 @@ serverConnections.registerPrimary(LOCAL_SERVER_ID, demoApi, demoTransport as WsT
 seedDemoStorage(fixtures)
 
 
-mount(App, { target: document.getElementById('root')! })
+const root = document.getElementById('root')!
+mount(App, { target: root })
+// The workspace reports through toasts; without a toaster, the demo lost each one.
+mount(WebToaster, { target: root })
 
 // The demo has no window frame of its own, so it draws the controls the desktop
 // app gets from macOS. `solus-demo` on the root is what reserved the corner for

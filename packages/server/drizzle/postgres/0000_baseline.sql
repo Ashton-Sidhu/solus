@@ -294,67 +294,60 @@ CREATE TABLE "session_transcripts" (
 	CONSTRAINT "session_transcripts_session_id_position_organization_id_pk" PRIMARY KEY("session_id","position","organization_id")
 );
 --> statement-breakpoint
-CREATE TABLE "task_counters" (
-	"name" text PRIMARY KEY NOT NULL,
-	"value" integer NOT NULL
+CREATE TABLE "task_source_access" (
+	"user_id" text NOT NULL,
+	"source_key" text NOT NULL,
+	"checked_at" bigint,
+	"health" text DEFAULT 'ok' NOT NULL,
+	"message" text,
+	CONSTRAINT "task_source_access_user_id_source_key_pk" PRIMARY KEY("user_id","source_key")
 );
 --> statement-breakpoint
-CREATE TABLE "task_external_links" (
-	"task_id" text PRIMARY KEY NOT NULL,
-	"provider" text NOT NULL,
-	"external_key" text NOT NULL,
-	"external_id" text NOT NULL,
-	"url" text NOT NULL,
-	"external_updated_at" text,
-	"snapshot" text,
-	"dirty_fields" text DEFAULT '[]' NOT NULL,
-	"sync_state" text DEFAULT 'ok' NOT NULL,
-	"sync_error" text,
-	"last_synced_at" bigint,
-	"retry_at" bigint,
-	"failure_count" integer DEFAULT 0 NOT NULL,
-	"organization_id" text DEFAULT 'local' NOT NULL
+CREATE TABLE "task_source_items" (
+	"source_key" text NOT NULL,
+	"task_id" text NOT NULL,
+	"column_id" text,
+	"item_id" text,
+	"position" integer DEFAULT 0 NOT NULL,
+	CONSTRAINT "task_source_items_source_key_task_id_pk" PRIMARY KEY("source_key","task_id")
+);
+--> statement-breakpoint
+CREATE TABLE "task_sources" (
+	"source_key" text PRIMARY KEY NOT NULL,
+	"source" text NOT NULL,
+	"label" text NOT NULL,
+	"columns" text DEFAULT '[]' NOT NULL,
+	"write_state" text,
+	"fetched_at" bigint,
+	"truncated" integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "tasks" (
 	"id" text PRIMARY KEY NOT NULL,
-	"short_id" integer,
-	"project_key" text,
-	"title" text NOT NULL,
-	"title_source" text DEFAULT 'prompt' NOT NULL,
-	"body" text DEFAULT '' NOT NULL,
-	"status" text DEFAULT 'inbox' NOT NULL,
-	"assignee" text,
-	"assignee_user_id" text,
-	"due_date" text,
-	"priority" text,
-	"labels" text DEFAULT '[]' NOT NULL,
-	"epic" text,
-	"source" text DEFAULT 'user' NOT NULL,
-	"origin_session_id" text,
-	"origin_automation_id" text,
-	"created_at" bigint NOT NULL,
-	"updated_at" bigint NOT NULL,
-	"triaged_at" bigint,
-	"done_at" bigint,
-	"last_read_at" bigint,
-	"location" text,
-	"organization_id" text DEFAULT 'local' NOT NULL,
-	"created_by" text NOT NULL,
-	"comment_position" integer DEFAULT 0 NOT NULL,
-	CONSTRAINT "tasks_short_id_unique" UNIQUE("short_id")
-);
---> statement-breakpoint
-CREATE TABLE "upstream_task_cache" (
-	"project_key" text NOT NULL,
 	"provider" text NOT NULL,
-	"external_key" text NOT NULL,
-	"scope" text NOT NULL,
+	"kind" text NOT NULL,
+	"reference" text,
+	"url" text,
+	"title" text NOT NULL,
+	"body" text DEFAULT '' NOT NULL,
+	"state_name" text NOT NULL,
+	"state_category" text NOT NULL,
+	"state_id" text,
+	"category" text NOT NULL,
+	"assignee" text,
+	"assignee_avatar_url" text,
+	"labels" text DEFAULT '[]' NOT NULL,
+	"priority" text,
+	"due_date" text,
+	"epic" text,
+	"writable_fields" text DEFAULT '[]' NOT NULL,
+	"home" text NOT NULL,
+	"created_at" bigint,
+	"updated_at" bigint NOT NULL,
 	"fetched_at" bigint NOT NULL,
-	"truncated" integer,
-	"tasks" text NOT NULL,
-	"organization_id" text DEFAULT 'local' NOT NULL,
-	CONSTRAINT "upstream_task_cache_project_key_provider_external_key_scope_pk" PRIMARY KEY("project_key","provider","external_key","scope")
+	"detail_fetched_at" bigint,
+	"last_read_at" bigint,
+	"comment_position" integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "webhook_deliveries" (
@@ -492,7 +485,6 @@ CREATE TABLE "workspace_projects" (
 	"created_at" bigint NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "task_external_links" ADD CONSTRAINT "task_external_links_task_id_tasks_id_fk" FOREIGN KEY ("task_id") REFERENCES "public"."tasks"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "webhook_deliveries" ADD CONSTRAINT "webhook_deliveries_webhook_id_webhooks_id_fk" FOREIGN KEY ("webhook_id") REFERENCES "public"."webhooks"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "work_live_docs" ADD CONSTRAINT "work_live_docs_work_id_works_id_fk" FOREIGN KEY ("work_id") REFERENCES "public"."works"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "work_reviewers" ADD CONSTRAINT "work_reviewers_work_id_works_id_fk" FOREIGN KEY ("work_id") REFERENCES "public"."works"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -525,7 +517,8 @@ CREATE INDEX "notifications_by_resource" ON "notifications" USING btree ("organi
 CREATE INDEX "operation_receipts_expiry" ON "operation_receipts" USING btree ("expires_at","scope","namespace","key") WHERE expires_at IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "personal_resource_state_by_person" ON "personal_resource_state" USING btree ("created_by","resource_kind","resource_id");--> statement-breakpoint
 CREATE INDEX "personal_resource_state_snoozed" ON "personal_resource_state" USING btree ("created_by","resource_kind","snoozed_until") WHERE snoozed_until IS NOT NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX "resource_links_edge" ON "resource_links" USING btree ("source_kind","source_id","target_kind","target_scope","target_key");--> statement-breakpoint
+CREATE UNIQUE INDEX "resource_links_edge" ON "resource_links" USING btree ("organization_id","source_kind","source_id","target_kind","target_scope","target_key");--> statement-breakpoint
+CREATE INDEX "resource_links_by_source" ON "resource_links" USING btree ("source_kind","source_id","target_kind");--> statement-breakpoint
 CREATE INDEX "resource_links_by_target" ON "resource_links" USING btree ("target_kind","target_key","target_scope");--> statement-breakpoint
 CREATE UNIQUE INDEX "resource_links_working_owner" ON "resource_links" USING btree ("organization_id","target_key") WHERE source_kind = 'task' AND target_kind = 'session' AND relation = 'works-on' AND status = 'active';--> statement-breakpoint
 CREATE INDEX "resource_links_open_session" ON "resource_links" USING btree ("source_id","organization_id") WHERE keeps_session = 1;--> statement-breakpoint
@@ -540,10 +533,7 @@ CREATE INDEX "session_by_parent_activity" ON "session_records" USING btree ("par
 CREATE INDEX "session_by_project_path" ON "session_records" USING btree ("project_path","last_activity_at");--> statement-breakpoint
 CREATE INDEX "session_by_place" ON "session_records" USING btree ("place","last_activity_at");--> statement-breakpoint
 CREATE INDEX "session_transcripts_search_pending" ON "session_transcripts" USING btree ("session_id") WHERE search_text = '';--> statement-breakpoint
-CREATE UNIQUE INDEX "task_external_links_external" ON "task_external_links" USING btree ("provider","external_key","external_id");--> statement-breakpoint
-CREATE INDEX "tasks_api_page" ON "tasks" USING btree ("organization_id","created_at" desc,"id" desc);--> statement-breakpoint
-CREATE INDEX "tasks_api_project_page" ON "tasks" USING btree ("organization_id","project_key","created_at" desc,"id" desc);--> statement-breakpoint
-CREATE INDEX "tasks_api_status_page" ON "tasks" USING btree ("organization_id","status","created_at" desc,"id" desc);--> statement-breakpoint
+CREATE INDEX "task_source_items_task" ON "task_source_items" USING btree ("task_id");--> statement-breakpoint
 CREATE INDEX "webhook_deliveries_by_webhook" ON "webhook_deliveries" USING btree ("webhook_id","arrived_at","id");--> statement-breakpoint
 CREATE INDEX "webhooks_by_creator" ON "webhooks" USING btree ("organization_id","created_by");--> statement-breakpoint
 CREATE INDEX "webhooks_by_project" ON "webhooks" USING btree ("project");--> statement-breakpoint

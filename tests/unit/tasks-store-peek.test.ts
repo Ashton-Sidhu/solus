@@ -1,57 +1,30 @@
 import { afterAll, expect, test } from 'bun:test'
 import { SvelteRunes } from './helpers/svelte-runes'
+import { createTasksWorld, disposeTasksWorlds, issueRecord } from './helpers/tasks-world'
 
-// WHY: a share link opens the task page on an empty store, and the page asks
+// WHY: a deep link opens the task page on an empty store, and the page asks
 // `peek` before any read has named the task. `byId` is a plain Map, so a peek
 // that found nothing tracked nothing: the detail read then filled the task in,
 // but the page kept its first answer and said the task no longer exists.
 
 const runes = new SvelteRunes()
-afterAll(() => runes.dispose())
-
-const file = SvelteRunes.file
-const connections = runes.module('server-connections', `
-  export const detailReads = []
-  export const serverConnections = {
-    connectedServerIds: () => [],
-    onConnectionCreated: () => () => {},
-    onReadinessChange: () => () => {},
-    defaultServerId: () => 'local',
-    apiFor: () => ({
-      tasksGet: async (id) => {
-        detailReads.push(id)
-        return { task: { id, providerId: 'local', title: 'Shared task', body: '', status: 'todo', url: null, labels: [], updatedAt: 1 }, comments: [], links: [], activity: [] }
-      },
-    }),
-  }
-`)
-const stub = (name: string, source: string) => runes.module(name, source)
-const taskSnoozes = stub('task-snoozes', 'export const taskSnoozesStore = { start: () => {}, get: () => null }')
-const task = runes.source('task', 'packages/workspace-ui/src/contexts/tasks/task.svelte.ts', {
-  '@solus/client-core/server-connections': connections,
-  '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
-  './task-reconcile': file('packages/workspace-ui/src/contexts/tasks/task-reconcile.ts'),
-  './upstream-task-details': file('packages/workspace-ui/src/contexts/tasks/upstream-task-details.ts'),
-  './task-title-regeneration': file('packages/workspace-ui/src/contexts/tasks/task-title-regeneration.ts'),
-  './task-snoozes.store.svelte': taskSnoozes,
+afterAll(() => {
+  runes.dispose()
+  disposeTasksWorlds()
 })
-const store = runes.source('tasks-store', 'packages/workspace-ui/src/contexts/tasks/tasks.store.svelte.ts', {
-  'svelte/reactivity': file('node_modules/svelte/src/reactivity/index-client.js'),
-  '@solus/client-core/server-connections': connections,
-  '@solus/client-core/host-key': file('packages/client-core/src/host-key.ts'),
-  '@solus/contracts/repository-key': file('packages/contracts/src/repository-key.ts'),
-  '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
-  '../../lib/sessionUtils': stub('session-utils', 'export const attemptServerId = () => undefined'),
-  '../../lib/organization-filter': file('packages/workspace-ui/src/lib/organization-filter.ts'),
-  '../hosts/hosts.svelte': stub('hosts', 'export const hosts = { hasCollaboration: () => true, hasExecution: () => true }'),
-  '../connections/organization-selection.store.svelte': stub('organization-selection', 'export const organizationSelection = { activeOrganizationId: null }'),
-  '../projects/projects.store.svelte': stub('projects', 'export const projectsStore = { projectKeyFor: (_s, key) => key, checkoutsOf: () => [] }'),
-  './task.svelte': task,
-  './task-snoozes.store.svelte': taskSnoozes,
+
+const world = await createTasksWorld()
+const detailReads: string[] = []
+world.connections.registerPrimary('local', {
+  tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+  tasksGet: async (id: string) => {
+    detailReads.push(id)
+    return { task: issueRecord(id, { title: 'Opened by its key' }), comments: [], links: [], activity: [] }
+  },
 })
 const fixture = runes.module('fixture', `
   import { flushSync } from 'svelte'
-  import { TasksStore } from ${JSON.stringify(store)}
+  import { TasksStore } from ${JSON.stringify(world.modules.tasksStore)}
   // The task page reads \`peek\` from its template, which is an effect: read it
   // the same way, so the derived caches and invalidates as it does in the app.
   export function open(taskId) {
@@ -72,15 +45,14 @@ const { open } = await import(fixture) as {
     flush(): void
   }
 }
-const { detailReads } = await import(connections) as { detailReads: string[] }
 
 test('a task page opened before its task was read shows the task once the read lands', async () => {
-  const { tasks, page, flush } = open('shared-task')
+  const { tasks, page, flush } = open('github:I_deep_link')
   expect(page.title).toBeNull()
 
-  await tasks.get('shared-task').loadDetails()
+  await tasks.get('github:I_deep_link').loadDetails()
   flush()
 
-  expect(detailReads).toEqual(['shared-task'])
-  expect(page.title).toBe('Shared task')
+  expect(detailReads).toContain('github:I_deep_link')
+  expect(page.title).toBe('Opened by its key')
 })

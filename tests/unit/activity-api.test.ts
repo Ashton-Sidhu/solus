@@ -151,15 +151,6 @@ describe('activity on the Solus API', () => {
     await expect(operations.listSessionActivity(bob, 'thread-1', {})).rejects.toMatchObject({ status: 404 })
   })
 
-  test("a host's agent writes a task's changes on the API directly, and a reader who may open the task reads them", async () => {
-    // A host's agent acting for Alice: its writes are the agent's (docs/plans/simplify-auth-and-sync.md §4.5).
-    const agent: WorkspaceRequestContext = { ...alice, actingAgent: { organizationId: 'org1' } }
-    const task = await operations.createTask(agent, { title: 'Ship it', status: 'todo' }, 'activity-api-task-0001')
-    await operations.updateTask(agent, task.id, { status: 'in_progress' }, task.version)
-    const changes = (await operations.listTaskActivity(alice, task.id, {})).items
-    expect(changes.map((row) => row.kind === 'task_changed' && row.change)).toEqual(['created', 'status_changed'])
-  })
-
   test('a work\'s activity is answered to its readers only; "activity naming me" answers only the caller\'s own, on records they may open', async () => {
     // Alice's private work names Bob and Carol; her work shared with the organization names them too.
     const hidden = await operations.createWork(alice, { title: 'Private', type: 'doc', content: `Hi ${mention('bob', 'Bob')} ${mention('carol', 'Carol')}` }, 'activity-api-private-01')

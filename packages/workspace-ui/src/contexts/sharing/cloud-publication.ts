@@ -7,7 +7,7 @@ import type { WorksStore } from '../works/works.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { LOCAL_ORGANIZATION_ID } from '../../lib/organization-filter'
 
-/** How putting a Local work or task into an organization ended. */
+/** How putting a Local work into an organization ended. */
 export type PublishOutcome =
   | { kind: 'committed'; cloudServerId: string }
   | { kind: 'failed'; error: string }
@@ -27,12 +27,14 @@ export interface PublishRequest {
 }
 
 /**
- * A Local work or task leaves its machine as a cloud copy
+ * A Local work leaves its machine as a cloud copy
  * (docs/plans/cloud-sharing.md §3): read from the machine, uploaded to the
  * Solus API with this client's sign-in under the same id, then marked moved on
  * the machine, which keeps its content. Every step is safe to repeat: the same
  * resource uploaded again answers as before, so an upload that stopped halfway
  * finishes the next time. A session stays on its host and is never uploaded.
+ * A task is not a Solus resource: GitHub or Jira owns it, and it has no cloud
+ * copy (docs/plans/provider-owned-tasks.md §4.3).
  */
 export class CloudPublication {
   works: WorksStore | null = null
@@ -55,7 +57,7 @@ export class CloudPublication {
     if (!savedWorkspaceFor(cloudServerId)) await serversStore.refreshDirectory()
   }
 
-  /** Put one Local work or task into one organization; a second request for the same resource joins the first. */
+  /** Put one Local work into one organization; a second request for the same resource joins the first. */
   upload(request: PublishRequest): Promise<PublishOutcome> {
     const key = `${request.serverId}|${request.resource.kind}|${request.resource.id}`
     const running = this.uploads.get(key)
@@ -74,9 +76,7 @@ export class CloudPublication {
     if (resource.kind === 'session') return { kind: 'failed', error: 'A session stays on its host.' }
     if (serverConnections.readinessFor(serverId).readiness !== 'ready') return { kind: 'offline' }
     try {
-      return resource.kind === 'work'
-        ? await this.uploadWork(serverId, resource.id, organizationId)
-        : await this.uploadTask(serverId, resource.id, organizationId)
+      return await this.uploadWork(serverId, resource.id, organizationId)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (error instanceof Error && rpcErrorCode(error) === 'FORBIDDEN') return { kind: 'denied', error: message }
@@ -93,28 +93,6 @@ export class CloudPublication {
     await host.workMarkMoved(workId, transfer.fingerprint, organizationId)
     this.works?.markPublished(workId, organizationId, cloudServerId)
     this.onMoved(serverId, { kind: 'work', id: workId })
-    return { kind: 'committed', cloudServerId }
-  }
-
-  /**
-   * A task goes with its linked Local works (docs/plans/cloud-sharing.md §4):
-   * the works go first, so the cloud task never links to a work the cloud does
-   * not have. Linked sessions stay where they are.
-   */
-  private async uploadTask(serverId: string, taskId: string, organizationId: string): Promise<PublishOutcome> {
-    const host = serverConnections.apiFor(serverId)
-    const { task, works } = await host.taskExportForCloud(taskId)
-    const cloudServerId = solusApiId(organizationId)
-    await this.reachCloud(cloudServerId)
-    const cloud = serverConnections.apiFor(cloudServerId)
-    for (const work of works) await cloud.workUpload(work)
-    await cloud.taskUpload(task)
-    await host.taskMarkMoved(taskId, task.fingerprint, works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), organizationId)
-    for (const work of works) {
-      this.works?.markPublished(work.work.id, organizationId, cloudServerId)
-      this.onMoved(serverId, { kind: 'work', id: work.work.id })
-    }
-    this.onMoved(serverId, { kind: 'task', id: taskId })
     return { kind: 'committed', cloudServerId }
   }
 }

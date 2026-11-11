@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { attachedTask } from './helpers/task-handle'
 
 /**
  * A session owns its pull request links, and a task reads the links of its
@@ -21,8 +22,6 @@ let dataDir: string
 let db: typeof import('@solus/server/db')
 let database: typeof import('@solus/server/db/database')
 let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
-let tasks: typeof import('@solus/server/data/tasks/task')
 let taskLinks: typeof import('@solus/server/data/tasks/task-links')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
@@ -32,8 +31,6 @@ beforeAll(async () => {
   db = await import('@solus/server/db')
   database = await import('@solus/server/db/database')
   sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  tasks = await import('@solus/server/data/tasks/task')
   taskLinks = await import('@solus/server/data/tasks/task-links')
 })
 
@@ -148,8 +145,8 @@ describe('a task and the pull requests of its sessions', () => {
   test('a task reads the links of its sessions and has no copy of them', async () => {
     // WHY: a session that joins a task brings its pull requests, and a session
     // that leaves takes them with it. A copy on the task would stay behind.
-    const task = await taskStore.createTask('local', { title: 'Ship the store', projectKey: '/workspace/solus' })
-    const model = await tasks.Task.byId('local', task.id)
+    const model = await attachedTask()
+    const task = model
     await sessionPrs.linkSessionPullRequest('worker', { url: URL_7, source: 'branch', by: SYSTEM })
     expect(await taskPrNumbers(task.id)).toEqual([])
 
@@ -165,15 +162,15 @@ describe('a task and the pull requests of its sessions', () => {
   })
 
   test('a referenced session brings no pull request', async () => {
-    const task = await taskStore.createTask('local', { title: 'Only mentions a session' })
+    const task = await attachedTask()
     await sessionPrs.linkSessionPullRequest('mentioned', { url: URL_7, source: 'manual', by: PERSON })
-    await (await tasks.Task.byId('local', task.id)).linkSession('mentioned', 'referenced')
+    await task.linkSession('mentioned', 'referenced')
     expect(await taskPrNumbers(task.id)).toEqual([])
   })
 
   test("a pull request linked on the task and owned by its session is the task's own link", async () => {
-    const task = await taskStore.createTask('local', { title: 'Linked twice', projectKey: '/workspace/solus' })
-    const model = await tasks.Task.byId('local', task.id)
+    const model = await attachedTask()
+    const task = model
     await model.linkSession('worker', 'working')
     await sessionPrs.linkSessionPullRequest('worker', { url: URL_7, source: 'branch', by: SYSTEM })
     await model.linkPullRequest({ number: 7, targetScope: REPOSITORY, url: URL_7.toLowerCase() }, PERSON)
@@ -184,8 +181,8 @@ describe('a task and the pull requests of its sessions', () => {
     // WHY: the task page offers Unlink on every pull request it lists. For a
     // link the task only reads, the session's link is the one to remove, and
     // PR sync must not put it back.
-    const task = await taskStore.createTask('local', { title: 'Unlink here', projectKey: '/workspace/solus' })
-    const model = await tasks.Task.byId('local', task.id)
+    const model = await attachedTask()
+    const task = model
     await model.linkSession('worker', 'working')
     await sessionPrs.linkSessionPullRequest('worker', { url: URL_7, source: 'branch', by: SYSTEM })
 
@@ -205,8 +202,8 @@ describe("an agent's link from an attached machine", () => {
     const operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(new ShareManager({ db: database.getDatabase() }))
     const context = { principal: SYSTEM, home: { kind: 'local' as const, hostId: 'host-1' }, scopes: ['tasks:write' as const], actingAgent: { organizationId: 'local' } }
 
-    const task = await taskStore.createTask('local', { title: 'Ship it', projectKey: '/workspace/solus' })
-    await (await tasks.Task.byId('local', task.id)).linkSession('worker', 'working', {})
+    const task = await attachedTask()
+    await task.linkSession('worker', 'working', {})
     await operations.putLink(context, { from: { kind: 'task', id: task.id }, to: { kind: 'pr', url: URL_7 }, originSessionId: 'worker' })
     expect(await taskPrNumbers(task.id)).toEqual([[7, 'worker']])
 

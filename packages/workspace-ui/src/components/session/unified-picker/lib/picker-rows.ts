@@ -8,6 +8,7 @@ import type { SidebarSessionChild } from '../../../../contexts/workspace/session
 import type { PreviewHitTarget } from '../../../../lib/preview.svelte'
 import { taskPickerSections } from '../../../tasks/lib/task-picker-sections'
 import { isDone } from '../../../tasks/lib/tasks-list-view'
+import { taskRef } from '../../../tasks/lib/tasks-api'
 import { SearchQuery } from '@solus/contracts/search-query'
 import { flattenedLower, PICKER_SORT_HINTS, type PickerSort } from './picker-search'
 import { activityScore, compareRelevance, nameScore, topHits, type Relevance } from './picker-relevance'
@@ -125,19 +126,6 @@ export function isTaskGroup(row: Extract<PickerRow, { kind: 'task' }>): boolean 
   return !row.matchedIn && row.sessions.length > 0
 }
 
-/** The last path segment of the task's project, or "Inbox" when it has none. */
-export function projectLabel(task: Task): string {
-  if (!task.projectKey) return 'Inbox'
-  if (isChat(task.projectKey)) return CHAT_LABEL
-  return hostPathBaseName(task.projectKey) || task.projectKey
-}
-
-/** The task's human id as it is shown everywhere: `T-<n>`. Empty for a task
- *  that has none yet. */
-export function taskShortIdLabel(task: Task): string {
-  return task.shortId === undefined ? '' : `T-${task.shortId}`
-}
-
 /** What a conversation row is called: the name the user or the agent gave the
  *  session, else its opening message, else its slug. */
 export function conversationTitle(meta: SessionMeta): string {
@@ -169,15 +157,13 @@ export function conversationProjectLabel(meta: SessionMeta): string {
 export function pickerProjectKeys(
   currentProjectKey: string | null,
   tasks: readonly Task[],
-  projectKeyOf: (task: Task) => string | null,
+  projectKeysOf: (task: Task) => readonly string[],
   knownProjectKeys: Iterable<string>,
 ): string[] {
   const keys = new Set<string>()
   if (currentProjectKey) keys.add(currentProjectKey)
   for (const task of tasks) {
-    if (isChat(task.projectKey)) continue
-    const projectKey = projectKeyOf(task)
-    if (projectKey) keys.add(projectKey)
+    for (const projectKey of projectKeysOf(task)) keys.add(projectKey)
   }
   for (const projectKey of knownProjectKeys) keys.add(projectKey)
   return [...keys]
@@ -188,15 +174,14 @@ export function pickerProjectKeys(
  * word has to start a token of one field — the rule the hosts' index applies
  * to a message — so "auth flow" finds "Flow for auth" in either section and
  * a session and a task never disagree about what a query means. The id is
- * the human `T-<n>`; a status or a project path matched every task that
- * shared it, which was noise, not a hit.
+ * the reference a person reads (`owner/repo#123`, `PROJ-12`); a status or a
+ * project path matched every task that shared it, which was noise, not a hit.
  */
 export function taskMatchField(task: Task, search: SearchQuery, commentPassage?: string): TaskMatchField | null {
   if (search.isEmpty) return 'title'
   if (search.matchName(task.title)) return 'title'
   if (task.body && search.holdsEveryWord(task.body)) return 'body'
-  const shortId = taskShortIdLabel(task)
-  if (shortId && search.matchName(shortId)) return 'id'
+  if (task.reference && search.matchName(task.reference)) return 'id'
   // The hosts found the words across the task's comments (unified-search.md §7).
   return commentPassage ? 'comment' : null
 }
@@ -221,12 +206,12 @@ export interface PickerRowsInput {
   query: string
   /** Which kinds of result the picker lists. */
   resultType?: PickerResultType
-  /** Scope the list to one project, or null to list every project. Every task
-   *  has a project, so a scope is a plain equality test with no exception. */
+  /** Scope the list to one project, or null to list every project. */
   projectKey?: string | null
-  /** The project a task belongs to (`tasksStore.projectKeyOf`), so every
-   *  checkout of a project is in its scope. The task's own key by default. */
-  projectKeyOf?: (task: Task) => string | null
+  /** The projects whose task sources list a task (`tasksStore.projectKeysOf`).
+   *  A task is in the scope when one of them is the scope. With no answer, a
+   *  scope keeps no task. */
+  projectKeysOf?: (task: Task) => readonly string[]
   /** How each section under a query is ordered. Relevance by default. */
   sort?: PickerSort
   sessionsFor: (task: Task) => SidebarSessionChild[]
@@ -313,8 +298,8 @@ function taskRelevance(item: KeptTask, search: SearchQuery, now: number): Releva
   const { task } = item
   const activity = activityScore(task.updatedAt, now, isDone(task))
   if (item.matchedIn === 'title') return { tier: 'name', score: nameScore(task.title, search) + activity }
-  // "T-4" names T-4 itself; that T-40 also starts with it is incidental.
-  if (item.matchedIn === 'id' && flattenedLower(taskShortIdLabel(task)) === search.words.join(' ')) return { tier: 'id', score: activity }
+  // "PROJ-4" names PROJ-4 itself; that PROJ-40 also starts with it is incidental.
+  if (item.matchedIn === 'id' && flattenedLower(taskRef(task)) === search.words.join(' ')) return { tier: 'id', score: activity }
   return { tier: 'evidence', score: activity }
 }
 
@@ -338,7 +323,7 @@ function rememberOwners(owners: Map<string, SessionOwner>, task: Task, sessions:
 /** The tasks the query and scope keep, and the sessions a query's words name. */
 function keepMatches(input: PickerRowsInput, search: SearchQuery) {
   const scope = input.projectKey ?? null
-  const projectKeyOf = input.projectKeyOf ?? ((task: Task) => task.projectKey ?? null)
+  const projectKeysOf = input.projectKeysOf ?? (() => [])
   const kept: KeptTask[] = []
   const nameHits: TaskSession[] = []
   // Every task's sessions are read anyway; remember whose each is so a
@@ -348,7 +333,7 @@ function keepMatches(input: PickerRowsInput, search: SearchQuery) {
   const { filters, since } = narrowing(input)
   for (const task of input.tasks) {
     const sessions = input.sessionsFor(task).filter((session) => session.sessionId || session.tabId)
-    const inScope = !scope || projectKeyOf(task) === scope
+    const inScope = !scope || projectKeysOf(task).includes(scope)
     rememberOwners(ownerBySessionId, task, sessions, inScope)
     const matchedIn = input.resultType === 'sessions' || !keepsTask(task, filters, since)
       ? null
@@ -702,8 +687,13 @@ export function pickerSessionTaskTitle(row: Exclude<PickerEntry, { kind: 'task' 
   return flattenedLower(row.task.title) === flattenedLower(row.session.label) ? null : row.task.title
 }
 
+/** The folder the session ran in. A task has no folder of its own: its
+ *  session names one. */
 export function pickerSessionProject(row: Exclude<PickerEntry, { kind: 'task' }>): string {
-  return row.kind === 'session' ? projectLabel(row.task) : conversationProjectLabel(row.meta)
+  if (row.kind !== 'session') return conversationProjectLabel(row.meta)
+  const projectKey = row.session.projectKey
+  if (isChat(projectKey)) return CHAT_LABEL
+  return (projectKey && hostPathBaseName(projectKey)) || '~'
 }
 
 /** The host the session ran on. */

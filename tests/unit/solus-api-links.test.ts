@@ -12,9 +12,12 @@ import type { WorkspaceOperations } from '@solus/server/data/workspace/operation
 import type { WorkspaceLink } from '@solus/contracts/solus-api'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-// One link route and one comment route carry an agent's remaining organization
-// writes to the Solus API (docs/plans/simplify-auth-and-sync.md §4.5). A link needs
-// editor on `from`, keeps both ends in one organization, and each (from, to) pair
+// One link route carries an agent's remaining organization writes to the Solus
+// API (docs/plans/simplify-auth-and-sync.md §4.5). A link from a session needs
+// editor on the session. A link from a task needs only the scope to write tasks:
+// GitHub or Jira owns the task, and the API holds no copy of it
+// (docs/plans/provider-owned-tasks.md). The link is made in the caller's
+// organization, its target is in that organization, and each (from, to) pair
 // writes the table it has always used.
 
 const previous = process.env.SOLUS_DATA_DIR
@@ -59,7 +62,7 @@ const call = (method: string, path: string, body: object, headers: Record<string
 })
 
 test('a link put twice is one row, and the route answers 204', async () => {
-  const task = await operations.createTask(alice, { title: 'Twice' }, key())
+  const task = { id: 'github:I_twice' }
   const work = await operations.createWork(alice, { title: 'Spec', type: 'doc', content: '# Spec' }, key())
   const link = { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: work.id } }
   expect((await call('PUT', '/links', link)).status).toBe(204)
@@ -69,30 +72,56 @@ test('a link put twice is one row, and the route answers 204', async () => {
   expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
 })
 
-test('a caller who is not an editor of `from` is refused, and nothing is written', async () => {
-  const task = await operations.createTask(alice, { title: "Alice's own" }, key())
-  const work = await operations.createWork(bob, { title: "Bob's doc", type: 'doc', content: '# Doc' }, key())
-  await expect(operations.putLink(bob, { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: work.id } })).rejects.toMatchObject({ status: 404 })
+test('a link from a session needs an editor of the session; a link from a task needs the scope and a target the caller reads', async () => {
+  const task = { id: 'github:I_refusals' }
+  const taskRows = () => count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)
+  const alicesWork = await operations.createWork(alice, { title: "Alice's doc", type: 'doc', content: '# Doc' }, key())
   await expect(operations.putLink(bob, { from: { kind: 'session', id: 's1' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/1' } })).rejects.toMatchObject({ status: 404 })
-  expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
+  // The task has no owner in Solus, but the link must not show Bob a work that he cannot open.
+  await expect(operations.putLink(bob, { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 404 })
+  // A credential that may not write tasks makes no link.
+  const readOnly: WorkspaceRequestContext = { ...alice, scopes: ['tasks:read', 'works:read', 'works:write'] }
+  await expect(operations.putLink(readOnly, { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 403 })
+  // An id from before tasks were provider-owned names no task.
+  await expect(operations.putLink(alice, { from: { kind: 'task', id: '01HZX3K5V0ULIDOFANOLDTASK00' }, to: { kind: 'work', id: alicesWork.id } })).rejects.toMatchObject({ status: 404 })
+  expect(await taskRows()).toBe(0)
   // A pair that is not a link is refused before anything is read.
   await expect(operations.putLink(alice, { from: { kind: 'task', id: task.id }, to: { kind: 'file', path: '/plan.md', hostId: 'runner-A' } })).rejects.toThrow('cannot link a file')
 })
 
+test('a link from a task key needs no copy of the task, and is the organization\'s of who made it', async () => {
+  // WHY: a task key is the provider's, so two organizations can name one public
+  // issue. Each reads its own links only, and neither removes the other's.
+  const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
+  const { loadTask } = await import('@solus/server/data/tasks/task-store')
+  const task = { kind: 'task' as const, id: 'github:I_public' }
+  const pr = { kind: 'pr' as const, url: 'https://github.com/acme/app/pull/21' }
+  await operations.putLink(alice, { from: task, to: pr, title: 'From A' })
+  expect(await loadTask(task.id)).toBeNull()
+  expect((await taskAttachments('A', task.id)).links).toMatchObject([{ kind: 'pr', targetKey: '21', title: 'From A' }])
+  expect(await taskAttachments('B', task.id)).toEqual({ links: [], activity: [] })
+  await operations.putLink(carol, { from: task, to: pr, title: 'From B' })
+  await operations.deleteLink(carol, { from: task, to: pr })
+  expect((await taskAttachments('A', task.id)).links.map((link) => link.title)).toEqual(['From A'])
+  // Bob, a member of the same organization, did not make the link and can remove it: the task has no owner.
+  await operations.deleteLink(bob, { from: task, to: pr })
+  expect((await taskAttachments('A', task.id)).links).toEqual([])
+})
+
 test('a link that crosses organizations is refused', async () => {
-  const task = await operations.createTask(alice, { title: 'In A' }, key())
+  const task = { id: 'github:I_crossing' }
   const elsewhere = await operations.createWork(carol, { title: 'In B', type: 'doc', content: '# B' }, key())
   const link: WorkspaceLink = { from: { kind: 'task', id: task.id }, to: { kind: 'work', id: elsewhere.id } }
   // Alice cannot read B's work at all.
   await expect(operations.putLink(alice, link)).rejects.toMatchObject({ status: 404 })
-  // Even a caller that may read both ends cannot join two organizations.
+  // Even a caller that may read both ends cannot join two organizations: the link is made in A, and the work is in B.
   const system: WorkspaceRequestContext = { ...alice, principal: { kind: 'system' } }
   await expect(operations.putLink(system, link)).rejects.toThrow('one organization')
   expect(await count(sql`SELECT COUNT(*) AS n FROM resource_links WHERE source_kind = 'task' AND source_id = ${task.id}`)).toBe(0)
 })
 
 test('each (from, to) pair writes its own edge, and a delete by the same key removes it', async () => {
-  const task = await operations.createTask(alice, { title: 'Every pair' }, key())
+  const task = { id: 'github:I_every_pair' }
   const work = await operations.createWork(alice, { title: 'Doc', type: 'doc', content: '# Doc' }, key())
   const fromTask = { kind: 'task' as const, id: task.id }
   const fromSession = { kind: 'session' as const, id: 's1' }
@@ -137,22 +166,6 @@ test("a session's pull request link keeps its title, its source, and the agent t
   await linkSessionPullRequest('s1', { url, source: 'branch', by: { kind: 'system' } })
   expect(((await readSessionPullRequests('A', ['s1']))['s1'] ?? []).some((candidate) => candidate.number === 9)).toBe(false)
 })
-
-test('a comment posts as the caller, and the same key answers the same comment', async () => {
-  const task = await operations.createTask(alice, { title: 'Discuss' }, key())
-  const headers = { 'Idempotency-Key': 'comment-key-000000001' }
-  const posted = await call('POST', `/tasks/${task.id}/comments`, { body: 'Looks right.' }, headers)
-  expect(posted.status).toBe(201)
-  const comment = await posted.json()
-  expect(comment).toMatchObject({ taskId: task.id, body: 'Looks right.', author: { kind: 'user', user: { id: { kind: 'account', accountId: 'alice' } } }, originSessionId: null })
-  expect(await (await call('POST', `/tasks/${task.id}/comments`, { body: 'Looks right.' }, headers)).json()).toEqual(comment)
-  // An agent acting for her names the session it works in.
-  const byAgent = await operations.createTaskComment(alicesAgent, task.id, { body: 'Done.', originSessionId: 's1' }, key())
-  expect(byAgent.author).toMatchObject({ kind: 'agent', sessionId: 's1' })
-  // Bob may not edit Alice's task, so he may not comment on it.
-  await expect(operations.createTaskComment(bob, task.id, { body: 'Hi' }, key())).rejects.toMatchObject({ status: 404 })
-})
-
 
 test('the session links route lists all kinds from the remote home and checks read access', async () => {
   const { workspaceSessionLinkListSchema } = await import('@solus/contracts/solus-api')

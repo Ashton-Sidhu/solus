@@ -1,5 +1,5 @@
 import { createLogger } from '../../logger'
-import { Task } from '../../data/tasks/task'
+import { linkSessionOutput } from '../../data/tasks/task-attachments'
 import { saveAsyncQuestion } from '../../data/sessions/async-questions'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
@@ -307,7 +307,7 @@ export class ProviderEvents {
           }
           // A plan is named by its session and its tool use.
           if (event.planToolUseId) {
-            void Task.linkSessionOutput(ANY_ORGANIZATION, session.sessionId, {
+            void linkSessionOutput(ANY_ORGANIZATION, session.sessionId, {
               kind: 'plan',
               targetScope: session.sessionId,
               targetKey: event.planToolUseId,

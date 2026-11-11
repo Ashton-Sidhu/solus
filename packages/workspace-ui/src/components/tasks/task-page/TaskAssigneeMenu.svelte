@@ -14,8 +14,9 @@
     assigneeAvatarUrl?: string;
     candidates: TaskAssigneeCandidate[];
     loading: boolean;
-    error?: string;
-    disabled: boolean;
+    error: string | null;
+    /** Why the provider does not take a change of the assignee. Null enables the menu. */
+    lock: string | null;
     align?: "start" | "end";
     triggerClass: string;
     onOpen: () => void;
@@ -28,7 +29,7 @@
     candidates,
     loading,
     error,
-    disabled,
+    lock,
     align = "end",
     triggerClass,
     onOpen,
@@ -58,7 +59,7 @@
 </script>
 
 <Popover.Root bind:open onOpenChange={handleOpenChange}>
-  <Popover.Trigger {disabled} class={triggerClass}>
+  <Popover.Trigger disabled={lock !== null} title={lock ?? undefined} class={triggerClass}>
     {#if assignee}
       <ListAvatar person={personFrom(assignee, undefined, assigneeAvatarUrl)} size={20} />
       <span class="min-w-0 truncate">{assignee}</span>

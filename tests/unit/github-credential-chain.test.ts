@@ -1,9 +1,10 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { GithubCredentialSource } from '@solus/server/providers/github/credentials'
 import { GitHubReauthRequiredError, type GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
-import { GitHubTaskProvider } from '@solus/server/data/tasks/providers/github'
+import { runGithubRequest } from '@solus/server/providers/github/request'
 import { githubPullRequestDetailAnswer } from './helpers/github-pull-request-detail'
 
 /**
@@ -191,16 +192,6 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
 class ChainedProvider extends GitHubProvider {
   constructor(private readonly chain: GitHubClient[]) {
     super()
-  }
-
-  protected override async clients(): Promise<GitHubClient[]> {
-    return this.chain
-  }
-}
-
-class ChainedTaskProvider extends GitHubTaskProvider {
-  constructor(private readonly chain: GitHubClient[]) {
-    super(repo)
   }
 
   protected override async clients(): Promise<GitHubClient[]> {
@@ -415,9 +406,12 @@ describe('GitHub requests run down the credential chain', () => {
     // requests instead of requiring a separate Solus OAuth connection.
     const host = scriptedClient('host', 'forbidden')
     const cli = scriptedClient('gh-cli', 'accepts')
-    const provider = new ChainedTaskProvider([host, cli])
+    // The task provider records asset publications, so its module loads the database module.
+    mock.module('node:sqlite', () => ({ DatabaseSync }))
+    const { GitHubTaskProvider } = await import('@solus/server/data/tasks/providers/github')
+    const provider = new GitHubTaskProvider((operation, run) => runGithubRequest(operation, 'github.com', [host, cli], run))
 
-    await expect(provider.listAssigneeCandidates()).resolves.toEqual([
+    await expect(provider.assignees({ provider: 'github', kind: 'issue', owner: repo.owner, repo: repo.repo, number: 1 })).resolves.toEqual([
       { login: 'octocat', avatarUrl: 'https://avatars.test/octocat' },
     ])
     expect(host.calls).toEqual(['issues.listAssignees'])

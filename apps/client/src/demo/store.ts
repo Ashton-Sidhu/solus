@@ -12,6 +12,7 @@ import type {
   PlanAnnotations,
   PlanDescriptor,
   PrReviewContext,
+  ProjectConfig,
   ProjectFilesResult,
   Work,
   WorkAnnotations,
@@ -23,7 +24,21 @@ import type {
 import type { DraftReview, PrConversationItem, ReviewComment, ReviewThread } from '@solus/contracts/providers'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
-import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
+import type {
+  Task,
+  TaskComment,
+  TaskCreateInput,
+  TaskField,
+  TaskLink,
+  TaskLinkInput,
+  TaskMoveTarget,
+  TaskProjectSources,
+  TaskSessionLink,
+  TaskSessionRole,
+  TaskSourceState,
+  TaskUpdatePatch,
+} from '@solus/contracts/task-types'
+import { taskKey, taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
 import type { ChangedFileStat, DiffRequest, GitState, TurnSnapshot } from '@solus/contracts/git-types'
 import type { CheckItem } from '@solus/contracts/checks-types'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
@@ -57,6 +72,11 @@ interface DemoDiff {
 
 const FIXTURE_EPOCH = Date.parse('2026-01-15T15:00:00.000Z')
 
+/** The Jira project behind the demo's Jira board, and the number its newest
+ *  fixture issue has: a new issue takes the next one. */
+const DEMO_JIRA_PROJECT = 'ACME'
+const DEMO_JIRA_NEWEST_ISSUE = 230
+
 /** How long before this visit the newest recorded message is said to have
  *  landed. The replayed turn continues that history, so the gap is what the
  *  visitor reads as "this conversation was live a moment ago". */
@@ -69,6 +89,22 @@ type AutomationPatch = {
   favorite?: boolean
   action?: Partial<AutomationAction>
   trigger?: AutomationTrigger
+}
+
+/** The columns of a source a visitor added: the demo has no provider to ask. */
+const DEMO_ADDED_SOURCE_COLUMNS: TaskSourceState['columns'] = [
+  { id: 'to-do', name: 'To Do', category: 'open' },
+  { id: 'in-progress', name: 'In Progress', category: 'active' },
+  { id: 'done', name: 'Done', category: 'done' },
+]
+
+function demoSourceLabel(source: TaskSource): string {
+  switch (source.kind) {
+    case 'github-repo': return `${source.owner}/${source.repo}`
+    case 'github-project': return `${source.owner} #${source.number}`
+    case 'jira-project': return source.projectKey
+    case 'jira-board': return source.boardId === 15 ? 'Web sprint board' : `Board ${source.boardId}`
+  }
 }
 
 export class DemoStore {
@@ -92,8 +128,6 @@ export class DemoStore {
     this.rebaseSessionHistory()
     // A task that already carries its docs, plan and automation is the normal
     // state, so the fixture seeds those edges rather than starting empty.
-    // These reach the page through `tasksGet` only: `upstreamTaskDetails` sets
-    // `links: []`, so a provider-owned ticket shows none of them.
     for (const [taskId, links] of Object.entries(this.fixtures.tasks.links)) {
       this.taskLinks.set(taskId, links)
     }
@@ -547,79 +581,214 @@ export class DemoStore {
     }
   }
 
-  private commentsForTask(id: string): TaskCommentData[] {
-    return this.fixtures.tasks.comments[id] ??= []
+  /** What a visitor changed in the task source setup. Null until the first save. */
+  private savedProjectConfig: ProjectConfig | null = null
+
+  /** The demo project's config: its task sources are the ones the fixture read, until a visitor changes them. */
+  projectConfig(): ProjectConfig {
+    return this.savedProjectConfig ?? {
+      version: 1,
+      taskSources: this.fixtures.tasks.sources.map(({ source }) => source),
+      defaultTaskSource: this.fixtures.tasks.defaultSourceKey,
+    }
   }
 
-  private hydrateTask(task: Task): Task {
-    // SAFETY: the demo's task fixtures carry their provider payload as a plain object
-    // whose only field the demo reads back is `comments`.
-    const raw = Object.prototype.toString.call(task.raw) === '[object Object]'
-      ? task.raw as { comments?: TaskCommentData[] }
-      : {}
-    return { ...task, raw: { ...raw, comments: this.commentsForTask(task.id) } }
+  /** Keep a visitor's change of the task sources for this visit. */
+  saveProjectConfig(config: ProjectConfig): ProjectConfig {
+    const taskSources = config.taskSources ?? []
+    const sourceKeys = taskSources.map(taskSourceKey)
+    this.savedProjectConfig = {
+      ...config,
+      taskSources,
+      defaultTaskSource: config.defaultTaskSource && sourceKeys.includes(config.defaultTaskSource) ? config.defaultTaskSource : sourceKeys[0],
+    }
+    return this.savedProjectConfig
   }
 
-  listTasks() {
-    return { ...this.fixtures.tasks.list, tasks: this.fixtures.tasks.list.tasks.map((task) => this.hydrateTask(task)) }
+  /** Every demo project lists the same sources, and each read of them is fresh.
+   *  A source that a visitor added has no fixture: it reads as an empty source. */
+  taskProjectSources(): TaskProjectSources {
+    const fetchedAt = Date.now()
+    const config = this.projectConfig()
+    return {
+      sources: (config.taskSources ?? []).map((source) => {
+        const sourceKey = taskSourceKey(source)
+        const read = this.taskSource(sourceKey)
+        return read
+          ? { ...read, fetchedAt }
+          : { sourceKey, source, label: demoSourceLabel(source), columns: DEMO_ADDED_SOURCE_COLUMNS, health: 'ok' as const, fetchedAt }
+      }),
+      defaultSourceKey: config.defaultTaskSource,
+    }
+  }
+
+  listTasks(): Task[] {
+    return this.fixtures.tasks.tasks
   }
 
   getTask(id: string): Task {
-    const task = this.fixtures.tasks.details[id] ?? this.fixtures.tasks.list.tasks.find((candidate) => candidate.id === id)
+    const task = this.fixtures.tasks.tasks.find((candidate) => candidate.id === id)
     if (!task) throw new Error(`Task not found: ${id}`)
-    return this.hydrateTask(task)
+    return task
   }
 
-  private storeTask(task: Task): Task {
-    this.fixtures.tasks.details[task.id] = task
-    const index = this.fixtures.tasks.list.tasks.findIndex((candidate) => candidate.id === task.id)
-    if (index === -1) this.fixtures.tasks.list.tasks.unshift(task)
-    else this.fixtures.tasks.list.tasks[index] = task
-    return this.hydrateTask(task)
+  taskComments(id: string): TaskComment[] {
+    return this.fixtures.tasks.comments[id] ??= []
   }
 
-  updateTask(id: string, patch: Partial<Task>): Task {
-    const current = this.getTask(id)
-    return this.storeTask({ ...current, ...patch, id, updatedAt: this.nextTimestamp() })
+  private taskSource(sourceKey: string): TaskSourceState | undefined {
+    return this.fixtures.tasks.sources.find((source) => source.sourceKey === sourceKey)
   }
 
-  createTask(input: Partial<Task>): Task {
-    const id = `demo-task-${++this.taskCounter}`
-    const task: Task = {
-      providerId: 'local',
-      title: input.title ?? 'Untitled task',
-      body: input.body ?? '',
-      status: input.status ?? 'todo',
-      url: null,
-      labels: input.labels ?? [],
-      canEditPlanningFields: true,
-      updatedAt: this.nextTimestamp(),
-      raw: {},
-      ...input,
-      id,
+  /** What the provider would report after a move: the state follows the task's
+   *  column (a GitHub issue is `Open` until its column is done), and the
+   *  category follows the rule on `Task.category`. */
+  private settleTaskState(task: Task): void {
+    const columns = task.placements.flatMap((placement) =>
+      this.taskSource(placement.sourceKey)?.columns.find((column) => column.id === placement.columnId) ?? [])
+    const column = columns[0]
+    if (column) {
+      if (task.providerId === 'github' && task.kind === 'issue') {
+        task.state = column.category === 'done' ? { name: 'Closed', category: 'done' } : { name: 'Open', category: 'open' }
+      } else {
+        task.state = { name: column.name, category: column.category }
+      }
     }
-    this.fixtures.tasks.comments[id] = []
-    return this.storeTask(task)
+    if (task.state.category === 'done') task.category = 'done'
+    else if (task.state.category === 'active' || columns.some((candidate) => candidate.category === 'active')) task.category = 'active'
+    else task.category = 'open'
   }
 
-  commentTask(id: string, body: string): Task {
-    this.getTask(id)
-    this.commentsForTask(id).push({
-      id: `demo-task-comment-${++this.commentCounter}`,
-      author: { login: 'you' },
-      body,
-      createdAt: this.nextIso(),
-    })
-    return this.updateTask(id, {})
+  updateTask(id: string, patch: TaskUpdatePatch): Task {
+    const task = this.getTask(id)
+    // SAFETY: each key of `TaskUpdatePatch` is the `TaskField` of the same name.
+    const refused = (Object.keys(patch) as TaskField[]).find((field) => !task.writableFields.includes(field))
+    if (refused) throw new Error(`This task does not take a change of its ${refused}.`)
+    if (patch.title !== undefined) task.title = patch.title
+    if (patch.body !== undefined) task.body = patch.body
+    if (patch.labels !== undefined) task.labels = patch.labels
+    if (patch.assignee !== undefined) task.assignee = patch.assignee ?? undefined
+    if (patch.dueDate !== undefined) task.dueDate = patch.dueDate ?? undefined
+    if (patch.priority !== undefined) task.priority = patch.priority ?? undefined
+    task.updatedAt = Date.now()
+    return task
   }
 
+  moveTask(id: string, target: TaskMoveTarget): Task {
+    const task = this.getTask(id)
+    if ('category' in target) {
+      for (const placement of task.placements) {
+        const column = this.taskSource(placement.sourceKey)?.columns.find((candidate) => candidate.category === target.category)
+        if (column) placement.columnId = column.id
+      }
+    } else {
+      const placement = task.placements.find((candidate) => candidate.sourceKey === target.sourceKey)
+      if (!placement) throw new Error(`The task is not in the source ${target.sourceKey}.`)
+      if (!this.taskSource(target.sourceKey)?.columns.some((column) => column.id === target.columnId)) {
+        throw new Error(`Column not found: ${target.columnId}`)
+      }
+      placement.columnId = target.columnId
+    }
+    this.settleTaskState(task)
+    task.updatedAt = Date.now()
+    return task
+  }
+
+  setTaskRead(id: string, read: boolean): Task {
+    const task = this.getTask(id)
+    task.lastReadAt = read ? Date.now() : undefined
+    return task
+  }
+
+  /** A GitHub Project source makes a draft item; a Jira source makes an issue. */
+  createTask(input: TaskCreateInput): Task {
+    const source = this.taskSource(input.sourceKey ?? this.fixtures.tasks.defaultSourceKey ?? '')
+    if (!source) throw new Error('The project has no task source to create the task in.')
+    if (input.columnId !== undefined && !source.columns.some((column) => column.id === input.columnId)) {
+      throw new Error(`Column not found: ${input.columnId}`)
+    }
+    const number = ++this.taskCounter
+    const now = Date.now()
+    const base = {
+      title: input.title,
+      body: input.body ?? '',
+      state: { name: 'Open', category: 'open' as const },
+      category: 'open' as const,
+      placements: [{ sourceKey: source.sourceKey, columnId: input.columnId ?? source.columns[0]?.id ?? null }],
+      assignee: input.assignee ?? undefined,
+      createdAt: now,
+      updatedAt: now,
+    }
+    let task: Task
+    if (source.source.kind === 'jira-project' || source.source.kind === 'jira-board') {
+      const reference = `${DEMO_JIRA_PROJECT}-${DEMO_JIRA_NEWEST_ISSUE + number}`
+      task = {
+        ...base,
+        id: taskKey({ provider: 'jira', cloudId: source.source.cloudId, id: String(10_000 + DEMO_JIRA_NEWEST_ISSUE + number) }),
+        providerId: 'jira',
+        kind: 'issue',
+        reference,
+        url: `https://acme.atlassian.net/browse/${reference}`,
+        labels: input.labels ?? [],
+        dueDate: input.dueDate ?? undefined,
+        priority: input.priority ?? undefined,
+        writableFields: ['title', 'body', 'labels', 'assignee', 'priority', 'dueDate'],
+      }
+    } else {
+      task = {
+        ...base,
+        id: taskKey({ provider: 'github', id: `PVTI_demoNew${number}` }),
+        providerId: 'github',
+        kind: 'draft',
+        url: null,
+        labels: [],
+        writableFields: ['title', 'body', 'assignee'],
+      }
+    }
+    this.settleTaskState(task)
+    this.fixtures.tasks.tasks.unshift(task)
+    return task
+  }
+
+  /** The demo's provider takes every comment, so a new one is sent at once. */
+  commentTask(id: string, body: string): void {
+    const task = this.getTask(id)
+    const createdAt = Date.now()
+    this.taskComments(id).push({ id: `demo-task-comment-new-${++this.commentCounter}`, taskId: id, author: { kind: 'user', user: DEMO_USER }, body, createdAt })
+    task.updatedAt = createdAt
+  }
+
+  private unsentTaskComment(id: string, commentId: string): TaskComment {
+    const comment = this.taskComments(id).find((candidate) => candidate.id === commentId)
+    if (!comment) throw new Error(`Comment not found: ${commentId}`)
+    if (!comment.unsent) throw new Error('The provider has this comment. Change it there.')
+    return comment
+  }
+
+  /** The second send succeeds: the comment becomes a provider comment. */
+  retryTaskComment(id: string, commentId: string): void {
+    const comment = this.unsentTaskComment(id, commentId)
+    delete comment.unsent
+    delete comment.sendError
+  }
+
+  discardTaskComment(id: string, commentId: string): void {
+    const comment = this.unsentTaskComment(id, commentId)
+    const comments = this.taskComments(id)
+    comments.splice(comments.indexOf(comment), 1)
+  }
+
+  /** Only a draft item can be deleted; a provider keeps its issues. */
   deleteTask(id: string): boolean {
-    const index = this.fixtures.tasks.list.tasks.findIndex((task) => task.id === id)
+    const index = this.fixtures.tasks.tasks.findIndex((task) => task.id === id)
     if (index === -1) return false
-    this.fixtures.tasks.list.tasks.splice(index, 1)
-    delete this.fixtures.tasks.details[id]
+    if (this.fixtures.tasks.tasks[index].kind !== 'draft') {
+      throw new Error('An issue cannot be deleted. Close it or move it.')
+    }
+    this.fixtures.tasks.tasks.splice(index, 1)
     delete this.fixtures.tasks.comments[id]
     delete this.fixtures.tasks.sessions[id]
+    this.taskLinks.delete(id)
     return true
   }
 
@@ -627,7 +796,7 @@ export class DemoStore {
     return this.fixtures.tasks.sessions
   }
 
-  linkTaskSession(taskId: string, sessionId: string): void {
+  linkTaskSession(taskId: string, sessionId: string, role?: TaskSessionRole): void {
     const links = this.fixtures.tasks.sessions[taskId] ??= []
     if (!links.some((link) => link.sessionId === sessionId)) {
       links.push({
@@ -637,9 +806,16 @@ export class DemoStore {
         model: null,
         startedAt: null,
         lastActivityAt: null,
+        role,
         linkedAt: this.nextTimestamp(),
       })
     }
+  }
+
+  unlinkTaskSession(taskId: string, sessionId: string): void {
+    const links = this.fixtures.tasks.sessions[taskId]
+    const index = links?.findIndex((link) => link.sessionId === sessionId) ?? -1
+    if (index !== -1) links.splice(index, 1)
   }
 
   taskLinksFor(taskId: string): TaskLink[] {

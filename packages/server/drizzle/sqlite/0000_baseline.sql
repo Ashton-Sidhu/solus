@@ -260,7 +260,8 @@ CREATE TABLE `resource_links` (
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `resource_links_edge` ON `resource_links` (`source_kind`,`source_id`,`target_kind`,`target_scope`,`target_key`);--> statement-breakpoint
+CREATE UNIQUE INDEX `resource_links_edge` ON `resource_links` (`organization_id`,`source_kind`,`source_id`,`target_kind`,`target_scope`,`target_key`);--> statement-breakpoint
+CREATE INDEX `resource_links_by_source` ON `resource_links` (`source_kind`,`source_id`,`target_kind`);--> statement-breakpoint
 CREATE INDEX `resource_links_by_target` ON `resource_links` (`target_kind`,`target_key`,`target_scope`);--> statement-breakpoint
 CREATE UNIQUE INDEX `resource_links_working_owner` ON `resource_links` (`organization_id`,`target_key`) WHERE source_kind = 'task' AND target_kind = 'session' AND relation = 'works-on' AND status = 'active';--> statement-breakpoint
 CREATE INDEX `resource_links_open_session` ON `resource_links` (`source_id`,`organization_id`) WHERE keeps_session = 1;--> statement-breakpoint
@@ -336,72 +337,61 @@ CREATE TABLE `session_transcripts` (
 );
 --> statement-breakpoint
 CREATE INDEX `session_transcripts_search_pending` ON `session_transcripts` (`session_id`) WHERE search_text = '';--> statement-breakpoint
-CREATE TABLE `task_counters` (
-	`name` text PRIMARY KEY NOT NULL,
-	`value` integer NOT NULL
+CREATE TABLE `task_source_access` (
+	`user_id` text NOT NULL,
+	`source_key` text NOT NULL,
+	`checked_at` integer,
+	`health` text DEFAULT 'ok' NOT NULL,
+	`message` text,
+	PRIMARY KEY(`user_id`, `source_key`)
 );
 --> statement-breakpoint
-CREATE TABLE `task_external_links` (
-	`task_id` text PRIMARY KEY NOT NULL,
-	`provider` text NOT NULL,
-	`external_key` text NOT NULL,
-	`external_id` text NOT NULL,
-	`url` text NOT NULL,
-	`external_updated_at` text,
-	`snapshot` text,
-	`dirty_fields` text DEFAULT '[]' NOT NULL,
-	`sync_state` text DEFAULT 'ok' NOT NULL,
-	`sync_error` text,
-	`last_synced_at` integer,
-	`retry_at` integer,
-	`failure_count` integer DEFAULT 0 NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
+CREATE TABLE `task_source_items` (
+	`source_key` text NOT NULL,
+	`task_id` text NOT NULL,
+	`column_id` text,
+	`item_id` text,
+	`position` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`source_key`, `task_id`)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `task_external_links_external` ON `task_external_links` (`provider`,`external_key`,`external_id`);--> statement-breakpoint
+CREATE INDEX `task_source_items_task` ON `task_source_items` (`task_id`);--> statement-breakpoint
+CREATE TABLE `task_sources` (
+	`source_key` text PRIMARY KEY NOT NULL,
+	`source` text NOT NULL,
+	`label` text NOT NULL,
+	`columns` text DEFAULT '[]' NOT NULL,
+	`write_state` text,
+	`fetched_at` integer,
+	`truncated` integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
-	`short_id` integer,
-	`project_key` text,
-	`title` text NOT NULL,
-	`title_source` text DEFAULT 'prompt' NOT NULL,
-	`body` text DEFAULT '' NOT NULL,
-	`status` text DEFAULT 'inbox' NOT NULL,
-	`assignee` text,
-	`assignee_user_id` text,
-	`due_date` text,
-	`priority` text,
-	`labels` text DEFAULT '[]' NOT NULL,
-	`epic` text,
-	`source` text DEFAULT 'user' NOT NULL,
-	`origin_session_id` text,
-	`origin_automation_id` text,
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL,
-	`triaged_at` integer,
-	`done_at` integer,
-	`last_read_at` integer,
-	`location` text,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	`created_by` text NOT NULL,
-	`comment_position` integer DEFAULT 0 NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `tasks_short_id_unique` ON `tasks` (`short_id`);--> statement-breakpoint
-CREATE INDEX `tasks_api_page` ON `tasks` (`organization_id`,"created_at" desc,"id" desc);--> statement-breakpoint
-CREATE INDEX `tasks_api_project_page` ON `tasks` (`organization_id`,`project_key`,"created_at" desc,"id" desc);--> statement-breakpoint
-CREATE INDEX `tasks_api_status_page` ON `tasks` (`organization_id`,`status`,"created_at" desc,"id" desc);--> statement-breakpoint
-CREATE TABLE `upstream_task_cache` (
-	`project_key` text NOT NULL,
 	`provider` text NOT NULL,
-	`external_key` text NOT NULL,
-	`scope` text NOT NULL,
+	`kind` text NOT NULL,
+	`reference` text,
+	`url` text,
+	`title` text NOT NULL,
+	`body` text DEFAULT '' NOT NULL,
+	`state_name` text NOT NULL,
+	`state_category` text NOT NULL,
+	`state_id` text,
+	`category` text NOT NULL,
+	`assignee` text,
+	`assignee_avatar_url` text,
+	`labels` text DEFAULT '[]' NOT NULL,
+	`priority` text,
+	`due_date` text,
+	`epic` text,
+	`writable_fields` text DEFAULT '[]' NOT NULL,
+	`home` text NOT NULL,
+	`created_at` integer,
+	`updated_at` integer NOT NULL,
 	`fetched_at` integer NOT NULL,
-	`truncated` integer,
-	`tasks` text NOT NULL,
-	`organization_id` text DEFAULT 'local' NOT NULL,
-	PRIMARY KEY(`project_key`, `provider`, `external_key`, `scope`)
+	`detail_fetched_at` integer,
+	`last_read_at` integer,
+	`comment_position` integer DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `webhook_deliveries` (

@@ -2,92 +2,106 @@ import { bigint, defineTable, integer, json, text } from '../../db/schema/define
 
 /**
  * The tasks domain's tables, declared once for both engines
- * (docs/plans/cloud-service-model.md). Column names and semantics are the
- * ones the SQLite migrations established; `organization_id` is new and
- * `'local'` on a host, so a cloud row can name its organization later.
+ * (docs/plans/provider-owned-tasks.md §4.4). GitHub and Jira own every task:
+ * these tables are the host's copy (the task cache) and the read state of each
+ * task source. A task has no organization and no owner in Solus; the
+ * attachments of a task (`resource_links`, `personal_resource_state`,
+ * `activity`) have an organization and key on the task key.
  */
 
 const ORGANIZATION = text({ notNull: true, default: 'local' })
 
+/** The host's copy of a task. The provider is the truth; the next read replaces the row. */
 export const tasks = defineTable('tasks', {
+  /** The task key (`taskKey`): `github:<nodeId>` or `jira:<cloudId>:<issueId>`. */
   id: text({ primaryKey: true }),
-  short_id: integer({ unique: true }),
-  project_key: text(),
+  provider: text({ notNull: true }),
+  /** `issue`, or `draft` for a GitHub Project item that is not an issue. */
+  kind: text({ notNull: true }),
+  /** `owner/repo#123` or `PROJ-12`. Null on a draft. */
+  reference: text(),
+  url: text(),
   title: text({ notNull: true }),
-  title_source: text({ notNull: true, default: 'prompt' }),
   body: text({ notNull: true, default: '' }),
-  status: text({ notNull: true, default: 'inbox' }),
+  /** The provider's own state, in the provider's words, and its status category. */
+  state_name: text({ notNull: true }),
+  state_category: text({ notNull: true }),
+  /** The Jira status id of the state. Null on GitHub. */
+  state_id: text(),
+  /** `Task.category`: from the state and the columns of the task (`taskCategory`). */
+  category: text({ notNull: true }),
   assignee: text(),
-  /** The Solus person assigned, by user key; never inferred from `assignee`. */
-  assignee_user_id: text(),
-  due_date: text(),
-  priority: text(),
+  assignee_avatar_url: text(),
   labels: json({ notNull: true, default: '[]' }),
-  /** Upstream epic snapshot (`TaskEpic`), written only by the sync engine. */
+  priority: text(),
+  due_date: text(),
+  /** The epic snapshot (`TaskEpic`) of the last read. */
   epic: json(),
-  source: text({ notNull: true, default: 'user' }),
-  origin_session_id: text(),
-  origin_automation_id: text(),
-  created_at: bigint({ notNull: true }),
+  /** The `TaskField`s the provider takes a change of for this task. */
+  writable_fields: json({ notNull: true, default: '[]' }),
+  /** `TaskHome` JSON: what the adapter needs to write (repository and issue number, Jira key). */
+  home: json({ notNull: true }),
+  /** Provider times, in epoch ms. */
+  created_at: bigint(),
   updated_at: bigint({ notNull: true }),
-  triaged_at: bigint(),
-  done_at: bigint(),
+  /** When the host last wrote this copy from a provider answer. */
+  fetched_at: bigint({ notNull: true }),
+  /** When the host last read the task with its comments. Null = never. */
+  detail_fetched_at: bigint(),
   last_read_at: bigint(),
-  /** `TaskLocation` JSON: the organization a shared task is in now
-   * (cloud-sharing.md §3a). Null while the task is on this host; a row with a
-   * location keeps its id, title, and links, and nothing else. */
-  location: json(),
-  organization_id: ORGANIZATION,
-  /** The user id of who made the task (plans/029 decision 2): also its owner, never empty, never changed. */
-  created_by: text({ notNull: true }),
   /** The position the task's next comment thread takes (`comment_threads.position`), advanced in the inserting transaction. */
   comment_position: integer({ notNull: true, default: 0 }),
+})
+
+/** One task source, shared by each project that lists it. */
+export const taskSources = defineTable('task_sources', {
+  source_key: text({ primaryKey: true }),
+  /** `TaskSource` JSON. */
+  source: json({ notNull: true }),
+  label: text({ notNull: true }),
+  /** `TaskColumn[]` JSON, in the provider's order. */
+  columns: json({ notNull: true, default: '[]' }),
+  /** `SourceWriteState` JSON: what the adapter needs to write to the source. */
+  write_state: json(),
+  /** When a provider last answered a read. Null = never read. */
+  fetched_at: bigint(),
+  truncated: integer({ notNull: true, default: 0 }),
+})
+
+/** Where a source puts each of its tasks. A read of the source replaces its rows. */
+export const taskSourceItems = defineTable('task_source_items', {
+  source_key: text({ notNull: true }),
+  task_id: text({ notNull: true }),
+  /** A `TaskColumn.id` of the source. Null for a board item with no column. */
+  column_id: text(),
+  /** The board item, for a write to a GitHub Project. */
+  item_id: text(),
+  /** The order the provider gave the tasks in. */
+  position: integer({ notNull: true, default: 0 }),
 }, {
+  primaryKey: ['source_key', 'task_id'],
   indexes: [
-    { name: 'tasks_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },
-    { name: 'tasks_api_project_page', columns: ['organization_id', 'project_key', 'created_at', 'id'], descending: ['created_at', 'id'] },
-    { name: 'tasks_api_status_page', columns: ['organization_id', 'status', 'created_at', 'id'], descending: ['created_at', 'id'] },
+    { name: 'task_source_items_task', columns: ['task_id'] },
   ],
 })
 
-const TASK_REFERENCE = { table: tasks, column: 'id', onDelete: 'cascade' } as const
-
-// A task's sessions and its links to works, plans, pull requests, and
-// automations are edges of `resource_links` (data/links/schema.ts); a task
-// delete removes them explicitly (`deleteEdgesOf`), as no foreign key can.
-
-export const taskExternalLinks = defineTable('task_external_links', {
-  task_id: text({ primaryKey: true, references: TASK_REFERENCE }),
-  provider: text({ notNull: true }),
-  external_key: text({ notNull: true }),
-  external_id: text({ notNull: true }),
-  url: text({ notNull: true }),
-  external_updated_at: text(),
-  snapshot: json(),
-  dirty_fields: json({ notNull: true, default: '[]' }),
-  sync_state: text({ notNull: true, default: 'ok' }),
-  sync_error: text(),
-  last_synced_at: bigint(),
-  retry_at: bigint(),
-  failure_count: integer({ notNull: true, default: 0 }),
-  organization_id: ORGANIZATION,
+/**
+ * One person's connection to one source. The cache is shared on a host, so a
+ * person sees the tasks of a source only after their own connection read it
+ * (`checked_at`). `health` is the result of that person's last read: it is
+ * about their connection, not about the source.
+ */
+export const taskSourceAccess = defineTable('task_source_access', {
+  /** The person whose connection this is: their user key. */
+  user_id: text({ notNull: true }),
+  source_key: text({ notNull: true }),
+  /** When this person's own connection last read the source. Null = never. */
+  checked_at: bigint(),
+  /** `TaskSourceHealth` of this person's last read. */
+  health: text({ notNull: true, default: 'ok' }),
+  message: text(),
 }, {
-  indexes: [
-    { name: 'task_external_links_external', columns: ['provider', 'external_key', 'external_id'], unique: true },
-  ],
-})
-
-export const upstreamTaskCache = defineTable('upstream_task_cache', {
-  project_key: text({ notNull: true }),
-  provider: text({ notNull: true }),
-  external_key: text({ notNull: true }),
-  scope: text({ notNull: true }),
-  fetched_at: bigint({ notNull: true }),
-  truncated: integer(),
-  tasks: json({ notNull: true }),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['project_key', 'provider', 'external_key', 'scope'],
+  primaryKey: ['user_id', 'source_key'],
 })
 
 export const assetPublications = defineTable('asset_publications', {
@@ -101,21 +115,10 @@ export const assetPublications = defineTable('asset_publications', {
   primaryKey: ['asset_id', 'provider', 'target_key'],
 })
 
-/**
- * The next `short_id`, handed out by one atomic upsert. `MAX(short_id) + 1`
- * read inside a transaction is not enough on Postgres: two creations in flight
- * read the same maximum. The row lock on this counter serializes them, and the
- * seed from `tasks` makes a file that already numbered its tasks carry on.
- */
-export const taskCounters = defineTable('task_counters', {
-  name: text({ primaryKey: true }),
-  value: integer({ notNull: true }),
-})
-
 export const TASK_TABLES = [
   tasks,
-  taskCounters,
-  taskExternalLinks,
-  upstreamTaskCache,
+  taskSources,
+  taskSourceItems,
+  taskSourceAccess,
   assetPublications,
 ]

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import { startSessionFields, launchSession } from './session-tools'
-import { Task } from '../../../data/tasks/task'
+import { taskIdForSession } from '../../../data/tasks/task-sessions'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { resolveHomePath } from '../../../platform/paths'
 import { resolveRepoRoot } from '../../../git/git-helpers'
@@ -11,7 +11,7 @@ const { task: _membership, task_id: _taskId, ...sessionFields } = startSessionFi
 const fields = {
   ...sessionFields,
   host: sessionFields.host.describe('Host id or name from list_agent_targets. Omit for this host. Remote cwd, provider, and model must exist on that host.'),
-  task_id: z.string().min(1).nullable().optional().describe('Existing Solus task to join. Omit to inherit the parent’s task locally; null keeps the child unlinked. Remote children cannot join a task yet.'),
+  task_id: z.string().min(1).nullable().optional().describe('The task key of an existing GitHub or Jira task to join. Omit to inherit the parent’s task locally; null keeps the child unlinked. Remote children cannot join a task yet.'),
   isolation: z.enum(['shared', 'worktree']).default('shared').describe('Shared uses cwd or the parent checkout. Worktree creates a separate checkout from the parent commit, or worktree_base_branch. On another host, name cwd and worktree_base_branch.'),
   report: z.boolean().default(true).describe('Wake the parent with notices and the final report. Defaults to true.'),
 }
@@ -31,8 +31,8 @@ export const delegateTaskAgentTool: AgentTool = {
     if (!sessionId) return { ok: false, text: 'delegate_task requires an initialized parent session.' }
     try {
       const { isolation, task_id, ...input } = parsed.data
-      if (input.host && task_id) return { ok: false, text: 'Remote children cannot join a Solus task yet.' }
-      const taskId = task_id === undefined && !input.host ? (await Task.forSession(ANY_ORGANIZATION, sessionId))?.id : task_id
+      if (input.host && task_id) return { ok: false, text: 'Remote children cannot join a task yet.' }
+      const taskId = task_id === undefined && !input.host ? await taskIdForSession(ANY_ORGANIZATION, sessionId) ?? undefined : task_id
       const workspaceError = await prepareWorkspace(input, isolation, context.cwd)
       if (workspaceError) return { ok: false, text: workspaceError }
       return await launchSession({ ...input, task: taskId ? 'attempt' : 'none', task_id: taskId ?? undefined }, {

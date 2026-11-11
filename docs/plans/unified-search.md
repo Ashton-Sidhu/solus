@@ -4,6 +4,15 @@ Status: updated, 2026-10-26. Host and SQLite service behavior have focused tests
 The Postgres implementation has not been run against a database in this change.
 Current before/after results are in [Session search benchmark](session-search-benchmark.md).
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. The rules of this plan stay. The
+> task text that a search reads is the host's task cache: titles and bodies of
+> the tasks that the person's task sources list, and the comments of the tasks
+> that were opened on the host. A task has no project of its own, thus a
+> project scope does not narrow the comment search. Task status in the filters
+> is the status category.
+
 The picker defaults to sessions only on desktop and web. The result menu can
 include tasks or show tasks only, and the client remembers an explicit choice.
 Native session search already shows sessions only.

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
-import type { ExternalTicketRef } from '@solus/contracts/task-types'
+import type { TaskHome } from '@solus/server/data/tasks/providers/types'
 import { githubClientState, installGithubClientMock, mockedGithubClient, mockedRepository } from './helpers/github-client-mock.ts'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
@@ -39,24 +39,20 @@ const SVG_ID = `${digest('d')}.svg`
 const WEBM_ID = `${digest('e')}.webm`
 
 type UploadModule = typeof import('@solus/server/providers/github/asset-upload')
-type AdapterModule = typeof import('@solus/server/data/tasks/adapters/github')
+type ProviderModule = typeof import('@solus/server/data/tasks/providers/github')
 type AssetsModule = typeof import('@solus/server/data/tasks/task-assets')
 type DbModule = typeof import('@solus/server/db')
 
 let upload: UploadModule
-let adapter: InstanceType<AdapterModule['GitHubTaskSyncAdapter']>
+let adapter: InstanceType<ProviderModule['GitHubTaskProvider']>
 let assets: AssetsModule
 let db: DbModule
 
-/** The ticket a publish is aimed at. Only the repository matters here: it is
+/** The issue a publish is aimed at. Only the repository matters here: it is
  *  both the upload target and the key a publication is recorded against. */
-function ticketIn(repositorySlug: string): ExternalTicketRef {
-  return {
-    provider: 'github',
-    externalKey: repositorySlug,
-    externalId: '42',
-    url: `https://github.com/${repositorySlug}/issues/42`,
-  }
+function ticketIn(repositorySlug: string): TaskHome {
+  const [owner, repo] = repositorySlug.split('/')
+  return { provider: 'github', kind: 'issue', owner, repo, number: 42 }
 }
 
 let dataDir: string
@@ -73,7 +69,8 @@ beforeAll(async () => {
   writeFileSync(join(dataDir, 'assets', WEBM_ID), Buffer.from('fake webm bytes'))
 
   upload = await import('@solus/server/providers/github/asset-upload')
-  adapter = new (await import('@solus/server/data/tasks/adapters/github')).GitHubTaskSyncAdapter()
+  // Each GitHub call of the provider goes to the mocked client: no credential is read.
+  adapter = new (await import('@solus/server/data/tasks/providers/github')).GitHubTaskProvider((_operation, run) => run(mockedGithubClient()))
   assets = await import('@solus/server/data/tasks/task-assets')
   db = await import('@solus/server/db')
 
@@ -251,7 +248,7 @@ describe('publishing a body', () => {
   })
 
   test('names the file GitHub cannot host', () => {
-    const blocked = adapter.unpublishableAssets(`[brief](asset://${PDF_ID}) ![shot](asset://${PNG_ID})`)
+    const blocked = adapter.unpublishableAssets(ticketIn('solus/desktop'), `[brief](asset://${PDF_ID}) ![shot](asset://${PNG_ID})`)
     expect(blocked.map((reference) => reference.extension)).toEqual(['pdf'])
   })
 })

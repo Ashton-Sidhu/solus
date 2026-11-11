@@ -3,12 +3,9 @@
   import CommentMarkdown from '../../github-markdown/CommentMarkdown.svelte';
   import { SvelteSet } from "svelte/reactivity";
   import {
-    ArrowUp as ArrowUpIcon,
-    Check as CheckIcon,
     ChevronDown as CaretDownIcon,
-    LoaderCircle as CircleNotchIcon,
+    CircleAlert as CircleAlertIcon,
     SquareTerminal as TerminalWindowIcon,
-    Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import type { User, UserId } from "@solus/contracts/user";
   import type { Activity } from "@solus/contracts/activity";
@@ -21,7 +18,7 @@
   import UserAvatar from "../../users/UserAvatar.svelte";
   import ActivityRow from "../../activity/ActivityRow.svelte";
   import { activityLine } from "../../activity/lib/activity-line";
-  import { attributionName } from "../../presence/lib/actor-name";
+  import { Button } from "../../ui/button";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import {
     FILTER_CHIP,
@@ -32,12 +29,12 @@
   import { authorInitials, relativeTime } from "../lib/tasks-api";
   import {
     activityFeed,
-    canDeleteTaskComment,
+    commentAuthorName,
+    commentDelivery,
     commentSessionLink,
     commentSessionName,
     linkedArtifactForActivity,
   } from "./lib/task-page";
-  import { commentSyncState } from "./lib/task-upstream";
 
   interface Props {
     comments: TaskComment[];
@@ -53,16 +50,12 @@
     onOpenSession: (sessionId: string) => void;
     /** The reader on the task's host: their own comments and changes read "You". */
     currentUserId: UserId | null;
-    /** The system a comment can be published to, when this task has one. Null
-     *  leaves every entry with no publish affordance at all. */
-    provider: string | null;
-    /** Queue this comment for the ticket. Resolves once the host has taken it;
-     *  the engine posts it on its next pass. */
-    onPublish: (commentId: string) => Promise<void>;
-    /** The reader moderates the task (its owner): they may delete anyone's
-     *  comment, where others may delete only their own. */
-    canModerate: boolean;
-    onDelete: (commentId: string) => Promise<void>;
+    /** The provider that owns the task, as a person reads it. */
+    providerName: string;
+    /** Send a comment that the provider did not take again. */
+    onRetry: (commentId: string) => Promise<void>;
+    /** Discard a comment that the provider did not take. */
+    onDiscard: (commentId: string) => Promise<void>;
     /** True where the section is a tab of its own. The strip above already says
      *  "Activity", so the band states the one thing it does not — which end of
      *  the feed is the newest. */
@@ -77,35 +70,23 @@
     sessions,
     onOpenSession,
     currentUserId,
-    provider,
-    onPublish,
-    canModerate,
-    onDelete,
+    providerName,
+    onRetry,
+    onDiscard,
     stacked = false,
   }: Props = $props();
 
-  /** Comments the user has just pressed Publish on, so the row stops offering
-   *  the action before the host's answer arrives. */
-  let publishing = $state(new SvelteSet<string>());
-  let deleting = $state(new SvelteSet<string>());
+  /** The unsent comments with a Retry or a Discard on its way, so that the
+   *  row cannot send the same comment two times. */
+  let busyCommentIds = $state(new SvelteSet<string>());
 
-  async function publish(commentId: string) {
-    if (publishing.has(commentId)) return;
-    publishing.add(commentId);
+  async function settle(commentId: string, command: (commentId: string) => Promise<void>) {
+    if (busyCommentIds.has(commentId)) return;
+    busyCommentIds.add(commentId);
     try {
-      await onPublish(commentId);
+      await command(commentId);
     } finally {
-      publishing.delete(commentId);
-    }
-  }
-
-  async function deleteComment(commentId: string) {
-    if (deleting.has(commentId)) return;
-    deleting.add(commentId);
-    try {
-      await onDelete(commentId);
-    } finally {
-      deleting.delete(commentId);
+      busyCommentIds.delete(commentId);
     }
   }
 
@@ -158,16 +139,9 @@
     return !!comment.author && comment.author.kind !== "user";
   }
 
-  /** The person who wrote a local comment, drawn with their face. */
+  /** The person who wrote a comment in Solus, drawn with their face. */
   function commentUser(comment: TaskComment): User | null {
     return comment.author?.kind === "user" ? comment.author.user : null;
-  }
-
-  /** Who wrote it: "You" for the reader, a person's name, an agent for its person, or an upstream login. */
-  function authorName(comment: TaskComment): string {
-    if (!comment.author) return comment.externalAuthor?.trim() || "Unknown";
-    const name = attributionName(comment.author, currentUserId);
-    return name.charAt(0).toUpperCase() + name.slice(1);
   }
 </script>
 
@@ -273,12 +247,15 @@
         {@const user = commentUser(comment)}
         {@const originSessionId = commentSessionLink(comment, sessions)?.sessionId ?? comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
+        {@const delivery = commentDelivery(comment)}
         <!-- A comment leaves the spine, as on the pull request timeline: a
              full-width card with the author's mark in its tinted header, and
              the rail broken half a gap above and below it. -->
         <li class="relative -my-2.5 bg-background py-2.5">
           <article
-            class="group/comment overflow-hidden rounded-lg border border-border/60 bg-background"
+            class="overflow-hidden rounded-lg border bg-background {delivery.state === 'unsent'
+              ? 'border-[color-mix(in_oklch,var(--failure)_45%,var(--border))]'
+              : 'border-border/60'}"
           >
             <div class="flex min-h-9 items-center gap-2 bg-muted/25 py-1 pr-2 pl-3 text-xs">
               <span class="flex min-w-0 flex-1 items-center gap-1.5">
@@ -312,44 +289,16 @@
                   {/if}
                 </span>
                 {/if}
-                <span class="truncate font-medium text-foreground">{authorName(comment)}</span>
+                <span class="truncate font-medium text-foreground">{commentAuthorName(comment, currentUserId)}</span>
                 <span class="shrink-0 text-muted-foreground">{relativeTime(comment.createdAt)}</span>
               </span>
-              {#if provider}
-                {@const sync = commentSyncState(comment, true)}
-                <!-- Publishing is per comment: a note meant for the team here is
-                     not automatically a note for the ticket's audience. -->
-                {#if sync === "published"}
-                  <span
-                    class="flex items-center gap-1 text-muted-foreground opacity-65"
-                    title="Published to {provider}"
-                  >
-                    <CheckIcon size={10} weight="bold" aria-hidden="true" />
-                    {provider}
-                  </span>
-                {:else if sync === "queued" || publishing.has(comment.id)}
-                  <span
-                    class="flex items-center gap-1 text-muted-foreground opacity-65"
-                    title="Queued for {provider} — it posts on the next sync"
-                  >
-                    <CircleNotchIcon
-                      size={10}
-                      class="animate-spin motion-reduce:animate-none"
-                      aria-hidden="true"
-                    />
-                    Queued
-                  </span>
-                {:else if sync === "held"}
-                  <button
-                    type="button"
-                    class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors hover:text-primary hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
-                    onclick={() => void publish(comment.id)}
-                    title="Publish this comment to {provider}"
-                  >
-                    <ArrowUpIcon size={10} weight="bold" aria-hidden="true" />
-                    Publish
-                  </button>
-                {/if}
+              {#if delivery.state === "unsent"}
+                <span
+                  class="flex shrink-0 items-center gap-1 font-medium text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
+                >
+                  <CircleAlertIcon size={12} aria-hidden="true" />
+                  Not sent
+                </span>
               {/if}
               {#if originSessionId && originSessionName}
                 <button
@@ -364,26 +313,39 @@
                   <span class="max-w-48 truncate">{originSessionName}</span>
                 </button>
               {/if}
-              {#if canDeleteTaskComment(comment, { userId: currentUserId, canModerate })}
-                <button
-                  type="button"
-                  class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color] hover:text-destructive focus-visible:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100"
-                  disabled={deleting.has(comment.id)}
-                  aria-label="Delete comment"
-                  title="Delete comment"
-                  onclick={() => void deleteComment(comment.id)}
-                >
-                  {#if deleting.has(comment.id)}
-                    <CircleNotchIcon size={12} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                  {:else}
-                    <TrashIcon size={12} aria-hidden="true" />
-                  {/if}
-                </button>
-              {/if}
             </div>
             <div class="p-3">
               <CommentMarkdown source={comment.body} policy="local" />
             </div>
+            {#if delivery.state === "unsent"}
+              {@const busy = busyCommentIds.has(comment.id)}
+              <!-- The comment is on this host only. The row says why the
+                   provider did not take it, and gives the two ways out. -->
+              <div
+                class="flex flex-wrap items-center gap-2 border-t border-border/60 bg-[color-mix(in_oklch,var(--failure)_7%,var(--background))] py-1.5 pr-2 pl-3 text-xs"
+                role="alert"
+              >
+                <span class="min-w-0 flex-1 text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]">
+                  {providerName} did not take this comment. {delivery.error}
+                </span>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={busy}
+                  onclick={() => void settle(comment.id, onRetry)}
+                >
+                  {busy ? "Sending…" : "Retry"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  disabled={busy}
+                  onclick={() => void settle(comment.id, onDiscard)}
+                >
+                  Discard
+                </Button>
+              </div>
+            {/if}
           </article>
         </li>
       {/if}

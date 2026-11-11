@@ -9,7 +9,7 @@ import {
   permissionDecisionNotice,
   rateLimitDecisionNotice,
 } from '../../presence/lib/actor-name'
-import { STATUS_META } from '../../tasks/lib/tasks-api'
+import { CATEGORY_META, TASK_CATEGORIES } from '../../tasks/lib/tasks-api'
 
 /**
  * One activity as one sentence (plans/012 §5): who did it, then what they did.
@@ -181,7 +181,10 @@ function labelsChangedPredicate(fromValue: string | null | undefined, toValue: s
   return labelChangeText('', added, removed).trimStart()
 }
 
+/** A status category reads as its label. Each other value is the provider's
+ *  own name of a column or a state, and shows as it is. */
 function statusName(status: string | null | undefined): string {
   if (!status) return 'unknown'
-  return Object.entries(STATUS_META).find(([key]) => key === status)?.[1].label ?? status
+  const category = TASK_CATEGORIES.find((candidate) => candidate === status)
+  return category ? CATEGORY_META[category].label : status
 }

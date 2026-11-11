@@ -1,101 +1,162 @@
 import { arg, optionalArg } from './args'
-import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskSidebarPrLink, TaskSnooze, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type {
+  PrepareSessionTaskRequest,
+  Task,
+  TaskAssigneeCandidate,
+  TaskAttachments,
+  TaskCreateInput,
+  TaskDetails,
+  TaskLinkInput,
+  TaskLinkKind,
+  TaskLinkTarget,
+  TaskLinkedTask,
+  TaskMoveTarget,
+  TaskSessionRole,
+  TaskSidebarFilter,
+  TaskSidebarPrLink,
+  TaskSnapshot,
+  TaskSnooze,
+  TaskSourceOptions,
+  TaskSummary,
+  TaskUpdatePatch,
+} from '@solus/contracts/task-types'
 import { type DemoServer } from '../fixtures/types'
-import { DEMO_USER, type DemoStore } from '../store'
+import { type DemoStore } from '../store'
+
+/** What the demo's GitHub and Jira connections offer as a task source. The
+ *  first Project and the first board are the two sources of the demo project. */
+const DEMO_SOURCE_OPTIONS: TaskSourceOptions = {
+  github: {
+    connected: true,
+    login: 'acme-dev',
+    hasProjectScope: true,
+    originRepository: { owner: 'acme', repo: 'api-gateway' },
+    projects: [
+      { owner: 'acme', number: 4, title: 'API Platform roadmap' },
+      { owner: 'acme', number: 7, title: 'Developer experience' },
+    ],
+  },
+  jira: {
+    connected: true,
+    cloudId: 'acme-cloud',
+    siteUrl: 'https://acme.atlassian.net',
+    projects: [
+      { projectKey: 'ACME', name: 'Acme Platform' },
+      { projectKey: 'WEB', name: 'Web' },
+    ],
+    boards: [
+      { boardId: 12, name: 'ACME board', projectKey: 'ACME' },
+      { boardId: 15, name: 'Web sprint board', projectKey: 'WEB' },
+    ],
+  },
+}
+
+function taskSummary({ body: _body, epic: _epic, ...summary }: Task): TaskSummary {
+  return summary
+}
+
+function taskAttachments(store: DemoStore, id: string): TaskAttachments {
+  return { links: store.taskLinksFor(id), activity: [] }
+}
 
 function taskDetails(store: DemoStore, id: string): TaskDetails {
-  const task = store.getTask(id)
-  // SAFETY: the demo's task fixtures store their comment list on `raw.comments`, in the
-  // shape the local task provider writes.
-  const raw = task.raw as { comments?: Array<{ id?: string; author?: { login?: string } | null; body: string; createdAt: string }> } | null
-  const rawComments = raw?.comments ?? []
-  return {
-    task,
-    comments: rawComments.map((comment, index) => ({
-      id: comment.id ?? `${id}-comment-${index}`,
-      taskId: id,
-      author: { kind: 'user', user: comment.author?.login ? { id: { kind: 'account', accountId: comment.author.login }, displayName: comment.author.login } : DEMO_USER },
-      source: 'local',
-      body: comment.body,
-      createdAt: Date.parse(comment.createdAt),
-    })),
-    links: store.taskLinksFor(id),
-    activity: [],
-  }
+  return { task: store.getTask(id), comments: store.taskComments(id), ...taskAttachments(store, id) }
+}
+
+function taskSnapshot(store: DemoStore, id: string): TaskSnapshot {
+  return { details: taskDetails(store, id), sessions: store.taskSessions()[id] ?? [] }
 }
 
 export function registerTasksHandlers(backend: DemoServer, store: DemoStore): void {
-  // The demo project is pointed at Jira, so the rows it owns read as synced
-  // tickets rather than local ones. The store is still the source of truth —
-  // these handlers answer the upstream reads with the same rows, which is what
-  // a healthy sync looks like from the renderer's side.
-  backend.register('tasksProviderStatus', () => ({
-    provider: 'jira',
-    ok: true,
-    reason: 'ok',
-    message: 'Synced with the ACME project in Jira.',
-    scopeLabel: 'ACME',
-    writableFields: ['title', 'body', 'status', 'labels', 'priority'],
-    statuses: ['todo', 'in_progress', 'in_review', 'done'],
-    auth: { connected: true, login: 'acme-dev' },
-  }))
-  // Every upstream call takes `cwd` first and answers with a `Task`, not the
-  // detail bundle the local reads return.
-  backend.register('tasksListUpstream', () => store.listTasks())
-  backend.register('tasksGetUpstream', (args) => store.getTask(arg<string>(args, 1)))
-  backend.register('tasksUpdateUpstream', (args) => {
-    const id = arg<string>(args, 1)
-    const patch = arg<TaskUpdatePatch>(args, 2)
-    // SAFETY: `TaskUpdatePatch` names a subset of `Task`'s own mutable fields.
-    const task = store.updateTask(id, { ...patch } as Partial<Task>)
-    backend.broadcast('tasks.invalidated', {})
-    return task
+  /** A change of one task's fields, comments or attachments. */
+  const taskChanged = (taskId: string): void => backend.broadcast('tasks.invalidated', { taskId })
+  /** A change of where a task is: the sources that list it are read again too. */
+  const placementChanged = (task: Task): void => {
+    taskChanged(task.id)
+    backend.broadcast('tasks.sourcesChanged', { sourceKeys: task.placements.map((placement) => placement.sourceKey) })
+  }
+
+  // Every demo project lists the same two sources: a GitHub Project and a Jira board.
+  backend.register('tasksSources', (args) => {
+    const sources = store.taskProjectSources()
+    return Object.fromEntries(arg<string[]>(args, 0).map((cwd) => [cwd, sources]))
   })
-  backend.register('tasksCommentUpstream', (args) => {
-    const id = arg<string>(args, 1)
-    store.commentTask(id, arg<string>(args, 2))
-    backend.broadcast('tasks.invalidated', {})
-    return store.getTask(id)
+  backend.register('tasksSourceOptions', () => DEMO_SOURCE_OPTIONS)
+  backend.register('tasksSearch', (args) => {
+    const query = arg<string>(args, 1).trim().toLowerCase()
+    return store.listTasks()
+      .filter((task) => `${task.reference ?? ''} ${task.title}`.toLowerCase().includes(query))
+      .map(taskSummary)
   })
-  // The demo's comments are an upstream provider's, which a host does not
-  // store or search (docs/plans/unified-search.md, Known differences).
+  // The demo's comments are a provider's, which a host does not search
+  // (docs/plans/unified-search.md, Known differences).
   backend.register('tasksSearchComments', () => [])
   // A host answers a task's pull requests with the links its sessions own.
-  backend.register('tasksSidebarSnapshot', () => ({
-    tasks: store.listTasks().tasks,
-    sessionsByTask: store.taskSessions(),
-    prLinkListsByTask: Object.fromEntries(Object.entries(store.taskSessions()).map(([taskId, sessions]) => [
-      taskId,
-      sessions.flatMap(({ sessionId }) => store.sessionPullRequests(sessionId)).map((link): TaskSidebarPrLink => ({
-        number: link.number,
-        title: link.title,
-        targetScope: link.repository,
-        url: link.url,
-        createdBy: { kind: 'system' },
-        ownerSessionId: link.sessionId,
-        ...(link.snapshot ? { snapshot: link.snapshot } : {}),
-      })),
-    ])),
-  }))
+  backend.register('tasksSidebarSnapshot', (args) => {
+    const taskIds = optionalArg<TaskSidebarFilter>(args, 0)?.taskIds
+    return {
+      tasks: store.listTasks().filter((task) => !taskIds || taskIds.includes(task.id)).map(taskSummary),
+      sessionsByTask: store.taskSessions(),
+      prLinkListsByTask: Object.fromEntries(Object.entries(store.taskSessions()).map(([taskId, sessions]) => [
+        taskId,
+        sessions.flatMap(({ sessionId }) => store.sessionPullRequests(sessionId)).map((link) => {
+          const prLink: TaskSidebarPrLink = {
+            number: link.number,
+            title: link.title,
+            targetScope: link.repository,
+            url: link.url,
+            createdBy: { kind: 'system' },
+            ownerSessionId: link.sessionId,
+          }
+          if (link.snapshot) prLink.snapshot = link.snapshot
+          return prLink
+        }),
+      ])),
+    }
+  })
   backend.register('tasksGet', (args) => taskDetails(store, arg<string>(args, 0)))
+  backend.register('tasksAttachments', (args) => taskAttachments(store, arg<string>(args, 0)))
+  backend.register('tasksSnapshot', (args) => taskSnapshot(store, arg<string>(args, 0)))
+  backend.register('tasksPrepareForSession', (args) => {
+    const input = arg<PrepareSessionTaskRequest>(args, 0)
+    return {
+      task: store.getTask(input.taskId),
+      snapshot: input.includeSnapshot ? taskSnapshot(store, input.taskId) : null,
+    }
+  })
   backend.register('tasksSessions', (args) => {
     const taskId = optionalArg<string>(args, 0)
     const sessions = store.taskSessions()
     return taskId ? { [taskId]: sessions[taskId] ?? [] } : sessions
   })
-  backend.register('tasksUpdate', (args) => {
-    const id = arg<string>(args, 0)
-    const patch = arg<TaskUpdatePatch>(args, 1)
-    // SAFETY: `TaskUpdatePatch` names a subset of `Task`'s own mutable fields.
-    const task = store.updateTask(id, { ...patch } as Partial<Task>)
-    backend.broadcast('tasks.invalidated', {})
+  backend.register('tasksCreate', (args) => {
+    const task = store.createTask(arg<TaskCreateInput>(args, 0))
+    placementChanged(task)
     return task
   })
-  backend.register('tasksMarkRead', (args) => {
+  backend.register('tasksUpdate', (args) => {
+    const task = store.updateTask(arg<string>(args, 0), arg<TaskUpdatePatch>(args, 1))
+    taskChanged(task.id)
+    return task
+  })
+  backend.register('tasksMove', (args) => {
+    const task = store.moveTask(arg<string>(args, 0), arg<TaskMoveTarget>(args, 1))
+    placementChanged(task)
+    return task
+  })
+  backend.register('tasksDelete', (args) => {
     const id = arg<string>(args, 0)
-    const read = arg<boolean>(args, 1)
-    const task = store.updateTask(id, { lastReadAt: read ? Date.now() : undefined })
-    backend.broadcast('tasks.invalidated', {})
+    const sourceKeys = store.listTasks().find((task) => task.id === id)?.placements.map((placement) => placement.sourceKey) ?? []
+    const deleted = store.deleteTask(id)
+    if (deleted) {
+      taskChanged(id)
+      backend.broadcast('tasks.sourcesChanged', { sourceKeys })
+    }
+    return deleted
+  })
+  backend.register('tasksMarkRead', (args) => {
+    const task = store.setTaskRead(arg<string>(args, 0), arg<boolean>(args, 1))
+    taskChanged(task.id)
     return task
   })
   // The demo has one person, so their snoozes are this one map, apart from the
@@ -112,49 +173,43 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
   })
   backend.register('tasksSnoozes', () => [...snoozes.values()])
 
-  backend.register('tasksRecordActivity', (args) => {
-    const id = arg<string>(args, 0)
-    const existing = store.getTask(id)
-    const update: Partial<Task> = {}
-    if (existing?.status === 'done' || existing?.status === 'dropped') {
-      update.status = 'in_progress'
-      update.doneAt = undefined
-    }
-    const task = store.updateTask(id, update)
-    backend.broadcast('tasks.invalidated', {})
-    return task
-  })
-  backend.register('tasksCreate', (args) => {
-    const input = arg<TaskCreateInput>(args, 0)
-    // SAFETY: `TaskCreateInput` names a subset of `Task`'s own fields.
-    const task = store.createTask(input as Partial<Task>)
-    backend.broadcast('tasks.invalidated', {})
-    return task
-  })
   backend.register('tasksComment', (args) => {
     const id = arg<string>(args, 0)
-    const body = arg<string>(args, 1)
-    store.commentTask(id, body)
-    backend.broadcast('tasks.invalidated', {})
+    store.commentTask(id, arg<string>(args, 1))
+    taskChanged(id)
     return taskDetails(store, id)
   })
-  backend.register('tasksDelete', (args) => {
-    const deleted = store.deleteTask(arg<string>(args, 0))
-    if (deleted) backend.broadcast('tasks.invalidated', {})
-    return deleted
+  backend.register('tasksRetryComment', (args) => {
+    const id = arg<string>(args, 0)
+    store.retryTaskComment(id, arg<string>(args, 1))
+    taskChanged(id)
+    return taskDetails(store, id)
   })
+  backend.register('tasksDeleteComment', (args) => {
+    const id = arg<string>(args, 0)
+    store.discardTaskComment(id, arg<string>(args, 1))
+    taskChanged(id)
+    return taskDetails(store, id)
+  })
+  // The demo's providers permit the people who already have a task.
+  backend.register('tasksListAssigneeCandidates', (): TaskAssigneeCandidate[] =>
+    [...new Set(store.listTasks().flatMap((task) => task.assignee ?? []))].sort().map((login) => ({ login })))
   backend.register('tasksLinkSession', (args) => {
     const taskId = arg<string>(args, 0)
-    const sessionId = arg<string>(args, 1)
-    store.linkTaskSession(taskId, sessionId)
-    backend.broadcast('tasks.invalidated', {})
+    store.linkTaskSession(taskId, arg<string>(args, 1), optionalArg<TaskSessionRole>(args, 2))
+    taskChanged(taskId)
+  })
+  backend.register('tasksUnlinkSession', (args) => {
+    const taskId = arg<string>(args, 0)
+    store.unlinkTaskSession(taskId, arg<string>(args, 1))
+    taskChanged(taskId)
   })
   backend.register('tasksLink', (args) => {
     const taskId = arg<string>(args, 0)
     const input = arg<TaskLinkInput>(args, 1)
     store.linkTask(taskId, input)
-    backend.broadcast('tasks.invalidated', {})
-    return taskDetails(store, taskId)
+    taskChanged(taskId)
+    return taskAttachments(store, taskId)
   })
   backend.register('tasksUnlink', (args) => {
     const taskId = arg<string>(args, 0)
@@ -162,13 +217,13 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     const targetKey = arg<string>(args, 2)
     const targetScope = optionalArg<string>(args, 3)
     store.unlinkTask(taskId, kind, targetKey, targetScope ?? '')
-    backend.broadcast('tasks.invalidated', {})
-    return taskDetails(store, taskId)
+    taskChanged(taskId)
+    return taskAttachments(store, taskId)
   })
   backend.register('tasksLinkedTo', (args) => {
     const targets = arg<TaskLinkTarget[]>(args, 0)
     const linked: TaskLinkedTask[] = []
-    for (const task of store.listTasks().tasks) {
+    for (const task of store.listTasks()) {
       for (const link of store.taskLinksFor(task.id)) {
         const wanted = targets.some((target) =>
           target.kind === link.kind && target.targetScope === link.targetScope && target.targetKey === link.targetKey)
@@ -179,9 +234,8 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
           targetScope: link.targetScope,
           targetKey: link.targetKey,
           title: task.title,
-          status: task.status,
-          shortId: task.shortId,
-          projectKey: task.projectKey,
+          category: task.category,
+          reference: task.reference,
         })
       }
     }
@@ -192,7 +246,7 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     // for the one the host would file.
     const taskId = arg<string>(args, 0)
     store.commentTask(taskId, 'Interactive artifact preview attached.')
-    backend.broadcast('tasks.invalidated', {})
+    taskChanged(taskId)
     return taskDetails(store, taskId)
   })
   backend.register('tasksForSession', (args) => {

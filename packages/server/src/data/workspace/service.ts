@@ -1,6 +1,5 @@
 import { withWorkspaceBudget } from './request-budget'
 import type { ShareManager } from '../../sharing/share-manager'
-import { TaskApiOperations } from '../tasks/api-operations'
 import { WorkApiOperations } from '../works/api-operations'
 import { SessionApiOperations } from '../sessions/api-operations'
 import { LinkApiOperations } from '../links/api-operations'
@@ -11,19 +10,12 @@ import type { WorkspaceOperations } from './operations'
 
 /** The same domain operations serve HTTP and admitted agent tools. No execution runtime is needed. */
 export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperations {
-  const tasks = new TaskApiOperations(shares)
   const works = new WorkApiOperations(shares)
   const sessions = new SessionApiOperations(shares)
   const links = new LinkApiOperations(shares)
   const activity = new ActivityApiOperations(shares)
   const notifications = new NotificationApiOperations(shares)
   return {
-    listTasks: withWorkspaceBudget((context, query) => tasks.list(context, query)),
-    getTask: withWorkspaceBudget((context, taskId) => tasks.get(context, taskId)),
-    createTask: withWorkspaceBudget((context, input, key) => tasks.create(context, input, key)),
-    updateTask: withWorkspaceBudget((context, taskId, input, version) => tasks.update(context, taskId, input, version)),
-    deleteTask: withWorkspaceBudget((context, taskId, version) => tasks.delete(context, taskId, version)),
-    createTaskComment: withWorkspaceBudget((context, taskId, input, key) => tasks.comment(context, taskId, input, key)),
     listWorks: withWorkspaceBudget((context, query) => works.list(context, query)),
     searchWorks: withWorkspaceBudget((context, query) => works.search(context, query)),
     importWork: withWorkspaceBudget((context, input, key) => works.import(context, input, key)),
@@ -49,7 +41,6 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     listInsights: withWorkspaceBudget((context, query) => readInsightPage(context, query)),
     getInsight: withWorkspaceBudget((context, insightId) => readInsight(context, insightId)),
     getInsightSpans: withWorkspaceBudget((context, insightId) => readInsightTree(context, insightId)),
-    listTaskActivity: withWorkspaceBudget((context, taskId, query) => activity.forRecord(context, { kind: 'task', id: taskId }, query)),
     listWorkActivity: withWorkspaceBudget((context, workId, query) => activity.forRecord(context, { kind: 'work', id: workId }, query)),
     listSessionActivity: withWorkspaceBudget((context, sessionId, query) => activity.forRecord(context, { kind: 'session', id: sessionId }, query)),
     listMyActivity: withWorkspaceBudget((context, query) => activity.namingCaller(context, query)),

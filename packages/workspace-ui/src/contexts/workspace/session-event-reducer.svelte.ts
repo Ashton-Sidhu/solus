@@ -376,7 +376,7 @@ export class SessionEventReducer {
           && runHost(session.run) !== taskServerId
           && canDriveSession(runHost(session.run), session.id)
         ) {
-          this.deps.tasksStore.get(pendingTaskId).trackSessionStart(taskSessionId)
+          this.deps.tasksStore.get(pendingTaskId).trackSessionStart(taskSessionId, taskServerId)
           // On a dispatch this client is the only party that can name the
           // execution host, so it says so once and the task's host records the
           // session. The group path travels with it because the agent's own

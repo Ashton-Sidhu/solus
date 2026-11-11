@@ -109,10 +109,10 @@ test('isolated children bind to the repository and selected commit before startu
 })
 
 test('local children inherit existing task membership, and null opts out', async () => {
-  const { Task } = await import('@solus/server/data/tasks/task')
-  const { createTask } = await import('@solus/server/data/tasks/task-store')
-  const task = await createTask('local', { title: 'Parent work', projectKey: directory, body: '' })
-  await (await Task.byId('local', task.id)).linkSession('parent-codex', 'working')
+  // A session link needs no copy of the task: the task key is what the child inherits.
+  const { linkTaskSession } = await import('@solus/server/data/tasks/task-attachments')
+  const task = { id: 'github:I_parent' }
+  await linkTaskSession('local', task.id, 'parent-codex', 'working')
   expect((await delegate.execute({ prompt: 'Implement this part' }, context('codex'))).ok).toBe(true)
   expect(starts[0]?.order.taskId).toBe(task.id)
   expect((await delegate.execute({ prompt: 'Separate work', task_id: null }, context('codex'))).ok).toBe(true)

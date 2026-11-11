@@ -243,15 +243,24 @@ describe('Solus tools act on the person\'s preferences, not the host\'s', () => 
   test("an agent's task changes follow the lifecycle choice of the person its session works for", async () => {
     const { installTestWorkspaceTools } = await import('./helpers/workspace-tools')
     await installTestWorkspaceTools()
-    const { createTask } = await import('@solus/server/data/tasks/task-store')
+    // GitHub owns the task: the tool writes to the provider, here a fake one.
+    const { FakeTaskProviders, githubIssue, seedTask } = await import('./helpers/task-fixtures')
+    const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
+    const providers = new FakeTaskProviders()
+    providers.hold(githubIssue(1, { title: 'Lifecycle' }))
+    useTaskAdaptersForTests(providers.adapters())
     const taskTools = await import('@solus/server/execution/agents/tools/task-tools')
     sessionSettings.recordSessionSettings('task-none', { organizationId: 'local', preferences: { agentTaskLifecyclePolicy: 'none' } })
     sessionSettings.recordSessionSettings('task-autonomous', { organizationId: 'local', preferences: PREFERENCES })
-    const task = await createTask('local', { title: 'Lifecycle', projectKey: '/p', body: '' })
-    const refused = await taskTools.updateTaskStatusAgentTool.execute({ task_id: task.id, status: 'in_progress' }, toolContext('task-none') as never)
+    const task = await seedTask(githubIssue(1, { title: 'Lifecycle' }))
+    const refused = await taskTools.updateTaskStatusAgentTool.execute({ task_id: task.id, status: 'active' }, toolContext('task-none') as never)
     expect(refused.ok).toBe(false)
+    expect(providers.callsOf('setState:')).toEqual([])
     const allowed = await taskTools.updateTaskStatusAgentTool.execute({ task_id: task.id, status: 'done' }, toolContext('task-autonomous') as never)
     expect(allowed.ok).toBe(true)
+    // The move is a provider write: the issue is closed on GitHub.
+    expect(providers.callsOf('setState:')).toEqual([`setState:${task.id}:done`])
+    useTaskAdaptersForTests(null)
   })
 
   test("an agent's personal change never lands in the host config", async () => {

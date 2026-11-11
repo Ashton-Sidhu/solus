@@ -74,77 +74,10 @@ export const workspaceCapabilitiesSchema = z.strictObject({
   serviceId: workspaceIdSchema,
   mode: z.enum(['combined-host', 'solus-api']),
   apiVersion: z.string().max(32),
-  capabilities: z.array(z.enum(['tasks', 'works', 'session-records', 'insights', 'notifications'])).max(5).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
+  capabilities: z.array(z.enum(['works', 'session-records', 'insights', 'notifications'])).max(4).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
   events: z.strictObject({ transport: z.literal('websocket'), relativePath: z.literal('/ws'), protocolVersion: z.number().int().min(1) }),
 }).meta({ description: 'Features supported by this deployment, not permission grants. Insights currently requires organization context. HTTP works without a connected event socket.' })
 export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
-
-// Tasks
-
-const taskStatus = z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'])
-const taskPriority = z.enum(['urgent', 'high', 'medium', 'low'])
-const taskLabels = z.array(z.string().min(1).max(100)).max(100)
-const taskExample = { id: 'task_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerKey: 'local:host_user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'Review the API contract', projectKey: null, projectId: null, status: 'todo', assignee: null, priority: 'medium', labels: ['api'], dueDate: null, originSessionId: null, shortId: 1 }
-
-export const workspaceTaskSummarySchema = z.strictObject({
-  ...record,
-  title: z.string().min(1).max(500),
-  /** The project directory or repository key; null is the global inbox. */
-  projectKey: nullableText(4096),
-  projectId: workspaceIdSchema.nullable(),
-  status: taskStatus,
-  assignee: nullableText(256),
-  /** The Solus person assigned, by user id. `assignee` stays the display or provider name. */
-  assigneeUserId: workspaceIdSchema.nullable().optional(),
-  priority: taskPriority.nullable(),
-  labels: taskLabels,
-  dueDate: z.iso.date().nullable(),
-  originSessionId: workspaceIdSchema.nullable(),
-  shortId: z.number().int().min(1).nullable(),
-  titleSource: z.enum(['prompt', 'generated', 'manual']).optional(),
-  source: z.enum(['user', 'agent', 'automation', 'import']).optional(),
-  originAutomationId: z.string().max(256).optional(),
-  triagedAt: z.number().int().optional(),
-  doneAt: z.number().int().optional(),
-  lastReadAt: z.number().int().optional(),
-  pr: z.strictObject({ url: z.string().max(4096), number: z.number().int() }).optional(),
-  mirroredTicket: z.strictObject({ provider: z.enum(['github', 'jira']), externalId: z.string().max(256), url: z.string().max(4096) }).optional(),
-}).meta({ description: 'Task metadata without the body. Read an individual task for its full body. Links and comments remain on their existing routes.', examples: [taskExample] })
-export type WorkspaceTaskSummary = z.infer<typeof workspaceTaskSummarySchema>
-
-export const workspaceTaskSchema = workspaceTaskSummarySchema.extend({
-  body: z.string().max(1000000),
-  sessions: z.array(z.strictObject({
-    sessionId: workspaceIdSchema,
-    sessionTitle: z.string().nullable(),
-    role: z.enum(['working', 'referenced']),
-  })).optional().describe('Linked sessions the caller may read. Use their IDs to read session status and history.'),
-})
-  .meta({ description: 'Preserve existing ownership, parent-access and sharing rules. Organization membership alone does not bypass resource access.', examples: [{ ...taskExample, body: 'Check the task endpoints.' }] })
-export type WorkspaceTask = z.infer<typeof workspaceTaskSchema>
-
-export const workspaceCreateTaskSchema = z.strictObject({
-  title: z.string().min(1).max(500),
-  body: z.string().max(1000000).optional(),
-  projectKey: nullableText(4096).optional(),
-  projectId: workspaceIdSchema.nullable().optional(),
-  status: taskStatus.optional(),
-  assignee: nullableText(256).optional(),
-  assigneeUserId: workspaceIdSchema.nullable().optional(),
-  priority: taskPriority.nullable().optional(),
-  labels: taskLabels.optional(),
-  dueDate: z.iso.date().nullable().optional(),
-  originSessionId: workspaceIdSchema.nullable().optional(),
-}).meta({ examples: [{ title: 'Review the API contract', status: 'todo' }] })
-export type WorkspaceCreateTask = z.infer<typeof workspaceCreateTaskSchema>
-
-export const workspaceUpdateTaskSchema = workspaceCreateTaskSchema.omit({ originSessionId: true }).partial()
-  .refine(value => Object.keys(value).length > 0, 'At least one field is required.')
-  .meta({ examples: [{ status: 'in_review' }], minProperties: 1 })
-export type WorkspaceUpdateTask = z.infer<typeof workspaceUpdateTaskSchema>
-
-export const workspaceTaskPageSchema = page(workspaceTaskSummarySchema)
-export type WorkspaceTaskPage = z.infer<typeof workspaceTaskPageSchema>
 
 // Works
 
@@ -338,7 +271,7 @@ export type WorkspaceSessionPullRequest = z.infer<typeof workspaceSessionPullReq
 export const workspaceSessionPullRequestListSchema = z.strictObject({ items: z.array(workspaceSessionPullRequestSchema).max(500) })
 export type WorkspaceSessionPullRequestList = z.infer<typeof workspaceSessionPullRequestListSchema>
 
-/** The record a link starts from: a task or a session. */
+/** The record a link starts from: a session, or a task named by its task key. A task is GitHub's or Jira's; only its links are stored here. */
 export const workspaceLinkSourceSchema = z.strictObject({ kind: z.enum(['task', 'session']), id: workspaceIdSchema })
 export type WorkspaceLinkSource = z.infer<typeof workspaceLinkSourceSchema>
 
@@ -378,22 +311,6 @@ export const workspaceSessionLinkListSchema = z.strictObject({
   })),
 })
 export type WorkspaceSessionLinkList = z.infer<typeof workspaceSessionLinkListSchema>
-
-/** A comment on a task. The author is the caller. */
-export const workspaceCreateTaskCommentSchema = z.strictObject({
-  body: z.string().min(1).max(100000),
-  originSessionId: workspaceIdSchema.optional().meta({ description: 'The session whose agent wrote the comment.' }),
-})
-export type WorkspaceCreateTaskComment = z.infer<typeof workspaceCreateTaskCommentSchema>
-export const workspaceTaskCommentSchema = z.strictObject({
-  id: workspaceIdSchema,
-  taskId: workspaceIdSchema,
-  body: z.string().max(100000),
-  author: workspaceAttributionSchema.nullable(),
-  originSessionId: workspaceIdSchema.nullable(),
-  createdAt: datetime,
-})
-export type WorkspaceTaskComment = z.infer<typeof workspaceTaskCommentSchema>
 
 /** A change to a session in the caller's own view (viewer). */
 export const workspaceUpdateSessionSchema = z.strictObject({

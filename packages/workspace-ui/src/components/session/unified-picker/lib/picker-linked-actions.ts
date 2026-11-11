@@ -30,7 +30,7 @@ export function openPickerLinkedItem(
       const taskStore = session.tasksStore.get(task.id);
       const target = linkedPrNavigationTarget({
         taskServerId: taskStore.serverId,
-        taskProjectDirectory: task.projectKey,
+        taskProjectDirectory: session.projectRootOfTask(task.id),
         linkProjectDirectory: link.targetScope,
       });
       void session.prReview.openPullRequest(

@@ -16,6 +16,8 @@
   `~/solus-cloud` owns account settings storage and organization settings storage,
   authorization, administration services, and audit records.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the statements about organization tasks and about preferences that are captured on a task (§3.1, §3.3, §3.4, §6) are history.
+
 A signed-in user can enable personal settings sync and carry supported preferences
 between desktop, web, and native mobile. Organization owners can set required values
 from Settings in each client. Members see which values their organization controls.

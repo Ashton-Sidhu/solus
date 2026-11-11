@@ -19,7 +19,7 @@ import type { PrsStore } from '../../../contexts/prs/prs.store.svelte'
 import { matchesOpenProjects } from '../../../lib/sessionUtils'
 import { threadTime } from '../../../lib/relative-time'
 import { triggerSummary } from '../../automations/lib/automation-format'
-import { taskRef } from '../../tasks/task-page/lib/task-page'
+import { taskRef } from '../../tasks/lib/tasks-api'
 import { GLYPH, KIND_NOUN, type RefKind } from './kinds'
 import type { MenuItem } from './rows'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -199,7 +199,7 @@ export class ReferenceIndex {
     this.deps.session.tasksStore.tasks.map((task: Task) => ({
       id: `task:${task.id}`,
       title: task.title,
-      meta: task.status,
+      meta: task.state.name,
       when: freshness(task.updatedAt),
       icon: GLYPH.task,
       mono: false,

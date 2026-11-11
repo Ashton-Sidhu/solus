@@ -27,7 +27,7 @@ import { CloudPublication, type PublishStatus } from './cloud-publication'
  *
  * The dialog opens on the list of the server that holds the resource
  * (docs/plans/host-sharing.md §2). A session stays on its host, and its link
- * names that host, signed in or not. A work or task in an organization lives on
+ * names that host, signed in or not. A work in an organization lives on
  * its workspace service. A Local work is pushed there by Share with this
  * client's sign-in (docs/plans/cloud-sharing.md §3): the Share button is the
  * push, so opening Share starts the upload with no second confirmation, and the
@@ -235,12 +235,9 @@ export class SharesStore {
    * Whether this resource can be shared from where it lives
    * (docs/plans/host-sharing.md §2). A session is shared from its host, signed
    * in or not. A work is shared from the cloud: one already there, or a Local
-   * one this client can push there, which needs a signed-in organization. A task
-   * is not shared: it is seen by its whole organization, and offers its link
-   * (`taskLinks`).
+   * one this client can push there, which needs a signed-in organization.
    */
   canShareFrom(serverId: string, kind: ShareResourceKind): boolean {
-    if (kind === 'task') return false
     if (kind === 'session') return true
     return isSolusApiId(serverId) || (accountStore.state.kind === 'signed-in' && !!serversStore.activeOrganizationId)
   }

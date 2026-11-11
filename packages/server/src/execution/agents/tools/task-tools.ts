@@ -1,26 +1,28 @@
 import { resolveHomePath } from '../../../platform/paths'
 import { taskSessions } from '../../../data/tasks/task-sessions'
-import { workspaceToolContext } from '../../../data/workspace/tool-context'
-import { taskRecord } from '@solus/contracts/solus-api/records'
 import { z } from 'zod'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
-import { resolveRepoRoot, resolveRepositoryKey } from '../../../git/git-helpers'
-import { Task } from '../../../data/tasks/task'
+import { commentOnTask, createTask, getTask, moveTask, namedTaskStatus } from '../../../data/tasks/task'
+import { listTasks } from '../../../data/tasks/task-store'
+import { loadTaskSources } from '../../../data/tasks/task-source-store'
+import { projectTaskSources } from '../../../data/tasks/task-sources'
 import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreign-tasks'
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
 import { recordOutboxOp } from '../../../sync/outbox/outbox-store'
-import { ulid } from '@solus/contracts/ulid'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { sessionSettings } from '../../sessions/session-settings'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
+import { hostUserKey } from '../../../host/host-user'
+import { captureActingScope } from '../../../vault/acting-scope'
 import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
+import { taskSourceKey } from '@solus/contracts/task-sources'
 import type {
   TaskSessionLink,
   Task as TaskRecord,
-  TaskCreateInput,
   TaskLink as TaskLinkRecord,
+  TaskSummary,
 } from '@solus/contracts/task-types'
 import type { AgentId } from '@solus/contracts/types'
 import { attributionLabel } from '@solus/contracts/user'
@@ -30,43 +32,45 @@ const log = createLogger('main', 'task-tools.ts')
 
 /**
  * Agent-facing task tools for long-running sessions. Like work-tools.ts and
- * automation-tools.ts, one set of Zod shapes backs both agent backends. Tasks
- * are written where the session's records live: this machine's store, or the
- * organization's Solus API for an organization session on an attached machine.
- * The calling cwd is used only to stamp the project on newly-created records.
- * Tools return error TEXT (never throw) so a bad call degrades to a recoverable
- * message rather than killing the turn.
+ * automation-tools.ts, one set of Zod shapes backs both agent backends.
+ * GitHub and Jira own every task (docs/plans/provider-owned-tasks.md §6): a
+ * tool reads the host's copy, and a write goes to the provider with the
+ * connection of the person the turn acts for. This is the same on a personal
+ * host and on an organization machine; a tool never calls the Solus API for a
+ * task. Tools return error TEXT (never throw) so a bad call degrades to a
+ * recoverable message rather than killing the turn.
  */
 
-const STATUS_VALUES = ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'] as const
-const LIST_STATUS_VALUES = [...STATUS_VALUES, 'all'] as const
+const CATEGORY_VALUES = ['open', 'active', 'done'] as const
+const LIST_STATUS_VALUES = [...CATEGORY_VALUES, 'all'] as const
 const PRIORITY_VALUES = ['urgent', 'high', 'medium', 'low'] as const
+/** The most tasks one list answers. */
+const LIST_LIMIT = 100
 
 // ─── Schemas ───
 
+const TASK_KEY_DESC = 'The task key (github:... or jira:...), from the task context or list_tasks.'
+
 const readTaskFields = {
-  task_id: z
-    .string()
-    .describe('Local task id. The bound task id is in the session\'s task context.'),
+  task_id: z.string().describe(TASK_KEY_DESC),
 }
 
 const updateStatusFields = {
-  task_id: z.string().describe('The id of the task to move (the bound task, or one from its context).'),
+  task_id: z.string().describe(TASK_KEY_DESC),
   status: z
-    .enum(STATUS_VALUES)
-    .describe(`New local lifecycle status: ${STATUS_VALUES.join(', ')}.`),
+    .string()
+    .describe(`A status category (${CATEGORY_VALUES.join(', ')}), or the exact name of a column that read_task shows.`),
 }
 
 const listTasksFields = {
-  cursor: z.string().max(2048).optional().describe('Continue from the next cursor returned by a previous list with the same filters.'),
   status: z
     .enum(LIST_STATUS_VALUES)
     .optional()
-    .describe("Filter by task status. Defaults to 'all'."),
+    .describe("Filter by status category. Defaults to 'all'."),
   scope: z
-    .enum(['project', 'all', 'inbox', 'up_next'])
+    .enum(['project', 'all'])
     .optional()
-    .describe("Defaults to this project; use 'all', 'inbox', or 'up_next' to change scope."),
+    .describe("Defaults to this project's task sources; 'all' lists every task this host holds for you."),
 }
 
 const createTaskFields = {
@@ -75,16 +79,15 @@ const createTaskFields = {
   priority: z.enum(PRIORITY_VALUES).optional().describe('Optional priority.'),
   labels: z.array(z.string()).optional().describe('Optional labels.'),
   due_date: z.string().optional().describe('Optional ISO due date, usually YYYY-MM-DD.'),
-  status: z.enum(STATUS_VALUES).optional().describe("Initial status. Defaults to 'todo', or 'inbox' for global capture."),
-  inbox: z.boolean().optional().describe('When true, file this task in the global inbox instead of the calling project.'),
+  column: z.string().optional().describe('Optional column to start in.'),
 }
 
 const commentTaskFields = {
-  task_id: z.string().describe('The id of the task to comment on.'),
+  task_id: z.string().describe(TASK_KEY_DESC),
   body: z
     .string()
     .describe(
-      'Comment body in markdown, written for a busy teammate. Keep it short and plain: a one-line summary of what you did, then a few short bullets for the key decisions and anything the reader must do next. Use simple words and short sentences. Leave out step-by-step logs, tool output, and long reasoning. Solus shows references as clickable chips only when they are marked up: put a file path in backticks (`src/app.ts` or `src/app.ts:42`), and link a work as [title](work://open?workId=<id>), a plan as [title](plan://open?planId=<id>), a task as [title](task://open?taskId=<id>), and a pull request by its URL. A bare path or id stays plain text.',
+      'Comment body in markdown, written for a busy teammate and posted on GitHub or Jira. Keep it short: a one-line summary, then a few bullets for key decisions and what the reader must do next. Leave out step-by-step logs, tool output, and long reasoning. Put a file path in backticks and name a pull request by its URL.',
     ),
 }
 
@@ -97,19 +100,19 @@ const commentTaskInputSchema = z.object(commentTaskFields)
 // ─── Descriptions ───
 
 const READ_TASK_DESC =
-  "Read a local Solus task by id, including its description, upstream epic, comments, linked items, and linked session IDs. Use read_session with a session ID for its status, pending input and history."
+  'Read a GitHub or Jira task by its task key: description, state, columns, epic, comments, linked items, and linked session IDs. Use read_session for a session.'
 const UPDATE_DESC =
-  "Move a local task to a lifecycle status. This does not write to an external tracker."
+  'Move a task to a status category (open, active, done) or to a named column. This writes to GitHub or Jira.'
 const LIST_TASKS_DESC =
-  "List local Solus tasks. Defaults to the calling project and can include the global inbox or all projects."
+  'List the GitHub and Jira tasks of the calling project\'s task sources, with their task keys and status category.'
 const CREATE_TASK_DESC =
-  "Create a local Solus task in the calling project. This never creates an external ticket."
+  'Create a real task on GitHub or Jira, in the default task source of the calling project. Other people see it at once.'
 const COMMENT_TASK_DESC =
-  "Add a local comment to a Solus task for durable findings, status, or handoff notes."
+  'Post a comment on a task on GitHub or Jira, for durable findings, status, or handoff notes.'
 // ─── Executor (one implementation behind every agent backend's tool surface) ───
 
 export interface TaskToolCtx {
-  /** The calling session's working directory — stamps new tasks with a project. */
+  /** The calling session's working directory: its project names the task sources. */
   cwd: string
   /** The calling session; every row the tool writes names it. */
   sessionId?: string
@@ -129,192 +132,225 @@ export interface TaskToolResult {
 
 interface TaskToolArgs {
   body?: unknown
+  column?: unknown
   due_date?: unknown
-  inbox?: unknown
   labels?: unknown
   priority?: unknown
-  cursor?: unknown
   scope?: unknown
   status?: unknown
   task_id?: unknown
   title?: unknown
 }
 
+/** One task as a list line names it: the key an agent passes back, then what a person reads. */
+function taskLine(task: TaskSummary): string {
+  const meta = [task.priority ?? 'no priority', task.assignee ?? 'unassigned'].join(', ')
+  return `${task.id}  [${task.category}]  ${task.reference ? `${task.reference}  ` : ''}${task.title}  (${meta})`
+}
+
+/** What each task tool reads of its call. */
+interface TaskToolCall {
+  args: TaskToolArgs
+  deps: TaskToolDeps
+  /** The resolved working directory of the calling session: its project names the task sources. */
+  projectPath: string
+  /** The person whose provider connections decide which task sources show. */
+  personKey: string
+}
+
+// A Local session reads the whole disk (docs/plans/project-model.md §4); the
+// person's own provider connections decide which task sources they see.
+const scope = ANY_ORGANIZATION
+
+async function listTasksTool({ args, projectPath, personKey }: TaskToolCall): Promise<TaskToolResult> {
+  const input = listTasksInputSchema.parse(args)
+  const status = input.status ?? 'all'
+  let tasks = await listTasks({ personKey, scope })
+  if ((input.scope ?? 'project') === 'project') {
+    const { sources } = await projectTaskSources(projectPath)
+    if (!sources.length) return { ok: true, text: 'This project has no task source. A person adds a GitHub or Jira task source in the Tasks page of Solus.' }
+    const sourceKeys = new Set(sources.map(taskSourceKey))
+    tasks = tasks.filter((task) => task.placements.some((placement) => sourceKeys.has(placement.sourceKey)))
+  }
+  if (status !== 'all') tasks = tasks.filter((task) => task.category === status)
+  const lines = tasks.slice(0, LIST_LIMIT).map(taskLine)
+  const suffix = tasks.length > LIST_LIMIT ? `\n\nNote: ${tasks.length - LIST_LIMIT} more tasks matched. Narrow the list with status.` : ''
+  return { ok: true, text: lines.length ? `Tasks:\n${lines.join('\n')}${suffix}` : 'No tasks matched.' }
+}
+
+async function readTaskTool({ args, deps }: TaskToolCall): Promise<TaskToolResult> {
+  const input = readTaskInputSchema.parse(args)
+  const id = input.task_id.trim()
+  if (!id) return { ok: false, text: 'read_task requires a task_id.' }
+  // A foreign task (dispatched session) answers from the shipped snapshot,
+  // overlaid with this session's own not-yet-delivered writes.
+  const foreign = foreignTaskFor(deps.ctx.sessionId, id)
+  const details = foreign ? foreign.details : await getTask(scope, id)
+  return {
+    ok: true,
+    text: formatTaskForAgent(details.task, await columnNamesOf(details.task), details.comments.map((comment) => ({
+      author: comment.author ? attributionLabel(comment.author) : comment.externalAuthor ?? 'unknown',
+      // A mention reads as `@Name`, as read_work shows it (plan 004 item 13).
+      body: mentionsAsText(comment.body),
+      unsent: comment.unsent === true,
+    })), details.links, foreign?.sessions ?? (await taskSessions(scope, id))[id] ?? [], details.fromCache === true),
+  }
+}
+
+async function updateTaskStatusTool({ args, deps }: TaskToolCall): Promise<TaskToolResult> {
+  const input = updateStatusInputSchema.parse(args)
+  const id = input.task_id.trim()
+  if (!id) return { ok: false, text: 'update_task_status requires a task_id.' }
+  const status = input.status.trim()
+  if (!status) return { ok: false, text: 'update_task_status requires a status.' }
+  // The choice of the person the session's run works for. A call no session
+  // stands behind gets the built-in default.
+  const lifecyclePolicy = sessionSettings(deps.ctx.sessionId)?.preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
+  if (lifecyclePolicy === 'none') {
+    return {
+      ok: false,
+      text: 'Agent task status changes are disabled. The user controls this task\'s lifecycle.',
+    }
+  }
+  const foreign = foreignTaskFor(deps.ctx.sessionId, id)
+  // The task of a dispatched session is read on another host: only a category can be checked here.
+  const named = foreign ? null : await namedTaskStatus(id, status)
+  const category = named?.category ?? CATEGORY_VALUES.find((candidate) => candidate === status.toLowerCase())
+  if (lifecyclePolicy === 'moderate' && category === 'done') {
+    return {
+      ok: false,
+      text: 'Agents cannot move tasks to done in Moderate mode. Move the task to a review column if its board has one, or ask the user to close it.',
+    }
+  }
+  if (!named) {
+    const payload: TaskSetStatusOpPayload = { status, actor: await toolAgentAttribution(deps.ctx) }
+    const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'set-status', payload, sessionId: deps.ctx.sessionId })
+    applyOpToForeignTask(deps.ctx.sessionId, op)
+    return { ok: true, text: `Task ${id} is sent to "${status}". The host that reads the task makes the move on the provider.` }
+  }
+  const moved = await moveTask(id, named.target)
+  return { ok: true, text: `Task ${moved.reference ?? moved.id} is now ${moved.state.name} (${moved.category}) on ${providerName(moved)}.` }
+}
+
+async function createTaskTool({ args, deps, projectPath, personKey }: TaskToolCall): Promise<TaskToolResult> {
+  const parsed = createTaskInputSchema.parse(args)
+  const title = parsed.title.trim()
+  if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
+  const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
+  const columnName = parsed.column?.trim().toLowerCase()
+  let columnId: string | undefined
+  if (columnName) {
+    const { defaultSourceKey } = await projectTaskSources(projectPath)
+    const source = defaultSourceKey ? (await loadTaskSources([defaultSourceKey])).get(defaultSourceKey) : undefined
+    columnId = source?.columns.find((column) => column.name.toLowerCase() === columnName)?.id
+    if (!columnId) return { ok: false, text: `The default task source of this project has no column "${parsed.column}".${source ? ` Its columns: ${source.columns.map((column) => column.name).join(', ')}.` : ''}` }
+  }
+  const task = await createTask({
+    cwd: resolveHomePath(projectPath),
+    title,
+    body: parsed.body ?? '',
+    priority: parsed.priority,
+    labels,
+    dueDate: parsed.due_date?.trim() || undefined,
+    columnId,
+  }, personKey)
+  deps.onTaskCreated?.({ taskId: task.id, title: task.title, url: task.url })
+  return {
+    ok: true,
+    text: `Created on ${providerName(task)}.\n\n${formatTaskForAgent(task, await columnNamesOf(task))}`,
+  }
+}
+
+async function commentTaskTool({ args, deps }: TaskToolCall): Promise<TaskToolResult> {
+  const input = commentTaskInputSchema.parse(args)
+  const id = input.task_id.trim()
+  if (!id) return { ok: false, text: 'comment_task requires a task_id.' }
+  const body = input.body.trim()
+  if (!body) return { ok: false, text: 'comment_task requires a non-empty body.' }
+  const author = await toolAgentAttribution(deps.ctx)
+  if (foreignTaskFor(deps.ctx.sessionId, id)) {
+    const payload: TaskCommentOpPayload = { body, author, originSessionId: deps.ctx.sessionId }
+    const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId })
+    applyOpToForeignTask(deps.ctx.sessionId, op)
+    return { ok: true, text: `Comment sent for task ${id}. The host that reads the task posts it on the provider.` }
+  }
+  const details = await commentOnTask(scope, id, { body, by: author, originSessionId: deps.ctx.sessionId })
+  const unsent = details.comments.findLast((comment) => comment.unsent && comment.body === body)
+  if (unsent) {
+    return { ok: false, text: `${providerName(details.task)} did not take the comment (${unsent.sendError ?? 'unknown reason'}). Solus holds it as unsent on the task; a person can send it again from the task page.` }
+  }
+  return { ok: true, text: `Comment posted on ${details.task.reference ?? id} on ${providerName(details.task)}.` }
+}
+
+const TASK_TOOLS = new Map<string, (call: TaskToolCall) => Promise<TaskToolResult>>([
+  ['list_tasks', listTasksTool],
+  ['read_task', readTaskTool],
+  ['update_task_status', updateTaskStatusTool],
+  ['create_task', createTaskTool],
+  ['comment_task', commentTaskTool],
+])
+
 async function executeTaskTool(
   name: string,
   args: TaskToolArgs,
   deps: TaskToolDeps,
 ): Promise<TaskToolResult> {
-  const cwd = deps.ctx.cwd
-  const projectKey = await resolveRepoRoot(cwd) ?? cwd
-  // The tasks an agent reads and writes live where its session's records live
-  // (organization-vms §3): this machine's store for a Local session, which reads
-  // the whole disk (docs/plans/project-model.md §4), or the organization's Solus
-  // API for a session whose home is there. Reads and writes agree on it.
-  const scope = ANY_ORGANIZATION
-  const toolContext = () => workspaceToolContext(deps.ctx.sessionId)
+  const tool = TASK_TOOLS.get(name)
+  if (!tool) return { ok: false, text: `Unknown task tool: ${name}` }
   try {
-    if (name === 'list_tasks') {
-      const input = listTasksInputSchema.parse(args)
-      const status = input.status ?? 'all'
-      const requestedScope = input.scope ?? 'project'
-      const { operations, context, remote } = await toolContext()
-      const page = await operations.listTasks(context, {
-        limit: 50, cursor: input.cursor, projectKey: requestedScope === 'project' ? (remote ? await organizationProjectKey(projectKey) : projectKey) : undefined,
-        scope: requestedScope, status: status === 'all' ? undefined : status,
-      })
-      const shown = page.items
-      const lines = shown.map((task) => {
-        const meta = [task.priority ?? 'no priority', task.assignee ?? 'unassigned'].join(', ')
-        return `${task.id}  [${task.status}]  ${task.title}  (${meta})`
-      })
-      const notes: string[] = []
-      if (page.nextCursor) notes.push(`More tasks are available. Continue with cursor: ${page.nextCursor}`)
-      const suffix = notes.length ? `\n\nNote: ${notes.join('; ')}.` : ''
-      return { ok: true, text: lines.length ? `Tasks:\n${lines.join('\n')}${suffix}` : `No tasks matched.${suffix}` }
-    }
-
-    if (name === 'read_task') {
-      const input = readTaskInputSchema.parse(args)
-      const id = input.task_id.trim()
-      if (!id) return { ok: false, text: 'read_task requires a task_id.' }
-      // A foreign task (dispatched session) answers from the shipped snapshot,
-      // overlaid with this session's own not-yet-delivered writes.
-      const foreign = foreignTaskFor(deps.ctx.sessionId, id)
-      if (!foreign) {
-        const { operations, context, remote } = await toolContext()
-        const task = await operations.getTask(context, id)
-        // The organization's task: its fields from the Solus API. Comments and links stay on the task page.
-        if (remote) return { ok: true, text: `${formatTaskForAgent(taskRecord(task), [], [], task.sessions ?? [])}\n\n(Comments and linked items of an organization task are on its task page in Solus.)` }
-      }
-      const details = foreign ? foreign.details : await (await Task.byId(scope, id)).details()
-      const task = details.task
-      return {
-        ok: true,
-        text: formatTaskForAgent(task, details.comments.map((comment) => ({
-          author: comment.author ? attributionLabel(comment.author) : comment.externalAuthor ?? 'unknown',
-          // A mention reads as `@Name`, as read_work shows it (plan 004 item 13).
-          body: mentionsAsText(comment.body),
-        })), details.links, foreign?.sessions ?? (await taskSessions(scope, id))[id] ?? []),
-      }
-    }
-
-    if (name === 'update_task_status') {
-      const input = updateStatusInputSchema.parse(args)
-      const id = input.task_id.trim()
-      if (!id) return { ok: false, text: 'update_task_status requires a task_id.' }
-      const status = input.status
-      // The choice of the person the session's run works for. A call no session
-      // stands behind gets the built-in default.
-      const lifecyclePolicy = sessionSettings(deps.ctx.sessionId)?.preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
-      if (lifecyclePolicy === 'none') {
-        return {
-          ok: false,
-          text: 'Agent task status changes are disabled. The user controls this task\'s lifecycle.',
-        }
-      }
-      if (lifecyclePolicy === 'moderate' && status === 'done') {
-        return {
-          ok: false,
-          text: 'Agents cannot move tasks to done in Moderate mode. Move the task to in_review or ask the user to close it.',
-        }
-      }
-      if (foreignTaskFor(deps.ctx.sessionId, id)) {
-        const payload: TaskSetStatusOpPayload = { status, actor: await toolAgentAttribution(deps.ctx) }
-        const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'set-status', payload, sessionId: deps.ctx.sessionId })
-        applyOpToForeignTask(deps.ctx.sessionId, op)
-        return { ok: true, text: `Task ${id} is now "${status}".` }
-      }
-      const { operations, context } = await toolContext()
-      const current = await operations.getTask(context, id)
-      const updated = await operations.updateTask(context, id, { status }, current.version)
-      return { ok: true, text: `Task ${updated.id} is now "${updated.status}".` }
-    }
-
-    if (name === 'create_task') {
-      const parsed = createTaskInputSchema.parse(args)
-      const title = parsed.title.trim()
-      if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
-      const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
-      const isInbox = parsed.inbox === true
-      const { operations, context, remote } = await toolContext()
-      const input: TaskCreateInput = {
-        title,
-        // An organization's task belongs to the repository, not to this machine's path
-        // (docs/plans/project-model.md §4); a folder with no remote keeps its path.
-        projectKey: isInbox ? null : remote ? await organizationProjectKey(projectKey) : projectKey,
-        body: parsed.body ?? '',
-        priority: parsed.priority ?? null,
-        labels,
-        dueDate: parsed.due_date?.trim() || null,
-        status: parsed.status ?? (isInbox ? 'inbox' : 'todo'),
-        source: 'agent',
-        originSessionId: deps.ctx.sessionId ?? null,
-      }
-      const { source: _source, originAutomationId: _automation, ...fields } = input
-      const task = taskRecord(await operations.createTask(context, { ...fields, originSessionId: context.actingAgent?.sessionId }, ulid()))
-      deps.onTaskCreated?.({ taskId: task.id, title: task.title, url: task.url ?? null })
-      return {
-        ok: true,
-        text: formatTaskForAgent(task),
-      }
-    }
-
-    if (name === 'comment_task') {
-      const input = commentTaskInputSchema.parse(args)
-      const id = input.task_id.trim()
-      if (!id) return { ok: false, text: 'comment_task requires a task_id.' }
-      const body = input.body.trim()
-      if (!body) return { ok: false, text: 'comment_task requires a non-empty body.' }
-      const author = await toolAgentAttribution(deps.ctx)
-      if (foreignTaskFor(deps.ctx.sessionId, id)) {
-        const payload: TaskCommentOpPayload = { body, author, originSessionId: deps.ctx.sessionId }
-        const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId })
-        applyOpToForeignTask(deps.ctx.sessionId, op)
-        return { ok: true, text: `Comment added to task ${id}.` }
-      }
-      const { operations, context, remote } = await toolContext()
-      if (remote) {
-        await operations.createTaskComment(context, id, { body, originSessionId: deps.ctx.sessionId }, ulid())
-        return { ok: true, text: `Comment added to task ${id}.` }
-      }
-      await (await Task.byId(scope, id)).comment(body, {
-        by: author,
-        originSessionId: deps.ctx.sessionId,
-      })
-      return { ok: true, text: `Comment added to task ${id}.` }
-    }
-
-    return { ok: false, text: `Unknown task tool: ${name}` }
+    // The person the turn acts for; the host's own work reads as the host's user.
+    return await tool({ args, deps, projectPath: resolveHomePath(deps.ctx.cwd), personKey: captureActingScope()?.personKey ?? hostUserKey() })
   } catch (err: unknown) {
     log.error('task_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Task tool error: ${err instanceof Error ? err.message : String(err)}` }
   }
 }
 
-/** An organization's task names the repository, not this machine's path; a folder with no remote keeps its path. */
-async function organizationProjectKey(projectKey: string): Promise<string> {
-  return (await resolveRepositoryKey(projectKey)) ?? projectKey
+function providerName(task: Pick<TaskRecord, 'providerId'>): string {
+  return task.providerId === 'jira' ? 'Jira' : 'GitHub'
+}
+
+/** The column of the task in each source that lists it, as `source label: column name`. */
+async function columnNamesOf(task: Pick<TaskRecord, 'placements'>): Promise<string[]> {
+  const sources = await loadTaskSources(task.placements.map((placement) => placement.sourceKey))
+  return task.placements.flatMap((placement) => {
+    const source = sources.get(placement.sourceKey)
+    if (!source) return []
+    const column = source.columns.find((candidate) => candidate.id === placement.columnId)
+    return [`${source.label}: ${column?.name ?? 'no column'}`]
+  })
+}
+
+/** The facts of a task that a line each names, when the task has them. */
+function taskFactLines(task: TaskRecord, columns: string[]): string[] {
+  const facts: Array<[string, string | undefined]> = [
+    ['columns', columns.join('; ')],
+    ['labels', task.labels.join(', ')],
+    ['assignee', task.assignee],
+    ['priority', task.priority],
+    ['due', task.dueDate],
+  ]
+  return facts.flatMap(([name, value]) => value ? [`${name}: ${value}`] : [])
 }
 
 function formatTaskForAgent(
   task: TaskRecord,
-  comments: Array<{ author: string; body: string }> = [],
+  columns: string[] = [],
+  comments: Array<{ author: string; body: string; unsent: boolean }> = [],
   links: TaskLinkRecord[] = [],
   sessions: Pick<TaskSessionLink, 'sessionId' | 'sessionTitle' | 'role'>[] = [],
+  fromCache = false,
 ): string {
   const lines = [
     `Task ${task.id} — "${task.title}"`,
-    `status: ${task.status}`,
+    `${providerName(task)} ${task.kind === 'draft' ? 'draft item' : task.reference ?? 'issue'}${task.url ? ` — ${task.url}` : ''}`,
+    `status category: ${task.category}`,
+    `state: ${task.state.name}`,
   ]
-  if (task.projectKey) lines.push(`project: ${task.projectKey}`)
-  if (task.labels.length) lines.push(`labels: ${task.labels.join(', ')}`)
-  if (task.assignee) lines.push(`assignee: ${task.assignee}`)
+  if (fromCache) lines.push('(The provider did not answer. This is the last copy that Solus read.)')
+  lines.push(...taskFactLines(task, columns))
   if (task.epic) lines.push(...formatTaskEpic(task.epic))
-  if (links.length) {
-    lines.push('', 'Linked:')
-    for (const link of links) lines.push(`- ${formatTaskLink(link)}`)
-  }
+  if (links.length) lines.push('', 'Linked:', ...links.map((link) => `- ${formatTaskLink(link)}`))
   if (sessions.length) {
     lines.push('', 'Sessions (read_session with session_id):')
     for (const session of sessions) lines.push(`- ${session.sessionId} [${session.role ?? 'working'}]${session.sessionTitle ? ` — ${JSON.stringify(session.sessionTitle)}` : ''}`)
@@ -322,7 +358,7 @@ function formatTaskForAgent(
   lines.push('', task.body.trim() || '(no description)')
   if (comments.length) {
     lines.push('', 'Comments:')
-    for (const comment of comments) lines.push(`- ${comment.author}: ${comment.body.trim()}`)
+    for (const comment of comments) lines.push(`- ${comment.author}${comment.unsent ? ' (not sent yet)' : ''}: ${comment.body.trim()}`)
   }
   return lines.join('\n')
 }

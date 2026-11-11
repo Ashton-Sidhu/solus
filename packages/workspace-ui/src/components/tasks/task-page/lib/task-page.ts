@@ -3,22 +3,22 @@
 import type {
   Task,
   TaskComment,
+  TaskField,
   TaskLink,
   TaskLinkKind,
   TaskPriority,
   TaskProviderId,
-  TaskProviderStatus,
   TaskSessionLink,
-  TaskStatus,
 } from '@solus/contracts/task-types'
+import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { HostOperatingSystem, Work } from '@solus/contracts/types'
 import type { Activity } from '@solus/contracts/activity'
-import { sameUser, type UserId } from '@solus/contracts/user'
+import type { UserId } from '@solus/contracts/user'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
 import { attributionName } from '../../../presence/lib/actor-name'
 import { providerMark, type ProviderMarkId } from '../../../insights/lib/provider'
-import { dueDateMeta, PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
+import { CATEGORY_META, dueDateMeta, PRIORITY_META, PROVIDER_NAMES } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
 
 /**
@@ -79,8 +79,15 @@ export function statusColor(token: string, strength = 62): string {
   return `color-mix(in oklch, var(${token}) ${strength}%, var(--foreground))`
 }
 
-export function statusTextColor(status: TaskStatus): string {
-  return statusColor(STATUS_META[status]?.token ?? '--idle')
+/** The text colour of a status category, for a state name and its glyph. */
+export function statusTextColor(category: TaskStatusCategory): string {
+  return statusColor(CATEGORY_META[category].token)
+}
+
+/** The one word for a task's status: the provider's own state name. A task
+ *  that no host described yet has no name, so its category speaks for it. */
+export function taskStateLabel(task: Pick<Task, 'state' | 'category'>): string {
+  return task.state.name || CATEGORY_META[task.category].label
 }
 
 /** The machine an attempt ran on, already resolved against the saved hosts. */
@@ -167,52 +174,43 @@ export function taskSessionRow(
   }
 }
 
-const TASK_PROVIDER_LABELS = new Map<TaskProviderId, string>([
-  ['github', 'GitHub'],
-  ['jira', 'Jira'],
-  ['local', 'Local task'],
-])
+// ── Fields ──
 
-/** The task page identifies the system that owns the task. */
-export function taskProviderLabel(task: Task): string {
-  return TASK_PROVIDER_LABELS.get(task.providerId) ?? task.providerId
-}
-
-interface TaskPageCapabilities {
-  canEditContent: boolean
-  canEditPlanningFields: boolean
-  canEditPriority: boolean
-  canEditLabels: boolean
-  canEditAssignee: boolean
-  editableStatuses: TaskStatus[]
-  canComment: boolean
-}
+const FIELD_NAMES = {
+  title: 'the title',
+  body: 'the description',
+  labels: 'the labels',
+  assignee: 'the assignee',
+  priority: 'the priority',
+  dueDate: 'the due date',
+} satisfies Record<TaskField, string>
 
 /**
- * Capabilities exposed by the task detail page. GitHub's adapter supports
- * issue content, status, labels and comments, while due date and priority only
- * exist when the issue belongs to a Projects v2 board.
+ * Why each field editor is disabled. The provider decides which fields one
+ * task takes (`Task.canWrite`): a GitHub issue takes a due date only when a
+ * Project it is on has that field. An editor for another field would end in a
+ * refused write, so it is disabled and says why.
  */
-export function taskPageCapabilities(
-  task: Task,
-  providerStatus?: TaskProviderStatus | null,
-): TaskPageCapabilities {
-  const isLocal = task.providerId === 'local'
-  const writable = new Set(providerStatus?.writableFields ?? [])
+export function taskFieldLocks(task: {
+  providerId: TaskProviderId
+  canWrite(field: TaskField): boolean
+}) {
+  const lock = (field: TaskField): string | null => task.canWrite(field)
+    ? null
+    : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this task`
   return {
-    canEditContent: isLocal || (writable.has('title') && writable.has('body')),
-    canEditPlanningFields: isLocal,
-    canEditPriority: isLocal || writable.has('priority'),
-    canEditLabels: isLocal || writable.has('labels'),
-    // A picker needs a provider-owned candidate set. Local-only tasks still
-    // display their assignee, but do not pretend an arbitrary login is valid.
-    canEditAssignee: writable.has('assignee'),
-    editableStatuses: isLocal
-      ? ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']
-      : providerStatus?.statuses ?? [],
-    canComment: true,
-  }
+    title: lock('title'),
+    body: lock('body'),
+    labels: lock('labels'),
+    assignee: lock('assignee'),
+    priority: lock('priority'),
+    dueDate: lock('dueDate'),
+  } satisfies Record<TaskField, string | null>
 }
+
+/** For each field: null when the provider takes a change of it for this task,
+ *  else the sentence its disabled editor shows. */
+export type TaskFieldLocks = ReturnType<typeof taskFieldLocks>
 
 // ── Priority ──
 
@@ -431,23 +429,24 @@ export function commentSessionName(
     : comment.originSessionId.slice(0, 8)
 }
 
-/**
- * Whether the reader is offered Delete on a comment. Only an unpublished
- * comment a person wrote here can go, and only by that person or by the task's
- * moderator (its owner): the host refuses anyone else, so offering it would
- * only end in an error.
- */
-export function canDeleteTaskComment(
-  comment: Pick<TaskComment, 'author' | 'source' | 'externalId'>,
-  reader: { userId: UserId | null; canModerate: boolean },
-): boolean {
-  if (comment.source !== 'local' || comment.externalId || comment.author?.kind !== 'user') return false
-  return reader.canModerate || (!!reader.userId && sameUser(comment.author.user.id, reader.userId))
+/** Whether a comment is on the provider. An unsent comment stays on this host
+ *  with the reason, and the reader sends it again or discards it. */
+export type TaskCommentDelivery =
+  | { state: 'sent' }
+  | { state: 'unsent'; error: string }
+
+export function commentDelivery(comment: Pick<TaskComment, 'unsent' | 'sendError'>): TaskCommentDelivery {
+  if (!comment.unsent) return { state: 'sent' }
+  return { state: 'unsent', error: comment.sendError?.trim() || 'The provider did not take this comment.' }
 }
 
-// ── Header ──
-
-/** The breadcrumb's stable short name for a task. */
-export function taskRef(task: Task): string {
-  return task.shortId ? `T-${task.shortId}` : task.id.slice(0, 6)
+/** Who wrote a comment: "You" for the reader, a person's name, an agent for
+ *  its person, or the provider's name for a comment that Solus only read. */
+export function commentAuthorName(
+  comment: Pick<TaskComment, 'author' | 'externalAuthor'>,
+  self: UserId | null,
+): string {
+  if (!comment.author) return comment.externalAuthor?.trim() || 'Unknown'
+  const name = attributionName(comment.author, self)
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }

@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
-import type { WorkspaceCreateTask, WorkspaceCreateWork, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
+import type { WorkspaceCreateWork, WorkspaceWork } from '@solus/contracts/solus-api'
 import { resetTestDatabase } from './helpers/test-db'
+import { FakeTaskProviders, REPO, repoRead } from './helpers/task-fixtures'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -14,7 +15,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // work, a new root session starts in an organization on the Solus API or not at all;
 // the API accepts it before its provider starts, and its record is born published,
 // owned by the verified person. Existing personal sessions continue where they live.
-// Its agent's tools read and write where the session's records live. A pairing
+// Its agent's work tools read and write where the session's records live; its
+// task tools write to GitHub or Jira, because no Solus API holds a task. A pairing
 // connection keeps only Local records. The API takes a session's owner from the
 // admission, never from the host's report.
 
@@ -31,7 +33,6 @@ let toolContext: typeof import('@solus/server/data/workspace/tool-context')
 let service: typeof import('@solus/server/data/workspace/service')
 let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
 let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
 let works: typeof import('@solus/server/data/works/works')
 let intake: typeof import('@solus/server/sync/runner-intake')
 let sessionApi: typeof import('@solus/server/data/sessions/api-operations')
@@ -85,7 +86,6 @@ beforeAll(async () => {
   service = await import('@solus/server/data/workspace/service')
   taskTools = await import('@solus/server/execution/agents/tools/task-tools')
   workTools = await import('@solus/server/execution/agents/tools/work-tools')
-  taskStore = await import('@solus/server/data/tasks/task-store')
   works = await import('@solus/server/data/works/works')
   intake = await import('@solus/server/sync/runner-intake')
   sessionApi = await import('@solus/server/data/sessions/api-operations')
@@ -411,22 +411,12 @@ describe('record scope on an attached machine', () => {
 
 /** An organization's Solus API as an agent run reaches it: an in-memory record store behind the shared operations. */
 function fakeOrganizationApi(organizationId: string) {
-  const tasks = new Map<string, WorkspaceTask>()
   const createdWorks = new Map<string, WorkspaceWork>()
   const calls: string[] = []
   const now = new Date(0).toISOString()
   const home = { kind: 'organization' as const, serviceId: 'api', organizationId }
   const notFound = () => Object.assign(new Error('Resource not found.'), { status: 404, code: 'NOT_FOUND' })
   const operations: Partial<WorkspaceOperations> = {
-    createTask: async (_context, input: WorkspaceCreateTask) => {
-      calls.push(`createTask:${input.originSessionId}:${input.projectKey}`)
-      const task: WorkspaceTask = { id: `task-${tasks.size + 1}`, home, organizationId, ownerKey: 'alice', role: 'owner', version: '1', createdAt: now, updatedAt: now, title: input.title, body: input.body ?? '', projectKey: input.projectKey ?? null, projectId: null, status: input.status ?? 'todo', assignee: null, priority: input.priority ?? null, labels: input.labels ?? [], dueDate: null, originSessionId: input.originSessionId ?? null, shortId: tasks.size + 1 }
-      tasks.set(task.id, task)
-      return task
-    },
-    getTask: async (_context, taskId) => { calls.push(`getTask:${taskId}`); const task = tasks.get(taskId); if (!task) throw notFound(); return task },
-    updateTask: async (_context, taskId, input) => { calls.push(`updateTask:${taskId}`); const task = { ...tasks.get(taskId)!, ...input, version: '2' } as WorkspaceTask; tasks.set(taskId, task); return task },
-    listTasks: async () => { calls.push('listTasks'); return { items: [...tasks.values()].map(({ body: _body, ...summary }) => summary), nextCursor: null } },
     createWork: async (_context, input: WorkspaceCreateWork) => {
       calls.push(`createWork:${input.originSessionId}`)
       const work: WorkspaceWork = { id: `work-${createdWorks.size + 1}`, home, organizationId, ownerKey: 'alice', role: 'owner', version: '1', createdAt: now, updatedAt: now, title: input.title, type: input.type, preview: '', sessionIds: input.originSessionId ? [input.originSessionId] : [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'claude-code', content: input.content }
@@ -435,7 +425,7 @@ function fakeOrganizationApi(organizationId: string) {
     },
     getWork: async (_context, workId) => { calls.push(`getWork:${workId}`); const work = createdWorks.get(workId); if (!work) throw notFound(); return work },
   }
-  return { operations: operations as WorkspaceOperations, calls, tasks, works: createdWorks }
+  return { operations: operations as WorkspaceOperations, calls, works: createdWorks }
 }
 
 describe('an agent\'s record tools follow its session\'s home', () => {
@@ -444,36 +434,52 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {},
   })
 
-  test('an organization session reads and writes its Solus API, and the reads agree with the writes; nothing lands on this machine', async () => {
+  test('an organization session reads and writes its works on its Solus API, and the reads agree with the writes; nothing lands on this machine', async () => {
     const api = fakeOrganizationApi('A')
     const runs: string[] = []
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', (sessionId) => { runs.push(sessionId); return api.operations })
     try {
-      const created = await taskTools.createTaskAgentTool.execute({ title: 'Ship the VM plan' }, agentIn('s-new'))
-      expect(created.ok).toBe(true)
-      const taskId = /Task (\S+) —/.exec(created.text)?.[1]
-      expect(taskId).toBe('task-1')
-      const read = await taskTools.readTaskAgentTool.execute({ task_id: taskId! }, agentIn('s-new'))
-      expect(read.text).toContain('Ship the VM plan')
-      expect((await taskTools.updateTaskStatusAgentTool.execute({ task_id: taskId!, status: 'in_review' }, agentIn('s-new'))).text).toContain('in_review')
       const work = await workTools.createWorkAgentTool.execute({ title: 'VM notes', doc_type: 'doc', content: '# Notes' }, agentIn('s-new'))
       expect(work.text).toContain("saved in the organization's Solus API")
       const workId = /id: ([^)]+)\)/.exec(work.text)?.[1]
       expect((await workTools.readWorkAgentTool.execute({ work_id: workId! }, agentIn('s-new'))).text).toContain('# Notes')
       // Every record the agent writes names its session id, not its provider thread.
-      expect(api.calls).toEqual([`createTask:s-new:${dataDir}`, `getTask:${taskId}`, `getTask:${taskId}`, `updateTask:${taskId}`, 'createWork:s-new', `getWork:${workId}`])
+      expect(api.calls).toEqual(['createWork:s-new', `getWork:${workId}`])
       expect(runs.every((sessionId) => sessionId === 's-new')).toBe(true)
-      // Not one of them is in this machine's own store.
-      expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks).toEqual([])
+      // It is not in this machine's own store.
       expect(await works.listWorks(principalModule.ANY_ORGANIZATION)).toEqual([])
 
       // A personal session on the same machine keeps writing here.
-      const personal = await taskTools.createTaskAgentTool.execute({ title: 'Personal note' }, agentIn('s-before'))
+      const personal = await workTools.createWorkAgentTool.execute({ title: 'Personal note', doc_type: 'doc', content: '# Mine' }, agentIn('s-before'))
       expect(personal.ok).toBe(true)
-      expect((await taskStore.listTasks('local')).tasks.map((task) => task.title)).toEqual(['Personal note'])
-      expect(api.calls.filter((call) => call.startsWith('createTask'))).toHaveLength(1)
+      expect((await works.listWorks('local')).map((item) => item.title)).toEqual(['Personal note'])
+      expect(api.calls.filter((call) => call.startsWith('createWork'))).toHaveLength(1)
     } finally {
       uninstall()
+    }
+  })
+
+  test('a task tool of an organization session writes to the provider, and asks nothing of the Solus API', async () => {
+    // WHY (provider-owned-tasks.md decision 6): the organization's API keeps the
+    // attachments of tasks and no task. The agent's `create_task` makes a real
+    // GitHub issue with the person's connection, the same on each kind of host.
+    const providers = new FakeTaskProviders()
+    providers.answer(REPO, repoRead([]))
+    const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
+    useTaskAdaptersForTests(providers.adapters())
+    mkdirSync(join(dataDir, '.solus'), { recursive: true })
+    writeFileSync(join(dataDir, '.solus', 'config.json'), JSON.stringify({ version: 1, taskSources: [REPO] }))
+    const api = fakeOrganizationApi('A')
+    const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
+    try {
+      const created = await taskTools.createTaskAgentTool.execute({ title: 'Ship the VM plan' }, agentIn('s-new'))
+      expect(created).toMatchObject({ ok: true, text: expect.stringContaining('Created on GitHub') })
+      expect(providers.callsOf('create:')).toHaveLength(1)
+      expect(api.calls).toEqual([])
+    } finally {
+      uninstall()
+      useTaskAdaptersForTests(null)
+      rmSync(join(dataDir, '.solus'), { recursive: true, force: true })
     }
   })
 
@@ -498,10 +504,10 @@ describe('an agent\'s record tools follow its session\'s home', () => {
   test('when the host acts for nobody in an organization session, its tool writes nothing anywhere and says why', async () => {
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => null)
     try {
-      const refused = await taskTools.createTaskAgentTool.execute({ title: 'Lost?' }, agentIn('s-new'))
+      const refused = await workTools.createWorkAgentTool.execute({ title: 'Lost?', doc_type: 'doc', content: '# Lost' }, agentIn('s-new'))
       expect(refused.ok).toBe(false)
       expect(refused.text).toContain('holds no authority')
-      expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks.map((task) => task.title)).toEqual(['Personal note'])
+      expect((await works.listWorks(principalModule.ANY_ORGANIZATION)).map((item) => item.title)).not.toContain('Lost?')
     } finally {
       uninstall()
     }
@@ -516,10 +522,10 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     const api = fakeOrganizationApi('A')
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
     try {
-      const created = await taskTools.createTaskAgentTool.execute({ title: 'First write' }, agentIn('s-first'))
+      const created = await workTools.createWorkAgentTool.execute({ title: 'First write', doc_type: 'doc', content: '# First' }, agentIn('s-first'))
       expect(created.ok).toBe(true)
-      expect(api.calls).toEqual([`createTask:s-first:${dataDir}`])
-      expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks.map((task) => task.title)).not.toContain('First write')
+      expect(api.calls).toEqual(['createWork:s-first'])
+      expect((await works.listWorks(principalModule.ANY_ORGANIZATION)).map((item) => item.title)).not.toContain('First write')
     } finally {
       uninstall()
     }

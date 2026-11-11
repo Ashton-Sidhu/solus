@@ -105,36 +105,25 @@ describe('completed task age', () => {
 
 describe('sidebar lifecycle resolution', () => {
   const now = 10 * 24 * 60 * 60 * 1000
-  it('keeps inactive work active until its task status changes', () => {
-    expect(resolveTaskSidebarLifecycle({ status: 'in_progress', now }).lifecycle).toBe('active')
+  it('keeps work that is not finished active', () => {
+    expect(resolveTaskSidebarLifecycle({ isCompleted: false, now }).lifecycle).toBe('active')
   })
 
   it('puts done rows in Completed ahead of a stale snooze', () => {
     expect(resolveTaskSidebarLifecycle({
-      status: 'done',
-      doneAt: now - 1,
+      isCompleted: true,
+      completedAt: now - 1,
       snoozedUntil: now + 1,
       now,
     })).toMatchObject({ lifecycle: 'completed', completedAt: now - 1 })
   })
 
-  it('shelves a dropped row instead of stranding it in the active column', () => {
-    // WHY: the row's close control writes `dropped`, and the sidebar has always
-    // drawn that with the finished glyph. Calling only `done` completed left a
-    // row that looked finished, sat among live work, and could not be moved.
-    expect(resolveTaskSidebarLifecycle({
-      status: 'dropped',
-      updatedAt: now - 5,
-      now,
-    })).toMatchObject({ lifecycle: 'completed', completedAt: now - 5 })
-  })
-
   it('dates a finished row from its last change when no completion time was recorded', () => {
-    // WHY: `doneAt` is only written for `done`, and rows finished before the
-    // store recorded it have none at all. Without a fallback the row reports no
-    // age and sorts under every dated row on the shelf.
+    // WHY: a row finished before its completion time was recorded has none at
+    // all. Without a fallback the row reports no age and sorts under every
+    // dated row on the shelf.
     expect(resolveTaskSidebarLifecycle({
-      status: 'done',
+      isCompleted: true,
       updatedAt: now - 3,
       now,
     })).toMatchObject({ lifecycle: 'completed', completedAt: now - 3 })
@@ -142,8 +131,8 @@ describe('sidebar lifecycle resolution', () => {
 
   it('prefers the recorded completion time over the last change', () => {
     expect(resolveTaskSidebarLifecycle({
-      status: 'done',
-      doneAt: now - 7,
+      isCompleted: true,
+      completedAt: now - 7,
       updatedAt: now - 1,
       now,
     }).completedAt).toBe(now - 7)
@@ -151,7 +140,7 @@ describe('sidebar lifecycle resolution', () => {
 
   it('returns an expired snooze with a woke marker until it is read', () => {
     expect(resolveTaskSidebarLifecycle({
-      status: 'in_progress',
+      isCompleted: false,
       snoozedUntil: now - 1,
       lastReadAt: 0,
       now,
@@ -162,7 +151,7 @@ describe('sidebar lifecycle resolution', () => {
     // WHY: a snooze defers the row, not the run. Quiet progress is exactly what
     // the user asked not to see, so a turn in flight must not drag it back.
     expect(resolveTaskSidebarLifecycle({
-      status: 'in_progress',
+      isCompleted: false,
       snoozedUntil: now + 1,
       attention: 'running',
       now,
@@ -175,7 +164,7 @@ describe('sidebar lifecycle resolution', () => {
     // snooze survives, so answering leaves the wake time in force.
     for (const attention of ['awaiting', 'awaiting_plan', 'error'] as const) {
       expect(resolveTaskSidebarLifecycle({
-        status: 'in_progress',
+        isCompleted: false,
         snoozedUntil: now + 1,
         attention,
         now,
@@ -755,7 +744,7 @@ describe('open sessions the picker offers', () => {
     taskForSession: (sessionId: string | null | undefined) =>
       (sessionId ? byId[sessionId] : null) ?? null,
   })
-  const taskWith = (status: Task['status']): Task => ({ status } as Task)
+  const taskWith = (category: Task['category']): Task => ({ category } as Task)
 
   it('drops a session whose task the user finished, matching the Completed shelf', () => {
     // WHY: the picker's "Open" section and the sidebar list the same work. A
@@ -770,7 +759,7 @@ describe('open sessions the picker offers', () => {
     // task minting has nothing to be finished by.
     expect(isCompletedTaskSession(
       { id: 'sess-1' },
-      lookupOf({ 'sess-1': taskWith('in_progress') }),
+      lookupOf({ 'sess-1': taskWith('active') }),
     )).toBe(false)
     expect(isCompletedTaskSession(
       { id: 'sess-1' },

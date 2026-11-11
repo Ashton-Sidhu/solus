@@ -25,12 +25,6 @@ export function remoteWorkspaceOperations(client: SolusApiClient): WorkspaceOper
     }
   }
   return {
-    listTasks: (_context, query) => call(() => client.request('listTasks', { query })),
-    getTask: (_context, taskId) => call(() => client.request('getTask', { id: taskId })),
-    createTask: (_context, input, key) => call(() => client.request('createTask', { body: input, key })),
-    updateTask: (_context, taskId, input, version) => call(() => client.request('updateTask', { id: taskId, body: input, version })),
-    deleteTask: (_context, taskId, version) => call(() => client.request('deleteTask', { id: taskId, version })),
-    createTaskComment: (_context, taskId, input, key) => call(() => client.request('createTaskComment', { id: taskId, body: input, key })),
     listWorks: (_context, query) => call(() => client.request('listWorks', { query })),
     importWork: (_context, input, key) => call(() => client.request('importWork', { body: input, key })),
     publishWork: (_context, workId, input) => call(() => client.request('publishWork', { id: workId, body: input })),
@@ -56,7 +50,6 @@ export function remoteWorkspaceOperations(client: SolusApiClient): WorkspaceOper
     listInsights: (_context, query) => call(() => client.request('listInsights', { query })),
     getInsight: (_context, insightId) => call(() => client.request('getInsight', { id: insightId })),
     getInsightSpans: (_context, insightId) => call(() => client.request('getInsightSpans', { id: insightId })),
-    listTaskActivity: (_context, taskId, query) => call(() => client.request('listTaskActivity', { id: taskId, query })),
     listWorkActivity: (_context, workId, query) => call(() => client.request('listWorkActivity', { id: workId, query })),
     listSessionActivity: (_context, sessionId, query) => call(() => client.request('listSessionActivity', { id: sessionId, query })),
     listMyActivity: (_context, query) => call(() => client.request('listMyActivity', { query })),

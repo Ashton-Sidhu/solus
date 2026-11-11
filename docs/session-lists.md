@@ -37,15 +37,16 @@ is off.
 
 ## How the picker orders a search
 
-The picker matches task titles, task bodies, task ids, and session names on the
-client. It gets passages of what was said from the homes. A query of one
+The picker matches task titles, task bodies, task references, and session names
+on the client. It gets passages of what was said from the homes. A query of one
 character does not ask the homes: it matches almost every message, and the
 passages tell the reader nothing. Names still match it.
 
 With **Best match first**, each row gets a tier from where the query matched,
 and a score in that tier (`unified-picker/lib/picker-relevance.ts`):
 
-1. **Id.** The query is a task's id (`T-42`).
+1. **Id.** The query is a task's reference (`owner/repo#123` or `PROJ-12`; see
+   [tasks](tasks.md)).
 2. **Name.** The words are in the task title or the session name. This includes
    the name of a session that no task claims.
 3. **Evidence.** The words are only in a task body or in what was said. The

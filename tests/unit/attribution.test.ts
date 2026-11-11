@@ -19,6 +19,7 @@ import type { AutomationAction, PlanComment } from '@solus/contracts/types'
 import type { HandlerCtx, SolusServer } from '@solus/server/transport/server'
 import { memberPrincipal } from './helpers/actors'
 import { resetTestDatabase } from './helpers/test-db'
+import { FakeTaskProviders, githubIssue, seedTask } from './helpers/task-fixtures'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -32,8 +33,8 @@ let hostUser: typeof import('@solus/server/host/host-user')
 let works: typeof import('@solus/server/data/works/works')
 let workModule: typeof import('@solus/server/data/works/work')
 let workAnnotations: typeof import('@solus/server/data/works/work-annotations')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
-let tasks: typeof import('@solus/server/data/tasks/task')
+let taskAttachments: typeof import('@solus/server/data/tasks/task-attachments')
+let useTaskAdaptersForTests: typeof import('@solus/server/data/tasks/providers/registry').useTaskAdaptersForTests
 let automations: typeof import('@solus/server/data/automations/automations-store')
 let storedComments: typeof import('@solus/server/annotations/stored-comments')
 let handlers: Map<string, (args: unknown[], ctx: HandlerCtx) => unknown>
@@ -52,8 +53,8 @@ beforeAll(async () => {
   works = await import('@solus/server/data/works/works')
   workModule = await import('@solus/server/data/works/work')
   workAnnotations = await import('@solus/server/data/works/work-annotations')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  tasks = await import('@solus/server/data/tasks/task')
+  taskAttachments = await import('@solus/server/data/tasks/task-attachments')
+  ;({ useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry'))
   automations = await import('@solus/server/data/automations/automations-store')
   storedComments = await import('@solus/server/annotations/stored-comments')
   // The handlers as `SolusServer.handle()` reaches them, with the actor it resolves.
@@ -63,7 +64,7 @@ beforeAll(async () => {
   const { registerTasksHandlers } = await import('@solus/server/transport/handlers/tasks-handlers')
   const { registerAutomationHandlers } = await import('@solus/server/transport/handlers/automation-handlers')
   registerFolioHandlers(server)
-  registerTasksHandlers(server, { sync: false })
+  registerTasksHandlers(server)
   registerAutomationHandlers(server)
 })
 
@@ -71,6 +72,7 @@ beforeEach(() => hostUser.useHostUser({ localId: 'L1' }))
 
 afterEach(async () => {
   hostUser.useHostUser(null)
+  useTaskAdaptersForTests(null)
   await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
@@ -110,7 +112,11 @@ describe('one person’s actions', () => {
     const annotations = await call<{ comments: PlanComment[] }>('applyWorkComment', [work.id, { kind: 'add', comment: { id: 'c1', selectedText: 'second', comment: 'Tighten this' } }], ctx)
 
     // A task they link that work to, and comment on.
-    const task = await taskStore.createTask('local', { title: 'Ship it' })
+    // GitHub takes the comment; the copy on this host names who wrote it here.
+    const providers = new FakeTaskProviders()
+    providers.hold(githubIssue(1, { title: 'Ship it' }))
+    useTaskAdaptersForTests(providers.adapters())
+    const task = await seedTask(githubIssue(1, { title: 'Ship it' }))
     const linked = await call<{ links: Array<{ createdBy: Attribution }>; activity: Array<{ kind: string; change?: string; by: Attribution }> }>('tasksLink', [task.id, { kind: 'work', targetKey: work.id }], ctx)
     const commented = await call<{ comments: Array<{ author?: Attribution }> }>('tasksComment', [task.id, 'Linked the spec'], ctx)
 
@@ -182,14 +188,14 @@ describe('an agent’s actions', () => {
 describe('rows written before stage 4', () => {
   // Old task event actors move with `task_events` into `activity` (activity.test.ts).
   test('old link makers still read', async () => {
-    const task = await taskStore.createTask('local', { title: 'Old task' })
+    const task = { id: 'github:I_1' }
     const raw = database.getDatabase()
     // A link's maker is its `author` attribution; `created_by` is the user id behind it (plans/029 decision 2).
     await raw.run(sql`INSERT INTO resource_links (organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, title, source, status, author, origin_session_id, created_by, created_at) VALUES
       ('local', 'task', ${task.id}, 'automation', '', 'a1', 'reference', 'A', 'system', 'active', '{"kind":"system"}', NULL, 'local:host', 1),
       ('local', 'task', ${task.id}, 'automation', '', 'a2', 'reference', 'B', 'agent', 'active', '{"kind":"agent","sessionId":"thread-9"}', 'thread-9', 'local:host', 2)`)
 
-    const details = await (await tasks.Task.byId('local', task.id)).details()
+    const details = await taskAttachments.taskAttachments('local', task.id)
     const agent: Attribution = { kind: 'agent', sessionId: 'thread-9' }
     expect(Object.fromEntries(details.links.map((link) => [link.targetKey, link.createdBy]))).toEqual({ a1: { kind: 'system' }, a2: agent })
   })

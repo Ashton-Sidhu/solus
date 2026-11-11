@@ -33,17 +33,19 @@ const taskCommentPayloadSchema = z.object({
   originSessionId: z.string().optional(),
 })
 
+/** `status` is a status category or the name of a column, as `update_task_status` takes it. */
 const taskStatusPayloadSchema = z.object({
-  status: z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']),
+  status: z.string(),
   actor: attributionSchema.optional(),
 })
+const statusCategorySchema = z.enum(['open', 'active', 'done'])
 
 const taskIdPayloadSchema = z.object({ taskId: z.string() })
 
 /**
  * Foreign tasks on the execution host: the per-session snapshot a dispatched
  * prompt shipped (see docs/plans/dispatch-parity.md). The snapshot is the only
- * task state this host has — the row lives on another machine — so the packet
+ * task state this host has — the host that reads the task is another machine — so the packet
  * renders from it and `read_task` answers from it.
  *
  * Reads see the agent's own undelivered writes: a recorded op is applied to the
@@ -186,7 +188,6 @@ function applyOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
       id: op.id,
       taskId: snapshot.details.task.id,
       author: payload.author,
-      source: 'local',
       originSessionId: payload.originSessionId ?? op.sessionId ?? null,
       body: payload.body,
       createdAt: op.recordedAt,
@@ -197,6 +198,10 @@ function applyOpToSnapshot(snapshot: TaskSnapshot, op: OutboxOp): void {
     const parsed = taskStatusPayloadSchema.safeParse(op.payload)
     if (!parsed.success) return
     const payload: TaskSetStatusOpPayload = parsed.data
-    snapshot.details.task.status = payload.status
+    // The owner host makes the move on the provider. Until its answer ships
+    // back, the agent reads the status it asked for.
+    const category = statusCategorySchema.safeParse(payload.status.trim().toLowerCase())
+    if (category.success) snapshot.details.task.category = category.data
+    else snapshot.details.task.state = { name: payload.status, category: snapshot.details.task.state.category }
   }
 }

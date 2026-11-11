@@ -12,7 +12,7 @@
     class: className,
   }: {
     label: string;
-    /** The host's colour, bare hex or CSS. Omit for a local task label. */
+    /** The host's colour, bare hex or CSS. Omit for a label with no colour. */
     color?: string;
     class?: string;
   } = $props();

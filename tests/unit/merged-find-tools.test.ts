@@ -15,8 +15,6 @@ let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
 let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
 let linkTools: typeof import('@solus/server/execution/agents/tools/session-link-tools')
 let works: typeof import('@solus/server/data/works/works')
-let createTask: typeof import('@solus/server/data/tasks/task-store')['createTask']
-let TaskModule: typeof import('@solus/server/data/tasks/task')
 let closeDb: typeof import('@solus/server/db')['closeDb']
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -39,8 +37,6 @@ beforeAll(async () => {
   taskTools = await import('@solus/server/execution/agents/tools/task-tools')
   linkTools = await import('@solus/server/execution/agents/tools/session-link-tools')
   works = await import('@solus/server/data/works/works')
-  ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
-  TaskModule = await import('@solus/server/data/tasks/task')
   ;({ closeDb } = await import('@solus/server/db'))
   const { getDatabase } = await import('@solus/server/db/database')
   for (const sessionId of ['calling-session-id', 'other-session-id', 'unlinked-session-id', 'unlinking-session-id', 'keeping-session-id', 'never-linked-session-id']) {
@@ -106,7 +102,7 @@ describe('search_sessions only searches', () => {
 
 describe('session-only links', () => {
   test('rejects task destinations and task session membership', async () => {
-    const task = await createTask('local', { title: 'No implicit task links', projectKey: '/p', body: '' })
+    const task = { id: 'github:I_1' }
     for (const args of [
       { task_id: task.id, kind: 'work', target_id: 'work-1' },
       { task_id: task.id, kind: 'session' },
@@ -120,12 +116,20 @@ describe('session-only links', () => {
   })
 
   test('read_task lists session IDs for read_session', async () => {
-    const task = await createTask('local', { title: 'Read prior attempts', projectKey: '/p', body: '' })
-    await (await TaskModule.Task.byId('local', task.id)).linkSession('prior-attempt')
+    // GitHub owns the task: the read asks the provider, here a fake one.
+    const { FakeTaskProviders, githubIssue } = await import('./helpers/task-fixtures')
+    const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
+    const { linkTaskSession } = await import('@solus/server/data/tasks/task-attachments')
+    const providers = new FakeTaskProviders()
+    providers.hold(githubIssue(1, { title: 'Read prior attempts' }))
+    useTaskAdaptersForTests(providers.adapters())
+    const task = { id: 'github:I_1' }
+    await linkTaskSession('local', task.id, 'prior-attempt')
     const read = await taskTools.readTaskAgentTool.execute({ task_id: task.id }, toolContext('calling-session-id'))
     expect(read.ok).toBe(true)
     expect(read.text).toContain('prior-attempt [working]')
     expect(read.text).toContain('read_session with session_id')
+    useTaskAdaptersForTests(null)
   })
 })
 

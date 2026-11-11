@@ -14,14 +14,13 @@ import { hostClient, type SignedIn } from '../../src/cloud-sign-in'
  * organization, so the host reads itself attached at its next standing read. She dials
  * it naming the organization; the ticket door trades her host token for an
  * organization delegation. Her new session is admitted on the Solus API before the
- * mock agent starts, and the agent's real `create_task` and `create_work` tools write
+ * mock agent starts, and the agent's real `create_work` tool writes
  * through that delegation to the Solus API, not to the host's own tables. bob, a
- * member, reads the task, the work, and the session record on the Solus API with his
+ * member, reads the work and the session record on the Solus API with his
  * own API token; carol, of another organization, reads none of it and cannot name
  * the organization.
  */
 
-const TASK_TITLE = 'Runner task from the mock agent'
 const WORK_TITLE = 'Runner work from the mock agent'
 
 /** The renderer's prompt context for a new conversation whose window selected an organization. */
@@ -65,7 +64,6 @@ export default cloudModeScenario('organization work: an attached host runs an or
   ctx.check('bob reaches the Solus API with his API token', bobDial.ok, JSON.stringify(bobDial))
   if (!bobDial.ok) return
   const countTitled = async (client: LabClient) => ({
-    tasks: (await client.rpc('tasksSidebarSnapshot')).tasks.filter((row) => row.title === TASK_TITLE).length,
     works: (await client.records.listWorks()).filter((row) => row.title === WORK_TITLE).length,
   })
   const before = await countTitled(bobApi)
@@ -92,7 +90,7 @@ export default cloudModeScenario('organization work: an attached host runs an or
   const held = await ctx.until(() => restarted.log().find((entry) => entry.msg === 'delegation_held' && entry.userId === persona.userId && entry.scope === `organization:${lab}`), (entry) => entry !== undefined, 15_000)
   ctx.check('the host holds her delegation for the organization', held !== undefined, JSON.stringify(restarted.log().filter((entry) => entry.msg?.startsWith('delegation_'))))
 
-  ctx.step('alice starts a new session in the organization; the mock agent creates a task and a work')
+  ctx.step('alice starts a new session in the organization; the mock agent creates a work')
   const sessionId = randomUUID()
   const cwd = join(restarted.dataDir, 'project')
   mkdirSync(cwd, { recursive: true })
@@ -101,8 +99,7 @@ export default cloudModeScenario('organization work: an attached host runs an or
   ctx.check('the host admits the turn for the organization', sent === 'ok', sent)
 
   ctx.step('bob reads what the agent made, on the Solus API')
-  const after = await ctx.until(() => countTitled(bobApi), (counts) => counts.tasks > before.tasks && counts.works > before.works, 30_000)
-  ctx.check('bob sees the task the agent created', after.tasks === before.tasks + 1, `${before.tasks} → ${after.tasks}`)
+  const after = await ctx.until(() => countTitled(bobApi), (counts) => counts.works > before.works, 30_000)
   ctx.check('bob sees the work the agent created', after.works === before.works + 1, `${before.works} → ${after.works}`)
   // The runner's report carries the record; the Solus API keeps its own copy (its `publication` is the API's, not the runner's).
   const records = await ctx.until(() => bobApi.records.sessionRecordList({ scope: 'all' }).then((list) => list.records), (list) => list.some((row) => row.sessionId === sessionId), 15_000)
@@ -111,10 +108,8 @@ export default cloudModeScenario('organization work: an attached host runs an or
   ctx.check('the record names alice as its owner and her host as its runner', record?.ownerKey === persona.userId && record.runnerHostId === hostId, JSON.stringify(record && { ownerKey: record.ownerKey, runnerHostId: record.runnerHostId }))
 
   ctx.step('the host\'s own tables hold none of it')
-  const localTasks = await owner.rpc('tasksSidebarSnapshot')
-  ctx.check('the host lists no such task of its own', localTasks.tasks.every((row) => row.title !== TASK_TITLE), JSON.stringify(localTasks.tasks.map((row) => row.title)))
   const localWorks = await owner.records.listWorks()
-  ctx.check('nor such a work', localWorks.every((row) => row.title !== WORK_TITLE), JSON.stringify(localWorks.map((row) => row.title)))
+  ctx.check('the host lists no such work of its own', localWorks.every((row) => row.title !== WORK_TITLE), JSON.stringify(localWorks.map((row) => row.title)))
 
   ctx.step('carol, of another organization, sees none of it')
   const carolApi = apiClient(ctx, carol, carol.persona.organizationId)
@@ -122,7 +117,7 @@ export default cloudModeScenario('organization work: an attached host runs an or
   ctx.check('carol reaches the Solus API in her own organization', carolDial.ok, JSON.stringify(carolDial))
   if (carolDial.ok) {
     const carolCounts = await countTitled(carolApi)
-    ctx.check('carol\'s organization has no such task or work', carolCounts.tasks === 0 && carolCounts.works === 0, JSON.stringify(carolCounts))
+    ctx.check('carol\'s organization has no such work', carolCounts.works === 0, JSON.stringify(carolCounts))
     const carolRecords = (await carolApi.records.sessionRecordList({ scope: 'all' })).records
     ctx.check('carol lists no record of the session', !carolRecords.some((row) => row.sessionId === sessionId), String(carolRecords.length))
   }

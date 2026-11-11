@@ -2,6 +2,14 @@
 
 Status: implemented, 2026-09-30. Task 01M3AZ4M9Z4YNKD6TGDY2300B0.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. The rules of this plan stay: an output
+> link is an attachment, and its task is named by the task key. In this plan,
+> the reason in decision 2 is history: a task gives no access to a work, and
+> `data/tasks/task-sharing.ts` does not exist. `linkSessionOutput` is in
+> `data/tasks/task-attachments.ts`.
+
 A session owns what it makes. A task shows what its sessions made, and those
 links follow the session: a session that joins a task brings its outputs, and
 a session that leaves takes them. This is the same rule as for pull requests

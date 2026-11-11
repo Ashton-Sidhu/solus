@@ -12,8 +12,8 @@ import { prStatusBadge } from '../../prs/lib/pr-utils'
  * *listed* task does not carry them. Only two reads produce them: the sidebar
  * snapshot's `prLinkListsByTask`, which is one query over every task and therefore
  * already in hand, and a per-task detail read for everything else. That second
- * read is a local DB read for a local task and a provider round trip for an
- * upstream one, so the preview must not fire it on every arrow key.
+ * read is a provider round trip, so the preview must not fire it on every
+ * arrow key.
  *
  * The split follows from that: PRs come from the snapshot and render instantly
  * for every task, while the full Linked set waits for the selection to settle
@@ -27,11 +27,11 @@ export class TaskPreviewDetails {
   private readonly requested = new Set<string>()
 
   constructor(
-    private readonly load: (taskId: string, projectKey?: string) => Promise<TaskDetails | null>,
+    private readonly load: (taskId: string) => Promise<TaskDetails | null>,
   ) {}
 
   /** Ask for this task's detail once the selection has stopped moving. */
-  request(taskId: string | null | undefined, projectKey?: string): void {
+  request(taskId: string | null | undefined): void {
     this.cancel()
     if (!taskId || this.requested.has(taskId)) return
     this.timer = setTimeout(() => {
@@ -40,7 +40,7 @@ export class TaskPreviewDetails {
       this.requested.add(taskId)
       // A failed read leaves the preview without a Linked section, which is the
       // same thing it shows for a task that has no links. Nothing to report.
-      void this.load(taskId, projectKey).catch(() => this.requested.delete(taskId))
+      void this.load(taskId).catch(() => this.requested.delete(taskId))
     }, SETTLE_MS)
   }
 

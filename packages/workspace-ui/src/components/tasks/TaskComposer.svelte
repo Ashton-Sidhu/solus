@@ -17,12 +17,11 @@
   import LabelChip from "../ui/labels/LabelChip.svelte";
   import { getSurfaceContext } from "../../contexts";
   import type { AgentId } from "@solus/contracts/types";
-  import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
+  import { PRIORITY_META, dueDateMeta } from "./lib/tasks-api";
+  import { SourceLogo } from "../ui/list-page";
+  import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import { PICKER_OPTION, PROPERTY_TRIGGER } from "./lib/composer-styles";
-  import {
-    priorityBars,
-    statusTextColor,
-  } from "./task-page/lib/task-page";
+  import { priorityBars } from "./task-page/lib/task-page";
   import {
     loadCreateAnother,
     saveCreateAnother,
@@ -31,13 +30,17 @@
     focusFirstItem,
     addLabel,
     labelSuggestions,
+    composerFieldsFor,
+    type TaskComposerInput,
   } from "./lib/task-composer";
-  import type { TaskPriority, TaskStatus } from "@solus/contracts/task-types";
+  import type { TaskPriority, TaskSourceState } from "@solus/contracts/task-types";
+  import { taskSourceProvider } from "@solus/contracts/task-sources";
   import { formatComboText } from "../../lib/keybindings/match";
 
   const keys = {
     expand: formatComboText({ alt: true, code: "KeyF" }),
-    status: formatComboText({ alt: true, code: "KeyS" }),
+    source: formatComboText({ alt: true, code: "KeyS" }),
+    column: formatComboText({ alt: true, code: "KeyC" }),
     priority: formatComboText({ alt: true, code: "KeyP" }),
     due: formatComboText({ alt: true, code: "KeyD" }),
     labels: formatComboText({ alt: true, code: "KeyL" }),
@@ -45,31 +48,24 @@
   };
 
   interface Props {
-    /** Whether the provider takes a status on create (local only). New GitHub
-     *  issues always start open, so the composer hides the field there. */
-    canSetStatus?: boolean;
-    /** Whether priority/due date will actually persist on create. A new GitHub
-     *  issue isn't on a Projects board yet, so those fields would be silently
-     *  dropped — hide them rather than eat the input. */
-    canPlan?: boolean;
+    /** The task sources of the project, in config order. The task is created
+     *  on the provider, in one of them. */
+    sources: TaskSourceState[];
+    /** The source to preselect: the project's default source, or the source
+     *  whose board the composer was opened from. */
+    initialSourceKey?: string;
+    /** A column of the preselected source to start in (when adding into a
+     *  board column). Absent = where the provider starts a task. */
+    initialColumnId?: string;
     /** Known project labels, offered as suggestions in the labels picker. */
     knownLabels?: string[];
     /** Project directory for @-file / #-plan / %-work / !-PR autocomplete. */
     workingDirectory?: string;
     /** Agent provider whose built-in slash commands populate the body's / menu. */
     provider: AgentId;
-    /** Preset status (when adding into a board column). */
-    initialStatus?: TaskStatus;
     /** Performs the write. Throws on failure (the caller surfaces a toast); on
      *  success the composer owns dismissal (so "Create more" can stay open). */
-    onCreate: (input: {
-      title: string;
-      body: string;
-      dueDate?: string;
-      priority?: TaskPriority;
-      status?: TaskStatus;
-      labels?: string[];
-    }) => Promise<void> | void;
+    onCreate: (input: TaskComposerInput) => Promise<void> | void;
     /** Fires after a successful create, once the composer has dismissed — so a
      *  caller can hand off to another surface. Not called while "Create more"
      *  keeps the composer open. */
@@ -77,12 +73,12 @@
     onCancel: () => void;
   }
   let {
-    canSetStatus = false,
-    canPlan = false,
+    sources,
+    initialSourceKey,
+    initialColumnId,
     knownLabels = [],
     workingDirectory,
     provider,
-    initialStatus,
     onCreate,
     onCreated,
     onCancel,
@@ -95,14 +91,23 @@
   // ISO calendar day (YYYY-MM-DD), empty when unset.
   let dueDate = $state("");
   let priority = $state<TaskPriority | "">("");
-  let status = $state<TaskStatus>(
-    untrack(() => initialStatus) ?? "todo",
+  let sourceKey = $state(
+    untrack(() => initialSourceKey ?? sources[0]?.sourceKey ?? ""),
   );
+  // Empty = where the provider starts a task.
+  let columnId = $state(untrack(() => initialColumnId ?? ""));
+  const source = $derived(
+    sources.find((candidate) => candidate.sourceKey === sourceKey) ?? sources[0] ?? null,
+  );
+  const column = $derived(
+    source?.columns.find((candidate) => candidate.id === columnId) ?? null,
+  );
+  // The fields follow what the chosen source can take on create.
+  const fields = $derived(composerFieldsFor(source?.source.kind));
   let labels = $state<string[]>([]);
   let createAnother = $state(loadCreateAnother());
 
   const PRIORITY_OPTIONS: TaskPriority[] = ["urgent", "high", "medium", "low"];
-  const STATUS_OPTIONS: TaskStatus[] = ["todo", "in_progress", "done"];
   const presets = dueDatePresets();
 
   let titleEl = $state<HTMLInputElement | null>(null);
@@ -135,25 +140,27 @@
   const suggestions = $derived(
     labelSuggestions(knownLabels, labels, labelDraft),
   );
-  const canSubmit = $derived(title.trim().length > 0 && !saving);
+  const canSubmit = $derived(title.trim().length > 0 && !saving && !!source);
 
   // ── Property pickers (Linear-style popovers) ──────────────────────────────
-  // Status and priority are menus; due date and labels hold an input, so they
-  // are popovers — a menu's typeahead would eat the typing.
-  type PickerName = "status" | "priority" | "due" | "labels";
-  let statusOpen = $state(false);
+  // Source, column and priority are menus; due date and labels hold an input,
+  // so they are popovers — a menu's typeahead would eat the typing.
+  type PickerName = "source" | "column" | "priority" | "due" | "labels";
+  let sourceOpen = $state(false);
+  let columnOpen = $state(false);
   let priorityOpen = $state(false);
   let dueOpen = $state(false);
   let labelsOpen = $state(false);
   let duePanel = $state<HTMLDivElement | null>(null);
 
   function closePickers() {
-    statusOpen = priorityOpen = dueOpen = labelsOpen = false;
+    sourceOpen = columnOpen = priorityOpen = dueOpen = labelsOpen = false;
   }
 
   /** ⌥-letter accelerators open one picker and close the rest. */
   function openPicker(name: PickerName) {
-    statusOpen = name === "status";
+    sourceOpen = name === "source";
+    columnOpen = name === "column";
     priorityOpen = name === "priority";
     dueOpen = name === "due";
     labelsOpen = name === "labels";
@@ -184,20 +191,20 @@
   }
 
   async function submit() {
-    if (!canSubmit) return;
+    if (!canSubmit || !source) return;
     const description = descriptionEditor?.getMarkdown() ?? body;
     saving = true;
     try {
       await onCreate({
+        sourceKey: source.sourceKey,
+        columnId: column?.id,
         title: title.trim(),
         body: description.trim(),
-        // Planning fields only persist where the provider stores them (local).
-        dueDate: canPlan ? dueDate || undefined : undefined,
-        priority: canPlan ? priority || undefined : undefined,
-        // Status is only a real settable field locally; new GitHub issues
-        // always start in the open (todo) state.
-        status: canSetStatus ? status : undefined,
-        labels: labels.length ? [...labels] : undefined,
+        // A field the source does not take on create is not sent: the provider
+        // would drop it, and the person would not know.
+        dueDate: fields.planning ? dueDate || undefined : undefined,
+        priority: fields.planning ? priority || undefined : undefined,
+        labels: fields.labels && labels.length ? [...labels] : undefined,
       });
     } catch {
       // The caller showed a toast; keep the modal open so the user can retry.
@@ -216,7 +223,7 @@
   }
 
   /** Rapid-entry reset: clear the content fields but keep the chosen properties
-   *  (status/priority/due) so a run of similar tasks is fast. */
+   *  (source/column/priority/due) so a run of similar tasks is fast. */
   function resetForAnother() {
     title = "";
     body = "";
@@ -255,19 +262,21 @@
     // independent, so opt-S resolves even though macOS maps opt-S to "ß").
     if (e.altKey && !e.metaKey && !e.ctrlKey && !saving) {
       const map = {
-        KeyS: "status",
+        KeyS: "source",
+        KeyC: "column",
         KeyP: "priority",
         KeyD: "due",
         KeyL: "labels",
       } satisfies Record<string, PickerName>;
-      const name = map[e.code];
-      const nameAllowed =
-        name === "status"
-          ? canSetStatus
-          : name === "priority" || name === "due"
-            ? canPlan
-            : !!name;
-      if (name && nameAllowed) {
+      const name = Object.entries(map).find(([code]) => code === e.code)?.[1];
+      const allowed = {
+        source: sources.length > 1,
+        column: !!source?.columns.length,
+        priority: fields.planning,
+        due: fields.planning,
+        labels: fields.labels,
+      } satisfies Record<PickerName, boolean>;
+      if (name && allowed[name]) {
         e.preventDefault();
         openPicker(name);
       } else if (e.code === "KeyF") {
@@ -419,69 +428,98 @@
       <div
         class="flex flex-wrap items-center gap-1.5 px-5 pb-4 shrink-0"
       >
-      <!-- Status (local only — new GitHub issues always start open/todo) -->
-      {#if canSetStatus}
-        <DropdownMenu.Root bind:open={statusOpen}>
-          <DropdownMenu.Trigger disabled={saving}>
+      <!-- Where the task is created. The provider owns the task, so this is
+           the first property: it decides which other fields exist. -->
+      {#if source}
+        <DropdownMenu.Root bind:open={sourceOpen}>
+          <DropdownMenu.Trigger disabled={saving || sources.length < 2}>
             {#snippet child({ props })}
               <button
                 {...props}
                 type="button"
                 class={PROPERTY_TRIGGER}
-                aria-label="Status"
-                title={`Status (${keys.status})`}
+                aria-label="Task source"
+                title={sources.length > 1
+                  ? `Task source (${keys.source})`
+                  : `The task is created in ${source.label}`}
               >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="0.875"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="shrink-0"
-                  style="color:{statusTextColor(status)}"
-                  aria-hidden="true"><path d={STATUS_META[status].glyph} /></svg
-                >
-                {STATUS_META[status].label}
+                <SourceLogo source={taskSourceProvider(source.source)} />
+                <span class="truncate">{source.label}</span>
               </button>
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content
             align="start"
             sideOffset={6}
-            class="z-[10010] w-[170px]"
-            aria-label="Set status"
+            class="z-[10010] w-[min(16rem,calc(100vw-2rem))]"
+            aria-label="Choose the task source"
             onCloseAutoFocus={focusTitle}
           >
-            {#each STATUS_OPTIONS as opt (opt)}
-              <DropdownMenu.Item onSelect={() => commit(() => (status = opt))}>
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="0.875"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  class="shrink-0"
-                  style="color:{statusTextColor(opt)}"
-                  aria-hidden="true"><path d={STATUS_META[opt].glyph} /></svg
-                >
-                {STATUS_META[opt].label}
-                {#if opt === status}
+            {#each sources as option (option.sourceKey)}
+              <DropdownMenu.Item
+                onSelect={() =>
+                  commit(() => {
+                    sourceKey = option.sourceKey;
+                    columnId = "";
+                  })}
+              >
+                <SourceLogo source={taskSourceProvider(option.source)} />
+                <span class="min-w-0 flex-1 truncate">{option.label}</span>
+                {#if option.sourceKey === source.sourceKey}
                   <span class="ml-auto text-primary" aria-hidden="true">✓</span>
                 {/if}
               </DropdownMenu.Item>
             {/each}
           </DropdownMenu.Content>
         </DropdownMenu.Root>
+
+        <!-- An optional column of the chosen source. -->
+        {#if source.columns.length > 0}
+          <DropdownMenu.Root bind:open={columnOpen}>
+            <DropdownMenu.Trigger disabled={saving}>
+              {#snippet child({ props })}
+                <button
+                  {...props}
+                  type="button"
+                  class={PROPERTY_TRIGGER}
+                  aria-label="Column"
+                  title={`Column (${keys.column})`}
+                >
+                  <TaskStatusGlyph category={column?.category ?? "open"} />
+                  <span class="truncate">{column?.name ?? "Column"}</span>
+                </button>
+              {/snippet}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={6}
+              class="z-[10010] w-[min(14rem,calc(100vw-2rem))]"
+              aria-label="Choose the column"
+              onCloseAutoFocus={focusTitle}
+            >
+              <DropdownMenu.Item onSelect={() => commit(() => (columnId = ""))}>
+                <TaskStatusGlyph category="open" />
+                Provider default
+                {#if !column}
+                  <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+                {/if}
+              </DropdownMenu.Item>
+              {#each source.columns as option (option.id)}
+                <DropdownMenu.Item onSelect={() => commit(() => (columnId = option.id))}>
+                  <TaskStatusGlyph category={option.category} />
+                  <span class="min-w-0 flex-1 truncate">{option.name}</span>
+                  {#if option.id === column?.id}
+                    <span class="ml-auto text-primary" aria-hidden="true">✓</span>
+                  {/if}
+                </DropdownMenu.Item>
+              {/each}
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
+        {/if}
       {/if}
 
-      <!-- Priority + target date — only when the provider persists them on create -->
-      {#if canPlan}
+      <!-- Priority + target date — only when the source takes them on create -->
+      {#if fields.planning}
         <DropdownMenu.Root bind:open={priorityOpen}>
           <DropdownMenu.Trigger disabled={saving}>
             {#snippet child({ props })}
@@ -604,6 +642,7 @@
 
       <!-- Labels: the chosen ones ARE the label of the control, so a filled row
            reads without opening anything. -->
+      {#if fields.labels}
       <Popover.Root bind:open={labelsOpen}>
         <Popover.Trigger disabled={saving}>
           {#snippet child({ props })}
@@ -691,6 +730,7 @@
         </div>
         </Popover.Content>
       </Popover.Root>
+      {/if}
     </div>
 
     <div

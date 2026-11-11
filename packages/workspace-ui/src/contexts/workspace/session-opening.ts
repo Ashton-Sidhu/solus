@@ -20,6 +20,7 @@ import { loadSessionTranscript } from './session-transcript'
 import { measureOpenStep } from '../../lib/mount-timing'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
+import { taskProjectKey } from '../../lib/task-project'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/review-guide.store.svelte'
@@ -60,6 +61,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'openChatSurface'
   | 'planStore'
   | 'pluginCommands'
+  | 'projectPageScope'
   | 'moveChatSurfaceToMain'
   | 'revealConversation'
   | 'router'
@@ -604,20 +606,25 @@ export class SessionOpening {
    * draft until Send creates the session, so leaving the composer does not
    * leave an empty tab behind.
    *
-   * The draft opens in the task's own project and on the task's own host. The
-   * task's project, not the one on screen: the task page can be opened from
-   * any project. The task's host, not the focused tab's: the task's path names
-   * a folder on the host that holds it. A task in the cloud workspace service
-   * files there and runs on an execution host the run picker chooses.
+   * The draft opens in a project that lists the task: the project the pages
+   * are scoped to when the task is in it, else the first one. It opens on the
+   * host that reads the task when that host has a checkout of the project; the
+   * run-on rule (`openRepositoryDraft`) chooses another checkout when it has
+   * none. A task that no known project lists opens a draft with no folder.
    */
   async openTaskSession(task: Task): Promise<void> {
     this.taskOpenCount++
-    const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
-    const binding = { taskId: task.id, taskServerId }
-    if (!taskServerId || hosts.hasExecution(taskServerId)) {
-      this.workspace.drafts.openSessionDraft({ ...binding, target: 'leading', serverId: taskServerId }, task.projectKey ?? '~')
+    const model = this.workspace.tasksStore.get(task.id)
+    const taskServerId = model.serverId ?? undefined
+    const pageScope = this.workspace.projectPageScope
+    const projectKey = taskProjectKey(
+      this.workspace.tasksStore.projectKeysOf(model),
+      pageScope.kind === 'project' ? pageScope.key : null,
+    )
+    if (projectKey && taskServerId) {
+      this.openRepositoryDraft(projectKey, { taskId: task.id, taskServerId }, taskServerId)
     } else {
-      this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { ...binding, taskServerId })
+      this.workspace.drafts.openSessionDraft({ taskId: task.id, taskServerId, target: 'leading', serverId: taskServerId }, '~')
     }
     requestInputFocus()
   }

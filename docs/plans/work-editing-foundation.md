@@ -53,6 +53,9 @@ Paths below are relative to the repository root.
 - `packages/server/src/data/tasks/task.ts` is the class convention to follow:
   `Task.byId(scope, id)`, methods on one record, and `record()` at the boundary.
   Collection queries remain outside the class.
+  (Changed 2026-11-10: `provider-owned-tasks.md` removed the `Task` class;
+  `task.ts` holds functions on the host's task cache now. `Work` in
+  `data/works/work.ts` has this convention.)
 - `packages/server/src/db/database.ts` already provides
   `afterDatabaseCommit`. Use it for signals that must not escape rollback.
 - `packages/contracts/src/work-transfer.ts` carries `work`, `annotations`,

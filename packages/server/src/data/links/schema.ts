@@ -77,8 +77,11 @@ export const resourceLinks = defineTable('resource_links', {
   created_at: bigint({ notNull: true }),
 }, {
   indexes: [
-    // The edge identity, and the forward read of one source's edges.
-    { name: 'resource_links_edge', columns: ['source_kind', 'source_id', 'target_kind', 'target_scope', 'target_key'], unique: true },
+    // The edge identity. The organization is part of it: a task key is the
+    // provider's, so two organizations on one host can link one target to one task.
+    { name: 'resource_links_edge', columns: ['organization_id', 'source_kind', 'source_id', 'target_kind', 'target_scope', 'target_key'], unique: true },
+    // The forward read of one source's edges, in each organization.
+    { name: 'resource_links_by_source', columns: ['source_kind', 'source_id', 'target_kind'] },
     // The reverse read: key before scope, so a work is found by its id alone (`readTasksLinkingTargets`).
     { name: 'resource_links_by_target', columns: ['target_kind', 'target_key', 'target_scope'] },
     // One task works on a session at a time (`transferSessionOwnership`).

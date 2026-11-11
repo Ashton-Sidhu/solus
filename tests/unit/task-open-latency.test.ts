@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
-import { SvelteRunes } from './helpers/svelte-runes'
+import { createTasksWorld, disposeTasksWorlds, issueRecord } from './helpers/tasks-world'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // WHY: jumping back to a task's work resumes its latest session. A task the
@@ -41,7 +41,7 @@ function attemptLink(sessionId: string): TaskSessionLink {
 }
 
 function taskRecord(id: string): Task {
-  return { id, providerId: 'local', title: id, body: '', status: 'in_progress', url: null, labels: [], updatedAt: 0 }
+  return issueRecord(id, { title: id, category: 'active' })
 }
 
 interface Resume {
@@ -109,85 +109,53 @@ test('a task clicked past during its resume does not take focus', async () => {
 
 // ── Title repair on page open ──
 
-const runes = new SvelteRunes()
-afterAll(() => runes.dispose())
-const stub = (name: string, source: string) => runes.module(name, source)
-const file = SvelteRunes.file
-const calls: string[] = []
-const titleAnswers = new Map<string, string | null | Error>()
-const connections = runes.module('repair-server-connections', `
-  export const calls = []
-  export const serverConnections = {
-    connectedServerIds: () => [],
-    onConnectionCreated: () => () => {},
-    onReadinessChange: () => () => {},
-    defaultServerId: () => 'local',
-    apiFor: () => globalThis.__repairApi,
-  }
-`)
-;(globalThis as unknown as { __repairApi: object }).__repairApi = {
-  ensureBackgroundSessionTitle: async (sessionId: string) => {
-    calls.push(`ensure:${sessionId}`)
-    const answer = titleAnswers.get(sessionId) ?? null
-    if (answer instanceof Error) throw answer
-    return answer
-  },
-  setSessionTitle: async (sessionId: string) => { calls.push(`copy:${sessionId}`) },
-  tasksForSession: async (sessionId: string) => { calls.push(`refresh:${sessionId}`); return null },
+afterAll(disposeTasksWorlds)
+const TASK = 'github:I_1'
+
+/** One host that reads the task and runs its sessions. */
+async function repairHarness(titleAnswers: Map<string, string | null | Error>) {
+  const calls: string[] = []
+  const world = await createTasksWorld()
+  world.connections.registerPrimary('local', {
+    tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+    ensureBackgroundSessionTitle: async (sessionId: string) => {
+      calls.push(`ensure:${sessionId}`)
+      const answer = titleAnswers.get(sessionId) ?? null
+      if (answer instanceof Error) throw answer
+      return answer
+    },
+    setSessionTitle: async (sessionId: string) => { calls.push(`copy:${sessionId}`) },
+    tasksForSession: async (sessionId: string) => { calls.push(`refresh:${sessionId}`); return null },
+  })
+  const store = new world.TasksStore()
+  await store.ensureLoaded()
+  store.get(TASK).hydrate(issueRecord(TASK), 'local')
+  return { store, calls }
 }
-const taskModule = runes.source('repair-task', 'packages/workspace-ui/src/contexts/tasks/task.svelte.ts', {
-  '@solus/client-core/server-connections': connections,
-  '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
-  './task-reconcile': file('packages/workspace-ui/src/contexts/tasks/task-reconcile.ts'),
-  './upstream-task-details': file('packages/workspace-ui/src/contexts/tasks/upstream-task-details.ts'),
-  './task-title-regeneration': file('packages/workspace-ui/src/contexts/tasks/task-title-regeneration.ts'),
-  './task-snoozes.store.svelte': stub('repair-task-snoozes', 'export const taskSnoozesStore = { start() {}, snoozeOf: () => null }'),
-})
-const storeModule = runes.source('repair-tasks-store', 'packages/workspace-ui/src/contexts/tasks/tasks.store.svelte.ts', {
-  'svelte/reactivity': file('node_modules/svelte/src/reactivity/index-client.js'),
-  '@solus/client-core/server-connections': connections,
-  '@solus/client-core/host-key': file('packages/client-core/src/host-key.ts'),
-  '@solus/contracts/repository-key': file('packages/contracts/src/repository-key.ts'),
-  '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
-  '../../lib/sessionUtils': stub('repair-session-utils', 'export const attemptServerId = () => "local"'),
-  '../../lib/organization-filter': file('packages/workspace-ui/src/lib/organization-filter.ts'),
-  '../hosts/hosts.svelte': stub('repair-hosts', 'export const hosts = { hasCollaboration: () => true, hasExecution: () => true }'),
-  '../connections/organization-selection.store.svelte': stub('repair-organization-selection', 'export const organizationSelection = { activeOrganizationId: null }'),
-  '../projects/projects.store.svelte': stub('repair-projects', 'export const projectsStore = { projectKeyFor: (_s, key) => key, checkoutsOf: () => [] }'),
-  './task.svelte': taskModule,
-  './task-snoozes.store.svelte': stub('repair-snoozes', 'export const taskSnoozesStore = { start() {}, snoozeOf: () => null }'),
-})
-const { TasksStore } = await import(storeModule)
 
 function worker(sessionId: string, sessionTitle: string | null): TaskSessionLink {
-  return { sessionId, sessionTitle, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 } as TaskSessionLink
+  return { sessionId, sessionTitle, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 }
 }
 
 test('title repair asks each session once and reads back only a changed title', async () => {
-  calls.length = 0
-  titleAnswers.clear()
-  titleAnswers.set('named', 'Named worker')
-  titleAnswers.set('renamed', 'Fresh title')
-  const store = new TasksStore()
+  const { store, calls } = await repairHarness(new Map([['named', 'Named worker'], ['renamed', 'Fresh title']]))
   const links = [worker('lead', null), worker('named', 'Named worker'), worker('renamed', 'Fix the bug please…')]
 
-  await store.repairWorkerTitles('task-1', links)
+  await store.repairWorkerTitles(TASK, links)
   expect(calls.sort()).toEqual(['ensure:lead', 'ensure:named', 'ensure:renamed', 'refresh:renamed'])
 
   // The page re-runs this whenever its attempt rows change. A lead's null and
   // a title already on the task must not be asked again.
   calls.length = 0
-  await store.repairWorkerTitles('task-1', links)
+  await store.repairWorkerTitles(TASK, links)
   expect(calls).toEqual([])
 })
 
 test('title repair retries a host that failed, on a later open', async () => {
-  calls.length = 0
-  titleAnswers.clear()
-  titleAnswers.set('offline', new Error('host offline'))
-  const store = new TasksStore()
-  await store.repairWorkerTitles('task-1', [worker('offline', null)])
+  const titleAnswers = new Map<string, string | null | Error>([['offline', new Error('host offline')]])
+  const { store, calls } = await repairHarness(titleAnswers)
+  await store.repairWorkerTitles(TASK, [worker('offline', null)])
   titleAnswers.set('offline', 'Back online')
-  await store.repairWorkerTitles('task-1', [worker('offline', null)])
+  await store.repairWorkerTitles(TASK, [worker('offline', null)])
   expect(calls).toEqual(['ensure:offline', 'ensure:offline', 'refresh:offline'])
 })

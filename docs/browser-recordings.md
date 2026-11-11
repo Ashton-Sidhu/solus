@@ -27,7 +27,8 @@ and moves the focus to the input. You can then send it to the agent.
 To file the recording, select the arrow next to **Stop** and select a task or a
 pull request. Solus stops the recording, files it, and also attaches it to the
 message. The menu shows only destinations that apply to the page: the pull
-request of the page's branch, and the open tasks of the page's project.
+request of the page's branch, and the tasks of the page's project that are not
+done.
 
 The command palette also has **Start recording** and **Stop recording** for the
 page that the browser pane shows.
@@ -65,8 +66,10 @@ the recording from the toolbar, the palette, or `⌥R`.
 
 ## Filing on tasks and pull requests
 
-- **Task:** Solus adds the video to a task comment. It plays in Solus and stays
-  on the host.
+- **Task:** GitHub or Jira owns the task ([tasks](tasks.md)), so Solus publishes
+  the video to that provider and adds it to a comment on the task. If the
+  provider cannot hold the file, Solus shows the reason and does not add a
+  comment.
 - **Pull request:** Solus uploads the video to GitHub first, because a pull
   request cannot play a file that is on the host. GitHub accepts videos up to
   10 MB when the repository owner has a Free plan, and up to 100 MB on paid

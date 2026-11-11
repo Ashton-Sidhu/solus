@@ -35,7 +35,6 @@ import { session } from '../data/sessions/schema'
 import { claimSessionOwner, machineSessionHome, type SessionHome } from '../data/sessions/session-identity'
 import { works } from '../data/works/schema'
 import { sessionIdsOfWorks, visibleThroughSession } from '../data/works/session-access'
-import { tasks } from '../data/tasks/schema'
 import { automationHomeOf } from '../data/automations/automations-store'
 import { workspaceProjects } from '../projects/schema'
 import { notifications } from '../data/notifications/schema'
@@ -62,13 +61,12 @@ const log = createLogger('main', 'share-manager')
 const RESOURCE_TABLES = {
   session: { table: session, id: sql`session_id`, owner: sql`created_by` },
   work: { table: works, id: sql`id`, owner: sql`created_by` },
-  task: { table: tasks, id: sql`id`, owner: sql`created_by` },
 } as const satisfies Record<ShareResourceKind, { table: unknown; id: SQL; owner: SQL }>
 
 const entryRowSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
-  resource_kind: z.enum(['session', 'work', 'task']),
+  resource_kind: z.enum(['session', 'work']),
   resource_id: z.string(),
   subject_kind: z.enum(['user', 'team', 'organization', 'everyone']),
   subject_id: z.string(),
@@ -218,15 +216,6 @@ export class ShareAccessError extends Error {
     super(message)
     this.name = 'ShareAccessError'
   }
-}
-
-/**
- * A task is not shared on its own (docs/plans/cloud-sharing.md §4a): its
- * organization sees it from the entry it is born with, and its link is the app's
- * address for it.
- */
-function assertShareable(resource: ShareResource): void {
-  if (resource.kind === 'task') throw new ShareAccessError('FORBIDDEN', 'A task is not shared. Everyone in its organization can open it; copy its link instead.')
 }
 
 /** A link and what it opens, from one read (`ShareManager.openLink`). */
@@ -642,7 +631,6 @@ export class ShareManager {
    * does. The owner needs no entry; a named row for them is ignored.
    */
   async setEntries(request: ShareSetRequest, principal: Principal): Promise<ShareList> {
-    assertShareable(request.resource)
     if (request.entries.length > 0 && this.deps.membersReachable?.() === false) throw new ShareAccessError('HOST_NOT_LINKED', MEMBERS_CANNOT_REACH)
     await this.joinNamedOrganization(request, principal)
     return this.deps.db.transaction(async (db) => {
@@ -742,7 +730,6 @@ export class ShareManager {
    * disconnects every guest at once (§3.4).
    */
   async setLink(request: ShareSetLinkRequest, principal: Principal): Promise<ShareLink | null> {
-    assertShareable(request.resource)
     return this.deps.db.transaction(async () => {
       const access = withHome(await this.access(request.resource))
       this.assertEditor(principal, access)
@@ -862,8 +849,7 @@ export class ShareManager {
     const row = entryRowSchema.nullish().parse(await this.deps.db.get(sql`
       SELECT * FROM ${aclEntry} WHERE subject_kind = 'everyone' AND link_secret_hash = ${hash}
     `))
-    // A task link made before tasks stopped being shared opens nothing; nor does an expired one.
-    if (!row || row.resource_kind === 'task' || this.expired(row)) return null
+    if (!row || this.expired(row)) return null
     return this.linkShareOf(row, hash)
   }
 
@@ -888,8 +874,7 @@ export class ShareManager {
       ORDER BY e.created_at, e.id
     `))
     const link = rows.find((row) => row.subject_kind === 'everyone' && row.link_secret_hash === hash)
-    // A task link made before tasks stopped being shared opens nothing; nor does an expired one.
-    if (!link || link.resource_kind === 'task' || this.expired(link)) return null
+    if (!link || this.expired(link)) return null
     const resource: ShareResource = { kind: link.resource_kind, id: link.resource_id }
     const homeRow = link.home_owner !== null && link.home_organization_id !== null
       ? { owner: link.home_owner, organization_id: link.home_organization_id }

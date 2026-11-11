@@ -85,8 +85,10 @@ concepts.
    §2.2 rule 5).
 3. **Host B shows the origin.** A session that an agent on another host
    started shows "Started by an agent on <host A>" on every client.
-4. **No task across hosts.** `task='attempt'` with `host` is refused. A Local
-   task lives on host A only. Organization tasks across hosts are a later step.
+4. **No task across hosts.** `task='attempt'` with `host` is refused. (Changed
+   2026-11-10: the reason was that a Local task lived on host A only.
+   [Provider-owned tasks](provider-owned-tasks.md) removed the Local task and
+   the organization task; the refusal stays.)
 5. **The parent host owns the remote exchange.** Host B does not know that an
    exchange exists. Host A watches the child session on host B, the same way a
    client does, and feeds host B's events into the same run hooks a local

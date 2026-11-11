@@ -1,5 +1,5 @@
 {
-  "id": "e41215e5-8ccb-4165-863e-266e433d6fa0",
+  "id": "42bb4fae-437a-4ca3-b42f-52ea327c5edf",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2235,6 +2235,12 @@
           "name": "resource_links_edge",
           "columns": [
             {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "source_kind",
               "isExpression": false,
               "asc": true,
@@ -2266,6 +2272,33 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resource_links_by_source": {
+          "name": "resource_links_by_source",
+          "columns": [
+            {
+              "expression": "source_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "target_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2976,168 +3009,177 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.task_counters": {
-      "name": "task_counters",
+    "public.task_source_access": {
+      "name": "task_source_access",
       "schema": "",
       "columns": {
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "value": {
-          "name": "value",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.task_external_links": {
-      "name": "task_external_links",
-      "schema": "",
-      "columns": {
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "external_key": {
-          "name": "external_key",
+        "source_key": {
+          "name": "source_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "external_id": {
-          "name": "external_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "external_updated_at": {
-          "name": "external_updated_at",
-          "type": "text",
+        "checked_at": {
+          "name": "checked_at",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
-        "snapshot": {
-          "name": "snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "dirty_fields": {
-          "name": "dirty_fields",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'"
-        },
-        "sync_state": {
-          "name": "sync_state",
+        "health": {
+          "name": "health",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "default": "'ok'"
         },
-        "sync_error": {
-          "name": "sync_error",
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "task_source_access_user_id_source_key_pk": {
+          "name": "task_source_access_user_id_source_key_pk",
+          "columns": [
+            "user_id",
+            "source_key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.task_source_items": {
+      "name": "task_source_items",
+      "schema": "",
+      "columns": {
+        "source_key": {
+          "name": "source_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_id": {
+          "name": "column_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "last_synced_at": {
-          "name": "last_synced_at",
-          "type": "bigint",
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "retry_at": {
-          "name": "retry_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "failure_count": {
-          "name": "failure_count",
+        "position": {
+          "name": "position",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'local'"
         }
       },
       "indexes": {
-        "task_external_links_external": {
-          "name": "task_external_links_external",
+        "task_source_items_task": {
+          "name": "task_source_items_task",
           "columns": [
             {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "external_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "external_id",
+              "expression": "task_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
-      "foreignKeys": {
-        "task_external_links_task_id_tasks_id_fk": {
-          "name": "task_external_links_task_id_tasks_id_fk",
-          "tableFrom": "task_external_links",
-          "tableTo": "tasks",
-          "columnsFrom": [
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "task_source_items_source_key_task_id_pk": {
+          "name": "task_source_items_source_key_task_id_pk",
+          "columns": [
+            "source_key",
             "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          ]
         }
       },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.task_sources": {
+      "name": "task_sources",
+      "schema": "",
+      "columns": {
+        "source_key": {
+          "name": "source_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "columns": {
+          "name": "columns",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'"
+        },
+        "write_state": {
+          "name": "write_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "truncated": {
+          "name": "truncated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3154,14 +3196,26 @@
           "primaryKey": true,
           "notNull": true
         },
-        "short_id": {
-          "name": "short_id",
-          "type": "integer",
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reference": {
+          "name": "reference",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "project_key": {
-          "name": "project_key",
+        "url": {
+          "name": "url",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -3172,13 +3226,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "title_source": {
-          "name": "title_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'prompt'"
-        },
         "body": {
           "name": "body",
           "type": "text",
@@ -3186,12 +3233,29 @@
           "notNull": true,
           "default": "''"
         },
-        "status": {
-          "name": "status",
+        "state_name": {
+          "name": "state_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'inbox'"
+          "notNull": true
+        },
+        "state_category": {
+          "name": "state_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_id": {
+          "name": "state_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
         },
         "assignee": {
           "name": "assignee",
@@ -3199,20 +3263,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "assignee_user_id": {
-          "name": "assignee_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "due_date": {
-          "name": "due_date",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "priority": {
-          "name": "priority",
+        "assignee_avatar_url": {
+          "name": "assignee_avatar_url",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -3224,36 +3276,42 @@
           "notNull": true,
           "default": "'[]'"
         },
+        "priority": {
+          "name": "priority",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "epic": {
           "name": "epic",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "source": {
-          "name": "source",
+        "writable_fields": {
+          "name": "writable_fields",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'user'"
+          "default": "'[]'"
         },
-        "origin_session_id": {
-          "name": "origin_session_id",
+        "home": {
+          "name": "home",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "origin_automation_id": {
-          "name": "origin_automation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "updated_at": {
           "name": "updated_at",
@@ -3261,14 +3319,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "triaged_at": {
-          "name": "triaged_at",
+        "fetched_at": {
+          "name": "fetched_at",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "done_at": {
-          "name": "done_at",
+        "detail_fetched_at": {
+          "name": "detail_fetched_at",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
@@ -3279,25 +3337,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "location": {
-          "name": "location",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'local'"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "comment_position": {
           "name": "comment_position",
           "type": "integer",
@@ -3306,183 +3345,9 @@
           "default": 0
         }
       },
-      "indexes": {
-        "tasks_api_page": {
-          "name": "tasks_api_page",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"created_at\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"id\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tasks_api_project_page": {
-          "name": "tasks_api_project_page",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "project_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"created_at\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"id\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tasks_api_status_page": {
-          "name": "tasks_api_status_page",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"created_at\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "\"id\" desc",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "tasks_short_id_unique": {
-          "name": "tasks_short_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "short_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.upstream_task_cache": {
-      "name": "upstream_task_cache",
-      "schema": "",
-      "columns": {
-        "project_key": {
-          "name": "project_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "external_key": {
-          "name": "external_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fetched_at": {
-          "name": "fetched_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "truncated": {
-          "name": "truncated",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tasks": {
-          "name": "tasks",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'local'"
-        }
-      },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "upstream_task_cache_project_key_provider_external_key_scope_pk": {
-          "name": "upstream_task_cache_project_key_provider_external_key_scope_pk",
-          "columns": [
-            "project_key",
-            "provider",
-            "external_key",
-            "scope"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

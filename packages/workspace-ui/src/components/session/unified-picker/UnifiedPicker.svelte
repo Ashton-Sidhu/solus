@@ -9,7 +9,8 @@
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
-  import type { Task, TaskLink, TaskStatus } from "@solus/contracts/task-types";
+  import type { Task, TaskLink } from "@solus/contracts/task-types";
+  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import type { SessionMeta } from "@solus/contracts/types";
   import {
     getSessionSidebarStore,
@@ -62,7 +63,6 @@
   import { pickedEvent } from "./lib/picker-pick-stats";
   import { track } from "../../../lib/analytics";
   import type { Via } from "@solus/contracts/analytics-events";
-  import { ownsTask } from "../../tasks/lib/task-ownership";
 
   interface Props {
     open: boolean;
@@ -164,7 +164,7 @@
       tasks, query, sessionsFor, expandedTaskIds,
       resultType: session.ui.pickerResultType,
       projectKey: scopeProjectKey,
-      projectKeyOf: (task) => session.tasksStore.projectKeyOf(task),
+      projectKeysOf: (task) => session.tasksStore.projectKeysOf(task),
       sort: session.ui.pickerSort,
       conversations: conversationHits,
       conversationsRemaining: searches.sessions.remaining,
@@ -479,7 +479,7 @@
     void session.opening.openTaskLinkedSession(task);
   }
 
-  function openSourceTicket(task: Task): void {
+  function openOnProvider(task: Task): void {
     if (!task.url) return;
     close();
     void localApi.openExternal(task.url);
@@ -507,9 +507,9 @@
     }
   }
 
-  async function setStatus(task: Task, status: TaskStatus): Promise<void> {
+  async function moveTask(task: Task, category: TaskStatusCategory): Promise<void> {
     try {
-      await session.tasksStore.get(task.id, task.projectKey ?? undefined).setStatus(status);
+      await session.tasksStore.get(task.id).move({ category });
     } catch (error) {
       toasts.error("Couldn't update status", {
         description: error instanceof Error ? error.message : String(error),
@@ -517,12 +517,8 @@
     }
   }
 
-  async function deleteTask(task: Task): Promise<void> {
-    // The host deletes a task for its owner alone.
-    if (!(await ownsTask(session.tasksStore, task.id))) {
-      toasts.error("Couldn't delete task", { description: "Only the owner can delete a task." });
-      return;
-    }
+  /** Only a draft can be deleted (`Task.canDelete`). */
+  function deleteTask(task: Task): void {
     const pending = session.tasksStore.softRemove([task.id]);
     if (!pending.length) return;
     toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
@@ -879,7 +875,7 @@
             primaryLabel="Resume"
             onPrimary={() => selectedEntry ? activate(selectedEntry, "click") : selectSession(picked)}
             onOpenTask={openTaskPage}
-            onOpenSource={openSourceTicket}
+            onOpenSource={openOnProvider}
           />
         </div>
       {:else if selectedTask}
@@ -894,7 +890,7 @@
             secondaryLabel={hasSessions ? "New draft" : undefined}
             onSecondary={hasSessions ? () => startDraft(picked) : undefined}
             onOpenTask={openTaskPage}
-            onOpenSource={openSourceTicket}
+            onOpenSource={openOnProvider}
           />
         </div>
       {/if}
@@ -915,9 +911,9 @@
     onStart={() => select(menuTask)}
     onResume={hasSessions ? () => resumeTask(menuTask) : undefined}
     onOpenTask={() => openTaskPage(menuTask)}
-    onOpenSource={menuTask.url ? () => openSourceTicket(menuTask) : undefined}
-    onSetStatus={(status) => void setStatus(menuTask, status)}
-    onDelete={menuTask.providerId === "local" ? () => void deleteTask(menuTask) : undefined}
+    onOpenSource={menuTask.url ? () => openOnProvider(menuTask) : undefined}
+    onSetStatus={(category) => void moveTask(menuTask, category)}
+    onDelete={session.tasksStore.get(menuTask.id).canDelete ? () => deleteTask(menuTask) : undefined}
     portalTarget={layer.el}
     onClose={() => (taskContextMenu = null)}
   />

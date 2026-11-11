@@ -4,10 +4,10 @@
     LoaderCircle as CircleNotchIcon,
     Link as LinkIcon,
     Maximize2 as ArrowsOutSimpleIcon,
+    Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
-  import { taskProviderLabel, taskRef } from "./lib/task-page";
-  import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
+  import { PROVIDER_NAMES, taskRef } from "../lib/tasks-api";
   import {
     SourceLogo,
     SubPageCrumbLine,
@@ -22,105 +22,70 @@
    */
   interface Props {
     task: Task;
-    /** How this task stands with the system that owns its ticket. Null for a
-     *  local task, which shows that it is local instead. */
-    upstream: TaskUpstreamState | null;
-    syncing: boolean;
-    /** Exchange with the provider now — a push and pull for a linked ticket, a
-     *  re-read for a provider-owned one. Null when there is nothing to ask. */
-    onSync?: (() => void) | null;
+    /** A read of the task from its provider is on its way. */
+    refreshing: boolean;
+    /** Read the task from its provider again. */
+    onRefresh: () => void;
     /** Neighbours in the Tasks page's own order, so "next" agrees with what the
      *  user saw in the list. Null when the task isn't in the current view. */
     onPrevious?: (() => void) | null;
     onNext?: (() => void) | null;
+    /** Open the task on its provider. Null for a draft, which has no page there. */
     onOpenSource?: (() => void) | null;
-    /** Move the task between the leading pane and the companion beside it. */
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
-    /** Upload a Local task if it needs it, then copy its link. Null where there is no organization to link into. */
+    /** Copy the task's address on its provider. Null for a draft. */
     onCopyLink?: (() => void) | null;
+    /** Delete the task. Null for an issue: only a draft can be deleted. */
+    onDelete?: (() => void) | null;
     onOpenList: () => void;
     onClose: () => void;
   }
 
   let {
     task,
-    upstream,
-    syncing,
-    onSync,
+    refreshing,
+    onRefresh,
     onPrevious,
     onNext,
     onOpenSource,
     onOpenPage,
     onCopyLink = null,
+    onDelete = null,
     onOpenList,
     onClose,
   }: Props = $props();
 
-  const providerLabel = $derived(taskProviderLabel(task));
+  const providerName = $derived(PROVIDER_NAMES[task.providerId]);
 </script>
 
-{#snippet pillBody(state: TaskUpstreamState, tone: string)}
-  {#if syncing}
-    <CircleNotchIcon size={11} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-  {:else}
-    <SourceLogo source={state.providerId} />
-  {/if}
-  <span style="color:{tone}">{syncing ? "Syncing" : state.label}</span>
-  <span class="text-xs opacity-70">{state.ref}</span>
-{/snippet}
-
 {#snippet actions()}
-  <!-- One pill for the whole upstream story: which system owns the ticket, the
-       reference it is filed under, and whether we are level with it. Pressing
-       it exchanges now instead of waiting for the engine's own debounce. -->
-  {#if upstream}
-    {@const tone = syncToneColor(upstream.tone)}
-    {#if onSync}
-      <button
-        type="button"
-        class="{SUB_PAGE_CHIP} mr-2 cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
-        onclick={onSync}
-        disabled={syncing}
-        title="{upstream.title} · click to sync now"
-        aria-label="Sync with {upstream.provider} now"
-      >
-        {@render pillBody(upstream, tone)}
-      </button>
+  <!-- One pill says which provider owns the task and the reference it has
+       there. Pressing it reads the task from the provider again. -->
+  <button
+    type="button"
+    class="{SUB_PAGE_CHIP} mr-2 cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
+    onclick={onRefresh}
+    disabled={refreshing}
+    title="{task.reference ?? `${providerName} draft`} · click to read it from {providerName} again"
+    aria-label="Read the task from {providerName} again"
+  >
+    {#if refreshing}
+      <CircleNotchIcon size={11} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
     {:else}
-      <span class="{SUB_PAGE_CHIP} mr-2 @max-[42rem]:hidden" title={upstream.title}>
-        {@render pillBody(upstream, tone)}
-      </span>
+      <SourceLogo source={task.providerId} />
     {/if}
-  {:else}
-    <span class="{SUB_PAGE_CHIP} mr-2 @max-[42rem]:hidden" title="This task lives only in Solus">
-      <svg
-        width="11"
-        height="11"
-        viewBox="0 0 14 14"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="0.875"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        class="opacity-70"
-        aria-hidden="true"
-      >
-        <path d="M7 9.8v.1M7 4.2v3.2M7 12.6A5.6 5.6 0 107 1.4a5.6 5.6 0 000 11.2" />
-      </svg>
-      {providerLabel}
-    </span>
-  {/if}
+    <span>{refreshing ? "Reading" : providerName}</span>
+    <span class="text-xs opacity-70">{taskRef(task)}</span>
+  </button>
 
-  <!-- A task is not shared on its own: everyone in its organization sees it,
-       so the band offers its link. -->
   {#if onCopyLink}
     <button
       type="button"
       class={SUB_PAGE_ROUND_BTN}
       onclick={onCopyLink}
-      title="Copy link"
-      aria-label="Copy link to this task"
+      title="Copy {providerName} link"
+      aria-label="Copy the {providerName} link of this task"
       data-testid="task-copy-link"
     >
       <LinkIcon size={15} strokeWidth={1.5} />
@@ -144,10 +109,23 @@
       type="button"
       class={SUB_PAGE_ROUND_BTN}
       onclick={onOpenSource}
-      title={`Open in ${providerLabel}`}
-      aria-label={`Open task in ${providerLabel}`}
+      title={`Open in ${providerName}`}
+      aria-label={`Open task in ${providerName}`}
     >
       <ArrowSquareOutIcon size={15} strokeWidth={1.5} />
+    </button>
+  {/if}
+
+  {#if onDelete}
+    <button
+      type="button"
+      class={SUB_PAGE_ROUND_BTN}
+      onclick={onDelete}
+      title="Delete draft"
+      aria-label="Delete this draft"
+      data-testid="task-delete"
+    >
+      <TrashIcon size={15} strokeWidth={1.5} />
     </button>
   {/if}
 {/snippet}
@@ -156,8 +134,9 @@
   page="tasks"
   onOpenPage={onOpenList}
   leaf={taskRef(task)}
-  copyText={task.id}
-  copyTitle="Copy task ID"
+  leafTitle={task.reference}
+  copyText={task.reference ?? task.id}
+  copyTitle={task.reference ? "Copy task reference" : "Copy task key"}
   {actions}
   stepper={{ onPrevious: onPrevious ?? null, onNext: onNext ?? null, itemLabel: "task" }}
   {onClose}

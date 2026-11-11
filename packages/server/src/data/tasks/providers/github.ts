@@ -1,669 +1,306 @@
+import type { TaskRef, TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { TaskAssigneeCandidate, TaskPriority, TaskUpdatePatch } from '@solus/contracts/task-types'
 import type { GitHubClient } from '../../../providers/github/octokit'
-import { githubCredentials } from '../../../providers/github/credentials'
-import { runGithubRequest } from '../../../providers/github/request'
-import type { RepoRef } from '@solus/contracts/providers'
-import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskEpic, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
-import { z } from 'zod'
+import {
+  GITHUB_UPLOADABLE_ASSETS,
+  resolveUploadTarget,
+  uploadGithubAsset,
+} from '../../../providers/github/asset-upload'
+import { publishedAssetUrl, recordAssetPublication } from '../asset-publications'
+import { assetReferencesIn, withPublishedAssets, type AssetReference } from '../task-assets'
+import {
+  CLEAR_PROJECT_FIELD_MUTATION,
+  commentFromNode,
+  DELETE_ITEM_MUTATION,
+  DRAFT_ITEM_QUERY,
+  draftToTask,
+  DUE_FIELD_RE,
+  ISSUE_BY_NUMBER_QUERY,
+  issueState,
+  issueToTask,
+  priorityFromLabels,
+  priorityFromOption,
+  PROJECT_FIELDS_QUERY,
+  projectItemsOf,
+  restIssueToTask,
+  SET_PROJECT_FIELD_MUTATION,
+  statusValueOf,
+  TASK_NODE_QUERY,
+  UPDATE_DRAFT_MUTATION,
+  USER_ID_QUERY,
+  type DraftItemResponse,
+  type DraftNode,
+  type IssueByNumberResponse,
+  type IssueNode,
+  type IssueProjectItemNode,
+  type ProjectFieldsResponse,
+  type TaskNodeResponse,
+  type UpdateDraftResponse,
+  type UserIdResponse,
+} from './github-model'
+import {
+  TaskProviderError,
+  type GithubRun,
+  type ProviderComment,
+  type ProviderTask,
+  type ProviderTaskDetails,
+  type TaskDraft,
+  type TaskHome,
+  type TaskProviderAdapter,
+} from './types'
 
-// GitHub Issues are open/closed + labels only — there's no native "In Progress".
-// We map it to a conventional label so write-back works on every repo.
-const IN_PROGRESS_LABEL = 'in-progress'
+type Graphql = GitHubClient['graphql']
+type IssueHome = Extract<TaskHome, { provider: 'github'; kind: 'issue' }>
+type DraftHome = Extract<TaskHome, { provider: 'github'; kind: 'draft' }>
 
-// Bound the list so a huge backlog can't make the panel hang or balloon memory;
-// the cache layer refreshes the most-recently-updated slice. Pagination beyond
-// this is a fast-follow.
-const MAX_ISSUES = 200
-const PAGE_SIZE = 50
-
-// ─── GraphQL documents ────────────────────────────────────────────────────────
-// GraphQL (not REST) because we need the parent issue (sub-issues, GA 2025) and
-// linked PRs in one round-trip — REST exposes neither on the issues endpoints.
-
-// `projectItems` carries the Projects v2 metadata (status / due / priority) that
-// rides along with each issue — the item id + project id we need to write back,
-// plus the current field values. `field { ... on ProjectV2FieldCommon { name } }`
-// is required because a value's `field` is a union; only the common interface
-// exposes `name`, which is how we auto-detect Status/Due/Priority by convention.
-const ISSUE_FIELDS = `
-  number
-  title
-  body
-  state
-  url
-  updatedAt
-  labels(first: 20) { nodes { name } }
-  assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
-  parent { number title url }
-  linkedPr: closedByPullRequestsReferences(first: 1, includeClosedPrs: false) {
-    nodes { number url headRefName }
-  }
-  projectItems(first: 10) {
-    nodes {
-      id
-      project { id }
-      fieldValues(first: 20) {
-        nodes {
-          __typename
-          ... on ProjectV2ItemFieldDateValue {
-            date
-            field { ... on ProjectV2FieldCommon { name } }
-          }
-          ... on ProjectV2ItemFieldSingleSelectValue {
-            name
-            field { ... on ProjectV2FieldCommon { name } }
-          }
-        }
-      }
-    }
-  }
-`
-
-const LIST_ISSUES_QUERY = `
-  query($owner: String!, $repo: String!, $states: [IssueState!], $cursor: String) {
-    repository(owner: $owner, name: $repo) {
-      issues(
-        first: ${PAGE_SIZE}
-        after: $cursor
-        states: $states
-        orderBy: { field: UPDATED_AT, direction: DESC }
-      ) {
-        pageInfo { hasNextPage endCursor }
-        nodes { ${ISSUE_FIELDS} }
-      }
-    }
-  }
-`
-
-const GET_ISSUE_QUERY = `
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      issue(number: $number) {
-        ${ISSUE_FIELDS}
-        parent { body }
-        comments(first: 100) {
-          nodes { id author { login } body createdAt }
-        }
-        closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
-          nodes { number title url state }
-        }
-      }
-    }
-  }
-`
-
-// Resolve a project's field definitions (ids + single-select option ids) so we
-// can write back. Keyed on the project's node id and memoized — field defs are
-// stable. `ProjectV2FieldCommon` covers id/name/dataType for every field type;
-// the single-select fragment adds its options.
-const PROJECT_FIELDS_QUERY = `
-  query($projectId: ID!) {
-    node(id: $projectId) {
-      ... on ProjectV2 {
-        fields(first: 50) {
-          nodes {
-            __typename
-            ... on ProjectV2FieldCommon { id name dataType }
-            ... on ProjectV2SingleSelectField { options { id name } }
-          }
-        }
-      }
-    }
-  }
-`
-
-// The issue's project items, fetched at write time to locate the item id +
-// project id to mutate (the list/get reads carry field *values*, but a write
-// needs the item id paired with its project's field *definitions*).
-const ISSUE_PROJECT_ITEMS_QUERY = `
-  query($owner: String!, $repo: String!, $number: Int!) {
-    repository(owner: $owner, name: $repo) {
-      issue(number: $number) {
-        projectItems(first: 10) { nodes { id project { id } } }
-      }
-    }
-  }
-`
-
-const SET_PROJECT_FIELD_MUTATION = `
-  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
-    updateProjectV2ItemFieldValue(
-      input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value }
-    ) { projectV2Item { id } }
-  }
-`
-
-const CLEAR_PROJECT_FIELD_MUTATION = `
-  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
-    clearProjectV2ItemFieldValue(
-      input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId }
-    ) { projectV2Item { id } }
-  }
-`
-
-// ─── GraphQL node shapes ──────────────────────────────────────────────────────
-
-interface IssueNode {
-  number: number
-  title: string
-  body: string | null
-  state: 'OPEN' | 'CLOSED'
-  url: string
-  updatedAt: string
-  labels: { nodes: { name: string }[] }
-  assignees: { nodes: { login: string; avatarUrl: string }[] }
-  /** The epic. `body` is selected only by the hydrated getTask read: a list
-   *  carries one epic description per issue otherwise. */
-  parent: { number: number; title: string; url: string; body?: string | null } | null
-  // The active PR that will close this issue (open only, first one) — present on
-  // both the list and the hydrated response, so cards can show the PR/branch too.
-  linkedPr?: { nodes: { number: number; url: string; headRefName: string }[] }
-  // Projects v2 metadata (status/due/priority) riding along with the issue.
-  projectItems?: { nodes: ProjectItemNode[] }
-  // Present only on the hydrated getTask response:
-  comments?: { nodes: GitHubComment[] }
-  closedByPullRequestsReferences?: { nodes: GitHubLinkedPr[] }
+function githubHome(home: TaskHome): IssueHome | DraftHome {
+  if (home.provider !== 'github') throw new Error(`The GitHub task provider cannot write to a ${home.provider} task.`)
+  return home
 }
 
-// A single Projects v2 field value on an item. Date values carry `date`,
-// single-selects carry `name`; both carry the owning `field`'s name (used to
-// detect Status/Due/Priority by convention).
-interface ProjectFieldValueNode {
-  __typename: string
-  date?: string | null
-  name?: string | null
-  field?: { name?: string | null } | null
+function issueReference(home: IssueHome): string {
+  return `${home.owner}/${home.repo}#${home.number}`
 }
 
-interface ProjectItemNode {
-  id: string
-  project: { id: string }
-  fieldValues: { nodes: ProjectFieldValueNode[] }
+/** Read one issue by its number. GitHub reads follow a repository rename. */
+export async function readIssueNode(graphql: Graphql, home: IssueHome): Promise<IssueNode> {
+  const res = await graphql<IssueByNumberResponse>(ISSUE_BY_NUMBER_QUERY, {
+    owner: home.owner,
+    repo: home.repo,
+    number: home.number,
+  })
+  const issue = res.repository?.issue
+  if (!issue) {
+    throw new TaskProviderError(
+      'no_access',
+      `GitHub issue ${issueReference(home)} does not exist, or this GitHub connection cannot read it.`,
+    )
+  }
+  return issue
 }
 
-interface GitHubComment {
-  id: string
-  author: { login: string } | null
-  body: string
-  createdAt: string
+/** The draft of one board item, with the Status option the board gives it. */
+export async function readDraftItem(graphql: Graphql, itemId: string): Promise<ProviderTask> {
+  const res = await graphql<DraftItemResponse>(DRAFT_ITEM_QUERY, { itemId })
+  const item = res.node
+  const draft = item?.content
+  if (!item || !draft?.id) {
+    throw new TaskProviderError(
+      'no_access',
+      'This draft item does not exist, or this GitHub connection cannot read it.',
+    )
+  }
+  return draftToTask(
+    {
+      id: draft.id,
+      title: draft.title ?? '',
+      body: draft.body ?? null,
+      createdAt: draft.createdAt ?? '',
+      updatedAt: draft.updatedAt ?? '',
+      assignees: draft.assignees ?? { nodes: [] },
+    },
+    { projectId: item.project.id, itemId: item.id, statusName: statusValueOf(item.fieldValues)?.name ?? null },
+  )
 }
 
-interface GitHubLinkedPr {
-  number: number
-  title: string
-  url: string
-  state: 'OPEN' | 'CLOSED' | 'MERGED'
+/** The node id of a person, which a draft takes as its assignee. */
+export async function githubUserId(graphql: Graphql, login: string): Promise<string> {
+  const res = await graphql<UserIdResponse>(USER_ID_QUERY, { login })
+  if (!res.user) throw new Error(`GitHub has no user ${login}.`)
+  return res.user.id
+}
+
+/** The people GitHub permits an issue of the repository to be assigned to. */
+export function listRepoAssignees(
+  run: GithubRun,
+  repository: { owner: string; repo: string },
+): Promise<TaskAssigneeCandidate[]> {
+  return run('list_github_task_assignees', async ({ rest }) => {
+    const { data } = await rest.issues.listAssignees({ owner: repository.owner, repo: repository.repo, per_page: 100 })
+    return data.map((user) => ({ login: user.login, avatarUrl: user.avatar_url }))
+  })
+}
+
+/** Put the fields of a write that succeeded on the task that a read gave. */
+function withWrittenFields(task: ProviderTask, patch: TaskUpdatePatch, onBoard: boolean): ProviderTask {
+  if (patch.title !== undefined) task.title = patch.title
+  if (patch.body !== undefined) task.body = patch.body
+  if (patch.labels !== undefined) {
+    task.labels = patch.labels
+    // On a board the priority is a board field, so a label edit must not change it.
+    if (!onBoard) task.priority = priorityFromLabels(patch.labels)
+  }
+  if (patch.assignee !== undefined && task.assignee !== (patch.assignee ?? undefined)) {
+    task.assignee = patch.assignee ?? undefined
+    task.assigneeAvatarUrl = undefined
+  }
+  if (patch.dueDate !== undefined) task.dueDate = patch.dueDate || undefined
+  if (patch.priority !== undefined) task.priority = patch.priority || undefined
+  return task
 }
 
 /**
- * The provider payload we stash in `Task.raw` so the session-binding layer can
- * inject full context (comments + linked PRs) at session start without a second
- * round-trip. Typed so consumers don't reach into `unknown`.
+ * Create an issue and answer it as a task. The answer of the write is the
+ * task: a GraphQL read immediately after a REST write can miss the new issue.
+ * A new issue is open, so only `closed` needs a second write.
  */
-interface GitHubTaskRaw {
-  number: number
-  comments: GitHubComment[]
-  linkedPrs: GitHubLinkedPr[]
-}
-
-// ─── Mappers (GraphQL → host-neutral Task) ────────────────────────────────────
-
-function normalizeStatus(node: IssueNode, labels: string[]): TaskStatus {
-  // The in-progress label wins over closed/open: a closed issue is still "done",
-  // but an explicitly in-progress open issue should read as such.
-  if (node.state === 'CLOSED') return 'done'
-  if (labels.includes(IN_PROGRESS_LABEL)) return 'in_progress'
-  return 'todo'
-}
-
-// Conventional priority labels → normalized priority. Covers the common schemes
-// (`priority: high`, `p1`, bare `urgent`). First match by descending severity wins.
-const PRIORITY_LABELS: { priority: TaskPriority; match: RegExp }[] = [
-  { priority: 'urgent', match: /^(priority\s*[:/-]?\s*)?(urgent|critical|p0)$/i },
-  { priority: 'high', match: /^(priority\s*[:/-]?\s*)?(high|p1)$/i },
-  { priority: 'medium', match: /^(priority\s*[:/-]?\s*)?(medium|med|p2)$/i },
-  { priority: 'low', match: /^(priority\s*[:/-]?\s*)?(low|p3)$/i },
-]
-
-function priorityFromLabels(labels: string[]): TaskPriority | undefined {
-  for (const { priority, match } of PRIORITY_LABELS) {
-    if (labels.some((l) => match.test(l.trim()))) return priority
-  }
-  return undefined
-}
-
-// ─── Projects v2 field discovery (by convention) ──────────────────────────────
-// Project fields are user-defined, so we detect them by type + name off the
-// issue's project item rather than any stored mapping (a deliberate fast-follow).
-
-// A DATE field is "due" if its name reads like one; otherwise the first DATE
-// field on the item is used as a fallback.
-const DUE_FIELD_RE = /due|target|end|ship/i
-
-// Reuse the label priority schemes against single-select option names
-// (`Urgent`/`P0`/`High`…), so a board's Priority options map the same way labels do.
-function priorityFromOption(name: string): TaskPriority | undefined {
-  for (const { priority, match } of PRIORITY_LABELS) {
-    if (match.test(name.trim())) return priority
-  }
-  return undefined
-}
-
-// Map a Status single-select option name onto our normalized status. Unknown
-// option names yield undefined so the caller can fall back to open/closed.
-function statusFromOption(name: string): TaskStatus | undefined {
-  const n = name.toLowerCase()
-  if (/done|complete|closed|shipped|merged/.test(n)) return 'done'
-  if (/review/.test(n)) return 'in_review'
-  if (/progress|doing|started|active/.test(n)) return 'in_progress'
-  if (/todo|to do|backlog|open|ready|triage|new|planned/.test(n)) return 'todo'
-  return undefined
+export function createRepoIssue(
+  run: GithubRun,
+  repository: { owner: string; repo: string },
+  draft: TaskDraft,
+  closed: boolean,
+): Promise<ProviderTask> {
+  return run('create_github_task', async ({ rest }) => {
+    const base = { owner: repository.owner, repo: repository.repo }
+    const created = await rest.issues.create({
+      ...base,
+      title: draft.title,
+      body: draft.body,
+      labels: draft.labels,
+      assignees: draft.assignee ? [draft.assignee] : undefined,
+    })
+    const issue = closed
+      ? (await rest.issues.update({ ...base, issue_number: created.data.number, state: 'closed' })).data
+      : created.data
+    return restIssueToTask(issue, base)
+  })
 }
 
 /**
- * Read status / due / priority off an issue's project items. Multi-board: the
- * first item carrying each field wins (resolved independently per field). Due
- * date prefers a conventionally-named DATE field, falling back to the first one.
+ * How GitHub renders one published asset.
+ *
+ * A video has no Markdown syntax for a player: GitHub promotes a bare URL that
+ * is the whole content of a paragraph. An SVG stays a link rather than an inline
+ * image, which is the stance ADR-0015 already takes locally.
  */
-function readProjectFields(items: ProjectItemNode[]): ProjectFieldValues {
-  let status: TaskStatus | undefined
-  let priority: TaskPriority | undefined
-  let namedDue: string | undefined
-  let anyDue: string | undefined
-  for (const item of items) {
-    for (const v of item.fieldValues.nodes) {
-      const fname = v.field?.name?.toLowerCase()
-      if (v.__typename === 'ProjectV2ItemFieldSingleSelectValue' && v.name) {
-        if (fname === 'status' && status === undefined) status = statusFromOption(v.name)
-        else if (fname === 'priority' && priority === undefined) priority = priorityFromOption(v.name)
-      } else if (v.__typename === 'ProjectV2ItemFieldDateValue' && v.date) {
-        if (anyDue === undefined) anyDue = v.date
-        if (namedDue === undefined && DUE_FIELD_RE.test(v.field?.name ?? '')) namedDue = v.date
-      }
-    }
-  }
-  return { status, dueDate: namedDue ?? anyDue, priority }
+function githubAssetMarkdown(reference: AssetReference, url: string): string {
+  if (GITHUB_UPLOADABLE_ASSETS.get(reference.extension)?.kind === 'video') return `\n\n${url}\n\n`
+  const label = reference.label || reference.assetId
+  if (reference.extension === 'svg' || !reference.isImage) return `[${label}](${url})`
+  return `![${label}](${url})`
 }
 
-// ─── Projects v2 write-back ────────────────────────────────────────────────────
-// Resolved (id-bearing) field definitions for one project, so writes can target
-// the right field + option. Memoized per project id (defs are stable).
-
-interface ResolvedSelectField {
-  id: string
-  options: { id: string; name: string }[]
-}
-
-interface ProjectFields {
-  status?: ResolvedSelectField
+/** The field id and the option ids that a write to one Project needs. */
+interface ResolvedProjectFields {
   due?: { id: string }
-  priority?: ResolvedSelectField
+  priority?: { id: string; options: Array<{ id: string; name: string }> }
 }
-
-interface ProjectFieldValues {
-  status?: TaskStatus
-  dueDate?: string
-  priority?: TaskPriority
-}
-
-interface IssueUpdateFields {
-  title?: string
-  body?: string
-  labels?: string[]
-  assignees?: string[]
-}
-
-interface ProjectFieldDefNode {
-  __typename: string
-  id?: string
-  name?: string
-  dataType?: string
-  options?: { id: string; name: string }[]
-}
-
-interface ProjectFieldsResponse {
-  node: { fields: { nodes: ProjectFieldDefNode[] } } | null
-}
-
-interface IssueProjectItemsResponse {
-  repository: { issue: { projectItems: { nodes: ProjectItemRef[] } } | null }
-}
-
-interface ProjectItemRef {
-  id: string
-  project: { id: string }
-}
-
-interface IssueMutationBase {
-  owner: string
-  repo: string
-  issue_number: number
-}
-
-/** The parent issue as the child's epic. A list read carries no description. */
-function issueEpic(parent: NonNullable<IssueNode['parent']>): TaskEpic {
-  return {
-    provider: 'github',
-    externalId: String(parent.number),
-    url: parent.url,
-    title: parent.title,
-    body: parent.body ?? '',
-  }
-}
-
-function issueToTask(node: IssueNode): Task {
-  const labels = node.labels.nodes.map((l) => l.name)
-  const raw: GitHubTaskRaw = {
-    number: node.number,
-    comments: node.comments?.nodes ?? [],
-    linkedPrs: node.closedByPullRequestsReferences?.nodes ?? [],
-  }
-  // Hydrate the branch + PR straight from the issue's active linked PR — the
-  // outbound half of the loop, native to GitHub (no gh shell-out needed).
-  const active = node.linkedPr?.nodes[0]
-  // On a board, planning fields come *only* from the project item — we stop
-  // inferring priority from labels and read status off the Status field (falling
-  // back to open/closed when the board has no Status value). Off any board, the
-  // legacy label/state behaviour is untouched.
-  const projectItems = node.projectItems?.nodes ?? []
-  const onBoard = projectItems.length > 0
-  const planning = onBoard ? readProjectFields(projectItems) : {}
-  const boardStatus = planning.status ?? (node.state === 'CLOSED' ? 'done' : 'todo')
-  const assignee = node.assignees.nodes[0]
-  return {
-    id: String(node.number),
-    providerId: 'github',
-    title: node.title,
-    body: node.body ?? '',
-    status: onBoard ? boardStatus : normalizeStatus(node, labels),
-    url: node.url,
-    assignee: assignee?.login,
-    assigneeAvatarUrl: assignee?.avatarUrl,
-    labels,
-    priority: onBoard ? planning.priority : priorityFromLabels(labels),
-    epic: node.parent ? issueEpic(node.parent) : undefined,
-    dueDate: onBoard ? planning.dueDate : undefined,
-    branch: active?.headRefName,
-    pr: active ? { url: active.url, number: active.number } : undefined,
-    canEditPlanningFields: onBoard,
-    updatedAt: Date.parse(node.updatedAt) || 0,
-    raw,
-  }
-}
-
-/** Parse our string id back to the issue number, rejecting anything else early. */
-function toIssueNumber(id: string): number {
-  const n = Number(id)
-  if (!Number.isInteger(n) || n <= 0) throw new Error(`Invalid GitHub task id: ${id}`)
-  return n
-}
-
-// ─── Provider ─────────────────────────────────────────────────────────────────
 
 /**
- * GitHub Issues normalized into the shared `Task` shape. Bound to a single repo
- * (auto-detected from the project's `origin` remote). Supports reads, status
- * write-back, and posting comments. Deleting remote issues is intentionally
- * omitted, keeping GitHub authoritative for content.
+ * GitHub issues and the draft items of GitHub Projects, read and written by
+ * the task's `home`. GitHub stays the owner of the content: an issue cannot be
+ * deleted from Solus.
  */
-export class GitHubTaskProvider {
+export class GitHubTaskProvider implements TaskProviderAdapter {
   readonly id = 'github' as const
 
-  // Project field definitions are stable, so memoize them per project node id to
-  // avoid a resolve query on every planning-field write.
-  private readonly projectFieldsCache = new Map<string, ProjectFields>()
+  // The field definitions of a Project are stable, so one read for each
+  // Project serves every board field write.
+  private readonly projectFieldsCache = new Map<string, ResolvedProjectFields>()
 
-  constructor(
-    /** The repository this binding reads and writes. Public because callers
-     *  need to name the same `owner/repo` scope that task links are filed
-     *  under. */
-    readonly repo: RepoRef,
-  ) {}
+  constructor(private readonly run: GithubRun) {}
 
-  /** The clients to try, including `gh auth` as the final credential. */
-  protected clients(): Promise<GitHubClient[]> {
-    return githubCredentials().clients(this.repo.host)
-  }
-
-  private async withClient<Result>(
-    operation: string,
-    run: (client: GitHubClient) => Promise<Result>,
-  ): Promise<Result> {
-    return runGithubRequest(operation, this.repo.host, await this.clients(), run)
-  }
-
-  async listTasks(): Promise<TaskList> {
-    return this.withClient('list_github_tasks', async ({ graphql }) => {
-      const tasks: Task[] = []
-      let truncated = false
-      // Open issues first, then closed with whatever budget remains: everything is
-      // capped at MAX_ISSUES, and a busy repo's recently-closed churn must not
-      // crowd still-open work out of the capped slice.
-      outer: for (const states of [['OPEN'], ['CLOSED']]) {
-        let cursor: string | null = null
-        for (;;) {
-          const res: ListIssuesResponse = await graphql<ListIssuesResponse>(LIST_ISSUES_QUERY, {
-            owner: this.repo.owner,
-            repo: this.repo.repo,
-            states,
-            cursor,
-          })
-          const page = res.repository.issues
-          for (const node of page.nodes) {
-            if (tasks.length >= MAX_ISSUES) {
-              truncated = true
-              break outer
-            }
-            tasks.push(issueToTask(node))
-          }
-          if (!page.pageInfo.hasNextPage) break
-          if (tasks.length >= MAX_ISSUES) {
-            truncated = true
-            break outer
-          }
-          cursor = page.pageInfo.endCursor
+  async fetch(ref: TaskRef): Promise<ProviderTaskDetails> {
+    if (ref.provider !== 'github') throw new Error(`The GitHub task provider cannot read a ${ref.provider} task.`)
+    return this.run('get_github_task', async ({ graphql }) => {
+      const { node } = await graphql<TaskNodeResponse>(TASK_NODE_QUERY, { id: ref.id })
+      if (node?.__typename === 'Issue') {
+        const comments = node.comments ?? { totalCount: 0, nodes: [] }
+        return {
+          task: issueToTask(node),
+          comments: comments.nodes.map(commentFromNode),
+          commentsTruncated: comments.totalCount > comments.nodes.length,
         }
       }
-      return truncated ? { tasks, truncated } : { tasks }
-    })
-  }
-
-  async getTask(id: string): Promise<Task> {
-    return this.withClient('get_github_task', async ({ graphql }) => {
-      const res = await graphql<GetIssueResponse>(GET_ISSUE_QUERY, {
-        owner: this.repo.owner,
-        repo: this.repo.repo,
-        number: toIssueNumber(id),
-      })
-      const issue = res.repository.issue
-      if (!issue) throw new Error(`GitHub issue #${id} not found in ${this.repo.owner}/${this.repo.repo}`)
-      return issueToTask(issue)
-    })
-  }
-
-  /** People GitHub permits issues in this repository to be assigned to. */
-  async listAssigneeCandidates(): Promise<TaskAssigneeCandidate[]> {
-    return this.withClient('list_github_task_assignees', async ({ rest }) => {
-      const { data } = await rest.issues.listAssignees({
-        owner: this.repo.owner,
-        repo: this.repo.repo,
-        per_page: 100,
-      })
-      return data.map((user) => ({ login: user.login, avatarUrl: user.avatar_url }))
+      const item = node?.__typename === 'DraftIssue' ? node.projectV2Items.nodes.find(Boolean) : null
+      if (node?.__typename !== 'DraftIssue' || !item) {
+        throw new TaskProviderError(
+          'no_access',
+          'This GitHub task does not exist, or this GitHub connection cannot read it.',
+        )
+      }
+      return {
+        task: draftToTask(node, {
+          projectId: item.project.id,
+          itemId: item.id,
+          statusName: statusValueOf(item.fieldValues)?.name ?? null,
+        }),
+        comments: [],
+        commentsTruncated: false,
+      }
     })
   }
 
   /**
-   * Write-back to the issue. Content fields (title, body, labels, assignee) map to
-   * native issue fields. Planning fields (status, due date, priority) depend on
-   * whether the issue is on a Projects v2 board:
-   *
-   * - **On a board** — due/priority/status are written to the project item's
-   *   fields via `updateProjectV2ItemFieldValue` / `clearProjectV2ItemFieldValue`,
-   *   and status *also* closes/reopens the issue so issue lists stay correct. The
-   *   `in-progress` label is never touched (no label inference on boards).
-   * - **Off any board** — status falls back to the legacy open/closed + convention
-   *   label path; due/priority have no GitHub equivalent and are ignored.
-   *
-   * Returns the re-hydrated task so the caller reflects GitHub's post-write truth.
-   * Edits commit one field at a time (inline auto-save), so these writes never race.
+   * An issue takes its title, body, labels and assignee as issue fields. Its
+   * priority and due date are fields of a Project it is on. A draft item takes
+   * a title, a body and an assignee.
    */
-  async updateTask(id: string, patch: TaskUpdatePatch): Promise<Task> {
-    return this.withClient('update_github_task', async ({ rest, graphql }) => {
-      const number = toIssueNumber(id)
-      const base = { owner: this.repo.owner, repo: this.repo.repo, issue_number: number }
+  async update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+    const target = githubHome(home)
+    return target.kind === 'issue' ? this.updateIssue(target, patch) : this.updateDraft(target, patch)
+  }
 
-    // Only planning writes need to know whether the issue is on a board; skip the
-    // round-trip for pure content edits.
-      const planningPatch =
-        patch.status !== undefined || patch.dueDate !== undefined || patch.priority !== undefined
-      const items = planningPatch ? await this.fetchProjectItems(graphql, number) : []
-      const onBoard = items.length > 0
-
-      if (patch.status !== undefined) {
-        await this.writeStatus(rest, graphql, base, items, patch.status)
+  private updateIssue(home: IssueHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+    return this.run('update_github_task', async ({ rest, graphql }) => {
+      // Only a board field write needs the board items before the write.
+      if (patch.dueDate !== undefined || patch.priority !== undefined) {
+        const items = projectItemsOf(await readIssueNode(graphql, home))
+        if (patch.dueDate !== undefined) await this.writeDueDate(graphql, home, items, patch.dueDate)
+        if (patch.priority !== undefined) await this.writePriority(graphql, home, items, patch.priority)
       }
 
-    // Due/priority live on the project item — only writable when on a board.
-      if (onBoard && patch.dueDate !== undefined) await this.writeDueDate(graphql, items, patch.dueDate)
-      if (onBoard && patch.priority !== undefined) await this.writePriority(graphql, items, patch.priority ?? undefined)
-
-    // Content fields → native issue fields. `labels` replaces the whole set
-    // (the UI shows every label, so it edits the full set); `assignees` mirrors
-    // our single-assignee model.
-      const fields: IssueUpdateFields = {}
-      if (patch.title !== undefined) fields.title = patch.title
-      if (patch.body !== undefined) fields.body = patch.body
-      if (patch.labels !== undefined) fields.labels = patch.labels
-      if (patch.assignee !== undefined) fields.assignees = patch.assignee ? [patch.assignee] : []
-      if (Object.keys(fields).length > 0) await rest.issues.update({ ...base, ...fields })
-
-    // GitHub's GraphQL endpoint is only eventually consistent with REST writes, so
-    // re-hydrating immediately after the update often returns the pre-write issue —
-    // which makes a just-applied edit (e.g. a new label) flicker in then vanish in
-    // the UI. The REST writes above already succeeded, so trust the fields we wrote
-    // over the possibly-stale read for the content we own.
-      const task = await this.getTask(id)
-      if (fields.title !== undefined) task.title = fields.title
-      if (fields.body !== undefined) task.body = fields.body
-      if (fields.labels !== undefined) {
-        task.labels = fields.labels
-        // On a board priority is project-owned, so a label edit must not clobber it.
-        if (!onBoard) task.priority = priorityFromLabels(fields.labels)
+      // `labels` replaces the whole set, and one assignee replaces all assignees.
+      const assignees = patch.assignee === undefined ? undefined : patch.assignee ? [patch.assignee] : []
+      if (
+        patch.title !== undefined || patch.body !== undefined
+        || patch.labels !== undefined || assignees !== undefined
+      ) {
+        await rest.issues.update({
+          owner: home.owner,
+          repo: home.repo,
+          issue_number: home.number,
+          title: patch.title,
+          body: patch.body,
+          labels: patch.labels,
+          assignees,
+        })
       }
-      if (fields.assignees !== undefined) task.assignee = fields.assignees[0]
-      // Overlay the planning writes too, for the same eventual-consistency reason.
-      // Status is overlaid on AND off boards — the off-board path writes through
-      // REST (state + label) and the stale GraphQL re-read flickers just the same.
-      if (patch.status !== undefined) task.status = patch.status
-      if (onBoard && patch.dueDate !== undefined) task.dueDate = patch.dueDate || undefined
-      if (onBoard && patch.priority !== undefined) task.priority = patch.priority || undefined
-      return task
+
+      // GitHub's GraphQL reads lag its REST writes, so a read immediately after
+      // the write can give the issue as it was. The writes above succeeded, so
+      // the written fields replace the possibly stale read.
+      const node = await readIssueNode(graphql, home)
+      return withWrittenFields(issueToTask(node), patch, projectItemsOf(node).length > 0)
     })
   }
 
-  private async writeStatus(
-    rest: GitHubClient['rest'],
-    graphql: GitHubClient['graphql'],
-    base: IssueMutationBase,
-    items: ProjectItemRef[],
-    status: TaskStatus,
-  ): Promise<void> {
-    const onBoard = items.length > 0
-    const closed = status === 'done' || status === 'dropped'
-    if (onBoard) {
-      // Mirror the board status onto open/closed so issue lists stay correct.
-      await rest.issues.update({ ...base, state: closed ? 'closed' : 'open' })
-      await this.writeStatusOption(graphql, items, status)
-    } else if (closed) {
-      await rest.issues.update({ ...base, state: 'closed' })
-    } else if (status === 'in_progress' || status === 'in_review') {
-      await rest.issues.update({ ...base, state: 'open' })
-      await rest.issues.addLabels({ ...base, labels: [IN_PROGRESS_LABEL] })
-    } else {
-      // todo / inbox — plain open, no in-progress marker.
-      await rest.issues.update({ ...base, state: 'open' })
-      // Removing a label that isn't applied 404s — that's a no-op for us.
-      await rest.issues.removeLabel({ ...base, name: IN_PROGRESS_LABEL }).catch((err) => {
-        const parsed = z.object({ status: z.number().optional() }).safeParse(err)
-        if (!parsed.success || parsed.data.status !== 404) throw err
+  private async updateDraft(home: DraftHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
+    if (patch.labels !== undefined || patch.priority !== undefined || patch.dueDate !== undefined) {
+      throw new Error('A draft item of a GitHub Project takes a title, a body and an assignee only.')
+    }
+    return this.run('update_github_draft', async ({ graphql }) => {
+      // The mutation takes the draft's id, which is the content of the board item.
+      const before = await readDraftItem(graphql, home.itemId)
+      const assigneeIds = patch.assignee === undefined
+        ? undefined
+        : patch.assignee ? [await githubUserId(graphql, patch.assignee)] : []
+      const res = await graphql<UpdateDraftResponse>(UPDATE_DRAFT_MUTATION, {
+        draftIssueId: before.ref.id,
+        title: patch.title,
+        body: patch.body,
+        assigneeIds,
       })
-    }
-  }
-
-  /** The issue's project items (id + project id) — the write targets. */
-  private async fetchProjectItems(
-    graphql: GitHubClient['graphql'],
-    number: number,
-  ): Promise<ProjectItemRef[]> {
-    const res = await graphql<IssueProjectItemsResponse>(ISSUE_PROJECT_ITEMS_QUERY, {
-      owner: this.repo.owner,
-      repo: this.repo.repo,
-      number,
+      const draft: DraftNode = res.updateProjectV2DraftIssue.draftIssue
+      return { ...draftToTask(draft, { projectId: home.projectId, itemId: home.itemId, statusName: null }), state: before.state }
     })
-    return res.repository.issue?.projectItems.nodes ?? []
   }
 
-  /** Resolve (and memoize) a project's field definitions by convention. */
-  private async resolveProjectFields(
-    graphql: GitHubClient['graphql'],
-    projectId: string,
-  ): Promise<ProjectFields> {
-    const cached = this.projectFieldsCache.get(projectId)
-    if (cached) return cached
-    const res = await graphql<ProjectFieldsResponse>(PROJECT_FIELDS_QUERY, { projectId })
-    const nodes = res.node?.fields.nodes ?? []
-    const fields: ProjectFields = {}
-    let firstDate: { id: string } | undefined
-    let namedDate: { id: string } | undefined
-    for (const f of nodes) {
-      if (!f.id || !f.name) continue
-      const nameLc = f.name.toLowerCase()
-      if (f.dataType === 'SINGLE_SELECT') {
-        if (nameLc === 'status') fields.status = { id: f.id, options: f.options ?? [] }
-        else if (nameLc === 'priority') fields.priority = { id: f.id, options: f.options ?? [] }
-      } else if (f.dataType === 'DATE') {
-        if (!firstDate) firstDate = { id: f.id }
-        if (!namedDate && DUE_FIELD_RE.test(f.name)) namedDate = { id: f.id }
-      }
-    }
-    fields.due = namedDate ?? firstDate
-    this.projectFieldsCache.set(projectId, fields)
-    return fields
-  }
-
-  /** Write the Status option onto the first item whose project maps `status`.
-   *  Statuses a board has no column for degrade to their nearest neighbour
-   *  (in_review → in_progress, dropped → done, inbox → todo). */
-  private async writeStatusOption(
-    graphql: GitHubClient['graphql'],
-    items: ProjectItemRef[],
-    status: TaskStatus,
-  ): Promise<void> {
-    const fallback = new Map<TaskStatus, TaskStatus>([
-      ['in_review', 'in_progress'],
-      ['dropped', 'done'],
-      ['inbox', 'todo'],
-    ])
-    const candidates: TaskStatus[] = [status]
-    const fallbackStatus = fallback.get(status)
-    if (fallbackStatus) candidates.push(fallbackStatus)
-    for (const item of items) {
-      const fields = await this.resolveProjectFields(graphql, item.project.id)
-      if (!fields.status) continue
-      for (const candidate of candidates) {
-        const optionId = fields.status.options.find((o) => statusFromOption(o.name) === candidate)?.id
-        if (optionId) {
-          await this.setSelect(graphql, item, fields.status.id, optionId)
-          return
-        }
-      }
-    }
-  }
-
-  /** Set or clear the due-date field on the first item whose project has one. */
+  /** Set or clear the due date on the first board item whose Project has a date field. */
   private async writeDueDate(
-    graphql: GitHubClient['graphql'],
-    items: ProjectItemRef[],
+    graphql: Graphql,
+    home: IssueHome,
+    items: IssueProjectItemNode[],
     dueDate: string | null,
   ): Promise<void> {
     for (const item of items) {
@@ -681,93 +318,157 @@ export class GitHubTaskProvider {
       }
       return
     }
+    throw new Error(`${issueReference(home)} is on no GitHub Project with a date field, so it takes no due date.`)
   }
 
-  /** Set or clear the Priority option on the first item whose project has it. */
+  /** Set or clear the Priority option on the first board item whose Project has the field. */
   private async writePriority(
-    graphql: GitHubClient['graphql'],
-    items: ProjectItemRef[],
-    priority: TaskPriority | undefined,
+    graphql: Graphql,
+    home: IssueHome,
+    items: IssueProjectItemNode[],
+    priority: TaskPriority | null,
   ): Promise<void> {
     for (const item of items) {
       const fields = await this.resolveProjectFields(graphql, item.project.id)
       if (!fields.priority) continue
-      const optionId = priority
-        ? fields.priority.options.find((o) => priorityFromOption(o.name) === priority)?.id
-        : undefined
-      if (optionId) await this.setSelect(graphql, item, fields.priority.id, optionId)
-      else await this.clearField(graphql, item, fields.priority.id)
+      if (!priority) {
+        await this.clearField(graphql, item, fields.priority.id)
+        return
+      }
+      const option = fields.priority.options.find((candidate) => priorityFromOption(candidate.name) === priority)
+      if (!option) {
+        throw new Error(`The Priority field of this GitHub Project has no option for ${priority}.`)
+      }
+      await graphql(SET_PROJECT_FIELD_MUTATION, {
+        projectId: item.project.id,
+        itemId: item.id,
+        fieldId: fields.priority.id,
+        value: { singleSelectOptionId: option.id },
+      })
       return
     }
+    throw new Error(`${issueReference(home)} is on no GitHub Project with a Priority field, so it takes no priority.`)
   }
 
-  private async setSelect(
-    graphql: GitHubClient['graphql'],
-    item: ProjectItemRef,
-    fieldId: string,
-    singleSelectOptionId: string,
-  ): Promise<void> {
-    await graphql(SET_PROJECT_FIELD_MUTATION, {
-      projectId: item.project.id,
-      itemId: item.id,
-      fieldId,
-      value: { singleSelectOptionId },
+  /** Read the field definitions of a Project once, and find its fields by convention. */
+  private async resolveProjectFields(graphql: Graphql, projectId: string): Promise<ResolvedProjectFields> {
+    const cached = this.projectFieldsCache.get(projectId)
+    if (cached) return cached
+    const res = await graphql<ProjectFieldsResponse>(PROJECT_FIELDS_QUERY, { projectId })
+    const fields: ResolvedProjectFields = {}
+    let firstDate: { id: string } | undefined
+    let namedDate: { id: string } | undefined
+    for (const field of res.node?.fields?.nodes ?? []) {
+      if (!field?.id || !field.name) continue
+      if (field.dataType === 'SINGLE_SELECT') {
+        if (field.name.toLowerCase() === 'priority') fields.priority = { id: field.id, options: field.options ?? [] }
+      } else if (field.dataType === 'DATE') {
+        if (!firstDate) firstDate = { id: field.id }
+        if (!namedDate && DUE_FIELD_RE.test(field.name)) namedDate = { id: field.id }
+      }
+    }
+    fields.due = namedDate ?? firstDate
+    this.projectFieldsCache.set(projectId, fields)
+    return fields
+  }
+
+  private async clearField(graphql: Graphql, item: IssueProjectItemNode, fieldId: string): Promise<void> {
+    await graphql(CLEAR_PROJECT_FIELD_MUTATION, { projectId: item.project.id, itemId: item.id, fieldId })
+  }
+
+  async setState(home: TaskHome, category: TaskStatusCategory): Promise<ProviderTask> {
+    const target = githubHome(home)
+    if (target.kind === 'draft') {
+      throw new Error('A draft item has no state of its own. Move it on its GitHub Project.')
+    }
+    return this.run('set_github_task_state', async ({ rest, graphql }) => {
+      const closed = category === 'done'
+      await rest.issues.update({
+        owner: target.owner,
+        repo: target.repo,
+        issue_number: target.number,
+        state: closed ? 'closed' : 'open',
+      })
+      // The GraphQL read can lag the REST write, so the written state replaces it.
+      const task = issueToTask(await readIssueNode(graphql, target))
+      task.state = issueState(closed ? 'CLOSED' : 'OPEN')
+      return task
     })
   }
 
-  private async clearField(
-    graphql: GitHubClient['graphql'],
-    item: ProjectItemRef,
-    fieldId: string,
-  ): Promise<void> {
-    await graphql(CLEAR_PROJECT_FIELD_MUTATION, {
-      projectId: item.project.id,
-      itemId: item.id,
-      fieldId,
-    })
-  }
-
-  /** Post a comment on the issue; returns the created comment so callers can
-   *  patch it into a stale re-read (GraphQL reads lag REST writes). */
-  async postComment(id: string, body: string): Promise<TaskCommentData> {
-    return this.withClient('comment_on_github_task', async ({ rest }) => {
+  async comment(home: TaskHome, body: string): Promise<ProviderComment> {
+    const target = githubHome(home)
+    if (target.kind === 'draft') throw new Error('A draft item of a GitHub Project takes no comments.')
+    return this.run('comment_on_github_task', async ({ rest }) => {
       const res = await rest.issues.createComment({
-        owner: this.repo.owner,
-        repo: this.repo.repo,
-        issue_number: toIssueNumber(id),
+        owner: target.owner,
+        repo: target.repo,
+        issue_number: target.number,
         body,
       })
-      // The node id, not the REST database id: issue comments are read back
-      // through GraphQL, whose `id` is the node id. Stamping the local row with
-      // the REST id would make the next pull treat our own comment as a new one
-      // and insert a second copy of it.
+      // The node id, not the REST database id: comments are read through
+      // GraphQL, whose `id` is the node id. With the REST id, the next read
+      // would give this comment a second time.
       if (!res.data.node_id) throw new Error('GitHub created a comment without a node ID.')
       return {
         id: res.data.node_id,
-        author: res.data.user ? { login: res.data.user.login } : null,
+        author: res.data.user?.login ?? null,
         body: res.data.body ?? body,
-        createdAt: res.data.created_at,
+        createdAt: Date.parse(res.data.created_at) || Date.now(),
       }
     })
   }
 
-}
+  async assignees(home: TaskHome): Promise<TaskAssigneeCandidate[]> {
+    const target = githubHome(home)
+    // GitHub cannot list the people a draft can be assigned to.
+    if (target.kind === 'draft') return []
+    return listRepoAssignees(this.run, target)
+  }
 
-interface ListIssuesResponse {
-  repository: {
-    issues: {
-      pageInfo: { hasNextPage: boolean; endCursor: string | null }
-      nodes: IssueNode[]
+  unpublishableAssets(home: TaskHome, body: string): AssetReference[] {
+    const references = assetReferencesIn(body)
+    // An upload is attached to a repository, and a draft item has none.
+    if (githubHome(home).kind === 'draft') return references
+    return references.filter((reference) => !GITHUB_UPLOADABLE_ASSETS.has(reference.extension))
+  }
+
+  /**
+   * The assets are attached to the repository of the issue, and a publication
+   * is recorded for that repository: one screenshot on one repository uploads
+   * once, for each comment that references it.
+   */
+  async publishAssets(home: TaskHome, body: string): Promise<string> {
+    const target = githubHome(home)
+    const references = assetReferencesIn(body)
+    if (!references.length) return body
+    if (target.kind === 'draft') {
+      throw new Error('A draft item of a GitHub Project cannot hold attachments.')
     }
+    const targetKey = `${target.owner}/${target.repo}`
+    return this.run('publish_github_task_assets', async (client) => {
+      const uploadTarget = await resolveUploadTarget(client, target.owner, target.repo)
+      const urlByAssetId = new Map<string, string>()
+      for (const assetId of new Set(references.map((reference) => reference.assetId))) {
+        const published = await publishedAssetUrl(assetId, this.id, targetKey)
+        if (published) {
+          urlByAssetId.set(assetId, published)
+          continue
+        }
+        const url = await uploadGithubAsset(client, uploadTarget, assetId)
+        // Record before the body is sent. An upload cannot be undone, so a failure
+        // after this point must not cost a second one when the caller retries.
+        await recordAssetPublication(assetId, this.id, targetKey, url)
+        urlByAssetId.set(assetId, url)
+      }
+      return withPublishedAssets(body, urlByAssetId, githubAssetMarkdown)
+    })
+  }
+
+  async remove(home: TaskHome): Promise<void> {
+    const target = githubHome(home)
+    if (target.kind === 'issue') throw new Error('An issue cannot be deleted from Solus. Close it instead.')
+    await this.run('delete_github_draft', ({ graphql }) =>
+      graphql(DELETE_ITEM_MUTATION, { projectId: target.projectId, itemId: target.itemId }))
   }
 }
-
-interface GetIssueResponse {
-  repository: { issue: IssueNode | null }
-}
-
-/**
- * Build a GitHub task provider for a project, auto-detecting `owner/repo` from
- * its `origin` remote — so GitHub needs almost no manual config. Throws when the
- * cwd has no parseable GitHub remote, letting the caller fall back to local.
- */

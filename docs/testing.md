@@ -23,7 +23,7 @@ for useful tests. Keep a failing test when it exposes a current app defect.
 
 ```sh
 bun run test:unit
-bun run test:unit task-store.test.ts
+bun run test:unit task-writes.test.ts
 bun run test:unit browser-inspect.test.ts log-file-path.test.ts
 ```
 

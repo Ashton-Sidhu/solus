@@ -28,17 +28,16 @@ export interface EvidenceChoice {
   target?: BrowserEvidenceTarget
 }
 
-/** Tasks worth filing against: this project's, still being worked. A done task
- *  is not where the evidence for the current change belongs. */
-export function attachableTasks(tasks: Task[], worktreePath: string | undefined): Task[] {
-  const open = tasks.filter((task) => task.status === 'todo' || task.status === 'in_progress' || task.status === 'in_review')
-  if (!worktreePath) return open
-  // A worktree lives under its project, so the project key is a prefix of the
-  // page's own path whenever the two belong together.
-  const scoped = open.filter((task) => !!task.projectKey && worktreePath.startsWith(task.projectKey))
-  return scoped.length ? scoped : open
+/** Tasks worth filing against: the tasks of the page's project that are not
+ *  done. A done task is not where the evidence for the current change belongs.
+ *  A page whose project lists no such task offers every task that is not done,
+ *  so scoping never leaves the person with nowhere to file. */
+export function attachableTasks<T extends Pick<Task, 'category'>>(tasks: readonly T[], projectTasks: readonly T[]): T[] {
+  const scoped = projectTasks.filter((task) => task.category !== 'done')
+  return scoped.length ? scoped : tasks.filter((task) => task.category !== 'done')
 }
 
+/** `tasks` is the answer of `attachableTasks`. */
 export function evidenceChoices(
   options: BrowserEvidenceOptions,
   tasks: Task[],
@@ -60,11 +59,11 @@ export function evidenceChoices(
       target: { kind: 'pr', number: options.pullRequest.number, cwd: checkout },
     })
   }
-  for (const task of attachableTasks(tasks, options.worktreePath)) {
+  for (const task of tasks) {
     choices.push({
       id: `task-${task.id}`,
       label: task.title,
-      detail: task.status.replace('_', ' '),
+      detail: task.state.name,
       icon: TaskIcon,
       target: { kind: 'task', taskId: task.id },
     })

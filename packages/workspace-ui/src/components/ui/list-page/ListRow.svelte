@@ -53,7 +53,7 @@
     row: ListRowSpec;
     /** The identifier column's floor — 62px fits `SOL-412`, 44px fits `#418`.
      *  Fixed per page, never per row. It is a floor rather than a hard width so
-     *  a longer reference (a provider ticket key) pushes the title along instead
+     *  a longer reference (a long Jira key) pushes the title along instead
      *  of spilling out of a cell that cannot hold it. */
     identWidth?: number;
     selected?: boolean;

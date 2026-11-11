@@ -7,7 +7,7 @@ import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
-import { workspaceTaskSchema, workspaceWorkSchema, workspaceTranscriptPageSchema } from '@solus/contracts/solus-api'
+import { workspaceWorkSchema, workspaceTranscriptPageSchema } from '@solus/contracts/solus-api'
 import { installTestIdentities } from './helpers/acting-identities'
 import type { SolusApiRequest } from '@solus/contracts/solus-api/request'
 import type { Principal } from '@solus/server/admission/principal'
@@ -31,31 +31,28 @@ afterAll(async () => { await resetTestDatabase(); rmSync(dataDir, { recursive: t
 // Members act from homes of their own, as on a booted server (plans/019).
 installTestIdentities()
 
-test('create retries return one task; conflicting input and stale writes cannot change it', async () => {
-  const input = { title: 'One task', body: 'Original' }
-  const first = await operations.createTask(context, input, 'create-task-key-001')
-  expect(workspaceTaskSchema.parse(first).title).toBe(input.title)
-  const replay = await operations.createTask(context, input, 'create-task-key-001')
+test('create retries return one work; conflicting input and stale writes cannot change it', async () => {
+  const input = { title: 'One work', type: 'doc' as const, content: 'Original' }
+  const first = await operations.createWork(context, input, 'create-work-key-001')
+  expect(workspaceWorkSchema.parse(first).title).toBe(input.title)
+  const replay = await operations.createWork(context, input, 'create-work-key-001')
   expect(replay.id).toBe(first.id)
-  await expect(operations.createTask(context, { title: 'Different' }, 'create-task-key-001')).rejects.toThrow('different input')
-  // The receipt's namespace carries the kind: the same authority and key create a work of their own.
-  const sameKeyWork = await operations.createWork(context, { title: 'Same key', type: 'doc', content: '' }, 'create-task-key-001')
-  expect(sameKeyWork.id).not.toBe(first.id)
-  const updated = await operations.updateTask(context, first.id, { title: 'Updated' }, first.version)
+  await expect(operations.createWork(context, { ...input, title: 'Different' }, 'create-work-key-001')).rejects.toThrow('different input')
+  const updated = await operations.updateWork(context, first.id, { title: 'Updated' }, first.version)
   expect(updated.version).not.toBe(first.version)
-  await expect(operations.updateTask(context, first.id, { title: 'Lost update' }, first.version)).rejects.toThrow('latest version')
-  await expect(operations.deleteTask(context, first.id, first.version)).rejects.toThrow('latest version')
-  expect((await operations.getTask(context, first.id)).title).toBe('Updated')
+  await expect(operations.updateWork(context, first.id, { title: 'Lost update' }, first.version)).rejects.toThrow('latest version')
+  await expect(operations.deleteWork(context, first.id, first.version)).rejects.toThrow('latest version')
+  expect((await operations.getWork(context, first.id)).title).toBe('Updated')
 })
 
 test('private records are excluded before LIMIT and individual reads do not reveal them', async () => {
-  for (let i = 0; i < 4; i++) await operations.createTask(context, { title: 'Private ' + i }, 'alice-private-key-' + i)
-  const visible = await operations.createTask(bob, { title: 'Visible' }, 'bob-visible-key-01')
-  const page = await operations.listTasks(bob, { limit: 1 })
+  for (let i = 0; i < 4; i++) await operations.createWork(context, { title: 'Private ' + i, type: 'doc', content: '' }, 'alice-private-key-' + i)
+  const visible = await operations.createWork(bob, { title: 'Visible', type: 'doc', content: '' }, 'bob-visible-key-01')
+  const page = await operations.listWorks(bob, { limit: 1 })
   expect(page.items.map(item => item.id)).toEqual([visible.id]); expect(page.nextCursor).toBeNull()
-  const alice = await operations.listTasks(context, { limit: 1 })
-  await expect(operations.getTask(bob, alice.items[0].id)).rejects.toThrow('not found')
-  const continued = await operations.listTasks(bob, { limit: 50, cursor: alice.nextCursor! })
+  const alice = await operations.listWorks(context, { limit: 1 })
+  await expect(operations.getWork(bob, alice.items[0].id)).rejects.toThrow('not found')
+  const continued = await operations.listWorks(bob, { limit: 50, cursor: alice.nextCursor! })
   expect(continued.items.every(item => item.ownerKey === 'bob')).toBe(true)
 })
 
@@ -75,24 +72,19 @@ test('work writes preserve read-only provider rules and versions', async () => {
   await expect(operations.updateWork(context, work.id, { content: 'Forbidden', expectedContentVersion: linked.contentVersion }, linked.version)).rejects.toThrow('Google Docs')
 })
 
-test('task reads expose only readable session IDs and artifacts retain their session', async () => {
-  const { Task } = await import('@solus/server/data/tasks/task')
-  const task = await operations.createTask(context, { title: 'Session context' }, 'task-session-context')
-  const db = database.getDatabase()
-  for (const [sessionId, owner] of [['task-session-alice', 'alice'], ['task-session-bob', 'bob']]) {
-    await db.run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${sessionId},'A',${owner},'codex','/project','idle',1,2,100,1)`)
-    await (await Task.byId('A', task.id)).linkSession(sessionId)
-  }
-  const read = workspaceTaskSchema.parse(await operations.getTask(context, task.id))
-  expect(read.sessions?.map(session => session.sessionId)).toEqual(['task-session-alice'])
-  const taskOnly = await operations.getTask({ ...context, scopes: ['tasks:read'] }, task.id)
-  expect(taskOnly.sessions).toBeUndefined()
+test('an artifact keeps its session and is not filed on the task of that session', async () => {
+  // WHY: the session shows what it made. A task shows what a person or an agent
+  // deliberately put on it, so a saved render does not fill the task page.
+  const { taskAttachments } = await import('@solus/server/data/tasks/task-attachments')
+  const taskKey = 'github:I_session_context'
+  await database.getDatabase().run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES ('task-session-alice','A','alice','codex','/project','idle',1,2,100,1)`)
+  await operations.putLink(context, { from: { kind: 'task', id: taskKey }, to: { kind: 'session', id: 'task-session-alice' } })
 
   const artifact = await operations.createWork(context, {
     title: 'Saved chart', type: 'artifact', content: '<p>Chart</p>', originSessionId: 'task-session-alice',
   }, 'session-artifact-context')
   expect(artifact.sessionIds).toContain('task-session-alice')
-  expect((await (await Task.byId('A', task.id)).details()).links.map(link => link.targetKey)).not.toContain(artifact.id)
+  expect((await taskAttachments('A', taskKey)).links.map(link => link.targetKey)).not.toContain(artifact.id)
 })
 
 test('transcript paging reconstructs Unicode text without loading an unbounded message', async () => {
@@ -117,29 +109,29 @@ test('HTTP works without a socket; the bearer binds scope and strict inputs reje
   const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { solusApiOpenApi } = await import('@solus/contracts/solus-api/openapi')
   const { SOLUS_API_ORGANIZATION_HEADER } = await import('@solus/contracts/solus-api/request')
-  // The bearer is admitted directly (docs/plans/simplify-auth-and-sync.md §4.2); this one may read and write tasks only.
+  // The bearer is admitted directly (docs/plans/simplify-auth-and-sync.md §4.2); this one may read and write works only.
   const admitted: Array<string | undefined> = []
   const admission = {
     socket: async () => null,
     bearer: async (bearer: string, organizationId: string | undefined): Promise<WorkspaceRequestContext | null> => {
       admitted.push(organizationId)
-      return bearer === 'paired-source' ? { principal: context.principal, home: context.home, scopes: ['tasks:read', 'tasks:write'] } : null
+      return bearer === 'paired-source' ? { principal: context.principal, home: context.home, scopes: ['works:read', 'works:write'] } : null
     },
   }
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works', 'session-records', 'insights'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   const app = new Hono().route('/v1', router)
-  expect((await app.request('/v1/tasks')).status).toBe(401)
+  expect((await app.request('/v1/works')).status).toBe(401)
   const headers = { Authorization: 'Bearer paired-source', 'Content-Type': 'application/json', 'Idempotency-Key': 'http-create-key-001' }
-  const created = await app.request('/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ title: 'Over HTTP' }) })
+  const created = await app.request('/v1/works', { method: 'POST', headers, body: JSON.stringify({ title: 'Over HTTP', type: 'doc', content: '' }) })
   expect(created.status).toBe(201)
-  const task = workspaceTaskSchema.parse(await created.json())
-  expect(created.headers.get('ETag')).toBe(JSON.stringify(task.version))
-  expect((await app.request('/v1/tasks?organizationId=B', { headers })).status).toBe(400)
-  expect((await app.request('/v1/tasks?limit=201', { headers })).status).toBe(400)
-  expect((await app.request('/v1/tasks?limit=1&limit=2', { headers })).status).toBe(400)
-  expect((await app.request('/v1/works', { headers })).status).toBe(403)
-  expect((await app.request('/v1/tasks/' + task.id, { method: 'PATCH', headers, body: JSON.stringify({ title: 'No version' }) })).status).toBe(400)
-  expect((await app.request('/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ title: 'Override', organizationId: 'B' }) })).status).toBe(400)
+  const work = workspaceWorkSchema.parse(await created.json())
+  expect(created.headers.get('ETag')).toBe(JSON.stringify(work.version))
+  expect((await app.request('/v1/works?organizationId=B', { headers })).status).toBe(400)
+  expect((await app.request('/v1/works?limit=201', { headers })).status).toBe(400)
+  expect((await app.request('/v1/works?limit=1&limit=2', { headers })).status).toBe(400)
+  expect((await app.request('/v1/sessions', { headers })).status).toBe(403)
+  expect((await app.request('/v1/works/' + work.id, { method: 'PATCH', headers, body: JSON.stringify({ title: 'No version' }) })).status).toBe(400)
+  expect((await app.request('/v1/works', { method: 'POST', headers, body: JSON.stringify({ title: 'Override', type: 'doc', content: '', organizationId: 'B' }) })).status).toBe(400)
   const metadata = (await import('@solus/contracts/solus-api')).solusApiOperations
   const actual = new Set(router.routes.filter(route => route.method !== 'ALL').map(route => route.method.toLowerCase() + ' ' + route.path))
   expect(actual).toEqual(new Set(Object.values(metadata).map(route => route.method + ' ' + route.path)))
@@ -153,9 +145,28 @@ test('HTTP works without a socket; the bearer binds scope and strict inputs reje
     return app.fetch(request)
   }
   const client = new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => 'A', acquireSource: async () => 'paired-source', organizationId: () => 'A', fetchImpl }))
-  expect((await client.request('getTask', { id: task.id })).id).toBe(task.id)
-  expect(seen).toEqual([{ path: '/v1/tasks/' + task.id, authorization: 'Bearer paired-source', organization: 'A' }])
+  expect((await client.request('getWork', { id: work.id })).id).toBe(work.id)
+  expect(seen).toEqual([{ path: '/v1/works/' + work.id, authorization: 'Bearer paired-source', organization: 'A' }])
   expect(admitted.at(-1)).toBe('A')
+})
+
+test('the API has no task record: GitHub or Jira holds each task, so no task path answers', async () => {
+  // WHY (provider-owned-tasks.md decision 6): the organization's API keeps what
+  // Solus attaches to a task. A task route that answered would be a second store.
+  const { Hono } = await import('hono')
+  const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
+  const { solusApiOperations } = await import('@solus/contracts/solus-api')
+  const admission = { socket: async () => null, bearer: async (): Promise<WorkspaceRequestContext | null> => context }
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const app = new Hono().route('/v1', router)
+  const headers = { Authorization: 'Bearer any', 'Content-Type': 'application/json', 'Idempotency-Key': 'no-task-route-key-01' }
+  expect((await app.request('/v1/tasks', { headers })).status).toBe(404)
+  expect((await app.request('/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ title: 'A task' }) })).status).toBe(404)
+  expect((await app.request('/v1/tasks/github:I_1', { headers })).status).toBe(404)
+  expect(Object.values(solusApiOperations).filter(route => route.path.startsWith('/tasks'))).toEqual([])
+  // The attachment of a task still has its route: a link from a task key.
+  const link = { from: { kind: 'task', id: 'github:I_1' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/3' } }
+  expect((await app.request('/v1/links', { method: 'PUT', headers, body: JSON.stringify(link) })).status).toBe(204)
 })
 
 // A client with a socket sends its records there: the socket's principal is their
@@ -169,47 +180,46 @@ test('records over a socket take its principal as authority and never exchange a
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
   revokeDevice('revoked-device')
   const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true }))
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
   const http = new Hono().route('/v1', router)
   const requests = (request: SolusApiRequest, principal: Principal) => answerSocketRequest(router, request, principal)
   const client = new SolusApiClient({ contextKey: () => 'A', send: request => requests(request, context.principal) })
 
-  const task = await client.request('createTask', { body: { title: 'Over the socket' }, key: 'socket-create-key-001' })
-  expect(task.role).toBe('owner')
   const work = await client.request('createWork', { body: { title: 'Socket notes', type: 'doc', content: '# One' }, key: 'socket-work-key-0001' })
+  expect(work.role).toBe('owner')
   expect(await client.request('getWork', { id: work.id, ifNoneMatch: work.version })).toBeUndefined()
-  const renamed = await client.request('updateTask', { id: task.id, body: { title: 'Renamed' }, version: task.version })
+  const renamed = await client.request('updateWork', { id: work.id, body: { title: 'Renamed' }, version: work.version })
   expect(renamed.title).toBe('Renamed')
 
   // The socket's principal is held to the API's rules: a revoked device, an expired
   // token, and the host itself are refused, as an exchange would refuse them.
-  const listTasks: SolusApiRequest = { method: 'GET', path: '/tasks?limit=1' }
-  expect((await requests(listTasks, { ...context.principal, deviceId: 'revoked-device' })).status).toBe(401)
-  expect((await requests(listTasks, { ...context.principal, expiresAt: Date.now() - 1 })).status).toBe(401)
-  expect((await requests(listTasks, { kind: 'system' })).status).toBe(401)
+  const listWorks: SolusApiRequest = { method: 'GET', path: '/works?limit=1' }
+  expect((await requests(listWorks, { ...context.principal, deviceId: 'revoked-device' })).status).toBe(401)
+  expect((await requests(listWorks, { ...context.principal, expiresAt: Date.now() - 1 })).status).toBe(401)
+  expect((await requests(listWorks, { kind: 'system' })).status).toBe(401)
   // An admitted socket request leaves no authority behind for an HTTP request.
-  expect((await http.request('/v1/tasks?limit=1')).status).toBe(401)
+  expect((await http.request('/v1/works?limit=1')).status).toBe(401)
 })
 
-test('rolled-back writes emit no task change and reserve no retry receipt', async () => {
-  const { onTasksChanged } = await import('@solus/server/data/tasks/task-store')
+test('rolled-back writes emit no work change and reserve no retry receipt', async () => {
+  const { onWorksChanged } = await import('@solus/server/data/works/work-events')
   const changed: string[] = []
-  const stop = onTasksChanged(id => { if (id) changed.push(id) })
+  const stop = onWorksChanged(change => { changed.push(change.workId) })
   try {
     await expect(database.getDatabase().transaction(async () => {
-      await operations.createTask(context, { title: 'Roll back' }, 'rollback-create-key-01')
+      await operations.createWork(context, { title: 'Roll back', type: 'doc', content: '' }, 'rollback-create-key-01')
       throw new Error('Rollback')
     })).rejects.toThrow('Rollback')
     expect(changed).toEqual([])
-    const task = await operations.createTask(context, { title: 'Roll back' }, 'rollback-create-key-01')
-    expect(changed).toEqual([task.id])
+    const work = await operations.createWork(context, { title: 'Roll back', type: 'doc', content: '' }, 'rollback-create-key-01')
+    expect(changed).toEqual([work.id])
   } finally { stop() }
 })
 
 test('in-process callers cannot bypass request bounds', async () => {
-  await expect(operations.listTasks(context, { limit: 100000 })).rejects.toThrow()
-  await expect(operations.createTask(context, { title: 'x'.repeat(501) }, 'bounded-create-key-01')).rejects.toThrow()
+  await expect(operations.listWorks(context, { limit: 100000 })).rejects.toThrow()
+  await expect(operations.createWork(context, { title: 'x'.repeat(501), type: 'doc', content: '' }, 'bounded-create-key-01')).rejects.toThrow()
 })
 
 test('an editor can save a shared work but only its owner can delete it', async () => {
@@ -312,5 +322,5 @@ test.skipIf(process.env.SOLUS_DB !== 'postgres')('a database timeout cancels the
   const { withWorkspaceBudget } = await import('@solus/server/data/workspace/request-budget')
   const query = withWorkspaceBudget(async () => database.getDatabase().all(sql`SELECT pg_sleep(6)`))
   await expect(query()).rejects.toMatchObject({ status: 503, code: 'CAPABILITY_UNAVAILABLE', retryAfter: 1 })
-  expect((await operations.listTasks(context, { limit: 1 })).items.length).toBeLessThanOrEqual(1)
+  expect((await operations.listWorks(context, { limit: 1 })).items.length).toBeLessThanOrEqual(1)
 }, 10000)

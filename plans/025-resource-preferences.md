@@ -4,6 +4,8 @@ Status: TODO. Priority P2. Effort M. Risk MED. Category tech-debt.
 Planned at `c4c64aff2`, 2026-11-01. Execute after 024 for ordered schema generation.
 Table delta: `session_views` + `task_snoozes` → `resource_preferences`, net −1.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the `task_snoozes` foreign key to `tasks`, the task move and the task delete rules are history. A snooze stays; it is keyed by the task key and needs no row in `tasks`.
+
 ## Current state and required behavior
 
 `data/sessions/session-states.ts:213` and `data/tasks/task-snoozes.ts:49` store the

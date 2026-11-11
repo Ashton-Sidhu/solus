@@ -4,6 +4,13 @@ Status: implemented 2026-10-23 (both repositories, not yet deployed). Changes AD
 parts of `instant-share-open.md` §4.2–4.4, `host-reach.md` §3.1, and
 `cloud-service-model.md` §16. Covers this repository and solus-cloud.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, the task writes
+> to the Solus API in §4.5 are history (the queued task comment, and "task and
+> work creation"). The Solus API stores no tasks and has no task record
+> routes. `PUT /v1/links` and `DELETE /v1/links` stay and take a task key.
+
 ## 1. Problem
 
 Opening a shared session took four passes to make fast, and each pass found the
@@ -152,8 +159,10 @@ same pattern: a second or third mechanism beside the first, not in place of it.
   organization writes call the Solus API: `PUT /v1/links` and `DELETE /v1/links`
   (body `{ from, to, title?, role?, originSessionId? }`, one rule for each pair in
   `data/links/api-operations.ts`) carry task links, task sessions, session item
-  links, and session pull requests; `POST /v1/tasks/:taskId/comments` carries a
-  task comment.
+  links, and session pull requests. (Changed 2026-11-10: there is no
+  `POST /v1/tasks/:taskId/comments`. A task comment goes to GitHub or Jira
+  with the acting person's connection, and a link names its task by the task
+  key.)
 
 ### 4.6 Update required
 

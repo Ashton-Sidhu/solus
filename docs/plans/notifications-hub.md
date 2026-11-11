@@ -13,8 +13,9 @@ event happened:
 
 | Event | Home of the notification |
 | --- | --- |
-| Local work or task change | Its Local host |
-| Work or task change saved by an organization's Solus API | That API |
+| Local work change | Its Local host |
+| Work change saved by an organization's Solus API | That API |
+| Task assignment (GitHub only) | The host whose task read saw it, in Local |
 | Automation run finished | The host that stores the run |
 | Guide or lens finished | The host that stores the result |
 | Pull request assignment or review request | The personal host whose PR sync read it |
@@ -41,11 +42,15 @@ SQLite connection inside that transaction. Where the hub's table is in another
 database (a Postgres engine), no atomic write is possible and no row is written.
 
 Recipients are user keys at the home and always come from the domain operation:
-the requested reviewers, the requester of a decision, the typed
-`assigneeUserId` of a task (never a provider login), the creator of an
+the requested reviewers, the requester of a decision, the creator of an
 automation, the requester of a generation, the person a mention names. A
 pull request event names the host's user only on a personal host, whose
-code-host credential is theirs.
+code-host credential is theirs. A task assignment is the one event that
+compares a provider login: GitHub or Jira owns the task
+(`docs/tasks.md`), so a task has no Solus assignee. The recipient is the
+person whose own connection read the task, when the new assignee is their
+GitHub login (`notifyTaskAssignments`, `data/tasks/task-assignment.ts`). The
+first read of a task records nothing. A Jira assignment records nothing.
 
 A row holds no work body, transcript, or automation output: a kind, bounded
 facts, a portable resource reference, who acted, and a short summary.
@@ -105,5 +110,5 @@ says where the resource opens instead.
 - The hub raises no sound, toast, system alert, or push. Those stay with the
   existing delivery owner; background push for personal rows is a separate
   feature that needs recipient-bound device registration.
-- Organization membership of a task assignee is the client directory's answer,
-  as it is for review requests; the server checks the key's kind only.
+- A task assignment is recorded only when a source read or a task read with
+  the person's own GitHub connection sees the change. Jira has none.

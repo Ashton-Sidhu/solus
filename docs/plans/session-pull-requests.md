@@ -2,6 +2,19 @@
 
 Status: implemented, 2026-09-30. Task 01M3AZ4M9Z4YNKD6TGDY2300B0.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. The rules of this plan for session
+> links and task links stay; a link names its task by the task key. These
+> statements are history: `data/tasks/sync-engine.ts` (the file is removed;
+> `completeTasksForMergedPullRequest` is in `data/tasks/done-on-merge.ts`),
+> `Task.update` as the place that settles sessions (it is
+> `data/tasks/task-settle.ts`), and the task row and the finished task on a
+> shelf (`task-conversation.md` decision 5). "A merged pull request completes
+> the task" now means that Solus moves the task to the status category `done`
+> on its provider. A task is finished when its category is `done`. A prompt to
+> a session of a finished task does not reopen the task.
+
 A session owns the pull requests it works on. A task reads the pull requests
 of its sessions and holds no copy of them. The host also holds where a session
 is in a person's list: active, settled, or snoozed. This follows
@@ -228,8 +241,8 @@ reads from a session.
 - `data/tasks/task-links.ts` — the two task reads include session links;
   `recordPullRequestObservation` writes the observation and binds every edge
   (`data/links/pull-request-observations.ts`).
-- `data/tasks/sync-engine.ts` — `completeTasksForMergedPullRequest` finds a
-  task through either link.
+- `data/tasks/done-on-merge.ts` (was `sync-engine.ts`) —
+  `completeTasksForMergedPullRequest` finds a task through either link.
 - `prs/pr-sync.ts` — live checkouts come from live tasks and from the session
   index (`recentBranchSessions`); interest comes from both interest reads
   (`readPrLinkInterests`, `readSessionPullRequestInterests`).

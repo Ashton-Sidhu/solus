@@ -1,15 +1,17 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { TaskSnooze } from '@solus/contracts/task-types'
-import { afterDatabaseCommit, type Db } from '../../db/database'
+import { afterDatabaseCommit } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { personalResourceState } from '../personal-state/schema'
-import { database, requireTask } from './task-store'
+import { assertTaskKey, database } from './task-store'
 
 /**
  * A person's snoozes of tasks (docs/task-snooze.md): their `personal_resource_state`
- * rows of kind `task`. A snooze is that person's own view: it hides the task
+ * rows of kind `task`, by task key. A snooze is an attachment: it needs no copy
+ * of the task on this host, and it is in the organization of the person who
+ * made it. A snooze is that person's own view: it hides the task
  * from their task lists until the wake time, and nobody else's. It does not
  * change the task, so it writes no task activity, emits no `tasks.invalidated`,
  * and never travels with the task record. Waking deletes the row; an expired
@@ -45,19 +47,18 @@ function snoozeFromRow(row: z.infer<typeof snoozeRowSchema>): TaskSnooze {
 
 /**
  * Snooze a task for one person until a wake time, or wake it now with `until`
- * null. The person must be able to read the task in `scope`. Answers the
- * person's snooze after the write: null once it is woken.
+ * null. `organizationId` is the person's own. Answers the person's snooze
+ * after the write: null once it is woken.
  */
 export async function snoozeTaskFor(
-  scope: RecordScope,
+  organizationId: string,
   personKey: string,
   taskId: string,
   until: number | null,
   note = '',
 ): Promise<TaskSnooze | null> {
-  let organizationId = ''
+  assertTaskKey(taskId)
   const snooze = await database().transaction(async (db) => {
-    organizationId = (await requireTask(scope, taskId, db)).organization_id
     if (until === null) {
       await db.run(sql`
         DELETE FROM ${personalResourceState}
@@ -92,12 +93,4 @@ export async function readTaskSnoozes(scope: RecordScope, personKey: string): Pr
     ORDER BY snoozed_until, resource_id
   `))
   return rows.map(snoozeFromRow)
-}
-
-/** Everyone's personal state of a task, in the task's delete transaction: the parent is polymorphic, so no key cascades them. */
-export async function deleteTaskPersonalState(db: Db, organizationId: string, taskId: string): Promise<void> {
-  await db.run(sql`
-    DELETE FROM ${personalResourceState}
-    WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId}
-  `)
 }

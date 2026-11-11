@@ -45,9 +45,6 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
     const sourceLists = (await source.records.listWorks()).some((row) => row.id === localWork.id)
     ctx.check(`${engine}: pushed work has one cloud home`, cloudCopy?.content === 'after' && !!movedTo?.includes(ORGANIZATION_ID) && !sourceLists, JSON.stringify({ movedTo, sourceLists }))
     const work = await alice.records.createWork('Shared cloud work', 'doc', '# Offline safe', '', undefined, 'claude-code', ctx.cwd)
-    const task = await alice.records.tasksCreate({ title: 'Shared cloud task', body: 'Cloud body' })
-    // A task is not shared: its organization sees it, and it has no guest link.
-    await expectRefused(ctx, 'a task has no share link', alice.rpc('shareSetLink', { resource: { kind: 'task', id: task.id }, role: 'viewer' }), 'FORBIDDEN')
     for (const resource of [{ kind: 'work', id: work.id }] as const) {
       const link = await alice.rpc('shareSetLink', { resource, role: 'viewer' })
       const guest = client('maya', link!.secret)

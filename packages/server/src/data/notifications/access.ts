@@ -43,7 +43,6 @@ export function notificationReaderFor(
 /** The shared record a notification opens, when it opens one. */
 function sharedResourceOf(resource: NotificationResource): ShareResource | null {
   if (resource.kind === 'work') return { kind: 'work', id: resource.workId }
-  if (resource.kind === 'task') return { kind: 'task', id: resource.taskId }
   if (resource.kind === 'session') return { kind: 'session', id: resource.sessionId }
   return null
 }

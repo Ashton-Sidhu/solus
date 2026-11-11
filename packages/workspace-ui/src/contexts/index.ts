@@ -42,7 +42,7 @@ export { getPlanStore } from './plans/plan.store.svelte'
 
 /** Global local-first task state shared by task and session surfaces. */
 export { TasksStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
-export { taskLinks } from './tasks/task-links'
+export { taskSourcesStore } from './tasks/task-sources.store.svelte'
 
 /** Known projects and per-project configuration. */
 export { CHATS_GROUP_KEY, groupKeyFor, projectsStore } from './projects/projects.store.svelte'

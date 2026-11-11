@@ -8,6 +8,14 @@ and lost LAN routes (`custom-roles.md`; its §14 is the current shape). Where
 this plan says a link has a viewer, commenter, or editor role, a session link
 can also have a custom one.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, "a work or a task" in
+> the document model (§1, §2, §9 decision 2) and decision 5 of §9 are history:
+> the document model applies to a work only. A task is not a Solus resource.
+> Its Copy link copies the task's URL on the provider, and that link is not a
+> Solus link for members.
+
 Where it lives:
 
 - Host: `ticketForShareSecret` and the no-bearer branch of `/auth/ws-ticket`
@@ -88,7 +96,7 @@ There are two share models (decision §9.2).
 session. That host admits the visitor. Nothing is copied or moved to make a
 link.
 
-**Document model — a work or a task.** The record is shared from the cloud.
+**Document model — a work.** The record is shared from the cloud.
 On a Local work, the Share button is the push: it puts the work in the
 account's organization (`cloud-sharing.md` §3) and opens the dialog on the
 cloud copy, where every later change of access is made and a new link made
@@ -104,7 +112,7 @@ The origin a link names:
 | Personal or self-hosted host, linked and tunnel up | the host's tunnel route, `https://h-<hostId>.<tunnelDomain>` | the host, from its own `acl_entry` |
 | Personal or self-hosted host, not linked or tunnel down | the host's best direct route, `http://<lan ip>:<port>` (Tailscale address first when there is one) | the host |
 | Managed host or organization VM | the account origin, `https://app.solus.sh` | the control plane, from the organization's `acl_entry`; it answers with the host's route and a signed guest grant |
-| A work or a task in an organization (document model) | the account origin | the Solus API, as today |
+| A work in an organization (document model) | the account origin | the Solus API, as today |
 
 Sign-in is not required to share. It is required only for what needs an
 identity: sharing with a person, a team, or the organization (§5).
@@ -229,8 +237,8 @@ options.
 `canShareFrom` becomes: a session on any host, signed in or not; a work in
 the cloud, or a Local work when the account is signed in with an
 organization to push to. No link check anywhere. For a session the sign-in
-check moves to the named options inside the dialog. The task stays unshareable (Copy link only,
-`cloud-sharing.md` §4b) unless §9.5 says otherwise.
+check moves to the named options inside the dialog. A task is not shareable (Copy link only,
+`cloud-sharing.md` §4b).
 
 Who may share: the owner and editors, as today (`callerRole`).
 

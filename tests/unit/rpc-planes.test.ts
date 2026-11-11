@@ -16,7 +16,12 @@ describe('the plane map', () => {
   })
 
   test('records are collaboration; a checkout or an agent process is execution', () => {
-    expect(rpcPlaneOf('tasksComment')).toBe('collaboration')
+    // What Solus attaches to a task is a record. The task itself is read and
+    // written on GitHub or Jira by a host that has the project and the person's connection.
+    expect(rpcPlaneOf('tasksAttachments')).toBe('collaboration')
+    expect(rpcPlaneOf('tasksLinkSession')).toBe('collaboration')
+    expect(rpcPlaneOf('tasksComment')).toBe('execution')
+    expect(rpcPlaneOf('tasksGet')).toBe('execution')
     expect(rpcPlaneOf('loadWorkRevisions')).toBe('collaboration')
     expect(rpcPlaneOf('shareSet')).toBe('collaboration')
     expect(rpcPlaneOf('prList')).toBe('collaboration')

@@ -8,7 +8,7 @@ const EPIC_BODY_LIMIT = 2000
 
 /** Render the task packet appended to the system prompt of every run on a
  *  task-backed session. It names the task and the rules the agent works under,
- *  and nothing that changes while the agent works: the status, body, comments
+ *  and nothing that changes while the agent works: the state, body, comments
  *  and links come from read_task, once, into the transcript. A packet that
  *  changed on every status move or comment would re-send the whole cached
  *  prompt. The title is absent when the task cannot be read; the id still
@@ -21,7 +21,7 @@ export function formatTaskContext(
   const title = task.title ? ` — "${task.title}"` : ''
   return [
     `[Working On Task${title} (task_id: ${task.id})]`,
-    `Call read_task with task_id "${task.id}" before you start work. It returns the description, comments, epic, and linked items. Call it again only to refresh them. It lists session IDs; use read_session for the status and history of a prior attempt.`,
+    `Call read_task with task_id "${task.id}" before you start work. It returns the description, state, columns, comments, epic, and linked items. Call it again only to refresh them. It lists session IDs; use read_session for the status and history of a prior attempt.`,
     '',
     'Work contract:',
     ...workContract(lifecyclePolicy),
@@ -35,27 +35,27 @@ function workContract(lifecyclePolicy: AgentTaskLifecyclePolicy): string[] {
     lines.push(
       '- Do not change this task\'s status. The user controls its lifecycle.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
-      '- Use comment_task for durable write-back.',
+      '- comment_task posts on GitHub or Jira. Use it for durable write-back.',
     )
   } else if (lifecyclePolicy === 'moderate') {
     lines.push(
-      '- Keep this task in progress while you work.',
+      '- Keep this task active while you work.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
-      '- Move the task to in_review when a pull request is ready for a human. Do not move it to done; the user closes completed work.',
-      '- Use comment_task and update_task_status for permitted durable write-back.',
+      '- When a pull request is ready for a human, move the task to the review column of its board, if read_task shows one. Do not move it to done; the user closes completed work.',
+      '- comment_task and update_task_status write to GitHub or Jira. Use them for permitted durable write-back.',
     )
   } else {
     lines.push(
-      '- Keep this task in progress while you work.',
+      '- Keep this task active while you work.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
-      '- Move the task to in_review when a pull request is ready for a human, or done when the work is complete without review.',
-      '- Use comment_task and update_task_status for durable write-back.',
+      '- When a pull request is ready for a human, move the task to the review column of its board, if read_task shows one. Move it to done when the work is complete without review.',
+      '- comment_task and update_task_status write to GitHub or Jira. Use them for durable write-back.',
     )
   }
   return lines
 }
 
-/** The upstream epic this task belongs to: one line that names it, then its
+/** The epic this task belongs to: one line that names it, then its
  *  description on one indented line, clipped. */
 export function formatTaskEpic(epic: TaskEpic): string[] {
   const ref = /^\d+$/.test(epic.externalId) ? `#${epic.externalId}` : epic.externalId

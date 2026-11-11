@@ -429,7 +429,7 @@
     "global.new-task",
     () => {
       const context = session.taskCreationContext;
-      if (context) void session.startNewTask(context.serverId, context.projectKey, true);
+      if (context) session.composeNewTask({ serverId: context.serverId, projectRoot: context.projectKey }, "keybinding");
     },
     {
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),

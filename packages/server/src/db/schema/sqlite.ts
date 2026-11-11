@@ -21,9 +21,9 @@ import * as tasksSchema from '../../data/tasks/schema'
 import * as webhooksSchema from '../../data/webhooks/schema'
 
 export const tasks = tasksSchema.tasks.sqlite
-export const task_counters = tasksSchema.taskCounters.sqlite
-export const task_external_links = tasksSchema.taskExternalLinks.sqlite
-export const upstream_task_cache = tasksSchema.upstreamTaskCache.sqlite
+export const task_sources = tasksSchema.taskSources.sqlite
+export const task_source_items = tasksSchema.taskSourceItems.sqlite
+export const task_source_access = tasksSchema.taskSourceAccess.sqlite
 export const asset_publications = tasksSchema.assetPublications.sqlite
 export const works = folioSchema.works.sqlite
 export const work_revisions = folioSchema.workRevisions.sqlite

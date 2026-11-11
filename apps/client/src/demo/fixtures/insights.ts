@@ -74,9 +74,9 @@ const BILLING = 'demo-session-billing'
  *  session that worked it. The demo has one session per task, and these are the
  *  same bindings `data/tasks.json` states. */
 export const DEMO_SESSION_BY_TASK = new Map<string, string>([
-  ['ACME-214', RATELIMIT],
-  ['demo-task-7', WEBHOOKS],
-  ['demo-task-4', BILLING],
+  ['jira:acme-cloud:10214', RATELIMIT],
+  ['github:I_kwDOApiGw128', WEBHOOKS],
+  ['github:I_kwDOBilling077', BILLING],
 ])
 
 /** The task each demo session ran under, by title — what the listing names a
@@ -111,7 +111,7 @@ const FLAKY_BUCKET_TRACE: RecordedTrace = {
     isResume: true,
     projectName: 'api-gateway',
     branch: 'feat/rate-limiting',
-    taskId: 'ACME-214',
+    taskId: 'jira:acme-cloud:10214',
     taskTitle: 'Add per-key rate limiting to the public API',
     requestedModel: 'claude-sonnet-5',
     timeToFirstProviderEventMs: 1_150,

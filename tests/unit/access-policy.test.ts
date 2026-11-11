@@ -40,8 +40,9 @@ describe('the action tables', () => {
     expect(Object.keys(RESOURCE_LOCATORS).sort()).toEqual(Object.keys(RESOURCE_ACTION_OF_METHOD).sort())
     // A method that names a session or a work in its name must carry a resource verb
     // unless it is a catalog read (listSessions, listWorks) or a creation. A workflow run is not a work.
-    // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
-    const catalog = new Set(['sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
+    // `tasksPrepareForSession` binds a task before any session exists; `tasksSessions` lists the
+    // session links of tasks in the caller's scope; the others list or create.
+    const catalog = new Set(['sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'tasksSessions', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space|flow)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
     expect(unclassified).toEqual([])
   })
@@ -90,8 +91,8 @@ describe('authorize, the one decision', () => {
   })
 })
 
-describe('cloud sharing of a work or a task', () => {
-  test('only the owner of a work or a task may read it out of its host or remove it after upload; any member may upload, a guest may not', async () => {
+describe('cloud sharing of a work', () => {
+  test('only the owner of a work may read it out of its host or remove it after upload; any member may upload, a guest may not', async () => {
     // WHY: a work leaves its host only by its owner's Share (docs/plans/cloud-sharing.md).
     // An editor who could export it could copy it out; one who could remove it could delete it.
     const editorOnly = resources({ 'work:w1': 'editor' })
@@ -100,17 +101,9 @@ describe('cloud sharing of a work or a task', () => {
       await expect(assertRpcAccess(method, MEMBER, ['w1'], editorOnly, false)).rejects.toThrow(RpcAccessError)
       await expect(assertRpcAccess(method, MEMBER, ['w1'], ownerOnly, false)).resolves.toBeUndefined()
     }
-    const taskEditor = resources({ 'task:t1': 'editor' })
-    const taskOwner = resources({ 'task:t1': 'owner' })
-    for (const method of ['taskExportForCloud', 'taskMarkMoved'] as const) {
-      await expect(assertRpcAccess(method, MEMBER, ['t1'], taskEditor, false)).rejects.toThrow(RpcAccessError)
-      await expect(assertRpcAccess(method, MEMBER, ['t1'], taskOwner, false)).resolves.toBeUndefined()
-    }
     // The upload names no stored resource: the Solus API puts it in the caller's own organization.
-    for (const method of ['workUpload', 'taskUpload'] as const) {
-      await expect(assertRpcAccess(method, MEMBER, [{}], editorOnly, false)).resolves.toBeUndefined()
-      await expect(assertRpcAccess(method, GUEST, [{}], editorOnly, false)).rejects.toThrow(RpcAccessError)
-    }
+    await expect(assertRpcAccess('workUpload', MEMBER, [{}], editorOnly, false)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('workUpload', GUEST, [{}], editorOnly, false)).rejects.toThrow(RpcAccessError)
   })
 })
 
@@ -309,23 +302,42 @@ describe('guests', () => {
 })
 
 describe('tasks', () => {
-  test('a task is a resource: reading takes a viewer, changing takes an editor, deleting takes the owner; listings stay host-wide and filtered', async () => {
-    // WHY: a task shared with someone shares its page; a task page that a viewer
-    // could edit, or a member could delete, would undo the share dialog's promise.
-    const table = resources({ 'task:t1': 'viewer', 'task:t2': 'editor', 'task:t3': 'owner' })
-    await expect(assertRpcAccess('tasksReadExtras', MEMBER, ['t1'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksSessions', MEMBER, ['t1'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksComment', MEMBER, ['t2', 'hi'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('tasksReadExtras', MEMBER, ['t9'], table)).rejects.toThrow(/not shared/)
+  const TASK_METHODS = RPC_INVOKE_METHODS.filter((method) => /^tasks[A-Z]/.test(method))
+
+  test('a task is not a Solus resource: no task method looks at a share of the task, and each needs only the use of the host', async () => {
+    // WHY (provider-owned-tasks.md): GitHub or Jira decides who reads or changes a
+    // task, through the caller's own connection. A share table that gated a task
+    // method would refuse a person whom the provider permits.
+    const noShares = resources({})
+    const forSession = new Set(['tasksForSession', 'tasksLinkSession', 'tasksUnlinkSession'])
+    for (const method of TASK_METHODS) {
+      if (forSession.has(method)) continue
+      expect(isResourceMethod(method)).toBe(false)
+      await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's1'], noShares)).resolves.toBeUndefined()
+    }
+    for (const method of ['tasksGet', 'tasksUpdate', 'tasksComment', 'tasksDelete', 'tasksLink'] as const) expect(permissionOf(method)).toBe('host.use')
     expect(permissionOf('tasksSidebarSnapshot')).toBe('host.sessions.read')
   })
 
-  test('a guest reads the task listing only as the filter leaves it: nothing, since a link opens no task', async () => {
-    // WHY: a link opens a work or a session; the listing's `filterVisible` keeps only what the guest may open.
-    const table = resources({ 'task:t1': 'viewer' })
-    await expect(assertRpcAccess('tasksSidebarSnapshot', GUEST, [], table)).resolves.toBeUndefined()
-    // The share manager answers a guest only for the resource its link names: a task is never it.
-    await expect(assertRpcAccess('tasksReadExtras', GUEST, ['t1'], resources({}))).rejects.toThrow(/not shared/)
+  test('a session link is the session\'s: to link or unlink takes an editor of the session, to read its tasks takes a reader', async () => {
+    // WHY: the link shows on the session and starts work in it. The task has no
+    // owner in Solus, so the session's role is the only gate there is.
+    const table = resources({ 'session:s1': 'viewer', 'session:s2': 'editor' })
+    for (const method of ['tasksLinkSession', 'tasksUnlinkSession'] as const) {
+      await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's1'], table)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, MEMBER, ['github:I_1', 's2'], table)).resolves.toBeUndefined()
+    }
+    await expect(assertRpcAccess('tasksForSession', MEMBER, ['s1'], table)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('tasksForSession', MEMBER, ['s9'], table)).rejects.toThrow(/not shared/)
+  })
+
+  test('a guest reads the task listing and no task: a link opens a session or a work, never the host\'s tasks', async () => {
+    // WHY: a guest has no provider connection on this host. The listing gate stays
+    // open so the shared session renders; each other task method is refused.
+    await expect(assertRpcAccess('tasksSidebarSnapshot', GUEST, [], resources({}))).resolves.toBeUndefined()
+    for (const method of ['tasksGet', 'tasksAttachments', 'tasksComment', 'tasksLink'] as const) {
+      await expect(assertRpcAccess(method, GUEST, ['github:I_1'], resources({}))).rejects.toThrow(/not available to a guest/)
+    }
   })
 })
 

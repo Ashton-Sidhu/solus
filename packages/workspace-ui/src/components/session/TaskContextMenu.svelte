@@ -11,13 +11,13 @@
     Moon as MoonIcon,
     Play as PlayIcon,
     Pen as PencilSimpleIcon,
-    RefreshCw as ArrowsClockwiseIcon,
     Sun as SunIcon,
     CircleStop as StopCircleIcon,
     Trash2 as TrashIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import type { Task, TaskStatus } from "@solus/contracts/task-types";
+  import type { Task } from "@solus/contracts/task-types";
+  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import type { TaskPrChoice } from "./lib/task-list";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
@@ -28,7 +28,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
-  import { STATUS_META, TASK_STATUSES } from "../tasks/lib/tasks-api";
+  import { CATEGORY_META, PROVIDER_NAMES, TASK_CATEGORIES } from "../tasks/lib/tasks-api";
   import { TASK_SNOOZE_CHOICES, taskSnoozeToastLabel, taskSnoozeUntil } from "./lib/task-snooze";
 
   interface Props {
@@ -47,7 +47,9 @@
     onOpenPrWeb?: (choice: TaskPrChoice) => void;
     onUnlinkPr?: (choice: TaskPrChoice) => void;
     onStartRename?: () => void;
-    onSetStatus?: (status: TaskStatus) => void;
+    /** Move the task to a status category. The menu mixes task sources, so
+     *  the host chooses the column of each source. */
+    onSetStatus?: (category: TaskStatusCategory) => void;
     /** Opens the full snooze menu, with its note and custom time, at the
      *  point the menu opened. Without it the submenu offers presets only. */
     onSnoozeCustom?: () => void;
@@ -157,22 +159,9 @@
     onClose();
   }
 
-  async function regenerateTitle() {
-    const taskId = task.id;
-    onClose();
-    const progress = toasts.progress("Regenerating task title…");
-    try {
-      await session.tasksStore.get(taskId).regenerateTitle();
-      progress.success("Task title regenerated");
-    } catch (error) {
-      progress.error(error instanceof Error ? error.message : "Couldn't regenerate task title");
-    }
-    requestInputFocus();
-  }
-
-  // A snooze lives on a Solus task's own record, which a host holds: a
-  // provider-owned ticket has none, and the Solus API has no snooze.
-  const canSnooze = $derived(task.providerId === "local" && !!session.workspace);
+  // A snooze is an attachment that the host that reads the task holds. A
+  // client with no workspace has no such host.
+  const canSnooze = $derived(!!session.workspace);
   const isSnoozed = $derived(!!task.snoozedUntil && task.snoozedUntil > Date.now());
 
   async function snooze(until: number | null) {
@@ -284,7 +273,7 @@
     {#if onOpenSource && task.url}
       <ContextMenu.Item onSelect={() => select(onOpenSource)}>
         <ArrowSquareOutIcon />
-        Open source ticket
+        Open on {PROVIDER_NAMES[task.providerId]}
       </ContextMenu.Item>
     {/if}
     {#if onOpenPr && prChoices.length}
@@ -350,15 +339,15 @@
     {#if onSetStatus}
       <ContextMenu.Sub>
         <ContextMenu.SubTrigger>
-          <TaskStatusGlyph status={task.status} size={14} />
+          <TaskStatusGlyph category={task.category} size={14} />
           Set status
         </ContextMenu.SubTrigger>
         <ContextMenu.SubContent>
-          {#each TASK_STATUSES as status}
-            <ContextMenu.Item onSelect={() => select(() => onSetStatus?.(status))}>
-              <TaskStatusGlyph {status} size={14} />
-              {STATUS_META[status].label}
-              {#if task.status === status}
+          {#each TASK_CATEGORIES as category (category)}
+            <ContextMenu.Item onSelect={() => select(() => onSetStatus?.(category))}>
+              <TaskStatusGlyph {category} size={14} />
+              {CATEGORY_META[category].label}
+              {#if task.category === category}
                 <CheckIcon class="ml-auto" />
               {/if}
             </ContextMenu.Item>
@@ -401,10 +390,6 @@
         Rename task
       </ContextMenu.Item>
     {/if}
-    <ContextMenu.Item onSelect={regenerateTitle}>
-      <ArrowsClockwiseIcon />
-      Regenerate title
-    </ContextMenu.Item>
     {#if onRemove}
       <ContextMenu.Item variant="destructive" onSelect={() => select(onRemove)}>
         <XIcon />

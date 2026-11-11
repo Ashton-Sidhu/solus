@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { attachedTask } from './helpers/task-handle'
 
 /**
  * `resource_links`: one table for every edge between records (plans/029 §5.1).
@@ -37,8 +38,8 @@ let sessionLinks: typeof import('@solus/server/data/sessions/session-links')
 let sessionRecords: typeof import('@solus/server/data/sessions/session-records')
 let sessionArtifacts: typeof import('@solus/server/data/sessions/session-artifacts')
 let sessionAccess: typeof import('@solus/server/data/works/session-access')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
 let tasks: typeof import('@solus/server/data/tasks/task')
+let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 let taskLinks: typeof import('@solus/server/data/tasks/task-links')
 let taskSessions: typeof import('@solus/server/data/tasks/task-sessions')
 let works: typeof import('@solus/server/data/works/works')
@@ -58,7 +59,7 @@ beforeAll(async () => {
   sessionRecords = await import('@solus/server/data/sessions/session-records')
   sessionArtifacts = await import('@solus/server/data/sessions/session-artifacts')
   sessionAccess = await import('@solus/server/data/works/session-access')
-  taskStore = await import('@solus/server/data/tasks/task-store')
+  attachments = await import('@solus/server/data/tasks/task-attachments')
   tasks = await import('@solus/server/data/tasks/task')
   taskLinks = await import('@solus/server/data/tasks/task-links')
   taskSessions = await import('@solus/server/data/tasks/task-sessions')
@@ -98,8 +99,9 @@ async function linkedAt(where: ReturnType<typeof sql>, at: number): Promise<void
   await database.getDatabase().run(sql`UPDATE resource_links SET created_at = ${at} WHERE ${where}`)
 }
 
-async function newTask(title: string): Promise<InstanceType<typeof tasks.Task>> {
-  return tasks.Task.byId('local', (await taskStore.createTask('local', { title, projectKey: '/workspace/solus' })).id)
+/** A task to attach edges to. `_title` says what the test's task is; GitHub owns the task, so the host needs no copy. */
+function newTask(_title: string) {
+  return attachedTask()
 }
 
 /** A task's pull requests as the sidebar reads them: `[scope, number, owner session]`, newest first. */
@@ -196,7 +198,7 @@ describe('outputs follow their session', () => {
     const task = await newTask('Outputs')
     await task.linkSession('s1', 'working')
     for (const key of ['remove', 'claim', 'follow']) {
-      await tasks.Task.linkSessionOutput('local', 's1', { kind: 'work', targetKey: key, title: key })
+      await attachments.linkSessionOutput('local', 's1', { kind: 'work', targetKey: key, title: key })
     }
     await task.unlink('work', 'remove', '', PERSON)
     // Rebinding an existing session is bookkeeping: nothing is adopted again.
@@ -238,9 +240,9 @@ describe('a work and its sessions', () => {
 })
 
 describe('one task works on a session at a time', () => {
-  test('a working link elsewhere transfers ownership; a reference claims nothing; a moved task keeps history', async () => {
+  test('a working link elsewhere transfers ownership; a reference claims nothing', async () => {
     // WHY (fixture 'one active working owner', 'reference does not claim
-    // ownership', 'historical owner permits transfer').
+    // ownership').
     const first = await newTask('First')
     const second = await newTask('Second')
     await first.linkSession('s2', 'working')
@@ -251,11 +253,10 @@ describe('one task works on a session at a time', () => {
       INSERT INTO resource_links(organization_id, source_kind, source_id, target_kind, target_scope, target_key, relation, source, status, created_by, created_at)
       VALUES ('local', 'task', 'different', 'session', '', 's2', 'works-on', 'system', 'active', 'x', 1)`)).rejects.toThrow()
 
-    // The first task moved to its organization: its edge is history, no longer the owner.
-    await first.moveTo({ organizationId: 'org-1' })
+    // The second task takes the session: the first task's edge goes with the move.
     await second.linkSession('s2', 'working')
     expect((await edges(sql`target_key = 's2'`)).map((edge) => [edge.source_id, edge.relation, edge.status]))
-      .toEqual([[first.id, 'works-on', 'historical'], [second.id, 'works-on', 'active']])
+      .toEqual([[second.id, 'works-on', 'active']])
     expect(await taskSessions.taskIdForSession('local', 's2')).toBe(second.id)
   })
 })
@@ -306,7 +307,7 @@ describe('watches live on the link', () => {
 })
 
 describe('who made an edge', () => {
-  test('created_by is the person acting, else the owner of the record the edge starts from', async () => {
+  test('created_by is the person acting, else the owner of the session the edge starts from, else the host user', async () => {
     // WHY (plans/029 decision 2): `created_by` is a user id set from the acting
     // identity, never a client value; an agent or Solus itself records the owner.
     await database.getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, created_by, created_at) VALUES ('owned', 'local', 'owner-key', 1)`)
@@ -316,7 +317,7 @@ describe('who made an edge', () => {
     const task = await newTask('Creators')
     await task.linkSession('owned', 'working')
     await task.link({ kind: 'automation', targetKey: 'auto-1', title: 'Nightly', automatic: true }, SYSTEM)
-    // The task's owner is the host's user, as `createTask` records it when nobody is named.
+    // A task has no owner in Solus: an edge that no person made is the host user's.
     const { hostUserKey } = await import('@solus/server/host/host-user')
     expect(Object.fromEntries((await edges()).map((edge) => [`${edge.source_kind}→${edge.target_kind}:${edge.target_key}`, [edge.created_by, edge.source]]))).toEqual({
       'session→pr:1': ['owner-key', 'branch'],
@@ -329,8 +330,14 @@ describe('who made an edge', () => {
 })
 
 describe('deletes leave no dangling edge', () => {
-  test('a task, a work, and a session take their edges with them', async () => {
-    const task = await newTask('Gone')
+  test('a deleted draft task, a work, and a session take their edges with them', async () => {
+    // Only a draft item of a GitHub Project can be deleted; its edges go with it.
+    const { FakeTaskProviders, githubDraft, seedTask } = await import('./helpers/task-fixtures')
+    const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
+    const providers = new FakeTaskProviders()
+    providers.hold(githubDraft('DI_gone'))
+    useTaskAdaptersForTests(providers.adapters())
+    const task = await attachedTask((await seedTask(githubDraft('DI_gone'))).id)
     const made = await works.createWork('local', 'Made', 'doc', '', '', 's1', 'codex')
     await task.linkSession('s1', 'working')
     await task.link({ kind: 'work', targetKey: made.id }, PERSON)
@@ -343,7 +350,8 @@ describe('deletes leave no dangling edge', () => {
     await (await work.Work.find('local', made.id))!.delete()
     expect((await edges()).some((edge) => edge.target_kind === 'work')).toBe(false)
     expect(await links.danglingEdgeCount(database.getDatabase())).toBe(0)
-    await task.delete()
+    await tasks.deleteTask(task.id)
+    useTaskAdaptersForTests(null)
     expect((await edges()).some((edge) => edge.source_kind === 'task')).toBe(false)
     expect(await links.danglingEdgeCount(database.getDatabase())).toBe(0)
     await sessionRecords.deleteSessionRecord('local', 's1')

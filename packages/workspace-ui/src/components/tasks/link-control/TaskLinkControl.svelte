@@ -51,7 +51,7 @@
     taskLinkControlState(
       linked,
       currentTask
-        ? { taskId: currentTask.id, title: currentTask.title, status: currentTask.status, shortId: currentTask.shortId }
+        ? { taskId: currentTask.id, title: currentTask.title, category: currentTask.category, reference: currentTask.reference }
         : null,
     ),
   );
@@ -71,8 +71,8 @@
 
   const candidates = $derived(
     (projectKey ? store.tasksForCheckout(serverId, projectKey) : store.tasks)
-      .filter((task) => task.status !== "done" && task.status !== "dropped")
-      .map((task) => ({ taskId: task.id, title: task.title, status: task.status, shortId: task.shortId })),
+      .filter((task) => task.category !== "done")
+      .map((task) => ({ taskId: task.id, title: task.title, category: task.category, reference: task.reference })),
   );
   const rows = $derived(taskLinkPickerRows(candidates, linked ?? [], conversationTaskId ?? null));
 
@@ -88,7 +88,7 @@
     if (busyTaskId) return;
     busyTaskId = taskId;
     const task = store.get(taskId);
-    // Publish the intended state before the host round trip. The task method
+    // Show the intended state before the host round trip. The task method
     // confirms the same edge afterwards; a failed write restores this snapshot.
     if (isLinked) store.noteUnlinked(target, taskId);
     else store.noteLinked(target, task);
@@ -240,7 +240,7 @@
             </Command.Empty>
             {#each rows as row (row.taskId)}
               <Command.Item
-                value="{row.title} {row.shortId ?? ''} {row.taskId}"
+                value="{row.title} {row.reference ?? ''} {row.taskId}"
                 onSelect={() => void toggle(row.taskId, row.linked)}
                 disabled={busyTaskId !== null}
                 data-menu-current={row.linked ? "" : undefined}

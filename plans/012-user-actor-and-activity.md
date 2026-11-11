@@ -6,6 +6,8 @@
 which person runs an automation or an agent-started turn. This plan gives P7 one place to
 put that answer. It does not decide it.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the task parts are history: the attribution columns of the `tasks` table and of task comments (stage 4: `createdBy`, the assignee as a Solus user, upstream authors), the difference between a Local task and an organization task, and `GET /v1/tasks/{taskId}/activity` (stage 8). The `task_changed` activity stays, keyed by the task key. The assignee is now the provider's assignee.
+
 ## Why
 
 Plan 004 added "who did this" to many places one at a time. The work showed four

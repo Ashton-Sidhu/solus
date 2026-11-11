@@ -45,7 +45,6 @@ test('with nothing wanted no clock runs; a link or a client wakes it, and its in
   // WHY: the clock ran every 5 seconds forever, and each run read the
   // database, also on a host where nothing had a pull request.
   const { PrSync } = await import('@solus/server/prs/pr-sync')
-  const taskStore = await import('@solus/server/data/tasks/task-store')
   const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'clock' }
   const numberReads: number[][] = []
   const provider = { review: {
@@ -75,8 +74,8 @@ test('with nothing wanted no clock runs; a link or a client wakes it, and its in
     await settle()
     expect(interestReads).toBe(1)
 
-    // A new task can be the first interest: it is read at once.
-    await taskStore.createTask('local', { title: 'New work', status: 'todo' })
+    // A session that joins a task can be the first interest: it is read at once.
+    await (await import('@solus/server/data/tasks/task-attachments')).linkTaskSession('local', 'github:I_1', 'session-1')
     await settle()
     expect(interestReads).toBe(2)
 

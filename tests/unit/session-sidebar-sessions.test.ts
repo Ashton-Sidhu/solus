@@ -32,13 +32,16 @@ function sidebarStore(): SidebarStoreHarness {
 function task(id: string, title: string): Task {
   return {
     id,
-    providerId: 'local',
-    projectKey: '/repo',
+    providerId: 'github',
+    kind: 'issue',
     title,
     body: '',
-    status: 'todo',
     url: null,
+    state: { name: 'Open', category: 'open' },
+    category: 'open',
+    placements: [],
     labels: [],
+    writableFields: [],
     updatedAt: 0,
   }
 }

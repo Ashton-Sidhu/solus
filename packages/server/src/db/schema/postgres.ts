@@ -19,9 +19,9 @@ import * as tasksSchema from '../../data/tasks/schema'
 import * as webhooksSchema from '../../data/webhooks/schema'
 
 export const tasks = tasksSchema.tasks.pg
-export const task_counters = tasksSchema.taskCounters.pg
-export const task_external_links = tasksSchema.taskExternalLinks.pg
-export const upstream_task_cache = tasksSchema.upstreamTaskCache.pg
+export const task_sources = tasksSchema.taskSources.pg
+export const task_source_items = tasksSchema.taskSourceItems.pg
+export const task_source_access = tasksSchema.taskSourceAccess.pg
 export const asset_publications = tasksSchema.assetPublications.pg
 export const works = folioSchema.works.pg
 export const work_revisions = folioSchema.workRevisions.pg

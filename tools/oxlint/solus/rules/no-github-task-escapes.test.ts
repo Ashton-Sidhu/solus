@@ -4,47 +4,39 @@ import { noGithubTaskEscapesRule } from './no-github-task-escapes.ts'
 
 const tester = new RuleTester({ languageOptions: { parserOptions: { lang: 'ts' } } })
 
-const taskLayerFile = 'packages/server/src/data/tasks/upstream.ts'
-const adapterFile = 'packages/server/src/data/tasks/adapters/github.ts'
+const taskLayerFile = 'packages/server/src/data/tasks/task.ts'
+const sourceFile = 'packages/server/src/data/tasks/sources/github-repo.ts'
 const providerFile = 'packages/server/src/data/tasks/providers/github.ts'
 
 tester.run('solus/no-github-task-escapes', noGithubTaskEscapesRule, {
   valid: [
-    // The adapter is the boundary: it exists to talk to the provider.
+    // The adapters are the boundary: they exist to talk to the provider.
     {
-      code: 'const task = await provider.updateTask(id, patch);',
-      filename: adapterFile,
+      code: 'const res = await rest.issues.create({ title });',
+      filename: sourceFile,
     },
     {
       code: 'const res = await rest.issues.createComment({ body });',
       filename: providerFile,
     },
-    // A resolved adapter is the whole point of the rule.
+    // A bound adapter is the whole point of the rule.
     {
-      code: 'const adapter = taskSyncAdapter("github"); await adapter.postComment(ref, body);',
+      code: 'const provider = taskAdapters().provider(home.provider); await provider.publishAssets(home, body);',
       filename: taskLayerFile,
     },
+    // An adapter arriving by annotation is as trusted as one bound locally.
     {
-      code: 'const adapter = this.adapterFor(link.provider); await adapter.pushFields(ref, patch);',
-      filename: taskLayerFile,
-    },
-    // An adapter arriving by annotation is as trusted as one resolved locally.
-    {
-      code: 'async function send(adapter: TaskSyncAdapter, ref, body) { await adapter.postComment(ref, body); }',
-      filename: taskLayerFile,
-    },
-    {
-      code: 'const adapter: TaskSyncAdapter = registry.get("github"); await adapter.createTicket(target, patch);',
+      code: 'async function send(provider: TaskProviderAdapter, home, body) { await provider.publishAssets(home, body); }',
       filename: taskLayerFile,
     },
     // A field that holds an adapter is the adapter.
     {
-      code: 'const ticket = await target.adapter.createTicket(target.ref, patch);',
+      code: 'const published = await target.adapter.publishAssets(target.home, body);',
       filename: taskLayerFile,
     },
     // Reads cannot diverge, so they are free.
     {
-      code: 'const task = await provider.getTask(id);',
+      code: 'const task = await client.fetch(ref);',
       filename: taskLayerFile,
     },
     {
@@ -60,17 +52,12 @@ tester.run('solus/no-github-task-escapes', noGithubTaskEscapesRule, {
   ],
   invalid: [
     {
-      code: 'await provider.postComment(id, body);',
+      code: 'await client.publishAssets(home, body);',
       filename: taskLayerFile,
       errors: [{ messageId: 'providerWrite' }],
     },
     {
-      code: 'return withProjectKey(await provider.updateTask(id, patch), cwd);',
-      filename: taskLayerFile,
-      errors: [{ messageId: 'providerWrite' }],
-    },
-    {
-      code: 'await makeGitHubTaskProvider(cwd).then((p) => p.postComment(id, body));',
+      code: 'await makeClient(cwd).then((client) => client.publishAssets(home, body));',
       filename: taskLayerFile,
       errors: [{ messageId: 'providerWrite' }],
     },
@@ -84,10 +71,10 @@ tester.run('solus/no-github-task-escapes', noGithubTaskEscapesRule, {
       filename: taskLayerFile,
       errors: [{ messageId: 'restWrite' }],
     },
-    // A binding that was never resolved from an adapter factory is a provider,
+    // A binding that was never bound from the adapter registry is a raw client,
     // whatever it happens to be called.
     {
-      code: 'const adapter = new GitHubTaskProvider(repo); await adapter.postComment(id, body);',
+      code: 'const provider = new GitHubTaskProvider(run); await provider.publishAssets(home, body);',
       filename: taskLayerFile,
       errors: [{ messageId: 'providerWrite' }],
     },

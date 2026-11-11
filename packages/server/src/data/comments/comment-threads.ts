@@ -72,6 +72,8 @@ const threadReviewSchema = z.object({
   replies: z.array(replySchema).optional(),
   readAt: z.number().optional(),
   readBy: z.array(readMarkSchema).optional(),
+  /** A task comment the provider did not take: why the last send failed. */
+  sendError: z.string().optional(),
 })
 export type ThreadReview = z.infer<typeof threadReviewSchema>
 
@@ -202,7 +204,8 @@ export async function readExternalThread(db: Db, subject: ThreadSubject, externa
 async function allocatePosition(db: Db, subject: ThreadSubject): Promise<number> {
   const counter = sql`comment_position = comment_position + 1`
   const statement = subject.kind === 'task'
-    ? sql`UPDATE ${tasks} SET ${counter} WHERE id = ${subject.id} AND organization_id = ${subject.organizationId} RETURNING comment_position`
+    // A task has no organization: its comments are in `local`, on the host's copy of the task.
+    ? sql`UPDATE ${tasks} SET ${counter} WHERE id = ${subject.id} RETURNING comment_position`
     : subject.kind === 'work'
       ? sql`UPDATE ${works} SET ${counter} WHERE id = ${subject.id} AND organization_id = ${subject.organizationId} RETURNING comment_position`
       : sql`UPDATE ${planAnnotations} SET ${counter} WHERE session_id = ${subject.id} AND plan_tool_use_id = ${subject.part ?? ''} AND organization_id = ${subject.organizationId} RETURNING comment_position`

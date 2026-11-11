@@ -88,7 +88,7 @@
 
   const filters = $derived(linkFilters(links));
   const rows = $derived(
-    links.filter((link) => filter === null || link.kind === filter).map(linkRow),
+    links.filter((link) => filter === null || link.kind === filter).map((link) => linkRow(link)),
   );
   const shown = $derived(expanded ? rows : rows.slice(0, CAP));
   /** The same rows the table draws, split by the Kind column the phone row has

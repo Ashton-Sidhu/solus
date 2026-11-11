@@ -10,6 +10,12 @@
   import * as Popover from "../ui/popover";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { taskPickerSections } from "../tasks/lib/task-picker-sections";
+  import { taskRef } from "../tasks/lib/tasks-api";
+  import {
+    ProviderTaskSearch,
+    searchableProjectRoot,
+    tasksOnlyFound,
+  } from "../../lib/provider-task-search.svelte";
   import TaskIcon from "../ui/TaskIcon.svelte";
 
   interface Props {
@@ -30,17 +36,21 @@
 
   const workspace = getWorkspaceContext();
   const selectedTask = $derived(
-    target.kind === "existing"
-      ? (workspace.tasksStore.tasks.find((task) => task.id === target.taskId) ??
-        null)
-      : null,
+    target.kind === "existing" ? workspace.tasksStore.peek(target.taskId) : null,
   );
   const tasks = $derived(
     workspace.tasksStore
       .tasksForCheckout(serverId, projectKey)
-      .filter((task) => task.status !== "done" && task.status !== "dropped"),
+      .filter((task) => task.category !== "done"),
   );
   const taskSections = $derived(taskPickerSections(tasks));
+  // The host lists at most a part of a large task source. A query also asks
+  // the provider, and the tasks only it found show below the listed ones.
+  const providerSearch = new ProviderTaskSearch(() => {
+    const cwd = searchableProjectRoot(projectKey);
+    return cwd ? (text) => workspace.tasksStore.search(serverId, cwd, text) : null;
+  });
+  const foundTasks = $derived(tasksOnlyFound(providerSearch.results, tasks));
   const label = $derived(
     selectedTask?.title ?? "No task",
   );
@@ -48,8 +58,6 @@
   let open = $state(false);
   let tooltipOpen = $state(false);
   let query = $state("");
-  let promotingId = $state<string | null>(null);
-  let promotionError = $state<string | null>(null);
   let triggerEl = $state<HTMLButtonElement | null>(null);
 
   function handleOpenChange(next: boolean) {
@@ -71,24 +79,11 @@
     open = false;
   }
 
-  async function selectTask(task: (typeof tasks)[number]) {
-    promotionError = null;
-    if (task.providerId === "local") {
-      select({ kind: "existing", taskId: task.id });
-      return;
-    }
-    promotingId = task.id;
-    try {
-      const nativeTask = await workspace.tasksStore
-        .get(task.id, task.projectKey ?? undefined)
-        .promote();
-      select({ kind: "existing", taskId: nativeTask.id });
-    } catch (error) {
-      promotionError = error instanceof Error ? error.message : String(error);
-    } finally {
-      promotingId = null;
-    }
-  }
+  $effect(() => {
+    if (!open) return;
+    providerSearch.request(query);
+    return () => providerSearch.cancel();
+  });
 
   // The open shortcut is dispatched by the composer this chip sits under and
   // names its pane. Only the chip in that pane answers, and only while it is on
@@ -177,19 +172,17 @@
 
         <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
 
-        <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
-          No tasks match
-        </Command.Empty>
-        {#if promotionError}
-          <p class="px-2.5 py-2 text-xs text-(--failure)">{promotionError}</p>
+        {#if !providerSearch.searching && foundTasks.length === 0}
+          <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
+            No tasks match
+          </Command.Empty>
         {/if}
         {#each taskSections as section (section.key)}
           <Command.Group heading={section.label}>
             {#each section.tasks as task (task.id)}
               <Command.Item
-                value="{task.title} {task.shortId ?? ''} {task.id}"
-                onSelect={() => void selectTask(task)}
-                disabled={promotingId !== null}
+                value="{task.title} {task.reference ?? ''} {task.id}"
+                onSelect={() => select({ kind: "existing", taskId: task.id })}
                 data-menu-current={selectedTask?.id === task.id
                   ? ""
                   : undefined}
@@ -200,9 +193,7 @@
                   class="shrink-0 text-(--solus-text-tertiary)"
                 />
                 <span class="min-w-0 flex-1 truncate">{task.title}</span>
-                {#if promotingId === task.id}
-                  <span class="shrink-0 text-(--solus-text-tertiary)">Importing…</span>
-                {/if}
+                <span class="shrink-0 text-(--solus-text-tertiary)">{taskRef(task)}</span>
                 {#if selectedTask?.id === task.id}
                   <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                 {/if}
@@ -210,6 +201,31 @@
             {/each}
           </Command.Group>
         {/each}
+        <!-- The provider matched these itself, so the menu's own filter must
+             not hide them. -->
+        {#if foundTasks.length}
+          <Command.Group heading="More results" forceMount>
+            {#each foundTasks as task (task.id)}
+              <Command.Item
+                value="found {task.id}"
+                forceMount
+                onSelect={() => select({ kind: "existing", taskId: task.id })}
+              >
+                <TaskIcon
+                  size={13}
+                  class="shrink-0 text-(--solus-text-tertiary)"
+                />
+                <span class="min-w-0 flex-1 truncate">{task.title}</span>
+                <span class="shrink-0 text-(--solus-text-tertiary)">{taskRef(task)}</span>
+              </Command.Item>
+            {/each}
+          </Command.Group>
+        {/if}
+        {#if providerSearch.searching}
+          <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">Searching…</p>
+        {:else if providerSearch.error}
+          <p class="px-2.5 py-2 text-xs text-(--failure)">{providerSearch.error}</p>
+        {/if}
       </Command.List>
     </Command.Root>
   </Popover.Content>

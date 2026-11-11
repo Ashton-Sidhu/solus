@@ -12,6 +12,12 @@
   import { MenuSearch } from "../ui/menu";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import { taskPickerSections } from "../tasks/lib/task-picker-sections";
+  import { taskRef } from "../tasks/lib/tasks-api";
+  import {
+    ProviderTaskSearch,
+    searchableProjectRoot,
+    tasksOnlyFound,
+  } from "../../lib/provider-task-search.svelte";
   import { projectHome } from "../../contexts/workspace/run-location";
 
   /**
@@ -36,15 +42,23 @@
       ? environmentProjectKey(session.environment.environmentFor(sess.run), sess.run)
       : "~",
   );
+  const serverId = $derived(projectHome(sess?.run)?.serverId ?? session.serverIdFor(tabId));
   const tasks = $derived(
     session.tasksStore
-      .tasksForCheckout(projectHome(sess?.run)?.serverId ?? session.serverIdFor(tabId), projectKey)
-      .filter((task) => task.status !== "done" && task.status !== "dropped"),
+      .tasksForCheckout(serverId, projectKey)
+      .filter((task) => task.category !== "done"),
   );
   const sections = $derived(taskPickerSections(tasks));
+  // The host lists at most a part of a large task source. A query also asks
+  // the provider, and the tasks only it found show below the listed ones.
+  const providerSearch = new ProviderTaskSearch(() => {
+    const cwd = searchableProjectRoot(projectKey);
+    return cwd && serverId ? (text) => session.tasksStore.search(serverId, cwd, text) : null;
+  });
+  const foundTasks = $derived(tasksOnlyFound(providerSearch.results, tasks));
 
   let query = $state("");
-  /** The task whose link is in flight. A provider ticket is imported first. */
+  /** The task whose link is in flight. */
   let linkingTaskId = $state<string | null>(null);
 
   let dialogEl = $state<HTMLDivElement | null>(null);
@@ -74,6 +88,11 @@
     }
   }
 
+  $effect(() => {
+    providerSearch.request(query);
+    return () => providerSearch.cancel();
+  });
+
   // A modal: shortcuts behind it stay quiet while it is open.
   useScope("modal-dialog", { exclusive: true, pre: true, active: () => !anchor });
 </script>
@@ -85,26 +104,53 @@
     <Command.Root>
       <MenuSearch bind:value={query} placeholder="Search tasks" />
       <Command.List class="max-h-[18rem] overflow-y-auto p-1.5">
-        <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
-          No tasks match
-        </Command.Empty>
+        {#if !providerSearch.searching && foundTasks.length === 0}
+          <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
+            No tasks match
+          </Command.Empty>
+        {/if}
         {#each sections as section (section.key)}
           <Command.Group heading={section.label}>
             {#each section.tasks as task (task.id)}
               <Command.Item
-                value="{task.title} {task.shortId ?? ''} {task.id}"
+                value="{task.title} {task.reference ?? ''} {task.id}"
                 onSelect={() => void pick(task)}
                 disabled={linkingTaskId !== null}
               >
                 <TaskIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
                 <span class="min-w-0 flex-1 truncate">{task.title}</span>
-                {#if linkingTaskId === task.id}
-                  <span class="shrink-0 text-(--solus-text-tertiary)">Linking…</span>
-                {/if}
+                <span class="shrink-0 text-(--solus-text-tertiary)">
+                  {linkingTaskId === task.id ? "Linking…" : taskRef(task)}
+                </span>
               </Command.Item>
             {/each}
           </Command.Group>
         {/each}
+        <!-- The provider matched these itself, so the menu's own filter must
+             not hide them. -->
+        {#if foundTasks.length}
+          <Command.Group heading="More results" forceMount>
+            {#each foundTasks as task (task.id)}
+              <Command.Item
+                value="found {task.id}"
+                forceMount
+                onSelect={() => void pick(task)}
+                disabled={linkingTaskId !== null}
+              >
+                <TaskIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+                <span class="min-w-0 flex-1 truncate">{task.title}</span>
+                <span class="shrink-0 text-(--solus-text-tertiary)">
+                  {linkingTaskId === task.id ? "Linking…" : taskRef(task)}
+                </span>
+              </Command.Item>
+            {/each}
+          </Command.Group>
+        {/if}
+        {#if providerSearch.searching}
+          <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">Searching…</p>
+        {:else if providerSearch.error}
+          <p class="px-2.5 py-2 text-xs text-(--failure)">{providerSearch.error}</p>
+        {/if}
       </Command.List>
     </Command.Root>
 {/snippet}

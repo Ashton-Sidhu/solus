@@ -6,6 +6,7 @@ import type { ProjectConfig } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { worktreeBranchNamingSchema } from '@solus/contracts/worktree-branch-naming'
 import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema } from '@solus/contracts/device-types'
+import { MAX_TASK_SOURCES, taskSourceKey, taskSourceSchema, type TaskSource } from '@solus/contracts/task-sources'
 import { git, gitOutputPath } from '../git/exec'
 
 /**
@@ -29,15 +30,10 @@ const PROJECT_CONFIG_FILE = 'config.json'
 const rootByCwd = new Map<string, string>()
 
 const projectConfigInputSchema = z.object({
-  taskProvider: z.enum(['github', 'jira', 'local']).optional(),
-  taskProviderConfig: z.object({
-    owner: z.string().optional(),
-    repo: z.string().optional(),
-    cloudId: z.string().optional(),
-    projectKey: z.string().optional(),
-  }).optional(),
-  tasksAutoPushComments: z.boolean().optional(),
   taskDoneOnMerge: z.boolean().optional(),
+  // One malformed source is dropped; the others still apply.
+  taskSources: z.array(taskSourceSchema.nullable().catch(null)).max(MAX_TASK_SOURCES).optional().catch(undefined),
+  defaultTaskSource: z.string().optional().catch(undefined),
   // A malformed override is dropped, not fatal: the rest of the file still applies.
   worktreeBranchNaming: worktreeBranchNamingSchema.optional().catch(undefined),
   deviceRuns: z.array(deviceRunProfileSchema).max(MAX_DEVICE_RUN_PROFILES).optional().catch(undefined),
@@ -76,26 +72,28 @@ export function projectConfigPath(cwd: string): string {
   return join(resolveProjectRoot(cwd), PROJECT_CONFIG_DIR, PROJECT_CONFIG_FILE)
 }
 
+/** A project lists a source one time: the same board twice would show each task twice. */
+function distinctTaskSources(sources: readonly (TaskSource | null)[]): TaskSource[] {
+  const bySourceKey = new Map<string, TaskSource>()
+  for (const source of sources) {
+    if (source && !bySourceKey.has(taskSourceKey(source))) bySourceKey.set(taskSourceKey(source), source)
+  }
+  return [...bySourceKey.values()]
+}
+
 function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   const config: ProjectConfig = { version: 1 }
-  if (raw.taskProvider !== undefined) {
-    config.taskProvider = raw.taskProvider
-  }
-  const providerConfig = raw.taskProviderConfig
-  if (providerConfig?.owner || providerConfig?.repo || providerConfig?.cloudId || providerConfig?.projectKey) {
-    config.taskProviderConfig = {}
-    if (providerConfig.owner !== undefined) config.taskProviderConfig.owner = providerConfig.owner
-    if (providerConfig.repo !== undefined) config.taskProviderConfig.repo = providerConfig.repo
-    if (providerConfig.cloudId !== undefined) config.taskProviderConfig.cloudId = providerConfig.cloudId
-    if (providerConfig.projectKey !== undefined) {
-      config.taskProviderConfig.projectKey = providerConfig.projectKey
-    }
-  }
-  if (raw.tasksAutoPushComments !== undefined) {
-    config.tasksAutoPushComments = raw.tasksAutoPushComments
-  }
   if (raw.taskDoneOnMerge !== undefined) {
     config.taskDoneOnMerge = raw.taskDoneOnMerge
+  }
+  const taskSources = distinctTaskSources(raw.taskSources ?? [])
+  if (taskSources.length) {
+    config.taskSources = taskSources
+    // A new task needs one place to go, so a project with sources always has a default.
+    const sourceKeys = taskSources.map(taskSourceKey)
+    config.defaultTaskSource = raw.defaultTaskSource !== undefined && sourceKeys.includes(raw.defaultTaskSource)
+      ? raw.defaultTaskSource
+      : sourceKeys[0]
   }
   if (raw.worktreeBranchNaming !== undefined) {
     config.worktreeBranchNaming = raw.worktreeBranchNaming

@@ -58,8 +58,8 @@ test('the record service answers its own paths on a listener it does not own, an
   port = Number(new URL(url).port)
   try {
     expect((await fetch(url + '/v1/openapi.json')).status).toBe(200)
-    // Bearer admission still guards records: no credential, no tasks.
-    expect((await fetch(url + '/v1/tasks')).status).toBe(401)
+    // Bearer admission still guards records: no credential, no works.
+    expect((await fetch(url + '/v1/works')).status).toBe(401)
     expect((await fetch(url + '/health')).status).toBe(200)
     // The site's paths never reach the record service.
     expect(await (await fetch(url + '/account')).text()).toBe('site')
@@ -87,7 +87,9 @@ test('every route the record service registers is a record path, or one only its
   try {
     // `ALL <path>/*` entries are middleware (CORS, the static fallback), not routes.
     const routes = service.routes.filter(route => !(route.method === 'ALL' && route.path.endsWith('*')))
-    expect(routes.some(route => route.path === '/v1/tasks/:taskId')).toBe(true)
+    expect(routes.some(route => route.path === '/v1/works/:workId')).toBe(true)
+    // GitHub or Jira holds each task: the record service has no task route.
+    expect(routes.filter(route => route.path.startsWith('/v1/tasks'))).toEqual([])
     const unowned = routes
       .map(route => route.path.replace(/:[^/]+/g, 'x'))
       .filter(path => !isRecordServicePath(path) && !ownListenerOnly.has(path))

@@ -8,6 +8,8 @@ Stages 3–4 not started. Design: `002-session-exchange.md`.
 Revised 2026-09-23 against HEAD `07624969`.
 Task: `01M2RDBWB45CX4C3EFFKWJ9Q5S` — Reliable Parent Task Orchestrator.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the `task_session_links` table, the task that a session makes for itself (§1.3) and the task rows that stage 4 reads are history. A session link is now keyed by the task key.
+
 ## Goal
 
 The task asks for one long-running parent conversation that creates,

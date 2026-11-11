@@ -132,17 +132,12 @@ describe('a link and an unlink of the owner\'s account', () => {
 describe('the owner named by their account (plans/031 D4, inbound)', () => {
   test('is the host user on this host while it is linked, and anyone else stays who they are', async () => {
     // WHY: a member picks the owner from the organization's directory, by account id. Stored as
-    // it came, a review request, mention, share, or assignment never reached the owner here.
+    // it came, a review request, mention, or share never reached the owner here.
     const hostUser = await import('@solus/server/host/host-user')
-    const { assertTaskAssignee, taskAssigneeKey } = await import('@solus/server/data/tasks/task-activity')
     try {
       hostUser.useHostUser({ localId: 'L1', account: { accountId: 'acc-1' } })
       expect(hostUser.hostKeyOf('acc-1')).toBe('local:L1')
       expect(hostUser.hostKeyOf('bob')).toBe('bob')
-      expect(taskAssigneeKey(' acc-1 ')).toBe('local:L1')
-      // The owner may be assigned an organization task.
-      expect(() => assertTaskAssignee('org1', 'local:L1')).not.toThrow()
-      expect(() => assertTaskAssignee('org1', 'guest:g1')).toThrow()
       hostUser.useHostUser({ localId: 'L1' })
       expect(hostUser.hostKeyOf('acc-1')).toBe('acc-1')
     } finally {

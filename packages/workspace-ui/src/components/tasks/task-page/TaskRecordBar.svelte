@@ -6,17 +6,17 @@
     LoaderCircle as CircleNotchIcon,
     MoreHorizontal as DotsIcon,
     Link as LinkIcon,
+    Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
-  import { taskProviderLabel, taskRef } from "./lib/task-page";
-  import type { TaskUpstreamState } from "./lib/task-upstream";
+  import { PROVIDER_NAMES, taskRef } from "../lib/tasks-api";
 
   /**
    * The task page's head at the record rung — back, what this is, everything
    * else.
    *
-   * `TaskChromeBar` spends its width on a project crumb, an upstream pill and
+   * `TaskChromeBar` spends its width on a project crumb, a provider pill and
    * six round 26px controls. None of that survives 393px, and none of it is
    * lost: the crumb becomes the subtitle under the reference, the pill and the
    * five controls become one overflow menu, and the sixth — back to the list —
@@ -24,38 +24,40 @@
    */
   interface Props {
     task: Task;
-    /** Which project the list behind this page is showing. */
-    projectLabel: string;
-    /** How this task stands with the system that owns its ticket. Null for a
-     *  local task, which then has no upstream line in the menu. */
-    upstream: TaskUpstreamState | null;
-    syncing: boolean;
-    onSync?: (() => void) | null;
+    /** Which project the list behind this page is showing. Null when no
+     *  project of this client lists the task. */
+    projectLabel: string | null;
+    /** A read of the task from its provider is on its way. */
+    refreshing: boolean;
+    /** Read the task from its provider again. */
+    onRefresh: () => void;
     onPrevious?: (() => void) | null;
     onNext?: (() => void) | null;
     onOpenSource?: (() => void) | null;
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
-    /** Upload a Local task if it needs it, then copy its link. Null where there is no organization to link into. */
+    /** Copy the task's address on its provider. Null for a draft. */
     onCopyLink?: (() => void) | null;
+    /** Delete the task. Null for an issue: only a draft can be deleted. */
+    onDelete?: (() => void) | null;
     onOpenList: () => void;
   }
 
   let {
     task,
     projectLabel,
-    upstream,
-    syncing,
-    onSync,
+    refreshing,
+    onRefresh,
     onPrevious,
     onNext,
     onOpenSource,
     onOpenPage,
     onCopyLink = null,
+    onDelete = null,
     onOpenList,
   }: Props = $props();
 
-  const providerLabel = $derived(taskProviderLabel(task));
+  const providerName = $derived(PROVIDER_NAMES[task.providerId]);
 </script>
 
 <!-- The centred pair names the task by its reference and says which list the
@@ -78,7 +80,7 @@
       {taskRef(task)}
     </span>
     <span class="max-w-full truncate text-xs text-muted-foreground">
-      {projectLabel} · Tasks
+      {projectLabel ?? providerName} · Tasks
     </span>
   </div>
 
@@ -96,26 +98,22 @@
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content align="end" sideOffset={4} class="min-w-52">
-      {#if upstream}
-        <DropdownMenu.Label>
-          {upstream.provider} · {upstream.ref}
-        </DropdownMenu.Label>
-      {/if}
-      {#if onSync}
-        <DropdownMenu.Item disabled={syncing} onSelect={() => onSync?.()}>
-          <CircleNotchIcon
-            size={14}
-            class={syncing ? "animate-spin motion-reduce:animate-none" : ""}
-          />
-          <span class="flex-1 text-left"
-            >{syncing ? "Syncing…" : "Sync now"}</span
-          >
-        </DropdownMenu.Item>
-      {/if}
+      <DropdownMenu.Label>
+        {providerName} · {taskRef(task)}
+      </DropdownMenu.Label>
+      <DropdownMenu.Item disabled={refreshing} onSelect={onRefresh}>
+        <CircleNotchIcon
+          size={14}
+          class={refreshing ? "animate-spin motion-reduce:animate-none" : ""}
+        />
+        <span class="flex-1 text-left"
+          >{refreshing ? "Reading…" : `Read from ${providerName} again`}</span
+        >
+      </DropdownMenu.Item>
       {#if onOpenSource}
         <DropdownMenu.Item onSelect={() => onOpenSource?.()}>
           <ArrowSquareOutIcon size={14} />
-          <span class="flex-1 text-left">Open in {providerLabel}</span>
+          <span class="flex-1 text-left">Open in {providerName}</span>
         </DropdownMenu.Item>
       {/if}
       {#if onOpenPage}
@@ -127,7 +125,13 @@
       {#if onCopyLink}
         <DropdownMenu.Item onSelect={() => onCopyLink?.()} data-testid="task-copy-link">
           <LinkIcon size={14} />
-          <span class="flex-1 text-left">Copy link</span>
+          <span class="flex-1 text-left">Copy {providerName} link</span>
+        </DropdownMenu.Item>
+      {/if}
+      {#if onDelete}
+        <DropdownMenu.Item variant="destructive" onSelect={() => onDelete?.()} data-testid="task-delete">
+          <TrashIcon size={14} />
+          <span class="flex-1 text-left">Delete draft</span>
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Separator />

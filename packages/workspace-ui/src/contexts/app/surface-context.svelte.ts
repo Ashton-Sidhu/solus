@@ -59,10 +59,9 @@ export interface SurfaceContext {
   readonly taskCreationContext: TaskCreationContext | null
   /** The checkout the input bar is in, as a host and repository root; null with none. */
   readonly activeCheckout: ProjectRef | null
-  /** Where a task filed in a project goes (docs/plans/project-model.md §4):
-   *  the host of `checkout`, else the cloud workspace for a project the
-   *  organization has. Null when neither can take it. */
-  taskContextForProject(projectKey: string, checkout: ProjectRef | null): TaskCreationContext | null
+  /** Where a new task of a project is created: the host of `checkout`, which
+   *  has the project's task sources. Null for a project no known host holds. */
+  taskContextForProject(checkout: ProjectRef | null): TaskCreationContext | null
   /** Scope the project pages to the input bar's project; false when it names none. */
   scopePageToCurrentProject(): boolean
   /** Scope the project pages to one project, by its key. */
@@ -134,6 +133,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'openAutomationBuilder'
   | 'openInsights'
   | 'openPrs'
+  | 'taskComposerRequested'
   | 'openRoute'
   | 'warmRoute'
   | 'openUrlInBrowser'

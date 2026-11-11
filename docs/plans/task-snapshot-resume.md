@@ -2,6 +2,15 @@
 
 Status: done.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. The resume in this plan did not
+> change. Only what a snapshot lists changed: the tasks that the caller's task
+> sources list, and each task that a visible session links. A task id is a
+> task key. A host that keeps only attachments (the Solus API of an
+> organization) answers no tasks. In this plan, "a share change of a task"
+> under "Token shape" is history: a task has no share.
+
 ## Problem
 
 A client read the whole task list of a host each time its socket connected

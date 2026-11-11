@@ -1,63 +1,40 @@
-import { Task } from './task'
-import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
-import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { z } from 'zod'
-import { attributionSchema, type Attribution } from '@solus/contracts/user'
-import { agentAttribution } from '../stored-attribution'
-import { legacyTaskActor } from './task-activity'
+import type { OutboxOp } from '@solus/contracts/outbox-types'
+import { attributionSchema } from '@solus/contracts/user'
+import { parseTaskKey } from '@solus/contracts/task-sources'
+import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
+import { commentOnTask, moveTaskToStatus } from './task'
 
-const taskStatusSchema = z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'])
-/** An op recorded before plan 012 stage 4 names its author by label (`'agent'`) and its actor by session id. */
-const taskCommentPayloadSchema = z.union([
-  z.object({ body: z.string(), author: attributionSchema, originSessionId: z.string().optional() }),
-  z.object({ body: z.string(), author: z.string(), originSessionId: z.string().optional() })
-    .transform((payload) => ({ ...payload, author: legacyTaskActor(payload.author, payload.originSessionId ?? null) })),
-])
-const taskStatusPayloadSchema = z.object({
-  status: taskStatusSchema,
-  actor: attributionSchema.optional(),
-  actorLabel: z.string().optional(),
-})
-/** Who an op says did it: its attribution, or for an older op the agent its label or session names. */
-function opActor(payload: { actor?: Attribution; actorLabel?: string }, op: OutboxOp): Attribution {
-  return payload.actor ?? agentAttribution(payload.actorLabel ?? op.sessionId)
-}
+const taskCommentPayloadSchema = z.object({ body: z.string(), author: attributionSchema, originSessionId: z.string().optional() })
+/** `status` is a status category or the name of a column (`moveTaskToStatus`). */
+const taskStatusPayloadSchema = z.object({ status: z.string() })
 
 /**
  * Owner-side writes for `tasks` outbox ops (ADR-0007): a dispatched session's
- * comment and status change, applied on the host that owns the task. Every verb
- * survives redelivery: a comment inserts under the op id (`INSERT OR IGNORE`),
- * and set-status re-applies to the same value.
+ * comment and status change, applied on the host that reads the task as
+ * provider writes. A comment survives redelivery: it is kept under the op id,
+ * so a second delivery makes no second row. A move to a category the task has
+ * already is a no-op.
  */
 export function registerTaskOutboxApplier(): void {
   registerOutboxApplier('tasks', async (op: OutboxOp, { organizationId }) => {
-    const task = await taskOrPermanentError(organizationId, op.resourceId)
+    if (!parseTaskKey(op.resourceId)) throw new PermanentApplyError(`"${op.resourceId}" is not a task of GitHub or Jira.`)
     if (op.name === 'comment') {
       const payload = taskCommentPayloadSchema.parse(op.payload)
-      const originSessionId = payload.originSessionId ?? op.sessionId ?? null
-      await task.comment(payload.body, {
+      await commentOnTask(organizationId, op.resourceId, {
         id: op.id,
+        body: payload.body,
         by: payload.author,
-        originSessionId,
+        originSessionId: payload.originSessionId ?? op.sessionId ?? null,
       })
       return
     }
     if (op.name === 'set-status') {
-      const payload = taskStatusPayloadSchema.parse(op.payload)
-      await task.update({ status: payload.status }, opActor(payload, op))
+      await moveTaskToStatus(op.resourceId, taskStatusPayloadSchema.parse(op.payload).status)
       return
     }
     // An unknown verb is a version-skew problem a retry may fix once this host
     // updates, so it is deliberately not permanent.
     throw new Error(`Unknown tasks outbox op "${op.name}".`)
   })
-}
-
-/** An op is applied in the organization that owns the task; a task gone from there is gone for good. */
-async function taskOrPermanentError(organizationId: string, taskId: string): Promise<Task> {
-  try {
-    return await Task.byId(organizationId, taskId)
-  } catch {
-    throw new PermanentApplyError(`Task ${taskId} no longer exists on its owner host.`)
-  }
 }

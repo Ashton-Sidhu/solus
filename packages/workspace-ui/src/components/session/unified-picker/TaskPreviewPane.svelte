@@ -5,7 +5,7 @@
   import type { Task, TaskLink } from "@solus/contracts/task-types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
-  import { relativeTime, STATUS_META } from "../../tasks/lib/tasks-api";
+  import { relativeTime, taskRef } from "../../tasks/lib/tasks-api";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
   import {
     linkedTableLinks,
@@ -21,7 +21,6 @@
   } from "../lib/task-preview.svelte";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
   import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
-  import { projectLabel } from "./lib/picker-rows";
 
   /**
    * The selected task in miniature. Task-level commands live in the pinned
@@ -53,22 +52,21 @@
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
 
-  const status = $derived(STATUS_META[task.status]);
   const bars = $derived(priorityBars(task.priority));
   const openedAt = $derived(task.createdAt ? relativeTime(task.createdAt) : "");
 
   // Works, plans and automations only come from a detail read, so the preview
   // asks for them once the selection settles and shows no Linked section until
   // they arrive. PR identities are already in the sidebar snapshot.
-  const previewDetails = new TaskPreviewDetails((taskId, projectKey) =>
-    session.tasksStore.get(taskId, projectKey).loadDetails(),
+  const previewDetails = new TaskPreviewDetails((taskId) =>
+    session.tasksStore.get(taskId).loadDetails(),
   );
   const details = $derived(session.tasksStore.get(task.id).details);
   const links = $derived(details?.links ?? []);
   const linkedRows = $derived(linkedTableLinks(links).map((link) => linkRow(link)));
   // Read and observe links through the same store as the task page and sidebar.
   const prScope = $derived({
-    cwd: task.projectKey ?? null,
+    cwd: session.projectRootOfTask(task.id),
     serverId: session.tasksStore.get(task.id).serverId,
   });
   const prRows = $derived(
@@ -91,7 +89,7 @@
   });
 
   $effect(() => {
-    previewDetails.request(task.id, task.projectKey ?? undefined);
+    previewDetails.request(task.id);
     return () => previewDetails.cancel();
   });
 </script>
@@ -118,8 +116,8 @@
        the meta line yields to the title. -->
   <div class="mb-3 flex flex-wrap items-center gap-2.5 text-micro text-muted-foreground max-md:hidden">
     <span class="inline-flex items-center gap-1.5">
-      <TaskStatusGlyph status={task.status} size={12} />
-      {status.label}
+      <TaskStatusGlyph category={task.category} size={12} />
+      {task.state.name}
     </span>
     <span class="opacity-[0.32]" aria-hidden="true">/</span>
     <span class="inline-flex items-center gap-1.5">
@@ -131,7 +129,7 @@
       {priorityLabel(task.priority)}
     </span>
     <span class="opacity-[0.32]" aria-hidden="true">/</span>
-    <span>{projectLabel(task)}</span>
+    <span>{task.reference ?? taskRef(task)}</span>
     {#if openedAt}
       <span class="opacity-[0.32]" aria-hidden="true">/</span>
       <span>opened {openedAt}</span>

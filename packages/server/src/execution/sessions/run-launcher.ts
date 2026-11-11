@@ -15,14 +15,14 @@ import { resolvePromptImages } from '../agents/prompt-image-refs'
 import { unattendedModelInputFor, providerConversationFor } from '../agents/run-input'
 import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
-import { tasksForSession } from '../../data/tasks/task-sessions'
+import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
 import { organizationOfSession, sessionIsOrganizationWork } from '../../data/sessions/session-records'
 import { isLeadSession, markSessionLead } from '../../data/sessions/lead-sessions'
 import { formatLeadContract } from '../../data/sessions/lead-contract'
 import { workspaceToolContext } from '../../data/workspace/tool-context'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
-import { ANY_ORGANIZATION } from '../../admission/principal'
+import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator'
@@ -771,14 +771,14 @@ export class RunLauncher {
     // stays under the task the session has.
     if (pendingHandoff && !options.taskId) {
       const existingTask = await dispatchStep('task_lookup', {
-        fn: 'tasksForSession',
+        fn: 'taskIdForSession',
         file: 'run-launcher.ts',
       }, async (annotate) => {
-        const found = await tasksForSession(ANY_ORGANIZATION, sessionId)
-        annotate({ taskId: found?.task.id ?? '' })
+        const found = await taskIdForSession(ANY_ORGANIZATION, sessionId)
+        annotate({ taskId: found ?? '' })
         return found
       })
-      if (existingTask) options.taskId = existingTask.task.id
+      if (existingTask) options.taskId = existingTask
     }
     // Bind the task the prompt names, when this host holds it. A shipped
     // snapshot marks the task as foreign: its row lives on another host, where
@@ -792,7 +792,8 @@ export class RunLauncher {
         fn: 'sessionTaskPreparer',
         file: 'run-launcher.ts',
       }, async (annotate) => {
-        const prepared = await this.rt.sessionTaskPreparer(ANY_ORGANIZATION, {
+        // No session id yet, so no link is written here and the organization is not read.
+        const prepared = await this.rt.sessionTaskPreparer(LOCAL_ORGANIZATION_ID, {
           // A session with a provider conversation is past its first dispatch.
           // A provider handoff is a new backend conversation, not a new Solus
           // session, so the prior provider id counts. A fork carries its
@@ -802,7 +803,6 @@ export class RunLauncher {
             ? null
             : effectiveInput.agentSessionId ?? pendingHandoff?.fromSessionId ?? null,
           taskId: boundTaskId,
-          projectKey: resolvedProjectPath,
         })
         annotate({ bound: !!prepared })
         return prepared

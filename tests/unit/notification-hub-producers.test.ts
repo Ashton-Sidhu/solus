@@ -20,8 +20,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // rows inside the change that caused them. A review request reaches the reviewer
 // the same way from RPC and from the record API; a retry notifies nobody twice and
 // a deliberate re-request is a new row; a decision tells the requester; a failed
-// reviewer grant leaves no row. A task names its assignee only by a typed user
-// key. A mention is projected once with its activity id. An automation result is
+// reviewer grant leaves no row. A task that GitHub assigned is news only to the
+// person whose own login it got. A mention is projected once with its activity id. An automation result is
 // written in the run's own transaction with no client present. A generation
 // result reaches its requester once. Whether a request is still open is the
 // owning domain's answer, not the row's.
@@ -30,8 +30,6 @@ let operations: WorkspaceOperations
 let store: typeof import('@solus/server/data/notifications/store')
 let database: typeof import('@solus/server/db/database')
 let reviews: typeof import('@solus/server/data/works/work-reviews')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
-let tasks: typeof import('@solus/server/data/tasks/task')
 let automations: typeof import('@solus/server/data/automations/automations-store')
 let jobResults: typeof import('@solus/server/notifications/review-job-results')
 let shares: import('@solus/server/sharing/share-manager').ShareManager
@@ -45,8 +43,6 @@ beforeAll(async () => {
   store = await import('@solus/server/data/notifications/store')
   database = await import('@solus/server/db/database')
   reviews = await import('@solus/server/data/works/work-reviews')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  tasks = await import('@solus/server/data/tasks/task')
   automations = await import('@solus/server/data/automations/automations-store')
   jobResults = await import('@solus/server/notifications/review-job-results')
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
@@ -76,7 +72,6 @@ const member = (userId: string): WorkspaceRequestContext => ({
 })
 const alice = member('alice')
 const user = (accountId: string): User => ({ id: { kind: 'account', accountId }, displayName: accountId })
-const byAlice: Attribution = { kind: 'user', user: user('alice') }
 
 async function inbox(recipientKey: string, organizationId = 'org1'): Promise<HubNotification[]> {
   return (await store.listNotifications(notificationReader(recipientKey, organizationId), {})).items
@@ -151,24 +146,23 @@ describe('work reviews', () => {
 })
 
 describe('task assignment', () => {
-  test('only a typed assignee is notified; a reassignment notifies the new assignee', async () => {
-    const created = await taskStore.createTask('org1', { title: 'Ship it', assignee: 'bob-on-github', assigneeUserId: 'bob' }, undefined, byAlice)
-    expect((await inbox('bob')).map((row) => row.facts.kind)).toEqual(['task.assigned'])
-    // A provider login alone names nobody.
-    const unmapped = await taskStore.createTask('org1', { title: 'Upstream', assignee: 'carol' }, undefined, byAlice)
-    expect(await inbox('carol')).toEqual([])
+  test('the person whose own provider login a task got is told in their own inbox, and the doer is the provider', async () => {
+    // WHY: GitHub assigns a task, Solus does not. The row is the reader's own, in
+    // Local, as a pull request assignment is: no organization inbox holds it, and
+    // a login that is another person's names nobody on this host.
+    const { notifyTaskAssignments } = await import('@solus/server/data/tasks/task-assignment')
+    const assigned = [{ taskId: 'github:I_1', title: 'Ship it', provider: 'github' as const, assignee: 'bob-on-github', updatedAt: 7_000 }]
+    await notifyTaskAssignments(assigned, 'bob', async () => 'bob-on-github')
+    await notifyTaskAssignments(assigned, 'carol', async () => 'carol-on-github')
 
-    const task = await tasks.Task.byId('org1', created.id)
-    await task.update({ assigneeUserId: 'carol', assignee: 'Carol' }, byAlice)
-    expect((await inbox('carol')).map((row) => row.resource.kind === 'task' && row.resource.taskId)).toEqual([created.id])
-    // Assigning yourself is not news.
-    await (await tasks.Task.byId('org1', unmapped.id)).update({ assigneeUserId: 'alice' }, byAlice)
-    expect(await inbox('alice')).toEqual([])
-  })
-
-  test('a task cannot name a guest, nor anyone but the host user on a Local task', async () => {
-    await expect(taskStore.createTask('org1', { title: 'x', assigneeUserId: 'guest:g1' }, undefined, byAlice)).rejects.toThrow('member account')
-    await expect(taskStore.createTask('local', { title: 'x', assigneeUserId: 'someone' }, undefined, byAlice)).rejects.toThrow('Local task')
+    expect(await inbox('bob', 'local')).toMatchObject([{
+      facts: { kind: 'task.assigned' },
+      resource: { kind: 'task', taskId: 'github:I_1' },
+      by: { kind: 'upstream', provider: 'github' },
+      summary: { title: 'Ship it' },
+    }])
+    expect(await inbox('bob')).toEqual([])
+    expect(await inbox('carol', 'local')).toEqual([])
   })
 })
 

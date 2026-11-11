@@ -30,7 +30,8 @@ A group of hosts is one cloud host policy that you assign to many hosts, for exa
 ### Session keys
 
 Session keys are the keys under `sessions`. They follow the organization of the
-work. Work is a session, an automation, a task, or a webhook. Work belongs to the
+work. Work is a session, an automation, or a webhook. A task is not work of an
+organization: GitHub or Jira owns it ([tasks](tasks.md)). Work belongs to the
 active organization of the person when it starts, and it keeps that organization.
 
 For work of an organization, Solus reads the policies in this order. The first policy

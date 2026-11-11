@@ -8,6 +8,8 @@
 - **Dependencies:** Existing host/organization admission, record APIs, activity, and connections. Plan 017 owns the native client foundation. This plan owns notification behavior for all clients and the hub named by plan 004 D15/D16.
 - **Scope of this revision:** Planning only. Do not modify or discard another agent's source work while revising this document. Implementation, native device verification, PR creation, and deployment are separate actions.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the rows "Local work/task change" and "Work/task change saved by an organization API" (§1), the "Verified Solus assignee" of the task assignment producer (§5) and the `task-upstream` and `task-store` tests of the execution record are history for tasks. The "Assigned to you" notification now compares the provider assignee with the person's GitHub login.
+
 Read AGENTS.md and the live files below before implementation. Compare committed and uncommitted changes; never reset or stash another person's work:
 
 ```sh

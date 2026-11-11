@@ -10,10 +10,9 @@ import { orderColumn } from '@solus/workspace-ui/components/tasks/lib/board-orde
  * sort. That falls out of `sort` being stable, which is exactly the kind of
  * load-bearing language guarantee a test should pin rather than a comment.
  */
-const task = (id: string): Task =>
-  ({ id, title: id, status: 'todo', providerId: 'local', body: '', labels: [], url: null, updatedAt: 0 }) as Task
+const task = (id: string): Pick<Task, 'id'> => ({ id })
 
-const ids = (tasks: Task[]) => tasks.map((t) => t.id)
+const ids = (tasks: Array<Pick<Task, 'id'>>) => tasks.map((t) => t.id)
 
 describe('orderColumn', () => {
   it('leaves an untouched column entirely to the page sort', () => {
@@ -32,7 +31,7 @@ describe('orderColumn', () => {
   })
 
   it('ignores ranks for cards this column no longer holds', () => {
-    // 'gone' moved to another column or was deleted. Its stale rank must not
+    // 'gone' moved to another column or left the source. Its stale rank must not
     // open a hole or disturb the survivors.
     expect(ids(orderColumn([task('a'), task('b')], { gone: 0, b: 1 }))).toEqual(['b', 'a'])
   })

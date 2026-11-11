@@ -369,17 +369,16 @@ function outranksSnooze(attention: AttentionState): boolean {
 }
 
 /**
- * Which shelf a row sits on. Every input is a plain value rather than a task,
- * because a row need not have one: the workflow status and completion time come
- * from a task when there is one, and the wake time is always the sidebar's own.
+ * Which shelf a row sits on. Every input is a plain value: whether the work
+ * the row stands for is finished and when, and the row's own wake time.
  */
 export function resolveTaskSidebarLifecycle(input: {
-  status: Task['status']
-  doneAt?: number
-  /** Fallback completion time. A task finished before the store recorded
-   *  `doneAt` has no other date, and a completed row with no date at all sorts
-   *  to the bottom of the shelf and reports no age — so the record's last
-   *  change stands in for the moment it ended. */
+  isCompleted: boolean
+  completedAt?: number
+  /** Fallback completion time. A row finished with no recorded time has no
+   *  other date, and a completed row with no date at all sorts to the bottom
+   *  of the shelf and reports no age — so the record's last change stands in
+   *  for the moment it ended. */
   updatedAt?: number
   /** The sidebar's wake time for this row. Absent when it is not snoozed. */
   snoozedUntil?: number
@@ -391,9 +390,7 @@ export function resolveTaskSidebarLifecycle(input: {
 }): Pick<SidebarTask, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
   const snoozedUntil = input.snoozedUntil ?? 0
   const lastReadAt = input.lastReadAt ?? 0
-  // Both explicit workflow endings shelve the row. Sidebar dismissal is separate
-  // view state and never writes either status.
-  const isCompleted = input.status === 'done' || input.status === 'dropped'
+  const { isCompleted } = input
   // Derived, never written: the snooze survives the interruption, so answering
   // the question leaves the original wake time in force.
   const isSnoozed = !isCompleted
@@ -401,7 +398,7 @@ export function resolveTaskSidebarLifecycle(input: {
     && !outranksSnooze(input.attention ?? null)
   return {
     lifecycle: isCompleted ? 'completed' : isSnoozed ? 'snoozed' : 'active',
-    completedAt: isCompleted ? input.doneAt || input.updatedAt || 0 : input.doneAt ?? 0,
+    completedAt: isCompleted ? input.completedAt || input.updatedAt || 0 : input.completedAt ?? 0,
     snoozedUntil,
     lastReadAt,
     woke: snoozedUntil > 0 && snoozedUntil <= input.now && lastReadAt < snoozedUntil,
@@ -419,8 +416,8 @@ export function sessionRowLifecycle(
   now: number,
 ): Pick<SidebarTask, 'lifecycle' | 'completedAt' | 'snoozedUntil' | 'lastReadAt' | 'woke'> {
   return resolveTaskSidebarLifecycle({
-    status: state?.settledAt ? 'done' : 'in_progress',
-    doneAt: state?.settledAt ?? undefined,
+    isCompleted: !!state?.settledAt,
+    completedAt: state?.settledAt ?? undefined,
     snoozedUntil: state?.snoozedUntil ?? undefined,
     attention,
     now,
@@ -435,7 +432,7 @@ export function isCompletedTaskSession(
   session: Pick<Session, 'id'>,
   tasks: TaskBySessionLookup,
 ): boolean {
-  return tasks.taskForSession(session.id)?.status === 'done'
+  return tasks.taskForSession(session.id)?.category === 'done'
 }
 
 /** The task store's answer for one session, narrowed to what this rule reads. */

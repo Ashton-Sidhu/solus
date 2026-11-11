@@ -1,11 +1,12 @@
 import { appendFile, mkdir, stat } from 'fs/promises'
 import { dirname, join } from 'path'
 import { createLogger } from '../../logger'
-import { taskWithAttempts } from '../../data/tasks/task-sessions'
-import { Task } from '../../data/tasks/task'
+import { linkTaskSession } from '../../data/tasks/task-attachments'
+import { taskIdForSession } from '../../data/tasks/task-sessions'
+import { loadTask } from '../../data/tasks/task-store'
 import { formatTaskContext } from '../../data/tasks/task-context'
 import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
-import { ANY_ORGANIZATION } from '../../admission/principal'
+import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { hostAttribution } from '../../data/stored-attribution'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
@@ -49,29 +50,31 @@ export async function taskOfTurn(
     return { id: task.id, title: task.title }
   }
   if (options.taskId) {
-    try {
-      return { id: options.taskId, title: (await Task.byId(ANY_ORGANIZATION, options.taskId)).title }
-    } catch {
-      return { id: options.taskId }
-    }
+    return titledTask(options.taskId)
   }
   try {
-    const task = await Task.forSession(ANY_ORGANIZATION, run.sessionId)
-    return task ? { id: task.id, title: task.title } : null
+    const taskId = await taskIdForSession(ANY_ORGANIZATION, run.sessionId)
+    return taskId ? await titledTask(taskId) : null
   } catch {
     return null
   }
 }
 
+/** The id of a task, and its title when this host has a copy of it. */
+async function titledTask(taskId: string): Promise<{ id: string; title?: string }> {
+  const task = await loadTask(taskId).catch(() => null)
+  return task ? { id: taskId, title: task.title } : { id: taskId }
+}
+
 export async function linkPreparedTask(run: SessionRunRequest, sessionId: string): Promise<void> {
   const taskId = run.options.taskId
   if (!taskId) return
-  // A shipped snapshot marks the task as foreign — its row lives on another
-  // host, where the dispatching client writes this link itself.
+  // A shipped snapshot marks the task as foreign: another host holds its
+  // attachments, and the dispatching client writes this link there itself.
   if (run.options.taskSnapshot) return
   try {
-    await (await Task.byId(ANY_ORGANIZATION, taskId)).linkSession(sessionId, 'working', {
-      originSessionId: sessionId,
+    // The link takes the organization of the session; Local is for a session with no record yet.
+    await linkTaskSession(LOCAL_ORGANIZATION_ID, taskId, sessionId, 'working', {
       // A run with no actor is the host's own: its person started it.
       startedBy: run.actor ? attributionOf(run.actor) : hostAttribution(),
     })
@@ -100,14 +103,13 @@ export async function taskSystemContext(
   }
   setForeignTaskSnapshot(sessionId, null)
   try {
-    const local = await taskWithAttempts(ANY_ORGANIZATION, taskId)
-    if (!local) throw new Error('task not found')
-    return formatTaskContext(local.task, lifecyclePolicy)
+    const task = await loadTask(taskId)
+    if (!task) throw new Error('this host has no copy of the task')
+    return formatTaskContext(task, lifecyclePolicy)
   } catch (err) {
-    // On a dispatch this once failed silently — the task's row lives on
-    // another host. A taskId this host cannot read now always names a defect:
-    // either the snapshot was not shipped or the local row is gone. The id
-    // and the contract still reach the agent; read_task will say what failed.
+    // The host has no copy when the provider did not answer the read at the
+    // bind. The id and the contract still reach the agent; read_task asks the
+    // provider again and says what failed.
     log.warn('task_context_injection_failed', { taskId, sessionId, shippedSnapshot: !!shipped, error: String(err) })
     return formatTaskContext({ id: taskId }, lifecyclePolicy)
   }

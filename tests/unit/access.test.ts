@@ -104,7 +104,7 @@ describe('the role table', () => {
   }
 
   const kinds: Array<[ResourceKind, Record<Person, ResourceRole>]> = [
-    ['session', SHAREABLE], ['work', SHAREABLE], ['task', SHAREABLE], ['integration', PERSONAL], ['notification', PERSONAL], ['browserProfile', PERSONAL],
+    ['session', SHAREABLE], ['work', SHAREABLE], ['integration', PERSONAL], ['notification', PERSONAL], ['browserProfile', PERSONAL],
   ]
   for (const [kind, expected] of kinds) {
     test(`${kind}: every host role gets the role §2.3 gives it`, () => {
@@ -113,7 +113,7 @@ describe('the role table', () => {
       // kind and id (the guest's link is for a work, so it names no session).
       const resource: ResourceRow = { kind, id: 'r1', organizationId: 'org1', ownerKey: 'alice', acl: ENTRIES }
       const roles = Object.fromEntries(Object.entries(PEOPLE).map(([name, principal]) => [name, access.roleOf(actors.actorFor(principal), resource)]))
-      const want = kind === 'session' || kind === 'task' ? { ...expected, guest: 'none' } : expected
+      const want = kind === 'session' ? { ...expected, guest: 'none' } : expected
       expect(roles).toEqual(want)
     })
   }
@@ -136,7 +136,7 @@ describe('the role table', () => {
 })
 
 describe('visibleTo agrees with roleOf', () => {
-  const ROWS: Array<{ kind: 'session' | 'work' | 'task'; id: string; owner: string; organizationId: string }> = [
+  const ROWS: Array<{ kind: 'session' | 'work'; id: string; owner: string; organizationId: string }> = [
     { kind: 'work', id: 'r1', owner: 'alice', organizationId: 'org1' },
     { kind: 'work', id: 'w-bob', owner: 'bob', organizationId: 'org1' },
     { kind: 'work', id: 'w-org', owner: 'alice', organizationId: 'org1' },
@@ -144,15 +144,12 @@ describe('visibleTo agrees with roleOf', () => {
     { kind: 'work', id: 'w-org2', owner: 'eve', organizationId: 'org2' },
     { kind: 'session', id: 'r1', owner: 'alice', organizationId: 'org1' },
     { kind: 'session', id: 's-user', owner: 'alice', organizationId: 'org1' },
-    { kind: 'task', id: 't-org', owner: 'adam', organizationId: 'org1' },
-    { kind: 'task', id: 't-private', owner: 'adam', organizationId: 'org1' },
   ]
-  const ENTRY_ROWS: Array<{ kind: 'session' | 'work' | 'task'; id: string; subjectKind: string; subjectId: string; role: string; hash: string | null; organizationId: string }> = [
+  const ENTRY_ROWS: Array<{ kind: 'session' | 'work'; id: string; subjectKind: string; subjectId: string; role: string; hash: string | null; organizationId: string }> = [
     { kind: 'work', id: 'r1', subjectKind: 'team', subjectId: 'team-a', role: 'editor', hash: null, organizationId: 'org1' },
     { kind: 'work', id: 'r1', subjectKind: 'everyone', subjectId: '', role: 'viewer', hash: LINK_HASH, organizationId: 'org1' },
     { kind: 'work', id: 'w-org', subjectKind: 'organization', subjectId: 'org1', role: 'viewer', hash: null, organizationId: 'org1' },
     { kind: 'session', id: 's-user', subjectKind: 'user', subjectId: 'bob', role: 'viewer', hash: null, organizationId: 'org1' },
-    { kind: 'task', id: 't-org', subjectKind: 'organization', subjectId: 'org1', role: 'editor', hash: null, organizationId: 'org1' },
   ]
 
   test('on every fixture row, for every host role, a list holds exactly what a get opens', async () => {
@@ -171,7 +168,8 @@ describe('visibleTo agrees with roleOf', () => {
     const principals = { ...PEOPLE, sessionGuest: guestFor('session', 's-user'), workGuest: guestFor('work', 'r1') }
     let checked = 0
     for (const [name, principal] of Object.entries(principals)) {
-      for (const kind of ['session', 'work', 'task'] as const) {
+      // A task has no row to decide a role from: GitHub or Jira owns it.
+      for (const kind of ['session', 'work'] as const) {
         const ids = ROWS.filter((row) => row.kind === kind).map((row) => ({ id: row.id }))
         const listed = new Set((await shares.filterVisible(principal, kind, ids, (row) => row.id)).map((row) => row.id))
         for (const { id } of ids) {

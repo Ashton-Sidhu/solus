@@ -1,13 +1,12 @@
 import { randomId } from './random-id'
-import { taskRecord, workRecord, workSummary, sessionRecord } from '@solus/contracts/solus-api/records'
-import type { Task, TaskDetails } from '@solus/contracts/task-types'
+import { workRecord, workSummary, sessionRecord } from '@solus/contracts/solus-api/records'
 import type { Work, WorkListingMeta, SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
-import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
+import type { WorkspaceSessionSearchResult, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 
-type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordGet' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
+type RecordMethods = Pick<SolusAPI, 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordGet' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank' | 'reason' | 'target'>
 
 /** A record this host does not have. `MOVED` is not absence: the record is on
@@ -27,32 +26,12 @@ function sessionListFilters(filter: SessionRecordListFilter | undefined) {
 }
 
 /** Adapts the established UI records while their storage requests use the versioned HTTP contract. */
-export function workspaceRecordMethods(client: SolusApiClient, extras: (id: string) => Promise<Omit<TaskDetails, 'task'>>): RecordMethods {
+export function workspaceRecordMethods(client: SolusApiClient): RecordMethods {
   // The last version each record was seen at, so a write can name it in If-Match.
-  const taskVersions = new Map<string, string>()
   const workVersions = new Map<string, string>()
-  const rememberTask = (task: WorkspaceTask): Task => { taskVersions.set(task.id, task.version); return taskRecord(task) }
   const rememberWork = (work: WorkspaceWork): Work => { workVersions.set(work.id, work.version); return workRecord(work) }
-  const taskVersion = async (id: string) => taskVersions.get(id) ?? (await client.request('getTask', { id })).version
   const workVersion = async (id: string) => workVersions.get(id) ?? (await client.request('getWork', { id })).version
   return {
-    async tasksGet(id) {
-      const [task, detail] = await Promise.all([client.request('getTask', { id }), extras(id)])
-      return { ...detail, task: rememberTask(task) }
-    },
-    async tasksCreate(input) {
-      const { source: _source, originAutomationId: _automation, ...body } = input
-      return rememberTask(await client.request('createTask', { body, key: randomId() }))
-    },
-    async tasksUpdate(id, body, expectedUpdatedAt) {
-      const version = expectedUpdatedAt === undefined ? await taskVersion(id) : String(expectedUpdatedAt)
-      return rememberTask(await client.request('updateTask', { id, body, version }))
-    },
-    async tasksDelete(id) {
-      await client.request('deleteTask', { id, version: await taskVersion(id) })
-      taskVersions.delete(id)
-      return true
-    },
     async createWork(title, type, content, _preview, sessionId, agentProvider, cwd, id) {
       return rememberWork(await client.request('createWork', { body: { title, type, content: content ?? '', originSessionId: sessionId, agentProvider, projectKey: cwd, id }, key: randomId() }))
     },

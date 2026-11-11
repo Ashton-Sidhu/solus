@@ -174,7 +174,8 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     resourceShares = shares
     api = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(shares)
     server.useResourceAccess(shares)
-    tasksHandlers.registerTasksHandlers(server, { shares })
+    // As the Solus API registers them: the attachments of tasks, and no task.
+    tasksHandlers.registerTasksHandlers(server, { attachmentsOnly: true })
     folioHandlers.registerFolioHandlers(server, { shares })
     sharingHandlers.registerSharingHandlers(server, { shares })
     historyHandlers.registerHistoryHandlers(server, {
@@ -196,7 +197,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     return server
   }
 
-  test('a task, a work, a share list, and a session record of one organization are not found by another', async () => {
+  test('a link of a task, a work, a share list, and a session record of one organization are not found by another', async () => {
     // WHY: one Postgres serves every organization; the grant is the only thing that
     // tells them apart, so every read must come back empty — not refused, not found —
     // for anyone whose grant names a different organization. Inside the
@@ -205,21 +206,25 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     const server = await bootServer()
     const alicesColleague = member('carol', 'org1')
 
-    const task = await api.createTask(authority(alice), { title: 'Ship it', projectKey: '/repo' }, 'org-task-create-key-01')
-    expect((await api.listTasks(authority(alice), { limit: 50 })).items.map(row => row.id)).toEqual([task.id])
-    expect((await api.listTasks(authority(alicesColleague), { limit: 50 })).items.map(row => row.id)).toEqual([task.id])
-    expect((await api.getTask(authority(alicesColleague), task.id)).id).toBe(task.id)
-    expect((await api.listTasks(authority(bob), { limit: 50 })).items).toEqual([])
-    await expect(api.getTask(authority(bob), task.id)).rejects.toThrow('not found')
+    // The task is GitHub's, and both organizations can name it. The link is the organization's.
+    const taskKey = 'github:I_1'
+    await server.handle('tasksLink', [taskKey, { kind: 'automation', targetKey: 'auto-1', title: 'Nightly' }], ctx(alice))
+    expect((await server.handle('tasksAttachments', [taskKey], ctx(alicesColleague))).links.map(link => link.targetKey)).toEqual(['auto-1'])
+    expect(await server.handle('tasksAttachments', [taskKey], ctx(bob))).toEqual({ links: [], activity: [] })
+    // The API holds no task: it has no method that reads or writes one.
+    await expect(server.handle('tasksGet', [taskKey], ctx(alice))).rejects.toThrow()
     const work = await api.createWork(authority(alice), { title: 'Spec', type: 'doc', content: '# Spec', projectKey: '/repo' }, 'org-work-create-key-01')
     expect((await api.listWorks(authority(alice), { limit: 50 })).items.map(row => row.id)).toEqual([work.id])
     expect((await api.listWorks(authority(bob), { limit: 50 })).items).toEqual([])
     await expect(api.getWork(authority(bob), work.id)).rejects.toThrow('not found')
     expect((await api.getWork(authority(alice), work.id)).id).toBe(work.id)
 
-    const list = await server.handle('shareGet', [{ resource: { kind: 'task', id: task.id } }], ctx(alice))
+    const list = await server.handle('shareGet', [{ resource: { kind: 'work', id: work.id } }], ctx(alice))
     expect(list.ownerKey).toBe('alice')
-    await expect(server.handle('shareGet', [{ resource: { kind: 'task', id: task.id } }], ctx(bob))).rejects.toBeInstanceOf(accessPolicy.RpcAccessError)
+    await expect(server.handle('shareGet', [{ resource: { kind: 'work', id: work.id } }], ctx(bob))).rejects.toBeInstanceOf(accessPolicy.RpcAccessError)
+    // A task is not a share resource: a request that names one is refused as malformed.
+    // SAFETY: the test sends a kind that the contract no longer has.
+    await expect(server.handle('shareGet', [{ resource: { kind: 'task', id: taskKey } as never }], ctx(alice))).rejects.toThrow()
 
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org1', provider: 'claude-code', projectPath: '-repo', title: 'Ours', lastActivityAt: 1 }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org2', provider: 'codex', projectPath: '-repo', title: 'Theirs', lastActivityAt: 2 }], ctx(runner2))

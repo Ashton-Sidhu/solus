@@ -25,7 +25,8 @@ export class ActivityApiOperations {
   async forRecord(context: WorkspaceRequestContext, subject: ActivitySubject, input: WorkspaceActivityQuery): Promise<WorkspaceActivityList> {
     const query = workspaceActivityQuerySchema.parse(input)
     requireScope(context, READ_SCOPE[subject.kind])
-    await requireResource(this.shares, context, subject, 'read')
+    // A task is not a Solus resource: the activity of its attachments is read in the caller's scope.
+    if (subject.kind !== 'task') await requireResource(this.shares, context, { kind: subject.kind, id: subject.id }, 'read')
     return { items: await activityFor(apiScope(context), subject, { limit: query.limit }) }
   }
 
@@ -51,8 +52,9 @@ export class ActivityApiOperations {
 
   private async mayOpen(context: WorkspaceRequestContext, subject: ActivitySubject): Promise<boolean> {
     if (!context.scopes.includes(READ_SCOPE[subject.kind])) return false
+    if (subject.kind === 'task') return true
     try {
-      await requireResource(this.shares, context, subject, 'read')
+      await requireResource(this.shares, context, { kind: subject.kind, id: subject.id }, 'read')
       return true
     } catch (error) {
       if (error instanceof SolusApiError && error.status === 404) return false

@@ -5,7 +5,6 @@ import { userKey, type Attribution } from '@solus/contracts/user'
 import type { Db } from '../../db/database'
 import { hostUserKey } from '../../host/host-user'
 import { session } from '../sessions/schema'
-import { tasks } from '../tasks/schema'
 import { works } from '../works/schema'
 import { resourceLinks } from './schema'
 
@@ -81,12 +80,6 @@ export async function creatorOf(by: Attribution, sourceOwner: () => Promise<stri
 
 const ownerRowSchema = z.object({ created_by: z.string() })
 
-/** The owner of a task, or null for no such task. */
-export async function taskOwner(db: Db, taskId: string): Promise<string | null> {
-  const row = ownerRowSchema.nullish().parse(await db.get(sql`SELECT created_by FROM ${tasks} WHERE id = ${taskId}`))
-  return row?.created_by ?? null
-}
-
 /** The owner of a session's row, started or not, or null when no row names it. */
 export async function sessionOwner(db: Db, sessionId: string): Promise<string | null> {
   const row = ownerRowSchema.nullish().parse(await db.get(sql`SELECT created_by FROM ${session} WHERE session_id = ${sessionId}`))
@@ -127,17 +120,16 @@ export async function deleteEdgesOf(db: Db, kind: 'task' | 'work' | 'session', i
 }
 
 /**
- * Edges whose task, work, or session endpoint no longer exists: what every
- * delete path must leave at zero. Tests assert it; a pull request, a file, or
- * an automation is not a record of this database and is not counted.
+ * Edges whose work or session endpoint no longer exists: what every delete
+ * path must leave at zero. Tests assert it; a pull request, a file, or an
+ * automation is not a record of this database and is not counted. Nor is a
+ * task: GitHub or Jira owns it, and an edge needs no copy of it on this host.
  */
 export async function danglingEdgeCount(db: Db): Promise<number> {
   const row = z.object({ n: z.coerce.number() }).parse(await db.get(sql`
     SELECT COUNT(*) AS n FROM ${resourceLinks}
-    WHERE (resource_links.source_kind = 'task' AND NOT EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = resource_links.source_id))
-      OR (resource_links.source_kind = 'session' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session_records.session_id = resource_links.source_id))
+    WHERE (resource_links.source_kind = 'session' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session_records.session_id = resource_links.source_id))
       OR (resource_links.target_kind = 'work' AND NOT EXISTS (SELECT 1 FROM ${works} WHERE works.id = resource_links.target_key))
-      OR (resource_links.target_kind = 'task' AND NOT EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = resource_links.target_key))
       OR (resource_links.target_kind = 'plan' AND NOT EXISTS (SELECT 1 FROM ${session} WHERE session_records.session_id = resource_links.target_scope))
   `))
   return row.n

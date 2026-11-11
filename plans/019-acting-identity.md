@@ -2,6 +2,8 @@
 
 Status: IMPLEMENTED in source (2026-10-07, uncommitted, branch `solus/acting-identity`). Not run on a cloud host. See §9.
 
+> **2026-11-10.** [Provider-owned tasks](../docs/plans/provider-owned-tasks.md) replaced the task model. GitHub and Jira own every task; Solus has no local task, no task in an organization and no task sharing. In this plan, the task sync engine as a caller that needs an acting identity ("Words used here", §4, "What was built") is history. A task write now uses the connection of the acting person.
+
 ## Why
 
 On a shared host, a member's work must use the member's credentials. Today

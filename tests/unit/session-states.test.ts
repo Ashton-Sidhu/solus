@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { attachedTask } from './helpers/task-handle'
+import { FakeTaskProviders, githubIssue, seedTask } from './helpers/task-fixtures'
 import { sql } from 'drizzle-orm'
 import { EMPTY_SESSION_VIEW, SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 
@@ -26,8 +28,8 @@ let dataDir: string
 let db: typeof import('@solus/server/db')
 let states: typeof import('@solus/server/data/sessions/session-states')
 let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
 let tasks: typeof import('@solus/server/data/tasks/task')
+let useTaskAdaptersForTests: typeof import('@solus/server/data/tasks/providers/registry').useTaskAdaptersForTests
 let records: typeof import('@solus/server/data/sessions/session-records')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
@@ -37,8 +39,8 @@ beforeAll(async () => {
   db = await import('@solus/server/db')
   states = await import('@solus/server/data/sessions/session-states')
   sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
-  taskStore = await import('@solus/server/data/tasks/task-store')
   tasks = await import('@solus/server/data/tasks/task')
+  ;({ useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry'))
   records = await import('@solus/server/data/sessions/session-records')
 })
 
@@ -205,31 +207,39 @@ describe('a task and the state of its sessions', () => {
   test('finishing a task settles its sessions, and reopening it makes them active', async () => {
     // WHY: PR sync watches a pull request while its session is live work. The
     // sessions of a finished task are not.
-    const created = await taskStore.createTask('local', { title: 'Ship it', status: 'todo' })
-    const task = await tasks.Task.byId('local', created.id)
+    // GitHub owns the task: finishing it is a provider write, here to a fake provider.
+    const providers = new FakeTaskProviders()
+    providers.hold(githubIssue(1))
+    useTaskAdaptersForTests(providers.adapters())
+    const task = await attachedTask((await seedTask(githubIssue(1))).id)
     await task.linkSession('worker', 'working', {})
     await task.linkSession('reader', 'referenced', {})
     await shelf('by-person').settle('person')
     await task.linkSession('by-person', 'working', {})
 
-    await task.update({ status: 'done' }, PERSON)
+    await tasks.moveTask(task.id, { category: 'done' })
     expect(await stateOf('worker')).toMatchObject({ settledBy: 'task' })
     expect(await stateOf('reader')).toBeNull()
 
-    await task.update({ status: 'in_progress' }, PERSON)
+    await tasks.moveTask(task.id, { category: 'open' })
     expect(await stateOf('worker')).toBeNull()
     // What a person settled stays settled.
     expect(await stateOf('by-person')).toMatchObject({ settledBy: 'person' })
+    useTaskAdaptersForTests(null)
   })
 
   test('a session that another live task holds stays active', async () => {
-    const first = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'First', status: 'todo' })).id)
-    const second = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Second', status: 'todo' })).id)
+    const providers = new FakeTaskProviders()
+    providers.hold(githubIssue(1), githubIssue(2))
+    useTaskAdaptersForTests(providers.adapters())
+    const first = await attachedTask((await seedTask(githubIssue(1))).id)
+    const second = await attachedTask((await seedTask(githubIssue(2))).id)
     await first.linkSession('shared', 'working', {})
     await second.linkSession('shared', 'working', {})
 
-    await first.update({ status: 'done' }, PERSON)
+    await tasks.moveTask(first.id, { category: 'done' })
     expect(await stateOf('shared')).toBeNull()
+    useTaskAdaptersForTests(null)
   })
 })
 

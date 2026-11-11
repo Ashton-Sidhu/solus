@@ -32,7 +32,6 @@ const PERSON_LIKE_NAME = /(^|_)(user_id|user_key|person_key|owner|recipient|acto
 
 /** Columns that reference a person as a domain fact, not as identity or ownership. */
 const DOMAIN_PERSON_REFERENCES: Record<string, string> = {
-  'tasks.assignee_user_id': 'who the task is assigned to; a relationship the creator sets, read beside `assignee`',
   'resource_links.watch_user_id': 'the person a pull request watch acts for: whose account reads it (plans/029 §3.5); null is the host',
 }
 
@@ -74,9 +73,10 @@ const NO_CREATOR: Record<string, string> = {
   member_folder: "a person's folder name on this host (`user_id`)",
   automation_runs: 'derived rows of an automation run',
   webhook_deliveries: 'log of requests to a webhook',
-  task_counters: 'one global short-id counter',
-  task_external_links: 'sync state of a task with its upstream',
-  upstream_task_cache: 'cache of upstream tasks',
+  tasks: "the host's copy of a task that GitHub or Jira owns; no person in Solus makes or owns one (provider-owned-tasks.md §4.4)",
+  task_sources: 'read state of a task source, shared by each project that lists it',
+  task_source_items: 'where a source puts each of its tasks; a read of the source replaces the rows',
+  task_source_access: "one person's connection to one task source (`user_id`)",
   asset_publications: 'cache of where an asset was published',
   work_revisions: 'child of a work; `author` is display attribution',
   work_reviewers: 'child of a work; `requested_by` is display attribution of who asked',
@@ -193,7 +193,7 @@ describe('the data model names a person in two columns', () => {
 
   test('a creator column holds the acting person: the renamed owners are created_by', () => {
     const creators = new Map(sqlite.map((table) => [table.name, table.columns.some((column) => column.name === 'created_by')]))
-    for (const name of ['tasks', 'works', 'webhooks', 'automations', 'integration', 'workspace_projects', 'acl_entry', 'browser_profiles']) {
+    for (const name of ['works', 'webhooks', 'automations', 'integration', 'workspace_projects', 'acl_entry', 'browser_profiles']) {
       expect({ name, hasCreator: creators.get(name) }).toEqual({ name, hasCreator: true })
     }
     const forPerson = new Map(sqlite.map((table) => [table.name, table.columns.some((column) => column.name === 'user_id')]))

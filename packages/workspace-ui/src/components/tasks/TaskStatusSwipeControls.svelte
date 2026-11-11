@@ -1,32 +1,34 @@
 <script lang="ts">
-  import type { TaskStatus } from "@solus/contracts/task-types";
-  import { BOARD_COLUMNS, STATUS_META } from "./lib/tasks-api";
+  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
+  import { CATEGORY_META, TASK_CATEGORIES } from "./lib/tasks-api";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
 
+  /** The controls under a swiped task row: one for each status category. The
+   *  host chooses the column of each source for the category. */
   interface Props {
-    status: TaskStatus;
+    category: TaskStatusCategory;
     revealed: boolean;
-    onSelect: (status: TaskStatus) => void;
+    onSelect: (category: TaskStatusCategory) => void;
     class?: string;
   }
 
-  let { status, revealed, onSelect, class: className = "" }: Props = $props();
+  let { category, revealed, onSelect, class: className = "" }: Props = $props();
 </script>
 
 <div class="absolute inset-y-0 right-0 flex {className}" aria-hidden={!revealed}>
-  {#each BOARD_COLUMNS as column (column.status)}
-    {@const controlMeta = STATUS_META[column.status]}
+  {#each TASK_CATEGORIES as option (option)}
+    {@const controlMeta = CATEGORY_META[option]}
     <button
       type="button"
       class="flex w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 border-0 text-xs font-medium transition-transform active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
       style="background:color-mix(in oklch, var({controlMeta.token}) 18%, var(--background));color:color-mix(in oklch, var({controlMeta.token}) 68%, var(--foreground))"
       tabindex={revealed ? 0 : -1}
-      aria-label={`Set status to ${column.label}`}
-      aria-pressed={status === column.status}
-      onclick={() => onSelect(column.status)}
+      aria-label={`Move to ${controlMeta.label}`}
+      aria-pressed={category === option}
+      onclick={() => onSelect(option)}
     >
-      <TaskStatusGlyph status={column.status} size={17} />
-      {column.label === "In progress" ? "Doing" : column.label === "In review" ? "Review" : column.label}
+      <TaskStatusGlyph category={option} size={17} />
+      {controlMeta.label}
     </button>
   {/each}
 </div>

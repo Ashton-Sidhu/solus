@@ -26,7 +26,6 @@ interface SolusApiRouterOptions {
   openApi: () => string
 }
 
-const TASK_BODY_BYTES = 4 * 1024 * 1024
 const WORK_BODY_BYTES = 16 * 1024 * 1024
 
 function bearer(c: ApiContext): string {
@@ -98,28 +97,6 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
 
   app.get(routes.capabilities.path, c => { query(c, routes.capabilities.query); return c.json(options.capabilities) })
 
-  app.get(routes.listTasks.path, async c => c.json(await operations.listTasks(authority(c), query(c, routes.listTasks.query))))
-  app.get(routes.getTask.path, async c => {
-    query(c, routes.getTask.query)
-    const task = await operations.getTask(authority(c), id(c, 'taskId'))
-    etag(c, task.version); return c.json(task)
-  })
-  app.post(routes.createTask.path, limitBody(TASK_BODY_BYTES), async c => {
-    query(c, routes.createTask.query)
-    const task = await operations.createTask(authority(c), await body(c, routes.createTask.body), idempotencyKey(c))
-    c.header('Location', '/v1/tasks/' + encodeURIComponent(task.id)); etag(c, task.version); return c.json(task, 201)
-  })
-  app.patch(routes.updateTask.path, limitBody(TASK_BODY_BYTES), async c => {
-    query(c, routes.updateTask.query)
-    const task = await operations.updateTask(authority(c), id(c, 'taskId'), await body(c, routes.updateTask.body), version(c))
-    etag(c, task.version); return c.json(task)
-  })
-  app.get(routes.listTaskActivity.path, async c => c.json(await operations.listTaskActivity(authority(c), id(c, 'taskId'), query(c, routes.listTaskActivity.query))))
-  app.delete(routes.deleteTask.path, async c => { query(c, routes.deleteTask.query); await operations.deleteTask(authority(c), id(c, 'taskId'), version(c)); return c.body(null, 204) })
-  app.post(routes.createTaskComment.path, limitBody(TASK_BODY_BYTES), async c => {
-    query(c, routes.createTaskComment.query)
-    return c.json(await operations.createTaskComment(authority(c), id(c, 'taskId'), await body(c, routes.createTaskComment.body), idempotencyKey(c)), 201)
-  })
   app.put(routes.putLink.path, limitBody(16 * 1024), async c => {
     query(c, routes.putLink.query)
     await operations.putLink(authority(c), await body(c, routes.putLink.body)); return c.body(null, 204)

@@ -18,8 +18,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let sessionTools: typeof import('@solus/server/execution/agents/tools/session-tools')
 let projection: typeof import('@solus/server/data/sessions/result-projection')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
-let TaskModule: typeof import('@solus/server/data/tasks/task')
+let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 let closeDb: typeof import('@solus/server/db')['closeDb']
 
 /** The peer's transcript. Messages 3 and 4 share one timestamp. */
@@ -40,8 +39,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   sessionTools = await import('@solus/server/execution/agents/tools/session-tools')
   projection = await import('@solus/server/data/sessions/result-projection')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  TaskModule = await import('@solus/server/data/tasks/task')
+  attachments = await import('@solus/server/data/tasks/task-attachments')
   ;({ closeDb } = await import('@solus/server/db'))
   sessionTools.setSessionController({
     getSessionInfo: async (sessionId: string) => ({ sessionId, provider: 'codex', cwd: '/repo', slug: 'peer' }),
@@ -120,7 +118,7 @@ function reloaded(toolName: string, result: string) {
 
 /** A calling session bound to `taskId` as its working task. */
 async function bind(sessionId: string, taskId: string): Promise<void> {
-  await (await TaskModule.Task.byId('local', taskId)).linkSession(sessionId, 'working')
+  await attachments.linkTaskSession('local', taskId, sessionId, 'working')
 }
 
 describe('the acting session tools', () => {
@@ -192,7 +190,8 @@ describe('the acting session tools', () => {
   test('start_session with task=attempt and no task_id runs on the caller\'s own task, never a new subtask', async () => {
     // WHY: a task holds its sessions directly. A started session that minted a
     // subtask filed its works there, out of sight of the task the user opened.
-    const root = await taskStore.createTask('local', { title: 'Ship the store', projectKey: '/repo', body: '' })
+    // A session link needs no copy of the task: the task key is what the child runs on.
+    const root = { id: 'github:I_root' }
     await bind('solus-on-root', root.id)
 
     calls.length = 0

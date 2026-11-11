@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { attachedTask } from './helpers/task-handle'
 
 /**
  * `pull_request_observations`: PR facts once per organization and source
@@ -31,8 +32,6 @@ let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests
 let sessionRecords: typeof import('@solus/server/data/sessions/session-records')
 let sessionStates: typeof import('@solus/server/data/sessions/session-states')
 let observations: typeof import('@solus/server/data/links/pull-request-observations')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
-let tasks: typeof import('@solus/server/data/tasks/task')
 let taskLinks: typeof import('@solus/server/data/tasks/task-links')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
@@ -45,8 +44,6 @@ beforeAll(async () => {
   sessionRecords = await import('@solus/server/data/sessions/session-records')
   sessionStates = await import('@solus/server/data/sessions/session-states')
   observations = await import('@solus/server/data/links/pull-request-observations')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  tasks = await import('@solus/server/data/tasks/task')
   taskLinks = await import('@solus/server/data/tasks/task-links')
 })
 
@@ -87,7 +84,7 @@ describe('an observation and its links change together', () => {
     // only when the state it summarizes changes.
     await sessionPrs.linkSessionPullRequest('s1', { url: url(1), source: 'manual', by: PERSON })
     await sessionPrs.linkSessionPullRequest('s2', { url: url(1), source: 'manual', by: PERSON })
-    const task = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Direct' })).id)
+    const task = await attachedTask()
     await task.linkPullRequest({ number: 1, targetScope: REPO, url: url(1) }, PERSON)
     expect((await bits(1)).map((row) => [row.source_id, row.authority_key, row.keeps_session])).toEqual([['s1', null, 1], ['s2', null, 1], [task.id, null, 0]])
 

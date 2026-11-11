@@ -12,8 +12,6 @@
  * merge placed cards with unplaced ones, or translate a filtered index into a
  * saved one. A card either has a number or it doesn't.
  */
-import type { Task } from '@solus/contracts/task-types'
-
 /** Task id → its slot in whatever column it currently sits in. */
 export type BoardRanks = Record<string, number>
 
@@ -29,7 +27,7 @@ const UNRANKED = Number.MAX_SAFE_INTEGER
  * dragged ties at `UNRANKED` and keeps the page's own sort. That is the whole
  * reason placed and unplaced cards need no separate handling.
  */
-export function orderColumn(tasks: Task[], ranks: BoardRanks): Task[] {
-  const rankOf = (task: Task) => ranks[task.id] ?? UNRANKED
+export function orderColumn<T extends { id: string }>(tasks: readonly T[], ranks: BoardRanks): T[] {
+  const rankOf = (task: T) => ranks[task.id] ?? UNRANKED
   return [...tasks].sort((a, b) => rankOf(a) - rankOf(b))
 }

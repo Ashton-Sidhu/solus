@@ -1,434 +1,290 @@
 {
-  "list": {
-    "tasks": [
-      {
-        "id": "ACME-214",
-        "providerId": "jira",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Expose rate-limit headers on 429s",
-        "body": "Return `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` from every enforced rejection. Preserve the existing API error envelope and request id.",
-        "status": "in_progress",
-        "url": "https://acme.atlassian.net/browse/ACME-214",
-        "assignee": "API Platform",
-        "labels": [
-          "api",
-          "reliability"
-        ],
-        "dueDate": "2026-07-17",
-        "priority": "high",
-        "branch": "feat/rate-limiting",
-        "pr": {
-          "url": "https://github.com/acme/api-gateway/pull/142",
-          "number": 142
-        },
-        "canEditPlanningFields": true,
-        "updatedAt": 1784043300000,
-        "raw": {},
-        "mirroredTicket": {
-          "provider": "jira",
-          "externalId": "ACME-214",
-          "url": "https://acme.atlassian.net/browse/ACME-214"
-        }
-      },
-      {
-        "id": "demo-task-2",
-        "providerId": "local",
-        "projectKey": "/home/demo/web-dashboard",
-        "title": "Dashboard: usage graph for API keys",
-        "body": "Plot daily requests by API key with plan quota and projected overage. Show when data was last aggregated.",
-        "status": "todo",
-        "url": null,
-        "assignee": "Web",
-        "labels": [
-          "dashboard",
-          "billing"
-        ],
-        "dueDate": "2026-07-24",
-        "priority": "medium",
-        "canEditPlanningFields": true,
-        "updatedAt": 1783941600000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-3",
-        "providerId": "local",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Rotate webhook signing secrets",
-        "body": "Support overlapping webhook secrets for seven days and expose the active secret prefix in settings.",
-        "status": "todo",
-        "url": null,
-        "assignee": "API Platform",
-        "labels": [
-          "api",
-          "security"
-        ],
-        "dueDate": "2026-07-29",
-        "priority": "high",
-        "canEditPlanningFields": true,
-        "updatedAt": 1783847100000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-4",
-        "providerId": "local",
-        "projectKey": "/home/demo/billing-service",
-        "title": "Backfill invoice-grade usage ledger",
-        "body": "Import the current billing period from request logs with deterministic event ids and a distinct backfill source marker.",
-        "status": "in_progress",
-        "url": null,
-        "assignee": "Billing",
-        "labels": [
-          "billing",
-          "data"
-        ],
-        "dueDate": "2026-07-22",
-        "priority": "urgent",
-        "branch": "feat/usage-ledger",
-        "canEditPlanningFields": true,
-        "updatedAt": 1784024100000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-5",
-        "providerId": "local",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Alert on Redis fail-open decisions",
-        "body": "Page API on-call when fail-open exceeds 0.1% of authenticated requests for ten minutes. Link the alert to the rollout runbook.",
-        "status": "in_progress",
-        "url": null,
-        "assignee": "Infrastructure",
-        "labels": [
-          "infra",
-          "reliability"
-        ],
-        "dueDate": "2026-07-18",
-        "priority": "high",
-        "branch": "feat/rate-limiting",
-        "canEditPlanningFields": true,
-        "updatedAt": 1784018400000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-6",
-        "providerId": "local",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Add custom domains to link analytics",
-        "body": "Include custom-domain hostnames in click breakdowns without increasing the analytics query count.",
-        "status": "todo",
-        "url": null,
-        "assignee": "Web",
-        "labels": [
-          "analytics",
-          "dashboard"
-        ],
-        "priority": "low",
-        "canEditPlanningFields": true,
-        "updatedAt": 1783528200000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-7",
-        "providerId": "local",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Make webhook retry timing deterministic",
-        "body": "Remove endpoint-scoped retry counters, inject scheduling time, and add an interleaving regression test.",
-        "status": "done",
-        "url": null,
-        "assignee": "API Platform",
-        "labels": [
-          "api",
-          "webhooks"
-        ],
-        "priority": "high",
-        "branch": "fix/webhook-retries",
-        "canEditPlanningFields": true,
-        "updatedAt": 1784045880000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-8",
-        "providerId": "local",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Document API key rotation procedure",
-        "body": "Publish the overlapping-key rotation flow, grace periods, audit events, and emergency revocation steps.",
-        "status": "done",
-        "url": null,
-        "assignee": "Developer Experience",
-        "labels": [
-          "docs",
-          "security"
-        ],
-        "priority": "medium",
-        "canEditPlanningFields": true,
-        "updatedAt": 1783344300000,
-        "raw": {}
-      },
-      {
-        "id": "demo-task-9",
-        "providerId": "local",
-        "projectKey": "/home/demo/api-gateway",
-        "title": "Reduce redirect endpoint p95 below 25 ms",
-        "body": "Cache active link destinations in Redis and preserve click tracking through the async event queue.",
-        "status": "done",
-        "url": null,
-        "assignee": "Infrastructure",
-        "labels": [
-          "infra",
-          "performance"
-        ],
-        "priority": "medium",
-        "branch": "perf/redirect-cache",
-        "canEditPlanningFields": true,
-        "updatedAt": 1783102200000,
-        "raw": {}
-      }
-    ],
-    "fromCache": false,
-    "fetchedAt": 1784044800000
-  },
-  "details": {
-    "ACME-214": {
-      "id": "ACME-214",
+  "sources": [
+    {
+      "sourceKey": "github-project:acme/4",
+      "source": { "kind": "github-project", "owner": "acme", "number": 4 },
+      "label": "API Platform roadmap",
+      "columns": [
+        { "id": "backlog", "name": "Backlog", "category": "open" },
+        { "id": "in-progress", "name": "In progress", "category": "active" },
+        { "id": "in-review", "name": "In review", "category": "active" },
+        { "id": "done", "name": "Done", "category": "done" }
+      ],
+      "health": "ok"
+    },
+    {
+      "sourceKey": "jira-board:acme-cloud/12",
+      "source": { "kind": "jira-board", "cloudId": "acme-cloud", "boardId": 12 },
+      "label": "ACME board",
+      "columns": [
+        { "id": "to-do", "name": "To Do", "category": "open" },
+        { "id": "in-progress", "name": "In Progress", "category": "active" },
+        { "id": "done", "name": "Done", "category": "done" }
+      ],
+      "health": "ok"
+    }
+  ],
+  "defaultSourceKey": "github-project:acme/4",
+  "tasks": [
+    {
+      "id": "jira:acme-cloud:10214",
       "providerId": "jira",
+      "kind": "issue",
+      "reference": "ACME-214",
       "title": "Expose rate-limit headers on 429s",
       "body": "Return `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` from every enforced rejection. Preserve the existing API error envelope and request id.",
-      "status": "in_progress",
       "url": "https://acme.atlassian.net/browse/ACME-214",
-      "assignee": "API Platform",
-      "labels": [
-        "api",
-        "reliability"
-      ],
+      "state": { "name": "In Progress", "category": "active" },
+      "category": "active",
+      "placements": [{ "sourceKey": "jira-board:acme-cloud/12", "columnId": "in-progress" }],
+      "assignee": "acme-dev",
+      "labels": ["api", "reliability"],
       "dueDate": "2026-07-17",
       "priority": "high",
-      "branch": "feat/rate-limiting",
       "pr": {
         "url": "https://github.com/acme/api-gateway/pull/142",
         "number": 142
       },
-      "canEditPlanningFields": true,
-      "updatedAt": 1784043300000,
-      "raw": {},
-      "mirroredTicket": {
-        "provider": "jira",
-        "externalId": "ACME-214",
-        "url": "https://acme.atlassian.net/browse/ACME-214"
-      }
+      "writableFields": ["title", "body", "labels", "assignee", "priority", "dueDate"],
+      "createdAt": 1783598400000,
+      "updatedAt": 1784043300000
     },
-    "demo-task-2": {
-      "id": "demo-task-2",
-      "providerId": "local",
+    {
+      "id": "github:I_kwDOWebDash058",
+      "providerId": "github",
+      "kind": "issue",
+      "reference": "acme/web-dashboard#58",
       "title": "Dashboard: usage graph for API keys",
       "body": "Plot daily requests by API key with plan quota and projected overage. Show when data was last aggregated.",
-      "status": "todo",
-      "url": null,
-      "assignee": "Web",
-      "labels": [
-        "dashboard",
-        "billing"
-      ],
-      "dueDate": "2026-07-24",
-      "priority": "medium",
-      "canEditPlanningFields": true,
-      "updatedAt": 1783941600000,
-      "raw": {}
+      "url": "https://github.com/acme/web-dashboard/issues/58",
+      "state": { "name": "Open", "category": "open" },
+      "category": "open",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "backlog" }],
+      "assignee": "jonas-web",
+      "labels": ["dashboard", "billing"],
+      "writableFields": ["title", "body", "labels", "assignee"],
+      "createdAt": 1783512000000,
+      "updatedAt": 1783941600000
     },
-    "demo-task-3": {
-      "id": "demo-task-3",
-      "providerId": "local",
+    {
+      "id": "jira:acme-cloud:10221",
+      "providerId": "jira",
+      "kind": "issue",
+      "reference": "ACME-221",
       "title": "Rotate webhook signing secrets",
       "body": "Support overlapping webhook secrets for seven days and expose the active secret prefix in settings.",
-      "status": "todo",
-      "url": null,
-      "assignee": "API Platform",
-      "labels": [
-        "api",
-        "security"
-      ],
+      "url": "https://acme.atlassian.net/browse/ACME-221",
+      "state": { "name": "To Do", "category": "open" },
+      "category": "open",
+      "placements": [{ "sourceKey": "jira-board:acme-cloud/12", "columnId": "to-do" }],
+      "assignee": "maya-platform",
+      "labels": ["api", "security"],
       "dueDate": "2026-07-29",
       "priority": "high",
-      "canEditPlanningFields": true,
-      "updatedAt": 1783847100000,
-      "raw": {}
+      "writableFields": ["title", "body", "labels", "assignee", "priority", "dueDate"],
+      "createdAt": 1783684800000,
+      "updatedAt": 1783847100000
     },
-    "demo-task-4": {
-      "id": "demo-task-4",
-      "providerId": "local",
+    {
+      "id": "github:I_kwDOBilling077",
+      "providerId": "github",
+      "kind": "issue",
+      "reference": "acme/billing-service#77",
       "title": "Backfill invoice-grade usage ledger",
       "body": "Import the current billing period from request logs with deterministic event ids and a distinct backfill source marker.",
-      "status": "in_progress",
-      "url": null,
-      "assignee": "Billing",
-      "labels": [
-        "billing",
-        "data"
-      ],
-      "dueDate": "2026-07-22",
-      "priority": "urgent",
-      "branch": "feat/usage-ledger",
-      "canEditPlanningFields": true,
-      "updatedAt": 1784024100000,
-      "raw": {}
+      "url": "https://github.com/acme/billing-service/issues/77",
+      "state": { "name": "Open", "category": "open" },
+      "category": "active",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "in-progress" }],
+      "assignee": "priya-billing",
+      "labels": ["billing", "data"],
+      "writableFields": ["title", "body", "labels", "assignee"],
+      "createdAt": 1783771200000,
+      "updatedAt": 1784024100000
     },
-    "demo-task-5": {
-      "id": "demo-task-5",
-      "providerId": "local",
+    {
+      "id": "github:I_kwDOApiGw139",
+      "providerId": "github",
+      "kind": "issue",
+      "reference": "acme/api-gateway#139",
       "title": "Alert on Redis fail-open decisions",
       "body": "Page API on-call when fail-open exceeds 0.1% of authenticated requests for ten minutes. Link the alert to the rollout runbook.",
-      "status": "in_progress",
-      "url": null,
-      "assignee": "Infrastructure",
-      "labels": [
-        "infra",
-        "reliability"
-      ],
-      "dueDate": "2026-07-18",
-      "priority": "high",
-      "branch": "feat/rate-limiting",
-      "canEditPlanningFields": true,
-      "updatedAt": 1784018400000,
-      "raw": {}
+      "url": "https://github.com/acme/api-gateway/issues/139",
+      "state": { "name": "Open", "category": "open" },
+      "category": "active",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "in-review" }],
+      "assignee": "sam-infra",
+      "labels": ["infra", "reliability"],
+      "writableFields": ["title", "body", "labels", "assignee"],
+      "createdAt": 1783857600000,
+      "updatedAt": 1784018400000
     },
-    "demo-task-6": {
-      "id": "demo-task-6",
-      "providerId": "local",
+    {
+      "id": "github:PVTI_demoCustomDomains",
+      "providerId": "github",
+      "kind": "draft",
       "title": "Add custom domains to link analytics",
       "body": "Include custom-domain hostnames in click breakdowns without increasing the analytics query count.",
-      "status": "todo",
       "url": null,
-      "assignee": "Web",
-      "labels": [
-        "analytics",
-        "dashboard"
-      ],
-      "priority": "low",
-      "canEditPlanningFields": true,
-      "updatedAt": 1783528200000,
-      "raw": {}
+      "state": { "name": "Backlog", "category": "open" },
+      "category": "open",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "backlog" }],
+      "assignee": "jonas-web",
+      "labels": [],
+      "writableFields": ["title", "body", "assignee"],
+      "createdAt": 1783425600000,
+      "updatedAt": 1783528200000
     },
-    "demo-task-7": {
-      "id": "demo-task-7",
-      "providerId": "local",
+    {
+      "id": "github:PVTI_demoBatchTokens",
+      "providerId": "github",
+      "kind": "draft",
+      "title": "Decide the token cost of batch link creation",
+      "body": "One token for each request, or one for each created link? Write the decision in the rollout notes before the paid cohorts start.",
+      "url": null,
+      "state": { "name": "Backlog", "category": "open" },
+      "category": "open",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "backlog" }],
+      "labels": [],
+      "writableFields": ["title", "body", "assignee"],
+      "createdAt": 1783944000000,
+      "updatedAt": 1783944000000
+    },
+    {
+      "id": "github:I_kwDOApiGw128",
+      "providerId": "github",
+      "kind": "issue",
+      "reference": "acme/api-gateway#128",
       "title": "Make webhook retry timing deterministic",
       "body": "Remove endpoint-scoped retry counters, inject scheduling time, and add an interleaving regression test.",
-      "status": "done",
-      "url": null,
-      "assignee": "API Platform",
-      "labels": [
-        "api",
-        "webhooks"
-      ],
-      "priority": "high",
-      "branch": "fix/webhook-retries",
-      "canEditPlanningFields": true,
-      "updatedAt": 1784045880000,
-      "raw": {}
+      "url": "https://github.com/acme/api-gateway/issues/128",
+      "state": { "name": "Closed", "category": "done" },
+      "category": "done",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "done" }],
+      "assignee": "maya-platform",
+      "labels": ["api", "webhooks"],
+      "writableFields": ["title", "body", "labels", "assignee"],
+      "createdAt": 1783339200000,
+      "updatedAt": 1784045880000
     },
-    "demo-task-8": {
-      "id": "demo-task-8",
-      "providerId": "local",
+    {
+      "id": "jira:acme-cloud:10198",
+      "providerId": "jira",
+      "kind": "issue",
+      "reference": "ACME-198",
       "title": "Document API key rotation procedure",
       "body": "Publish the overlapping-key rotation flow, grace periods, audit events, and emergency revocation steps.",
-      "status": "done",
-      "url": null,
-      "assignee": "Developer Experience",
-      "labels": [
-        "docs",
-        "security"
-      ],
+      "url": "https://acme.atlassian.net/browse/ACME-198",
+      "state": { "name": "Done", "category": "done" },
+      "category": "done",
+      "placements": [{ "sourceKey": "jira-board:acme-cloud/12", "columnId": "done" }],
+      "assignee": "acme-dev",
+      "labels": ["docs", "security"],
       "priority": "medium",
-      "canEditPlanningFields": true,
-      "updatedAt": 1783344300000,
-      "raw": {}
+      "writableFields": ["title", "body", "labels", "assignee", "priority", "dueDate"],
+      "createdAt": 1782907200000,
+      "updatedAt": 1783344300000
     },
-    "demo-task-9": {
-      "id": "demo-task-9",
-      "providerId": "local",
+    {
+      "id": "github:I_kwDOApiGw117",
+      "providerId": "github",
+      "kind": "issue",
+      "reference": "acme/api-gateway#117",
       "title": "Reduce redirect endpoint p95 below 25 ms",
       "body": "Cache active link destinations in Redis and preserve click tracking through the async event queue.",
-      "status": "done",
-      "url": null,
-      "assignee": "Infrastructure",
-      "labels": [
-        "infra",
-        "performance"
-      ],
-      "priority": "medium",
-      "branch": "perf/redirect-cache",
-      "canEditPlanningFields": true,
-      "updatedAt": 1783102200000,
-      "raw": {}
+      "url": "https://github.com/acme/api-gateway/issues/117",
+      "state": { "name": "Closed", "category": "done" },
+      "category": "done",
+      "placements": [{ "sourceKey": "github-project:acme/4", "columnId": "done" }],
+      "assignee": "sam-infra",
+      "labels": ["infra", "performance"],
+      "writableFields": ["title", "body", "labels", "assignee"],
+      "createdAt": 1782820800000,
+      "updatedAt": 1783102200000
     }
-  },
+  ],
   "comments": {
-    "ACME-214": [
+    "jira:acme-cloud:10214": [
       {
         "id": "demo-task-comment-1",
-        "author": {
-          "login": "maya-platform"
-        },
+        "taskId": "jira:acme-cloud:10214",
+        "externalAuthor": "maya-platform",
         "body": "Please keep the reset value in whole seconds; two customer SDKs currently parse it as an integer.",
-        "createdAt": "2026-07-13T14:10:00.000Z"
+        "createdAt": 1783951800000
       },
       {
         "id": "demo-task-comment-2",
-        "author": {
-          "login": "agent"
-        },
+        "taskId": "jira:acme-cloud:10214",
+        "author": { "kind": "agent", "sessionId": "demo-session-ratelimit", "provider": "claude-code", "title": "Add per-key rate limiting" },
+        "originSessionId": "demo-session-ratelimit",
         "body": "Rounding up in the middleware rather than at the edge, so a 1.2s reset serialises as `2` everywhere. Added a case to `rateLimit.test.ts` that asserts it.",
-        "createdAt": "2026-07-13T15:02:00.000Z"
+        "createdAt": 1783954920000
       },
       {
         "id": "demo-task-comment-3",
-        "author": {
-          "login": "acme-dev"
-        },
+        "taskId": "jira:acme-cloud:10214",
+        "externalAuthor": "acme-dev",
         "body": "Done. `RateLimit-Reset` and `Retry-After` both round up, and the middleware test covers a 1.2 second reset as `2`.",
-        "createdAt": "2026-07-14T09:25:00.000Z"
+        "createdAt": 1784021100000
       },
       {
         "id": "demo-task-comment-4",
-        "author": {
-          "login": "agent"
-        },
+        "taskId": "jira:acme-cloud:10214",
+        "author": { "kind": "agent", "sessionId": "demo-session-ratelimit", "provider": "claude-code", "title": "Add per-key rate limiting" },
+        "originSessionId": "demo-session-ratelimit",
         "body": "Shadow mode has been on for 24h: 0.4% of keys would have been limited, none of them customer-facing. Wrote the numbers up in the rollout notes and opened #142.",
-        "createdAt": "2026-07-14T16:40:00.000Z"
+        "createdAt": 1784047200000
+      },
+      {
+        "id": "demo-task-comment-5",
+        "taskId": "jira:acme-cloud:10214",
+        "author": { "kind": "user", "user": { "id": { "kind": "local", "localId": "demo" }, "displayName": "Demo user" } },
+        "body": "Support asked for the header examples in the API docs before the paid cohorts. I will add them to the launch checklist.",
+        "createdAt": 1784047920000,
+        "unsent": true,
+        "sendError": "Jira did not answer (503). The comment is on this host only."
       }
     ]
   },
   "sessions": {
-    "ACME-214": [
+    "jira:acme-cloud:10214": [
       {
         "sessionId": "demo-session-ratelimit",
         "linkedAt": 1784041200000,
         "sessionTitle": "Add per-key rate limiting to the public API. Use Redis, return standard headers, and keep local development usable.",
-        "provider": "claude",
+        "provider": "claude-code",
+        "model": null,
+        "startedAt": 1784041200000,
         "lastActivityAt": 1784041440000
       }
     ],
-    "demo-task-7": [
+    "github:I_kwDOApiGw128": [
       {
         "sessionId": "demo-session-webhooks",
         "linkedAt": 1784045400000,
         "sessionTitle": "Fix the flaky retry logic in webhook delivery. Preserve idempotency and make the timing tests deterministic.",
-        "provider": "claude",
+        "provider": "claude-code",
+        "model": null,
+        "startedAt": 1784045400000,
         "lastActivityAt": 1784045880000
       }
     ],
-    "demo-task-4": [
+    "github:I_kwDOBilling077": [
       {
         "sessionId": "demo-session-billing",
         "linkedAt": 1784023800000,
         "sessionTitle": "Plan the migration from flat subscriptions to usage-based pricing. Do not edit code yet.",
-        "provider": "claude",
+        "provider": "claude-code",
+        "model": null,
+        "startedAt": 1784023800000,
         "lastActivityAt": 1784024100000
       }
     ]
   },
   "links": {
-    "ACME-214": [
+    "jira:acme-cloud:10214": [
       {
-        "taskId": "ACME-214",
+        "taskId": "jira:acme-cloud:10214",
         "kind": "work",
         "targetScope": "/home/demo/api-gateway",
         "targetKey": "demo-work-rollout-notes",
@@ -437,7 +293,7 @@
         "linkedAt": 1784030520000
       },
       {
-        "taskId": "ACME-214",
+        "taskId": "jira:acme-cloud:10214",
         "kind": "work",
         "targetScope": "/home/demo/api-gateway",
         "targetKey": "demo-work-acme-architecture",
@@ -446,7 +302,7 @@
         "linkedAt": 1783857600000
       },
       {
-        "taskId": "ACME-214",
+        "taskId": "jira:acme-cloud:10214",
         "kind": "plan",
         "targetScope": "/home/demo/api-gateway",
         "targetKey": "plan-api-key-rotation",
@@ -455,7 +311,7 @@
         "linkedAt": 1783684800000
       },
       {
-        "taskId": "ACME-214",
+        "taskId": "jira:acme-cloud:10214",
         "kind": "automation",
         "targetScope": "/home/demo/api-gateway",
         "targetKey": "demo-automation-pr-triage",
@@ -464,7 +320,7 @@
         "linkedAt": 1783598400000
       },
       {
-        "taskId": "ACME-214",
+        "taskId": "jira:acme-cloud:10214",
         "kind": "pr",
         "targetScope": "acme/api-gateway",
         "targetKey": "142",

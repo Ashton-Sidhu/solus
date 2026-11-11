@@ -6,7 +6,7 @@
   import { snippetRuns } from "@solus/contracts/search-snippet";
   import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
-  import { relativeTime, STATUS_META } from "../../tasks/lib/tasks-api";
+  import { relativeTime, taskRef } from "../../tasks/lib/tasks-api";
   import { isDone } from "../../tasks/lib/tasks-list-view";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
   import type { AttentionState } from "../../../lib/sessionUtils";
@@ -23,8 +23,6 @@
     pickerSessionServerId,
     pickerSessionTaskTitle,
     isTaskGroup,
-    projectLabel,
-    taskShortIdLabel,
     type PickerEntry,
     type PickerRow,
   } from "./lib/picker-rows";
@@ -142,7 +140,6 @@
   </div>
 {:else if row.kind === "task"}
   {@const task = row.task}
-  {@const taskStatus = STATUS_META[task.status]}
   {@const isSelected = row.entryIndex === selectedIndex}
   {@const isRunning = row.sessions.some((child) => child.attention === "running")}
   {@const isGroup = isTaskGroup(row)}
@@ -186,9 +183,9 @@
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
     >
-      <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)" title={taskStatus.label}>
-        <TaskStatusGlyph status={task.status} size={13} />
-        <span class="sr-only">{taskStatus.label}</span>
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)" title={task.state.name}>
+        <TaskStatusGlyph category={task.category} size={13} />
+        <span class="sr-only">{task.state.name}</span>
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
@@ -203,7 +200,7 @@
           >
         {:else}
           <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
-            >{#if row.matchedIn === "id"}{@render marked(highlightWordRuns(taskShortIdLabel(task), query))} · {/if}{projectLabel(task)} · {row.sessions.length
+            >{@render marked(highlightWordRuns(task.reference ?? taskRef(task), row.matchedIn === "id" ? query : ""))} · {row.sessions.length
               ? `${row.sessions.length} ${row.sessions.length === 1 ? "session" : "sessions"}`
               : "no sessions yet"}</span
           >

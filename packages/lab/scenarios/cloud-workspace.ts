@@ -20,7 +20,8 @@ import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusA
  */
 
 const RUNNER_HOST_ID = 'labrunnerabcdefg'
-const RUNNER_TASK_TITLE = 'Runner task from the mock agent'
+/** A task of GitHub, by its task key. The service holds its attachments and never reads the task. */
+const TASK_KEY = 'github:I_kwDOLabTask1'
 const RUNNER_WORK_TITLE = 'Runner work from the mock agent'
 const healthSchema = z.object({ requireAuth: z.boolean() })
 
@@ -86,18 +87,23 @@ async function membersStep(proof: Proof): Promise<{ alice: LabClient; bob: LabCl
   ctx.check(`${tag} the health probe demands a credential of everyone`, health.success && health.data.requireAuth)
   ctx.check(`${tag} pairing does not exist`, (await fetch(`${service.url}/pair/open`, { method: 'POST' })).status === 404)
 
-  ctx.step(`${tag} alice creates a task on the service; bob sees it live`)
-  const task = await expectOk(ctx, `${tag} alice creates a task`, alice.records.tasksCreate({ title: 'Plan the launch', projectKey: ctx.cwd }))
-  await expectOk(ctx, `${tag} bob hears the tasks change`, bob.waitForEvent('tasks.invalidated'))
+  // GitHub and Jira own every task (docs/plans/provider-owned-tasks.md §6): the
+  // service keeps what Solus attaches to a task key, and no task.
+  ctx.step(`${tag} alice attaches a link to a task key on the service; bob sees it live`)
+  const heard = bob.waitForEvent('tasks.invalidated')
+  await expectOk(ctx, `${tag} alice links an automation to the task`, alice.rpc('tasksLink', TASK_KEY, { kind: 'automation', targetKey: 'lab-automation', title: 'Nightly check' }))
+  await expectOk(ctx, `${tag} bob hears the tasks change`, heard)
+  const bobAttachments = await expectOk(ctx, `${tag} bob reads the attachments of the task`, bob.rpc('tasksAttachments', TASK_KEY))
+  ctx.check(`${tag} bob sees alice's link`, bobAttachments?.links.some((link) => link.targetKey === 'lab-automation') === true, JSON.stringify(bobAttachments?.links))
   const bobTasks = await expectOk(ctx, `${tag} bob lists tasks`, bob.rpc('tasksSidebarSnapshot'))
-  ctx.check(`${tag} bob sees alice's task`, !!task && !!bobTasks?.tasks.some((row) => row.id === task.id))
-  await expectOk(ctx, `${tag} bob opens it`, bob.records.tasksGet(task?.id ?? ''))
-  return { alice, bob, taskId: task?.id ?? '' }
+  ctx.check(`${tag} the service holds no copy of a task`, bobTasks?.tasks.length === 0, JSON.stringify(bobTasks?.tasks.map((row) => row.id)))
+  await expectNotServed(ctx, `${tag} a task read is refused: the service reads no provider`, bob.rpc('tasksGet', TASK_KEY))
+  return { alice, bob, taskId: TASK_KEY }
 }
 
 async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHost; sessionId: string }> {
   const { ctx, tag } = proof
-  ctx.step(`${tag} a runner linked to the organization runs a turn whose task and work land on the service`)
+  ctx.step(`${tag} a runner linked to the organization runs a turn whose work lands on the service`)
   const runner = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_HOST_ID, runnerOf: ORGANIZATION_ID })
   // The owner comes through the proxied listener with her access token: the runner acts for her with it.
   const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal', organizationId: ORGANIZATION_ID })
@@ -111,14 +117,10 @@ async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHo
   await expectOk(ctx, `${tag} the owner starts a mock-agent turn in the organization on the runner`, owner.rpc('prompt', promptContext(ctx, sessionId), { prompt: 'cloud __MOCK_AGENT_TOOLS__', clientPromptId: `${sessionId}-1` }))
   // The ticket door makes the delegation without waiting (ADR 0001 stage 4).
   ctx.check(`${tag} the runner acts for the owner in the organization`, await until(async () => runnerActsForSomeone(runner), (acts) => acts, 10_000))
-  const runnerTask = await until(() => bob.rpc('tasksSidebarSnapshot'), (result) => result.tasks.some((row) => row.title === RUNNER_TASK_TITLE), 15_000)
-  ctx.check(`${tag} bob sees the task the agent created on the service`, runnerTask.tasks.some((row) => row.title === RUNNER_TASK_TITLE), JSON.stringify(runnerTask.tasks.map((row) => row.title)))
   const runnerWorks = await until(() => bob.records.listWorks(), (list) => list.some((row) => row.title === RUNNER_WORK_TITLE), 15_000)
   ctx.check(`${tag} bob sees the work the agent created on the service`, runnerWorks.some((row) => row.title === RUNNER_WORK_TITLE), JSON.stringify(runnerWorks.map((row) => row.title)))
-  const localTasks = await expectOk(ctx, `${tag} the owner lists the runner's own tasks`, owner.rpc('tasksSidebarSnapshot'))
-  ctx.check(`${tag} the runner's own tables hold no such task`, localTasks?.tasks.every((row) => row.title !== RUNNER_TASK_TITLE) === true)
   const localWorks = await expectOk(ctx, `${tag} the owner lists the runner's own works`, owner.records.listWorks())
-  ctx.check(`${tag} nor such a work`, localWorks?.every((row) => row.title !== RUNNER_WORK_TITLE) === true)
+  ctx.check(`${tag} the runner's own tables hold no such work`, localWorks?.every((row) => row.title !== RUNNER_WORK_TITLE) === true)
   // The session id names a session everywhere (docs/plans/session-identity.md).
   return { runner, sessionId }
 }
@@ -130,8 +132,6 @@ async function recordStep(proof: Proof, bob: LabClient, runner: LabHost, session
   const record = recorded.find((row) => row.sessionId === sessionId)
   ctx.check(`${tag} the service lists the runner's session, naming the runner`, record?.runnerHostId === RUNNER_HOST_ID, JSON.stringify(record))
   await runner.stop()
-  const tasksAfter = await expectOk(ctx, `${tag} bob lists tasks after the runner stopped`, bob.rpc('tasksSidebarSnapshot'))
-  ctx.check(`${tag} the task is still there`, tasksAfter?.tasks.some((row) => row.title === RUNNER_TASK_TITLE) === true)
   const worksAfter = await expectOk(ctx, `${tag} bob lists works after the runner stopped`, bob.records.listWorks())
   ctx.check(`${tag} the work is still there`, worksAfter?.some((row) => row.title === RUNNER_WORK_TITLE) === true)
   const sessionsAfter = await expectOk(ctx, `${tag} bob lists session records after the runner stopped`, bob.records.sessionRecordList({ scope: 'all' }).then((list) => list.records))
@@ -143,13 +143,13 @@ async function otherOrganizationStep(proof: Proof, taskId: string): Promise<void
   ctx.step(`${tag} carol, of another organization, sees none of it`)
   const carol = workspaceClient(proof, 'carol')
   ctx.check(`${tag} carol connects`, (await carol.connect()).ok)
-  const carolTasks = await expectOk(ctx, `${tag} carol lists tasks`, carol.rpc('tasksSidebarSnapshot'))
-  ctx.check(`${tag} carol's task list is empty`, carolTasks?.tasks.length === 0, JSON.stringify(carolTasks?.tasks.map((row) => row.title)))
+  // The task key is the provider's, so carol can name it; the attachments are alice's organization's.
+  const carolAttachments = await expectOk(ctx, `${tag} carol reads the attachments of the same task key`, carol.rpc('tasksAttachments', taskId))
+  ctx.check(`${tag} carol sees no link of alice's organization`, carolAttachments?.links.length === 0 && carolAttachments.activity.length === 0, JSON.stringify(carolAttachments))
   const carolWorks = await expectOk(ctx, `${tag} carol lists works`, carol.records.listWorks())
   ctx.check(`${tag} carol's work list is empty`, carolWorks?.length === 0)
   const carolSessions = await expectOk(ctx, `${tag} carol lists session records`, carol.records.sessionRecordList({ scope: 'all' }).then((list) => list.records))
   ctx.check(`${tag} carol's session list is empty`, carolSessions?.length === 0)
-  await expectRefused(ctx, `${tag} carol cannot open alice's task`, carol.api.request('getTask', { id: taskId }), 'NOT_FOUND')
   const carolPresence = await expectOk(ctx, `${tag} carol reads presence`, carol.rpc('presenceSnapshot'))
   ctx.check(`${tag} carol's room holds only her organization`, carolPresence?.host.participants.every((row) => row.user.displayName === 'Carol') === true, JSON.stringify(carolPresence?.host.participants.map((row) => row.user.displayName)))
 }

@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import { attachedTask } from './helpers/task-handle'
+import { FakeTaskProviders, githubIssue, REPO as TASK_REPO } from './helpers/task-fixtures'
 import type { PrSyncChange, PullRequest, PullRequestOverview, RepoRef } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Provider } from '@solus/server/providers/types'
@@ -37,6 +39,10 @@ mock.module('@solus/server/providers/registry', () => ({
 let dataDir: string
 let taskStore: typeof import('@solus/server/data/tasks/task-store')
 let tasks: typeof import('@solus/server/data/tasks/task')
+/** GitHub for the tasks of this file: finishing a task is a provider write, here to a fake provider. */
+let taskProviders: FakeTaskProviders
+let projectDir: string
+let nextIssue = 0
 let links: typeof import('@solus/server/data/tasks/task-links')
 let PrSync: typeof import('@solus/server/prs/pr-sync')['PrSync']
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -48,7 +54,30 @@ beforeAll(async () => {
   tasks = await import('@solus/server/data/tasks/task')
   links = await import('@solus/server/data/tasks/task-links')
   ;({ PrSync } = await import('@solus/server/prs/pr-sync'))
+  // One project of this host lists the repository source, with done-on-merge on (the default).
+  ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
+  projectDir = join(dataDir, 'project')
+  mkdirSync(join(projectDir, '.solus'), { recursive: true })
+  writeFileSync(join(projectDir, '.solus', 'config.json'), JSON.stringify({ version: 1, taskSources: [TASK_REPO] }))
+  await (await import('@solus/server/project-config/projects-manifest')).recordProject(projectDir)
+  taskProviders = new FakeTaskProviders()
+  ;(await import('@solus/server/data/tasks/providers/registry')).useTaskAdaptersForTests(taskProviders.adapters())
 })
+
+/** A task of the project's repository source: an open GitHub issue that the host has a copy of. */
+async function sourceTask() {
+  const issue = githubIssue(++nextIssue)
+  taskProviders.hold(issue)
+  const { storeProviderTask } = await import('@solus/server/data/tasks/task-cache')
+  const { taskSourceKey } = await import('@solus/contracts/task-sources')
+  const stored = await storeProviderTask(issue, { place: { sourceKey: taskSourceKey(TASK_REPO), columnId: 'open', itemId: null } })
+  return attachedTask(stored.id)
+}
+
+/** The status category of the host's copy of a task. */
+async function categoryOf(taskId: string) {
+  return (await taskStore.loadTask(taskId))?.category
+}
 
 afterAll(async () => {
   (await import('@solus/server/db')).closeDb()
@@ -97,10 +126,8 @@ function codeHost(name: string) {
 
 const repoOf = (name: string) => ({ host: 'github.com', owner: 'owner', repo: name })
 
-async function taskLinking(scope: string, numbers: number[], status: 'todo' | 'in_review' = 'in_review') {
-  const created = await taskStore.createTask('local', { title: 'Linked work', status: 'todo' })
-  const task = await tasks.Task.byId('local', created.id)
-  if (status !== 'todo') await task.update({ status }, BY)
+async function taskLinking(scope: string, numbers: number[]) {
+  const task = await sourceTask()
   const [, owner, repo] = scope.split('/')
   for (const number of numbers) {
     await task.linkPullRequest({ number, targetScope: scope, url: `https://github.com/${owner}/${repo}/pull/${number}` }, BY)
@@ -173,7 +200,7 @@ describe('cost', () => {
   test('finished work makes no repository worth a tick', async () => {
     const { scope, host } = codeHost('finished-work')
     const task = await taskLinking(scope, [1])
-    await task.update({ status: 'done' }, BY)
+    await tasks.moveTask(task.id, { category: 'done' })
 
     await new PrSync({ publish: () => {} }).tick()
 
@@ -449,7 +476,7 @@ describe('merges made outside Solus', () => {
 
     expect(announced.map((detail) => detail.state)).toEqual(['merged'])
     expect((await linksOf(task.id))[0]?.snapshot?.state).toBe('merged')
-    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
+    expect(await categoryOf(task.id)).toBe('done')
   })
 
   test('complete a task on a later tick once its busy session settles, without another read', async () => {
@@ -464,11 +491,11 @@ describe('merges made outside Solus', () => {
     host.known.set(1, pullRequest(1, { state: 'merged', updatedAt: later(1) }))
 
     await sync.tick()
-    expect((await tasks.Task.byId('local', task.id)).status).toBe('in_review')
+    expect(await categoryOf(task.id)).toBe('open')
 
     busy.clear()
     await new PrSync({ publish: () => {} }).tick()
-    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
+    expect(await categoryOf(task.id)).toBe('done')
     expect(host.numberReads).toEqual([[1]])
   })
 
@@ -483,12 +510,12 @@ describe('merges made outside Solus', () => {
     first.host.known.set(1, first.pullRequest(1, { state: 'merged', updatedAt: later(1) }))
     second.host.known.set(2, second.pullRequest(2, { updatedAt: later(1) }))
     await sync.tick()
-    expect((await tasks.Task.byId('local', task.id)).status).toBe('in_review')
+    expect(await categoryOf(task.id)).toBe('open')
 
     second.host.known.set(2, second.pullRequest(2, { state: 'merged', updatedAt: later(2) }))
     now += 60_001
     await sync.tick()
-    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
+    expect(await categoryOf(task.id)).toBe('done')
   })
 
   test('seen by another read path reach the links at once, after PR sync reads them itself', async () => {
@@ -527,7 +554,7 @@ describe('merges made outside Solus', () => {
     expect(host.numberReads).toEqual([[1], [1]])
     expect(announced).toEqual(['merged'])
     expect((await linksOf(task.id))[0]?.snapshot?.state).toBe('merged')
-    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
+    expect(await categoryOf(task.id)).toBe('done')
   })
 })
 
@@ -605,11 +632,12 @@ describe('branch discovery', () => {
     host.known.set(4, pullRequest(4, { headRef: 'feature' }))
     const owners: string[] = []
     for (const [index, isolated] of [true, true, false].entries()) {
-      const created = await taskStore.createTask('local', { title: 'Branch task', projectKey: scope, status: 'todo' })
+      const created = await sourceTask()
       owners.push(created.id)
-      getDb().prepare(`INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch)
-        VALUES (?, 'codex', ?, ?, 0, 'feature')`).run(`pr-sync-branch-${index}`, isolated ? 1 : 0, Date.now())
-      await (await tasks.Task.byId('local', created.id)).linkSession(`pr-sync-branch-${index}`, 'working', {})
+      // A task has no project: the checkout of the session names where its branch is.
+      getDb().prepare(`INSERT INTO transcript_index(session_id, provider, is_worktree, last_timestamp, size, branch, cwd)
+        VALUES (?, 'codex', ?, ?, 0, 'feature', ?)`).run(`pr-sync-branch-${index}`, isolated ? 1 : 0, Date.now(), scope)
+      await created.linkSession(`pr-sync-branch-${index}`, 'working', {})
     }
     let now = Date.now()
     const sync = new PrSync({ publish: () => {}, now: () => now })
@@ -732,9 +760,8 @@ describe('branch discovery', () => {
     // merge must find the task through the session.
     const sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
     const { host, pullRequest } = codeHost('session-owned-merge')
-    const created = await taskStore.createTask('local', { title: 'Owned by its session', status: 'todo' })
-    const task = await tasks.Task.byId('local', created.id)
-    await task.update({ status: 'in_review' }, BY)
+    const created = await sourceTask()
+    const task = created
     await task.linkSession('pr-sync-owner', 'working', {})
     await sessionPrs.linkSessionPullRequest('pr-sync-owner', {
       url: 'https://github.com/owner/session-owned-merge/pull/3', source: 'created', by: BY,
@@ -744,7 +771,7 @@ describe('branch discovery', () => {
     await new PrSync({ publish: () => {} }).tick()
 
     expect((await linksOf(created.id))[0]?.snapshot?.state).toBe('merged')
-    expect((await tasks.Task.byId('local', created.id)).status).toBe('done')
+    expect(await categoryOf(created.id)).toBe('done')
   })
 })
 

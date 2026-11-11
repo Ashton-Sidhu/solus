@@ -33,7 +33,7 @@ export type Attribution =
    *  `provider` is absent only on a record written before Solus stored it. */
   | { kind: 'agent'; sessionId: string; provider?: AgentId; title?: string; for?: User }
   | { kind: 'automation'; automationId: string; name?: string; for?: User }
-  | { kind: 'upstream'; provider: DocProviderId | Exclude<TaskProviderId, 'local'> }
+  | { kind: 'upstream'; provider: DocProviderId | TaskProviderId }
   | { kind: 'system' }
 
 export const userIdSchema: z.ZodType<UserId> = z.discriminatedUnion('kind', [

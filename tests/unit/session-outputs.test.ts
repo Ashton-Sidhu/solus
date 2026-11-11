@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { attachedTask } from './helpers/task-handle'
 
 /**
  * A task shows what its sessions made, and those links follow the session
@@ -17,8 +18,7 @@ const SESSION = 'session-1'
 
 let dataDir: string
 let db: typeof import('@solus/server/db')
-let taskStore: typeof import('@solus/server/data/tasks/task-store')
-let tasks: typeof import('@solus/server/data/tasks/task')
+let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 let works: typeof import('@solus/server/data/works/works')
 let automations: typeof import('@solus/server/data/automations/automations-store')
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -27,8 +27,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-outputs-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  taskStore = await import('@solus/server/data/tasks/task-store')
-  tasks = await import('@solus/server/data/tasks/task')
+  attachments = await import('@solus/server/data/tasks/task-attachments')
   works = await import('@solus/server/data/works/works')
   automations = await import('@solus/server/data/automations/automations-store')
 })
@@ -45,8 +44,9 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-async function newTask(title: string) {
-  return tasks.Task.byId('local', (await taskStore.createTask('local', { title })).id)
+/** A task to attach things to. `_title` says what the test's task is; GitHub owns the task, so it has no copy here. */
+function newTask(_title: string) {
+  return attachedTask()
 }
 
 async function linkKeys(task: Awaited<ReturnType<typeof newTask>>) {
@@ -139,7 +139,7 @@ describe('an output made while the session works on a task', () => {
     await task.linkSession(SESSION)
     const made = await madeBy(SESSION, 'Design notes')
 
-    await tasks.Task.linkSessionOutput('local', SESSION, { kind: 'work', targetKey: made.id, title: made.title })
+    await attachments.linkSessionOutput('local', SESSION, { kind: 'work', targetKey: made.id, title: made.title })
     expect((await task.links()).map((link) => link.ownerSessionId)).toEqual([SESSION])
 
     await task.unlinkSession(SESSION, PERSON)

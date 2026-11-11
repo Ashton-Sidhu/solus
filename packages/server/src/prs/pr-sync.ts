@@ -5,7 +5,7 @@ import type { PrInterest, PrSyncChange, PullRequest, RepoRef } from '@solus/cont
 import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
-import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
+import { completeTasksForMergedPullRequest } from '../data/tasks/done-on-merge'
 import { settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
 import { readPrLinkInterests, recordPullRequestObservation } from '../data/tasks/task-links'
 import { onTasksChanged } from '../data/tasks/task-store'

@@ -2,6 +2,15 @@
 
 Status: steps 1–5 implemented. Steps 1–4 (2026-09-24): Solus `refactor/record-homes-and-machines`, solus-cloud `feat/directory-workspaces`. Step 5 (2026-09-26) did not wait for a rollout: Solus has no users yet. Step 6 is deferred.
 
+> **2026-11-10.** [Provider-owned tasks](provider-owned-tasks.md) replaced the
+> task model. GitHub and Jira own every task; Solus has no local task, no task
+> in an organization and no task sharing. In this plan, each statement that
+> gives a task a record home is history: "Tasks stay local first" and
+> `tasksAreCloudOwned` (§3, §7), a new task that goes to the primary (§5.1), the
+> cloud task of §5.4, and "Move to Solus Cloud" for a task. A client reads the
+> tasks of a project from the host that has the project. A record home keeps
+> only a task's attachments.
+
 Target-model update (2026-09-26): [Hosts and organizations](organization-scope.md)
 defines Local-first scratch work, explicit cloud publication, scoped host access,
 and Local data beside the selected organization. This document describes the
@@ -98,10 +107,9 @@ homes at once, as the tasks store already does:
   grant for `aud: solus-api`. The home of a Solus Cloud project's records,
   of what a managed host's agents write, and of anything moved to Solus Cloud.
 - **A machine's own records**: every machine that serves `collaboration` (a
-  laptop, a self-hosted server) is the home of its own projects' records. Tasks
-  stay local first (`tasksAreCloudOwned`, `outbox/cloud-ownership.ts`): a
-  person's linked machine keeps its tasks, and a person moves one to the cloud
-  on purpose.
+  laptop, a self-hosted server) is the home of its own projects' records. A
+  task is not such a record (changed 2026-11-10): GitHub or Jira owns it, the
+  machine keeps a task cache, and a home keeps only the task's attachments.
 
 **The active organization.** A window has one active organization, set by the
 team switcher (better-auth's `setActiveOrganization`, marked `isActive` in the

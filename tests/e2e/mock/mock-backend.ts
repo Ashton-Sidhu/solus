@@ -249,7 +249,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       return
     }
 
-    // Run the real create_task and create_work tools the host handed this run,
+    // Run the real create_work tool the host handed this run,
     // exactly as a provider adapter would (the Lab's cloud-workspace proof:
     // where an agent's writes land depends on the host, not on the backend).
     if (prompt.includes('__MOCK_AGENT_TOOLS__')) {
@@ -432,12 +432,13 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this._completeRun(handle, responseText)
   }
 
-  /** `__MOCK_AGENT_TOOLS__`: one `create_task` and one `create_work` through the
-   *  host's own tool executors, with the context a provider adapter builds. The
-   *  completion text carries both results, so a reader can see the ids. */
+  /** `__MOCK_AGENT_TOOLS__`: one `create_work` through the host's own tool
+   *  executor, with the context a provider adapter builds. The completion text
+   *  carries the result, so a reader can see the id. There is no `create_task`
+   *  call: that tool creates a real task on GitHub or Jira, which a mock run
+   *  must never do. */
   private async _runAgentTools(handle: RunHandle, request: AgentRunRequest): Promise<void> {
     await this._runToolCalls(handle, request, [
-      ['create_task', { title: 'Runner task from the mock agent', body: 'Filed by __MOCK_AGENT_TOOLS__.' }],
       ['create_work', { title: 'Runner work from the mock agent', doc_type: 'doc', content: '# Runner work\n\nWritten by __MOCK_AGENT_TOOLS__.' }],
     ])
   }

@@ -191,16 +191,6 @@ export class PromptDispatch {
     // checkout itself, so the send does not wait for a refresh in flight.
     const startTarget = worktreeBaseBranch(promptSession.run) ? null : this.workspace.config.pendingSessionStartTarget(tabId)
     Promise.resolve(startTarget)
-      .then(async () => {
-        if (!options.taskId) return
-        const recordActivity = this.workspace.tasksStore.get(options.taskId).recordActivity()
-          .catch((error) => {
-            console.warn('[Solus] Task activity update failed; the prompt will still send.', error)
-          })
-        // A dispatched run ships a task snapshot, which must show the task the
-        // activity reopened. Other prompts do not read the task's status.
-        if (isDispatch(promptSession.run)) await recordActivity
-      })
       .then(() => this.resolveTaskOnItsHost(tabId, options))
       .then(async (resolved) => {
         const ctx = await this.sendContext(tabId)
@@ -331,7 +321,6 @@ export class PromptDispatch {
     try {
       const { task, snapshot } = await this.workspace.tasksStore.prepareForSession(project.serverId, {
         taskId: options.taskId,
-        projectKey: project.path,
         includeSnapshot: isDispatch(session.run),
       })
       if (!task) return options
@@ -340,7 +329,7 @@ export class PromptDispatch {
         try {
           await this.workspace.tasksStore.get(task.id).link({
             kind: 'pr',
-            targetScope: task.projectKey ?? project.path,
+            targetScope: project.path,
             targetKey: String(session.prReview.number),
             title: `#${session.prReview.number} ${session.prReview.title}`,
             automatic: true,
