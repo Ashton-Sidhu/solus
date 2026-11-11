@@ -34,6 +34,7 @@ const WORK_TYPE_LABEL = {
   doc: 'Document',
   slides: 'Slides',
   artifact: 'Artifact',
+  app: 'App',
 } satisfies Record<WorkType, string>
 
 export interface ArtifactFilterChip {
@@ -147,6 +148,7 @@ const WORK_TYPE_ICON = {
   doc: 'doc.text',
   slides: 'square.on.square',
   artifact: 'chevron.left.forwardslash.chevron.right',
+  app: 'chevron.left.forwardslash.chevron.right',
 } satisfies Record<WorkType, AppSymbolName>
 
 const PULL_REQUEST_ICON = {

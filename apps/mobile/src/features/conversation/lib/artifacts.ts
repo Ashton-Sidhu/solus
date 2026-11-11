@@ -86,6 +86,12 @@ function updateFromHistory(toolInput: string | null, ref: ArtifactWorkRef): Arti
   return { html: '', title: ref.title, workId: ref.workId, contentVersion: ref.contentVersion }
 }
 
+/** The app work a finished `create_app` call made or revised (docs/plans/apps.md), from its receipt. */
+export function appFromHistory(toolName: string, result: WireSessionLoadMessage): { workId: string; title: string } | null {
+  if (result.status === 'error' || !toolName.endsWith('create_app') || !result.artifactWorkRef) return null
+  return { workId: result.artifactWorkRef.workId, title: result.artifactWorkRef.title }
+}
+
 /** The render a live `artifact_created` event shows. */
 export function artifactFromCreated(event: Extract<WireNormalizedEvent, { type: 'artifact_created' }>): ArtifactRender | null {
   if (event.kind !== 'html' || !event.html) return null

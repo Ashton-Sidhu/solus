@@ -62,6 +62,8 @@ export type ThreadFeedRow =
   | { readonly type: 'turn-images'; readonly id: string; readonly itemIds: readonly string[] }
   /** An HTML render. `superseded`: a later render in the feed revises the same work. */
   | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
+  /** An app work. `superseded`: a later row in the feed revises the same work. */
+  | { readonly type: 'app'; readonly id: string; readonly superseded: boolean }
   /** Consecutive agents of one turn: other Solus sessions and provider subagents. */
   | { readonly type: 'agents'; readonly id: string; readonly groupId: string; readonly itemIds: readonly string[]; readonly expanded: boolean }
 
@@ -129,7 +131,7 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
 function latestArtifactRevisions(entries: readonly FeedSourceEntry[]): ReadonlyMap<string, string> {
   const latest = new Map<string, string>()
   for (const entry of entries) {
-    if (entry.kind === 'artifact' && entry.workId) latest.set(entry.workId, entry.id)
+    if ((entry.kind === 'artifact' || entry.kind === 'app') && entry.workId) latest.set(entry.workId, entry.id)
   }
   return latest
 }
@@ -168,7 +170,7 @@ function appendTurnRows(
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
+        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'app' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
@@ -241,6 +243,8 @@ function appendTurnRows(
     } else if (entry.kind === 'artifact') {
       const superseded = !!entry.workId && latestRevisions.get(entry.workId) !== entry.id
       rows.push({ type: 'artifact', id: entry.id, superseded })
+    } else if (entry.kind === 'app') {
+      rows.push({ type: 'app', id: entry.id, superseded: !!entry.workId && latestRevisions.get(entry.workId) !== entry.id })
     }
   })
   flushAgents()
