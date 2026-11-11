@@ -1,3 +1,4 @@
+import type { VoiceTranscriptionOptions } from './voice-dictionary'
 import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest, VoiceWarmRequest } from './voice-stream'
 import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanceTarget, ProviderInstanceCode, ProviderInstanceStatus } from './provider-instances'
 import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
@@ -211,8 +212,8 @@ export interface SolusAPI {
   assetFindUrl(ctx: IpcContext | undefined, request: AssetFindUrlRequest): Promise<AssetFindUrlResult | null>
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
-  transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
-  voiceStreamStart(): Promise<{ streamId: string }>
+  transcribeAudio(audio: Float32Array | string, options?: VoiceTranscriptionOptions, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
+  voiceStreamStart(options?: VoiceTranscriptionOptions): Promise<{ streamId: string }>
   voiceStreamFeed(request: VoiceStreamFeedRequest): Promise<VoicePartial>
   voiceStreamFinish(request: VoiceStreamRequest): Promise<VoiceTranscript>
   voiceStreamCancel(request: VoiceStreamRequest): Promise<void>
@@ -573,6 +574,9 @@ export interface SolusAPI {
   /** Drops the cached list and downloads the published one now. If GitHub
    *  cannot be reached, the host runs on the list its build shipped with. */
   modelProfilesRefresh(): Promise<ModelProfilesStatus>
+  /** A model picker opened: downloads the published list if the host last
+   *  asked more than five minutes ago, so a new model shows without the daily check. */
+  modelProfilesCheck(): Promise<ModelProfilesStatus>
 
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>

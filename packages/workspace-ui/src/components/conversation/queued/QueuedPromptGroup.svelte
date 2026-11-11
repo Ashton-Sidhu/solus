@@ -7,6 +7,9 @@
   import { queuedCaption, queuedEntryModel } from "../lib/queued-prompts";
   import ProviderMark from "../../ui/ProviderMark.svelte";
   import QueueEntryEditor from './QueueEntryEditor.svelte';
+  import { QueueEdit } from './lib/queue-edit.svelte';
+  import { QUEUED_EDIT_EXIT_NOTICE, queuedEditExit } from './lib/queued-edit-exit';
+  import { toasts } from "../../../lib/toasts";
   import type { SessionQueueMutation } from '@solus/contracts/session-queue';
   import { isSteerableStatus } from '@solus/contracts/types';
   import UserMessageBubble from "../UserMessageBubble.svelte";
@@ -21,7 +24,8 @@
   let { tabId }: Props = $props();
 
   const session = getWorkspaceContext();
-  let editPrompt = $state<OutboundPrompt | null>(null);
+  // The open edit lives here, outside the #each, so it outlives its entry.
+  let edit = $state<QueueEdit | null>(null);
   let queueError = $state('');
   const sess = $derived(session.sessionFor(tabId));
   const prompts = $derived(sess?.outboundPrompts ?? []);
@@ -58,6 +62,26 @@
     queuedCaption(prompts, { isRateLimited, resetsAt, rateLimitType, now }),
   );
 
+  // The entry can leave while it is edited: its run started, or another client
+  // removed it. End the edit and keep what was typed when the composer is empty.
+  $effect(() => {
+    const open = edit;
+    if (!open || open.busy || prompts.some((prompt) => prompt.queueId === open.source.queueId)) return;
+    untrack(() => {
+      edit = null;
+      const input = session.inputFor(tabId);
+      const exit = queuedEditExit({
+        changed: open.changed,
+        text: open.text,
+        composerDraftEmpty: !input.text.trim() && input.attachments.length === 0,
+      });
+      if (exit === 'clean') return;
+      if (exit === 'kept') input.text = open.text;
+      toasts.info(QUEUED_EDIT_EXIT_NOTICE[exit]);
+      requestInputFocus({ tabId });
+    });
+  });
+
   function reportError(err: Error) { queueError = err.message; }
 
   async function change(mutation: SessionQueueMutation) {
@@ -91,8 +115,8 @@
   <div class="text-transcript-meta flex flex-col pt-[0.8125rem] pb-1.5">
     {#each prompts as prompt (`outbound-${prompt.clientPromptId}`)}
       {@const model = queuedEntryModel(prompt)}
-      {#if editPrompt && editPrompt.queueId === prompt.queueId}
-        {#key editPrompt.queueId}<QueueEntryEditor {tabId} prompt={editPrompt} onClose={() => editPrompt = null} />{/key}
+      {#if edit && edit.source.queueId === prompt.queueId}
+        {#key edit}<QueueEntryEditor {tabId} {edit} onClose={() => edit = null} />{/key}
       {:else if prompt.kind === 'provider_switch'}
         <!-- A switch is not a message: one quiet line at its place in the queue. -->
         <div class="flex items-center justify-end gap-2.5 py-1.5 text-(--solus-text-tertiary)">
@@ -124,7 +148,7 @@
             <button type="button" onclick={() => change({ kind: 'steer', queueId: prompt.queueId!, revision: prompt.revision ?? 0 })} class="flex cursor-pointer items-center gap-1 text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11"><ArrowUpIcon size={13} aria-hidden="true" />Send now</button>
             <span class="h-3 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true"></span>
           {/if}
-          <button type="button" onclick={() => editPrompt = { ...prompt }} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Edit queued message" title="Edit"><PencilIcon size={13} /></button>
+          <button type="button" onclick={() => edit = new QueueEdit(session.queue, tabId, { ...prompt })} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Edit queued message" title="Edit"><PencilIcon size={13} /></button>
           <button type="button" onclick={() => handleRemove(prompt)} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--destructive) focus-visible:text-(--destructive) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Remove queued message" title="Remove"><XIcon size={13} /></button>
         {/snippet}
         {#if prompt.queueId && (model || prompt.held)}

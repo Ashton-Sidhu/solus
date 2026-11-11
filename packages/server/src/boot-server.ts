@@ -1,3 +1,4 @@
+import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
@@ -279,7 +280,7 @@ export interface BootOptions {
     shutdown(): void
   }
   /** Optional voice transcription implementation supplied by the desktop host. */
-  transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
+  transcribeAudio?: (samples: Float32Array, options?: VoiceTranscriptionOptions) => Promise<{ error: string | null; transcript: string | null }>
 }
 
 export interface BootedServer {
@@ -976,6 +977,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getSessionInfo: (sessionId) => opts.sessionRuntime.history.getSessionInfo(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => opts.sessionRuntime.history.loadSession(provider, sessionId, projectPath, limit),
     liveStatus: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
+    executedModel: (sessionId) => orchestrator.executedModelOf(sessionId),
     pendingInputEvents: (sessionId) => opts.sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
     loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
       opts.sessionRuntime.history.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
@@ -1121,12 +1123,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     cachePath: join(solusDir(), 'model-profiles.json'),
     download: downloadModelProfiles,
     publish: (status) => { events.broadcast('host.modelProfilesChanged', status) },
+    onProfilesChanged: () => { void hostUpdates.refreshProviders() },
   })
   if (opts.sessionRuntime.getBackendIds().includes('claude-code')) {
     opts.sessionRuntime.backendFor('claude-code').on('models-reported', () => { events.broadcast('host.modelProfilesChanged', modelProfiles.status) })
   }
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
+  server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),

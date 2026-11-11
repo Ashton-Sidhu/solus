@@ -49,7 +49,7 @@ desktop and web clients. It adds no server code and no mobile protocol.
   Android; `expo-system-ui` for Android light and dark; `expo-symbols` for
   icons: SF Symbols on iOS, T3's Tabler mapping on Android (`src/components/AppSymbol.tsx`).
 - Local native modules, autolinked from `modules/`, among them
-  `modules/solus-keyboard-commands` (iOS) for hardware keyboard commands,
+  `modules/solus-keyboard-commands` (iOS; Android for Return only) for hardware keyboard commands,
   `modules/solus-file-preview` (Quick Look on iOS, another app's viewer on
   Android) for images, PDFs, and documents, and `modules/solus-highlights` for
   code colors. `expo-paste-input` (as in T3)
@@ -160,8 +160,11 @@ Do not use the Solus desktop or web build commands for the mobile app.
   amendment). The hardware keyboard's ⌘L still focuses the input.
 - **Hardware keyboard:** ⌘↩ send, ⌘N new session, ⌘B sidebar, ⌘L focus the
   input, Ctrl+C stop, ⌘[ back — the desktop meanings, except Send: a plain
-  Return breaks a line in a multiline input. iOS only; the Swift source is
-  typechecked against UIKit but not yet compiled with Expo.
+  Return breaks a line in a multiline input. iOS has all of them; the Swift source is
+  typechecked against UIKit but not yet compiled with Expo. On Android, only
+  Return from a real hardware keyboard: Return sends from a focused composer,
+  Ctrl+Return sends, and Shift+Return breaks the line. A held Return sends once.
+  The on-screen keyboard's Return always breaks the line.
 - **History and replay.** The app follows the host's contract: history first,
   then `watchSession` with `attachRuntime`, which replays the turn in progress.
   A history page read during a turn may already hold part of that turn, and
@@ -193,7 +196,7 @@ feature area that implements it.
 | Run settings (model, effort, permission mode) | conversation | source | yes | `native-mobile-run-settings`; the window always follows the model |
 | Attachments (photos, videos, files) | conversation | source | yes | `native-mobile-attachments`; device proof of pickers and upload |
 | Voice input | input | missing | yes | Needs a native recorder feeding `transcribeAudio` |
-| Hardware keyboard commands | keyboard | source (iOS), unbuilt | yes | `native-mobile-run-settings` (registry); Swift typechecked against UIKit; Android has none |
+| Hardware keyboard commands | keyboard | source (iOS; Android Return only), unbuilt | yes | `native-mobile-run-settings` (registry); Swift typechecked against UIKit; Android Return filter has a JVM test (`HardwareReturnTest.kt`), not yet run |
 | Adaptive iPad sidebar | layout | source | n/a | `native-mobile-layout`; device proof in full and reduced windows |
 | Markdown, code, selectable text | conversation | source, unbuilt | yes | `native-mobile-enriched-markdown`, `native-mobile-incremental-snippet`; Enriched Markdown (T3's fork) with file link pills, tables, code colors, and images and videos from the host; device proof needs a new native build |
 | Tasks, goals | tasks | missing | yes | Next step after milestone one |

@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import type { CheckItem } from '@solus/contracts/checks-types'
 import type { GuideSection, ReviewDraftComment } from '@solus/contracts/review'
 
@@ -55,7 +56,7 @@ Do NOT push, reply to, or resolve PR threads. The reviewer will inspect the loca
 }
 
 function promptField(value: string, limit = 500): string {
-  return value.replace(/[\r\n]+/g, ' ').trim().slice(0, limit)
+  return cutText(value.replace(/[\r\n]+/g, ' ').trim(), limit)
 }
 
 export type PrFailingCheck = Pick<CheckItem, 'name' | 'conclusion' | 'detailsUrl'>

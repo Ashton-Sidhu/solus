@@ -321,6 +321,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     },
     [app, hostId, props.draftKey],
   );
+  // A prompt sent while its files uploaded comes back if one of them failed,
+  // unless the user has typed something since.
+  const unsentText = meta.unsentText;
+  useEffect(() => {
+    if (unsentText === null) return;
+    const text = store.controller.takeUnsentText();
+    if (text && latestDraft.current.trim() === "") restoreToConversationDraft(text);
+  }, [restoreToConversationDraft, store, unsentText]);
   // T3 edits a queued message here, in its own draft; the conversation's draft waits unchanged.
   const queuedEdit = useComposerQueuedEdit({
     store,
@@ -415,9 +423,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     lineHeight: Platform.OS === "android" || isEditing ? bodyText.lineHeight : undefined,
     color: foregroundColor,
   };
+  // A prompt may go while its files upload: the controller sends it when they
+  // land. A queued message's edit still waits for its uploads.
   const sendBlockedReason = queuedEdit?.saving
     ? "Saving…"
-    : (props.sendBlockedReason ?? (stripUploading > 0 ? "Uploading attachments" : null));
+    : (props.sendBlockedReason ?? (editing && stripUploading > 0 ? "Uploading attachments" : null));
   const canSend = hasContent && sendBlockedReason === null;
 
   // "Quote in reply" from a message's selection menu, as desktop's context
@@ -496,12 +506,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         return;
       }
       const prompt = draftMessage.trim();
-      const feedbackTarget = permissionForFeedback(meta.permissions);
+      // An explicit Queue answers no request: the text waits behind the turn.
+      const feedbackTarget = followUp === "queue" ? null : permissionForFeedback(meta.permissions);
       if (feedbackTarget) {
         // The card's request waits on the agent that asked, a subagent's
         // included. The text goes with its denial to that agent; sent as a
         // prompt it would reach the parent while the request stayed open.
-        if (!prompt || meta.attachments.length > 0) {
+        if (!prompt || meta.attachments.length > 0 || meta.uploading > 0) {
           Alert.alert("Feedback is text only", "Remove the attachments to send feedback on this request.");
           return;
         }

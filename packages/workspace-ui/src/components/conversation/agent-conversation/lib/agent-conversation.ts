@@ -1,5 +1,5 @@
 import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SessionMeta } from '@solus/contracts/types'
-import { exchangeRequestText, type ExchangeRequest, type SessionOutput } from '@solus/contracts/session-exchange'
+import { exchangeRequestText, type ExchangeRequest } from '@solus/contracts/session-exchange'
 import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { agentLabel } from '../../../../lib/agentAvailability'
 import type { GroupedItem } from '../../lib/turns'
@@ -54,16 +54,6 @@ export function agentConversationCardState(ref: AgentConversationRef): AgentConv
 export function pendingRequest(ref: AgentConversationRef): ExchangeRequest | null {
   const last = ref.exchanges[ref.exchanges.length - 1]
   return last?.status === 'awaiting_input' ? last.request ?? null : null
-}
-
-/** A plan the other agent's last finished turn brought back, which a person can
- *  still approve or send back from here. The host refuses a decision on a plan
- *  that was already acted on. */
-export function planAwaitingDecision(ref: AgentConversationRef): Extract<SessionOutput, { kind: 'plan' }> | null {
-  if (ref.closedByAgent) return null
-  const last = ref.exchanges[ref.exchanges.length - 1]
-  if (last?.status !== 'done') return null
-  return last.outputs?.findLast((output) => output.kind === 'plan') ?? null
 }
 
 /** The task the other session works on, as its latest report named it. */
@@ -294,11 +284,9 @@ export function agentConversationLink(
 // ─── Group ───
 
 /** What a person must decide in the card itself: a question, a permission,
- *  or a plan the other agent brought back. */
+ *  or a plan that holds the other agent's turn open. */
 export function needsPersonDecision(ref: AgentConversationRef): boolean {
-  const state = agentConversationCardState(ref)
-  if (state === 'waiting') return pendingRequest(ref) !== null
-  return !isLiveAgentConversationState(state) && planAwaitingDecision(ref) !== null
+  return agentConversationCardState(ref) === 'waiting' && pendingRequest(ref) !== null
 }
 
 type AgentGroupTone = 'working' | 'waiting' | 'done' | 'failed' | 'stopped'

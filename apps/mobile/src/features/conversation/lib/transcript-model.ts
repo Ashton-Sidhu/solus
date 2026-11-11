@@ -608,6 +608,22 @@ export class TranscriptModel {
     this.proseSinceUser = false
   }
 
+  /** The files of a sent prompt, once the uploads it waited for land. */
+  setOptimisticAttachments(clientPromptId: string, attachments: readonly MessageAttachment[]): void {
+    const item = this.items.get(clientPromptId)
+    if (item?.kind !== 'user') return
+    this.replace({ ...item, attachments })
+  }
+
+  /** A prompt that never left this device: it goes back to the composer. */
+  dropOptimisticUser(clientPromptId: string): void {
+    const item = this.items.get(clientPromptId)
+    if (item?.kind !== 'user' || item.delivery !== 'sending') return
+    this.items.delete(clientPromptId)
+    this.order = this.order.filter((each) => each !== clientPromptId)
+    this.orderChanged = true
+  }
+
   markDelivery(clientPromptId: string, delivery: Delivery, error: string | null = null): void {
     const item = this.items.get(clientPromptId)
     if (item?.kind !== 'user') return

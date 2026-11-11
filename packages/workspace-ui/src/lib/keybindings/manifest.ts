@@ -206,6 +206,9 @@ export const KEYBINDINGS = {
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
   'prs.current-project':          { combo: { alt: true, code: 'KeyC' },                    scope: 'prs',                label: 'Current project',          group: 'Pull Requests' },
 
+  // ── Notifications ──────────────────────────────────────────────────────────
+  'notifications.clear-selection': { combo: { code: 'Escape' },                            scope: 'notifications',      label: 'Clear selection',          group: 'Notifications' },
+
   // ── PR review ──────────────────────────────────────────────────────────────
   'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },
   'pr-review.copy-link':          { combo: { mod: true, ctrl: true, code: 'KeyC' }, nonMac: { mod: true, shift: true, code: 'KeyC' }, scope: 'pr-review',          label: 'Copy GitHub link',         group: 'Pull Requests' },

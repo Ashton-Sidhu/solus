@@ -26,8 +26,18 @@ daylight saving time). Clients get the list from their host. A new model shows
 in the model picker on desktop, web, and mobile after the next check, or at once
 after a user clears the cache in Settings → About Solus.
 
+When a person opens a model picker (the session chip on desktop and web, the
+session settings sheet on mobile), the client asks the host to check again
+(`modelProfilesCheck`). The host downloads the file only if it last asked more
+than five minutes ago, because GitHub's raw CDN keeps the file for about that
+long. Thus a model released today shows in the picker within minutes, and an
+open costs no download most of the time.
+
 A model works only if the provider CLI installed on the host accepts its ID.
-The list does not install or update Claude Code or Codex.
+The list does not install or update Claude Code or Codex. When a downloaded list
+is different from the list in effect, the host checks for Claude Code and Codex
+updates at once, so the release that runs a new model shows with that model.
+A cloud host does not check.
 
 ## Models a provider reports
 
@@ -73,10 +83,13 @@ provider's models into a constant at import. The agent backends build their
 |---|---|---|---|
 | `modelProfilesStatus` | method | any member | The list in effect, its source (`bundled` or `remote`), when it was downloaded, and the last error. |
 | `modelProfilesRefresh` | method | host admin | Deletes the cache and downloads the list now. If the download fails, the host goes back to the list in its build. |
+| `modelProfilesCheck` | method | any member | A model picker opened. Downloads the list if the host last asked more than five minutes ago, and keeps the cache. A failed download keeps the list in effect. |
 | `host.modelProfilesChanged` | event | every client | The whole status, sent when the list or the check state changes. |
 
 Hosts advertise the `modelProfiles` capability. A client connected to an older
-host uses the models that host lists in `start()`.
+host uses the models that host lists in `start()`. A host older than
+`modelProfilesCheck` refuses the call; the client ignores the refusal and the
+picker shows the list in effect.
 
 ## Clients
 

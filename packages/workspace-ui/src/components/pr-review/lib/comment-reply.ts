@@ -1,3 +1,4 @@
+import { cutText } from '@solus/contracts/text-cut'
 import type { PrCommentActivityItem } from '@solus/contracts/providers'
 
 /**
@@ -26,7 +27,7 @@ export function replyPreviewText(target: CommentReplyTarget, maxLength = 80): st
     .map((part) => part.replace(/^[>\s#*-]+/, '').trim())
     .find((part) => part.length > 0) ?? ''
   if (line.length <= maxLength) return line
-  return `${line.slice(0, maxLength - 1).trimEnd()}…`
+  return `${cutText(line, maxLength - 1).trimEnd()}…`
 }
 
 /** The comment that is posted: the target quoted, then the mention and the reply. */

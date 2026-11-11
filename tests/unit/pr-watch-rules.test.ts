@@ -130,6 +130,50 @@ describe('PR watch rules', () => {
     expect(run([read({ checks: checks([failed, check('lint', 'success')]) })], stored).kinds).toEqual([[]])
   })
 
+  test('a workflow that waits for approval is told once, never as a failure', () => {
+    // WHY: a fork's first workflow run waits for a maintainer. It has not
+    // failed, and an agent told it failed would push fixes for nothing.
+    const gated = check('ci', 'action_required')
+    const { kinds, state } = run([
+      read({ checks: checks([gated, check('bot', 'success')]) }),
+      read({ checks: checks([gated, check('bot', 'success')]) }),
+    ])
+    expect(kinds).toEqual([['checks-awaiting-approval'], []])
+    expect(state.failedChecks).toEqual([])
+    expect(state.approvalChecks).toEqual(['ci'])
+    const text = wakeText({ number: 42, url: 'https://github.com/solus/app/pull/42', headSha: 'head-1' }, [{ kind: 'checks-awaiting-approval', checks: [gated] }], null)
+    expect(text).toContain('approve')
+    expect(text).not.toContain('failed:')
+  })
+
+  test('the approval hold survives a read without the awaited check: no pass, no no-checks', () => {
+    // WHY: a later read can leave the waiting check out. The head has not
+    // passed CI, so the agent must not be told it did.
+    const { kinds } = run([
+      read({ checks: checks([check('ci', 'action_required'), check('bot', 'success')]) }),
+      read({ checks: checks([check('bot', 'success')]) }),
+      read({ checks: checks([]), readAt: minutes(30) }),
+    ])
+    expect(kinds).toEqual([['checks-awaiting-approval'], [], []])
+  })
+
+  test('the approval hold clears only when the awaited check finishes', () => {
+    const held = run([read({ checks: checks([check('ci', 'action_required')]) })]).state
+    expect(run([
+      read({ checks: checks([check('ci', null)]) }),
+      read({ checks: checks([check('ci', 'success')]) }),
+    ], held).kinds).toEqual([[], ['checks-passed']])
+  })
+
+  test('a new head clears the approval hold', () => {
+    const { kinds, state } = run([
+      read({ checks: checks([check('ci', 'action_required')]) }),
+      read({ headSha: 'head-2', checks: checks([check('bot', 'success')]) }),
+    ])
+    expect(kinds).toEqual([['checks-awaiting-approval'], ['checks-passed']])
+    expect(state.approvalChecks).toEqual([])
+  })
+
   test('a check that fails again after a rerun on the same head is news again', () => {
     const { kinds } = run([
       read({ checks: checks([check('build', 'failure')]) }),

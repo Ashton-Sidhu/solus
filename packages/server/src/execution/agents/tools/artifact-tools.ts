@@ -14,7 +14,7 @@ import {
 import { dataDir } from '../../../platform/paths'
 import { agentToolImageFromDataUrl, type AgentTool, type AgentToolResult } from './agent-tool'
 import { createAgentWork, type WorkCreateCtx } from './work-tools'
-import { readArtifactHtml } from './artifact-file'
+import { readWorkFile } from './work-file'
 
 const log = createLogger('folio', 'artifact-tools.ts')
 
@@ -58,15 +58,15 @@ export interface ArtifactToolDeps {
 export const ARTIFACT_TOOL_NAME = 'render_artifact'
 
 const artifactFields = {
-  html: z.string().optional().describe('A finished, self-contained HTML document to render. Pass this or html_path, not both.'),
+  html: z.string().optional().describe('A finished, self-contained HTML document to render. Pass this or html_path.'),
   html_path: z.string().optional().describe(
-    'The path of a compiled HTML file on this host, such as the visual-artifacts bundle.html. A relative path is relative to your working directory. Solus reads the file, so its content does not pass through your output. Pass this or html, not both.',
+    'Path to an .html file on this host, such as the visual-artifacts bundle.html, relative to your working directory. Pass this or html.',
   ),
   title: z.string().describe(
     'A short, human-readable title for the artifact, as it should read in the works gallery in the session.',
   ),
   preview: z.boolean().optional().describe(
-    'Check the page instead of saving it: returns a screenshot you see in the result, the page height, console output and errors, and missing local images. Saves no work and renders nothing in the conversation. Use it before a ```html fence as well as before saving an artifact.',
+    'Check the page instead of saving it. Use it before a ```html fence as well as before saving an artifact.',
   ),
   preview_width: z.number().int().optional().describe(
     `Preview width in CSS pixels, 320-1440. Defaults to ${HTML_PREVIEW_DEFAULT_WIDTH}, the reply column; use about 390 to check a phone.`,
@@ -75,23 +75,16 @@ const artifactFields = {
 } as const
 
 export const ARTIFACT_TOOL_DESC = [
-  'Render a finished, self-contained HTML artifact flush in the conversation (charts, diagrams, simulations, interactive widgets).',
-  'The artifact is saved as a work: the result names its work_id, which read_work and update_work accept, which link attaches to the calling session, and which embeds it in a document or plan.',
-  'Only call this when the render needs that durable identity — you will revise it by id, it belongs in the session, or the user asked to keep it. It is associated with the calling session.',
-  'For something visual the user reads once, write a fenced ```html block in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence carrying a <style>, a <script>, or a whole document renders; a bare fragment stays code to read. Write ```html render or ```html source to say which when the content does not make it obvious.',
-  'The reader sees the page as part of your reply, so do not announce it, say where it is, or restate it: write only what the page does not say.',
-  'Solus injects its active theme as CSS custom properties on :root, and they follow the user\'s light or dark mode live: --background (page background, identical to the conversation around the frame), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground (brand accent), --accent-surface, --accent-surface-foreground, --brand, --brand-foreground (the Solus app accent: use these instead of --primary for solid buttons in a mock-up of Solus\'s own UI), --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (categorical series for charts), --radius, --font-sans, --font-mono. The base stylesheet sets html background, color, and a 14px font from these, body margin to 0, monospace for code, and hides the page\'s scrollbar; your own CSS overrides it. Style with these variables, never fixed colors.',
-  `The frame is borderless on the conversation background and as wide as the reply column (${HTML_PREVIEW_DEFAULT_WIDTH}px by default, wider when the reader widens the conversation, about 360px on a phone), and its left edge lines up with your reply text.`,
-  'The page sits on the conversation background, so by default give html, body, and the outermost element no background color. This overrides general style preferences such as a fixed black page background.',
-  'Use a fluid width with no horizontal padding on the outermost element, and no outer card, border, or banner title: the page is part of your reply.',
-  'If a box needs its own background (a mock of a specific screen, a panel that must stand apart), give it at least 16px of padding on every side and var(--radius) corners, so content never touches its edge.',
-  'Give charts fixed pixel heights rather than heights that scale with width.',
-  'Let content set the page height. Avoid viewport-based heights such as 100vh or height:100% on html or body: the frame grows to fit the page, so they can make it grow again and again.',
-  'To show a local image such as a screenshot, write its absolute path in src or CSS url(); Solus writes the file into the page. Remote http(s) URLs, such as a chart library from a CDN, load as they are.',
-  'Give inline HTML fences a stable conversation-local identity: ```html render artifact=revenue-chart. Reuse that artifact= value when revising the same visual in later replies; use a new value for a separate visual or alternative. Use only letters, digits, hyphens, and underscores, up to 80 characters. Completed revisions collapse earlier previews, which remain available. Emit only one completed revision per identity in a reply. Saved artifact works are revised with update_work, which renders the new version inline automatically.',
-  'Check a page before the user sees it: call render_artifact with preview: true. It renders the HTML in a headless browser with the Solus theme at the reply width and returns a screenshot you see in the result, the height the page needs, its console output and errors, and any local image it could not find. A preview saves nothing and shows nothing. Fix what it shows, then write the ```html fence in your reply or call render_artifact again without preview to save it.',
-  'For a compiled file, such as the visual-artifacts bundle.html, pass html_path rather than the file content: Solus reads the file on this host.',
-  'Either way, do NOT hand-author the HTML directly. Use the `visual-artifacts` skill — it owns the Solus design system and the sandbox constraints, authors the HTML, and calls this tool for you when a tool call is the right one.',
+  'Render a finished, self-contained HTML artifact in the conversation (charts, diagrams, simulations, interactive widgets) and save it as a work. The result names its work_id, which read_work, update_work, and link accept and which embeds it in a document or plan. update_work revises it and renders the new version inline.',
+  'Call this only when the render needs that durable identity: you will revise it by id, it belongs in the session, or the user asked to keep it.',
+  'For a visual the user reads once, write a ```html fence in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence with a <style>, a <script>, or a whole document renders; a bare fragment stays code. Write ```html render or ```html source when the content does not make it obvious. Give a fence an identity, ```html render artifact=revenue-chart (letters, digits, - and _, up to 80 characters): reuse it to revise that visual, use a new one for a separate visual, and emit one completed revision per identity in a reply.',
+  'The reader sees the page as part of your reply: do not announce it, say where it is, or restate it.',
+  'Solus sets its theme as CSS variables on :root, following light and dark mode live. Style with them, never fixed colors: --background (the conversation background), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground, --accent-surface, --accent-surface-foreground, --brand, --brand-foreground (solid buttons in a mock-up of Solus itself), --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (chart series), --radius, --font-sans, --font-mono. The base stylesheet sets a 14px font, body margin 0, monospace code, and a hidden scrollbar.',
+  `The frame is borderless, as wide as the reply column (${HTML_PREVIEW_DEFAULT_WIDTH}px by default, about 360px on a phone), and aligned with your text. Give html, body, and the outermost element no background color (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title. A box with its own background gets at least 16px padding and var(--radius) corners. Give charts fixed pixel heights. Let content set the height: never 100vh or height:100% on html or body.`,
+  'For a local image, write its absolute path in src or CSS url() and Solus writes the file into the page. Remote http(s) URLs, such as a CDN library, load as they are.',
+  'Check a page first with preview: true. It renders the page in a headless browser with the Solus theme at the reply width and returns a screenshot you see, the page height, console output and errors, and missing local images. It saves and shows nothing. Fix what it shows, then write the fence or call again without preview.',
+  'For a file on disk, such as the visual-artifacts bundle.html, pass html_path instead of html, so the page does not pass through your output.',
+  'Do NOT hand-author the HTML: use the `visual-artifacts` skill. It owns the Solus design system and the sandbox rules, and calls this tool when a tool call is right.',
 ].join('\n')
 
 interface ArtifactToolArgs {
@@ -166,9 +159,9 @@ export async function executeArtifactTool(
     if (input.html && input.html_path) return { ok: false, text: 'render_artifact takes html or html_path, not both.' }
     let html = input.html
     if (input.html_path) {
-      const read = await readArtifactHtml(input.html_path, deps.ctx?.cwd ?? '~')
+      const read = await readWorkFile('html_path', input.html_path, deps.ctx?.cwd ?? '~')
       if ('error' in read) return { ok: false, text: `render_artifact error: ${read.error}` }
-      html = read.html
+      html = read.body
     }
     if (!html.trim()) return { ok: false, text: 'render_artifact requires non-empty html or an html_path.' }
     const title = input.title.trim()

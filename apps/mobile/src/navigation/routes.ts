@@ -55,6 +55,8 @@ export type RootStackParamList = {
   ProviderSettings: { provider: import("@solus/contracts/types").AgentId; hostId?: string; instanceId?: string }
   ChatSettings: undefined
   AgentDefaults: undefined
+  VoiceSettings: undefined
+  VoiceTerm: { term: string }
   NotificationSettings: undefined
   /** The effective policy of work on a host (plans/030 §7), read-only; the params preselect the host and the organization. */
   Policy: { hostId?: string; organizationId?: string } | undefined

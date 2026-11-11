@@ -95,7 +95,6 @@ function buildLongSession(messageCount: number): Session {
     permissionQueue: [],
     questionQueue: [],
     isStreamingText: false,
-    isReconnecting: false,
     currentActivity: '',
     status: 'running',
   } as unknown as Session
@@ -109,7 +108,6 @@ function legacyComputeCurrentActivity(session: Session): string {
   if (session.permissionQueue.length > 0) return 'perm'
   if (session.questionQueue.length > 0) return 'question'
   if (session.isStreamingText) return 'Writing...'
-  if (session.isReconnecting) return 'Reconnecting...'
   // Pre-change shape: unbounded reverse scan to index 0 when no tool is running.
   for (let i = session.messages.length - 1; i >= 0; i--) {
     const message = session.messages[i]

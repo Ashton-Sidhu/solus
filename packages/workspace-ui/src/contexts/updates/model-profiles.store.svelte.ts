@@ -6,7 +6,7 @@ import { replaceModelProfiles, type ModelProfilesStatus } from '@solus/contracts
 import type { SolusAPI } from '@solus/contracts/host-api'
 
 type ModelProfilesConnections = Pick<typeof serverConnections, 'readinessFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
-  apiFor(serverId: string): Pick<SolusAPI, 'modelProfilesStatus' | 'modelProfilesRefresh'>
+  apiFor(serverId: string): Pick<SolusAPI, 'modelProfilesStatus' | 'modelProfilesRefresh' | 'modelProfilesCheck'>
 }
 
 /**
@@ -73,6 +73,21 @@ export class ModelProfilesStore {
       this.errors.set(serverId, error instanceof Error ? error.message : String(error))
     } finally {
       this.refreshing.delete(serverId)
+    }
+  }
+
+  /**
+   * A model picker opened: the host downloads the published list if it last
+   * asked more than five minutes ago, so a model released today shows without
+   * the daily check. Quiet on failure: the picker shows the list in effect.
+   */
+  async checkForNewModels(serverId: string): Promise<void> {
+    try {
+      if (!(await this.connections.capabilitiesFor(serverId)).modelProfiles) return
+      const status = await this.connections.apiFor(serverId).modelProfilesCheck()
+      if (this.connections.readinessFor(serverId).readiness === 'ready') this.apply(serverId, status)
+    } catch {
+      // A host older than the check, or a dropped connection.
     }
   }
 

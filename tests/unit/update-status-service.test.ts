@@ -76,6 +76,16 @@ test('install completion bypasses the manual limit and removes the update action
   expect(f.calls).toHaveLength(4)
 })
 
+test('a model list change checks each provider once and skips the manual limit', async () => {
+  // WHY: a new model can need a provider release, so that release must show now,
+  // not at the next four-hour check.
+  const f = fixture()
+  await f.service.check()
+  f.calls.length = 0
+  await Promise.all([f.service.refreshProviders(), f.service.refreshProviders()])
+  expect(f.calls.sort()).toEqual(['claude', 'codex'])
+})
+
 test('desktop and source installs do not ask for a separate Solus update', async () => {
   for (const install of ['desktop', 'source'] as const) {
     const calls: string[] = []

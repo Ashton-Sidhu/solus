@@ -21,6 +21,7 @@ export type Scope =
   | 'insights'
   | 'tasks'
   | 'prs'
+  | 'notifications'
   | 'pr-review'
   | 'plan-action-bar'
   | 'attachment-preview'

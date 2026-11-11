@@ -166,6 +166,55 @@ describe('service lifecycle (macOS)', () => {
 })
 
 
+// T3 #23878: a plain `solus setup` must not move a `--data-dir` service onto
+// the empty default folder, where the person's sessions seem to disappear.
+describe('install keeps the data folder of an installed service', () => {
+  let home: string
+  beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'solus-service-data-dir-')) })
+  afterEach(() => { rmSync(home, { recursive: true, force: true }) })
+
+  for (const platform of ['linux', 'darwin'] as const) {
+    const definitionPath = platform === 'linux' ? linuxUnitPath : macosPlistPath
+    test(`${platform}: refuses to point a service at another folder and changes nothing`, () => {
+      const { exec } = recordingExec()
+      installService({ ...envFor(home, platform, exec), dataDir: '/srv/solus data' })
+      const before = readFileSync(definitionPath(home), 'utf8')
+      const { exec: secondExec, calls } = recordingExec()
+
+      expect(() => installService({ ...envFor(home, platform, secondExec), dataDir: join(home, '.solus') }))
+        .toThrow("solus setup --data-dir '/srv/solus data'")
+      expect(readFileSync(definitionPath(home), 'utf8')).toBe(before)
+      expect(calls).toEqual([])
+    })
+
+    test(`${platform}: install for the same folder is a repair`, () => {
+      const { exec } = recordingExec()
+      installService({ ...envFor(home, platform, exec), dataDir: '/srv/solus data' })
+      expect(() => installService({ ...envFor(home, platform, exec), dataDir: '/srv/solus data/' })).not.toThrow()
+    })
+  }
+
+  test('a unit written without --data-dir serves the default folder', () => {
+    const { exec } = recordingExec()
+    installService(envFor(home, 'linux', exec))
+    expect(() => installService({ ...envFor(home, 'linux', exec), dataDir: join(home, '.solus') })).not.toThrow()
+    expect(() => installService({ ...envFor(home, 'linux', exec), dataDir: '/srv/other' })).toThrow(join(home, '.solus'))
+  })
+
+  test('win32: reads the folder from the installed logon task', () => {
+    const options = { user: 'S-1-5-21-1', launcher: 'C:\\Users\\me\\.local\\bin\\solus.cmd', systemRoot: 'C:\\Windows', dataDir: 'D:\\Solus & data' }
+    const calls: string[][] = []
+    const exec: ServiceExec = (command, args) => {
+      calls.push([command, ...args])
+      if (command === windowsSystemTool('schtasks.exe') && args[0] === '/query') return windowsTaskXml(options)
+      return ''
+    }
+    expect(() => installService({ ...envFor(home, 'win32', exec), dataDir: join(home, '.solus') }))
+      .toThrow('solus setup --data-dir "D:\\Solus & data"')
+    expect(calls.some((call) => call.includes('/create'))).toBe(false)
+  })
+})
+
 test('service configuration preserves custom data/runtime paths and escapes XML', () => {
   const env = { home: '/tmp/home', binDir: '/tmp/my tools', logFile: '/tmp/log&file', dataDir: '/tmp/my data', runtimeDir: '/tmp/runtime', host: '127.0.0.1', port: '4000', platform: 'linux' as const, exec: () => '' }
   expect(linuxUnitContent(env.binDir, env)).toContain('--data-dir "/tmp/my data"')

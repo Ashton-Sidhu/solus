@@ -220,6 +220,38 @@ describe('choices', () => {
     expect(client.pending.size).toBe(0)
   })
 
+  test('a bulk choice writes only rows that need it, each to its own source', async () => {
+    const a = new FakeNotificationSource()
+    const b = new FakeNotificationSource()
+    a.add({ id: 'unread', createdAt: 3 })
+    a.add({ id: 'read', createdAt: 2, readAt: 1 })
+    b.add({ id: 'other', createdAt: 1 })
+    const client = hub({ 'host:a': a, 'host:b': b })
+    client.setSources([host('a'), host('b')])
+    await client.idle()
+    const refused = await client.setReadMany(['host:a\u0000unread', 'host:a\u0000read', 'host:b\u0000other'], true)
+    await client.idle()
+    expect(refused).toBe(0)
+    expect(a.calls.filter((call) => call === 'notificationsSetRead')).toHaveLength(1)
+    expect(b.items.get('other')!.readAt).not.toBeNull()
+  })
+
+  test('an unreachable source refuses its rows alone', async () => {
+    const up = new FakeNotificationSource()
+    const down = new FakeNotificationSource()
+    up.add({ id: 'kept', createdAt: 2 })
+    down.add({ id: 'lost', createdAt: 1 })
+    const client = hub({ 'host:up': up, 'host:down': down })
+    client.setSources([host('up'), host('down')])
+    await client.idle()
+    down.failure = new Error('offline')
+    const refused = await client.setArchivedMany(['host:up\u0000kept', 'host:down\u0000lost'], true)
+    await client.idle()
+    expect(refused).toBe(1)
+    expect(up.items.get('kept')!.archivedAt).not.toBeNull()
+    expect(down.items.get('lost')!.archivedAt).toBeNull()
+  })
+
   test('a second choice waits until the first is answered', async () => {
     const source = new FakeNotificationSource()
     source.add({ id: 'n', createdAt: 1 })

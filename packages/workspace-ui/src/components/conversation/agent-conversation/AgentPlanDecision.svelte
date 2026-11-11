@@ -6,10 +6,8 @@
   import { runHost } from "../../../contexts/workspace/run-location";
 
   /**
-   * A person's decision on a plan another session wrote, taken from the
-   * conversation that sent it the work. A plan still holding that session's turn
-   * open is answered in place; one whose turn ended is carried on by a new
-   * message. Either way the decision is recorded on the plan.
+   * A person's decision on a plan that holds another session's turn open, taken
+   * from the conversation that sent it the work. The decision is recorded on the plan.
    */
   interface Props {
     tabId: string;

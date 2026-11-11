@@ -31,7 +31,7 @@ record the new source and SHA-256 here, and run `bun install` at the
 repository root. The native clients must be built again when this archive
 changes.
 
-## `react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz`
+## `react-native-enriched-markdown-1.2.0-t3.18-497fbe63.tgz`
 
 T3 Code's fork of Software Mansion's Enriched Markdown. It draws all the
 app's Markdown (`src/native/EnrichedMarkdownText.tsx`): native text with
@@ -43,17 +43,19 @@ streaming memory bounds. The fork carries only changes with an open upstream
 pull request: clipboard link metadata, development-host autolinks and
 hash-route link fragments, `md4cFlags.preserveWindowsPaths`, GitHub's
 strikethrough rules for `~`, `\(…\)` and `\[…\]` math delimiters, iOS Copy as
-Markdown that keeps bold spans whole, and line breaks in copied table cells
-written as `<br>`.
+Markdown that keeps bold spans whole, line breaks in copied table cells
+written as `<br>`, and Android measurement in the span order that its view
+draws, so a code block in a list item no longer makes a reply overlap the next
+message (upstream #1145).
 
-- **Copied from:** T3 Code, `apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz`,
-  at the merge of T3 Code #32180 (`986a4f56a80963cc139dbc581665b40411855659`).
-  Earlier Solus used `t3.16-558767d9` (T3 #24263) with the table-cell copy fix
+- **Copied from:** T3 Code, `apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.18-497fbe63.tgz`,
+  at the merge of T3 Code #28524 (`ea876cc4acc28287974d87b1ede2e5725f6c947d`).
+  Before it, Solus used `t3.18-4287c5d3` from T3 Code #32180. Earlier Solus used `t3.16-558767d9` (T3 #24263) with the table-cell copy fix
   of T3 #29355 packed in (`solus.1`). Solus skips T3's intermediate archive
   `t3.16-29ddd424`.
 - **Fork source:** the `t3-fork.json` in the archive records the repository
   `pingdotgg/enriched-markdown`, commit
-  `4287c5d3b306dfc0dca3604606baf7a02a5ec1c4`, on the upstream commit
+  `497fbe63647b52a585c3da62ab11a5f4d69c2e0f`, on the upstream commit
   `1d00a92abc3f7cf953946cf42f999523dec699dc`. The package version is
   `1.2.0-t3.18`.
 - **Unchanged from T3:** the fork now carries the table-cell copy fix
@@ -61,9 +63,11 @@ written as `<br>`.
   Solus uses T3's archive as it is. Do not change an archive in this
   directory with a patch: Bun does not apply `patchedDependencies` to a
   `file:` archive, and the next archive drops it without a trace.
-- **SHA-256:** `28dec670d521760cc4ae4e9aeb0a23b5451b60cabfc20f4a137eac5f57aeecd6`
-- **Integrity:** `sha512-zVB0Kaac8iNHumPDCV/CBR3I8p+lbFIO56kQGyIMH7ja5I6mHBhw1R/l48TkNye3wk2wsXXX51m1FYa9o+OwDQ==`
+- **SHA-256:** `b8898be1a19c69f43310511c3b5055a24d60d29b0fe939ec079db817f174dc38`
+- **Integrity:** `sha512-2Ph2EXnXbcYd5LK5SmDwqnQNgwqOVAK2uqasW1NzzFGqm5SRR4QD1TmAvUFytrKudnRkzHW8kpnHgXcYRhcyBA==`
   (the same in `bun.lock` and in T3's `pnpm-lock.yaml`)
+- **Changes from `t3.18-4287c5d3`:** only the Android measurement fix of
+  upstream #1145. The JavaScript API is the same.
 - **Changes from `t3.16`:** `renderers.code` replaces a code block with a
   React element (Solus draws closed Mermaid fences with it), `onTextPress` reports a tap
   on plain text (Solus does not use it), a link block's `label` is the URL for

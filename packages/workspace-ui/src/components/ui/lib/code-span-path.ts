@@ -67,15 +67,15 @@ const EXTENSIONLESS_FILE_NAMES = new Set([
 // read as a host.
 const GENERIC_HOSTNAME_TLDS = new Set([
   "com", "net", "org", "io", "dev", "app", "ai", "co", "edu", "gov", "mil",
-  "info", "biz", "xyz", "me", "tv", "cc", "gg", "chat", "cloud", "site",
+  "info", "biz", "xyz", "me", "tv", "gg", "chat", "cloud", "site",
   "online", "tech", "store", "link",
 ]);
-// Country codes also name file extensions; a `:line` suffix makes a `.pl` or
-// `.pt` file more likely than a host.
+// Country codes also name file extensions; a `:line` suffix makes a `.pl`,
+// `.pt`, or C++ `.cc` file more likely than a host.
 const COUNTRY_HOSTNAME_TLDS = new Set([
   "uk", "de", "fr", "nl", "se", "no", "fi", "dk", "pl", "ch", "at", "be", "es",
   "it", "pt", "eu", "us", "ca", "au", "nz", "jp", "kr", "cn", "br", "ru", "mx",
-  "ie", "cz", "tr", "sg", "hk",
+  "ie", "cz", "tr", "sg", "hk", "cc",
 ]);
 
 function looksLikeHostname(segment: string, hasPosition: boolean): boolean {

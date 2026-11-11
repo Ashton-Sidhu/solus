@@ -54,7 +54,9 @@ Check chips, controls, and error text once in both light and dark mode.
 | Done | Action | Expected result |
 |---|---|---|
 | ☐ | Pick, drop, and paste a video where the client supports those actions. | Each path produces the same usable attachment. |
-| ☐ | Upload the large video to a remote host. | Progress appears. Send stays blocked until the host confirms completion. |
+| ☐ | Upload the large video to a remote host. Type a message and send it before the upload ends. Do this once from a conversation and once from a new task (draft). | Progress appears. The message shows at once and the composer clears. The turn (or the new session) starts only after the host confirms the upload, and the agent gets the file path. |
+| ☐ | Send a message while a video uploads, then disconnect the test client before the upload ends. | Nothing goes to the agent. The error is visible. The text and the video chip come back to the composer, and Retry is there. |
+| ☐ | Let an upload fail, then try to send. | Send is refused until you retry or remove the failed upload. |
 | ☐ | Disconnect the test client during upload; reconnect and select Retry. | The error is visible. Retry completes and the video plays. |
 | ☐ | Remove a chip during upload. Then upload a fresh video. | The removed upload stops. No late error or chip returns. The new upload succeeds. |
 | ☐ | Repeat cancellation in a fresh test conversation without keeping successful uploads. | Cancelled attempts do not exhaust the conversation's upload slots. |

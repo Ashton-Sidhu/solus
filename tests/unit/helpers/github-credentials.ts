@@ -14,6 +14,8 @@ export interface FakeGithubSources {
   account?: (accountId: string) => Response | { refused: 'NO_DELEGATION'; message: string }
   /** `gh auth token`, by host; a host it does not name is signed out. */
   gh?: Map<string, string>
+  /** `gh config get http_unix_socket`; empty when unset. */
+  ghUnixSocket?: string
   delegations?: Map<string, GithubDelegatedCredential>
   /** The paired device whose dispatch checkout every `cwd` is. */
   checkoutOwner?: string | null
@@ -49,6 +51,7 @@ export function fakeGithubCredentials(sources: FakeGithubSources = {}): FakeGith
       if (!token) throw new Error('gh: not logged in to any hosts')
       return token
     },
+    ghUnixSocket: async () => sources.ghUnixSocket ?? '',
     delegations: {
       load: (deviceId) => sources.delegations?.get(deviceId) ?? null,
       save: (deviceId, credential) => { sources.delegations?.set(deviceId, credential) },

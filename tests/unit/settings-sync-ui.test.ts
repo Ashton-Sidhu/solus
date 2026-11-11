@@ -95,6 +95,17 @@ function profileOf(storage: MemoryStorage, accountKey = 'anonymous'): PersonalSe
   return JSON.parse(storage.getItem(`solus.personal-settings.v1:${accountKey}`) ?? '{}')
 }
 
+test('desktop and web dictionary defaults can be edited or cleared and stay saved after reload', async () => {
+  const storage = memoryStorage()
+  const settings = await settingsOn(storage)
+  expect(settings.voiceDictionary).toHaveLength(12)
+  const custom = [{ term: 'MyProject', aliases: ['my project'] }]
+  expect(settings.setPersonal('voiceDictionary', custom)).toBe(true)
+  expect((await settingsOn(storage)).voiceDictionary).toEqual(custom)
+  expect(settings.setPersonal('voiceDictionary', [])).toBe(true)
+  expect((await settingsOn(storage)).voiceDictionary).toEqual([])
+})
+
 /** The account settings endpoint for one signed-in user: a compare-and-swap document, and a log of what was sent. */
 function fakeAccount() {
   const sent: AccountSettingsPatchRequest[] = []

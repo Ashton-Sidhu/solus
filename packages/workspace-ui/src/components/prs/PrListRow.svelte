@@ -56,6 +56,10 @@
     headSha?: string | null;
     /** The checks popover opened: read the check runs. */
     onWantChecks?: () => void;
+    /** A pointer or the focus came to the row, or left it. A touch has no
+     *  rest: its pointer arrives with the tap that opens the row. */
+    onRest?: () => void;
+    onLeave?: () => void;
   }
   let {
     row,
@@ -72,6 +76,8 @@
     checksLoadFailed = false,
     headSha = null,
     onWantChecks,
+    onRest,
+    onLeave,
   }: Props = $props();
 
   const longPress = new TouchLongPress((event) => onContextMenu?.(event));
@@ -94,6 +100,12 @@
   onpointerup={() => longPress.cancel()}
   onpointercancel={() => longPress.cancel()}
   onpointermove={() => longPress.cancel()}
+  onpointerenter={(event) => {
+    if (event.pointerType !== "touch") onRest?.();
+  }}
+  onpointerleave={() => onLeave?.()}
+  onfocusin={() => onRest?.()}
+  onfocusout={() => onLeave?.()}
   role="group"
 >
   {#if leading}{@render leading()}{/if}

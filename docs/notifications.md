@@ -19,7 +19,7 @@ Notifications states it once per group, so each row is only a channel:
 |---|---|---|
 | Toast | In front | An in-app toast with **Open session** |
 | Sound | Background | Plays `resources/notification.mp3` |
-| System alert | Background | An OS notification (desktop) or a browser notification (web) |
+| System alert | Background | A silent OS notification (desktop) or a silent browser notification (web). Only the Sound channel makes sound, so an event never plays two sounds |
 
 "In front" is `document.visibilityState === 'visible' && document.hasFocus()`
 (`isSolusInFront` in the store). The sound additionally asks the shell
@@ -141,6 +141,19 @@ Settings on this client.
 The desktop app's own update stays separate, and so does mobile, which shows
 host updates in Settings only. The Settings header button and the command
 palette ("Install N host updates") start the same run.
+
+## Select several notifications
+
+The Notifications page acts on many rows at once. On desktop and web, hover a
+row or move focus to it and use its checkbox; Shift extends the range, and **Esc**
+clears the selection. On mobile, tap **Select** or hold a row. In either case
+**Select all** takes every loaded row.
+
+**Read**, **Unread**, and **Archive** (**Restore** in the Archived view) go to
+each row's own source, one write per row, so an unreachable source refuses its
+rows alone and one message says how many did not change. A row that a filter
+hides, or that its source removes, leaves the selection: an action reaches only
+rows on screen.
 
 ## Mark a session unread
 

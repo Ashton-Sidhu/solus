@@ -8,8 +8,8 @@ import {
   agentConversationLink,
   agentConversationTitle,
   agentMessages,
+  needsPersonDecision,
   pendingRequest,
-  planAwaitingDecision,
   rateLimitedUntil,
   cardTaskId,
 } from '@solus/workspace-ui/components/conversation/agent-conversation/lib/agent-conversation'
@@ -286,12 +286,10 @@ describe('a card rebuilt from its transcript', () => {
 })
 
 describe('a plan the other agent brought back', () => {
-  test('waits on a decision until another message opens', () => {
+  test('asks nothing of a person once the turn has finished', () => {
+    // WHY: a Codex plan-mode reply is reported as a plan; a finished review is not a decision.
     const plan = { kind: 'plan' as const, sessionId: child, planToolUseId: 'tool-1', title: 'Ship the parser' }
-    const ref = cardRef({ status: 'done', outputs: [plan] })
-    expect(planAwaitingDecision(ref)).toEqual(plan)
-    ref.exchanges.push({ messageId: 'm2', index: 2, prompt: 'next', dispatchedAt: 1, status: 'running' })
-    expect(planAwaitingDecision(ref)).toBeNull()
+    expect(needsPersonDecision(cardRef({ status: 'done', outputs: [plan] }))).toBe(false)
   })
 })
 

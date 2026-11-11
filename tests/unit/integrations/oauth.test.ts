@@ -200,6 +200,20 @@ describe('integration OAuth', () => {
     expect(changed.at(-1)?.event.connection?.status).toBe('needs-sign-in')
   })
 
+  test('a refresh that works after one that failed makes the connection connected again', async () => {
+    // A failed refresh says "it tries again on the next call"; when that call
+    // works, the row must say so, or the gateway keeps skipping the account.
+    fake.options.expiresIn = 30
+    const { oauth, connections, store, changed } = setup()
+    const flow = await startAs(ALICE, oauth)
+    await oauth.complete(approve(flow.url))
+    store.upsert(integration.id, ALICE.personKey, { status: 'error', error: 'Solus could not renew the sign-in. It tries again on the next call.' })
+    fake.options.expiresIn = 3600
+    expect(await connections.authorizationFor(integration.id, ALICE.personKey)).not.toBeNull()
+    expect(store.get(integration.id, ALICE.personKey)).toMatchObject({ status: 'connected', error: null })
+    expect(changed.at(-1)?.event.connection?.status).toBe('connected')
+  })
+
   test('without registration or an administrator client, the sign-in says so', async () => {
     fake.options.registration = false
     const { oauth } = setup()

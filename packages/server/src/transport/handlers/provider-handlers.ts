@@ -28,7 +28,7 @@ import type { ResourceAccess } from '../../admission/access-policy'
 import { completeTasksForMergedPullRequest } from '../../data/tasks/done-on-merge'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
-import { prIndex, repoKeyOf, type PageReads } from '../../prs/pr-index'
+import { prIndex, repoKeyOf, type PriorityReads } from '../../prs/pr-index'
 import { noRemoteError, PrUnavailableError, pushHeadFor, repoForScope, type CodeHost } from '../../prs/code-host'
 import { createGithubMediaUrl } from '../../providers/github/media'
 import type { PullRequest } from '../../prs/pull-request'
@@ -192,23 +192,14 @@ export { prepareReviewGuidePrContext } from '../../review/pr-guide-context'
  * request of the viewer's own never reached its section. These reads find them
  * wherever they sit in the listing.
  *
- * A search, an author or a branch lookup is not the sectioned list, so it gets
- * nothing extra. A failed read costs only its rows: the page still answers.
+ * These reads come after the page, so the list shows without waiting for them,
+ * and the rows reach the list as `pr.changed`. A failed read costs only its rows.
  */
-async function priorityPullRequests(
-  repo: RepoRef,
-  provider: Provider,
-  viewer: string,
-  filter: PrFilter | undefined,
-  batched?: PageReads,
-): Promise<PullRequestDetail[]> {
-  if (filter?.query?.trim() || filter?.author || filter?.head) return []
-  const state = filter?.state ?? 'open'
-  const authored = batched?.authored ?? prIndex.list(repo, provider, viewer, { state, query: `author:${viewer}` }, 1)
-  const reads = [authored.then((page) => page.items)]
-  // A review request only stands on an open pull request.
-  if (state !== 'closed') reads.push(batched?.needsReview ?? prIndex.listNeedsReview(repo, provider, viewer))
-  const settled = await Promise.allSettled(reads)
+async function priorityPullRequests(repo: RepoRef, reads: PriorityReads): Promise<PullRequestDetail[]> {
+  const settled = await Promise.allSettled([
+    reads.authored.then((page) => page.items),
+    ...(reads.needsReview ? [reads.needsReview] : []),
+  ])
   return settled.flatMap((read) => {
     if (read.status === 'fulfilled') return read.value
     log.warn('pr_priority_read_failed', {
@@ -223,15 +214,15 @@ async function priorityPullRequests(
 
 /** A project's page as a read of many projects answers it, with the account
  *  it was read as. */
-interface BatchedPage extends PageReads {
+interface BatchedPage {
+  page: Promise<PrListPage>
   viewer: string
 }
 
 /**
  * A page of every project, keyed by `repoKeyOf`: page one, or the next page
- * where `cursorOf` names one, with the priority rows on page one of the
- * sectioned list. Projects on one code host and account are read together, so
- * many projects cost one search. A branch lookup is read per project, as is a
+ * where `cursorOf` names one. Projects on one code host and account are read
+ * together, so many projects cost one search. A branch lookup is read per project, as is a
  * project whose repository the read could not see. With no viewer there is no
  * batch: each project then reads alone and says why it failed.
  */
@@ -254,11 +245,17 @@ async function batchedPages(
   await Promise.all([...groups.values()].map(async ({ provider, requests }) => {
     const viewer = await provider.review.getViewer().catch(() => null)
     if (!viewer) return
-    for (const [key, reads] of await prIndex.listPages(provider, requests, viewer, filter)) {
-      found.set(key, { ...reads, viewer })
+    for (const [key, page] of await prIndex.listPages(provider, requests, viewer, filter)) {
+      found.set(key, { page, viewer })
     }
   }))
   return found
+}
+
+/** A project's own scope, with no checkout of its own: a list read is an
+ *  observation of the repository, not of any one session's branch. */
+function listProjectCtx(ctx: IpcContext, projectRoot: string): IpcContext {
+  return { ...ctx, session: { ...ctx.session, projectPath: projectRoot, workingDirectory: projectRoot, gitContext: null } }
 }
 
 /** Run `run` for every index below `count`, at most `limit` at a time. */
@@ -270,10 +267,10 @@ async function inPool(count: number, limit: number, run: (index: number) => Prom
   await Promise.all(Array.from({ length: Math.min(limit, count) }, worker))
 }
 
-/** The page's rows, then each priority row the page does not already hold. */
-function withPriorityRows(items: PullRequestDetail[], priority: PullRequestDetail[]): PullRequestDetail[] {
+/** Each priority row the page does not already hold. */
+function rowsBeyondPage(items: PullRequestDetail[], priority: PullRequestDetail[]): PullRequestDetail[] {
   const held = new Set(items.map((item) => item.number))
-  const rows = [...items]
+  const rows: PullRequestDetail[] = []
   for (const pullRequest of priority) {
     if (held.has(pullRequest.number)) continue
     held.add(pullRequest.number)
@@ -411,7 +408,6 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     cursor: string | null,
     handlerCtx: HandlerCtx,
     options: {
-      withPriority?: boolean
       /** The project's code host, when the caller already resolved it. */
       target?: CodeHost
       /** The page as a read of many projects answers it. */
@@ -420,14 +416,11 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   ): Promise<PrListPage> {
     const { repo, provider } = options.target ?? await reviewTargetFor(ctx)
     const viewer = options.batched?.viewer ?? await provider.review.getViewer(repo)
-    const [page1, priority] = await Promise.all([
-      options.batched?.page ?? prIndex.list(repo, provider, viewer, filter, page, cursor),
-      options.withPriority && page === 1 ? priorityPullRequests(repo, provider, viewer, filter, options.batched) : [],
-    ])
+    const page1 = await (options.batched?.page ?? prIndex.list(repo, provider, viewer, filter, page, cursor))
     // Copied rather than assigned into: `page1` is the index's own object, and
     // decorating it in place would write this viewer's attention flags onto the
     // answer every other reader shares.
-    const result: PrListPage = { ...page1, items: attachReviewAttention(withPriorityRows(page1.items, priority), viewer) }
+    const result: PrListPage = { ...page1, items: attachReviewAttention(page1.items, viewer) }
     const cwd = projectScopeOf(ctx.session)
     const sessionId = ctx.session.agentSessionId
     const branch = ctx.session.gitContext?.branch
@@ -485,18 +478,46 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // once instead of reordering them as each project arrives. Where the code
   // host can, one search answers a page of many projects (`batchedPages`);
   // each project still gets its own listing, and continues from its cursor.
+  // Its priority rows are pushed after it (`publishPriorityRows`).
+  /** Push the rows of the sectioned list that its first page does not hold.
+   *  Most lists hold them all, and then nothing is sent. A project the batch
+   *  could not see has no rows here: its page alone is what it shows. */
+  async function publishPriorityRows(
+    targets: ReadonlyArray<CodeHost | undefined>,
+    batched: Map<string, BatchedPage>,
+    filter: PrFilter | undefined,
+  ): Promise<void> {
+    const state = filter?.state ?? 'open'
+    const groups = new Map<string, { provider: Provider; viewer: string; repos: Map<string, RepoRef> }>()
+    for (const target of targets) {
+      if (!target) continue
+      const repoKey = repoKeyOf(target.repo)
+      const viewer = batched.get(repoKey)?.viewer
+      if (!viewer) continue
+      const key = `${target.provider.id}:${target.repo.host}:${viewer}`
+      const group = groups.get(key) ?? { provider: target.provider, viewer, repos: new Map<string, RepoRef>() }
+      group.repos.set(repoKey, target.repo)
+      groups.set(key, group)
+    }
+    await Promise.all([...groups.values()].map(async ({ provider, viewer, repos }) => {
+      const reads = prIndex.listPriority(provider, [...repos.values()], viewer, state)
+      await Promise.all([...repos].map(async ([repoKey, repo]) => {
+        const rows = await priorityPullRequests(repo, reads.get(repoKey)!)
+        const page = await batched.get(repoKey)?.page.catch(() => null)
+        const pullRequests = attachReviewAttention(rowsBeyondPage(page?.items ?? [], rows), viewer)
+        if (pullRequests.length === 0) return
+        await deps.events.broadcast('pr.changed', { repo: repoKey.toLowerCase(), pullRequests, missing: [], checks: [] })
+      }))
+    }))
+  }
+
   server.register('prListProjects', async (args, handlerCtx) => {
     const [ctx, projectRoots, filter, after = []] = args
     const cursors = new Map(after.map((entry) => [entry.projectRoot, entry]))
     // Filled by index, so the answer keeps the order the projects were named in.
     const listings: PrProjectListing[] = []
     const targets: Array<CodeHost | undefined> = []
-    // The project's own scope, with no checkout of its own: a list read is
-    // an observation of the repository, not of any one session's branch.
-    const projectCtxOf = (projectRoot: string): IpcContext => ({
-      ...ctx,
-      session: { ...ctx.session, projectPath: projectRoot, workingDirectory: projectRoot, gitContext: null },
-    })
+    const projectCtxOf = (projectRoot: string) => listProjectCtx(ctx, projectRoot)
 
     await inPool(projectRoots.length, PROJECT_LIST_CONCURRENCY, async (index) => {
       try {
@@ -517,7 +538,6 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         listings[index] = {
           projectRoot,
           page: await listPullRequests(projectCtxOf(projectRoot), filter, cursors.get(projectRoot)?.page ?? 1, cursors.get(projectRoot)?.cursor ?? null, handlerCtx, {
-            withPriority: true,
             target,
             batched: batched.get(repoKeyOf(target.repo)),
           }),
@@ -528,6 +548,16 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
           : { projectRoot, error: error instanceof Error ? error.message : String(error) }
       }
     })
+    // A search, an author, a branch lookup, or a later page is not the sectioned
+    // list. On a timer so the rows land after this answer: a client that has not
+    // taken its list yet has nowhere to put them.
+    if (after.length === 0 && !filter?.query?.trim() && !filter?.author && !filter?.head) {
+      setTimeout(() => {
+        publishPriorityRows(targets, batched, filter).catch((error) => {
+          log.warn('pr_priority_publish_failed', { error: error instanceof Error ? error.message : String(error) })
+        })
+      }, 0)
+    }
     return listings
   })
 

@@ -209,6 +209,16 @@ describe('a device key', () => {
     expect(settings.splitProjectPanelOpen).toBe(true)
   })
 
+  // WHY: a person who collapses the session sidebar expects it to stay
+  // collapsed after a relaunch (pingdotgg/t3code#24202 had the same bug).
+  test('the session sidebar starts open and keeps a collapse across a relaunch', async () => {
+    const fresh = await load()
+    expect(fresh.settings.sidebarOpen).toBe(true)
+    fresh.settings.setLayout('sidebarOpen', false)
+    const later = await load(fresh.storage)
+    expect(later.settings.sidebarOpen).toBe(false)
+  })
+
   test('onboarding shows on a fresh install until it is completed', async () => {
     const fresh = await load()
     expect(fresh.settings.onboardingCompleted).toBe(false)

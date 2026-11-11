@@ -997,7 +997,7 @@ solus pair</div>
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Source control</h3>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
-						['Source control writing style', '<strong class="text-[#1A1714] font-medium">Repository conventions</strong> matches each repository\'s recent commit subjects, <strong class="text-[#1A1714] font-medium">Conventional Commits</strong> applies <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">feat:</code> / <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">fix:</code> prefixes, and <strong class="text-[#1A1714] font-medium">Custom instructions</strong> uses your own direction.'],
+						['Commit and pull request writing', 'Sets how agents write commit messages and pull request titles and descriptions. <strong class="text-[#1A1714] font-medium">Repository conventions</strong> matches each repository\'s recent commit subjects, <strong class="text-[#1A1714] font-medium">Conventional Commits</strong> applies <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">feat:</code> / <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">fix:</code> prefixes, and <strong class="text-[#1A1714] font-medium">Custom instructions</strong> uses your own direction.'],
 						['Follow pull-request templates', 'Structure pull-request descriptions with the repository template when one exists.'],
 						['Source-control writer model', 'Optional override for commits, branch names, and pull requests. Off uses the text-generation model.'],
 					] as [key, val], i}

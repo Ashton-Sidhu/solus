@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ArrowDown as ArrowDownIcon,
     ChartBar as ChartBarIcon,
     Files as FilesIcon,
     RefreshCw as RefreshIcon,
@@ -43,9 +44,14 @@
   let {
     tabId,
     leftReservedWidth = 0,
+    isAwayFromEnd = false,
+    onJumpToEnd,
   }: {
     tabId: string;
     leftReservedWidth?: number;
+    /** The reader scrolled up from the end; the jump-to-end arrow shows. */
+    isAwayFromEnd?: boolean;
+    onJumpToEnd?: () => void;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -250,6 +256,20 @@
     requestInputFocus();
   }
 
+  // Only while the reader is scrolled up from the end. It leads the row, ahead
+  // of the plan progress, so it is not among the row actions below.
+  const jumpToEndAction = $derived<SessionAction | null>(
+    onJumpToEnd && isAwayFromEnd
+      ? {
+          id: "end",
+          label: "Jump to end",
+          icon: ArrowDownIcon,
+          shortcut: comboHint("conversation.scroll-bottom"),
+          run: onJumpToEnd,
+        }
+      : null,
+  );
+
   // Row order.
   const rowActions = $derived.by((): SessionAction[] => {
     const actions: SessionAction[] = [];
@@ -323,14 +343,15 @@
 
   // The action list adds the review's own follow-ups to the row's actions.
   const listActions = $derived.by((): SessionAction[] => {
-    if (!showReview) return rowActions;
+    const actions = jumpToEndAction ? [jumpToEndAction, ...rowActions] : rowActions;
+    if (!showReview) return actions;
     if (reviewStatus === "done") {
-      return [...rowActions, { id: "review-regenerate", label: "Regenerate review", icon: RefreshIcon, shortcut: "", run: () => void handleReview(true) }];
+      return [...actions, { id: "review-regenerate", label: "Regenerate review", icon: RefreshIcon, shortcut: "", run: () => void handleReview(true) }];
     }
     if (reviewStatus === "generating") {
-      return [...rowActions, { id: "review-cancel", label: "Cancel review", icon: SquareIcon, shortcut: "", run: handleCancelReview }];
+      return [...actions, { id: "review-cancel", label: "Cancel review", icon: SquareIcon, shortcut: "", run: handleCancelReview }];
     }
-    return rowActions;
+    return actions;
   });
 
   function openActionList() {
@@ -395,6 +416,9 @@
       role="toolbar"
       aria-label="Session actions"
     >
+      {#if jumpToEndAction}
+        {@render actionButton(jumpToEndAction)}
+      {/if}
       {#if hasProgress}
         <SessionProgressButton
           progress={progress!}
@@ -461,6 +485,7 @@
       aria-disabled={action.isDisabled}
       data-session-action={action.id}
       data-review-status={action.id === "review" ? reviewStatus : undefined}
+      data-jump-to-end={action.id === "end" ? "" : undefined}
       aria-label={action.label}
       aria-pressed={action.id === "pin" ? isPinned : undefined}
     >
@@ -469,7 +494,7 @@
           {...props}
           variant="ghost"
           size="sm"
-          class="relative size-7 rounded-full px-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-[review-status=done]:text-(--solus-accent) data-[review-status=generating]:text-(--solus-accent) [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4!"
+          class="relative size-7 rounded-full px-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-[review-status=done]:text-(--solus-accent) data-[review-status=generating]:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4!"
         >
           <action.icon size={16} />
         </Button>

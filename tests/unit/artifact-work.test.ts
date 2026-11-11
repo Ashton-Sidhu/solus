@@ -241,6 +241,58 @@ describe('an artifact read from a compiled file', () => {
   })
 })
 
+describe('a document read from a markdown file', () => {
+  // WHY: an agent that already wrote a long document to disk had to type it
+  // again as tool input, which costs output tokens and minutes per copy. The
+  // host reads the file instead; the saved work is that file, exactly.
+  const ctx = () => ({ sessionId: SESSION_ID, agentProvider: 'claude-code' as const, cwd: dataDir })
+  const NOTES = '# Notes\n\nA long document the agent wrote once.\n'
+
+  function writeNotes(markdown: string, name = 'notes.md'): string {
+    mkdirSync(join(dataDir, 'docs'), { recursive: true })
+    writeFileSync(join(dataDir, 'docs', name), markdown)
+    return join('docs', name)
+  }
+
+  test('create_work and update_work save the file markdown_path names', async () => {
+    const created = await workTools.executeWorkTool('create_work', { title: 'Notes', doc_type: 'doc', markdown_path: writeNotes(NOTES) }, { ctx: ctx() })
+    expect(created.ok).toBe(true)
+    const [doc] = await works.listWorks('local')
+    expect((await works.loadWork('local', doc.id))?.content).toBe(NOTES)
+
+    const revised = `${NOTES}\n## More\n`
+    const updated = await workTools.executeWorkTool('update_work', {
+      work_id: doc.id, markdown_path: writeNotes(revised, 'revised.md'), expected_content_version: 1,
+    }, { ctx: ctx() })
+    expect(updated).toEqual({ ok: true, text: expect.stringContaining('New content_version: 2.') })
+    expect((await works.loadWork('local', doc.id))?.content).toBe(revised)
+  })
+
+  test('markdown_path is refused for an artifact, whose body is HTML', async () => {
+    const emitted: Array<{ workId: string }> = []
+    await artifactTools.executeArtifactTool({ html: HTML, title: 'Chart' }, { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact) })
+    const result = await workTools.executeWorkTool('update_work', {
+      work_id: emitted[0].workId, markdown_path: writeNotes(NOTES), expected_content_version: 1,
+    }, { ctx: ctx() })
+    expect(result.ok).toBe(false)
+    expect((await works.loadWork('local', emitted[0].workId))?.content).toBe(HTML)
+  })
+
+  test('two sources, a missing, empty, or non-markdown file, or an HTML file are refused before anything is written', async () => {
+    const refusals = [
+      { title: 'Notes', doc_type: 'doc' as const, content: NOTES, markdown_path: writeNotes(NOTES) },
+      { title: 'Notes', doc_type: 'doc' as const, markdown_path: 'docs/missing.md' },
+      { title: 'Notes', doc_type: 'doc' as const, markdown_path: writeNotes('  ', 'empty.md') },
+      { title: 'Notes', doc_type: 'doc' as const, markdown_path: writeNotes(NOTES, 'notes.txt') },
+      { title: 'Notes', doc_type: 'doc' as const, html_path: writeNotes(HTML, 'page.html') },
+    ]
+    for (const args of refusals) {
+      expect((await workTools.executeWorkTool('create_work', args, { ctx: ctx() })).ok).toBe(false)
+    }
+    expect(await works.listWorks('local')).toHaveLength(0)
+  })
+})
+
 describe('an artifact Share moved to an organization', () => {
   test('read_work and update_work say which organization has it, not that it is missing', async () => {
     // WHY: the agent that made an artifact asks its own host for it. After

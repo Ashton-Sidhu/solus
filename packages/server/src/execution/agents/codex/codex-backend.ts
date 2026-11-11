@@ -388,11 +388,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     client.on('notification', (msg: JsonRpcNotification) => this.onNotification(msg, client))
     client.on('server-request', (msg: JsonRpcRequest) => this.onServerRequest(msg, client))
     client.on('error', (err: Error) => {
-      for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, err)
+      for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, err, handle)
       for (const handle of this.pendingRuns) {
         if (handle.client !== client) continue
         handle._rejectRun(err)
-        this.emit('error', null, err)
+        this.emit('error', null, err, handle)
       }
     })
     client.on('exit', () => {
@@ -402,11 +402,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
       this.nativeChildren.releaseClient(client)
       const exitErr = new Error('Codex app-server exited')
-      for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, exitErr)
+      for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, exitErr, handle)
       for (const handle of this.pendingRuns) {
         if (handle.client !== client) continue
         handle._rejectRun(exitErr)
-        this.emit('error', handle.agentSessionId, exitErr)
+        this.emit('error', handle.agentSessionId, exitErr, handle)
       }
     })
   }
@@ -734,7 +734,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         if (handle.abortController.signal.aborted) {
           this.finishRun(handle)
           handle._resolveRun()
-          this.emit('exit', threadId, null, 'SIGINT')
+          this.emit('exit', threadId, null, 'SIGINT', handle)
           return
         }
         const params: ThreadCompactStartParams = { threadId }
@@ -749,7 +749,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       if (handle.abortController.signal.aborted) {
         this.finishRun(handle)
         handle._resolveRun()
-        this.emit('exit', threadId, null, 'SIGINT')
+        this.emit('exit', threadId, null, 'SIGINT', handle)
         return
       }
 
@@ -798,7 +798,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // agentSessionId is only reachable through the backend's pending handles,
       // which finishRun empties, so the SessionRuntime would never see the error.
       const failure = err instanceof Error ? err : new Error(String(err))
-      this.emit('error', sessionId, failure)
+      this.emit('error', sessionId, failure, handle)
       this.finishRun(handle)
       // A resumed compact run already has a thread id while thread/resume is
       // pending. A startup failure must also release that pending handle.
@@ -1399,6 +1399,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const normalized = handle?.normalizer.push({ method: msg.method, params }) ?? []
     if (handle) {
       handle.toolCallCount = handle.normalizer.summary.toolCallCount
+      // A native sub-agent's thread can run another model than the root run.
+      const eventThreadId = optionalString(params?.threadId)
+      for (const event of normalized) {
+        if (event.type === 'model_rerouted' && (!eventThreadId || eventThreadId === handle.threadId)) handle.executedModel = event.toModel
+      }
     }
 
     if (msg.method === 'turn/completed') {
@@ -1431,7 +1436,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
       this.clearFileChangesForTurn(params?.turnId || params?.turn?.id)
       this.permissions.clearPendingForSession(sessionId)
-      this.emit('exit', sessionId, exitCode, exitSignal)
+      this.emit('exit', sessionId, exitCode, exitSignal, handle)
       return
     }
 
@@ -1672,7 +1677,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     handle._resolveRun()
     this.clearFileChangesForTurn(turnId)
     this.permissions.clearPendingForSession(sessionId)
-    this.emit('exit', sessionId, exitCode, exitSignal)
+    this.emit('exit', sessionId, exitCode, exitSignal, handle)
   }
 
   /**

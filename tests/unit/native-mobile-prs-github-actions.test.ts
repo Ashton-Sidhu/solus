@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrStack, PrViewedFileChange } from '@solus/contracts/providers'
 import { PullRequestActions } from '../../apps/mobile/src/features/prs/pull-request-actions'
-import { memoryPullRequestCacheDatabase, PullRequestCache } from '../../apps/mobile/src/features/prs/pull-request-cache'
+import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { PullRequestDirectory } from '../../apps/mobile/src/features/prs/pull-request-directory'
 import { PullRequestReviewDrafts } from '../../apps/mobile/src/features/prs/pull-request-review-drafts'
 import { shownValue } from '../../apps/mobile/src/features/prs/pull-request-reads'

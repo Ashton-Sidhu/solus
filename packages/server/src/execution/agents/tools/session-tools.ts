@@ -89,6 +89,8 @@ export interface SessionController {
   /** The last `limit` messages; without a limit, the whole transcript. */
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit?: number): Promise<SessionLoadMessage[]>
   liveStatus(sessionId: string): SessionStatus | null
+  /** The model the provider last reported running for the session, when it can differ from the requested one. */
+  executedModel?(sessionId: string): string | undefined
   pendingInputEvents(sessionId: string): NormalizedEvent[]
   loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
@@ -544,6 +546,7 @@ async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionField
   return readResult({
     meta,
     status: controller.liveStatus(sessionId) ?? meta.status ?? 'idle',
+    executedModel: controller.executedModel?.(sessionId),
     task: await taskSummaryForSession(sessionId),
     pendingInput: formatPendingInputReport(controller.pendingInputEvents(sessionId)),
   }, messages, request)
@@ -553,6 +556,8 @@ async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionField
 interface SessionReadContext {
   meta: SessionMeta
   status: SessionStatus
+  /** The model the provider reported running; read_session names it beside the requested `model`. */
+  executedModel?: string
   task?: string | null
   pendingInput?: string | null
   /** The other host or Solus API that answered, when this host does not hold it. */
@@ -570,6 +575,7 @@ function readResult(context: SessionReadContext, messages: readonly SessionLoadM
     status: context.status,
     provider: meta.provider,
     model: meta.model ?? null,
+    ...(context.executedModel !== undefined && { executedModel: context.executedModel }),
     reasoningEffort: meta.reasoningEffort ?? null,
     workingDirectory: meta.cwd,
     branch: meta.branch ?? null,

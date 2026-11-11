@@ -41,11 +41,11 @@ export class CompanionPanes {
 
     for (const pane of live) {
       this.retained.set(pane.id, pane)
-      if (this.closing.delete(pane.id)) this.clearTimer(pane.id)
-      if (!this.ids.includes(pane.id)) {
-        this.ids.push(pane.id)
-        this.schedule(pane.id, COMPANION_CONTENT_DELAY_MS, () => this.settled.add(pane.id))
-      }
+      const isNew = !this.ids.includes(pane.id)
+      // A pane opened again while it closes lost its settled mark, so it settles again.
+      const isReopened = this.closing.delete(pane.id)
+      if (isNew) this.ids.push(pane.id)
+      if (isNew || isReopened) this.schedule(pane.id, COMPANION_CONTENT_DELAY_MS, () => this.settled.add(pane.id))
     }
 
     for (const id of this.ids) {

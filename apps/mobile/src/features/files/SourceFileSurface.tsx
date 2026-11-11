@@ -1,13 +1,16 @@
 // Adapted from T3 Code apps/mobile/src/features/files/SourceFileSurface.tsx (MIT, see UPSTREAM.md).
 // The JavaScript surface only: T3's native review-diff canvas is not ported.
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   FlatList,
+  Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   Text as NativeText,
   View,
 } from "react-native";
+import { WebView } from "react-native-webview";
 
 import { AppText as Text } from "../../components/AppText";
 import {
@@ -17,12 +20,18 @@ import {
 import { CODE_FONT } from "../../theme/tokens";
 import type { ReviewHighlightedToken } from "../review/reviewHighlightedToken.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { selectableSourceHtml, selectableSourceScript } from "./lib/selectable-source-html";
 import { useSourceHighlight } from "./sourceHighlightingState";
 
 interface SourceFileSurfaceProps {
   readonly contents: string;
   readonly path: string;
   readonly onRefresh: () => void;
+  /** The 1-based line to show; with `selecting`, the line selection mode opened at. */
+  readonly line?: number | null;
+  /** Shows the whole file as one selectable surface instead of numbered rows. */
+  readonly selecting?: boolean;
+  readonly onLongPressLine?: (line: number) => void;
 }
 
 function renderVisibleWhitespace(value: string): string {
@@ -36,9 +45,21 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
   readonly line: string;
   readonly tokens: ReadonlyArray<ReviewHighlightedToken> | null;
   readonly wordBreak: boolean;
+  readonly onLongPress: () => void;
 }) {
+  const { onLongPress } = props;
+  // Each row is its own text view, so selection cannot cross rows. A long
+  // press opens the whole file as one selectable surface instead.
   return (
-    <View className="flex-row" style={{ minHeight: props.codeSurface.rowHeight }}>
+    <Pressable
+      className="flex-row"
+      style={{ minHeight: props.codeSurface.rowHeight }}
+      onLongPress={onLongPress}
+      accessibilityActions={[{ name: "longpress", label: "Select text" }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "longpress") onLongPress();
+      }}
+    >
       <NativeText
         className="select-none pr-3 text-right text-foreground-tertiary"
         style={{
@@ -51,7 +72,6 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
         {props.index + 1}
       </NativeText>
       <NativeText
-        selectable
         numberOfLines={props.wordBreak ? undefined : 1}
         className="flex-1 font-normal text-foreground"
         style={{
@@ -80,7 +100,6 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
                 return (
                   <NativeText
                     key={`${start}:${token.content.length}:${token.color ?? ""}`}
-                    selectable
                     style={{
                       color: token.color ?? undefined,
                       fontFamily: CODE_FONT,
@@ -95,13 +114,13 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
             })()
           : renderVisibleWhitespace(props.line || " ")}
       </NativeText>
-    </View>
+    </Pressable>
   );
 });
 
 /** Numbered, virtualized source lines, colored by the native lexers in the first render. */
 export function SourceFileSurface(props: SourceFileSurfaceProps) {
-  const { appearance, themeAppearance: theme } = useAppearancePreferences();
+  const { appearance, themeAppearance: theme, themeVariables } = useAppearancePreferences();
   const codeSurface = useMemo(
     () => resolveMobileCodeSurface(appearance.codeFontSize),
     [appearance.codeFontSize],
@@ -118,6 +137,7 @@ export function SourceFileSurface(props: SourceFileSurfaceProps) {
     theme,
   });
 
+  const { onLongPressLine } = props;
   const renderLine = useCallback(
     ({ item, index }: { item: string; index: number }) => (
       <HighlightedSourceLine
@@ -126,13 +146,75 @@ export function SourceFileSurface(props: SourceFileSurfaceProps) {
         line={item}
         tokens={tokens?.[index] ?? null}
         wordBreak={codeWordBreak}
+        onLongPress={() => onLongPressLine?.(index + 1)}
       />
     ),
-    [codeSurface, codeWordBreak, tokens],
+    [codeSurface, codeWordBreak, onLongPressLine, tokens],
   );
+
+  // Leaving selection mode remounts the rows; show the line it opened at.
+  const listRef = useRef<FlatList<string>>(null);
+  const targetIndex = props.line == null ? null : Math.min(Math.max(props.line - 1, 0), lines.length - 1);
+  useEffect(() => {
+    if (props.selecting || targetIndex === null) return;
+    listRef.current?.scrollToIndex({ index: targetIndex, viewPosition: 0.5, animated: false });
+  }, [props.selecting, targetIndex]);
+
+  if (props.selecting) {
+    const line = props.line ?? 1;
+    if (Platform.OS === "android") {
+      return (
+        <View className="flex-1 bg-sheet">
+          <WebView
+            source={{
+              html: selectableSourceHtml(normalizedContents, {
+                foreground: themeVariables["--color-foreground"],
+                selection: themeVariables["--color-focus"],
+                fontSize: codeSurface.fontSize,
+                rowHeight: codeSurface.rowHeight,
+                wordBreak: codeWordBreak,
+              }),
+            }}
+            originWhitelist={["about:*"]}
+            injectedJavaScript={selectableSourceScript(line)}
+            domStorageEnabled={false}
+            cacheEnabled={false}
+            setSupportMultipleWindows={false}
+            onShouldStartLoadWithRequest={(request) => request.url === "about:blank"}
+            style={{ flex: 1, backgroundColor: "transparent" }}
+          />
+        </View>
+      );
+    }
+    const text = (
+      <NativeText
+        selectable
+        className="text-foreground"
+        style={{
+          fontFamily: CODE_FONT,
+          fontSize: codeSurface.fontSize,
+          lineHeight: codeSurface.rowHeight,
+          paddingHorizontal: 12,
+        }}
+      >
+        {normalizedContents.replace(/\t/g, "    ")}
+      </NativeText>
+    );
+    return (
+      <ScrollView
+        className="flex-1 bg-sheet"
+        contentInsetAdjustmentBehavior="automatic"
+        contentOffset={{ x: 0, y: Math.max(0, (line - 1) * codeSurface.rowHeight - 200) }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: codeSurface.rowHeight }}
+      >
+        {codeWordBreak ? text : <ScrollView horizontal bounces={false}>{text}</ScrollView>}
+      </ScrollView>
+    );
+  }
 
   const list = (
     <FlatList
+      ref={listRef}
       contentInsetAdjustmentBehavior="automatic"
       refreshControl={<RefreshControl refreshing={false} onRefresh={props.onRefresh} />}
       data={lines}
@@ -141,6 +223,11 @@ export function SourceFileSurface(props: SourceFileSurfaceProps) {
       initialNumToRender={80}
       maxToRenderPerBatch={80}
       windowSize={12}
+      // Wrapped rows have no fixed height; jump near the line, then to it.
+      onScrollToIndexFailed={({ index, averageItemLength }) => {
+        listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false });
+        requestAnimationFrame(() => listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false }));
+      }}
       {...(codeWordBreak
         ? {}
         : {

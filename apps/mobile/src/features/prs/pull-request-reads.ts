@@ -1,7 +1,7 @@
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import { isGithubAuthError } from './lib/pr-presentation'
-import type { PullRequestCache } from './pull-request-cache'
+import type { PullRequestCache } from '@solus/client-core/pull-request-cache'
 
 /**
  * The read rules every pull request store shares: a read and what it last

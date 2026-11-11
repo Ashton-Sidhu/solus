@@ -304,7 +304,6 @@ async function createNotifyReducer(isVisible = false) {
     currentTurnStartedAt: 123,
     currentTurnStart: 123,
     isStreamingText: false,
-    isReconnecting: false,
     permissionQueue: [],
     questionQueue: [],
     run: { location: folderLocation({ serverId: 'host', path: '~' }) },

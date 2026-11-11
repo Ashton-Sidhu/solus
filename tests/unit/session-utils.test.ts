@@ -65,7 +65,6 @@ function activitySession(status: SessionStatus, agentSessionId: string | null): 
     permissionQueue: [],
     questionQueue: [],
     isStreamingText: false,
-    isReconnecting: false,
   } as Session
 }
 

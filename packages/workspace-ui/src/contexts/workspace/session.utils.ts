@@ -68,7 +68,6 @@ export function computeCurrentActivity(session: Session): string {
   if (session.permissionQueue[0] && !session.permissionQueue[0].expired) return `Waiting for permission: ${session.permissionQueue[0].toolTitle}`
   if (session.questionQueue[0] && !session.questionQueue[0].expired) return 'Waiting for your input...'
   if (session.isStreamingText) return 'Writing...'
-  if (session.isReconnecting) return 'Reconnecting...'
   // A running tool always sits near the tail (the current exchange), so bound
   // the reverse walk instead of scanning — and subscribing to — the whole
   // transcript. Depth-bounded rather than stopping at the last user message so

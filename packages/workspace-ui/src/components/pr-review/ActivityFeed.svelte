@@ -449,6 +449,31 @@
     reviewerCandidatesLoading = false;
     labelCandidatesLoading = false;
     filesLoading = !cached.changedFiles;
+    // After a reload nothing is held, but this device may have kept the last
+    // answers: they paint the sections still loading, and the reads below
+    // replace them when they land, as with a held answer.
+    if (!force && (commitsLoading || commentsLoading || reviewersLoading || filesLoading || detailLoading)) {
+      void pullRequest(n).restoreActivity().then((kept) => {
+        if (pr.number !== n) return;
+        if (kept.detail) detailLoading = false;
+        if (kept.commits && commitsLoading) {
+          commits = kept.commits;
+          commitsLoading = false;
+        }
+        if (kept.comments && commentsLoading) {
+          comments = kept.comments;
+          commentsLoading = false;
+        }
+        if (kept.reviewers && reviewersLoading) {
+          reviewers = kept.reviewers;
+          reviewersLoading = false;
+        }
+        if (kept.changedFiles && filesLoading) {
+          changedFiles = kept.changedFiles;
+          filesLoading = false;
+        }
+      });
+    }
 
     // Not PR-scoped (and cached per project) — best-effort, never an error.
     pullRequests.projects

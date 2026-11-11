@@ -10,8 +10,9 @@ interface NativeProps extends ViewProps {
 
 const NativeKeyboardCommands = requireNativeView<NativeProps>('SolusKeyboardCommands')
 
-/** Wraps the app so UIKit finds the key commands in the responder chain,
- *  including while the composer is focused. */
+/** Wraps the app so the key commands work while the composer is focused:
+ *  on iOS UIKit finds them in the responder chain; on Android the view sees
+ *  hardware Return before the focused text input. */
 export function KeyboardCommandsView({ enabledCommands, onCommand, children }: {
   enabledCommands: readonly KeyboardCommand[]
   onCommand: (command: KeyboardCommand) => void

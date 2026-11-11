@@ -1,7 +1,8 @@
+import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import type { VoicePartial, VoiceTranscript, VoiceStreamFeedRequest, VoiceStreamRequest } from '@solus/contracts/voice-stream'
 
 export interface VoiceStreamApi {
-  voiceStreamStart(): Promise<{ streamId: string }>
+  voiceStreamStart(options?: VoiceTranscriptionOptions): Promise<{ streamId: string }>
   voiceStreamFeed(request: VoiceStreamFeedRequest): Promise<VoicePartial>
   voiceStreamFinish(request: VoiceStreamRequest): Promise<VoiceTranscript>
   voiceStreamCancel(request: VoiceStreamRequest): Promise<void>
@@ -22,8 +23,8 @@ export class VoiceStreamSession {
   #cancelRequest: Promise<void> | null = null
   #partial: VoicePartial = { stable: '', tentative: '' }
 
-  constructor(private api: VoiceStreamApi, private onPartial?: (partial: VoicePartial) => void) {
-    this.#started = api.voiceStreamStart().then(({ streamId }) => {
+  constructor(private api: VoiceStreamApi, private onPartial?: (partial: VoicePartial) => void, options?: VoiceTranscriptionOptions) {
+    this.#started = api.voiceStreamStart(options).then(({ streamId }) => {
       this.#streamId = streamId
       if (this.#cancelled) this.#cancelRequest = api.voiceStreamCancel({ streamId }).catch(() => {})
     }).catch(error => { this.#fail(error instanceof Error ? error : new Error(String(error))) })

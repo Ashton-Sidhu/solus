@@ -386,6 +386,7 @@ export const RPC_INVOKE_METHODS = [
   // Model list: the host's copy of the published model profiles
   'modelProfilesStatus',
   'modelProfilesRefresh',
+  'modelProfilesCheck',
 
   // Attention (server-side per-session needs-attention state; outlives clients)
   'listAttention',

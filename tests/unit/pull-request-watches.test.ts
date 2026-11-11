@@ -74,9 +74,14 @@ describe('pull request watches', () => {
 
   test('the stored state survives a restart', async () => {
     const watch = await watchSeven()
-    const told = { ...watch.state, headSha: 'abc', failedChecks: ['build'] }
+    const told = { ...watch.state, headSha: 'abc', failedChecks: ['build'], approvalChecks: ['ci'] }
     expect(await watches.recordPullRequestWatchState(watch, told)).toBe(true)
     expect((await watches.readPullRequestWatches(['session-1']))[0]?.state).toEqual(told)
+  })
+
+  test('a state stored before the approval hold reads with no hold', () => {
+    const { approvalChecks: _, ...older } = rules.initialWatchState(1_000)
+    expect(watches.pullRequestWatchStateSchema.parse(older).approvalChecks).toEqual([])
   })
 
   test('unlinking the pull request and settling the session end its watches, and say so', async () => {

@@ -1,4 +1,4 @@
-// Adapted from T3 Code apps/mobile/src/persistence/mobile-database.ts (MIT, see UPSTREAM.md).
+// Adapted from T3 Code apps/mobile/src/persistence/mobile-database.ts (MIT, see apps/mobile/UPSTREAM.md).
 
 /**
  * The pull request cache: the device copy of pull request data that was read
@@ -13,8 +13,10 @@
  *   submit or a discard removes it.
  *
  * The database is behind `PullRequestCacheDatabase`, so the native app gives
- * the `expo-sqlite` adapter (`platform/pull-request-cache-sqlite.ts`) and the
- * tests give the memory one below.
+ * the `expo-sqlite` adapter (`apps/mobile/src/platform/pull-request-cache-sqlite.ts`),
+ * desktop and web give the IndexedDB one
+ * (`packages/workspace-ui/src/contexts/prs/pr-device-cache.ts`), and the tests
+ * give the memory one below. Every client keeps the same bounds.
  */
 
 export type PullRequestCacheKind = 'response' | 'draft'

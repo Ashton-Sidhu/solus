@@ -59,12 +59,13 @@
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
   import SettingsTabMcp, { searchWords as mcpSearch } from "./SettingsTabMcp.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
+  import VoiceDictionaryField from "./VoiceDictionaryField.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
   import SettingsTabExperimental, { settingItems as experimentalSearch } from "./SettingsTabExperimental.svelte";
   import SettingsTabTelemetry, { settingItems as telemetrySearch } from "./SettingsTabTelemetry.svelte";
   import AnalyticsSettings, { searchWords as analyticsSearch } from "./AnalyticsSettings.svelte";
   import { APP_NOTICE_ROWS, NOTIFICATION_CHANNEL_ROWS, SESSION_EVENT_ROWS } from "./lib/notification-settings";
-  import { dataMatches, wordsMatch } from "./lib/settings-search";
+  import { SOURCE_CONTROL_SEARCH_WORDS, dataMatches, wordsMatch } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { openFolder } from "../../contexts/workspace/run-location";
   import SettingsProjectScope from "./SettingsProjectScope.svelte";
@@ -159,7 +160,7 @@
     {
       id: "voice",
       label: "Voice",
-      description: "The on-device speech model used for dictation.",
+      description: "Dictation, custom dictionary, and the voice model.",
       icon: MicrophoneIcon,
       group: "App",
     },
@@ -313,9 +314,10 @@
     appearance: keywordsOf(appearanceSearch),
     notifications: [...NOTIFICATION_CHANNEL_ROWS, ...SESSION_EVENT_ROWS, ...APP_NOTICE_ROWS].flatMap((row) => [row.label, ...row.keywords]),
     tasks: keywordsOf(tasksSearch),
-    "source-control": ["branch", "branch naming", "worktree", "copied files", "project", "projects", "override"],
+    "source-control": SOURCE_CONTROL_SEARCH_WORDS,
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
+    voice: ["dictation", "dictionary", "custom words", "vocabulary", "aliases", "spelling", "transcription"],
     integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "account", "accounts"],
     mcp: mcpSearch,
     providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli", "default", "default model", "model options", "model", "reasoning", "context", "fast", "instructions", "project", "projects", "override"],
@@ -560,11 +562,15 @@
     <SettingsTabNotifications searchQuery={pageQuery} />
   {:else if session.settingsTab === "review"}
     <SettingsTabReview searchQuery={pageQuery} />
-  {:else if session.settingsTab === "voice" && selectedSettingsHost && selectedSettingsApi}
+  {:else if session.settingsTab === "voice"}
+    {#if selectedSettingsHost && selectedSettingsApi}
     <SettingsTabVoice
       serverId={selectedSettingsHost.serverId}
       hostLabel={selectedSettingsHost.label}
     />
+    {:else}
+      <VoiceDictionaryField />
+    {/if}
   {:else if session.settingsTab === "telemetry"}
     <AnalyticsSettings searchQuery={pageQuery} host={selectedSettingsHost} />
     {#if selectedSettingsHost && selectedSettingsApi}

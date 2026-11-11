@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { dataMatches, wordsMatch } from '../../packages/workspace-ui/src/components/settings/lib/settings-search'
+import { SOURCE_CONTROL_SEARCH_WORDS, dataMatches, wordsMatch } from '../../packages/workspace-ui/src/components/settings/lib/settings-search'
 
 // Settings search covers every page. A page with no word list must still be
 // found through the data its rows are built from, or a search from another
@@ -23,5 +23,13 @@ describe('settings search', () => {
 
   test('a page without data rows matches nothing through data', () => {
     expect(dataMatches('appearance', 'new session', {})).toBe(false)
+  })
+
+  // The commit and pull request writing setting is on the Source control
+  // page. A person who looks for it by what it writes must find that page.
+  test('a search for commit or pull request words finds the Source control page', () => {
+    expect(wordsMatch('pull request', SOURCE_CONTROL_SEARCH_WORDS)).toBe(true)
+    expect(wordsMatch('commit message', SOURCE_CONTROL_SEARCH_WORDS)).toBe(true)
+    expect(wordsMatch('voice', SOURCE_CONTROL_SEARCH_WORDS)).toBe(false)
   })
 })

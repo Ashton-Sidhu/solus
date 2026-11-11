@@ -98,18 +98,18 @@ describe('GitHub stacked pull requests', () => {
     const [page] = await new StubProvider(listingClient({
       stack: { number: 4, size: 3, baseRefName: 'main' },
       stackEntry: { position: 2 },
-    })).listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open' }, 'sidhu', false)
+    })).listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open' }, 'sidhu')
 
-    expect(page?.page.items[0]?.stack).toEqual({ number: 4, position: 2, size: 3, base: 'main' })
+    expect(page?.items[0]?.stack).toEqual({ number: 4, position: 2, size: 3, base: 'main' })
   })
 
   test('a row GitHub places in no stack says so, rather than leaving it unknown', async () => {
     // WHY: absent means "not asked" and keeps an earlier answer on the client;
     // a row that left a stack must clear its badge.
     const [page] = await new StubProvider(listingClient({ stack: null, stackEntry: null }))
-      .listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open' }, 'sidhu', false)
+      .listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open' }, 'sidhu')
 
-    expect(page?.page.items[0]?.stack).toBeNull()
+    expect(page?.items[0]?.stack).toBeNull()
   })
 
   test('the stack is read whole, bottom to top, with each layer in its own state', async () => {

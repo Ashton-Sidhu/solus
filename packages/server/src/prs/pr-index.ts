@@ -1,7 +1,7 @@
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage, RepoRef } from '@solus/contracts/providers'
-import type { PrPageRequest, Provider, RepositoryPage } from '../providers/types'
+import type { PrPageRequest, PriorityNumbers, Provider } from '../providers/types'
 import { CachedField } from './cached-field'
 import { PullRequest } from './pull-request'
 
@@ -37,29 +37,21 @@ function listingKey(repo: RepoRef, viewer: string, filter: PrFilter | undefined,
   ].join('::')
 }
 
-/** The answers `PrIndex.listPages` gives for one repository. */
-export interface PageReads {
-  page: Promise<PrListPage>
-  /** Null past page one and for a searched list, which has no sections. */
-  authored: Promise<PrListPage> | null
-  /** Null where `authored` is, and for closed pull requests, which no review
-   *  request stands on. */
+/** The answers `PrIndex.listPriority` gives for one repository. */
+export interface PriorityReads {
+  authored: Promise<PrListPage>
+  /** Null for closed pull requests, which no review request stands on. */
   needsReview: Promise<Contracts.PullRequest[]> | null
 }
 
 /** Hears one new answer about the open pull requests waiting on `viewer`. */
 type NeedsReviewListener = (repo: RepoRef, viewer: string, rows: Contracts.PullRequest[]) => void
 
-/** Whether a list read is the sectioned list: page one, nothing typed. */
-function isSectioned(filter: PrFilter | undefined, page: number): boolean {
-  return page === 1 && !filter?.query?.trim() && !filter?.author && !filter?.head
-}
-
 /** One repository read on its own, down the provider's whole credential chain. */
 async function readAlone(provider: Provider, request: PrPageRequest, filter: PrFilter | undefined, viewer: string): Promise<PrListPage> {
-  const [found] = await provider.review.listPullRequestPages([request], filter, viewer, false)
+  const [found] = await provider.review.listPullRequestPages([request], filter, viewer)
   if (!found) throw new Error(`Could not read the pull requests of ${request.repo.owner}/${request.repo.repo}.`)
-  return found.page
+  return found
 }
 
 /** GitHub owners and repositories are case-insensitive, and the same pull
@@ -210,82 +202,110 @@ export class PrIndex {
   }
 
   /**
-   * A page of each repository — page one, or the page its cursor names — and
-   * on page one of the sectioned list the viewer's own pull requests and the
-   * ones waiting on their review: the same answers `list` and
-   * `listNeedsReview` give, filed under the same keys.
+   * A page of each repository: page one, or the page its cursor names. The
+   * same answers `list` gives, filed under the same keys.
    *
-   * What is still young costs nothing. Every repository with a part to read
+   * What is still young costs nothing. Every repository with a page to read
    * goes into one provider read, so many projects cost one search instead of
-   * several requests each. A part the read could not answer is read alone.
+   * several requests each.
    *
    * A repository the read could not see at all is left out of the answer, so
    * the caller reads it the ordinary way: with the credential, and the viewer,
-   * that can see it. Its parts are still read alone here, so a reader that
-   * joined them gets an answer. Keyed by `repoKeyOf`.
+   * that can see it. Its page is still read alone here, so a reader that joined
+   * it gets an answer. Keyed by `repoKeyOf`.
    */
   async listPages(
     provider: Provider,
     requests: PrPageRequest[],
     viewer: string,
     filter: PrFilter | undefined,
-  ): Promise<Map<string, PageReads>> {
+  ): Promise<Map<string, Promise<PrListPage>>> {
     const pending: PrPageRequest[] = []
-    let startBatch: (rows: Promise<Array<RepositoryPage | null>>) => void = () => {}
-    const batch = new Promise<Array<RepositoryPage | null>>((resolve) => { startBatch = resolve })
-    // Called only by a part that is not young, while the loop below runs; the
-    // batch starts once the loop has named every repository it needs.
-    const batched = (request: PrPageRequest): Promise<RepositoryPage | null> => {
-      let index = pending.indexOf(request)
-      if (index < 0) index = pending.push(request) - 1
-      return batch.then((rows) => rows[index] ?? null)
-    }
+    let startBatch: (rows: Promise<Array<PrListPage | null>>) => void = () => {}
+    const batch = new Promise<Array<PrListPage | null>>((resolve) => { startBatch = resolve })
 
-    const state = filter?.state ?? 'open'
-    const reads = new Map<string, { request: PrPageRequest; reads: PageReads }>()
+    const reads = new Map<string, { request: PrPageRequest; read: Promise<PrListPage> }>()
     for (const request of requests) {
       const { repo, page, cursor } = request
       const key = repoKeyOf(repo)
       if (reads.has(key)) continue
-      const sectioned = isSectioned(filter, page)
-      const authoredFilter: PrFilter = { state, query: `author:${viewer}` }
       reads.set(key, {
         request,
-        reads: {
-          page: page > 1 && !cursor
-            ? Promise.resolve({ items: [], page, hasMore: false })
-            : this.listingField(listingKey(repo, viewer, filter, page, cursor)).read(() => batched(request).then((found) =>
-                found?.page ?? readAlone(provider, request, filter, viewer))),
-          authored: sectioned
-            ? this.listingField(listingKey(repo, viewer, authoredFilter, 1, null)).read(() => batched(request).then((found) =>
-                found?.authored ?? readAlone(provider, { repo, page: 1, cursor: null }, authoredFilter, viewer)))
-            : null,
-          // A review request only stands on an open pull request.
-          needsReview: sectioned && state !== 'closed'
-            ? this.readNeedsReview(repo, viewer, () => batched(request).then((found) =>
-                found?.needsReview ?? provider.review.listPullRequestsNeedingReview(repo, viewer)))
-            : null,
-        },
+        read: page > 1 && !cursor
+          ? Promise.resolve({ items: [], page, hasMore: false })
+          // Called only if the page is not young; the batch starts once the
+          // loop has named every repository it needs.
+          : this.listingField(listingKey(repo, viewer, filter, page, cursor)).read(() => {
+              const index = pending.push(request) - 1
+              return batch.then((rows) => rows[index] ?? readAlone(provider, request, filter, viewer))
+            }),
       })
     }
-    const withPriority = pending.some((request) => isSectioned(filter, request.page))
     startBatch(pending.length > 0
       // A failed read answers nothing: each project is then read alone.
-      ? provider.review.listPullRequestPages(pending, filter, viewer, withPriority).catch(() => pending.map(() => null))
+      ? provider.review.listPullRequestPages(pending, filter, viewer).catch(() => pending.map(() => null))
       : Promise.resolve([]))
 
     const rows = await batch
-    const answered = new Map<string, PageReads>()
+    const answered = new Map<string, Promise<PrListPage>>()
     for (const [key, entry] of reads) {
       const index = pending.indexOf(entry.request)
-      if (index < 0 || rows[index]) {
-        answered.set(key, entry.reads)
-      } else {
-        // The caller reads this one itself; these parts answer whoever joined them.
-        for (const part of [entry.reads.page, entry.reads.authored, entry.reads.needsReview]) part?.catch(() => {})
-      }
+      if (index < 0 || rows[index]) answered.set(key, entry.read)
+      // The caller reads this one itself; this read answers whoever joined it.
+      else entry.read.catch(() => {})
     }
     return answered
+  }
+
+  /**
+   * Each repository's priority rows, the same answers `list` and
+   * `listNeedsReview` give, filed under the same keys. One search names the
+   * pull requests of every repository with a part to read. A row comes from
+   * the first page where that page holds it, and only the others are read, so
+   * a person whose pull requests are all on the page costs no row twice.
+   */
+  listPriority(
+    provider: Provider,
+    repos: RepoRef[],
+    viewer: string,
+    state: NonNullable<PrFilter['state']>,
+  ): Map<string, PriorityReads> {
+    const pending: RepoRef[] = []
+    let startBatch: (rows: Promise<Array<PriorityNumbers | null>>) => void = () => {}
+    const batch = new Promise<Array<PriorityNumbers | null>>((resolve) => { startBatch = resolve })
+    const batched = (repo: RepoRef): Promise<PriorityNumbers | null> => {
+      let index = pending.indexOf(repo)
+      if (index < 0) index = pending.push(repo) - 1
+      return batch.then((rows) => rows[index] ?? null)
+    }
+    const rowsOf = async (repo: RepoRef, numbers: number[]): Promise<Contracts.PullRequest[]> => {
+      const held = new Map((await this.list(repo, provider, viewer, { state }, 1)).items.map((row) => [row.number, row]))
+      const missing = numbers.filter((number) => !held.has(number))
+      const read = missing.length > 0 ? await provider.review.getPullRequests(repo, missing) : new Map<number, Contracts.PullRequest | null>()
+      return numbers.flatMap((number) => held.get(number) ?? read.get(number) ?? [])
+    }
+
+    const reads = new Map<string, PriorityReads>()
+    for (const repo of repos) {
+      const key = repoKeyOf(repo)
+      if (reads.has(key)) continue
+      const authoredFilter: PrFilter = { state, query: `author:${viewer}` }
+      reads.set(key, {
+        authored: this.listingField(listingKey(repo, viewer, authoredFilter, 1, null)).read(() => batched(repo).then(async (found) => found
+          ? { items: await rowsOf(repo, found.authored.numbers), page: 1, hasMore: found.authored.hasMore }
+          : readAlone(provider, { repo, page: 1, cursor: null }, authoredFilter, viewer))),
+        needsReview: state === 'closed' ? null : this.readNeedsReview(repo, viewer, () => batched(repo).then(async (found) => {
+          if (!found?.needsReview) return provider.review.listPullRequestsNeedingReview(repo, viewer)
+          const rows = await rowsOf(repo, [...new Set(found.needsReview)])
+          return rows.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        })),
+      })
+    }
+    startBatch(pending.length > 0
+      // A failed read answers nothing: each part is then read alone.
+      ? provider.review.listPriorityNumbers(pending, state, viewer).catch(() => pending.map(() => null))
+      : Promise.resolve([]))
+    return reads
   }
 
   /**

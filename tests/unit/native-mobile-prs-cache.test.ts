@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   memoryPullRequestCacheDatabase, prunedCacheKeys, PullRequestCache, PULL_REQUEST_CACHE_LIMITS, utf8Length,
-} from '../../apps/mobile/src/features/prs/pull-request-cache'
+} from '@solus/client-core/pull-request-cache'
 import { PullRequestDirectory } from '../../apps/mobile/src/features/prs/pull-request-directory'
 import { FakeApi, flushPromises } from './helpers/native-mobile-fakes'
 import { detailApi, hostWorld, PR_REF, pullRequest } from './helpers/native-mobile-prs-fixtures'

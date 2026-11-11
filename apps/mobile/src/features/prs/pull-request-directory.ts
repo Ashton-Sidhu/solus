@@ -10,7 +10,7 @@ import type { HostConnection } from '../hosts/host-connections'
 import { isGithubAuthError } from './lib/pr-presentation'
 import { pullRequestRepositoryKey } from './lib/pull-request-list'
 import { retainDetail, retainListing } from './lib/pull-request-retain'
-import { memoryPullRequestCacheDatabase, PullRequestCache } from './pull-request-cache'
+import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { HostReads, IDLE, settle, shownValue, type LoadState, type Settled } from './pull-request-reads'
 
 /**

@@ -83,7 +83,7 @@ function probePackagedRuntime(context) {
   const claudeEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'sdk.mjs')
   const voiceBinary = path.join(resourcesDir, 'transcription', process.platform === 'win32' ? 'solus-transcription.exe' : 'solus-transcription')
   const voiceVersion = execFileSync(voiceBinary, ['--probe'], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS })
-  if (!voiceVersion.startsWith('solus-transcription/1 transcribe.cpp/'))
+  if (!voiceVersion.startsWith('solus-transcription/2 transcribe.cpp/'))
     throw new Error('[afterPack] Packaged voice runtime failed its protocol check')
   // `build-resource-monitor.ts` skips a local package without cargo; a release has the binary.
   const monitorBinary = path.join(resourcesDir, 'resource-monitor', process.platform === 'win32' ? 'solus-resource-monitor.exe' : 'solus-resource-monitor')

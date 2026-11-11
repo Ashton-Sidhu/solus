@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { Archive as ArchiveIcon, ArchiveRestore as RestoreIcon, Circle as UnreadIcon, CircleCheck as ReadIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
   import type { NotificationView } from "@solus/contracts/notification-hub";
   import type { HubRow } from "@solus/client-core/notifications/merge";
   import { hubRowKey } from "@solus/client-core/notifications/merge";
   import { getClientShellContext, getWorkspaceContext, notificationHubStore as store } from "../../contexts";
+  import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { toasts } from "../../lib/toasts";
   import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
-  import { ListEmpty, ListFilterBar, ListFilterGroup, ListPage, ListSkeleton } from "../ui/list-page";
+  import { ListBulkAction, ListBulkBar, ListEmpty, ListFilterBar, ListFilterGroup, ListPage, ListSelectCheckbox, ListSelection, ListSkeleton } from "../ui/list-page";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { PaneSurfaceProps } from "../ui/lib/pane-surface";
   import NotificationRow from "./NotificationRow.svelte";
@@ -49,6 +51,23 @@
     return Date.now();
   });
   const notices = $derived(sourceNotices(sourceStates, store.conflicts));
+
+  const selection = new ListSelection();
+  const rowKeys = $derived(rows.map((row) => hubRowKey(row.sourceId, row.notification.id)));
+  // A row a filter hid, or that its source removed, leaves the selection: the
+  // count stays honest and a bulk action reaches only rows the reader can see.
+  $effect(() => {
+    selection.setOrder(rowKeys);
+    untrack(() => selection.retainVisible());
+  });
+  $effect(() => {
+    if (!open) selection.clear();
+  });
+
+  useScope("notifications", { active: () => open });
+  useKeybinding("notifications.clear-selection", () => selection.clear(), {
+    enabled: () => open && selection.active,
+  });
 
   // A source problem is said once per visit, as a toast. Leaving the page lets the next visit say it again.
   const announced = new Set<string>();
@@ -94,6 +113,15 @@
     if (await change(key)) return;
     // The source did not confirm the choice; the row shows what it holds after a fresh read.
     toasts.error(`${store.sources.get(row.sourceId)?.source.label ?? "The source"} did not confirm the change. Showing its current state.`);
+  }
+
+  /** Apply one choice to the selection. The rows clear at once; a source's refusal comes back as one toast. */
+  async function applyToSelection(change: (rowKeys: string[]) => Promise<number>): Promise<void> {
+    const selected = rowKeys.filter((key) => selection.has(key));
+    selection.clear();
+    const refused = await change(selected);
+    if (refused === 0) return;
+    toasts.error(`${refused} of ${selected.length} notifications did not change. Showing their current state.`);
   }
 
   function setKindGroups(next: NotificationKindGroup[]): void {
@@ -167,7 +195,11 @@
                 onOpen={() => void openRow(row)}
                 onSetRead={(read) => void choose(row, (rowKey) => store.setRead(rowKey, read))}
                 onSetArchived={(archived) => void choose(row, (rowKey) => store.setArchived(rowKey, archived))}
-              />
+              >
+                {#snippet leading()}
+                  <ListSelectCheckbox {selection} id={key} noun="notification" />
+                {/snippet}
+              </NotificationRow>
             </li>
           {/each}
         </ul>
@@ -176,7 +208,31 @@
             <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => void store.loadMore()}>Load more</button>
           </div>
         {/if}
+        <!-- The floating bar must not cover the last row. -->
+        {#if selection.active}<div class="h-28 shrink-0" aria-hidden="true"></div>{/if}
       {/if}
     </ListPage>
+    {#if selection.active}
+      <ListBulkBar {selection}>
+        {#if selection.size < rows.length}
+          <ListBulkAction onclick={() => selection.selectAllVisible()}>Select all</ListBulkAction>
+        {/if}
+        <ListBulkAction onclick={() => void applyToSelection((keys) => store.setReadMany(keys, true))}>
+          <ReadIcon size={14} class="shrink-0" />Read
+        </ListBulkAction>
+        <ListBulkAction onclick={() => void applyToSelection((keys) => store.setReadMany(keys, false))}>
+          <UnreadIcon size={14} class="shrink-0" />Unread
+        </ListBulkAction>
+        {#if store.view === "archived"}
+          <ListBulkAction onclick={() => void applyToSelection((keys) => store.setArchivedMany(keys, false))}>
+            <RestoreIcon size={14} class="shrink-0" />Restore
+          </ListBulkAction>
+        {:else}
+          <ListBulkAction onclick={() => void applyToSelection((keys) => store.setArchivedMany(keys, true))}>
+            <ArchiveIcon size={14} class="shrink-0" />Archive
+          </ListBulkAction>
+        {/if}
+      </ListBulkBar>
+    {/if}
   </div>
 {/if}

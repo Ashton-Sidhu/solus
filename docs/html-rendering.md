@@ -132,6 +132,14 @@ The system prompt tells both providers to show a visual when a chart, table,
 diagram, image collage, or mockup says more than prose
 (`runtime-instructions.ts`); the tool description says how.
 
+An agent that already wrote the body to a file names the file instead of
+typing the body again as tool input: `html_path` (an `.html` file) for
+`render_artifact` and an artifact's `update_work`, and `markdown_path` (a `.md`
+file) for `create_work` and a document's or deck's `update_work`. The host reads
+the file (`work-file.ts`), relative to the agent's working directory, at most
+8 MiB, and refuses a call that names more than one body. The tool descriptions
+that load on every turn are counted in `tests/unit/agent-context-budget.json`.
+
 A save without `preview` runs the same render as a check, for up to 8 seconds,
 and reports console errors and missing images in the tool result. A host with no
 headless browser saves without the check, and a preview there returns an error

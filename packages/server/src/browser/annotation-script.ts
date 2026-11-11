@@ -93,7 +93,13 @@ function installerBody(): string {
 
     const layer = document.createElement('div');
     layer.setAttribute('data-solus-browser-annotations', '');
-    layer.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
+    // A modal dialog, a popover, or a fullscreen element paints in the top
+    // layer, above any z-index. So the layer is a manual popover in the top
+    // layer too, with the popover UA styles reset so it still covers the
+    // viewport, and it moves back to the front each time the page adds to it.
+    layer.popover = 'manual';
+    layer.style.cssText = 'position:fixed;inset:0;width:auto;height:auto;margin:0;border:0;padding:0;background:transparent;'
+      + 'overflow:visible;z-index:2147483647;pointer-events:none;';
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '100%');
     svg.setAttribute('height', '100%');
@@ -142,9 +148,23 @@ function installerBody(): string {
       else if (!wanted && inputLayer.isConnected) inputLayer.remove();
     }
 
-    function mount() {
-      if (document.body && !layer.isConnected) document.body.appendChild(layer);
+    function raise() {
+      if (!layer.isConnected || typeof layer.showPopover !== 'function') return;
+      if (layer.matches(':popover-open')) layer.hidePopover();
+      layer.showPopover();
     }
+
+    function mount() {
+      if (!document.body || layer.isConnected) return;
+      document.body.appendChild(layer);
+      raise();
+    }
+
+    new MutationObserver(raise).observe(document, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    document.addEventListener('toggle', (event) => {
+      if (event.target !== layer && event.newState === 'open') raise();
+    }, true);
+    document.addEventListener('fullscreenchange', raise);
 
     function box(el) {
       const rect = el.getBoundingClientRect();

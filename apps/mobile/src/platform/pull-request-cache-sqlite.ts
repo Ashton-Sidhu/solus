@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/persistence/mobile-database.ts (MIT, see UPSTREAM.md).
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite'
-import type { PullRequestCacheDatabase } from '../features/prs/pull-request-cache'
+import type { PullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
 
 /**
  * The pull request cache in the app's own SQLite file. The bounds are not

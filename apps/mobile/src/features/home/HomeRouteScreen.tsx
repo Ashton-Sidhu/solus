@@ -9,7 +9,7 @@ import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/Stac
 import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
 import type { RootStackParamList } from "../../navigation/routes";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
-import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
+import { useAdaptiveWorkspaceLayout, useWorkspacePaneState } from "../layout/AdaptiveWorkspaceLayout";
 import { WorkspaceEmptyDetail } from "../layout/WorkspaceEmptyDetail";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
@@ -45,7 +45,8 @@ export function HomeRouteScreen() {
   const app = useApp();
   const theme = useUniwindTheme();
   const { width: windowWidth } = useWindowDimensions();
-  const { layout, panes } = useAdaptiveWorkspaceLayout();
+  const { layout } = useAdaptiveWorkspaceLayout();
+  const { panes } = useWorkspacePaneState();
   const projects = useListened(app.threads.changes, app.threads.projects);
   const threads = useListened(app.threads.changes, app.threads.threads);
   const unlistedThreads = useListened(app.threads.changes, app.threads.unlistedThreads);

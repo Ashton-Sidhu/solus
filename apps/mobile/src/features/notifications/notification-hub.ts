@@ -147,6 +147,16 @@ export class NativeNotificationHub {
     return this.client?.setArchived(rowKey, archived) ?? Promise.resolve(false)
   }
 
+  /** Answers how many rows no source confirmed. */
+  setReadMany(rowKeys: readonly string[], read: boolean): Promise<number> {
+    return this.client?.setReadMany(rowKeys, read) ?? Promise.resolve(rowKeys.length)
+  }
+
+  /** Answers how many rows no source confirmed. */
+  setArchivedMany(rowKeys: readonly string[], archived: boolean): Promise<number> {
+    return this.client?.setArchivedMany(rowKeys, archived) ?? Promise.resolve(rowKeys.length)
+  }
+
   /** One stable object per change, as `useSyncExternalStore` needs. */
   snapshot = (): NotificationHubSnapshot => {
     this.cached ??= {

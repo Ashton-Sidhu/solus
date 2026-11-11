@@ -258,7 +258,9 @@ export class SessionEventReducer {
     const session = this.deps.sessions.byId[sessionId]
     if (!session) return
 
-    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared', 'activity'].includes(event.type)) {
+    // Stop marks the session interrupted before the run exits, so the exit's
+    // `background_work` (the work ended with the run) comes after; it must land.
+    if (session.status === 'interrupted' && !['task_complete', 'turn_settled', 'checkpoint', 'session_init', 'user_message', 'status_change', 'git_context', 'git_status', 'goal_updated', 'goal_cleared', 'activity', 'background_work'].includes(event.type)) {
       return
     }
 
@@ -1040,7 +1042,6 @@ export class SessionEventReducer {
         }
         if (event.status === 'idle') {
           session.isStreamingText = false
-          session.isReconnecting = false
           session.permissionQueue = []
           dropBlockingQuestions(session)
           session.permissionDenied = null
@@ -1443,7 +1444,6 @@ export class SessionEventReducer {
     this.dropRunningCompaction(session)
     session.currentTurnStart = null
     session.isStreamingText = false
-    session.isReconnecting = false
     // Empty in place, and only when non-empty: swapping the array reference
     // invalidates every $derived reading the queue; a no-op turn end writes nothing.
     if (session.permissionQueue.length) session.permissionQueue.splice(0, session.permissionQueue.length)

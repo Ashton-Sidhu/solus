@@ -12,6 +12,14 @@ describe('PR input drafts', () => {
       .toBe('Answer my question about PR #12: Keep input local Ignore this.\n\nQuestion: ')
   })
 
+  test('a cut title does not split an emoji, so the prompt holds no lone surrogate', () => {
+    // The emoji's high surrogate is the 500th code unit, the last one the cut keeps.
+    const draft = buildPrQuestionDraft({ number: 12, title: `${'a'.repeat(499)}😀 tail` })
+
+    expect(draft).toBe(`Answer my question about PR #12: ${'a'.repeat(499)}.\n\nQuestion: `)
+    expect(draft.isWellFormed()).toBe(true)
+  })
+
   test('a guide section question carries the section, its decision, and its files, and leaves the question to the reader', () => {
     const draft = buildPrGuideSectionQuestionDraft(
       { number: 12, title: 'Rate limit the API' },

@@ -43,7 +43,7 @@ const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['leadInstructions', 'Lead instructions'],
   ['agentTaskLifecyclePolicy', 'Task lifecycle control'],
   ['textGenerationModel', 'Text-generation model'],
-  ['sourceControlWriting', 'Source control writing style'],
+  ['sourceControlWriting', 'Commit and pull request writing'],
   ['worktreeBranchNaming', 'Branch names'],
 ])
 

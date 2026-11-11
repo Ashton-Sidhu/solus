@@ -1,6 +1,6 @@
 import { cutText } from '@solus/contracts/text-cut'
 import { attachmentPromptPath, composeAttachmentContext } from './prompt-composer'
-import type { IpcContext, Message, Session, OutboundPrompt, PromptImageRef, PromptDelivery } from '@solus/contracts/types'
+import type { IpcContext, Message, Session, OutboundPrompt, Prompt, PromptImageRef, PromptDelivery } from '@solus/contracts/types'
 import type { QueueAttachment } from '@solus/contracts/session-queue'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from '@solus/contracts/review'
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
@@ -35,6 +35,7 @@ import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { reviewGuideStore } from '../../components/review/review-guide.store.svelte'
 import { directReviewRequest } from '../../components/review/lib/direct-review-command'
 import { resolveReviewAgent } from '../../lib/reviewAgent'
+import { attachmentUploads } from '../../components/input/lib/attachment-uploads.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { checkoutGit, checkoutPlace, isDispatch, openFolder, pendingClone, projectHome, runHost, worktreeBaseBranch } from './run-location'
 
@@ -67,6 +68,9 @@ export class PromptDispatch {
   constructor(private readonly workspace: PromptDispatchWorkspace) {}
 
   private hostDispatchAttempts = new Map<string, number>()
+  /** Per session, the last send that waits for its uploads. A later send waits
+   *  behind it, so the host gets the prompts in the order they were sent. */
+  private heldSends = new Map<string, Promise<void>>()
 
   private startDirectReview(
     tabId: string,
@@ -458,16 +462,19 @@ export class PromptDispatch {
       return false
     }
 
-    const fullPrompt = this.workspace.promptComposer.compose(prompt, input, session)
-    // Capture image blocks before the input's attachments are cleared below.
+    // What was sent, kept before the input clears below. The prompt is
+    // composed from it only when its uploads land: it names each file by its
+    // host path, which an upload in flight does not have yet.
+    const sent: Prompt = {
+      text: prompt,
+      attachments: [...input.attachments],
+      planRefs: [...input.planRefs],
+      workRefs: [...input.workRefs],
+      sessionRefs: [...input.sessionRefs],
+    }
+    const isUploading = attachmentUploads.isUploading(sent.attachments)
     // `imageAttachments` stays local — the queued-prompt chip renders from it.
-    const imageAttachments = this.workspace.promptComposer.composeImages(input)
-    const runServerId = serverConnections.resolveId(runHost(session.run))
-    const imagePayload = this.workspace.promptComposer.composeImagePayload(
-      input,
-      runServerId,
-      hasHostCapability(serverConnections.cachedCapabilitiesFor(runServerId), 'promptImageRefs'),
-    )
+    const imageAttachments = this.workspace.promptComposer.composeImages(sent)
     // Not `nextMsgId()`: that counter restarts on every reload and on every
     // device, and this id keys the durable outbox and the host's dedupe.
     const clientPromptId = uuid()
@@ -536,9 +543,9 @@ export class PromptDispatch {
       }
       session.currentTurnStart = isFirstMessage ? 'fresh' : 'follow_up'
       session.currentTurnStartedAt = sentAt
-      session.currentActivity = session.currentTurnStart === 'fresh'
-        ? 'Starting session...'
-        : 'Resuming...'
+      session.currentActivity = isUploading
+        ? 'Uploading attachments...'
+        : session.currentTurnStart === 'fresh' ? 'Starting session...' : 'Resuming...'
       session.status = 'connecting'
       showPendingWorktreeSetup(session)
       session.title = title
@@ -556,26 +563,126 @@ export class PromptDispatch {
     }
 
     const promptTaskId = ownedTaskId(this.workspace.tasksStore, session)
-    this.promptTab(targetTabId, {
-      prompt: fullPrompt,
-      displayPrompt: prompt,
-      queueAttachments: attachments?.map((attachment) => ({ id: attachment.id, name: attachment.name, type: attachment.type,
-        hostPath: attachmentPromptPath(attachment, runHost(session.run)) || undefined,
-        dataUrl: attachment.type === 'image' && !attachment.hostPath ? attachment.dataUrl : undefined, mimeType: attachment.mimeType, size: attachment.size,
-        context: attachment.type === 'image' ? undefined : composeAttachmentContext([attachment], runHost(session.run)) })),
-      queueAttachmentContext: attachments ? composeAttachmentContext(attachments.filter((item) => item.type !== 'image'), runHost(session.run)) : undefined,
-      clientPromptId,
-      delivery,
-      imageAttachments: imagePayload.inline,
-      imageAttachmentRefs: imagePayload.refs,
-      taskId: promptTaskId,
-      goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
-      // A lead is chosen before the first message and fixed from then on. A
-      // chat offers no Meta mode, so a choice made before a move to one drops.
-      isLead: isFirstMessage && session.isLead && !isChat(checkoutPlace(session.run).path) ? true : undefined,
-    })
+    const goalObjective = isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined
+    // A lead is chosen before the first message and fixed from then on. A
+    // chat offers no Meta mode, so a choice made before a move to one drops.
+    const isLead = isFirstMessage && session.isLead && !isChat(checkoutPlace(session.run).path) ? true : undefined
+    const send = () => {
+      const fullPrompt = this.workspace.promptComposer.compose(prompt, sent, session)
+      const runServerId = serverConnections.resolveId(runHost(session.run))
+      const imagePayload = this.workspace.promptComposer.composeImagePayload(
+        sent,
+        runServerId,
+        hasHostCapability(serverConnections.cachedCapabilitiesFor(runServerId), 'promptImageRefs'),
+      )
+      const landed = sent.attachments.length > 0 ? sent.attachments : undefined
+      this.promptTab(targetTabId, {
+        prompt: fullPrompt,
+        displayPrompt: prompt,
+        queueAttachments: landed?.map((attachment) => ({ id: attachment.id, name: attachment.name, type: attachment.type,
+          hostPath: attachmentPromptPath(attachment, runHost(session.run)) || undefined,
+          dataUrl: attachment.type === 'image' && !attachment.hostPath ? attachment.dataUrl : undefined, mimeType: attachment.mimeType, size: attachment.size,
+          context: attachment.type === 'image' ? undefined : composeAttachmentContext([attachment], runHost(session.run)) })),
+        queueAttachmentContext: landed ? composeAttachmentContext(landed.filter((item) => item.type !== 'image'), runHost(session.run)) : undefined,
+        clientPromptId,
+        delivery,
+        imageAttachments: imagePayload.inline,
+        imageAttachmentRefs: imagePayload.refs,
+        taskId: promptTaskId,
+        goalObjective,
+        isLead,
+      })
+    }
+    const before = this.heldSends.get(session.id)
+    if (isUploading || before) this.sendWhenUploaded(targetTabId, session, sent, { clientPromptId, isQueued: isBusy, before }, send)
+    else send()
     requestConversationScrollToBottom(targetTabId)
     return true
+  }
+
+  /**
+   * Start a sent turn once its uploads land, and after any earlier send of the
+   * session that still waits. The message already shows. If an upload fails,
+   * or the user withdrew the send meanwhile, nothing goes to the host: the
+   * text and attachments go back to the composer, and a failure says why.
+   */
+  private sendWhenUploaded(
+    tabId: string,
+    session: Session,
+    sent: Prompt,
+    pending: { clientPromptId: string; isQueued: boolean; before: Promise<void> | undefined },
+    send: () => void,
+  ): void {
+    const held = (pending.before ?? Promise.resolve())
+      .then(() => Promise.all(sent.attachments.map((attachment) => attachmentUploads.landed(attachment))))
+      .then((outcomes) => {
+        if (this.workspace.sessionFor(tabId) !== session) return
+        sent.attachments = outcomes.flatMap((outcome, index) => {
+          if (outcome.status === 'landed') return [outcome.attachment]
+          // A streamed upload keeps its failure for the chip's Retry. A pasted
+          // image has no Retry; its own toast already said why it is gone.
+          const attachment = sent.attachments[index]
+          return attachmentUploads.stateFor(attachment.id)?.status === 'failed' ? [attachment] : []
+        })
+        const failure = outcomes.find((outcome) => outcome.status === 'failed')
+        const outbound = session.outboundPrompts.find((entry) => entry.clientPromptId === pending.clientPromptId)
+        const isWithdrawn = pending.isQueued ? !outbound : session.status !== 'connecting'
+        if (failure?.status === 'failed' || isWithdrawn) {
+          this.returnUnsent(session, sent, { ...pending, outbound, isWithdrawn, failure: failure?.status === 'failed' ? failure.message : null })
+          return
+        }
+        this.showLandedAttachments(session, sent, pending)
+        send()
+      })
+      // A later send of the session waits on this one, so it must settle.
+      .catch((error) => console.warn('[Solus] A send that waited for its uploads failed.', error))
+    const settled: Promise<void> = held.finally(() => {
+      if (this.heldSends.get(session.id) === settled) this.heldSends.delete(session.id)
+    })
+    this.heldSends.set(session.id, settled)
+  }
+
+  /** A held send that will not go. A queued prompt the user removed was meant
+   *  to go away; any other comes back to the composer, and a failure says why. */
+  private returnUnsent(
+    session: Session,
+    sent: Prompt,
+    unsent: { isQueued: boolean; outbound: OutboundPrompt | undefined; isWithdrawn: boolean; failure: string | null },
+  ): void {
+    if (unsent.outbound) session.outboundPrompts.splice(session.outboundPrompts.indexOf(unsent.outbound), 1)
+    if (!(unsent.isWithdrawn && unsent.isQueued)) this.returnToComposer(session, sent)
+    if (unsent.failure === null || unsent.isWithdrawn) return
+    const message = `An attachment did not upload, so the message was not sent: ${unsent.failure}`
+    if (unsent.isQueued) toasts.error(message)
+    else this.workspace.eventReducer.handleError(session.id, { message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
+  }
+
+  /** The bubble shows the files as the host now holds them, and the turn's
+   *  activity moves on from the upload. */
+  private showLandedAttachments(session: Session, sent: Prompt, pending: { clientPromptId: string; isQueued: boolean }): void {
+    const shown = pending.isQueued
+      ? session.outboundPrompts.find((entry) => entry.clientPromptId === pending.clientPromptId)?.attachments
+      : session.messages.find((message) => message.clientPromptId === pending.clientPromptId)?.attachments
+    for (const attachment of shown ?? []) {
+      const landed = sent.attachments.find((item) => item.id === attachment.id)
+      if (!landed?.hostPath) continue
+      attachment.hostPath = landed.hostPath
+      attachment.path = landed.path
+    }
+    if (!pending.isQueued && session.currentActivity === 'Uploading attachments...') {
+      session.currentActivity = session.currentTurnStart === 'fresh' ? 'Starting session...' : 'Resuming...'
+    }
+  }
+
+  /** Put an unsent prompt back where the user wrote it. Text the user typed
+   *  since stays; the sent text comes back only to an empty composer. */
+  private returnToComposer(session: Session, sent: Prompt): void {
+    const input = session.prompt
+    if (!input.text) input.text = sent.text
+    input.attachments.push(...sent.attachments)
+    input.planRefs.push(...sent.planRefs)
+    input.workRefs.push(...sent.workRefs)
+    input.sessionRefs.push(...sent.sessionRefs)
   }
 
   private async prepareHostDispatchAndSend(

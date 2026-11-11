@@ -63,6 +63,8 @@ import { WebhookDeliveryScreen } from '../features/webhooks/WebhookDeliveryScree
 import { ProvidersScreen, ProviderSettingsScreen } from '../features/settings/ProvidersScreen'
 import { ChatSettingsScreen } from '../features/settings/ChatSettingsScreen'
 import { AgentDefaultsScreen } from '../features/settings/AgentDefaultsScreen'
+import { VoiceSettingsScreen } from '../features/settings/VoiceSettingsScreen'
+import { VoiceTermScreen } from '../features/settings/VoiceTermScreen'
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen'
 import { GitHubConnectionScreen } from '../features/settings/GitHubConnectionScreen'
 import { AboutScreen } from '../features/settings/AboutScreen'
@@ -173,6 +175,8 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'ChatSettings',
   'AgentDefaults',
   'NotificationSettings',
+  'VoiceSettings',
+  'VoiceTerm',
   'Policy',
   'HostSettings',
   'HostResources',
@@ -381,6 +385,8 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="ProviderSettings" component={ProviderSettingsScreen} options={{ title: 'Provider settings' }} />
             <Stack.Screen name="ChatSettings" component={ChatSettingsScreen} options={{ title: 'Chat' }} />
             <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Sessions' }} />
+            <Stack.Screen name="VoiceSettings" component={VoiceSettingsScreen} options={{ title: 'Voice' }} />
+            <Stack.Screen name="VoiceTerm" component={VoiceTermScreen} options={{ title: 'Term' }} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
             <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
             <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />

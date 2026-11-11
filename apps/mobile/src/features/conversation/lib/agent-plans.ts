@@ -1,12 +1,11 @@
 import type { AgentConversationUpdate } from '@solus/contracts/types'
-import type { ExchangeRequest, SessionOutput } from '@solus/contracts/session-exchange'
+import type { ExchangeRequest } from '@solus/contracts/session-exchange'
 
 /**
  * Plans written by sessions this conversation sent work to, and whether one
- * waits on this session's decision. The rules are the desktop card's
+ * waits on this session's decision. The rule is the desktop card's
  * (`agent-conversation-cards.ts`, `lib/agent-conversation.ts`): a plan waits
- * while the target's turn is held open on it, or when the target's last turn
- * finished with a plan the sender has not acted on. The host is the judge: a
+ * while the target's turn is held open on it. The host is the judge: a
  * decision on a plan already acted on elsewhere is refused, not applied.
  *
  * Live events only. A reloaded conversation does not rebuild these cards
@@ -19,13 +18,11 @@ interface Exchange {
   messageId: string
   status: ExchangeStatus
   request: ExchangeRequest | null
-  outputs: SessionOutput[]
 }
 
 interface Card {
   sessionId: string
   title: string
-  closedByAgent: boolean
   exchanges: Exchange[]
 }
 
@@ -37,8 +34,7 @@ export interface AgentPlanAwaiting {
   messageId: string
   sessionTitle: string
   planTitle: string
-  /** The plan's text when the turn is held open on it; a finished turn's plan is named only. */
-  content: string | null
+  content: string
 }
 
 export class AgentPlans {
@@ -49,10 +45,9 @@ export class AgentPlans {
   apply(update: AgentConversationUpdate): void {
     switch (update.phase) {
       case 'dispatched': {
-        const card = this.cards.get(update.sessionId) ?? { sessionId: update.sessionId, title: update.title, closedByAgent: false, exchanges: [] }
-        card.closedByAgent = false
+        const card = this.cards.get(update.sessionId) ?? { sessionId: update.sessionId, title: update.title, exchanges: [] }
         card.title = update.title
-        card.exchanges.push({ messageId: update.messageId, status: 'dispatched', request: null, outputs: [] })
+        card.exchanges.push({ messageId: update.messageId, status: 'dispatched', request: null })
         this.cards.set(update.sessionId, card)
         return
       }
@@ -73,7 +68,7 @@ export class AgentPlans {
         return
       case 'settled': {
         const status: ExchangeStatus = update.status === 'completed' ? 'done' : update.status
-        this.patch(update.sessionId, update.messageId, { status, request: null, outputs: update.outputs ?? [] })
+        this.patch(update.sessionId, update.messageId, { status, request: null })
         return
       }
       case 'stopped': {
@@ -82,7 +77,6 @@ export class AgentPlans {
         for (const exchange of card.exchanges) {
           if (exchange.status !== 'done' && exchange.status !== 'failed' && exchange.status !== 'queued') exchange.status = 'interrupted'
         }
-        card.closedByAgent = !card.exchanges.some((exchange) => exchange.status === 'queued')
         return
       }
     }
@@ -96,11 +90,7 @@ export class AgentPlans {
       if (!last || this.decided.has(decisionKey(card.sessionId, last.messageId))) continue
       if (last.status === 'awaiting_input' && last.request?.kind === 'plan') {
         plans.push({ targetSessionId: card.sessionId, messageId: last.messageId, sessionTitle: card.title, planTitle: last.request.plan.title, content: last.request.plan.content })
-        continue
       }
-      if (card.closedByAgent || last.status !== 'done') continue
-      const plan = last.outputs.findLast((output) => output.kind === 'plan')
-      if (plan?.kind === 'plan') plans.push({ targetSessionId: card.sessionId, messageId: last.messageId, sessionTitle: card.title, planTitle: plan.title, content: null })
     }
     return plans
   }

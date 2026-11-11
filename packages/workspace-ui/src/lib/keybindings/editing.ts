@@ -19,7 +19,7 @@ export const KEYBINDING_CATEGORIES: { key: string; label: string; scopes: Scope[
   { key: 'diff-panel', label: 'Diff Panel', scopes: ['diff-panel'] },
   { key: 'workspace', label: 'Workspace', scopes: ['workspace', 'attachment-preview', 'snapshot-lightbox', 'browser-pane'] },
   { key: 'editors', label: 'Editors', scopes: ['file-editor', 'files-pane', 'plan-modal', 'document-modal'] },
-  { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs'] },
+  { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs', 'notifications'] },
   { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review'] },
   { key: 'overlays', label: 'Overlays', scopes: ['command-palette', 'task-picker', 'go-to-file', 'project-search', 'shortcuts-help'] },
 ]
@@ -41,6 +41,7 @@ export const SCOPE_LABELS = {
   insights: 'Insights',
   tasks: 'Tasks',
   prs: 'Pull requests',
+  notifications: 'Notifications',
   'plan-action-bar': 'Plan review',
   'pr-review': 'Pull request review',
   'command-palette': 'Command palette',

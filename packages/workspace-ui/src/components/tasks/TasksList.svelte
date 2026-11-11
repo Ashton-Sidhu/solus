@@ -6,15 +6,16 @@
     ListGroup,
     ListRailRow,
     ListRow,
+    ListSelectCheckbox,
     VirtualList,
     LIST_GROUP_HEADER_HEIGHT,
     listRowHeight,
     virtualGroupItems,
     type ListGroupSpec,
     type ListRowSpec,
+    type ListSelection,
   } from "../ui/list-page";
   import TaskListRow from "./TaskListRow.svelte";
-  import { getTasksSelection } from "./tasks-selection.store.svelte";
 
   /**
    * The grouped task list of the Tasks page: one section for each column of
@@ -29,16 +30,17 @@
     recordRows: boolean;
     /** The list is the rail beside an open task. */
     split: boolean;
+    /** The page's multi-select: each row draws its checkbox from it. */
+    selection: ListSelection;
     selectedKey: string | null;
     taskFor: (taskId: string) => Task | undefined;
     onOpen: (task: Task) => void;
     onMove: (task: Task, target: TaskMoveTarget) => void;
     onContextMenu: (event: MouseEvent, task: Task) => void;
   }
-  let { groups, height, recordRows, split, selectedKey, taskFor, onOpen, onMove, onContextMenu }: Props =
+  let { groups, height, recordRows, split, selection, selectedKey, taskFor, onOpen, onMove, onContextMenu }: Props =
     $props();
 
-  const selection = getTasksSelection();
   const collapsedGroups = new SvelteSet<string>();
   let revealedTaskId = $state<string | null>(null);
 
@@ -57,25 +59,6 @@
     if (!collapsedGroups.delete(key)) collapsedGroups.add(key);
   }
 </script>
-
-{#snippet rowCheckbox(taskId: string)}
-  {@const task = taskFor(taskId)}
-  {#if task}
-    <button
-      type="button"
-      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {selection.has(
-        taskId,
-      )
-        ? 'bg-primary text-primary-foreground opacity-100'
-        : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'}"
-      onclick={(e) => selection.toggle(task, e)}
-      aria-pressed={selection.has(taskId)}
-      aria-label={selection.has(taskId) ? "Deselect task" : "Select task"}
-    >
-      ✓
-    </button>
-  {/if}
-{/snippet}
 
 <VirtualList
   {items}
@@ -125,7 +108,7 @@
             }}
           >
             {#snippet leading()}
-              {@render rowCheckbox(item.row.key)}
+              <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
             {/snippet}
           </TaskListRow>
         {:else if split}
@@ -143,7 +126,7 @@
             }}
           >
             {#snippet leading()}
-              {@render rowCheckbox(item.row.key)}
+              <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
             {/snippet}
           </ListRailRow>
         {:else}
@@ -161,7 +144,7 @@
             }}
           >
             {#snippet leading()}
-              {@render rowCheckbox(item.row.key)}
+              <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
             {/snippet}
           </ListRow>
         {/if}

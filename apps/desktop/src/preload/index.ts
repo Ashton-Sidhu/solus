@@ -9,6 +9,7 @@ import type { HostPolicyAssignRequest, HostPolicyCreateRequest, PolicyWriteReque
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
 import type { AccountDocumentRequest } from '@solus/contracts/account-documents'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
+import { isAppFullscreenElement } from '../main/html-fullscreen'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -135,3 +136,16 @@ const nativeApi: NativeSolusAPI = {
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)
+
+// The main window keeps HTML fullscreen inside itself for the browser pane, so
+// main makes the window fullscreen for the app's own elements, such as a chat
+// video. A reload or a renderer crash never reports the old document's exit,
+// so each document starts out reported as not fullscreen.
+let isAppFullscreen = false
+ipcRenderer.send('solus:html-fullscreen', false)
+document.addEventListener('fullscreenchange', () => {
+  const next = isAppFullscreenElement(document.fullscreenElement)
+  if (next === isAppFullscreen) return
+  isAppFullscreen = next
+  ipcRenderer.send('solus:html-fullscreen', next)
+})

@@ -131,7 +131,7 @@ export function composerDraftView<Attachment>(
     return {
       text: conversation.text,
       onChangeText: conversation.onChangeText,
-      hasContent: conversation.text.trim().length > 0 || conversation.attachments.length > 0,
+      hasContent: conversation.text.trim().length > 0 || conversation.attachments.length > 0 || conversation.uploading > 0,
       stripAttachments: conversation.attachments,
       stripUploading: conversation.uploading,
       attachmentsFull: conversation.attachments.length + conversation.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT,

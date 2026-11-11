@@ -693,6 +693,7 @@ export class SessionEnvironmentStore {
     if (!status || !previous || !this.detailWatchers.has(key) || previous.branch !== status.branch) return status
     const visibleStatus: GitState = { ...status }
     if (previous.branchChanges) visibleStatus.branchChanges = previous.branchChanges
+    if (previous.uncommittedTotals) visibleStatus.uncommittedTotals = previous.uncommittedTotals
     if (previous.targetAheadCount !== undefined) visibleStatus.targetAheadCount = previous.targetAheadCount
     if (previous.prUrl) visibleStatus.prUrl = previous.prUrl
     return visibleStatus

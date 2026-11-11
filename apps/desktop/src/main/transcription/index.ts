@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { app, powerSaveBlocker } from 'electron'
+import { voiceTranscriptionOptionsSchema, type VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import { VOICE_WARM_LEASE_MS, type VoiceTranscript, type VoicePartial, type VoiceWarmRequest } from '@solus/contracts/voice-stream'
 import { createLogger } from '@solus/server/logger'
@@ -152,7 +153,7 @@ export async function warmTranscription(owner: string, request?: VoiceWarmReques
   return promise
 }
 
-export async function startVoiceStream(owner: string, onEnd: () => void): Promise<string> {
+export async function startVoiceStream(owner: string, onEnd: () => void, options?: VoiceTranscriptionOptions): Promise<string> {
   await requireModel()
   if (batchBusy || capture) throw new Error('Voice transcription is already in progress')
   const current = ensureWorker()
@@ -164,7 +165,7 @@ export async function startVoiceStream(owner: string, onEnd: () => void): Promis
   capture = active
   touchCapture(active)
   try {
-    const result = await current.request('begin')
+    const result = await current.request('begin', undefined, undefined, voiceTranscriptionOptionsSchema.optional().parse(options)?.vocabulary)
     if (result.error) throw new Error(result.error)
     if (capture !== active) throw new Error('Voice stream was cancelled')
     touchCapture(active)
@@ -217,7 +218,7 @@ export function cancelVoiceStream(owner: string, streamId: string): void {
   endCapture(active)
 }
 
-export async function transcribeAudio(samples: Float32Array): Promise<VoiceTranscript> {
+export async function transcribeAudio(samples: Float32Array, options?: VoiceTranscriptionOptions): Promise<VoiceTranscript> {
   const startedAt = Date.now()
   let success = false
   if (!samples.length) return { error: 'Voice recording contains no audio', transcript: null }
@@ -226,7 +227,7 @@ export async function transcribeAudio(samples: Float32Array): Promise<VoiceTrans
   batchBusy = true
   try {
     await requireModel()
-    const result = await ensureWorker().request('batch', samples, transcriptionRequestTimeoutMs(samples.length))
+    const result = await ensureWorker().request('batch', samples, transcriptionRequestTimeoutMs(samples.length), voiceTranscriptionOptionsSchema.optional().parse(options)?.vocabulary)
     success = !result.error
     return { error: result.error, transcript: result.transcript }
   } catch (error) {

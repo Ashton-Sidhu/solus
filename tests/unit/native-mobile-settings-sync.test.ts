@@ -92,6 +92,17 @@ function manualClock(): DocumentSyncClock & { runAll(): void } {
   }
 }
 
+test('mobile dictionary defaults can be edited or cleared and stay saved after reload', () => {
+  const storage = memoryKeyValueStore()
+  const personal = new PersonalSettingsStore(storage)
+  expect(personal.current().voiceDictionary).toHaveLength(12)
+  const custom = [{ term: 'MyProject', aliases: ['my project'] }]
+  expect(personal.set({ voiceDictionary: custom })).toBe('saved')
+  expect(new PersonalSettingsStore(storage).current().voiceDictionary).toEqual(custom)
+  expect(personal.set({ voiceDictionary: [] })).toBe('saved')
+  expect(new PersonalSettingsStore(storage).current().voiceDictionary).toEqual([])
+})
+
 describe('appearance becomes the personal theme', () => {
   test('Show me is available by default and stays deleted after reload', () => {
     const storage = memoryKeyValueStore()

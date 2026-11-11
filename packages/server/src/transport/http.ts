@@ -1,3 +1,4 @@
+import { decodeVoiceUpload, MAX_VOICE_OPTIONS_BYTES, VOICE_UPLOAD_CONTENT_TYPE, type VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { createSolusApiRouter, type SolusApiRouter } from './solus-api/router'
 import { organizationMemberFor, workspaceAdmissionFor } from './solus-api/admission'
 import type { WorkspaceOperations } from '../data/workspace/operations'
@@ -97,7 +98,7 @@ export interface HttpServerOptions {
   /** The device hub proxy's video routes (docs/plans/native-devices.md, D2). The token is the credential. */
   deviceHub?: { serve(token: string, route: string, signal: AbortSignal, request?: Request): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
-  transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
+  transcribeAudio?: (samples: Float32Array, options?: VoiceTranscriptionOptions) => Promise<{ error: string | null; transcript: string | null }>
   /** An integration sign-in's browser callback (docs/plans/mcp-integrations.md §4.3). The flow named by `state` decides whose token it is. */
   completeIntegrationOAuth?: (params: URLSearchParams) => Promise<{ status: 200 | 400 | 500; html: string }>
   /** The webhook receiver (docs/plans/webhooks.md §3.4). The URL token is the credential, then verification. */
@@ -365,8 +366,10 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (!(await authorized(c))) return c.json({ error: 'Unauthorized', transcript: null }, 401)
     if (!opts.transcribeAudio) return c.json({ error: 'Voice transcription is unavailable', transcript: null }, 503)
 
+    const hasOptions = c.req.header('content-type') === VOICE_UPLOAD_CONTENT_TYPE
+    const maxBytes = MAX_VOICE_WAV_BYTES + (hasOptions ? MAX_VOICE_OPTIONS_BYTES + 4 : 0)
     const declaredLength = Number(c.req.header('content-length') ?? 0)
-    if (declaredLength > MAX_VOICE_WAV_BYTES) {
+    if (declaredLength > maxBytes) {
       return c.json({ error: 'Voice recording exceeds the 60 minute limit', transcript: null }, 413)
     }
     // Reject before buffering/decoding. Otherwise concurrent maximum-size
@@ -378,9 +381,11 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     voiceTranscriptionActive = true
 
     try {
-      const wav = await readLimitedBody(c.env.incoming, MAX_VOICE_WAV_BYTES)
-      const samples = readWav(wav)
-      return c.json(await opts.transcribeAudio(samples))
+      const body = await readLimitedBody(c.env.incoming, maxBytes)
+      const upload = hasOptions ? decodeVoiceUpload(body) : { wav: body, options: undefined }
+      if (upload.wav.byteLength > MAX_VOICE_WAV_BYTES) throw new BodyTooLargeError()
+      const samples = readWav(Buffer.from(upload.wav.buffer, upload.wav.byteOffset, upload.wav.byteLength))
+      return c.json(await opts.transcribeAudio(samples, upload.options))
     } catch (err) {
       if (err instanceof BodyTooLargeError) {
         return c.json({ error: 'Voice recording exceeds the 60 minute limit', transcript: null }, 413)

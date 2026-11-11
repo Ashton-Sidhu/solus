@@ -427,7 +427,7 @@
       : ''}"
   >
     <span
-      class="flex items-center transition-opacity duration-150 pointer-fine:group-hover/row:pointer-events-none pointer-fine:group-hover/row:absolute pointer-fine:group-hover/row:right-0 pointer-fine:group-hover/row:opacity-0 pointer-fine:group-has-[:focus-visible]/row:pointer-events-none pointer-fine:group-has-[:focus-visible]/row:absolute pointer-fine:group-has-[:focus-visible]/row:right-0 pointer-fine:group-has-[:focus-visible]/row:opacity-0"
+      class="flex items-center pointer-fine:group-hover/row:pointer-events-none pointer-fine:group-hover/row:absolute pointer-fine:group-hover/row:right-0 pointer-fine:group-hover/row:opacity-0 pointer-fine:group-has-[:focus-visible]/row:pointer-events-none pointer-fine:group-has-[:focus-visible]/row:absolute pointer-fine:group-has-[:focus-visible]/row:right-0 pointer-fine:group-has-[:focus-visible]/row:opacity-0"
     >
       {@render stateMark()}
     </span>
@@ -436,7 +436,7 @@
          so completion and archive remain available. -->
     {#if task.tabIds[0] || task.sessionId}
       <span
-        class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 transition-opacity duration-150 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/row:pointer-events-auto pointer-fine:group-hover/row:static pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:pointer-events-auto pointer-fine:group-has-[:focus-visible]/row:static pointer-fine:group-has-[:focus-visible]/row:opacity-100"
+        class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/row:pointer-events-auto pointer-fine:group-hover/row:static pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:pointer-events-auto pointer-fine:group-has-[:focus-visible]/row:static pointer-fine:group-has-[:focus-visible]/row:opacity-100"
       >
         <!-- Reversible first, destructive last, so the pointer never lands on
              remove while aiming for the lifecycle action. Snooze is the one of

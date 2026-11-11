@@ -71,6 +71,7 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
             value={APPEARANCE_LABELS[appearance]}
             onPress={() => navigation.navigate("AppearanceSettings")}
           />
+          <SettingsRow icon="mic" label="Voice" accessibilityHint="Your dictation dictionary" onPress={() => navigation.navigate("VoiceSettings")} />
           <SettingsRow icon="text.bubble" label="Chat" accessibilityHint="Responses, tool calls, and the input bar" onPress={() => navigation.navigate("ChatSettings")} />
           <SettingsRow
             icon="bell.badge"

@@ -26,19 +26,12 @@ describe('plans of another session', () => {
     expect(plans.awaiting()).toEqual([])
   })
 
-  test('a finished turn with a plan waits by name; new work or a stop ends the wait', () => {
+  test('a finished turn with a plan asks for no decision', () => {
+    // WHY: a Codex plan-mode reply is reported as a plan; a finished review is not a decision.
     const plans = new AgentPlans()
     plans.apply(dispatched('child', 'm1'))
     plans.apply({ phase: 'settled', sessionId: 'child', messageId: 'm1', status: 'completed', replyText: 'Done', outputs: [{ kind: 'plan', sessionId: 'child', planToolUseId: 't', title: 'Add login' }], settledAt: 2 })
-    expect(plans.awaiting()).toMatchObject([{ planTitle: 'Add login', content: null }])
-    plans.apply(dispatched('child', 'm2'))
     expect(plans.awaiting()).toEqual([])
-
-    const stopped = new AgentPlans()
-    stopped.apply(dispatched('other', 'm1'))
-    stopped.apply({ phase: 'settled', sessionId: 'other', messageId: 'm1', status: 'completed', replyText: '', outputs: [{ kind: 'plan', sessionId: 'other', planToolUseId: 't', title: 'P' }], settledAt: 2 })
-    stopped.apply({ phase: 'stopped', sessionId: 'other' })
-    expect(stopped.awaiting()).toEqual([])
   })
 
   test('a card opened before its session started names that session from the start', () => {

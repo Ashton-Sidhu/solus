@@ -910,6 +910,10 @@ export function ThreadSettingsRouteScreen({ route, navigation }: ScreenProps<"Th
 function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; readonly onClose: () => void }) {
   const { store } = props;
   const meta = useListened(store.meta, store.metaSnapshotOf);
+  // The model list opened: ask the host for models released since its daily check.
+  useEffect(() => {
+    void store.controller.checkForNewModels();
+  }, [store]);
   const providerGroups = useMemo(
     () =>
       buildProviderGroups({

@@ -38,6 +38,8 @@ export interface ConversationMeta {
   /** Uploaded and waiting for the next prompt, and how many are still uploading. */
   attachments: readonly UploadedAttachment[]
   uploading: number
+  /** The text of a prompt that did not go because an upload failed; the composer takes it back. */
+  unsentText: string | null
   /** The picked provider differs from the thread's: the next prompt hands off (plans/021). */
   handoffPending: boolean
   /** The new session is a lead (`ConversationRun.lead`). */
@@ -157,6 +159,7 @@ export class ConversationStore {
       agentPlans: model.agentPlans.awaiting(),
       attachments: this.controller.attachments,
       uploading: this.controller.uploading,
+      unsentText: this.controller.unsentText,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),
       lead: this.controller.run.lead === true,
       run: {

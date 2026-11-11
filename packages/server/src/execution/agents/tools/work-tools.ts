@@ -12,7 +12,7 @@ import type { AgentId, WorkType } from '@solus/contracts/types'
 import type { WorkspaceRecordHome } from '@solus/contracts/solus-api'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
-import { readArtifactHtml } from './artifact-file'
+import { readWorkFile } from './work-file'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -84,12 +84,15 @@ const findWorksFields = {
   limit: z.number().int().min(1).default(10).describe('Maximum search results to return. Defaults to 10, at most 20 (larger values return 20); ignored when listing.'),
 }
 
+const markdownPathField = z.string().optional().describe('Path to a .md file on this host to use as the content, relative to your working directory.')
+
 const updateWorkFields = {
   work_id: z.string().describe('The id of the work to update (from find_works).'),
-  content: z.string().optional().describe('The full new content of the work. Replaces the existing content entirely. Pass this or html_path, not both.'),
-  html_path: z.string().optional().describe('Artifacts only: the path of a compiled HTML file on this host, such as the visual-artifacts bundle.html, to use as the new content. A relative path is relative to your working directory. Pass this or content, not both.'),
+  content: z.string().optional().describe('The full new content. Replaces the existing content.'),
+  markdown_path: markdownPathField,
+  html_path: z.string().optional().describe('Artifacts only: path to an .html file on this host, such as the visual-artifacts bundle.html, relative to your working directory.'),
   title: z.string().optional().describe('Optional new title for the work.'),
-  expected_content_version: z.number().int().min(0).describe('The content_version that read_work returned for the content you revised. If the work changed since then, nothing is saved and you must call read_work again.'),
+  expected_content_version: z.number().int().min(0).describe('The content_version read_work returned.'),
 }
 
 const createWorkFields = {
@@ -97,7 +100,8 @@ const createWorkFields = {
   doc_type: z.enum(['doc', 'slides']).describe(
     "The kind of work: 'doc' (markdown document) or 'slides' (slide deck).",
   ),
-  content: z.string().describe('The full content as markdown.'),
+  content: z.string().optional().describe('The full content as markdown. Pass this or markdown_path.'),
+  markdown_path: markdownPathField,
 }
 
 const FIND_DESC =
@@ -105,20 +109,16 @@ const FIND_DESC =
 const READ_DESC =
   'Read the full current content of a work by id, including any edits the user made manually, and its content_version. Always call this before update_work so you revise the latest version, and pass that content_version to update_work as expected_content_version.'
 const CREATE_DESC = [
-  'Create a NEW standalone artifact the user will keep, export, or hand off — a document or slide deck.',
-  'The content streams into a card in the conversation as you write it. Use this only for brand-new works; to revise a work the user already has open, call read_work then update_work instead (never create a duplicate).',
-  '',
-  'Reach for this only for durable artifacts worth keeping — NOT for routine answers, reviews, analyses, comparisons, or plans, which belong inline in the conversation. When in doubt, answer inline. A work is never authored as a fenced code block in your reply; the content arg is the deliverable.',
-  '',
-  'For an architecture, system, data-flow, or ER view, use render_artifact, then embed the artifact in the document with the token it returns.',
-  'To embed an existing artifact, put this exact markdown link on a line of its own: [<title>](work://embed?workId=<work_id>&type=artifact). find_works and read_work print the ready-made token for each embeddable work; paste it rather than writing the URL by hand. A standalone work://embed link in existing content is a live embed — preserve it unless the user asks to remove or replace it. A fenced ```html block in a document is a live render too, and is likewise not stale text.',
+  'Create a NEW durable document or slide deck the user will keep, export, or hand off. It streams into a card in the conversation.',
+  'Not for routine answers, reviews, analyses, comparisons, or plans: those go inline in your reply. When in doubt, answer inline. Never write a work as a fenced code block in your reply. To revise an existing work, call read_work then update_work; never create a duplicate.',
+  'Pass the markdown as content or, for a file you already wrote, its path as markdown_path, so the text does not pass through your output.',
+  'For an architecture, system, data-flow, or ER view, call render_artifact and embed the token it returns. To embed an artifact, put the token find_works or read_work prints on its own line: [<title>](work://embed?workId=<work_id>&type=artifact). A standalone work://embed link or a ```html fence in existing content is a live render: keep it unless the user asks to remove it.',
 ].join('\n')
 const UPDATE_DESC = [
-  'Google-linked works are read-only in Solus. Edit in Google Docs and pull the latest content; local and shared comments remain available.',
-  'Replace the content (and optionally the title) of an existing work by id. Use this to revise a document or HTML artifact the user is looking at — never create a new work to revise one that already exists.',
-  'The `content` arg takes the same payload shapes as create_work. For an artifact, `content` is the full self-contained HTML document; for a compiled file, pass `html_path` instead and Solus reads the file on this host.',
-  'Call read_work first so you revise the latest version, and carry forward any standalone work://embed link and any fenced ```html block already in the content — both are live renders, not stale text.',
-  'Pass the content_version read_work returned as `expected_content_version`. If the user or another writer changed the work after your read, nothing is saved: call read_work again and apply your change to that content. On success the new content_version is returned.',
+  'Replace the content, and optionally the title, of an existing work by id. Call read_work first and pass its content_version as expected_content_version; if the work changed since, nothing is saved and you must read it again.',
+  'Pass the new body as one of: content (markdown, or the full HTML of an artifact), markdown_path (a .md file, for a document or deck), or html_path (an .html file, for an artifact).',
+  'Keep every standalone work://embed link and ```html fence already in the content: they are live renders.',
+  'Google-linked works are read-only: edit them in Google Docs and pull the latest content.',
 ].join('\n')
 
 // ─── Executor (shared by Codex handler + mock backend) ───
@@ -138,6 +138,7 @@ interface WorkToolArgs {
   doc_type?: 'doc' | 'slides'
   content?: string
   html_path?: string
+  markdown_path?: string
   expected_content_version?: number
 }
 
@@ -213,6 +214,22 @@ function embedTokenNote(workId: string, title: string, type: WorkType): string {
  * agent must read again; this tool never supplies a newer version for it. */
 function htmlPathNotArtifact(title: string): WorkToolResult {
   return { ok: false, text: `html_path is for artifacts only. "${title}" is not an artifact; pass its content instead. Nothing was saved.` }
+}
+
+function markdownPathOnArtifact(title: string): WorkToolResult {
+  return { ok: false, text: `markdown_path is for documents and decks. "${title}" is an artifact; pass html_path or its HTML as content. Nothing was saved.` }
+}
+
+/** The body a create or update call names: inline `content`, or the file one
+ *  path input names, read on this host so it does not pass through the model. */
+async function workBody(tool: string, args: WorkToolArgs, cwd: string): Promise<{ content: string } | WorkToolResult> {
+  const sources = [args.content, args.markdown_path, args.html_path].filter((source) => source !== undefined)
+  if (sources.length > 1) return { ok: false, text: `${tool} takes one of content, markdown_path, or html_path.` }
+  const input = args.markdown_path !== undefined ? 'markdown_path' : args.html_path !== undefined ? 'html_path' : null
+  if (!input) return { content: args.content ?? '' }
+  const read = await readWorkFile(input, args[input] ?? '', cwd)
+  if ('error' in read) return { ok: false, text: `${tool} error: ${read.error}` }
+  return { content: read.body }
 }
 
 function staleWrite(title: string, expectedContentVersion: number): WorkToolResult {
@@ -305,8 +322,11 @@ export async function executeWorkTool(
     if (name === 'create_work') {
       const title = args.title?.trim() ? args.title : 'Untitled'
       const docType = args.doc_type === 'slides' ? 'slides' : 'doc'
-      const content = args.content ?? ''
-      if (!content.trim()) return { ok: false, text: 'create_work requires non-empty content.' }
+      if (args.html_path !== undefined) return { ok: false, text: 'create_work makes documents and decks; call render_artifact for an HTML file.' }
+      const body = await workBody('create_work', args, deps.ctx?.cwd ?? '~')
+      if (!('content' in body)) return body
+      const { content } = body
+      if (!content.trim()) return { ok: false, text: 'create_work requires non-empty content or a markdown_path.' }
 
       const created = await createAgentWork(title, docType, content, deps.ctx)
       deps.onWorkCreated?.({ workId: created.workId, title: created.title, docType, content, organizationId: created.organizationId })
@@ -321,14 +341,10 @@ export async function executeWorkTool(
     if (name === 'update_work') {
       const workId = String(args.work_id ?? '')
       if (!workId) return { ok: false, text: 'update_work requires a work_id.' }
-      if (args.content && args.html_path) return { ok: false, text: 'update_work takes content or html_path, not both.' }
-      let content = args.content ?? ''
-      if (args.html_path) {
-        const read = await readArtifactHtml(args.html_path, deps.ctx?.cwd ?? '~')
-        if ('error' in read) return { ok: false, text: `update_work error: ${read.error}` }
-        content = read.html
-      }
-      if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content or an html_path.' }
+      const body = await workBody('update_work', args, deps.ctx?.cwd ?? '~')
+      if (!('content' in body)) return body
+      const { content } = body
+      if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content, a markdown_path, or an html_path.' }
       const title = args.title
       const expectedContentVersion = args.expected_content_version
       if (expectedContentVersion === undefined) return { ok: false, text: 'update_work requires expected_content_version: the content_version read_work returned.' }
@@ -346,6 +362,7 @@ export async function executeWorkTool(
         const foreignTaskId = foreignTaskIdFor(deps.ctx?.sessionId)
         if (foreign && foreignTaskId) {
           if (args.html_path && foreign.workType !== 'artifact') return htmlPathNotArtifact(foreign.title)
+          if (args.markdown_path && foreign.workType === 'artifact') return markdownPathOnArtifact(foreign.title)
           if (foreign.contentVersion !== expectedContentVersion) return staleWrite(foreign.title, expectedContentVersion)
           const payload: WorkUpdateOpPayload = {
             taskId: foreignTaskId,
@@ -373,6 +390,7 @@ export async function executeWorkTool(
       // The record version is fetched now, for If-Match; the content version is
       // the agent's own, and both are checked in the save's transaction.
       if (args.html_path && existing.type !== 'artifact') return htmlPathNotArtifact(existing.title)
+      if (args.markdown_path && existing.type === 'artifact') return markdownPathOnArtifact(existing.title)
       let saved
       try {
         saved = await operations.updateWork(context, workId, { content: restoreMentions(content, existing.content), title, expectedContentVersion }, existing.updatedAt)

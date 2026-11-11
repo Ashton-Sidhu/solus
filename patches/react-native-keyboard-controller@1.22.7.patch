@@ -1,5 +1,5 @@
 diff --git a/lib/commonjs/components/KeyboardChatScrollView/index.js b/lib/commonjs/components/KeyboardChatScrollView/index.js
-index 0b78ff3..98b3b6c 100644
+index 0b78ff38d8f0a2360632df3d9988c0c32bd56b99..9600d6c8ac857a3f56753f49b5a52e3eb830eaba 100644
 --- a/lib/commonjs/components/KeyboardChatScrollView/index.js
 +++ b/lib/commonjs/components/KeyboardChatScrollView/index.js
 @@ -28,9 +28,12 @@ const KeyboardChatScrollView = /*#__PURE__*/(0, _react.forwardRef)(({
@@ -33,7 +33,17 @@ index 0b78ff3..98b3b6c 100644
      scroll,
      layout,
      size,
-@@ -91,10 +98,26 @@ const KeyboardChatScrollView = /*#__PURE__*/(0, _react.forwardRef)(({
+@@ -72,7 +79,8 @@ const KeyboardChatScrollView = /*#__PURE__*/(0, _react.forwardRef)(({
+   (0, _useFrozenPadding.useFrozenPadding)({
+     freeze: freezeSV,
+     offset,
+-    padding
++    padding,
++    currentHeight
+   });
+   (0, _useEndVisible.useEndVisible)({
+     scroll,
+@@ -91,10 +99,26 @@ const KeyboardChatScrollView = /*#__PURE__*/(0, _react.forwardRef)(({
    // a bug for you, please open an issue.
    const totalPadding = (0, _reanimated.useDerivedValue)(() => Math.min(layout.value.height, Math.max(blankSpace.value, padding.value + extraContentPadding.value)));
  
@@ -62,7 +72,7 @@ index 0b78ff3..98b3b6c 100644
      onLayoutInternal(e);
      onLayoutProp === null || onLayoutProp === void 0 || onLayoutProp(e);
 diff --git a/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/helpers.js b/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/helpers.js
-index 4d33b3f..6a787d3 100644
+index 4d33b3fe426070cf312fc493ce902b2c24d853ea..6a787d3054ba09e90c54b615ab302df51a2888f7 100644
 --- a/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/helpers.js
 +++ b/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/helpers.js
 @@ -206,7 +206,7 @@ const clampedScrollTarget = (offsetBeforeScroll, keyboardHeight, contentHeight,
@@ -88,7 +98,7 @@ index 4d33b3f..6a787d3 100644
  //# sourceMappingURL=helpers.js.map
 \ No newline at end of file
 diff --git a/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js b/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
-index 6481228..0dc5dd1 100644
+index 6481228c59b02fe9efea538bcf094701006a5970..0dc5dd10f6fd84751531ef60c61c9f015cb02b89 100644
 --- a/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
 +++ b/lib/commonjs/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
 @@ -32,7 +32,9 @@ function useChatKeyboard(scrollViewRef, options) {
@@ -187,7 +197,7 @@ index 6481228..0dc5dd1 100644
      padding,
      currentHeight,
 diff --git a/lib/commonjs/components/KeyboardChatScrollView/useExtraContentPadding/index.js b/lib/commonjs/components/KeyboardChatScrollView/useExtraContentPadding/index.js
-index 827436c..fe9f371 100644
+index 827436c43cec5c53ca4b213b30872c68fd4bde21..fe9f37198b0ac71e6861314a98edb8648c4d09cf 100644
 --- a/lib/commonjs/components/KeyboardChatScrollView/useExtraContentPadding/index.js
 +++ b/lib/commonjs/components/KeyboardChatScrollView/useExtraContentPadding/index.js
 @@ -32,6 +32,8 @@ function useExtraContentPadding(options) {
@@ -229,8 +239,33 @@ index 827436c..fe9f371 100644
  }
  //# sourceMappingURL=index.js.map
 \ No newline at end of file
+diff --git a/lib/commonjs/components/KeyboardChatScrollView/useFrozenPadding/index.js b/lib/commonjs/components/KeyboardChatScrollView/useFrozenPadding/index.js
+index 444fef5eea3988b60cb62a6b4b42084ef0510fd9..3e684bf71d5e58659a8367733a7c2ee47cc05455 100644
+--- a/lib/commonjs/components/KeyboardChatScrollView/useFrozenPadding/index.js
++++ b/lib/commonjs/components/KeyboardChatScrollView/useFrozenPadding/index.js
+@@ -30,7 +30,8 @@ var _helpers = require("../useChatKeyboard/helpers");
+ function useFrozenPadding({
+   freeze,
+   offset,
+-  padding
++  padding,
++  currentHeight
+ }) {
+   const lastHeight = (0, _reactNativeReanimated.useSharedValue)(0);
+   const targetKeyboardHeight = (0, _reactNativeReanimated.useSharedValue)(0);
+@@ -56,7 +57,9 @@ function useFrozenPadding({
+   }, []);
+   (0, _reanimated.useAnimatedReaction)(() => freeze.value, (isFrozen, wasFrozen) => {
+     if (!isFrozen && wasFrozen === true) {
+-      padding.value = (0, _helpers.getEffectiveHeight)(lastHeight.value, targetKeyboardHeight.value, offset);
++      const effective = (0, _helpers.getEffectiveHeight)(lastHeight.value, targetKeyboardHeight.value, offset);
++      padding.value = effective;
++      currentHeight.value = effective;
+     }
+   }, [offset]);
+ }
 diff --git a/lib/commonjs/hooks/useKeyboardState/index.js b/lib/commonjs/hooks/useKeyboardState/index.js
-index a4b2870..4084025 100644
+index a4b287006a47011a58c8a16f19b31a479087f44e..4084025d644c8555b269f9d496266e2cb3234024 100644
 --- a/lib/commonjs/hooks/useKeyboardState/index.js
 +++ b/lib/commonjs/hooks/useKeyboardState/index.js
 @@ -7,7 +7,7 @@ exports.useKeyboardState = useKeyboardState;
@@ -243,7 +278,7 @@ index a4b2870..4084025 100644
    ..._module.KeyboardController.state(),
    isVisible: _module.KeyboardController.isVisible()
 diff --git a/lib/commonjs/module.js b/lib/commonjs/module.js
-index f27c5a0..8d4d31f 100644
+index f27c5a095129cf60831088a73ce94d44f3ba52cd..8d4d31f5640b36629bfb5b2defde42cc593751ca 100644
 --- a/lib/commonjs/module.js
 +++ b/lib/commonjs/module.js
 @@ -22,6 +22,13 @@ _bindings.KeyboardEvents.addListener("keyboardWillShow", e => {
@@ -261,7 +296,7 @@ index f27c5a0..8d4d31f 100644
    const keepFocus = (options === null || options === void 0 ? void 0 : options.keepFocus) ?? false;
    const animated = (options === null || options === void 0 ? void 0 : options.animated) ?? true;
 diff --git a/lib/module/components/KeyboardChatScrollView/index.js b/lib/module/components/KeyboardChatScrollView/index.js
-index e0c8391..8df802a 100644
+index e0c83918d9569e2ff541e45d31460121c73ec225..724c62e2892f75f6bb53844b84c1ade1bf87c7ec 100644
 --- a/lib/module/components/KeyboardChatScrollView/index.js
 +++ b/lib/module/components/KeyboardChatScrollView/index.js
 @@ -1,9 +1,9 @@
@@ -308,7 +343,17 @@ index e0c8391..8df802a 100644
      scroll,
      layout,
      size,
-@@ -84,10 +91,26 @@ const KeyboardChatScrollView = /*#__PURE__*/forwardRef(({
+@@ -65,7 +72,8 @@ const KeyboardChatScrollView = /*#__PURE__*/forwardRef(({
+   useFrozenPadding({
+     freeze: freezeSV,
+     offset,
+-    padding
++    padding,
++    currentHeight
+   });
+   useEndVisible({
+     scroll,
+@@ -84,10 +92,26 @@ const KeyboardChatScrollView = /*#__PURE__*/forwardRef(({
    // a bug for you, please open an issue.
    const totalPadding = useDerivedValue(() => Math.min(layout.value.height, Math.max(blankSpace.value, padding.value + extraContentPadding.value)));
  
@@ -337,7 +382,7 @@ index e0c8391..8df802a 100644
      onLayoutInternal(e);
      onLayoutProp === null || onLayoutProp === void 0 || onLayoutProp(e);
 diff --git a/lib/module/components/KeyboardChatScrollView/useChatKeyboard/helpers.js b/lib/module/components/KeyboardChatScrollView/useChatKeyboard/helpers.js
-index 295e221..2f7b87e 100644
+index 295e2219b560519b8d033968b5105d1da3e77315..2f7b87e6c68956f757db94a8197c1c61d1fafe28 100644
 --- a/lib/module/components/KeyboardChatScrollView/useChatKeyboard/helpers.js
 +++ b/lib/module/components/KeyboardChatScrollView/useChatKeyboard/helpers.js
 @@ -193,7 +193,7 @@ export const clampedScrollTarget = (offsetBeforeScroll, keyboardHeight, contentH
@@ -362,7 +407,7 @@ index 295e221..2f7b87e 100644
  //# sourceMappingURL=helpers.js.map
 \ No newline at end of file
 diff --git a/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js b/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
-index 043b973..df5a408 100644
+index 043b97382c551d9e47557f3e175a42668ce5cef3..df5a4086f4bb0c64a125c579acc933641d7fa57f 100644
 --- a/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
 +++ b/lib/module/components/KeyboardChatScrollView/useChatKeyboard/index.ios.js
 @@ -25,7 +25,9 @@ function useChatKeyboard(scrollViewRef, options) {
@@ -461,7 +506,7 @@ index 043b973..df5a408 100644
      padding,
      currentHeight,
 diff --git a/lib/module/components/KeyboardChatScrollView/useExtraContentPadding/index.js b/lib/module/components/KeyboardChatScrollView/useExtraContentPadding/index.js
-index 3c90439..9e7ebb6 100644
+index 3c90439c50d525d996a9ff8f61ba38b76bf60f3e..9e7ebb6e5183937967799549358540a3237ea580 100644
 --- a/lib/module/components/KeyboardChatScrollView/useExtraContentPadding/index.js
 +++ b/lib/module/components/KeyboardChatScrollView/useExtraContentPadding/index.js
 @@ -26,6 +26,8 @@ function useExtraContentPadding(options) {
@@ -504,8 +549,33 @@ index 3c90439..9e7ebb6 100644
  export { useExtraContentPadding };
  //# sourceMappingURL=index.js.map
 \ No newline at end of file
+diff --git a/lib/module/components/KeyboardChatScrollView/useFrozenPadding/index.js b/lib/module/components/KeyboardChatScrollView/useFrozenPadding/index.js
+index eddfd75913fef9111178771b4d5b4ba49864d217..d03dbd1e1fcbecb1866fb02547961a754eaf06e7 100644
+--- a/lib/module/components/KeyboardChatScrollView/useFrozenPadding/index.js
++++ b/lib/module/components/KeyboardChatScrollView/useFrozenPadding/index.js
+@@ -24,7 +24,8 @@ import { getEffectiveHeight } from "../useChatKeyboard/helpers";
+ function useFrozenPadding({
+   freeze,
+   offset,
+-  padding
++  padding,
++  currentHeight
+ }) {
+   const lastHeight = useSharedValue(0);
+   const targetKeyboardHeight = useSharedValue(0);
+@@ -50,7 +51,9 @@ function useFrozenPadding({
+   }, []);
+   useAnimatedReaction(() => freeze.value, (isFrozen, wasFrozen) => {
+     if (!isFrozen && wasFrozen === true) {
+-      padding.value = getEffectiveHeight(lastHeight.value, targetKeyboardHeight.value, offset);
++      const effective = getEffectiveHeight(lastHeight.value, targetKeyboardHeight.value, offset);
++      padding.value = effective;
++      currentHeight.value = effective;
+     }
+   }, [offset]);
+ }
 diff --git a/lib/module/hooks/useKeyboardState/index.js b/lib/module/hooks/useKeyboardState/index.js
-index 8da7c09..31b1ff4 100644
+index 8da7c09fbb398253420d7bfcd9a85abdb981065b..31b1ff4370d8328a0569e559e3bbfa4b201f5a9d 100644
 --- a/lib/module/hooks/useKeyboardState/index.js
 +++ b/lib/module/hooks/useKeyboardState/index.js
 @@ -1,7 +1,7 @@
@@ -518,7 +588,7 @@ index 8da7c09..31b1ff4 100644
    ...KeyboardController.state(),
    isVisible: KeyboardController.isVisible()
 diff --git a/lib/module/module.js b/lib/module/module.js
-index 01aad2e..445b3ba 100644
+index 01aad2effee498a8daec55e1d4644a5fbc723765..445b3bae02e5f03410aaaefd5e1ede7854869713 100644
 --- a/lib/module/module.js
 +++ b/lib/module/module.js
 @@ -16,6 +16,13 @@ KeyboardEvents.addListener("keyboardWillShow", e => {
@@ -536,7 +606,7 @@ index 01aad2e..445b3ba 100644
    const keepFocus = (options === null || options === void 0 ? void 0 : options.keepFocus) ?? false;
    const animated = (options === null || options === void 0 ? void 0 : options.animated) ?? true;
 diff --git a/lib/typescript/components/KeyboardChatScrollView/types.d.ts b/lib/typescript/components/KeyboardChatScrollView/types.d.ts
-index eba1514..6597d80 100644
+index eba1514c2d94ae42c024da3882475567a8e8260b..6597d80df11f973ceb2f52c30ee0ece8bd812402 100644
 --- a/lib/typescript/components/KeyboardChatScrollView/types.d.ts
 +++ b/lib/typescript/components/KeyboardChatScrollView/types.d.ts
 @@ -88,6 +88,10 @@ export type KeyboardChatScrollViewProps = {
@@ -551,7 +621,7 @@ index eba1514..6597d80 100644
       * Fires whenever the effective content inset changes — the static `contentInset`
       * prop combined with the dynamic keyboard-driven padding.
 diff --git a/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/helpers.d.ts b/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/helpers.d.ts
-index 2b51cc4..3acec1f 100644
+index 2b51cc4737b4a05b5396da31e67e54177f43c498..3acec1fbddee6227915590a6c8d449757cb4d7b2 100644
 --- a/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/helpers.d.ts
 +++ b/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/helpers.d.ts
 @@ -129,4 +129,4 @@ export declare const clampedScrollTarget: (offsetBeforeScroll: number, keyboardH
@@ -561,7 +631,7 @@ index 2b51cc4..3acec1f 100644
 -export declare const computeIOSContentOffset: (relativeScroll: number, keyboardHeight: number, contentHeight: number, layoutHeight: number, inverted: boolean, totalPaddingForMaxScroll?: number) => number;
 +export declare const computeIOSContentOffset: (relativeScroll: number, keyboardHeight: number, contentHeight: number, layoutHeight: number, inverted: boolean, totalPaddingForMaxScroll?: number, startInsetCompensation?: number) => number;
 diff --git a/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/types.d.ts b/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/types.d.ts
-index 8d358bc..911f3d9 100644
+index 8d358bc7bb2c6e0a26e4c04810e371a7693edd84..911f3d90ce56de0f64a39b027d4fa147ba93d0cd 100644
 --- a/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/types.d.ts
 +++ b/lib/typescript/components/KeyboardChatScrollView/useChatKeyboard/types.d.ts
 @@ -11,6 +11,10 @@ type UseChatKeyboardOptions = {
@@ -576,7 +646,7 @@ index 8d358bc..911f3d9 100644
  type UseChatKeyboardReturn = {
      /** Extra scrollable space (= keyboard height). Used as contentInset on iOS, contentInsetBottom/contentInsetTop on Android. */
 diff --git a/lib/typescript/components/KeyboardChatScrollView/useExtraContentPadding/index.d.ts b/lib/typescript/components/KeyboardChatScrollView/useExtraContentPadding/index.d.ts
-index ec73f70..45b3874 100644
+index ec73f70544a062fbecfc1d8be92d839d3e0bea6f..45b387446587fd3e611fa02a01534bb5d9fa6bbd 100644
 --- a/lib/typescript/components/KeyboardChatScrollView/useExtraContentPadding/index.d.ts
 +++ b/lib/typescript/components/KeyboardChatScrollView/useExtraContentPadding/index.d.ts
 @@ -8,6 +8,10 @@ type UseExtraContentPaddingOptions = {
@@ -590,8 +660,27 @@ index ec73f70..45b3874 100644
      /** Current vertical scroll offset. */
      scroll: SharedValue<number>;
      /** Visible viewport dimensions. */
+diff --git a/lib/typescript/components/KeyboardChatScrollView/useFrozenPadding/index.d.ts b/lib/typescript/components/KeyboardChatScrollView/useFrozenPadding/index.d.ts
+index 5c92b3850e21039eb7f11eb2944e2478c0ebab88..01d310135f5328f687087db09d9efb6a498e53d1 100644
+--- a/lib/typescript/components/KeyboardChatScrollView/useFrozenPadding/index.d.ts
++++ b/lib/typescript/components/KeyboardChatScrollView/useFrozenPadding/index.d.ts
+@@ -6,6 +6,7 @@ type UseFrozenPaddingOptions = {
+     offset: number;
+     /** Keyboard-driven padding managed by `useChatKeyboard`. */
+     padding: SharedValue<number>;
++    currentHeight: SharedValue<number>;
+ };
+ /**
+  * Hook that reconciles keyboard padding after a frozen interval.
+@@ -26,5 +27,5 @@ type UseFrozenPaddingOptions = {
+  * useFrozenPadding({ freeze, offset, padding });
+  * ```
+  */
+-declare function useFrozenPadding({ freeze, offset, padding, }: UseFrozenPaddingOptions): void;
++declare function useFrozenPadding({ freeze, offset, padding, currentHeight, }: UseFrozenPaddingOptions): void;
+ export { useFrozenPadding };
 diff --git a/src/components/KeyboardChatScrollView/index.tsx b/src/components/KeyboardChatScrollView/index.tsx
-index 935bc71..d411dc4 100644
+index 935bc71dabad6cd5c82bab77f64b5b6e1e5dc9b6..5306506e791c64e6c64abc91499c8974ac318301 100644
 --- a/src/components/KeyboardChatScrollView/index.tsx
 +++ b/src/components/KeyboardChatScrollView/index.tsx
 @@ -1,9 +1,13 @@
@@ -642,7 +731,15 @@ index 935bc71..d411dc4 100644
        scroll,
        layout,
        size,
-@@ -109,13 +120,40 @@ const KeyboardChatScrollView: React.ForwardRefExoticComponent<
+@@ -85,6 +96,7 @@ const KeyboardChatScrollView: React.ForwardRefExoticComponent<
+       freeze: freezeSV,
+       offset,
+       padding,
++      currentHeight,
+     });
+ 
+     useEndVisible({
+@@ -109,13 +121,40 @@ const KeyboardChatScrollView: React.ForwardRefExoticComponent<
        ),
      );
  
@@ -689,7 +786,7 @@ index 935bc71..d411dc4 100644
        (e: LayoutChangeEvent) => {
          onLayoutInternal(e);
 diff --git a/src/components/KeyboardChatScrollView/types.ts b/src/components/KeyboardChatScrollView/types.ts
-index b7c98c8..e1012a8 100644
+index b7c98c8ede80f690c8c9ad60263efe3ebd5b73df..e1012a80d59ff172396ff17550cb8402d5ba5673 100644
 --- a/src/components/KeyboardChatScrollView/types.ts
 +++ b/src/components/KeyboardChatScrollView/types.ts
 @@ -93,6 +93,17 @@ export type KeyboardChatScrollViewProps = {
@@ -711,7 +808,7 @@ index b7c98c8..e1012a8 100644
     * Fires whenever the effective content inset changes — the static `contentInset`
     * prop combined with the dynamic keyboard-driven padding.
 diff --git a/src/components/KeyboardChatScrollView/useChatKeyboard/helpers.ts b/src/components/KeyboardChatScrollView/useChatKeyboard/helpers.ts
-index 37eacd1..3d77ab2 100644
+index 37eacd10857cd70c51b3468c4b466e4959d0a415..3d77ab27c614f44b64da8270823942cb670b097b 100644
 --- a/src/components/KeyboardChatScrollView/useChatKeyboard/helpers.ts
 +++ b/src/components/KeyboardChatScrollView/useChatKeyboard/helpers.ts
 @@ -245,6 +245,7 @@ export const computeIOSContentOffset = (
@@ -740,7 +837,7 @@ index 37eacd1..3d77ab2 100644
 +  );
  };
 diff --git a/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts b/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts
-index 1ae9b81..208505b 100644
+index 1ae9b811d26d1b1fa043c7f7a41fbeb5509afa03..208505ba3674be4e963e0aa725a36fa7caf62c08 100644
 --- a/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts
 +++ b/src/components/KeyboardChatScrollView/useChatKeyboard/index.ios.ts
 @@ -43,6 +43,8 @@ function useChatKeyboard(
@@ -870,7 +967,7 @@ index 1ae9b81..208505b 100644
  
    return {
 diff --git a/src/components/KeyboardChatScrollView/useChatKeyboard/types.ts b/src/components/KeyboardChatScrollView/useChatKeyboard/types.ts
-index f89b7c8..02e0e19 100644
+index f89b7c81f4ac0e85e98b790c75309b7203be1fb2..02e0e196f2f6c3222317429716e50da487ac45e3 100644
 --- a/src/components/KeyboardChatScrollView/useChatKeyboard/types.ts
 +++ b/src/components/KeyboardChatScrollView/useChatKeyboard/types.ts
 @@ -13,6 +13,10 @@ type UseChatKeyboardOptions = {
@@ -885,7 +982,7 @@ index f89b7c8..02e0e19 100644
  
  type UseChatKeyboardReturn = {
 diff --git a/src/components/KeyboardChatScrollView/useExtraContentPadding/index.ts b/src/components/KeyboardChatScrollView/useExtraContentPadding/index.ts
-index e7584ed..dc653b0 100644
+index e7584ed67dfe1411f30801583d0c1272cd87d5d8..dc653b0118dd0eddfffa5e71b2bcca04752e4a0d 100644
 --- a/src/components/KeyboardChatScrollView/useExtraContentPadding/index.ts
 +++ b/src/components/KeyboardChatScrollView/useExtraContentPadding/index.ts
 @@ -17,6 +17,10 @@ type UseExtraContentPaddingOptions = {
@@ -964,8 +1061,45 @@ index e7584ed..dc653b0 100644
    );
  }
  
+diff --git a/src/components/KeyboardChatScrollView/useFrozenPadding/index.ts b/src/components/KeyboardChatScrollView/useFrozenPadding/index.ts
+index 00b01bf2e8c8e948c15e1b89318bb82fef2c5f3f..26c4560230921074aa8ce31fad4615e5188e26c1 100644
+--- a/src/components/KeyboardChatScrollView/useFrozenPadding/index.ts
++++ b/src/components/KeyboardChatScrollView/useFrozenPadding/index.ts
+@@ -13,6 +13,8 @@ type UseFrozenPaddingOptions = {
+   offset: number;
+   /** Keyboard-driven padding managed by `useChatKeyboard`. */
+   padding: SharedValue<number>;
++  /** Presentation keyboard height managed by `useChatKeyboard`. */
++  currentHeight: SharedValue<number>;
+ };
+ 
+ /**
+@@ -38,6 +40,7 @@ function useFrozenPadding({
+   freeze,
+   offset,
+   padding,
++  currentHeight,
+ }: UseFrozenPaddingOptions): void {
+   const lastHeight = useSharedValue(0);
+   const targetKeyboardHeight = useSharedValue(0);
+@@ -70,11 +73,14 @@ function useFrozenPadding({
+     () => freeze.value,
+     (isFrozen, wasFrozen) => {
+       if (!isFrozen && wasFrozen === true) {
+-        padding.value = getEffectiveHeight(
++        const effective = getEffectiveHeight(
+           lastHeight.value,
+           targetKeyboardHeight.value,
+           offset,
+         );
++
++        padding.value = effective;
++        currentHeight.value = effective;
+       }
+     },
+     [offset],
 diff --git a/src/hooks/useKeyboardState/index.ts b/src/hooks/useKeyboardState/index.ts
-index e5fe38d..d0b98f6 100644
+index e5fe38dd8e7b8370bfb575296259933094857ca5..d0b98f60a6d7ad7f72ebd70b22e1ce6b7fb56874 100644
 --- a/src/hooks/useKeyboardState/index.ts
 +++ b/src/hooks/useKeyboardState/index.ts
 @@ -5,7 +5,7 @@ import { KeyboardController } from "../../module";
@@ -978,7 +1112,7 @@ index e5fe38d..d0b98f6 100644
  const getLatestState = () => ({
    ...KeyboardController.state(),
 diff --git a/src/module.ts b/src/module.ts
-index f749419..a17d4a1 100644
+index f74941914c9ecebbd0a6c2ba55c5436378de79d4..a17d4a122a6445a433266addcaee114258950761 100644
 --- a/src/module.ts
 +++ b/src/module.ts
 @@ -26,6 +26,13 @@ KeyboardEvents.addListener("keyboardWillShow", (e) => {

@@ -17,6 +17,7 @@
 // not make. Device storage heals one bad key to its default.
 
 import { z } from 'zod'
+import { DEFAULT_VOICE_DICTIONARY, voiceDictionarySchema } from './voice-dictionary'
 import type { SavedLens } from './review'
 import { DEFAULT_MODEL_ROUTING, defaultLeadInstructions, modelRoutingSchema } from './model-routing'
 import {
@@ -147,6 +148,7 @@ function fontPresetSchema(key: FontPreferenceKey) {
 
 /** One strict schema per personal key: a wrong value is refused, never healed. */
 export const PERSONAL_SETTING_SCHEMAS = {
+  voiceDictionary: voiceDictionarySchema.describe('Preferred terms and explicit replacements for desktop and web dictation.'),
   themeMode: z.enum(['system', 'light', 'dark']),
   activeAgent: z.enum(AGENT_IDS).describe('The agent that new sessions start on. It does not change the agent of a conversation that has one.'),
   defaultPermissionMode: z.enum(PERMISSION_MODES),
@@ -256,6 +258,7 @@ export function addShowMeLens(document: PersonalSettingsDocument): PersonalSetti
 
 /** The defaults a client shows before the person chooses. */
 export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
+  voiceDictionary: DEFAULT_VOICE_DICTIONARY,
   themeMode: 'system',
   activeAgent: 'claude-code',
   defaultPermissionMode: 'full-access',
@@ -397,6 +400,7 @@ export const CLIENT_DEVICE_LAYOUT_KEYS = [
   'zoomFactor',
   'typographyAdvanced',
   'keybindings',
+  'sidebarOpen',
   'projectPanelOpen',
   'splitProjectPanelOpen',
   'projectPanelWidth',

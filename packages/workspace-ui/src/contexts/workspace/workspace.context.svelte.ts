@@ -1449,7 +1449,6 @@ export class WorkspaceContext implements SurfaceContext {
     session.contextUsage = null
     session.runUsage = null
     session.isStreamingText = false
-    session.isReconnecting = false
     session.permissionQueue = []
     session.questionQueue = []
     session.permissionDenied = null

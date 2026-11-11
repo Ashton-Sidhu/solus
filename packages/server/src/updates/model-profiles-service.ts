@@ -20,6 +20,8 @@ export const MODEL_PROFILES_CHECK_HOUR = 15
 export const MODEL_PROFILES_CHECK_TIME_ZONE = 'America/New_York'
 /** A laptop that sleeps through 15:00 checks within this long of waking. */
 const MAX_TIMER_MS = 60 * 60_000
+/** A picker open asks for the list no more often than this. */
+export const ON_DEMAND_CHECK_MIN_AGE_MS = 5 * 60_000
 
 /** Downloads the published list. A list this build cannot read is refused: a
  *  newer Solus may publish a field or effort level this one does not know. */
@@ -42,6 +44,8 @@ interface ModelProfilesServiceDeps {
   cachePath: string
   download(): Promise<ModelProfiles>
   publish(status: ModelProfilesStatus): void
+  /** A downloaded list differs from the one in effect. */
+  onProfilesChanged?: () => void
   now?: () => number
 }
 
@@ -85,6 +89,18 @@ export class ModelProfilesService {
   }
 
   /**
+   * Downloads the published list when the host last asked more than five
+   * minutes ago. A model picker asks on each open; GitHub's raw CDN caches
+   * the file for about that long, so a sooner download finds nothing new.
+   */
+  checkIfStale(): Promise<ModelProfilesStatus> {
+    if (this.pending) return this.pending
+    const lastAsked = this.status.checkedAt ?? this.status.fetchedAt ?? -Infinity
+    if (this.now() - lastAsked < ON_DEMAND_CHECK_MIN_AGE_MS) return Promise.resolve(this.status)
+    return this.run(false)
+  }
+
+  /**
    * Drops the cached list and downloads the published one. When the download
    * fails the host goes back to the list its build shipped with: the cache is
    * gone either way, which is what clearing it means.
@@ -101,9 +117,11 @@ export class ModelProfilesService {
         const profiles = await this.deps.download()
         const fetchedAt = this.now()
         this.writeCache({ fetchedAt, profiles })
+        const changed = JSON.stringify(profiles) !== JSON.stringify(this.status.profiles)
         replaceModelProfiles(profiles)
         log.info('model_profiles_updated', { models: Object.values(profiles).reduce((count, models) => count + Object.keys(models ?? {}).length, 0) })
         this.update({ source: 'remote', fetchedAt, checkedAt: fetchedAt, checking: false, error: null, profiles })
+        if (changed) this.deps.onProfilesChanged?.()
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         log.warn('model_profiles_check_failed', { error: message, clearCache })

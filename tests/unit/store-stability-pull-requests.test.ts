@@ -4,7 +4,7 @@ import type { PrProjectListing, PrSyncChange, PullRequest } from '@solus/contrac
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { pullRequestRows } from '../../apps/mobile/src/features/prs/lib/pull-request-list'
 import { retainDetail, retainListing } from '../../apps/mobile/src/features/prs/lib/pull-request-retain'
-import { memoryPullRequestCacheDatabase, PullRequestCache } from '../../apps/mobile/src/features/prs/pull-request-cache'
+import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { PullRequestDirectory, type HostPullRequests } from '../../apps/mobile/src/features/prs/pull-request-directory'
 import { PullRequestListSelection } from '../../apps/mobile/src/features/prs/pull-request-list-selection'
 import { HostReads, shownValue, type LoadState } from '../../apps/mobile/src/features/prs/pull-request-reads'

@@ -52,6 +52,15 @@ export function unlistedClaudeModelProfiles(models: readonly ModelInfo[]) {
 }
 
 /**
+ * The catalog id of a model Claude reports running. Claude names a dated id
+ * (`claude-opus-4-5-20251101`); when the published list does not know it, the
+ * id without its date (`claude-opus-4-5`) is the one a person asks for.
+ */
+export function catalogClaudeModelId(model: string): string {
+  return Object.hasOwn(MODEL_PROFILES['claude-code'] ?? {}, model) ? model : model.replace(/-\d{8}$/, '')
+}
+
+/**
  * The effort a run sends for a reported model: the requested one if the model
  * offers it, else the model's default, and none for a model with no levels.
  */

@@ -49,6 +49,8 @@ The page keeps the sort and the filters that you chose on this device, and resto
 
 After a reload, the page shows the last list that it read without a search for that scope. The live read then replaces those rows. The remembered list holds at most 99 rows, is used only for the same State filter, and is ignored after seven days.
 
+A pull request that you opened, or that the pointer rested on, is also kept on this device: its detail and description, commits, reviewers, comments, and changed files. After a reload, its Activity tab paints these at once, and the live reads replace them when they land. A kept copy never replaces what this load of the app has already read, and a kept detail that is older than the listed row is not used. Desktop and web keep the copies in the browser's IndexedDB; mobile keeps them in the app's SQLite file. Both use the same bounds for each host: 30 days, 256 records, 32 MiB, and no single answer larger than 4 MiB. Forgetting a host deletes its copies. Where the browser blocks site data, nothing is kept and the page reads as before.
+
 While the page is open, the host pushes changes to the rows (docs/plans/pr-sync.md). A change on the code host to a pull request that Solus tracks (one that a session or a task links, or that a screen shows) reaches its row in about a minute, with no read by the page. A pull request that Solus opens joins the unsearched list at the top at once. When an agent turn ends in a listed repository, the page reads its first page again, so a pull request that the agent opened shows. The page does not poll, and the host does not read the repository for the page. A pull request that someone opens on GitHub shows at the next open of the page, after a turn ends in that repository, or when you push the refresh button, which asks the host to read the projects at once. On mobile, the Pull Requests tab reads the hosts again when it gets focus more than 30 seconds after its last read.
 
 While a list is loading, the page shows a small **Loading pull requests** label and static row placeholders that fade toward the bottom. A refresh keeps the current rows in place and uses the existing refresh indicator in the desktop and web header. On mobile, a small activity indicator appears beside the list filters. Refresh does not add a message above the rows. A search with no rows shows the loading state until the host answers; it does not report an empty list during the read. These states apply to desktop, web, and mobile.
@@ -82,6 +84,14 @@ The page is the same on desktop, web, and mobile.
 Clicking a row opens the pull request in a panel beside the list. The list
 narrows; it is not covered, so the queue stays readable. The ↑ / ↓ keys move
 through the list, and the `#number` switcher in the panel walks the same order.
+
+When the pointer, the keyboard focus, or the ↑ / ↓ highlight rests on a row for
+150 ms, the page reads that pull request's overview (its detail, commits, and
+reviewers in one request), so the panel opens with them. Passing over rows, or
+holding ↑ / ↓, reads nothing. A touch has no rest, so a tap reads only when it
+opens the row. Comments and changed files are read when the panel opens. On
+desktop and web only: the mobile app has no pointer rest, and it paints an
+opened pull request from its device copy instead.
 
 - The panel opens at half the page. Drag its left edge (or focus the edge and
   press ← / →, Shift for bigger steps) to resize it. The width is remembered on
@@ -304,16 +314,20 @@ The host reads the list with GitHub search, not one request for each project.
 For each host and GitHub account, one GraphQL search finds the pull requests of
 up to 100 projects: `is:pr is:open repo:a repo:b … sort:updated-desc`, then the
 State filter and the search text. The host splits the rows by project. The
-same document holds three more searches across the same projects: your pull
-requests (`author:`), and the pull requests that ask for your review
-(`review-requested:`) or are assigned to you (`assignee:`). These fill the
-Authored and Review requested sections. A page holds up to 100 rows across the
-projects. The next page is the same search with `updated:<=` the last row of
+rows show when this search answers. After it answers, the host sends a second
+document with three searches across the same projects: your pull requests
+(`author:`), and the pull requests that ask for your review
+(`review-requested:`) or are assigned to you (`assignee:`). These searches ask
+only for numbers. The host reads a full row only for a number that the first
+page does not hold, and pushes that row to the list with `pr.changed`, so it
+joins the Authored or Review requested section. The client makes one request. A page holds up to 100
+rows across the projects. The next page is the same search with `updated:<=` the last row of
 the page before it, so projects at the same place share one search.
 
 | Read | GraphQL requests | REST requests |
 |---|---|---|
-| Page one of N projects, with sections | one for each 100 projects | 0 |
+| Page one of N projects | one for each 100 projects | 0 |
+| The sections of N projects | one for each 100 projects, and one for each 25 rows that page one does not hold | 0 |
 | The next page of several projects | 1 | 0 |
 | A search across N projects | one for each 100 projects | 0 |
 

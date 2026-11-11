@@ -169,6 +169,16 @@ class NotificationHubStore {
   setArchived(rowKey: string, archived: boolean): Promise<boolean> {
     return this.client?.setArchived(rowKey, archived) ?? Promise.resolve(false)
   }
+
+  /** Answers how many rows no source confirmed. */
+  setReadMany(rowKeys: readonly string[], read: boolean): Promise<number> {
+    return this.client?.setReadMany(rowKeys, read) ?? Promise.resolve(rowKeys.length)
+  }
+
+  /** Answers how many rows no source confirmed. */
+  setArchivedMany(rowKeys: readonly string[], archived: boolean): Promise<number> {
+    return this.client?.setArchivedMany(rowKeys, archived) ?? Promise.resolve(rowKeys.length)
+  }
 }
 
 export const notificationHubStore = new NotificationHubStore()

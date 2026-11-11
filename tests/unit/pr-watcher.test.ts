@@ -197,6 +197,42 @@ describe('PR watcher', () => {
     expect(mostInFlight).toBe(3)
   })
 
+  test('a slow code host does not hold back the reads of other watched repositories', async () => {
+    // WHY: a sweep that read nothing until the slowest fingerprint answered
+    // delayed every wake by that host's latency, up to its request timeout.
+    const host = new FakeHost()
+    const fingerprints = host.review.readWatchFingerprints
+    const fullRead = host.review.getPullRequests
+    const events: string[] = []
+    let fastRead = () => {}
+    const fastReadDone = new Promise<void>((resolve) => (fastRead = resolve))
+    host.review.readWatchFingerprints = async (repo, numbers) => {
+      const name = (repo as { repo: string }).repo
+      // The slow host answers once the fast repository is read, or after a
+      // grace that a sweep which waits for every fingerprint runs into.
+      if (name.endsWith('-slow')) await Promise.race([fastReadDone, new Promise((resolve) => setTimeout(resolve, 200))])
+      events.push(`fingerprint ${name}`)
+      return fingerprints(repo, numbers)
+    }
+    host.review.getPullRequests = async (repo, numbers) => {
+      const name = (repo as { repo: string }).repo
+      events.push(`read ${name}`)
+      if (name.endsWith('-fast')) fastRead()
+      return fullRead(repo, numbers)
+    }
+    await linkAndWatch('session-slow', `${REPOSITORY}-slow`, Date.now() - 60_000, null)
+    await linkAndWatch('session-fast', `${REPOSITORY}-fast`, Date.now() - 60_000, null)
+    const { watcher } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+
+    const slow = REPOSITORY.split('/')[2] + '-slow'
+    const fast = REPOSITORY.split('/')[2] + '-fast'
+    expect(events.indexOf(`read ${fast}`)).toBeLessThan(events.indexOf(`fingerprint ${slow}`))
+    expect(events).toContain(`read ${slow}`)
+  })
+
   test('what a session was told survives a restart', async () => {
     const host = new FakeHost()
     host.checks = [check('build', 'failure')]

@@ -11,6 +11,7 @@
     formatWaiting,
     permissionArgv,
     permissionCwd,
+    permissionFileLabel,
     permissionFooterOrder,
     permissionScope,
     othersTurnTitle,
@@ -198,7 +199,7 @@
     {#each editChanges as change (change.path)}
       <div class="interrupt-payload">
         <div class="interrupt-payload-bar">
-          <span class="interrupt-payload-label">{change.path}</span>
+          <span class="interrupt-payload-label" title={change.path}>{permissionFileLabel(change.path, cwd)}</span>
           <div class="flex-1"></div>
           <span class="shrink-0 text-transcript-meta text-(--muted-foreground)">{change.kind}</span>
         </div>
@@ -218,7 +219,7 @@
     {@const filePath = typeof input.file_path === 'string' ? input.file_path : 'file'}
     <div class="interrupt-payload">
       <div class="interrupt-payload-bar">
-        <span class="interrupt-payload-label">{filePath}</span>
+        <span class="interrupt-payload-label" title={filePath}>{permissionFileLabel(filePath, cwd)}</span>
       </div>
       <div class="max-h-[11.25rem] overflow-auto">
         {#await import('../diff/Diff.svelte')}
@@ -236,7 +237,7 @@
     {@const contents = input.content}
     <div class="interrupt-payload">
       <div class="interrupt-payload-bar">
-        <span class="interrupt-payload-label">{filePath}</span>
+        <span class="interrupt-payload-label" title={filePath}>{permissionFileLabel(filePath, cwd)}</span>
       </div>
       <div class="max-h-[11.25rem] overflow-auto">
         {#await import('../diff/Diff.svelte')}

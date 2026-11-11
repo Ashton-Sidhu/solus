@@ -182,7 +182,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       log.error('replay_run_failed', { sessionId: handle.sessionId ?? null, error: err.message })
-      this.emit('error', handle.agentSessionId, err)
+      this.emit('error', handle.agentSessionId, err, handle)
       this.finishRun(handle)
       handle._rejectRun(err)
     }
@@ -214,7 +214,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
     handle._resolveRun()
     if (end.kind === 'cancelled') {
       // As a stopped Claude run reports it: no result, an interrupt signal.
-      this.emit('exit', nativeSessionId, null, 'SIGINT')
+      this.emit('exit', nativeSessionId, null, 'SIGINT', handle)
       return
     }
     const permissionDenials = end.kind === 'denied' ? [{ toolName: end.toolName, toolUseId: end.toolUseId }] : []
@@ -228,7 +228,7 @@ export class ReplayBackend extends BaseAgentBackend implements AgentBackend {
       sessionId: nativeSessionId,
       permissionDenials,
     } satisfies NormalizedEvent)
-    this.emit('exit', nativeSessionId, 0, null)
+    this.emit('exit', nativeSessionId, 0, null, handle)
   }
 
   private async playTurn(handle: RunHandle, nativeSessionId: string, turn: ReplayStep[], live: ReplayLive, history: TurnHistory): Promise<TurnEnd> {

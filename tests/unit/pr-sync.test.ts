@@ -325,8 +325,10 @@ describe('needs review', () => {
         reads.needsReview += 1
         return waiting
       },
-      listPullRequestPages: async (requests: unknown[]) => requests.map(() => ({
-        page: { items: [], page: 1, hasMore: false }, authored: { items: [], page: 1, hasMore: false }, needsReview: waiting,
+      listPullRequestPages: async (requests: unknown[]) => requests.map(() => ({ items: waiting, page: 1, hasMore: false })),
+      listPriorityNumbers: async (repos: unknown[]) => repos.map(() => ({
+        authored: { numbers: [], hasMore: false },
+        needsReview: waiting.map(({ number }) => number),
       })),
     })
     return { ...made, waiting, reads }
@@ -370,8 +372,7 @@ describe('needs review', () => {
       waiting.push(pullRequestFixture(9, {
         baseRepo: repoOf('needs-review-list'), author: 'someone', assignees: ['me'],
       }))
-      const pages = await prIndex.listPages(provider, [{ repo: repoOf('needs-review-list'), page: 1, cursor: null }], 'me', undefined)
-      await pages.get('github.com/owner/needs-review-list')?.needsReview
+      await prIndex.listPriority(provider, [repoOf('needs-review-list')], 'me', 'open').get('github.com/owner/needs-review-list')?.needsReview
     } finally {
       sync.stop()
     }
@@ -1005,7 +1006,7 @@ describe('turn ends', () => {
     Object.assign(providers.get(name)!.review, {
       listPullRequestPages: async (requests: unknown[]) => {
         reads.list += 1
-        return requests.map(() => ({ page: { items: [], page: 1, hasMore: false } }))
+        return requests.map(() => ({ items: [], page: 1, hasMore: false }))
       },
       getPullRequestOverview: async (_repo: RepoRef, number: number) => {
         reads.detail += 1

@@ -25,7 +25,7 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import type { SolusThreadShell } from "./thread-directory";
-import { formatWorkingDuration } from "./floating-working-status";
+import { formatElapsed } from "@solus/client-core/elapsed-time";
 import { useThreadListTime, type ThreadListClock } from "./thread-list-clock";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 import { resolveSnoozePresets, resolveThreadListV2SnoozeMenuSelection, snoozeWakeLabel } from "./thread-snooze";
@@ -66,13 +66,14 @@ const STATUS_LABEL_BY_STATUS: Record<
   ready: null,
 };
 
-/** " 26s" after Working or Waiting. Only this text ticks, once a second, and
+/** " 26s" or " 3m" after Working or Waiting, as the desktop and web sidebar
+    shows it (pingdotgg/t3code#32893). Only this text ticks, once a second, and
     only while the list's clock runs (the list shows and the app is active);
     the row and the list do not re-render (pingdotgg/t3code#21394). */
 function ThreadListV2Duration(props: { readonly startedAt: number; readonly clock: ThreadListClock }) {
   const running = useSyncExternalStore(props.clock.subscribeRunning, props.clock.isRunning, props.clock.isRunning);
   const nowMs = useVisibleSecondClock(running);
-  return ` ${formatWorkingDuration(props.startedAt, nowMs)}`;
+  return ` ${formatElapsed(nowMs - props.startedAt)}`;
 }
 
 /** Archive removes the thread from the list on its host, for every device. */
@@ -177,6 +178,8 @@ function ThreadListV2Section(props: {
 
 type ThreadListV2ShelfHeaderProps = {
   readonly count: number;
+  /** False shows a plain label and count: the shelf holds only the selected thread. */
+  readonly collapsible: boolean;
   readonly disabled?: boolean;
   readonly expanded: boolean;
   readonly onToggle: () => void;
@@ -193,13 +196,17 @@ function ThreadListV2ShelfHeader(
       count={props.count}
       pane={props.pane}
       tone={props.kind === "snoozed" ? "snoozed" : "default"}
-      disclosure={{
-        expanded: props.expanded,
-        disabled: props.disabled,
-        onToggle: props.onToggle,
-        accessibilityLabel: `${props.count} ${props.kind} ${props.count === 1 ? "thread" : "threads"}`,
-        accessibilityHint: `${props.expanded ? "Collapses" : "Expands"} the ${props.kind} threads.`,
-      }}
+      disclosure={
+        props.collapsible
+          ? {
+              expanded: props.expanded,
+              disabled: props.disabled,
+              onToggle: props.onToggle,
+              accessibilityLabel: `${props.count} ${props.kind} ${props.count === 1 ? "thread" : "threads"}`,
+              accessibilityHint: `${props.expanded ? "Collapses" : "Expands"} the ${props.kind} threads.`,
+            }
+          : undefined
+      }
     />
   );
 }

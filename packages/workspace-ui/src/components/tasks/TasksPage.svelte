@@ -30,10 +30,6 @@
   import { Button } from "../ui/button";
   import { toasts } from "../../lib/toasts";
   import {
-    TasksSelectionStore,
-    setTasksSelection,
-  } from "./tasks-selection.store.svelte";
-  import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
@@ -50,6 +46,7 @@
     ListFilterBar,
     ListProjectFilter,
     ListPage,
+    ListSelection,
     ListFilterGroup,
     ListSortMenu,
     ListSkeleton,
@@ -210,10 +207,8 @@
   );
   const canCreate = $derived(!!taskContext && !!createSources?.sources.length);
 
-  // ── List-view multi-select ── owned by a context store so the selection isn't
-  // threaded through the row components.
-  const selection = new TasksSelectionStore();
-  setTasksSelection(selection);
+  // ── List-view multi-select ──
+  const selection = new ListSelection();
   // The composer: open for a new task, with the column it was opened from on a
   // board. Null = closed. It creates in the page's current project, so a
   // project switch keeps the composer and its draft open for the new project.
@@ -656,7 +651,7 @@
       const task = taskById(selectedKey);
       if (!task) return;
       e.preventDefault();
-      selection.toggle(task, e);
+      selection.toggle(task.id, e);
     }
   }
 
@@ -904,6 +899,7 @@
             height={contentHeight}
             {recordRows}
             split={splitList}
+            {selection}
             {selectedKey}
             taskFor={taskById}
             {onOpen}
@@ -949,9 +945,8 @@
 
     {#if !view.boardLayout && selection.size > 0 && !panelOpen}
       <TasksBulkBar
-        count={selection.size}
+        {selection}
         moveOptions={view.moveOptions}
-        onClear={() => selection.clear()}
         onComplete={() => void bulkComplete()}
         onMarkUnread={sessionSidebar ? () => void bulkMarkUnread() : undefined}
         onMove={bulkMove}

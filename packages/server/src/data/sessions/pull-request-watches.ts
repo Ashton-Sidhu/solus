@@ -31,6 +31,10 @@ export const pullRequestWatchStateSchema = z.object({
   /** When the head was first read with no check at all, until a check shows
    *  up or the agent is told none did; null after either. */
   checksAwaitedSince: z.string().nullable(),
+  /** Checks that wait for a maintainer's approval on this head: no pass or
+   *  no-checks news until a check of that name finishes or the head moves.
+   *  A state stored before this field has no hold. */
+  approvalChecks: z.array(z.string()).default([]),
 })
 export type PullRequestWatchState = z.infer<typeof pullRequestWatchStateSchema>
 

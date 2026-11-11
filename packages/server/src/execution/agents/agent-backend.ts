@@ -43,6 +43,9 @@ export interface RunHandle {
   runPromise: Promise<void>
   /** Final assistant result reported by task_complete, when the provider supplies it. */
   resultText?: string
+  /** The model the provider reported running for the root agent, which can
+   *  differ from the one requested. Absent when the provider named none. */
+  executedModel?: string
   _resolveRun: () => void
   _rejectRun: (err: Error) => void
 }
@@ -59,8 +62,11 @@ export interface RunTrackingSnapshot {
 
 export interface BackendEvents {
   normalized: (sessionId: string | null, event: NormalizedEvent) => void
-  exit: (sessionId: string | null, code: number | null, signal: string | null) => void
-  error: (sessionId: string | null, err: Error) => void
+  /** `run` is the run that ended, as for `error`. */
+  exit: (sessionId: string | null, code: number | null, signal: string | null, run?: RunHandle) => void
+  /** `run` is the failed run. A run that fails before session_init has no
+   *  provider id, so `run` is the only way to find its session. */
+  error: (sessionId: string | null, err: Error, run?: RunHandle) => void
   /** A command or a native sub-agent the agent left running finished after
    *  its turn ended. The control plane wakes the session with `prompt`, sent
    *  `via` the given origin. Codex only: Claude wakes itself inside its open

@@ -15,12 +15,26 @@ const responseSchema = z.object({
 })
 export type NativeResponse = VoiceTranscript & VoicePartial
 
-export function nativeFrame(operation: NativeOperation, requestId: number, samples?: Float32Array): Buffer {
-  const frame = Buffer.allocUnsafe(12 + (samples?.length ?? 0) * 4)
-  frame.writeUInt32LE(NATIVE_OPERATIONS[operation], 0)
+export function nativeFrame(operation: NativeOperation, requestId: number, samples?: Float32Array, vocabulary: string[] = []): Buffer {
+  const terms = vocabulary.map(term => Buffer.from(term, 'utf8'))
+  const hasVocabulary = terms.length > 0 && (operation === 'begin' || operation === 'batch')
+  const metadataBytes = hasVocabulary ? 4 + terms.reduce((size, term) => size + 4 + term.length, 0) : 0
+  const frame = Buffer.allocUnsafe(12 + metadataBytes + (samples?.length ?? 0) * 4)
+  frame.writeUInt32LE(hasVocabulary ? (operation === 'begin' ? 6 : 7) : NATIVE_OPERATIONS[operation], 0)
   frame.writeUInt32LE(requestId, 4)
   frame.writeUInt32LE(samples?.length ?? 0, 8)
-  if (samples) for (let i = 0; i < samples.length; i++) frame.writeFloatLE(samples[i], 12 + i * 4)
+  let offset = 12
+  if (hasVocabulary) {
+    frame.writeUInt32LE(terms.length, offset)
+    offset += 4
+    for (const term of terms) {
+      frame.writeUInt32LE(term.length, offset)
+      offset += 4
+      term.copy(frame, offset)
+      offset += term.length
+    }
+  }
+  if (samples) for (let i = 0; i < samples.length; i++) frame.writeFloatLE(samples[i], offset + i * 4)
   return frame
 }
 
@@ -65,14 +79,14 @@ export class NativeVoiceWorker {
 
   get stopped(): boolean { return this.#stopped }
 
-  request(operation: NativeOperation, samples?: Float32Array, timeoutMs = 120_000): Promise<NativeResponse> {
+  request(operation: NativeOperation, samples?: Float32Array, timeoutMs = 120_000, vocabulary: string[] = []): Promise<NativeResponse> {
     if (this.#stopped) return Promise.reject(new Error('Transcription worker is stopped'))
     const requestId = this.#nextRequestId++
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.stop('Transcription timed out'), timeoutMs)
       timer.unref?.()
       this.#pending.set(requestId, { resolve, reject, timer })
-      this.child.stdin.write(nativeFrame(operation, requestId, samples), error => {
+      this.child.stdin.write(nativeFrame(operation, requestId, samples, vocabulary), error => {
         if (error) this.stop(`Transcription input failed: ${error.message}`)
       })
     })

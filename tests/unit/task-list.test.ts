@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
+import { formatElapsed } from '@solus/client-core/elapsed-time'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Task } from '@solus/contracts/task-types'
 import type { ListProjectOption } from '@solus/workspace-ui/components/ui/list-page/list-page'
@@ -10,7 +11,6 @@ import {
   aggregateReviewGuideStatus,
   buildProjectSummaries,
   formatCompletedAge,
-  formatElapsed,
   formatWakeIn,
   filterSidebarTasks,
   hasGlyph,
@@ -815,6 +815,17 @@ describe('formatElapsed', () => {
   it('never reports a negative run for a clock that drifted backwards', () => {
     expect(formatElapsed(0)).toBe('0s')
     expect(formatElapsed(-5_000)).toBe('0s')
+    expect(formatElapsed(Number.NaN)).toBe('0s')
+  })
+
+  it('is the one readout of a running row on desktop, web and mobile', () => {
+    // The mobile thread list showed `1m 34s` where the sidebar showed `1m`
+    // (pingdotgg/t3code#32893). Both now read this formatter, so the same run
+    // reads the same on every client.
+    expect(formatElapsed(59_000)).toBe('59s')
+    expect(formatElapsed(60_000)).toBe('1m')
+    expect(formatElapsed(94_000)).toBe('1m')
+    expect(formatElapsed(3_660_000)).toBe('1h 01m')
   })
 })
 

@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { NormalizedEvent, PermissionRequest, Session } from '@solus/contracts/types'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
-import { permissionForFeedback } from '@solus/workspace-ui/components/input/lib/pending-permission'
+import { permissionForFeedback, promptSendPath } from '@solus/workspace-ui/components/input/lib/pending-permission'
 import { permissionForFeedback as mobilePermissionForFeedback, type PendingPermission } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
 
 // The host modules open SQLite through node:sqlite, which Bun serves as bun:sqlite.
@@ -97,5 +97,24 @@ describe('composer text as permission feedback', () => {
     expect(mobilePermissionForFeedback([pending])).toEqual({ questionId: 'q-1', denyOptionId: 'deny' })
     expect(mobilePermissionForFeedback([{ ...pending, supportsFeedback: undefined }])).toBeNull()
     expect(mobilePermissionForFeedback([{ ...pending, expired: 'closed' }])).toBeNull()
+  })
+})
+
+describe('promptSendPath', () => {
+  const held = { background: false, hasPendingPlan: false, hasPendingQuestion: false, hasFeedbackTarget: true, hasText: true, hasTargetTab: true }
+
+  test('an explicit queue leaves the open permission alone; a steer denies it with the text', () => {
+    expect(promptSendPath({ ...held, delivery: 'queue' })).toBe('dispatch')
+    expect(promptSendPath({ ...held, delivery: 'steer' })).toBe('permission-feedback')
+    expect(promptSendPath({ ...held, delivery: undefined })).toBe('permission-feedback')
+  })
+
+  test('an explicit queue answers no held plan or question either', () => {
+    const plan = { ...held, hasFeedbackTarget: false, hasPendingPlan: true }
+    const question = { ...held, hasFeedbackTarget: false, hasPendingQuestion: true }
+    expect(promptSendPath({ ...plan, delivery: 'queue' })).toBe('dispatch')
+    expect(promptSendPath({ ...plan, delivery: 'steer' })).toBe('plan-feedback')
+    expect(promptSendPath({ ...question, delivery: 'queue' })).toBe('dispatch')
+    expect(promptSendPath({ ...question, delivery: 'steer' })).toBe('question-answer')
   })
 })

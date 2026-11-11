@@ -54,7 +54,7 @@ describe('sidebar list motion', () => {
     motion.update(true)
 
     expect(played.find((entry) => entry.node === newest)?.keyframes).toEqual([
-      { opacity: 0 }, { opacity: 1 },
+      { opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 },
     ])
     // The displaced row starts where it was and slides to its new slot.
     expect(played.find((entry) => entry.node === older)?.keyframes).toEqual([
@@ -74,7 +74,11 @@ describe('sidebar list motion', () => {
     layOut()
     motion.update(true)
 
-    const copy = played.find((entry) => entry.keyframes.at(-1)?.opacity === 0)?.node as HTMLElement
+    const fade = played.find((entry) => entry.keyframes.at(-1)?.opacity === 0)!
+    const copy = fade.node as HTMLElement
+    // The copy is gone by 40% of the motion, before an entering row shows at
+    // 60%, so the two never overlap.
+    expect(fade.keyframes).toEqual([{ opacity: 1 }, { opacity: 0, offset: 0.4 }, { opacity: 0 }])
     expect(copy.parentElement).toBe(list)
     expect(copy.inert).toBe(true)
     expect(copy.style.position).toBe('absolute')
@@ -152,13 +156,50 @@ describe('sidebar list motion', () => {
     motion.update(true)
 
     const animated = new Set(played.map((entry) => entry.node))
-    // The moved row leaves the view, and the rows below it in view slide up.
-    expect(animated.has(completed)).toBe(true)
+    // The moved row fades out as a copy at its old place; its new place is
+    // below the fold. The rows below it in view slide up.
+    const copy = played.find((entry) => entry.keyframes.at(-1)?.opacity === 0)?.node
+    expect(copy?.parentElement).toBe(list)
+    expect(animated.has(completed)).toBe(false)
     for (const index of [3, 4, 5, 6, 7, 8, 9, 10]) expect(animated.has(rows[index]!)).toBe(true)
     // Rows that stay below the fold go to their places at once.
     expect(animated.has(rows[11]!)).toBe(false)
     expect(animated.has(rows[50]!)).toBe(false)
     expect(animated.size).toBe(9)
+  })
+
+  test('a row that moves to the top fades out and in, and does not slide through the others', () => {
+    // WHY: a row that changes order crosses its neighbours. A slide drew it
+    // through the rows it passed; two fades that do not overlap never do.
+    const { list, played, layOut, row, rowHeight } = setup()
+    const first = row('first')
+    const second = row('second')
+    const moved = row('moved')
+    list.append(first, second, moved)
+    layOut()
+    const motion = createSidebarListMotion(list, () => 150)
+    motion.update(false)
+
+    list.prepend(moved)
+    layOut()
+    motion.update(true)
+
+    const fades = played.filter((entry) => entry.keyframes.some((frame) => 'opacity' in frame))
+    expect(fades).toHaveLength(2)
+    const slid = played.filter((entry) => entry.keyframes.some((frame) => 'transform' in frame))
+    expect(slid.map((entry) => entry.node)).toEqual([first, second])
+    expect(played.find((entry) => entry.node === moved)?.keyframes).toEqual([
+      { opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 },
+    ])
+    const copy = fades.find((entry) => entry.node !== moved)!
+    expect((copy.node as HTMLElement).inert).toBe(true)
+    expect((copy.node as HTMLElement).style.top).toBe(`${2 * rowHeight}px`)
+    // The rows it passed slide down one place.
+    for (const node of [first, second]) {
+      expect(played.find((entry) => entry.node === node)?.keyframes).toEqual([
+        { transform: `translateY(${-rowHeight}px)` }, { transform: 'translateY(0px)' },
+      ])
+    }
   })
 
   test('a duration of 0 turns the motion off', () => {

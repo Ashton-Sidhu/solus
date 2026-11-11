@@ -37,7 +37,7 @@ function publishedList(): ModelProfiles {
   return list
 }
 
-function fixture(options: { now: number; download: () => Promise<unknown>; cache?: unknown }) {
+function fixture(options: { now: number; download: () => Promise<unknown>; cache?: unknown; onProfilesChanged?: () => void }) {
   const directory = mkdtempSync(join(tmpdir(), 'solus-model-profiles-'))
   directories.push(directory)
   const cachePath = join(directory, 'model-profiles.json')
@@ -49,6 +49,7 @@ function fixture(options: { now: number; download: () => Promise<unknown>; cache
     now: () => options.now,
     download: () => { downloads += 1; return options.download() },
     publish: (status) => { published.push(status) },
+    onProfilesChanged: options.onProfilesChanged,
   })
   services.push(service)
   return { service, cachePath, published, downloads: () => downloads }
@@ -77,6 +78,18 @@ test('a published model reaches every reader of MODEL_PROFILES without a new bui
   expect(providerModelsFor('claude-code').models[0]).toEqual({ id: 'claude-sonnet-next', label: 'Sonnet Next' })
   expect(published.at(-1)?.source).toBe('remote')
   expect(JSON.parse(readFileSync(cachePath, 'utf8')).profiles['claude-code']['claude-sonnet-next'].label).toBe('Sonnet Next')
+})
+
+test('only a downloaded list that differs from the one in effect reports a change', async () => {
+  // WHY: the host checks provider updates on a change, because a new model usually
+  // ships with the provider release that runs it. The same list again must not
+  // start a registry request.
+  let changes = 0
+  const { service } = fixture({ now: Date.UTC(2026, 8, 28, 20), download: async () => publishedList(), onProfilesChanged: () => { changes += 1 } })
+  await service.check()
+  expect(changes).toBe(1)
+  await service.check()
+  expect(changes).toBe(1)
 })
 
 test('a list this build cannot read is refused and the list in effect stays', async () => {
@@ -123,4 +136,28 @@ test('clearing the cache when GitHub cannot be reached goes back to the list in 
   expect(status).toMatchObject({ source: 'bundled', fetchedAt: null, error: 'GitHub is unreachable' })
   expect(existsSync(cachePath)).toBe(false)
   expect(MODEL_PROFILES['claude-code']?.['claude-sonnet-next']).toBeUndefined()
+})
+
+test('an opened model picker finds a model published since the daily check, at most every five minutes', async () => {
+  // WHY: the daily check can leave a new model out of the picker for a day. A
+  // picker open asks again, but each open must not cost a GitHub download:
+  // the raw CDN caches the file for about five minutes, so a sooner download
+  // finds nothing new.
+  let published: ModelProfiles = structuredClone(BUNDLED_MODEL_PROFILES)
+  const clock = { now: Date.UTC(2026, 10, 10, 12), download: async () => published }
+  const { service, downloads } = fixture(clock)
+  await service.check()
+  expect(downloads()).toBe(1)
+
+  published = publishedList()
+  clock.now += 4 * 60_000
+  await service.checkIfStale()
+  expect(downloads()).toBe(1)
+  expect(MODEL_PROFILES['claude-code']?.['claude-sonnet-next']).toBeUndefined()
+
+  clock.now += 2 * 60_000
+  const status = await service.checkIfStale()
+  expect(downloads()).toBe(2)
+  expect(status.profiles['claude-code']?.['claude-sonnet-next']?.label).toBe('Sonnet Next')
+  expect(MODEL_PROFILES['claude-code']?.['claude-sonnet-next']?.label).toBe('Sonnet Next')
 })

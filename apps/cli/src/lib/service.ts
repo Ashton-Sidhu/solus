@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, posix } from 'node:path'
+import { dirname, join, posix, resolve } from 'node:path'
 import { defaultDataDir, launcherPath, readLockFile, windowsSystemTool } from './runtime'
 
 export type ServiceExec = (command: string, args: string[]) => string
@@ -226,10 +226,53 @@ export interface ServiceInstallResult {
  *  cannot enable it for itself. */
 export function installService(env: ServiceEnv): ServiceInstallResult {
   assertSupportedPlatform(env.platform)
+  assertSameDataDir(env)
   if (env.platform === 'linux') return installLinuxService(env)
   if (env.platform === 'win32') installWindowsService(env)
   else installMacService(env)
   return { lingerAdvice: null }
+}
+
+/**
+ * There is one service per account. Writing it for another data folder would
+ * move it onto that folder, and the sessions in the old one would seem gone,
+ * so install refuses before it changes anything and names the folder to keep.
+ */
+function assertSameDataDir(env: ServiceEnv): void {
+  const served = installedDataDir(env)
+  if (served === null) return
+  const target = env.dataDir ?? defaultDataDir({}, env.home)
+  if (resolve(served) === resolve(target)) return
+  const quoted = env.platform === 'win32' ? `"${served}"` : `'${served.replaceAll("'", `'\\''`)}'`
+  throw new Error(
+    `The Solus service serves ${served}, not ${target}. Nothing was changed.\n`
+    + `To repair it, run: solus setup --data-dir ${quoted}\n`
+    + `To serve ${target} instead, run \`solus service uninstall\` first.`,
+  )
+}
+
+/** The data folder the installed service starts with; null when none is installed. A definition without `--data-dir` serves the default. */
+function installedDataDir(env: ServiceEnv): string | null {
+  let served: string | undefined
+  if (env.platform === 'linux') {
+    if (!existsSync(linuxUnitPath(env.home))) return null
+    // `unitQuote` in reverse: JSON string escapes, then systemd's `%%` and `$$`.
+    served = /--data-dir "((?:[^"\\]|\\.)*)"/.exec(readFileSync(linuxUnitPath(env.home), 'utf8'))?.[1]
+      ?.replace(/\\(.)/g, '$1').replaceAll('%%', '%').replaceAll('$$', '$')
+  } else if (env.platform === 'darwin') {
+    if (!existsSync(macosPlistPath(env.home))) return null
+    const escaped = /<string>--data-dir<\/string><string>([^<]*)<\/string>/.exec(readFileSync(macosPlistPath(env.home), 'utf8'))?.[1]
+    served = escaped && unxml(escaped)
+  } else {
+    const task = tryExec(env, windowsSystemTool('schtasks.exe'), ['/query', '/tn', WINDOWS_TASK_NAME, '/xml'])
+    if (!task.trim()) return null
+    served = /--data-dir "([^"]*)"/.exec(unxml(task))?.[1]
+  }
+  return served || defaultDataDir({}, env.home)
+}
+
+function unxml(value: string): string {
+  return value.replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
 }
 
 /** This account's SID. A name is not reliable: an SSH session sets USERDOMAIN to WORKGROUP, which names no account. */

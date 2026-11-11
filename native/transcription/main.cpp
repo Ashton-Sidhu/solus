@@ -18,12 +18,14 @@
 
 namespace {
 constexpr uint32_t max_samples = 16000 * 60 * 60;
-enum Operation : uint32_t { warm, begin, feed, finish, cancel, batch };
+enum Operation : uint32_t { warm, begin, feed, finish, cancel, batch, vocabulary_begin, vocabulary_batch };
 using Model = std::unique_ptr<transcribe_model, decltype(&transcribe_model_free)>;
 using Session = std::unique_ptr<transcribe_session, decltype(&transcribe_session_free)>;
 
 // Output is JSON lines; input is a 12-byte LE header (operation, id, sample
-// count), followed by count little-endian float32 samples. No audio in logs.
+// count), followed by count little-endian float32 samples. Operations 6/7
+// first carry a term count, then each UTF-8 term as byte length + bytes.
+// No audio or vocabulary in logs.
 std::string quoted(const char *value) {
     std::string out = "\"";
     for (const unsigned char c : std::string(value ? value : "")) {
@@ -59,6 +61,20 @@ class Transcriber {
     Model model{nullptr, transcribe_model_free};
     Session session{nullptr, transcribe_session_free};
     std::vector<float> audio;
+    std::vector<std::string> vocabulary;
+    std::vector<const char *> vocabulary_pointers;
+
+    transcribe_run_params run_params() {
+        transcribe_run_params params;
+        transcribe_run_params_init(&params);
+        vocabulary_pointers.clear();
+        if (transcribe_model_supports(model.get(), TRANSCRIBE_FEATURE_VOCABULARY)) {
+            for (const auto &term : vocabulary) vocabulary_pointers.push_back(term.c_str());
+            params.vocabulary = vocabulary_pointers.data();
+            params.n_vocabulary = int32_t(vocabulary_pointers.size());
+        }
+        return params;
+    }
     bool recording = false;
     bool streaming = false;
     bool probed = false;
@@ -77,7 +93,8 @@ class Transcriber {
             buffered.right_ms = 560;
             params.family = &buffered.ext;
         }
-        return transcribe_stream_begin(session.get(), nullptr, &params);
+        auto options = run_params();
+        return transcribe_stream_begin(session.get(), &options, &params);
     }
 
     void prepare() {
@@ -128,13 +145,15 @@ class Transcriber {
     void clear() {
         session.reset(); // Release stream audio and scratch; retain only weights.
         std::vector<float>().swap(audio);
+        vocabulary.clear();
+        vocabulary_pointers.clear();
         recording = streaming = false;
     }
 
 public:
     explicit Transcriber(const char *model_path) : path(model_path) {}
 
-    void run(uint32_t operation, uint32_t id, const std::vector<float> &samples) {
+    void run(uint32_t operation, uint32_t id, const std::vector<float> &samples, const std::vector<std::string> &terms) {
         try {
             if (operation == cancel) { clear(); reply(id); return; }
             prepare();
@@ -142,6 +161,7 @@ public:
             if (operation == begin) {
                 clear();
                 prepare();
+                vocabulary = terms;
                 recording = true;
                 // A model/device that cannot stream still records every sample.
                 streaming = stream_available && start_stream() == TRANSCRIBE_OK;
@@ -150,7 +170,9 @@ public:
             }
             if (operation == batch) {
                 if (recording) throw std::runtime_error("Voice recording is in progress");
-                check(transcribe_run(session.get(), samples.data(), int(samples.size()), nullptr));
+                vocabulary = terms;
+                auto options = run_params();
+                check(transcribe_run(session.get(), samples.data(), int(samples.size()), &options));
                 reply(id, nullptr, transcribe_full_text(session.get()));
                 clear();
                 return;
@@ -175,7 +197,8 @@ public:
             if (text.empty() && !audio.empty()) {
                 session.reset();
                 prepare();
-                check(transcribe_run(session.get(), audio.data(), int(audio.size()), nullptr));
+                auto options = run_params();
+                check(transcribe_run(session.get(), audio.data(), int(audio.size()), &options));
                 text = transcribe_full_text(session.get());
             }
             reply(id, nullptr, text.c_str());
@@ -191,11 +214,11 @@ public:
 int main(int argc, char **argv) {
     if (argc == 2 && std::strcmp(argv[1], "--probe") == 0) {
         if (transcribe_init_backends_default() != TRANSCRIBE_OK || !transcribe_backend_available(TRANSCRIBE_BACKEND_CPU)) return 1;
-        std::cout << "solus-transcription/1 transcribe.cpp/" << transcribe_version() << " cpu-ready\n";
+        std::cout << "solus-transcription/2 transcribe.cpp/" << transcribe_version() << " cpu-ready\n";
         return 0;
     }
     if (argc == 2 && std::strcmp(argv[1], "--version") == 0) {
-        std::cout << "solus-transcription/1 transcribe.cpp/" << transcribe_version() << '\n';
+        std::cout << "solus-transcription/2 transcribe.cpp/" << transcribe_version() << '\n';
         return 0;
     }
     if (argc != 2) { std::cerr << "Usage: solus-transcription MODEL.gguf\n"; return 2; }
@@ -205,7 +228,24 @@ int main(int argc, char **argv) {
     Transcriber transcriber(argv[1]);
     unsigned char header[12];
     while (std::cin.read(reinterpret_cast<char *>(header), sizeof(header))) {
-        const auto operation = word(header), id = word(header + 4), count = word(header + 8);
+        auto operation = word(header);
+        const auto id = word(header + 4), count = word(header + 8);
+        std::vector<std::string> terms;
+        if (operation == vocabulary_begin || operation == vocabulary_batch) {
+            unsigned char value[4];
+            if (!std::cin.read(reinterpret_cast<char *>(value), 4)) return 2;
+            const auto term_count = word(value);
+            if (term_count > 100) return 2;
+            for (uint32_t i = 0; i < term_count; ++i) {
+                if (!std::cin.read(reinterpret_cast<char *>(value), 4)) return 2;
+                const auto length = word(value);
+                if (length == 0 || length > 320) return 2;
+                std::string term(length, '\0');
+                if (!std::cin.read(term.data(), length) || term.find('\0') != std::string::npos) return 2;
+                terms.push_back(std::move(term));
+            }
+            operation = operation == vocabulary_begin ? begin : batch;
+        }
         if (operation > batch || count > max_samples ||
             (operation != feed && operation != batch && count != 0) ||
             ((operation == feed || operation == batch) && count == 0)) return 2;
@@ -217,7 +257,7 @@ int main(int argc, char **argv) {
             std::memcpy(&samples[i], &bits, 4);
             if (!std::isfinite(samples[i])) return 2;
         }
-        transcriber.run(operation, id, samples);
+        transcriber.run(operation, id, samples, terms);
     }
     return std::cin.gcount() == 0 ? 0 : 2;
 }

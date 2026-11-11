@@ -122,7 +122,7 @@ export function AgentPlanCard(props: { readonly store: ConversationStore; readon
         Plan from {props.plan.sessionTitle}
       </Text>
       <Text className="font-t3-bold text-lg text-foreground">{props.plan.planTitle}</Text>
-      {props.plan.content ? <ThreadMarkdown markdown={props.plan.content} tone="assistant" store={props.store} /> : null}
+      <ThreadMarkdown markdown={props.plan.content} tone="assistant" store={props.store} />
       {!props.store.controller.mayApprove ? (
         <WaitingForEditor />
       ) : revising ? (

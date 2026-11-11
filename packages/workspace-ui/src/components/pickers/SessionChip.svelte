@@ -6,6 +6,7 @@
   import { tick, untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import { solusToolsStore } from "../settings/solus-tools.store.svelte";
+  import { modelProfilesStore } from "../../contexts/updates/model-profiles.store.svelte";
   import {
     ChevronDown as CaretDownIcon,
     ChevronRight as CaretRightIcon,
@@ -514,6 +515,7 @@
     // Open on the section holding the current choice: a session already running
     // a superseded model must not have to go looking for what it is running.
     if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId, modelMeta?.modelProfiles);
+    if (nextOpen && policyHostId) void modelProfilesStore.checkForNewModels(policyHostId);
   }}
 >
   <DropdownMenu.Trigger {disabled} bind:ref={triggerEl}>

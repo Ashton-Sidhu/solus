@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { PullRequestActions } from '../../apps/mobile/src/features/prs/pull-request-actions'
-import { memoryPullRequestCacheDatabase, PullRequestCache } from '../../apps/mobile/src/features/prs/pull-request-cache'
+import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { PullRequestDirectory } from '../../apps/mobile/src/features/prs/pull-request-directory'
 import { PullRequestReviewDrafts } from '../../apps/mobile/src/features/prs/pull-request-review-drafts'
 import { clearSubmittedReview, draftReview, reviewCommentLabel, type ReviewDraft } from '../../apps/mobile/src/features/prs/lib/pull-request-review-draft'

@@ -3,6 +3,7 @@ import {
   type SanitizeUrlFn,
 } from "@humanspeak/svelte-markdown";
 import { z } from "zod";
+import { localEditorFileUrl } from "@solus/contracts/local-editor-links";
 
 const markdownUrlSchema = z.string();
 
@@ -19,6 +20,10 @@ export const markdownSanitizeUrl: SanitizeUrlFn = (url, context) => {
   if (parsed.success && ALLOWED_CUSTOM_PROTOCOLS.test(parsed.data)) {
     return parsed.data;
   }
+  // Agents link files as vscode://file/... or cursor://file/...; the client
+  // hands them to the operating system, which opens that editor.
+  const editorUrl = parsed.success ? localEditorFileUrl(parsed.data) : null;
+  if (editorUrl) return editorUrl;
   return defaultSanitizeUrl(url, context);
 };
 

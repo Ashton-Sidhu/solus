@@ -224,6 +224,18 @@ export class NotificationHubClient {
     return this.change(rowKey, (api, id) => api.notificationsSetArchived({ id, archived }))
   }
 
+  /** One read choice over many rows. Answers how many no source confirmed. */
+  setReadMany(rowKeys: readonly string[], read: boolean): Promise<number> {
+    const undecided = rowKeys.filter((key) => (this.rows.get(key)?.notification.readAt === null) === read)
+    return this.countRefused(undecided.map((key) => this.setRead(key, read)))
+  }
+
+  /** One archive choice over many rows. Answers how many no source confirmed. */
+  setArchivedMany(rowKeys: readonly string[], archived: boolean): Promise<number> {
+    const undecided = rowKeys.filter((key) => (this.rows.get(key)?.notification.archivedAt !== null) !== archived)
+    return this.countRefused(undecided.map((key) => this.setArchived(key, archived)))
+  }
+
   /**
    * The loaded rows, newest first, cut at the horizon below which a source with
    * more pages has not reported yet, so no row is skipped between sources.
@@ -312,6 +324,12 @@ export class NotificationHubClient {
       this.rows.delete(key)
       this.pending.delete(key)
     }
+  }
+
+  // Each choice is its own write to its row's own source: a source that fails
+  // refuses its rows alone, and the others still apply theirs.
+  private async countRefused(choices: readonly Promise<boolean>[]): Promise<number> {
+    return (await Promise.all(choices)).filter((confirmed) => !confirmed).length
   }
 
   private track<T>(work: Promise<T>): Promise<T> {

@@ -64,6 +64,28 @@ describe('the sidebar as one list', () => {
       .toEqual(['header:working'])
   })
 
+  test('a section that holds only the row on screen has no toggle', () => {
+    // WHY: a closed section still shows the row on screen, so a toggle there
+    // would only turn the chevron and hide nothing.
+    const header = (items: ReturnType<typeof list>) => items.find((item) => item.kind === 'header')
+    expect(header(list({ snoozed: [row('s1', 'snoozed')], isSnoozedOpen: false, shelfRevealTaskId: 's1' })))
+      .toMatchObject({ section: 'snoozed', canToggle: false })
+    expect(header(list({ snoozed: [row('s1', 'snoozed')], isSnoozedOpen: true, shelfRevealTaskId: 's1' })))
+      .toMatchObject({ canToggle: false })
+  })
+
+  test('a section with other rows keeps its toggle', () => {
+    // WHY: collapsing it hides the rows that are not on screen.
+    const items = list({
+      snoozed: [row('s1', 'snoozed'), row('s2', 'snoozed')],
+      isSnoozedOpen: false,
+      shelfRevealTaskId: 's1',
+    })
+    expect(items.find((item) => item.kind === 'header')).toMatchObject({ canToggle: true })
+    expect(list({ completed: [row('c1', 'completed')] }).find((item) => item.kind === 'header'))
+      .toMatchObject({ canToggle: true })
+  })
+
   test('a row that starts or finishes a turn keeps its card, so it slides between sections', () => {
     // WHY: a remount would fade the row out and in instead of moving it.
     const idle = list({ sessions: [row('s1'), row('a1')] })

@@ -88,7 +88,8 @@ describe('host socket transport', () => {
     samples[0] = -1
     samples[12_288] = 0.5
     samples[samples.length - 1] = 0.25
-    harness.server.register('transcribeAudio', async ([audio]) => {
+    harness.server.register('transcribeAudio', async ([audio, options]) => {
+      expect(options).toEqual({ vocabulary: ['Solus', 'Café'] })
       calls++
       expect(typeof audio).toBe('string')
       if (typeof audio !== 'string') throw new Error('expected base64 WAV')
@@ -109,7 +110,7 @@ describe('host socket transport', () => {
     await waitForStatus(client, 'connected')
     // SAFETY: buildSolusApi installs the declared RPC methods.
     const api = client.buildSolusApi() as SolusAPI
-    const result = api.transcribeAudio(samples)
+    const result = api.transcribeAudio(samples, { vocabulary: ['Solus', 'Café'] })
     try {
       // Also fails promptly if dictation returns the old cloud refusal.
       await Promise.race([received, result.then(() => { throw new Error('transcription ended before upload') })])

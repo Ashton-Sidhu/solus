@@ -19,6 +19,7 @@ import { toContextBreakdown } from './claude-context-usage'
 import type { ClaudeUsageReport, ClaudeUsageWindows } from './claude-usage'
 import type { AgentSlashCommand, ContextUsage, NormalizedEvent, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
 import type { ResultEvent } from '@solus/contracts/claude-types'
+import { isScheduleTaskId, ScheduledWakes } from './scheduled-wakes'
 import { z } from 'zod'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
@@ -114,15 +115,16 @@ export const UI_TO_SDK_PERMISSION_MODE = {
   plan: 'plan',
 } satisfies Record<PermissionMode, SdkPermissionMode>
 
-// Harness built-ins that schedule work as cloud CCR agents. Solus owns
+// Harness built-ins that schedule work as cloud agents. Solus owns durable
 // recurring work through its own automation domain (`create_automation`), which
 // runs on this host with the session's project and provider. Leaving these
 // reachable only offers a wrong way to answer "remind me every morning", so the
 // tools are withheld rather than argued against in the system prompt.
 // `allowedTools` cannot do this — it auto-approves, it does not filter.
+// CronCreate, CronDelete, and CronList stay: they schedule a prompt in this
+// session, and the query stays open while one is pending (ScheduledWakes).
 const BLOCKED_TOOLS = [
   'RemoteTrigger',
-  'CronCreate', 'CronDelete', 'CronList',
   'Skill(schedule)',
 ]
 
@@ -280,6 +282,7 @@ export interface ClaudeRunResult {
   sessionId: string | null
   toolCallCount: number
   permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
+  executedModel?: string
   exitCode: 0 | null
   signal: 'SIGINT' | null
 }
@@ -340,6 +343,7 @@ export class ClaudeAgent {
     if (opts.systemPromptAppend) systemPrompt.append = opts.systemPromptAppend
     const bareTools = opts.bare?.webAccess ? ['WebFetch'] : []
     const cwd = resolveHomePath(opts.cwd)
+    const schedules = new ScheduledWakes()
 
     const claudeOptions: Options = {
       // The CLI leaves TodoWrite out of the Claude 5 preset; naming it here adds
@@ -363,6 +367,15 @@ export class ClaudeAgent {
       fastMode: opts.fastMode ?? false,
       persistSession: opts.persistSession ?? true,
       extraArgs: { 'replay-user-messages': null },
+      // Each turn end says which session schedules will wake this query later.
+      hooks: {
+        Stop: [{
+          hooks: [async (hookInput) => {
+            if (hookInput.hook_event_name === 'Stop') schedules.report(hookInput.session_crons)
+            return {}
+          }],
+        }],
+      },
       ...claudeLaunch(opts.seat, abortController.signal),
     }
     if (opts.seat?.idleCompaction) {
@@ -409,20 +422,21 @@ export class ClaudeAgent {
     // A task stopped here does not wake the main agent, so no continuation
     // result follows its settle to close the stream.
     const stoppedTasks = new Set<string>()
+    // A turn is over once its result lands, but the SDK keeps the query open
+    // while backgrounded sub-agents finish. Closing the input stream is what
+    // ends the query, so hold it open until nothing is still in flight —
+    // otherwise those tasks get cut off mid-run.
+    let sawResult = false
+    // Tracked by id, not counted: a task settles twice (`task_updated` and
+    // `task_notification` both normalize to `background_task_settled`), so a
+    // counter drains ahead of the real work and closes the stream mid-turn.
+    // Pending session schedules are here too, as `schedule:<id>`.
+    const backgroundTasks = new Set<string>()
+    // Whether the main agent is between turns: a steered message starts a new
+    // turn on the same query, and closing under it would fail its tool calls.
+    let agentIdle = false
 
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
-      // A turn is over once its result lands, but the SDK keeps the query open
-      // while backgrounded sub-agents finish. Closing the input stream is what
-      // ends the query, so hold it open until nothing is still in flight —
-      // otherwise those tasks get cut off mid-run.
-      let sawResult = false
-      // Tracked by id, not counted: a task settles twice (`task_updated` and
-      // `task_notification` both normalize to `background_task_settled`), so a
-      // counter drains ahead of the real work and closes the stream mid-turn.
-      const backgroundTasks = new Set<string>()
-      // Whether the main agent is between turns: a steered message starts a new
-      // turn on the same query, and closing under it would fail its tool calls.
-      let agentIdle = false
       try {
         const executable = opts.seat?.binaryPath || await resolveClaudeExecutable()
         const toolSearch = opts.bare ? undefined : await resolveClaudeToolSearchOverride(cwd, claudeConfigDir(opts.seat), claudeOptions.env)
@@ -444,7 +458,9 @@ export class ClaudeAgent {
           logRawClaudeEvent(state.sessionId, msg)
           appCapture?.observe(msg)
 
-          const normalized = normalizer.push(msg)
+          // The Stop hook runs before the turn's result, so a schedule it
+          // reported counts before the result decides whether to close.
+          const normalized = [...schedules.takeChanges(), ...normalizer.push(msg)]
           for (const evt of normalized) {
             if (evt.type === 'background_task_started') backgroundTasks.add(evt.taskId)
             else if (evt.type === 'background_task_settled') backgroundTasks.delete(evt.taskId)
@@ -497,6 +513,7 @@ export class ClaudeAgent {
           sessionId: state.sessionId,
           toolCallCount: normalizer.summary.toolCallCount,
           permissionDenials: normalizer.summary.permissionDenials,
+          executedModel: normalizer.summary.executedModel,
           exitCode: 0,
           signal: null,
         })
@@ -519,6 +536,7 @@ export class ClaudeAgent {
             sessionId: state.sessionId,
             toolCallCount: normalizer.summary.toolCallCount,
             permissionDenials: normalizer.summary.permissionDenials,
+            executedModel: normalizer.summary.executedModel,
             exitCode: null,
             signal: 'SIGINT',
           })
@@ -534,6 +552,14 @@ export class ClaudeAgent {
 
     const stopTask = async (taskId: string): Promise<boolean> => {
       if (!activeQuery) return false
+      if (isScheduleTaskId(taskId)) {
+        // No call deletes a session schedule: it ends with the process, so an
+        // idle query with nothing else running closes here.
+        schedules.drop(taskId)
+        backgroundTasks.delete(taskId)
+        if (sawResult && agentIdle && backgroundTasks.size === 0) input?.close()
+        return true
+      }
       stoppedTasks.add(taskId)
       await activeQuery.stopTask(taskId)
       return true

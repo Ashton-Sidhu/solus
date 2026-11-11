@@ -6,7 +6,7 @@ import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contract
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
-import type { PrPageRequest, Provider, RepositoryPage } from '@solus/server/providers/types'
+import type { PriorityNumbers, PrPageRequest, Provider } from '@solus/server/providers/types'
 import { PrIndex } from '@solus/server/prs/pr-index'
 
 /**
@@ -208,54 +208,83 @@ const restCalls = (calls: string[]) => calls.filter((call) => call.startsWith('r
 const firstPages = (names: string[]): PrPageRequest[] => names.map((name) => ({ repo: repoNamed(name), page: 1, cursor: null }))
 
 describe('one search lists many repositories', () => {
-  test('three repositories cost one GraphQL request and no REST, priority rows included', async () => {
+  test('three repositories cost one GraphQL request and no REST', async () => {
     const names = ['a', 'b', 'c']
-    const rows = rowsOf(names, 2)
-    rows[1].requested = ['sidhu']
-    rows[2].assigned = ['sidhu']
-    const { client, calls } = fakeGithub({ rows })
+    const { client, calls } = fakeGithub({ rows: rowsOf(names, 2) })
 
-    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true)
+    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu')
 
     expect(count(calls, 'graphql:PrListPages')).toBe(1)
     // No branch rules, no repository read, no REST listing or search.
     expect(restCalls(calls)).toEqual([])
-    const [a, b, c] = pages
-    expect(a?.page.items.map((item) => item.number)).toEqual([1, 4])
-    expect(a?.page).toMatchObject({ page: 1, hasMore: false })
-    expect(a?.page.items[0]).toMatchObject({
+    const [a] = pages
+    expect(a?.items.map((item) => item.number)).toEqual([1, 4])
+    expect(a).toMatchObject({ page: 1, hasMore: false })
+    expect(a?.items[0]).toMatchObject({
       baseRepo: repoNamed('a'),
       reviewStatus: 'approved',
       checksState: 'passing',
       // The repository's own merge methods: the detail narrows them by branch.
       capabilities: { mergeMethods: ['squash'], defaultMergeMethod: 'squash' },
     })
-    expect(a?.authored?.items.map((item) => item.number)).toEqual([1, 4])
-    expect(b?.needsReview?.map((item) => item.number)).toEqual([2])
-    expect(c?.needsReview?.map((item) => item.number)).toEqual([3])
+  })
+
+  // WHY: a full row costs about as much as a search, and the list search just
+  // read most of these rows. Asking again made the first load twice the work.
+  test('priority searches ask for numbers in one document, with no rows', async () => {
+    const names = ['a', 'b', 'c']
+    const rows = rowsOf(names, 2)
+    rows[1].requested = ['sidhu']
+    rows[2].assigned = ['sidhu']
+    const { client, calls } = fakeGithub({ rows })
+    const documents: string[] = []
+    const original = client.graphql
+    const read = spyOn(client, 'graphql').mockImplementation((query, variables) => {
+      documents.push(query)
+      return original(query, variables)
+    })
+    try {
+      const [a, b, c] = await new OneClientProvider(client).listPriorityNumbers(names.map(repoNamed), 'open', 'sidhu')
+
+      expect(count(calls, 'graphql:PrListPages')).toBe(1)
+      expect(documents[0]).not.toContain('NeedsReviewFields')
+      expect(a).toEqual({ authored: { numbers: [1, 4], hasMore: false }, needsReview: [] })
+      expect(b?.needsReview).toEqual([2])
+      expect(c?.needsReview).toEqual([3])
+    } finally {
+      read.mockRestore()
+    }
+  })
+
+  test('closed pull requests search no review requests', async () => {
+    const { client } = fakeGithub({ rows: rowsOf(['a'], 1) })
+
+    const [answer] = await new OneClientProvider(client).listPriorityNumbers([repoNamed('a')], 'closed', 'sidhu')
+
+    expect(answer?.needsReview).toBeNull()
   })
 
   test('a hundred and twenty repositories cost two GraphQL requests', async () => {
     const names = Array.from({ length: 120 }, (_unused, index) => `r${index}`)
     const { client, calls } = fakeGithub({ rows: rowsOf(names, 1) })
 
-    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true)
+    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu')
 
     expect(count(calls, 'graphql:PrListPages')).toBe(2)
     expect(restCalls(calls)).toEqual([])
-    expect(pages.every((page) => page?.page.items.length === 1)).toBe(true)
+    expect(pages.every((page) => page?.items.length === 1)).toBe(true)
   })
 
   test('the next page of several projects is one request, each from its own cursor', async () => {
     const names = ['a', 'b', 'c']
     const { client, calls } = fakeGithub({ rows: rowsOf(names, 50) })
     const provider = new OneClientProvider(client)
-    const first = await provider.listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', false)
-    expect(first.every((page) => page?.page.hasMore && page.page.cursor)).toBe(true)
+    const first = await provider.listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu')
+    expect(first.every((page) => page?.hasMore && page.cursor)).toBe(true)
     calls.length = 0
 
     const next = await provider.listPullRequestPages(
-      first.map((page, index) => ({ repo: repoNamed(names[index]), page: 2, cursor: page!.page.cursor! })),
+      first.map((page, index) => ({ repo: repoNamed(names[index]), page: 2, cursor: page!.cursor! })),
       { state: 'open' },
       'sidhu',
       false,
@@ -265,9 +294,9 @@ describe('one search lists many repositories', () => {
     expect(restCalls(calls)).toEqual([])
     // Together the two pages hold every pull request once, newest first.
     names.forEach((name, index) => {
-      const seen = [...first[index]!.page.items, ...next[index]!.page.items].map((item) => item.number)
+      const seen = [...first[index]!.items, ...next[index]!.items].map((item) => item.number)
       expect(new Set(seen).size).toBe(50)
-      expect(next[index]!.page.page).toBe(2)
+      expect(next[index]!.page).toBe(2)
     })
   })
 
@@ -275,13 +304,11 @@ describe('one search lists many repositories', () => {
     const names = ['a', 'b']
     const { client, calls } = fakeGithub({ rows: rowsOf(names, 3) })
 
-    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open', query: 'author:sidhu' }, 'sidhu', true)
+    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open', query: 'author:sidhu' }, 'sidhu')
 
     expect(count(calls, 'graphql:PrListPages')).toBe(1)
     expect(restCalls(calls)).toEqual([])
-    expect(pages.flatMap((page) => page!.page.items.map((item) => item.author))).toEqual(['sidhu', 'sidhu'])
-    // A searched list has no sections.
-    expect(pages[0]?.authored).toBeNull()
+    expect(pages.flatMap((page) => page!.items.map((item) => item.author))).toEqual(['sidhu', 'sidhu'])
   })
 
   test('a repository the search index has not caught up with is read once from its own listing', async () => {
@@ -289,12 +316,12 @@ describe('one search lists many repositories', () => {
     const rows = rowsOf(names, 2)
     const { client, calls } = fakeGithub({ rows, unindexed: new Set([rows[0].number]) })
 
-    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true)
+    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu')
 
     expect(count(calls, 'graphql:PrListPages')).toBe(2)
     expect(calls.filter((call) => call.startsWith('listing:'))).toEqual(['listing:a'])
-    expect(pages[0]?.page.items.map((item) => item.number)).toContain(rows[0].number)
-    expect(pages[1]?.page.items).toHaveLength(2)
+    expect(pages[0]?.items.map((item) => item.number)).toContain(rows[0].number)
+    expect(pages[1]?.items).toHaveLength(2)
   })
 
   test('a renamed repository is searched again by its new name, and that name is kept', async () => {
@@ -303,14 +330,14 @@ describe('one search lists many repositories', () => {
     const { client, calls } = fakeGithub({ rows, renamed: new Map([['old-name', 'new-name']]) })
     const provider = new OneClientProvider(client)
 
-    const pages = await provider.listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true)
+    const pages = await provider.listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu')
     expect(count(calls, 'graphql:PrListPages')).toBe(2)
-    expect(pages[0]?.page.items).toHaveLength(1)
+    expect(pages[0]?.items).toHaveLength(1)
     // The row keeps the project's own repository name.
-    expect(pages[0]?.page.items[0]?.baseRepo).toEqual(repoNamed('old-name'))
+    expect(pages[0]?.items[0]?.baseRepo).toEqual(repoNamed('old-name'))
 
     calls.length = 0
-    await provider.listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true)
+    await provider.listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu')
     expect(count(calls, 'graphql:PrListPages')).toBe(1)
   })
 
@@ -318,7 +345,7 @@ describe('one search lists many repositories', () => {
     const names = ['a', 'hidden-one', 'c']
     const { client } = fakeGithub({ rows: rowsOf(names, 1), hidden: new Set(['hidden-one']) })
 
-    await expect(new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true))
+    await expect(new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu'))
       .rejects.toThrow('Some aliases failed')
   })
 
@@ -332,9 +359,9 @@ describe('one search lists many repositories', () => {
       gh.client.credential.source = 'gh-cli'
 
       const pages = await new OneClientProvider(account.client, [gh.client])
-        .listPullRequestPages(firstPages(names), undefined, 'sidhu', true)
+        .listPullRequestPages(firstPages(names), undefined, 'sidhu')
 
-      expect(pages.map((page) => page?.page.items.map((item) => item.number))).toEqual([[1], [2]])
+      expect(pages.map((page) => page?.items.map((item) => item.number))).toEqual([[1], [2]])
       expect(count(gh.calls, 'graphql:PrListPages')).toBe(1)
     })
   }
@@ -347,9 +374,9 @@ describe('one search lists many repositories', () => {
     gh.client.credential.source = 'gh-cli'
 
     const pages = await new OneClientProvider(account.client, [gh.client])
-      .listPullRequestPages(firstPages(names), undefined, 'sidhu', false)
+      .listPullRequestPages(firstPages(names), undefined, 'sidhu')
 
-    expect(pages.every((page) => page?.page.items.length === 1)).toBe(true)
+    expect(pages.every((page) => page?.items.length === 1)).toBe(true)
     expect(count(account.calls, 'graphql:PrListPages')).toBe(2)
     expect(count(gh.calls, 'graphql:PrListPages')).toBe(2)
   })
@@ -370,10 +397,10 @@ describe('one search lists many repositories', () => {
     gh.client.credential.source = 'gh-cli'
 
     const pages = await new OneClientProvider(account.client, [gh.client])
-      .listPullRequestPages(firstPages(names), undefined, 'sidhu', false)
+      .listPullRequestPages(firstPages(names), undefined, 'sidhu')
 
     expect(calls).toBe(2)
-    expect(pages.map((page) => page?.page.items.map((item) => item.number))).toEqual([[1], [2]])
+    expect(pages.map((page) => page?.items.map((item) => item.number))).toEqual([[1], [2]])
     expect(count(gh.calls, 'graphql:PrListPages')).toBe(1)
   })
 
@@ -384,7 +411,7 @@ describe('one search lists many repositories', () => {
     const gh = fakeGithub({ rows })
 
     await expect(new OneClientProvider(account.client, [gh.client])
-      .listPullRequestPages(firstPages(names), undefined, 'sidhu', false)).rejects.toBeInstanceOf(GitHubRateLimitedError)
+      .listPullRequestPages(firstPages(names), undefined, 'sidhu')).rejects.toBeInstanceOf(GitHubRateLimitedError)
     expect(gh.calls).toEqual([])
   })
 
@@ -396,9 +423,9 @@ describe('one search lists many repositories', () => {
     rows[3].rollup = null
     const { client } = fakeGithub({ rows })
 
-    const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['a']), { state: 'open' }, 'sidhu', false)
+    const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['a']), { state: 'open' }, 'sidhu')
 
-    expect(page?.page.items.map((item) => item.checksState)).toEqual(['failing', 'pending', 'failing', 'none'])
+    expect(page?.items.map((item) => item.checksState)).toEqual(['failing', 'pending', 'failing', 'none'])
   })
 
   test('a branch lookup reads the repository\'s listing by head branch, not REST', async () => {
@@ -412,26 +439,33 @@ describe('one search lists many repositories', () => {
       return graphql(query, variables)
     }
 
-    const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['a']), { state: 'all', head: 'feature/1' }, 'sidhu', false)
+    const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['a']), { state: 'all', head: 'feature/1' }, 'sidhu')
 
     expect(asked).toContain('headRefName')
     expect(restCalls(calls)).toEqual([])
-    expect(page?.page.items.map((item) => item.headRef)).toEqual(['feature/1'])
+    expect(page?.items.map((item) => item.headRef)).toEqual(['feature/1'])
   })
 })
 
-/** A provider whose list read is counted and scripted per repository. */
-function batchingProvider(answer: (repo: RepoRef) => RepositoryPage | null) {
-  const calls = { batches: [] as string[][], alone: [] as string[], needsReview: 0 }
-  const emptyPage = (): RepositoryPage => ({ page: { items: [], page: 1, hasMore: false }, authored: null, needsReview: null })
+/** A provider whose reads are counted and scripted per repository. */
+function batchingProvider(answer: (repo: RepoRef) => PrListPage | null, priority: (repo: RepoRef) => PriorityNumbers | null = () => null) {
+  const calls = { batches: [] as string[][], alone: [] as string[], needsReview: 0, priority: [] as string[][], byNumber: [] as number[][] }
   const review = {
     listPullRequestPages: async (requests: PrPageRequest[], filter: PrFilter | undefined) => {
       if (requests.length === 1 && filter?.query) {
         calls.alone.push(`${requests[0].repo.repo} ${filter.query}`)
-        return [emptyPage()]
+        return [{ items: [], page: 1, hasMore: false }]
       }
       calls.batches.push(requests.map((request) => request.repo.repo))
       return requests.map((request) => answer(request.repo))
+    },
+    listPriorityNumbers: async (repos: RepoRef[]) => {
+      calls.priority.push(repos.map((repo) => repo.repo))
+      return repos.map(priority)
+    },
+    getPullRequests: async (_repo: RepoRef, numbers: number[]) => {
+      calls.byNumber.push(numbers)
+      return new Map(numbers.map((number) => [number, { number, updatedAt: `2026-09-0${number}` } as PullRequest]))
     },
     listPullRequestsNeedingReview: async () => {
       calls.needsReview++
@@ -441,13 +475,8 @@ function batchingProvider(answer: (repo: RepoRef) => RepositoryPage | null) {
   return { provider: { id: 'github', review } as unknown as Provider, calls }
 }
 
-function repositoryPage(number: number): RepositoryPage {
-  const pullRequest = { number } as PullRequest
-  return {
-    page: { items: [pullRequest], page: 1, hasMore: false } satisfies PrListPage,
-    authored: { items: [], page: 1, hasMore: false },
-    needsReview: [],
-  }
+function repositoryPage(...numbers: number[]): PrListPage {
+  return { items: numbers.map((number) => ({ number, updatedAt: `2026-09-0${number}` }) as PullRequest), page: 1, hasMore: false }
 }
 
 describe('the index over a many-repository read', () => {
@@ -456,8 +485,8 @@ describe('the index over a many-repository read', () => {
     const { provider, calls } = batchingProvider((repo) => repositoryPage(repo.repo === 'a' ? 1 : 2))
 
     const reads = await index.listPages(provider, firstPages(['a', 'b']), 'sidhu', { state: 'open' })
-    expect((await reads.get('github.com/acme/a')?.page)?.items.map((item) => item.number)).toEqual([1])
-    expect((await reads.get('github.com/acme/b')?.page)?.items.map((item) => item.number)).toEqual([2])
+    expect((await reads.get('github.com/acme/a'))?.items.map((item) => item.number)).toEqual([1])
+    expect((await reads.get('github.com/acme/b'))?.items.map((item) => item.number)).toEqual([2])
 
     // The read filed its answers where the single-project reads look.
     expect((await index.list(repoNamed('a'), provider, 'sidhu', { state: 'open' }, 1)).items[0]?.number).toBe(1)
@@ -465,7 +494,6 @@ describe('the index over a many-repository read', () => {
 
     expect(calls.batches).toEqual([['a', 'b']])
     expect(calls.alone).toEqual([])
-    expect(calls.needsReview).toBe(0)
   })
 
   test('a repository the read could not see is left to its own read', async () => {
@@ -479,27 +507,80 @@ describe('the index over a many-repository read', () => {
     expect([...reads.keys()]).toEqual(['github.com/acme/a'])
   })
 
-  test('a part the read could not answer is read alone', async () => {
-    const index = new PrIndex()
-    const { provider, calls } = batchingProvider(() => ({ ...repositoryPage(1), authored: null, needsReview: null }))
-
-    const reads = await index.listPages(provider, firstPages(['a']), 'sidhu', { state: 'open' })
-    await reads.get('github.com/acme/a')?.authored
-    await reads.get('github.com/acme/a')?.needsReview
-
-    expect(calls.alone).toEqual(['a author:sidhu'])
-    expect(calls.needsReview).toBe(1)
-  })
-
-  test('a later page has no sections, and one with no cursor asks for nothing', async () => {
+  test('a later page with no cursor asks for nothing', async () => {
     const index = new PrIndex()
     const { provider, calls } = batchingProvider(() => repositoryPage(1))
 
     const reads = await index.listPages(provider, [{ repo: repoNamed('a'), page: 2, cursor: null }], 'sidhu', { state: 'open' })
 
-    expect(await reads.get('github.com/acme/a')?.page).toEqual({ items: [], page: 2, hasMore: false })
-    expect(reads.get('github.com/acme/a')?.authored).toBeNull()
+    expect(await reads.get('github.com/acme/a')).toEqual({ items: [], page: 2, hasMore: false })
     expect(calls.batches).toEqual([])
+  })
+})
+
+describe('the index over a priority read', () => {
+  const priorityOf = async (index: PrIndex, provider: Provider, names: string[]) => {
+    const reads = index.listPriority(provider, names.map(repoNamed), 'sidhu', 'open')
+    const read = reads.get(`github.com/acme/${names[0]}`)!
+    return { authored: await read.authored, needsReview: await read.needsReview }
+  }
+
+  // WHY: this is the saving. A person whose pull requests are all on the page
+  // pays for the searches and for no row.
+  test('a row the first page holds is not read again', async () => {
+    const index = new PrIndex()
+    const { provider, calls } = batchingProvider(
+      () => repositoryPage(1, 2),
+      () => ({ authored: { numbers: [1, 2], hasMore: false }, needsReview: [] }),
+    )
+    await index.listPages(provider, firstPages(['a']), 'sidhu', { state: 'open' })
+
+    const { authored } = await priorityOf(index, provider, ['a'])
+
+    expect(authored.items.map((row) => row.number)).toEqual([1, 2])
+    expect(calls.byNumber).toEqual([])
+    expect(calls.batches).toEqual([['a']])
+  })
+
+  test('a number past the first page is read, in one request for its repository', async () => {
+    const index = new PrIndex()
+    const { provider, calls } = batchingProvider(
+      () => repositoryPage(1),
+      () => ({ authored: { numbers: [7, 1], hasMore: true }, needsReview: [1, 8, 8] }),
+    )
+    await index.listPages(provider, firstPages(['a']), 'sidhu', { state: 'open' })
+
+    const { authored, needsReview } = await priorityOf(index, provider, ['a'])
+
+    expect(authored.items.map((row) => row.number)).toEqual([7, 1])
+    expect(authored.hasMore).toBe(true)
+    expect(needsReview?.map((row) => row.number)).toEqual([8, 1])
+    expect(calls.byNumber.flat().sort()).toEqual([7, 8])
+  })
+
+  test('many repositories name their numbers in one read, and a second read costs none', async () => {
+    const index = new PrIndex()
+    const { provider, calls } = batchingProvider(
+      () => repositoryPage(1),
+      () => ({ authored: { numbers: [], hasMore: false }, needsReview: [] }),
+    )
+    await index.listPages(provider, firstPages(['a', 'b']), 'sidhu', { state: 'open' })
+
+    await priorityOf(index, provider, ['a', 'b'])
+    await priorityOf(index, provider, ['a', 'b'])
+
+    expect(calls.priority).toEqual([['a', 'b']])
+  })
+
+  test('a part the read could not answer is read alone', async () => {
+    const index = new PrIndex()
+    const { provider, calls } = batchingProvider(() => repositoryPage(1))
+    await index.listPages(provider, firstPages(['a']), 'sidhu', { state: 'open' })
+
+    await priorityOf(index, provider, ['a'])
+
+    expect(calls.alone).toEqual(['a author:sidhu'])
+    expect(calls.needsReview).toBe(1)
   })
 })
 
@@ -552,10 +633,10 @@ describe('large repository request recovery', () => {
     const read = spyOn(client, 'graphql').mockRejectedValueOnce(Object.assign(new Error('GitHub could not complete the query'), failure))
     read.mockImplementation(original)
     try {
-      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', true)
-      expect(page?.page.items).toHaveLength(50)
-      expect(page?.page.hasMore).toBe(true)
-      expect(page?.page.cursor).toBe(`search:${page?.page.items.at(-1)?.updatedAt}`)
+      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu')
+      expect(page?.items).toHaveLength(50)
+      expect(page?.hasMore).toBe(true)
+      expect(page?.cursor).toBe(`search:${page?.items.at(-1)?.updatedAt}`)
       expect(read.mock.calls[0][0]).toContain('first: 100')
       expect(read.mock.calls[1][0]).toContain('first: 50')
     } finally {
@@ -572,11 +653,11 @@ describe('large repository request recovery', () => {
       .mockRejectedValueOnce(failure)
     read.mockImplementation(original)
     try {
-      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', true)
+      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu')
       expect(read.mock.calls.map(([query]) => Number(/first: (\d+)/.exec(query)?.[1]))).toEqual([100, 50, 25])
-      expect(page?.page.items).toHaveLength(25)
-      expect(page?.page.hasMore).toBe(true)
-      expect(page?.page.cursor).toBe(`search:${page?.page.items.at(-1)?.updatedAt}`)
+      expect(page?.items).toHaveLength(25)
+      expect(page?.hasMore).toBe(true)
+      expect(page?.cursor).toBe(`search:${page?.items.at(-1)?.updatedAt}`)
     } finally {
       read.mockRestore()
     }
@@ -596,10 +677,8 @@ describe('large repository request recovery', () => {
       return original(query, variables)
     })
     try {
-      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', true)
-      expect(page?.page.items.map((row) => row.number)).toEqual([1, 2, 3])
-      expect(page?.authored?.items.map((row) => row.number)).toEqual([1])
-      expect(page?.needsReview).toEqual([])
+      const [page] = await new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu')
+      expect(page?.items.map((row) => row.number)).toEqual([1, 2, 3])
       expect(documents.length).toBeLessThanOrEqual(12)
     } finally {
       read.mockRestore()
@@ -611,7 +690,7 @@ describe('large repository request recovery', () => {
     const failure = Object.assign(new Error('Bad Gateway'), { status: 502 })
     const read = spyOn(client, 'graphql').mockRejectedValue(failure)
     try {
-      await expect(new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu', false)).rejects.toThrow('Bad Gateway')
+      await expect(new OneClientProvider(client).listPullRequestPages(firstPages(['large']), { state: 'open' }, 'sidhu')).rejects.toThrow('Bad Gateway')
       expect(read).toHaveBeenCalledTimes(4)
     } finally {
       read.mockRestore()
@@ -630,7 +709,7 @@ test('PR list logs connect a failed large read to its successful smaller retry',
   }))
   read.mockImplementation(original)
   try {
-    await new OneClientProvider(client).listPullRequestPages(firstPages(['diagnostic-repo']), { state: 'open', query: 'private-search-text' }, 'sidhu', false)
+    await new OneClientProvider(client).listPullRequestPages(firstPages(['diagnostic-repo']), { state: 'open', query: 'private-search-text' }, 'sidhu')
     flushLogs()
     const entrySchema = z.object({
       msg: z.string().optional(),

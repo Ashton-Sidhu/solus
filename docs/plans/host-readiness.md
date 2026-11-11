@@ -247,5 +247,4 @@ turn state predates this plan and is not yet tied to readiness.
 - `connectedServerIds()`. It lists the connections that exist. A caller that
   used it to mean "ready" reads readiness.
 - Web `HostlessHome`. "No host chosen" is not a readiness.
-- The session-level `isReconnecting`. It is about the agent's stream.
 - The live-document status in `work/`. It is about document sync.

@@ -305,9 +305,11 @@ function ThreadNavigationSidebarPane(
       snoozedCount: threadListV2Layout.snoozedCount,
       snoozedShelfExpanded,
       snoozedShelfHeaderIndex: threadListV2Layout.snoozedShelfHeaderIndex,
+      snoozedShelfCollapsible: threadListV2Layout.snoozedShelfCollapsible,
       settledCount: threadListV2Layout.settledCount,
       settledShelfExpanded,
       settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
+      settledShelfCollapsible: threadListV2Layout.settledShelfCollapsible,
       archivedCount: threadListV2Layout.archivedCount,
       archivedHeaderIndex: threadListV2Layout.archivedHeaderIndex,
     });
@@ -531,6 +533,7 @@ function ThreadNavigationSidebarPane(
             <ThreadListV2SnoozedShelfHeader
               count={item.count}
               disabled={item.disabled}
+              collapsible={item.collapsible}
               expanded={item.expanded}
               onToggle={toggleSnoozedShelf}
               pane="sidebar"
@@ -541,6 +544,7 @@ function ThreadNavigationSidebarPane(
             <ThreadListV2SettledShelfHeader
               count={item.count}
               disabled={item.disabled}
+              collapsible={item.collapsible}
               expanded={item.expanded}
               onToggle={toggleSettledShelf}
               pane="sidebar"

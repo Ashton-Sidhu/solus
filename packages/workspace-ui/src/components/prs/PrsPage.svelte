@@ -1,6 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import { tick, untrack } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteMap } from "svelte/reactivity";
   import type { PrFilter, PullRequest } from "@solus/contracts/providers";
@@ -59,6 +59,7 @@
     type PrRowActionKind,
   } from "./lib/pr-row-actions";
   import { ShiftHeld } from "./lib/shift-held.svelte";
+  import { RestPrefetch } from "./lib/pr-rest-prefetch";
   import PrListLoading from "./PrListLoading.svelte";
   import PrsPageSkeleton from "./PrsPageSkeleton.svelte";
   import PrListToolbar from "./PrListToolbar.svelte";
@@ -794,11 +795,22 @@
     layer.prefetch();
   }
 
-  /** Arrow-key movement only highlights. Nothing is fetched or mounted until
-   *  Enter opens the row, so walking the list costs no requests. */
+  /** A row the pointer or the highlight rests on is read before it is
+   *  opened: one overview read, which the panel's own reads then join or find
+   *  held. Comments and files wait for the open. */
+  const restPrefetch = new RestPrefetch<PullRequest>((pr) => {
+    const target = targetFor(pr);
+    if (target) void store.get(target.api, target.serverId, target.ctx).get(pr.number).loadOverview().catch(() => {});
+  });
+  onDestroy(() => restPrefetch.cancel());
+
+  /** Arrow-key movement only highlights. Nothing is mounted until Enter opens
+   *  the row, and a highlight read only once it rests, so walking the list
+   *  costs no requests. */
   function highlightPr(pr: PullRequest) {
     if (pageScope.allProjects) aggregateSelectedKey = keyOf(pr);
     else listView.selectedNumber = pr.number;
+    restPrefetch.rest(pr);
   }
 
 
@@ -1083,6 +1095,8 @@
             {storedPullRequest}
             onOpenStackLayer={(pr, number) => void openStackLayer(pr, number)}
             onLoadMore={loadMoreAll}
+            onRest={(pr) => restPrefetch.rest(pr)}
+            onLeave={(pr) => restPrefetch.leave(pr)}
           />
         {/if}
         </PrListStates>
