@@ -6,6 +6,7 @@
   import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { cn } from "../../lib/utils";
+  import { isImeKey } from "../../lib/ime";
   import { useScope, useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import PickerSkeletonRows from "../pickers/PickerSkeletonRows.svelte";
   import { fuzzyIndices, highlightSegments, splitFilePath } from "./lib/file-picker";
@@ -112,6 +113,7 @@
   }
 
   function onSearchKeydown(e: KeyboardEvent) {
+    if (isImeKey(e)) return;
     if (e.key === "ArrowDown" && files.length > 0) {
       e.preventDefault();
       selectedIndex = (selectedIndex + 1) % files.length;

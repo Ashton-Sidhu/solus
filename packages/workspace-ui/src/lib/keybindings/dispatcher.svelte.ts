@@ -4,6 +4,7 @@ import { comboFromEvent, comboIsTextInput, eventMatches, isMac } from './match'
 import { effectiveCombo, type BindingOverrides } from './editing'
 import type { BindingDef, Handler, RegisterOptions, Scope } from './types'
 import { track } from '../analytics'
+import { isImeKey } from '../ime'
 
 type ScopeEntry = { scope: Scope; exclusive: boolean }
 type HandlerEntry = { handler: Handler; opts: RegisterOptions }
@@ -87,6 +88,10 @@ export class KeybindingsContext {
   }
 
   dispatch(e: KeyboardEvent): void {
+    // A key inside an IME composition belongs to the composition: Escape
+    // cancels it and Enter commits it. No binding may fire for it.
+    if (isImeKey(e)) return
+
     // While the user is typing in an editable element, a keystroke that's just a
     // printable key (e.g. `/` to focus a pane's search) is indistinguishable
     // from typing — firing a binding for it would preventDefault() and swallow

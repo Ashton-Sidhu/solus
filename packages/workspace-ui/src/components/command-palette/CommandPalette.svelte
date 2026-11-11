@@ -16,6 +16,7 @@
   import { track } from "../../lib/analytics";
   import { sanitizeCommandId } from "@solus/contracts/analytics-events";
   import { cn } from "../../lib/utils";
+  import { isImeKey } from "../../lib/ime";
   import {
     commandsShown,
     groupCommands,
@@ -96,6 +97,7 @@
   }
 
   function onPaletteKeydown(e: KeyboardEvent) {
+    if (isImeKey(e)) return;
     const move = keyboardMove(e);
     if (move) {
       e.preventDefault();
@@ -104,7 +106,7 @@
       return;
     }
 
-    if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+    if (e.key !== "Enter") return;
     const selectedCommand = ordered.find(
       (command) => command.id === selectedValue,
     );
