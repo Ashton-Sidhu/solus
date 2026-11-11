@@ -1,6 +1,7 @@
 import { DesktopActivityBadges } from './activity-badges'
 import { attachContextMenu } from './context-menu'
 import { initialWindowBounds } from './window-platform'
+import { HtmlFullscreen } from './html-fullscreen'
 import { secureStorage } from './secure-storage'
 import { desktopPlatform } from './platform/desktop-platform'
 
@@ -95,6 +96,8 @@ protocol.registerSchemesAsPrivileged([
 let forceQuit = false
 
 let mainWindow: BrowserWindow | null = null
+/** Whether the app, not the user, made the main window fullscreen. */
+let mainWindowHtmlFullscreen = new HtmlFullscreen()
 let powerSaveBlockerId: number | null = null
 
 // Hold the app-suspension blocker only while an agent turn is active. Holding
@@ -370,7 +373,9 @@ function createMainWindow(): BrowserWindow {
       // the guest; `<webview>` stays in the page's own z-order.
       webviewTag: true,
       // A browser page that asks for fullscreen fills its pane's surface. Without
-      // this, Electron also puts the whole Solus window into OS fullscreen.
+      // this, Electron also puts the whole Solus window into OS fullscreen. The
+      // app's own fullscreen elements reach OS fullscreen through
+      // `solus:html-fullscreen`.
       disableHtmlFullscreenWindowResize: true,
     },
     ...desktopPlatform.windowOptions,
@@ -440,6 +445,10 @@ function createMainWindow(): BrowserWindow {
   mainWindow.on('hide', () => {
     sendNativeEvent('solus:window-hidden')
   })
+  const htmlFullscreen = new HtmlFullscreen()
+  mainWindowHtmlFullscreen = htmlFullscreen
+  // On macOS the window reports fullscreen until its exit animation ends.
+  mainWindow.on('leave-full-screen', () => htmlFullscreen.windowLeftFullScreen())
 
   attachContextMenu(mainWindow, () => quoteContextTabId)
 
@@ -719,6 +728,14 @@ ipcMain.on('solus:renderer-ready', (event) => {
     mainWindow.show()
     focusMainWindow()
   }
+})
+
+ipcMain.on('solus:html-fullscreen', (event, rawFullscreen) => {
+  if (!isLive(mainWindow) || mainWindow.webContents !== event.sender) return
+  const fullscreen = z.boolean().safeParse(rawFullscreen)
+  if (!fullscreen.success) return
+  const next = mainWindowHtmlFullscreen.request(fullscreen.data, mainWindow.isFullScreen())
+  if (next !== null) mainWindow.setFullScreen(next)
 })
 
 ipcMain.on('solus:set-quote-context', (_event, tabId: string | null) => {
