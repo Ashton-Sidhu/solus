@@ -1792,6 +1792,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/threads/ThreadApp.tsx": {
+      "compiled": [
+        "AppCard",
+        "ThreadApp"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/threads/ThreadArtifact.tsx": {
       "compiled": [
         "ArtifactFullScreen",

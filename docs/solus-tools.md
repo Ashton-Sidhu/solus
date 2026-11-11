@@ -132,6 +132,13 @@ status, pending input, and history. There is no separate task-session read tool.
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.
 
+`create_app` makes an app (docs/plans/apps.md): one React component over the
+user's own integrations, saved as an `app` work and opened on desktop, web, and
+mobile. The component reaches a service as `tools.<slug>.<tool>(args)`; every
+call runs with the viewer's own connection under the app's permissions
+(`tools`: all, read-only, or a selected list; `writes`: ask or allow). Pass
+`work_id` and `expected_content_version` to replace an app in place.
+
 Works includes `publish_work` and `pull_work_upstream` for connected document
 providers. Publish sends a work to Confluence or Google Docs and keeps the link.
 Pull accepts exactly one of `url` (import into Solus) or `work_id` (refresh a

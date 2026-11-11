@@ -256,6 +256,26 @@ describe('session transcript rehydration', () => {
     })
   })
 
+  test('a create_app call replays as its tool row and the card of the app its receipt names', () => {
+    // WHY: the card opens the app by its work id, and only the receipt names
+    // it. A failed call has no receipt, so it must leave no card to open.
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined } } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, projectSessionHistory([
+      { role: 'tool', content: '', toolName: 'mcp__solus__create_app', toolId: 'made', toolInput: JSON.stringify({ title: 'Issues', code: 'export default () => null' }), timestamp: 1 },
+      { role: 'tool_result', content: 'Created the app "Issues" (id: app-1). It opens from the conversation and the works list.', toolResultForId: 'made', timestamp: 2 },
+      { role: 'tool', content: '', toolName: 'mcp__solus__create_app', toolId: 'refused', toolInput: JSON.stringify({ title: 'Broken', code: 'x' }), timestamp: 3 },
+      { role: 'tool_result', content: 'create_app refused the code: An app must `export default` a React component.', toolResultForId: 'refused', timestamp: 4 },
+    ] as SessionLoadMessage[]))
+    expect(transcript.messages.filter((message) => message.role === 'tool')).toHaveLength(2)
+    expect(transcript.messages.flatMap((message) => message.workRef ? [message.workRef] : [])).toEqual([
+      { workId: 'app-1', title: 'Issues', workType: 'app', contentVersion: 1 },
+    ])
+  })
+
   test('a preview call replays as its tool row and no artifact card', () => {
     // WHY: a preview showed nothing in the conversation when it ran. A reload
     // must not show the draft beside the render the agent gave afterwards.
