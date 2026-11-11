@@ -37,6 +37,17 @@ describe('the apps skill and the shell', () => {
     expect(typed).toEqual(provided)
   })
 
+  test('the kit never fills a hover or a selection with the accent', () => {
+    // WHY: in the Solus palette `accent` is the terracotta accent itself, not
+    // the hover wash that name means elsewhere. The first kit used it for
+    // hover, so every button turned solid terracotta under the pointer.
+    const kit = readFileSync(join(import.meta.dir, '../../packages/app-shell/src/ui/index.tsx'), 'utf8')
+    expect(kit.match(/(?:hover:|selected[^\n]*)bg-accent(?!-surface)/g)).toBeNull()
+    expect(kit).toContain('hover:bg-muted')
+    // The quiet tint of the accent is a class an app can write.
+    expect(readFileSync(join(import.meta.dir, '../../packages/app-shell/src/theme.css'), 'utf8')).toContain('--color-accent-surface: var(--accent-surface)')
+  })
+
   test('the project installs the major versions of the packages the shell runs', () => {
     // WHY: these packages are types only in the project; the shell's copies run. A different major is a different API.
     const major = (range: string) => range.replace(/^[^\d]*/, '').split('.')[0]

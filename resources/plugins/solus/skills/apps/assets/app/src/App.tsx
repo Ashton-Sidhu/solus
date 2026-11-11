@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { X } from 'lucide-react'
 import { useState } from 'react'
 import { Button, Card, CardDescription, CardTitle, Empty, Input, Skeleton, storage } from '@solus/app'
 
-// A starter that shows the shape of an app: state the app keeps (`storage`),
-// a query that reads it, and a mutation that writes it. Replace all of it.
+// A starter that shows the shape of an app: data the app keeps (`storage`), a
+// query that reads it, a mutation that writes it, and the three states of a
+// list. Replace all of it.
 
 interface Note {
   id: string
@@ -29,35 +31,36 @@ export default function App() {
   }
 
   return (
-    <div className="grid gap-3">
-      <Card>
-        <CardTitle>Notes</CardTitle>
-        <CardDescription className="mt-1">This app keeps its notes on the host. They are here when you open it again.</CardDescription>
-        <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); add() }}>
-          <Input aria-label="New note" placeholder="Write a note" value={draft} onChange={(event) => setDraft(event.target.value)} className="min-w-0 flex-1" />
-          <Button type="submit" variant="primary" disabled={!draft.trim() || !notes.data || save.isPending}>Add</Button>
-        </form>
-      </Card>
+    <div className="grid gap-4">
+      <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); add() }}>
+        <Input aria-label="New note" placeholder="Write a note" value={draft} onChange={(event) => setDraft(event.target.value)} className="flex-1" />
+        <Button type="submit" variant="primary" disabled={!draft.trim() || !notes.data || save.isPending}>Add</Button>
+      </form>
       {notes.isPending ? (
-        <Skeleton className="h-16" />
+        <Skeleton className="h-24" />
       ) : notes.isError ? (
         <Card role="alert">
           <CardTitle>The notes did not load</CardTitle>
           <CardDescription className="mt-1">{notes.error.message}</CardDescription>
+          <Button className="mt-3" onClick={() => void notes.refetch()}>Try again</Button>
         </Card>
       ) : notes.data.length === 0 ? (
-        <Empty title="No notes yet">Add the first one above.</Empty>
+        <Empty title="No notes yet">This app keeps its notes on the host. They are here when you open it again.</Empty>
       ) : (
-        <ul className="grid gap-2">
-          {notes.data.map((note) => (
-            <li key={note.id} className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
-              <span className="min-w-0 flex-1 break-words">{note.text}</span>
-              <Button variant="ghost" aria-label={`Delete note: ${note.text}`} onClick={() => save.mutate(notes.data.filter((other) => other.id !== note.id))}>Delete</Button>
-            </li>
-          ))}
-        </ul>
+        <Card className="p-0">
+          <ul>
+            {notes.data.map((note) => (
+              <li key={note.id} className="flex items-center gap-2 border-t border-border/50 py-1.5 pr-1.5 pl-4 first:border-t-0">
+                <span className="min-w-0 flex-1 text-[13px] break-words">{note.text}</span>
+                <Button variant="ghost" className="w-8 px-0" aria-label={`Delete note: ${note.text}`} onClick={() => save.mutate(notes.data.filter((other) => other.id !== note.id))}>
+                  <X aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
-      {save.isError ? <p role="alert" className="text-sm text-destructive">{save.error.message}</p> : null}
+      {save.isError ? <p role="alert" className="text-[13px] text-destructive">{save.error.message}</p> : null}
     </div>
   )
 }

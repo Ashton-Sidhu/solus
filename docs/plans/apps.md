@@ -192,8 +192,13 @@ removes the folder.
   `react-dom`, `@tanstack/react-query`, `recharts`, `lucide-react`, and
   `@solus/app` (`tools`, `storage`, `server`, `useApp()`, and the UI
   primitives). A bundle carries every other package inside itself.
-- `ui/` — Button, Card, Input, Select, Badge, Table, Tabs, Skeleton, Empty,
-  Stat, styled with the Solus variables.
+- `ui/` — Button, Card, Input, Select, Badge, Table, Tabs, Split, NavItem,
+  Skeleton, Empty, Stat. They draw what the workspace's own primitives draw
+  (`packages/workspace-ui/src/components/ui/`): the soft card, the table with
+  tracked column heads and hairlines, the quiet hover. In the palette an app
+  gets, `accent` and `primary` are the terracotta accent itself, so a hover
+  and a selected row are `muted`. A caller's class wins over a primitive's
+  (`tailwind-merge`).
 
 The document the server composes (`apps/app-shell.ts`):
 

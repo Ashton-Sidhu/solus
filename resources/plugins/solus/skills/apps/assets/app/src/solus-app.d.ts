@@ -78,4 +78,8 @@ declare module '@solus/app' {
   export function Empty(props: HTMLAttributes<HTMLDivElement> & { title: string; children?: ReactNode }): ReactNode
   export function Stat(props: HTMLAttributes<HTMLDivElement> & { label: string; value: ReactNode; hint?: ReactNode }): ReactNode
   export function Tabs(props: { tabs: Array<{ id: string; label: string }>; value: string; onChange: (id: string) => void }): ReactNode
+  /** A list beside its detail. The list goes above the detail when the app is narrow. */
+  export function Split(props: HTMLAttributes<HTMLDivElement> & { side: ReactNode; children?: ReactNode }): ReactNode
+  /** One row of a list a person picks from, such as the `side` of a `Split`. */
+  export function NavItem(props: ButtonHTMLAttributes<HTMLButtonElement> & { selected?: boolean; icon?: ReactNode }): ReactNode
 }

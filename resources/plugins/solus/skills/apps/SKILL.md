@@ -161,14 +161,66 @@ Host functions, network hosts, and file paths together are the app's **host acce
 
 ## Design
 
-The frame is the app's page: it is as wide as the pane it opens in, and as tall as its content. Do not use `100vh`, a fixed page shell, or a maximum-width column for the whole app.
+An app must read as part of Solus: calm, dense, and plain. The frame is the app's page. It is as wide as the pane it opens in and as tall as its content.
 
-- Use the Solus palette through Tailwind: `bg-background`, `bg-card`, `bg-secondary`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-primary` with `text-primary-foreground` for the main action, `text-destructive`, `text-success`, `text-warning`, and `chart-1` to `chart-6` for data. It follows light and dark mode. Do not hard-code colors.
-- Start from the primitives in `@solus/app`: Button, Card, CardTitle, CardDescription, Input, Select, Badge, Table, TableHead, TableBody, TableRow, TableHeader, TableCell, Tabs, Skeleton, Empty, Stat. Compose them with Tailwind utilities.
-- Every query has a loading state, an empty state, and an error state with a way to try again. Every mutation shows its failure.
+**The palette.** Use it through Tailwind; it follows light and dark mode. Never hard-code a color.
+
+| Class | What it is for |
+|---|---|
+| `bg-background`, `bg-card` | The page and a card. They are the same color: a card is a soft border, not a fill. |
+| `bg-muted` | Every quiet fill: hover, the selected row, a zebra stripe, a skeleton. |
+| `text-foreground`, `text-muted-foreground` | Text, and secondary text. |
+| `border-border` | Lines. Use `border-border/60` for a card and `/50` for a hairline between rows. |
+| `bg-primary` + `text-primary-foreground` | The one main action of a view. It is the terracotta accent. |
+| `bg-accent`, `text-accent` | The same terracotta accent. It is not a hover color. Do not fill a row or a hover with it. |
+| `bg-accent-surface` | A light tint of the accent, for a rare highlight. |
+| `text-destructive`, `text-success`, `text-warning`, `text-info` | Status. Tint a background with `/10`. |
+| `chart-1` to `chart-6` | Data series. |
+
+**The primitives.** Import them from `@solus/app` and compose them with Tailwind. They draw what the Solus workspace draws.
+
+- `Button`: `variant="primary"` for the one main action, `secondary` (default), `ghost` for an icon or a quiet action, `destructive`.
+- `Card`, `CardTitle`, `CardDescription`: one group of content.
+- `Table` and its parts: it is its own card and scrolls sideways by itself.
+- `Split` with `NavItem`: a list beside its detail. It stacks when the app is narrow.
+- `Input`, `Select`, `Tabs`, `Badge`, `Stat`, `Skeleton`, `Empty`.
+
+**Rules that keep an app from looking wrong.**
+
+- Do not put a Card inside a Card, or a Table inside a Card. One border around one group.
+- Do not wrap the whole app in a Card, and give the app no page title: the pane's header has it.
+- One primary button in a view. Everything else is secondary or ghost.
+- Hover and selection are `bg-muted`. Use `NavItem` for a row a person picks.
+- For a list with a detail, use `Split`. Do not write your own breakpoint: the pane can be 360px wide, and a window-width query is wrong inside it.
+- Type: 13px for controls and table cells (the primitives set it), `text-sm font-medium` for a title, `text-[13px] text-muted-foreground` for supporting text. No bold, nothing under 11px.
+- Use `font-mono` only for code, paths, and identifiers a person may copy. Use `tabular-nums` for numbers in columns.
+- Space groups with `gap-4` and the parts of a group with `gap-2`. Do not use `100vh`, a fixed page shell, or a maximum width for the whole app.
+- Icons come from `lucide-react`, at the size the primitives give them. An icon-only button has an `aria-label`.
+- Every query has a loading state (`Skeleton`), an empty state (`Empty`), and an error state with a way to try again. Every mutation shows its failure.
 - Show real data. Never put a hard-coded array where live data belongs.
-- Every control is reachable by keyboard and has a visible label or an `aria-label`. Use container queries or wrapping layouts; the pane can be 360px wide.
-- No continuous animation.
+- Every control is reachable by keyboard and has a visible label or an `aria-label`. No continuous animation.
+
+A list beside its detail:
+
+```tsx
+<Split
+  side={
+    <nav aria-label="Tables" className="grid gap-0.5">
+      {tables.map((name) => (
+        <NavItem key={name} selected={name === table} icon={<Table2 aria-hidden="true" />} onClick={() => setTable(name)}>{name}</NavItem>
+      ))}
+    </nav>
+  }
+>
+  <div className="grid gap-2">
+    <div className="flex h-8 items-center gap-1">
+      <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{table}</h2>
+      <Button variant="ghost" className="w-8 px-0" aria-label="Next page"><ChevronRight /></Button>
+    </div>
+    <Table>{/* TableHead, TableBody */}</Table>
+  </div>
+</Split>
+```
 
 ## Revise an app
 

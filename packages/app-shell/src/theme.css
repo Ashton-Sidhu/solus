@@ -19,8 +19,12 @@
   --color-ring: var(--ring);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  /* `accent` is the terracotta accent itself, not a hover wash: a fill of it
+     is as loud as a primary button. The quiet tint of it is `accent-surface`. */
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-surface: var(--accent-surface);
+  --color-accent-surface-foreground: var(--accent-surface-foreground);
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-destructive: var(--destructive);
