@@ -327,6 +327,7 @@ export const RPC_PLANES = {
   // Model list: every host that renders a model picker needs it
   modelProfilesStatus: 'collaboration',
   modelProfilesRefresh: 'collaboration',
+  modelProfilesCheck: 'collaboration',
 
   // Attention and notifications
   listAttention: 'collaboration',

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import type { AgentMetadata, IpcContext, PromptOptions } from '@solus/contracts/types'
+import { BUNDLED_MODEL_PROFILES, MODEL_PROFILES, replaceModelProfiles, type AgentMetadata, type IpcContext, type ModelProfilesStatus, type PromptOptions } from '@solus/contracts/types'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
 import { canChoosePermissionMode, canRouteAuto, modelChoices, offersPlanToggle, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/src/features/conversation/lib/run-settings'
@@ -62,7 +62,7 @@ async function controllerFor(target: ConversationTarget, settings: RunSettings, 
   })
   await controller.load()
   await controller.runOptionsLoaded
-  return { api, controller, savedOptions }
+  return { api, controller, savedOptions, transport: world.transports[0]! }
 }
 
 describe('native run settings in a conversation', () => {
@@ -225,5 +225,49 @@ describe('native permission mode icons', () => {
       const lucide = new RegExp(`'?${mode}'?: \\{[^}]*icon: (\\w+)`).exec(desktop)?.[1] as keyof typeof nativeTwin | undefined
       expect({ mode, icon: PERMISSION_MODE_ICON[mode] }).toEqual({ mode, icon: nativeTwin[lucide!] })
     }
+  })
+})
+
+describe('native model picker check', () => {
+  test('opening the picker brings in a model the host found since its daily check', async () => {
+    // WHY: the picker is where a person looks for a model released today. The
+    // host announces the new list before it answers, and the picker must then
+    // offer the model without a restart of the app.
+    const today = { id: 'claude-today', label: 'Claude Today' }
+    let models = [{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' }]
+    const claude = (): AgentMetadata => ({ id: 'claude-code', label: 'Claude', models, defaultModel: 'claude-sonnet-4-6', capabilities: {} })
+    const profiles = structuredClone(BUNDLED_MODEL_PROFILES)
+    profiles['claude-code'] = { [today.id]: { label: today.label, reasoningLevels: [], supportsFastMode: false }, ...profiles['claude-code'] }
+    const status: ModelProfilesStatus = { source: 'remote', fetchedAt: 2, checkedAt: 2, checking: false, error: null, profiles }
+    let announce = () => {}
+    const { controller, transport } = await controllerFor(
+      { hostId: 'inst-a', newSession: { sessionId: 'n', provider: 'claude-code', workingDirectory: '/w' } },
+      DEFAULT_RUN_SETTINGS,
+      'idle',
+      (api) => api
+        .on('start', () => ({ version: '1', projectPath: '/w', homePath: '/h', agents: [claude()] }))
+        .on('modelProfilesCheck', () => { models = [today, ...models]; announce(); return status }),
+    )
+    announce = () => transport.emit('host.modelProfilesChanged', status)
+    try {
+      expect(controller.agents?.[0]?.models.map((model) => model.id)).toEqual(['claude-sonnet-4-6'])
+      await controller.checkForNewModels()
+      expect(controller.agents?.[0]?.models.map((model) => model.id)).toEqual(['claude-today', 'claude-sonnet-4-6'])
+      expect(MODEL_PROFILES['claude-code']?.['claude-today']?.label).toBe('Claude Today')
+    } finally {
+      replaceModelProfiles(BUNDLED_MODEL_PROFILES)
+    }
+  })
+
+  test('a host without the check keeps the models it listed', async () => {
+    const { controller } = await controllerFor(
+      { hostId: 'inst-a', newSession: { sessionId: 'n', provider: 'codex', workingDirectory: '/w' } },
+      DEFAULT_RUN_SETTINGS,
+      'idle',
+      (api) => api.on('start', () => ({ version: '1', projectPath: '/w', homePath: '/h', agents: [{ id: 'codex', label: 'Codex', models: [], defaultModel: '', capabilities: {} }] })),
+    )
+    const before = controller.agents
+    await controller.checkForNewModels()
+    expect(controller.agents).toBe(before)
   })
 })

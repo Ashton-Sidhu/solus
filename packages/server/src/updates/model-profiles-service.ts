@@ -20,6 +20,8 @@ export const MODEL_PROFILES_CHECK_HOUR = 15
 export const MODEL_PROFILES_CHECK_TIME_ZONE = 'America/New_York'
 /** A laptop that sleeps through 15:00 checks within this long of waking. */
 const MAX_TIMER_MS = 60 * 60_000
+/** A picker open asks for the list no more often than this. */
+export const ON_DEMAND_CHECK_MIN_AGE_MS = 5 * 60_000
 
 /** Downloads the published list. A list this build cannot read is refused: a
  *  newer Solus may publish a field or effort level this one does not know. */
@@ -81,6 +83,18 @@ export class ModelProfilesService {
 
   /** Downloads the published list now. */
   check(): Promise<ModelProfilesStatus> {
+    return this.run(false)
+  }
+
+  /**
+   * Downloads the published list when the host last asked more than five
+   * minutes ago. A model picker asks on each open; GitHub's raw CDN caches
+   * the file for about that long, so a sooner download finds nothing new.
+   */
+  checkIfStale(): Promise<ModelProfilesStatus> {
+    if (this.pending) return this.pending
+    const lastAsked = this.status.checkedAt ?? this.status.fetchedAt ?? -Infinity
+    if (this.now() - lastAsked < ON_DEMAND_CHECK_MIN_AGE_MS) return Promise.resolve(this.status)
     return this.run(false)
   }
 

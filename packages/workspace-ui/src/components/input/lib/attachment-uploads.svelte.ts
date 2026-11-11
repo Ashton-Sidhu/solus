@@ -16,6 +16,11 @@ export type AttachmentUploadState =
   | { status: 'uploading'; loadedBytes: number; totalBytes: number }
   | { status: 'failed'; message: string }
 
+/** How an upload ended for a send that waited on it. */
+export type AttachmentUploadOutcome =
+  | { status: 'landed'; attachment: Attachment }
+  | { status: 'failed'; message: string }
+
 interface StreamedUpload {
   api: Pick<HostApi, 'attachUploadToken'>
   ctx: IpcContext
@@ -32,28 +37,48 @@ interface StreamedUpload {
 const TOKEN_REUSE_MARGIN_MS = 60_000
 
 /**
- * Streamed uploads in flight or failed, keyed by attachment id. The chip shows
- * progress and Retry from here; the composer refuses to send while any of its
- * attachments is listed, because a prompt must not name a file that is not on
- * the host yet.
+ * Uploads in flight or failed, keyed by attachment id. The chip shows progress
+ * and Retry from here. A prompt may be sent while its files upload, but its
+ * turn waits for `landed`, because a prompt must not name a file that is not on
+ * the host yet. A failed upload blocks Send until it is retried or removed.
  */
 class AttachmentUploads {
   private readonly states = new SvelteMap<string, AttachmentUploadState>()
   private readonly uploads = new Map<string, StreamedUpload>()
+  private readonly waiters = new Map<string, Array<(outcome: AttachmentUploadOutcome) => void>>()
 
   stateFor(attachmentId: string): AttachmentUploadState | undefined {
     return this.states.get(attachmentId)
   }
 
-  /** Why a prompt holding these attachments cannot go yet, or null. */
+  isUploading(attachments: Attachment[]): boolean {
+    return attachments.some((attachment) => this.states.get(attachment.id)?.status === 'uploading')
+  }
+
+  /** Why a prompt holding these attachments cannot go, or null. */
   sendBlocker(attachments: Attachment[]): string | null {
-    let hasFailed = false
-    for (const attachment of attachments) {
-      const state = this.states.get(attachment.id)
-      if (state?.status === 'uploading') return 'Wait for the upload to finish.'
-      if (state?.status === 'failed') hasFailed = true
-    }
-    return hasFailed ? 'Retry or remove the failed upload.' : null
+    return attachments.some((attachment) => this.states.get(attachment.id)?.status === 'failed')
+      ? 'Retry or remove the failed upload.'
+      : null
+  }
+
+  /** The attachment as the host holds it once its upload ends, or why it did
+   *  not land. One that is not uploading answers at once. Never rejects. */
+  landed(attachment: Attachment): Promise<AttachmentUploadOutcome> {
+    const state = this.states.get(attachment.id)
+    if (state?.status === 'failed') return Promise.resolve({ status: 'failed', message: state.message })
+    if (state?.status !== 'uploading') return Promise.resolve({ status: 'landed', attachment })
+    return new Promise((resolve) => {
+      const waiting = this.waiters.get(attachment.id) ?? []
+      waiting.push(resolve)
+      this.waiters.set(attachment.id, waiting)
+    })
+  }
+
+  private settle(attachmentId: string, outcome: AttachmentUploadOutcome): void {
+    const waiting = this.waiters.get(attachmentId)
+    this.waiters.delete(attachmentId)
+    for (const resolve of waiting ?? []) resolve(outcome)
   }
 
   /** Mint the upload URL, then send bytes in the background. Invalid size or
@@ -96,19 +121,29 @@ class AttachmentUploads {
     return attachment
   }
 
-  /** Mark a chip as uploading while `upload` runs, so send waits for it.
-   *  `cancelled` means the chip was removed before the upload ended. */
-  async hold<T>(
+  /** Mark a chip as uploading while `upload` runs, so a sent turn waits for
+   *  it. `cancelled` means the chip was removed before the upload ended; a null
+   *  attachment means there is nothing to attach. */
+  async hold(
     attachmentId: string,
     totalBytes: number,
-    upload: () => Promise<T>,
-  ): Promise<{ status: 'done'; attachment: T } | { status: 'cancelled' }> {
+    upload: () => Promise<Attachment | null>,
+  ): Promise<{ status: 'done'; attachment: Attachment | null } | { status: 'cancelled' }> {
     this.states.set(attachmentId, { status: 'uploading', loadedBytes: 0, totalBytes })
+    let outcome: AttachmentUploadOutcome = { status: 'failed', message: 'The upload was removed.' }
     try {
       const attachment = await upload()
-      return this.states.has(attachmentId) ? { status: 'done', attachment } : { status: 'cancelled' }
+      if (!this.states.has(attachmentId)) return { status: 'cancelled' }
+      outcome = attachment
+        ? { status: 'landed', attachment: { ...attachment, id: attachmentId } }
+        : { status: 'failed', message: 'The attachment could not be added.' }
+      return { status: 'done', attachment }
+    } catch (error) {
+      outcome = { status: 'failed', message: error instanceof Error ? error.message : 'The upload failed.' }
+      throw error
     } finally {
       this.states.delete(attachmentId)
+      this.settle(attachmentId, outcome)
     }
   }
 
@@ -122,6 +157,7 @@ class AttachmentUploads {
     this.uploads.get(attachmentId)?.abort?.abort()
     this.uploads.delete(attachmentId)
     this.states.delete(attachmentId)
+    this.settle(attachmentId, { status: 'failed', message: 'The upload was removed.' })
   }
 
   private async send(attachmentId: string): Promise<void> {
@@ -154,14 +190,14 @@ class AttachmentUploads {
       upload.attachment.path = token.hostPath
       this.uploads.delete(attachmentId)
       this.states.delete(attachmentId)
+      this.settle(attachmentId, { status: 'landed', attachment: upload.attachment })
     } catch (error) {
       if (this.uploads.get(attachmentId) !== upload || abort.signal.aborted) return
       // Reuse the path: the host removes partial files and acknowledges a
       // completed upload again if its first success response was lost.
-      this.states.set(attachmentId, {
-        status: 'failed',
-        message: error instanceof Error ? error.message : 'The upload failed.',
-      })
+      const message = error instanceof Error ? error.message : 'The upload failed.'
+      this.states.set(attachmentId, { status: 'failed', message })
+      this.settle(attachmentId, { status: 'failed', message })
     }
   }
 }

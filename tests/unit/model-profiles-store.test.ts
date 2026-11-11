@@ -26,7 +26,7 @@ async function fixture(refresh: () => Promise<ModelProfilesStatus>) {
   const { ModelProfilesStore } = await import('@solus/workspace-ui/contexts/updates/model-profiles.store.svelte')
   return new ModelProfilesStore({
     readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }), capabilitiesFor: async () => ({ modelProfiles: true }),
-    apiFor: () => ({ modelProfilesStatus: refresh, modelProfilesRefresh: refresh }),
+    apiFor: () => ({ modelProfilesStatus: refresh, modelProfilesRefresh: refresh, modelProfilesCheck: refresh }),
     connectedServerIds: () => [], onConnectionCreated: () => () => {}, onReadinessChange: () => () => {},
   })
 }
@@ -54,4 +54,18 @@ test('a refresh the host refuses is reported on that host, and the list in effec
   expect(store.errors.get('laptop')).toContain('host administrator')
   expect(store.refreshing.has('laptop')).toBe(false)
   expect(MODEL_PROFILES['claude-code']?.['model-new']).toBeDefined()
+})
+
+test('an opened model picker brings in a model the host found, and a host without the check changes nothing', async () => {
+  // WHY: the picker is where a person looks for a model released today. Its
+  // check must put the host's new list in effect, and an older host that does
+  // not know the check must not show an error in the picker.
+  const store = await fixture(async () => remote('model-today', 3_000))
+  await store.checkForNewModels('laptop')
+  expect(MODEL_PROFILES['claude-code']?.['model-today']).toBeDefined()
+
+  const older = await fixture(async () => { throw new Error('Unknown method: modelProfilesCheck') })
+  await older.checkForNewModels('server')
+  expect(older.errors.size).toBe(0)
+  expect(older.statuses.size).toBe(0)
 })

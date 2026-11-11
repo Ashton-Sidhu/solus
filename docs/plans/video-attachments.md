@@ -157,6 +157,14 @@ result tells the agent GitHub's reason.
 - `attachment-upload.ts` and `ws-transport.ts`: use the token upload for all
   videos and for files larger than the RPC limit. Show upload progress on the
   chip. Show Retry when the upload fails.
+- Send works while an upload runs (a port of T3 Code #33092). The message shows
+  at once and the composer clears. The turn waits for the upload, because the
+  prompt names the file by its host path (`PromptDispatch.sendWhenUploaded` on
+  desktop and web, `ConversationController.send` on mobile). If an upload
+  fails, nothing is sent: the error shows, and the text and the files come back
+  to the composer. A failed upload blocks Send until Retry or remove. A
+  suggestion and an edit of a queued message on mobile still wait for their
+  uploads before Send.
 - Desktop with a local host: send the path. No upload is necessary.
 - Web picker: add an `accept` value that includes `video/*`.
 - `AttachmentChips.svelte`: show a poster frame and the duration for videos. Open

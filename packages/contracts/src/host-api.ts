@@ -580,6 +580,9 @@ export interface SolusAPI {
   /** Drops the cached list and downloads the published one now. If GitHub
    *  cannot be reached, the host runs on the list its build shipped with. */
   modelProfilesRefresh(): Promise<ModelProfilesStatus>
+  /** A model picker opened: downloads the published list if the host last
+   *  asked more than five minutes ago, so a new model shows without the daily check. */
+  modelProfilesCheck(): Promise<ModelProfilesStatus>
 
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>

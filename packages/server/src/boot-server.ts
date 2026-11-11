@@ -1124,6 +1124,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
+  server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),

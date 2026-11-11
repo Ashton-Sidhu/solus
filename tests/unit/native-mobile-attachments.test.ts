@@ -135,3 +135,81 @@ describe('native attachments in a conversation', () => {
     expect(uploadContexts.at(-1)?.session.draftId).toBeUndefined()
   })
 })
+
+// Send works while a file uploads (T3 Code #33092): the message shows at once
+// and goes to the host when its files land. A failed upload sends nothing and
+// gives the text and the landed files back to the composer.
+describe('native send while an attachment uploads', () => {
+  async function uploadingConversation() {
+    const uploads: Array<{ resolve: (path: string) => void; reject: (error: Error) => void }> = []
+    const api = new FakeApi()
+      .on('watchSession', () => ({}))
+      .on('serverGetCapabilities', () => ({ promptImageRefs: true }))
+      .on('attachUpload', (_ctx: IpcContext, request: AttachmentUploadRequest) =>
+        new Promise<string>((resolve, reject) => { uploads.push({ resolve: () => resolve(`/h/${request.name}`), reject }) }))
+      .on('prompt', () => ({ disposition: 'started' }))
+    const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
+    await world.registry.load()
+    await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 't')
+    const connection = world.connections.connection('inst-a')!
+    await world.transports[0]!.accept()
+    const storage = memoryKeyValueStore()
+    let next = 0
+    const controller = new ConversationController({ hostId: 'inst-a', newSession: { sessionId: 'new-1', provider: 'claude-code', workingDirectory: '/w' } }, {
+      executionPreferences: () => ({}),
+      connection,
+      outbox: new SendOutbox(() => storage),
+      runSettings: async () => DEFAULT_RUN_SETTINGS,
+      organizationId: () => null,
+      uuid: () => `id-${++next}`,
+      attachmentIo: fakeIo().io,
+      onChange: () => {},
+    })
+    await controller.load()
+    return { api, controller, uploads }
+  }
+  const userTexts = (controller: ConversationController) =>
+    [...controller.model.items.values()].flatMap((item) => (item.kind === 'user' ? [item.text] : []))
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+
+  test('the message shows at once; the prompt goes, naming the file, when the upload lands', async () => {
+    const { api, controller, uploads } = await uploadingConversation()
+    const attaching = controller.attach([doc])
+    await settle()
+    expect(controller.uploading).toBe(1)
+
+    const sending = controller.send('What is wrong here?')
+    await settle()
+    expect(userTexts(controller)).toEqual(['What is wrong here?'])
+    // The upload belongs to the sent message now, not to the composer.
+    expect(controller.uploading).toBe(0)
+    expect(api.callsOf('prompt')).toHaveLength(0)
+
+    uploads[0]!.resolve('/h/spec.pdf')
+    await Promise.all([attaching, sending])
+    const [, options] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
+    expect(options.prompt).toBe('[Attached file: /h/spec.pdf]\n\nWhat is wrong here?')
+    // The landed file went with the message; it does not stay for the next one.
+    expect(controller.attachments).toEqual([])
+  })
+
+  test('a failed upload sends nothing and gives back the text and the files that landed', async () => {
+    const { api, controller, uploads } = await uploadingConversation()
+    const attaching = controller.attach([photo, doc])
+    await settle()
+    uploads[0]!.resolve('/h/photo.jpg')
+    await settle()
+    const sending = controller.send('Review these')
+    await settle()
+    uploads[1]!.reject(new Error('offline'))
+    await Promise.all([attaching, sending])
+
+    expect(api.callsOf('prompt')).toHaveLength(0)
+    expect(userTexts(controller)).toEqual([])
+    expect(controller.attachments.map((attachment) => attachment.name)).toEqual(['photo.jpg'])
+    const notices = [...controller.model.items.values()].flatMap((item) => (item.kind === 'notice' ? [item.text] : []))
+    expect(notices.some((text) => text.includes('not sent'))).toBe(true)
+    expect(controller.takeUnsentText()).toBe('Review these')
+    expect(controller.takeUnsentText()).toBeNull()
+  })
+})

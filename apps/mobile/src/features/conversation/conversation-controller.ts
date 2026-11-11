@@ -1,12 +1,12 @@
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, SessionStatus, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
-import { isSessionBusyStatus, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
+import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
@@ -99,6 +99,11 @@ export function conversationOutboxPrefix(hostId: string): string {
   return `solus.sendOutbox.v1.${hostId}/`
 }
 
+/** An upload in flight. `landed` is the host's copy, or null when it failed. */
+interface InFlightUpload {
+  readonly landed: Promise<UploadedAttachment | null>
+}
+
 export class ConversationController {
   model: TranscriptModel
   phase: ConversationPhase = { kind: 'loading' }
@@ -108,7 +113,13 @@ export class ConversationController {
   startedBy: SessionStarterFromHost | null = null
   /** Uploaded to the host, waiting for the next prompt. */
   attachments: readonly UploadedAttachment[] = []
-  uploading = 0
+  /** The text of a prompt that did not go because one of its uploads failed.
+   *  The composer takes it back with `takeUnsentText`. */
+  unsentText: string | null = null
+  /** Uploads in flight that no prompt took yet. */
+  private uploads: InFlightUpload[] = []
+  /** The last prompt that waits for its uploads or for an earlier prompt. */
+  private heldSend: Promise<void> | null = null
   queue: SessionQueueSnapshot = { held: false, entries: [] }
   /** The provider that owns the session's provider thread now; null before a
    *  prompt starts one. `run.provider` is the picked provider: the next prompt
@@ -391,6 +402,25 @@ export class ConversationController {
     this.settleRun()
   }
 
+  /**
+   * The model picker opened: the host downloads the published model list if it
+   * last asked more than five minutes ago (`docs/model-profiles.md`), so a
+   * model released today shows. A host that found a new list sends
+   * `host.modelProfilesChanged` before its answer, and the host's facts read
+   * the agents again, so the picker gets the new models. An older host does
+   * not know the check; the list in effect stays.
+   */
+  async checkForNewModels(): Promise<void> {
+    const { connection } = this.deps
+    const status = await connection.api.modelProfilesCheck().catch(() => null)
+    if (!status || this.closed) return
+    replaceModelProfiles(status.profiles)
+    const agents = await hostAgents(connection)
+    if (!agents || this.closed) return
+    this.agents = agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
+    this.flush(true)
+  }
+
   /** What the host's agents offer, and whether Auto can route here. A host
    *  that cannot answer leaves every choice open, as the desktop does. */
   private async loadRunOptions(generation: number): Promise<void> {
@@ -504,16 +534,76 @@ export class ConversationController {
     if (this.run.provider === 'codex' && /^\/compact(?:\s|$)/.test(prompt)) return this.compact(prompt)
     const authCommand = parseAgentAuthCommand(prompt, this.run.provider)
     if (authCommand) return this.auth.run(authCommand, this.run.workingDirectory)
+    // The prompt takes the uploads still in flight: it shows now and goes when they land.
+    const waiting = this.uploads
     const attachments = this.attachments
-    if (!prompt && attachments.length === 0) return
+    if (!prompt && attachments.length === 0 && waiting.length === 0) return
     const clientPromptId = this.deps.uuid()
     const busy = isSessionBusyStatus(this.model.status)
+    const statusBefore = this.model.status
     if (options.permissionMode) this.run.permissionMode = options.permissionMode
     this.attachments = []
+    this.uploads = []
     if (!this.started && !this.run.agentSessionId && prompt && this.openingPrompt === null) this.openingPrompt = prompt
     this.model.addOptimisticUser(clientPromptId, prompt, 'sending', uploadedMessageAttachments(attachments))
     if (!busy && !this.queue.entries.length && !this.queue.held) this.model.setStatus('connecting')
     this.flush(true)
+    // A later prompt waits behind one that waits, so the host gets them in order.
+    const before = this.heldSend
+    let release = () => {}
+    if (waiting.length > 0 || before) {
+      const held = new Promise<void>((resolve) => { release = resolve })
+      this.heldSend = held
+      void held.then(() => { if (this.heldSend === held) this.heldSend = null })
+    }
+    try {
+      await before
+      const ready = await this.landedAttachments(clientPromptId, prompt, attachments, waiting, statusBefore)
+      if (!ready) return
+      await this.enqueuePrompt(clientPromptId, prompt, ready, busy, options.delivery)
+    } finally {
+      release()
+    }
+    await this.drainOutbox(true)
+  }
+
+  /** The prompt's files once the uploads it took land, or null when it will
+   *  not go. Then nothing reaches the host: the text and the files that did
+   *  land go back to the composer, and a notice says why. */
+  private async landedAttachments(
+    clientPromptId: string,
+    prompt: string,
+    attachments: readonly UploadedAttachment[],
+    waiting: readonly InFlightUpload[],
+    statusBefore: SessionStatus,
+  ): Promise<readonly UploadedAttachment[] | null> {
+    if (waiting.length === 0) return attachments
+    const landed = await Promise.all(waiting.map((upload) => upload.landed))
+    const uploaded = landed.filter((attachment): attachment is UploadedAttachment => attachment !== null)
+    const all = [...attachments, ...uploaded]
+    if (this.closed) return null
+    if (uploaded.length < landed.length) {
+      this.model.dropOptimisticUser(clientPromptId)
+      if (this.openingPrompt === prompt) this.openingPrompt = null
+      if (this.model.status === 'connecting') this.model.setStatus(statusBefore)
+      this.attachments = [...all, ...this.attachments]
+      this.unsentText = prompt
+      this.model.addNotice('The message was not sent because an attachment did not upload.', 'error')
+      this.flush(true)
+      return null
+    }
+    this.model.setOptimisticAttachments(clientPromptId, uploadedMessageAttachments(all))
+    this.flush(true)
+    return all
+  }
+
+  private async enqueuePrompt(
+    clientPromptId: string,
+    prompt: string,
+    attachments: readonly UploadedAttachment[],
+    busy: boolean,
+    delivery: 'queue' | 'steer' | undefined,
+  ): Promise<void> {
     const hostReadsImageRefs = attachments.some((attachment) => attachment.kind === 'image')
       && hasHostCapability(await this.deps.connection.facts.when('capabilities'), 'promptImageRefs')
     const composed = composePrompt(prompt, attachments, hostReadsImageRefs)
@@ -522,13 +612,12 @@ export class ConversationController {
       sessionId: this.run.sessionId,
       text: prompt,
       enqueuedAt: Date.now(),
-      payload: { ...composed, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? options.delivery ?? 'steer' : undefined,
+      payload: { ...composed, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
         queueAttachments: attachments.map((attachment) => ({ id: attachment.id, type: attachment.kind, name: attachment.name,
           hostPath: attachment.hostPath, mimeType: attachment.mimeType, size: attachment.size })),
         queueAttachmentContext: attachments.filter((attachment) => attachment.kind === 'file').map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n'),
       },
     })
-    await this.drainOutbox(true)
   }
 
   /** Runs the host command and leaves refused requests visible in the transcript. */
@@ -543,7 +632,21 @@ export class ConversationController {
     this.flush()
   }
 
-  /** Uploads picked files to the host now, so the prompt can name them. */
+  /** Uploads not yet taken by a prompt. */
+  get uploading(): number {
+    return this.uploads.length
+  }
+
+  /** The composer takes back the text of a prompt that did not go. */
+  takeUnsentText(): string | null {
+    const text = this.unsentText
+    this.unsentText = null
+    this.flush(true)
+    return text
+  }
+
+  /** Uploads picked files to the host now, so the prompt can name them. A
+   *  prompt sent before they land takes them and waits for them. */
   async attach(files: readonly PickedFile[]): Promise<void> {
     const io = this.deps.attachmentIo
     if (!io || files.length === 0) return
@@ -553,24 +656,37 @@ export class ConversationController {
       this.flush()
       return
     }
-    this.uploading += files.length
+    let previous: Promise<unknown> = Promise.resolve()
+    const uploads = files.map((file) => {
+      const landed = previous.then(() => this.uploadOne(file, io, upload))
+      const upload: InFlightUpload = { landed }
+      previous = landed
+      return upload
+    })
+    this.uploads = [...this.uploads, ...uploads]
     this.flush(true)
-    for (const file of files) {
-      try {
-        const uploaded = await uploadAttachment(file, {
-          api: this.deps.connection.api,
-          ctx: this.uploadContext(),
-          serverUrl: this.deps.connection.transport.serverUrl,
-          io,
-          uuid: this.deps.uuid,
-        })
-        if (!this.closed) this.attachments = [...this.attachments, uploaded]
-      } catch (error) {
-        this.model.addNotice(`${file.name} was not attached: ${error instanceof Error ? error.message : String(error)}`, 'error')
-      } finally {
-        this.uploading -= 1
-        this.flush(true)
-      }
+    await previous
+  }
+
+  /** One upload, in order. It joins the composer's attachments unless a sent
+   *  prompt took it; then that prompt gets it from `landed`. */
+  private async uploadOne(file: PickedFile, io: AttachmentIo, upload: InFlightUpload): Promise<UploadedAttachment | null> {
+    try {
+      const uploaded = await uploadAttachment(file, {
+        api: this.deps.connection.api,
+        ctx: this.uploadContext(),
+        serverUrl: this.deps.connection.transport.serverUrl,
+        io,
+        uuid: this.deps.uuid,
+      })
+      if (!this.closed && this.uploads.includes(upload)) this.attachments = [...this.attachments, uploaded]
+      return uploaded
+    } catch (error) {
+      this.model.addNotice(`${file.name} was not attached: ${error instanceof Error ? error.message : String(error)}`, 'error')
+      return null
+    } finally {
+      this.uploads = this.uploads.filter((each) => each !== upload)
+      this.flush(true)
     }
   }
 

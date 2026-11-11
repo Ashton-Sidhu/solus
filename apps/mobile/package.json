@@ -59,7 +59,7 @@
     "pele": "^1.13.0",
     "react": "19.3.0",
     "react-native": "0.88.0",
-    "react-native-enriched-markdown": "file:deps/react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz",
+    "react-native-enriched-markdown": "file:deps/react-native-enriched-markdown-1.2.0-t3.18-497fbe63.tgz",
     "react-native-gesture-handler": "~3.2.1",
     "react-native-image-viewing": "^0.2.2",
     "react-native-keyboard-controller": "1.22.7",

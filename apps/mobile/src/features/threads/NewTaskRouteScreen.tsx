@@ -633,11 +633,9 @@ function NewTaskDraftContent(props: {
   const projectTitle = scope?.title ?? (hostPathBaseName(props.projectPath) || "project");
   const attachmentsFull = meta.attachments.length + meta.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT;
   const isComposerInteractionLocked = submitting;
-  const canStart =
-    !submitting &&
-    meta.phase.kind === "ready" &&
-    meta.uploading === 0 &&
-    prompt.trim().length > 0;
+  // The task may start while its files upload: the thread shows the prompt at
+  // once and the turn goes when they land (`ConversationController.send`).
+  const canStart = !submitting && meta.phase.kind === "ready" && prompt.trim().length > 0;
 
   const closeNewTask = () => {
     void KeyboardController.dismiss({ animated: true });
@@ -929,15 +927,7 @@ function NewTaskDraftContent(props: {
                   )}
                 </View>
                 <ComposerActionButton
-                  accessibilityLabel={
-                    meta.uploading > 0
-                      ? "Uploading attachments"
-                      : submitting
-                        ? "Starting task"
-                        : connected
-                          ? "Start task"
-                          : "Queue task"
-                  }
+                  accessibilityLabel={submitting ? "Starting task" : connected ? "Start task" : "Queue task"}
                   disabled={!canStart}
                   icon={connected ? "arrow.up" : "tray.and.arrow.up"}
                   onPress={() => void handleStart()}

@@ -124,3 +124,27 @@ test('clearing the cache when GitHub cannot be reached goes back to the list in 
   expect(existsSync(cachePath)).toBe(false)
   expect(MODEL_PROFILES['claude-code']?.['claude-sonnet-next']).toBeUndefined()
 })
+
+test('an opened model picker finds a model published since the daily check, at most every five minutes', async () => {
+  // WHY: the daily check can leave a new model out of the picker for a day. A
+  // picker open asks again, but each open must not cost a GitHub download:
+  // the raw CDN caches the file for about five minutes, so a sooner download
+  // finds nothing new.
+  let published: ModelProfiles = structuredClone(BUNDLED_MODEL_PROFILES)
+  const clock = { now: Date.UTC(2026, 10, 10, 12), download: async () => published }
+  const { service, downloads } = fixture(clock)
+  await service.check()
+  expect(downloads()).toBe(1)
+
+  published = publishedList()
+  clock.now += 4 * 60_000
+  await service.checkIfStale()
+  expect(downloads()).toBe(1)
+  expect(MODEL_PROFILES['claude-code']?.['claude-sonnet-next']).toBeUndefined()
+
+  clock.now += 2 * 60_000
+  const status = await service.checkIfStale()
+  expect(downloads()).toBe(2)
+  expect(status.profiles['claude-code']?.['claude-sonnet-next']?.label).toBe('Sonnet Next')
+  expect(MODEL_PROFILES['claude-code']?.['claude-sonnet-next']?.label).toBe('Sonnet Next')
+})

@@ -134,6 +134,8 @@ const PERMISSION_OF_METHOD = {
   // What the composer offers: the agents here and the models they run.
   start: 'host.agents.read',
   modelProfilesStatus: 'host.models.read',
+  // A model picker opened: costs one download at most every five minutes.
+  modelProfilesCheck: 'host.models.read',
   // The card shows the statuses of sessions the caller can list.
   liveActivityRegister: 'host.sessions.read',
   liveActivityUnregister: 'host.sessions.read',

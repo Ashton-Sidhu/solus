@@ -352,6 +352,8 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     )
       return false;
     if (isConnecting) return false;
+    // A prompt may go while its files upload: its turn waits for them
+    // (`PromptDispatch`). A failed upload must be retried or removed first.
     const uploadBlocker = attachmentUploads.sendBlocker(attachments);
     if (uploadBlocker) {
       toasts.info(uploadBlocker);
@@ -360,7 +362,15 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     }
 
     // A suggestion is only text and files for someone else to send: no command runs from it.
-    if (getOptions().suggestsOnly) return sendSuggestion(text);
+    // It carries only files already on the host, so it waits for its uploads here.
+    if (getOptions().suggestsOnly) {
+      if (attachmentUploads.isUploading(attachments)) {
+        toasts.info("Wait for the upload to finish.");
+        refocusComposer();
+        return false;
+      }
+      return sendSuggestion(text);
+    }
 
     if (/^\/goal(?:\s|$)/.test(text)) {
       void handleGoalCommand(text.slice("/goal".length));
@@ -598,7 +608,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
         }
         const dataUrl = await readFileDataUrl(blob);
         // The chip shows at once with its thumbnail; on a remote host the
-        // upload can take seconds. Send waits while the chip is uploading.
+        // upload can take seconds. A turn sent meanwhile waits for it.
         const placeholder = pastedImageAttachment(dataUrl, serverId);
         prompt.attachments.push(placeholder);
         imageUploads.push(finishPastedImage(placeholder, async () => {
@@ -620,7 +630,8 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       const indexOfPlaceholder = () => prompt.attachments.findIndex((a) => a.id === placeholder.id);
       try {
         const result = await attachmentUploads.hold(placeholder.id, placeholder.size ?? 0, upload);
-        // The user removed the chip while it uploaded.
+        // The user removed the chip while it uploaded. A prompt sent meanwhile
+        // took the chip with it and got the upload from `landed`.
         if (result.status === 'cancelled') return;
         const index = indexOfPlaceholder();
         if (index < 0) return;
