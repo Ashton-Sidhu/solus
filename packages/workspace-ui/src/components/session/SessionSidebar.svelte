@@ -173,10 +173,28 @@
   let completedShelfOpen = $state(false);
 
   function toggleSection(section: SidebarSection) {
-    if (section === "shared") sharedSectionOpen = !sharedSectionOpen;
-    else if (section === "working") workingSectionOpen = !workingSectionOpen;
-    else if (section === "snoozed") snoozedShelfOpen = !snoozedShelfOpen;
-    else completedShelfOpen = !completedShelfOpen;
+    let isOpen: boolean;
+    if (section === "shared") isOpen = sharedSectionOpen = !sharedSectionOpen;
+    else if (section === "working") isOpen = workingSectionOpen = !workingSectionOpen;
+    else if (section === "snoozed") isOpen = snoozedShelfOpen = !snoozedShelfOpen;
+    else isOpen = completedShelfOpen = !completedShelfOpen;
+    if (isOpen) tick().then(() => requestAnimationFrame(() => revealOpenedSection(section)));
+  }
+  /** A section opened at the bottom of a scrolled list puts its rows below
+   *  the fold. Scroll just enough to show its last row, but never past its
+   *  header. */
+  function revealOpenedSection(section: SidebarSection) {
+    if (!scrollEl) return;
+    const header = scrollEl.querySelector<HTMLElement>(`[data-sidebar-section-header="${section}"]`);
+    const rows = scrollEl.querySelectorAll<HTMLElement>(`[data-sidebar-section="${section}"]`);
+    const lastRow = rows[rows.length - 1];
+    if (!header || !lastRow) return;
+    const padding = 8;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const hiddenBelow = lastRow.getBoundingClientRect().bottom - scrollRect.bottom + padding;
+    if (hiddenBelow <= 0) return;
+    const roomAboveHeader = header.getBoundingClientRect().top - scrollRect.top - padding;
+    scrollEl.scrollTop += Math.min(hiddenBelow, Math.max(0, roomAboveHeader));
   }
   /** A snoozable row. Snoozing hides a row under the Snoozed shelf until its
    *  wake time; it says nothing about the work, so a row needs no task to have

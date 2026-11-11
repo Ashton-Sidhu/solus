@@ -98,6 +98,18 @@ describe('thread list partition', () => {
     expect(layout.snoozedCount).toBe(1)
   })
 
+  test('a shelf that holds only the thread open beside it has no toggle', () => {
+    // WHY: a collapsed shelf still shows that thread, so a toggle would hide nothing.
+    const layout = buildThreadListV2Items({
+      threads: [active, settled, snoozed], facts: state, hostId: null, searchQuery: '', now: NOW,
+      snoozedShelfExpanded: false, settledShelfExpanded: false, selectedThreadKey: settled.key,
+    })
+    expect(layout).toMatchObject({ settledShelfCollapsible: false, snoozedShelfCollapsible: true })
+    const items = buildThreadListV2ListItems({ ...layout, items: layout.items, facts: state })
+    expect(items.find((item) => item.type === 'v2-settled-shelf')).toMatchObject({ collapsible: false })
+    expect(items.find((item) => item.type === 'v2-snoozed-shelf')).toMatchObject({ collapsible: true })
+  })
+
   test('host, project, and search filters narrow the list; search also matches the branch and pull requests', () => {
     const onBranch = shell('h1', 'b', { branch: 'fix/login', title: 'Unrelated' })
     // The record carries its links; no separate pull request read.

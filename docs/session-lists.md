@@ -101,6 +101,11 @@ other personal settings. The default is **By status**.
 
 - **By status** shows the sessions, then Shared with you, the Working
   section, and the Snoozed and Completed shelves.
+- A closed section or shelf still shows the session that is on screen. When
+  that session is its only row, the header is a plain label and count, with
+  no toggle, because closing it would hide nothing. When a section opens at
+  the bottom of the list, the list scrolls just enough to show its last row,
+  and never past its header.
 - **By project** shows one folder per project for the open sessions,
   working or not, in the project filter's order. In a folder, the session that
   you last sent a prompt to is first. A reply, a wake, or an automation prompt

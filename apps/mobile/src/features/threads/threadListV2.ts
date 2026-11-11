@@ -317,6 +317,9 @@ export interface ThreadListV2Layout {
   /** Index in `items` where the Snoozed shelf header belongs. The header is
       still rendered when the shelf is collapsed and no snoozed rows exist. */
   readonly snoozedShelfHeaderIndex: number | null;
+  /** The Snoozed shelf holds a thread other than the selected one, so its
+      toggle can hide something. */
+  readonly snoozedShelfCollapsible: boolean;
   /** Threads another person owns that are in this person's list. */
   readonly sharedCount: number;
   /** Index in `items` where the Shared with you header belongs. */
@@ -325,6 +328,8 @@ export interface ThreadListV2Layout {
   readonly settledCount: number;
   /** Index in `items` where the Settled shelf header belongs. */
   readonly settledShelfHeaderIndex: number | null;
+  /** The Settled shelf holds a thread other than the selected one. */
+  readonly settledShelfCollapsible: boolean;
   /** Archived threads the search found; zero while nothing is searched. */
   readonly archivedCount: number;
   /** Index in `items` where the Archived section header belongs. */
@@ -366,6 +371,9 @@ export interface ThreadListV2SnoozedShelfListItem {
   readonly count: number;
   readonly expanded: boolean;
   readonly disabled: boolean;
+  /** False when the shelf holds only the selected thread: a collapsed shelf
+      still shows it, so a toggle would hide nothing. */
+  readonly collapsible: boolean;
 }
 
 export interface ThreadListV2SettledShelfListItem {
@@ -374,6 +382,9 @@ export interface ThreadListV2SettledShelfListItem {
   readonly count: number;
   readonly expanded: boolean;
   readonly disabled: boolean;
+  /** False when the shelf holds only the selected thread: a collapsed shelf
+      still shows it, so a toggle would hide nothing. */
+  readonly collapsible: boolean;
 }
 
 export interface ThreadListV2SharedSectionListItem {
@@ -480,14 +491,16 @@ export function threadListV2ListItemsAreEqual(
         previous.type === "v2-snoozed-shelf" &&
         previous.count === item.count &&
         previous.expanded === item.expanded &&
-        previous.disabled === item.disabled
+        previous.disabled === item.disabled &&
+        previous.collapsible === item.collapsible
       );
     case "v2-settled-shelf":
       return (
         previous.type === "v2-settled-shelf" &&
         previous.count === item.count &&
         previous.expanded === item.expanded &&
-        previous.disabled === item.disabled
+        previous.disabled === item.disabled &&
+        previous.collapsible === item.collapsible
       );
     case "v2-archived-section":
       return previous.type === "v2-archived-section" && previous.count === item.count;
@@ -556,9 +569,11 @@ export function buildThreadListV2ListItems(input: {
   readonly snoozedCount?: number;
   readonly snoozedShelfExpanded?: boolean;
   readonly snoozedShelfHeaderIndex?: number | null;
+  readonly snoozedShelfCollapsible?: boolean;
   readonly settledCount?: number;
   readonly settledShelfExpanded?: boolean;
   readonly settledShelfHeaderIndex?: number | null;
+  readonly settledShelfCollapsible?: boolean;
   readonly archivedCount?: number;
   readonly archivedHeaderIndex?: number | null;
   /** True while the shelf expansion preferences are still loading. */
@@ -614,6 +629,7 @@ export function buildThreadListV2ListItems(input: {
       count: snoozedCount,
       expanded: input.snoozedShelfExpanded === true,
       disabled: shelfDisabled,
+      collapsible: input.snoozedShelfCollapsible !== false,
     });
     result.push(...threadItems.slice(snoozedShelfHeaderIndex, snoozedEnd));
   }
@@ -624,6 +640,7 @@ export function buildThreadListV2ListItems(input: {
       count: settledCount,
       expanded: input.settledShelfExpanded !== false,
       disabled: shelfDisabled,
+      collapsible: input.settledShelfCollapsible !== false,
     });
     result.push(...threadItems.slice(settledShelfHeaderIndex, settledEnd));
   }
@@ -842,8 +859,10 @@ export function buildThreadListV2Items(input: {
     sharedHeaderIndex,
     snoozedCount: orderedSnoozed.length,
     snoozedShelfHeaderIndex,
+    snoozedShelfCollapsible: orderedSnoozed.some((thread) => thread.key !== selectedThreadKey),
     settledCount: orderedSettled.length,
     settledShelfHeaderIndex,
+    settledShelfCollapsible: orderedSettled.some((thread) => thread.key !== selectedThreadKey),
     archivedCount: archived.length,
     archivedHeaderIndex,
     nextSnoozeWakeAt,

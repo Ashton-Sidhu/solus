@@ -156,6 +156,7 @@
           section={item.section}
           count={item.count}
           isOpen={item.isOpen}
+          canToggle={item.canToggle}
           followsHeader={items[index - 1]?.kind === "header"}
           hasRowsBelow={items[index + 1]?.kind === "task"}
           onToggle={() => onToggleSection(item.section)}
@@ -172,6 +173,7 @@
              containment. -->
         <div
           data-folder={item.folderKey}
+          data-sidebar-section={item.section}
           class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.folderKey === undefined && (item.section === 'sessions' ||
           item.section === 'shared' ||
           item.section === 'working')

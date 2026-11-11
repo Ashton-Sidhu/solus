@@ -178,6 +178,8 @@ function ThreadListV2Section(props: {
 
 type ThreadListV2ShelfHeaderProps = {
   readonly count: number;
+  /** False shows a plain label and count: the shelf holds only the selected thread. */
+  readonly collapsible: boolean;
   readonly disabled?: boolean;
   readonly expanded: boolean;
   readonly onToggle: () => void;
@@ -194,13 +196,17 @@ function ThreadListV2ShelfHeader(
       count={props.count}
       pane={props.pane}
       tone={props.kind === "snoozed" ? "snoozed" : "default"}
-      disclosure={{
-        expanded: props.expanded,
-        disabled: props.disabled,
-        onToggle: props.onToggle,
-        accessibilityLabel: `${props.count} ${props.kind} ${props.count === 1 ? "thread" : "threads"}`,
-        accessibilityHint: `${props.expanded ? "Collapses" : "Expands"} the ${props.kind} threads.`,
-      }}
+      disclosure={
+        props.collapsible
+          ? {
+              expanded: props.expanded,
+              disabled: props.disabled,
+              onToggle: props.onToggle,
+              accessibilityLabel: `${props.count} ${props.kind} ${props.count === 1 ? "thread" : "threads"}`,
+              accessibilityHint: `${props.expanded ? "Collapses" : "Expands"} the ${props.kind} threads.`,
+            }
+          : undefined
+      }
     />
   );
 }

@@ -15,7 +15,9 @@ export type SidebarListItem =
   /** `folderKey` names the project folder a draft sits in, in the project view. */
   | { kind: 'draft'; key: string; draft: DraftRow; folderKey?: string }
   | { kind: 'drafts-divider'; key: string }
-  | { kind: 'header'; key: string; section: SidebarSection; count: number; isOpen: boolean }
+  /** `canToggle` is false when the section holds only the row on screen: a
+   *  closed section still shows that row, so a toggle would hide nothing. */
+  | { kind: 'header'; key: string; section: SidebarSection; count: number; isOpen: boolean; canToggle: boolean }
   /** A project folder's header, in the project view only. */
   | { kind: 'folder'; key: string; folder: SidebarFolder }
   /** `folderKey` names the project folder a row sits in, in the project view. */
@@ -64,7 +66,14 @@ export function sectionItems(
   if (tasks.length === 0) return []
   const shown = isOpen ? tasks : tasks.filter((task) => task.id === shelfRevealTaskId)
   return [
-    { kind: 'header', key: `header:${name}`, section: name, count: tasks.length, isOpen },
+    {
+      kind: 'header',
+      key: `header:${name}`,
+      section: name,
+      count: tasks.length,
+      isOpen,
+      canToggle: tasks.some((task) => task.id !== shelfRevealTaskId),
+    },
     ...shown.map((task) => taskItem(task, name)),
   ]
 }
