@@ -1,6 +1,13 @@
 import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHostContext, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
 
 /**
+ * The three host calls a frame's app makes, bound to what the app is: a
+ * captured MCP App answers them through its session activity, an `app` work
+ * (docs/plans/apps.md) through its work id. The frame is the same either way.
+ */
+export type McpAppCalls = Pick<McpAppHostOptions, 'toolInfo' | 'callTool' | 'readResource'>
+
+/**
  * Connects an app iframe to its bridge. Only the frame's own messages reach the
  * bridge. A second load of the frame is a navigation: the bridge stops and
  * `onNavigated` runs. `disconnect` removes the listeners and stops the bridge.

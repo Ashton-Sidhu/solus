@@ -36,6 +36,7 @@ export type WorkExportRequest =
 export function storedExportExtension(type: WorkType): string {
   if (type === "doc") return "md";
   if (type === "artifact") return "html";
+  if (type === "app") return "tsx";
   return "json";
 }
 

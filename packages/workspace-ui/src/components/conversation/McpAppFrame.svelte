@@ -1,22 +1,21 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Maximize, Minimize, X } from "@lucide/svelte";
-  import type { HostApi } from "@solus/client-core/host-api";
   import { localApi } from "@solus/client-core/local-api";
   import type { McpAppHost } from "@solus/client-core/mcp-app-host";
-  import { mcpAppDocument, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
+  import { mcpAppDocument, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { connectMcpAppFrame, mcpAppContext } from "./lib/mcp-app-frame";
+  import { connectMcpAppFrame, mcpAppContext, type McpAppCalls } from "./lib/mcp-app-frame";
 
   /**
    * One MCP App in an opaque-origin frame. Writes, messages, and links wait
-   * for the person's approval here; the host checks the call again.
+   * for the person's approval here; the host checks the call again. `calls`
+   * is what the app is: a captured app's session activity, or an `app` work.
    */
   interface Props {
     snapshot: McpAppSnapshot;
-    api: HostApi;
-    request: McpAppRequest;
+    calls: McpAppCalls;
     title: string;
     onSend: (text: string) => boolean;
     onClose: () => void;
@@ -24,7 +23,7 @@
     onHeight: (height: number) => void;
   }
 
-  let { snapshot, api, request, title, onSend, onClose, initialHeight = 320, onHeight }: Props = $props();
+  let { snapshot, calls, title, onSend, onClose, initialHeight = 320, onHeight }: Props = $props();
 
   const settings = getSettingsContext();
   const srcdoc = $derived(mcpAppDocument(snapshot.html, snapshot.csp));
@@ -77,9 +76,9 @@
     const connection = connectMcpAppFrame(target, {
       snapshot,
       context: () => mcpAppContext(target, untrack(() => settings.isDark), untrack(() => isFullscreen)),
-      toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
-      callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
-      readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
+      toolInfo: calls.toolInfo,
+      callTool: calls.callTool,
+      readResource: calls.readResource,
       confirm,
       sendMessage: async (text) => {
         if (!onSend(text)) throw new Error("This message could not be queued.");

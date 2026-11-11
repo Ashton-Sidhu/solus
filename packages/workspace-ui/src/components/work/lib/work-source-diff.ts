@@ -12,7 +12,7 @@ export interface WorkSourceDiff {
  * bodies, not archive heads: the current draft can be ahead of its Git commit. */
 export function workSourceDiff(type: WorkType, before: string, after: string): WorkSourceDiff {
   if (before === after) return { file: null, additions: 0, deletions: 0, error: null }
-  const extension = type === 'artifact' ? 'html' : 'md'
+  const extension = type === 'artifact' ? 'html' : type === 'app' ? 'tsx' : 'md'
   const name = `content.${extension}`
   try {
     const file = parseDiffFromFile({ name, contents: before }, { name, contents: after })

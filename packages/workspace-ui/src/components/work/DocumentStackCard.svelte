@@ -72,7 +72,7 @@
             <span class="activity-spinner"></span>
           {:else if entry.workType === "slides"}
             <PresentationIcon />
-          {:else if entry.workType === "artifact"}
+          {:else if entry.workType === "artifact" || entry.workType === "app"}
             <AppWindowIcon />
           {:else}
             <FileTextIcon />

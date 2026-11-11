@@ -1,9 +1,10 @@
 <script lang="ts">
+  import type { WorkType } from "@solus/contracts/types";
   import TranscriptCard from "../conversation/TranscriptCard.svelte";
 
   interface Props {
     title?: string;
-    workType?: "doc" | "slides" | "artifact";
+    workType?: WorkType;
     /** The content written so far, for the word count. */
     content?: string;
   }

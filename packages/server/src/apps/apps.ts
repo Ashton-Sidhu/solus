@@ -97,7 +97,11 @@ export class Apps {
    */
   private async describeTool(work: Work, name: string, ctx: HandlerCtx): Promise<{ info: McpAppToolInfo; target: { integration: Integration; tool: string } | null }> {
     const named = parseAppToolName(name)
-    const refuse = (refusal?: string) => ({ info: { callable: false, readOnly: false, title: named?.tool ?? name, ...(refusal ? { refusal } : {}) }, target: null })
+    const refuse = (refusal?: string) => {
+      const info: McpAppToolInfo = { callable: false, readOnly: false, title: named?.tool ?? name }
+      if (refusal) info.refusal = refusal
+      return { info, target: null }
+    }
     if (!named || !extractAppRoles(work.content).includes(named.slug)) return refuse()
     const integration = this.integrationFor(named.slug, ctx)
     if (!integration) return refuse(`Connect ${named.slug} in Settings → MCP to use this app.`)

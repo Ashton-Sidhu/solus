@@ -44,7 +44,9 @@
       ? "slides"
       : ref.workType === "artifact"
         ? "artifact"
-        : "doc",
+        : ref.workType === "app"
+          ? "app"
+          : "doc",
   );
   const documentMeta = $derived(
     compactMeta(ref.contentVersion ? `v${ref.contentVersion}` : "", ref.updatedAt ? `edited ${formatDate(ref.updatedAt)}` : ""),
@@ -106,7 +108,7 @@
     {skipMotion}
   >
     {#snippet glyph()}
-      {#if ref.workType === "slides"}<PresentationIcon />{:else if ref.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
+      {#if ref.workType === "slides"}<PresentationIcon />{:else if ref.workType === "artifact" || ref.workType === "app"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
     {/snippet}
     {#snippet rail()}{documentMeta}{/snippet}
     {#snippet menu()}

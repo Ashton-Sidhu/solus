@@ -197,7 +197,7 @@
             skipMotion
           >
             {#snippet glyph()}
-              {#if document.workType === "slides"}<PresentationIcon />{:else if document.workType === "artifact"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
+              {#if document.workType === "slides"}<PresentationIcon />{:else if document.workType === "artifact" || document.workType === "app"}<AppWindowIcon />{:else}<FileTextIcon />{/if}
             {/snippet}
             {#snippet rail()}{#if document.contentVersion}v{document.contentVersion}{/if}{/snippet}
           </TranscriptCard>

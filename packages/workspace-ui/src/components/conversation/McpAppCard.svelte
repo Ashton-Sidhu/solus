@@ -27,6 +27,11 @@
   const api = $derived(surface.apiForSession(sessionId));
   const store = $derived(mcpAppsFor(api));
   const request = $derived({ sessionId, activityId });
+  const calls = $derived({
+    toolInfo: (name: string) => api.mcpAppToolInfo({ ...request, name }),
+    callTool: (name: string, argumentsJson: string, approved: boolean) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
+    readResource: (uri: string) => api.mcpAppReadResource({ ...request, uri }),
+  });
   const viewState = $derived(conversationViewStates(workspace).forTab(tabId));
   const isClosed = $derived(viewState.closedMcpApps.has(activityId));
   let isNear = $state(false);
@@ -58,8 +63,7 @@
   {:else if value.phase === "ready"}
     <McpAppFrame
       snapshot={value.snapshot}
-      {api}
-      {request}
+      {calls}
       title={app.title}
       {onSend}
       initialHeight={viewState.mcpAppHeights.get(activityId)}
