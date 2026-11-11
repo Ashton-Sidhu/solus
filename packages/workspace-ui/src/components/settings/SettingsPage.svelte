@@ -65,7 +65,7 @@
   import SettingsTabTelemetry, { settingItems as telemetrySearch } from "./SettingsTabTelemetry.svelte";
   import AnalyticsSettings, { searchWords as analyticsSearch } from "./AnalyticsSettings.svelte";
   import { APP_NOTICE_ROWS, NOTIFICATION_CHANNEL_ROWS, SESSION_EVENT_ROWS } from "./lib/notification-settings";
-  import { dataMatches, wordsMatch } from "./lib/settings-search";
+  import { SOURCE_CONTROL_SEARCH_WORDS, dataMatches, wordsMatch } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { openFolder } from "../../contexts/workspace/run-location";
   import SettingsProjectScope from "./SettingsProjectScope.svelte";
@@ -314,7 +314,7 @@
     appearance: keywordsOf(appearanceSearch),
     notifications: [...NOTIFICATION_CHANNEL_ROWS, ...SESSION_EVENT_ROWS, ...APP_NOTICE_ROWS].flatMap((row) => [row.label, ...row.keywords]),
     tasks: keywordsOf(tasksSearch),
-    "source-control": ["branch", "branch naming", "worktree", "copied files", "project", "projects", "override"],
+    "source-control": SOURCE_CONTROL_SEARCH_WORDS,
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
     voice: ["dictation", "dictionary", "custom words", "vocabulary", "aliases", "spelling", "transcription"],

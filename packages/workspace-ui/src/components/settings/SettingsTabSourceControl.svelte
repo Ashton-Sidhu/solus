@@ -89,15 +89,15 @@
   const styleOptions = {
     repo_conventions: {
       label: "Repository conventions",
-      description: "Match each repository's recent commit style.",
+      description: "Commit messages and pull request titles and descriptions match each repository's history.",
     },
     conventional_commits: {
       label: "Conventional Commits",
-      description: "Prefix commits with feat:, fix:, docs:, and so on. PR titles stay plain.",
+      description: "Commit messages use Conventional Commit prefixes. Pull request titles and descriptions stay short and plain.",
     },
     custom: {
       label: "Custom instructions",
-      description: "Your instructions for commits, branches, and PRs.",
+      description: "Your instructions shape commit messages, branch names, and pull request titles and descriptions.",
     },
   } satisfies Record<SourceControlWritingMode, { label: string; description: string }>;
 
@@ -183,9 +183,9 @@
   <GitHubConnect {serverId} />
 {/if}
 
-<SettingsSection label="Text generation">
+<SettingsSection label="Commits & pull requests">
   <SettingsRow
-    label="Source control writing style"
+    label="Commit and pull request writing"
     managed={managedSetting("sourceControlWriting")}
     description={styleOptions[style.mode].description}
     bodyVisible={style.mode === "custom"}
@@ -194,7 +194,7 @@
       <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs font-normal shadow-xs" aria-label="Source control writing style">
+            <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs font-normal shadow-xs" aria-label="Commit and pull request writing">
               <span class="truncate">{styleOptions[style.mode].label}</span>
               <CaretDownIcon size={11} class="opacity-60" />
             </Button>
@@ -230,8 +230,8 @@
           rows={4}
           maxlength={8000}
           autofocus
-          placeholder="Keep titles concise. Use short bullet points in descriptions."
-          aria-label="Custom source-control writing instructions"
+          placeholder="Keep pull request titles under 60 characters. Write pull request descriptions as short bullet points."
+          aria-label="Custom commit and pull request instructions"
           class="bg-white! disabled:bg-white! dark:bg-input/30! dark:disabled:bg-input/30!"
         />
         <div class="flex flex-wrap items-center justify-between gap-3">
