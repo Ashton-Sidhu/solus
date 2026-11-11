@@ -1,6 +1,6 @@
 ---
 name: building-for-web
-description: Scaffold a new web app, website, web service, or full-stack project from scratch with a deploy-ready foundation. Use when the user is starting or scaffolding a NEW web project as a codebase to deploy. For an app or tool that lives in Solus, with no codebase asked for, use the apps skill.
+description: Scaffold a new web app, website, web service, or full-stack project from scratch with a deploy-ready foundation. Use when the user is starting or scaffolding a NEW web project as a codebase to deploy. For an app or tool that lives in Solus, with no codebase asked for, use the visual-artifacts skill.
 ---
 
 # Building for the web

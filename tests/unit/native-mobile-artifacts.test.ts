@@ -61,49 +61,6 @@ describe('native artifacts: transcript', () => {
   })
 })
 
-describe('native apps: transcript and feed', () => {
-  type AppItem = Extract<TranscriptItem, { kind: 'app' }>
-  const apps = (model: TranscriptModel) =>
-    model.order.map((id) => model.items.get(id)).filter((item): item is AppItem => item?.kind === 'app')
-
-  test('a create_app call in history shows the app after the call, named by its receipt', () => {
-    // WHY: the row runs the app from its work id; only the receipt names it,
-    // so a failed call or a call with no receipt shows no app.
-    const model = TranscriptModel.fromHistory('s1', history([
-      toolRow('mcp__solus__create_app', 'call-1', { title: 'Issues', code: 'export default () => null' }),
-      resultRow('call-1', { artifactWorkRef: { workId: 'a1', title: 'Issues', contentVersion: 1 } }),
-      toolRow('create_app', 'failed', { title: 'Broken', code: 'x' }),
-      resultRow('failed', { status: 'error' }),
-    ]))
-    expect(apps(model)).toMatchObject([{ workId: 'a1', title: 'Issues' }])
-  })
-
-  test('live, a created app appends one row, each saved revision adds one, and a document stays a document', () => {
-    const model = new TranscriptModel('s1')
-    model.apply({ type: 'work_created', workId: 'a1', title: 'Issues', docType: 'app', content: 'export default () => null' })
-    model.apply({ type: 'work_created', workId: 'd1', title: 'Notes', docType: 'doc', content: '# Notes' })
-    const update = { type: 'work_updated', workId: 'a1', title: '', docType: 'doc', content: 'export default () => 1', updatedAt: '2026-11-11T10:00:00Z' } as const
-    // A cloud-owned save reports `doc`; the earlier row says it is an app.
-    model.apply(update)
-    // The same save delivered twice adds no second row.
-    model.apply(update)
-    expect(apps(model).map((item) => [item.workId, item.title])).toEqual([['a1', 'Issues'], ['a1', 'Issues']])
-  })
-
-  test('only the latest revision of an app is open in the feed', () => {
-    const entries: FeedSourceEntry[] = [
-      { kind: 'user', id: 'u1' },
-      { kind: 'app', id: 'app1', workId: 'a1' },
-      { kind: 'app', id: 'app2', workId: 'a1' },
-    ]
-    const rows = deriveThreadFeedPresentation({ entries, turnActive: false, working: false, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set() })
-    expect(rows.filter((row) => row.type === 'app')).toEqual([
-      { type: 'app', id: 'app1', superseded: true },
-      { type: 'app', id: 'app2', superseded: false },
-    ])
-  })
-})
-
 describe('native artifacts: feed', () => {
   const entries: FeedSourceEntry[] = [
     { id: 'u1', kind: 'user' },

@@ -278,7 +278,9 @@ describe('runtime instructions', () => {
     // web project for a request that an app in Solus answers.
     const instructions = runtimeInstructions({ harness: 'Codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' }, [tool('create_app')])
     expect(instructions).toContain('## Apps')
-    expect(instructions).toContain('load the apps skill and save the result with create_app')
+    expect(instructions).toContain('load the visual-artifacts skill, read its app chapter, and save the result with create_app')
+    // The agent must look at an app before the person does.
+    expect(instructions).toContain('Check it with create_app preview: true before you save it.')
     expect(instructions).toContain('Use the building-for-web skill only when the user wants a web project as a codebase to deploy.')
     expect(runtimeInstructions({ harness: 'Codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' }, [linkTool])).not.toContain('## Apps')
   })

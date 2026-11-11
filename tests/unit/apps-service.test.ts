@@ -1,10 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { appFunctionCallName, appStorageCallName, DEFAULT_APP_PERMISSIONS } from '@solus/contracts/apps'
-import { mcpAppDocument } from '@solus/contracts/mcp-apps'
+import { appFunctionCallName, appManifestBlock, appManifestSchema, appStorageCallName } from '@solus/contracts/apps'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { memberPrincipal, withActor } from './helpers/actors'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
@@ -20,6 +19,8 @@ type AppStorageModule = typeof import('@solus/server/apps/app-storage')
 type AppFunctionsModule = typeof import('@solus/server/apps/app-functions')
 type AppToolsModule = typeof import('@solus/server/execution/agents/tools/app-tools')
 type WorkToolsModule = typeof import('@solus/server/execution/agents/tools/work-tools')
+type PreviewModule = typeof import('@solus/server/data/works/artifact-preview')
+type HtmlPreviewInput = Parameters<PreviewModule['previewArtifactHtml']>[0]
 
 /** The runner needs a real Node with the permission model; a machine without one skips the host function cases. */
 const nodeVersion = spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' })
@@ -35,10 +36,12 @@ let appTools: AppToolsModule
 let workTools: WorkToolsModule
 let functions: InstanceType<AppFunctionsModule['AppFunctions']> | null = null
 const previousDataDir = process.env.SOLUS_DATA_DIR
-const previousInstallDir = process.env.SOLUS_INSTALL_DIR
 
+const PAGE = '<!doctype html><html><head><title>Table browser</title></head><body><div id="root"></div></body></html>'
 const SERVER = 'exports.greet = async ({ name }, context) => ({ text: "hello " + name, dataDir: context.dataDir })'
-const bundle = (extra: { server?: string } = {}) => JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return null }', integrations: [], ...extra })
+const SOURCES = { 'src/App.tsx': 'export default function App() { return null }', 'server.ts': 'export async function greet() { return 1 }' }
+/** A page as the visual-artifacts build writes it for a project with an app.json. */
+const appPage = (extra: object = {}, body = '') => `${PAGE.replace('</body>', `${body}</body>`)}\n${appManifestBlock(appManifestSchema.parse({ solusApp: 1, ...extra }))}\n`
 
 /** The gateway and the store are not reached by an app that names no integration. */
 const gateway = {
@@ -61,10 +64,6 @@ beforeAll(async () => {
   functionsModule = await import('@solus/server/apps/app-functions')
   appTools = await import('@solus/server/execution/agents/tools/app-tools')
   workTools = await import('@solus/server/execution/agents/tools/work-tools')
-  // The shell is a build output that a test run may not have; the document needs only that one exists.
-  mkdirSync(join(dataDir, 'install', 'resources', 'app-shell'), { recursive: true })
-  writeFileSync(join(dataDir, 'install', 'resources', 'app-shell', 'shell.js'), 'window.SolusAppShell = {}')
-  process.env.SOLUS_INSTALL_DIR = join(dataDir, 'install')
 })
 
 beforeEach(async () => { await installTestWorkspaceTools() })
@@ -72,6 +71,7 @@ beforeEach(async () => { await installTestWorkspaceTools() })
 afterEach(async () => {
   functions?.dispose()
   functions = null
+  appTools.useAppsForTools(null)
   await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
@@ -81,31 +81,44 @@ afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
-  if (previousInstallDir === undefined) delete process.env.SOLUS_INSTALL_DIR
-  else process.env.SOLUS_INSTALL_DIR = previousInstallDir
 })
 
 function service() {
   functions = new functionsModule.AppFunctions({ node: 'node' })
   const storage = new storageModule.AppStorage(() => join(dataDir, 'app-data'))
   // SAFETY: the two fakes answer every member `Apps` names in its constructor types.
-  return { apps: new appsModule.Apps(gateway as never, store as never, storage, functions), storage }
+  const apps = new appsModule.Apps(gateway as never, store as never, storage, functions)
+  appTools.useAppsForTools(apps)
+  return { apps, storage }
 }
 
-async function createApp(content: string) {
-  return works.createWork('local', 'Database browser', 'app', content, '', undefined, 'claude-code')
-}
+const createApp = (html: string) => works.createWork('local', 'Table browser', 'artifact', html, '', undefined, 'claude-code')
 
 const call = (apps: InstanceType<AppsModule['Apps']>, workId: string, name: string, input: object, ctx = owner) =>
   apps.callTool({ workId, name, argumentsJson: JSON.stringify(input), approved: false }, ctx).then((json) => JSON.parse(json).structuredContent.value)
+
+describe('an app is an artifact with a manifest', () => {
+  test('an artifact with no manifest is not an app: it has no state, no storage, and no calls', async () => {
+    // WHY: every artifact is a page an agent wrote. Only one that says it is
+    // an app, and so runs with no open network, may reach the host.
+    const { apps } = service()
+    const plain = await createApp(PAGE)
+    await expect(apps.read({ workId: plain.id }, owner)).rejects.toThrow('This app is not available.')
+    await expect(call(apps, plain.id, appStorageCallName('get'), { key: 'a' })).rejects.toThrow('This app is not available.')
+  })
+
+  test('a manifest block that is not valid cannot be saved', async () => {
+    await expect(createApp(`${PAGE}<script type="application/json" id="solus-app">{"solusApp":2}</script>`)).rejects.toThrow('The app manifest is not valid')
+  })
+})
 
 describe('app storage', () => {
   test('an app keeps its own JSON data on the host, and a deleted app leaves none', async () => {
     // WHY: storage is what lets an app be more than a view. It belongs to the
     // app, so it must go when the app goes and never reach another app.
     const { apps } = service()
-    const first = await createApp(bundle())
-    const second = await createApp(bundle())
+    const first = await createApp(appPage())
+    const second = await createApp(appPage())
     expect(await call(apps, first.id, appStorageCallName('get'), { key: 'todos' })).toBeNull()
     await call(apps, first.id, appStorageCallName('set'), { key: 'todos', value: [{ text: 'ship', done: false }] })
     await call(apps, first.id, appStorageCallName('set'), { key: 'theme', value: 'dense' })
@@ -125,7 +138,7 @@ describe('app storage', () => {
   test('writes made at once all land', async () => {
     // WHY: each write reads the file first; two at once without an order would lose one.
     const { apps } = service()
-    const work = await createApp(bundle())
+    const work = await createApp(appPage())
     await Promise.all(Array.from({ length: 20 }, (_unused, index) => call(apps, work.id, appStorageCallName('set'), { key: `k${index}`, value: index })))
     expect(await call(apps, work.id, appStorageCallName('keys'), {})).toHaveLength(20)
   })
@@ -134,45 +147,37 @@ describe('app storage', () => {
 describe('app host access', () => {
   test('an app that asks for nothing needs no decision, and has no network', async () => {
     const { apps } = service()
-    const work = await createApp(bundle())
-    const snapshot = await apps.read({ workId: work.id }, owner)
-    expect(snapshot.hostAccess).toEqual({ asks: { functions: false, network: [], files: { read: [], write: [] } }, state: 'none', canDecide: true })
-    expect(mcpAppDocument(snapshot.html, snapshot.csp)).toContain("connect-src 'none'")
+    const work = await createApp(appPage())
+    const state = await apps.read({ workId: work.id }, owner)
+    expect(state.hostAccess).toEqual({ asks: { functions: false, writes: false, network: [], files: { read: [], write: [] } }, state: 'none', canDecide: true })
+    expect(state.network).toEqual([])
   })
 
   test('network hosts are in force only after the host\'s owner allows them, and stop when the owner revokes', async () => {
     // WHY: an agent declares what an app needs. Until the owner reads and
     // allows it, an app must not send what it reads to a host the agent chose.
     const { apps } = service()
-    const work = await createApp(bundle())
-    const pending = await apps.permissionsUpdate({ workId: work.id, permissions: { ...DEFAULT_APP_PERMISSIONS, network: ['api.example.com'] } }, owner)
+    const work = await createApp(appPage({ permissions: { network: ['api.example.com'] } }))
+    const pending = await apps.read({ workId: work.id }, owner)
     expect(pending.hostAccess.state).toBe('pending')
-    expect(pending.csp).toEqual({})
-    expect(pending.html).toContain('"hostAccess":"pending"')
+    expect(pending.network).toEqual([])
 
     await expect(apps.hostAccessDecide({ workId: work.id, allow: true }, member)).rejects.toThrow('Only the owner of this host')
 
     const allowed = await apps.hostAccessDecide({ workId: work.id, allow: true }, owner)
     expect(allowed.hostAccess.state).toBe('allowed')
-    expect(allowed.csp).toEqual({ connectDomains: ['https://api.example.com', 'wss://api.example.com'] })
-
-    // The agent widens the request: the old decision does not cover it.
-    await apps.permissionsUpdate({ workId: work.id, permissions: { ...DEFAULT_APP_PERMISSIONS, network: ['api.example.com', 'other.example.com'] } }, owner)
-    expect((await apps.read({ workId: work.id }, owner)).hostAccess.state).toBe('pending')
-    // It narrows it again: the decision stands and the person's tool settings did not erase it.
-    await apps.permissionsUpdate({ workId: work.id, permissions: { ...DEFAULT_APP_PERMISSIONS, tools: 'read-only', network: ['api.example.com'] } }, owner)
-    expect((await apps.read({ workId: work.id }, owner)).hostAccess.state).toBe('allowed')
+    expect(allowed.network).toEqual(['api.example.com'])
 
     const revoked = await apps.hostAccessDecide({ workId: work.id, allow: false }, owner)
     expect(revoked.hostAccess.state).toBe('pending')
-    expect(revoked.csp).toEqual({})
+    expect(revoked.network).toEqual([])
   })
 
   testWithNode('a host function runs only after the owner allows it, only for the owner, and not after a revoke', async () => {
     // WHY: a host function is code an agent wrote, with the owner's files and
     // network. Nothing of it may run before the owner says so, or for anyone else.
     const { apps } = service()
-    const work = await createApp(bundle({ server: SERVER }))
+    const work = await createApp(appPage({ server: SERVER }))
     const greet = appFunctionCallName('greet')
 
     expect((await apps.read({ workId: work.id }, owner)).hostAccess).toMatchObject({ asks: { functions: true }, state: 'pending' })
@@ -193,78 +198,111 @@ describe('app host access', () => {
     // WHY: the owner allowed one app. A copy belongs to whoever made it and
     // can get other code; it must not run under a decision made for the first.
     const { apps } = service()
-    const work = await createApp(bundle({ server: SERVER }))
+    const work = await createApp(appPage({ server: SERVER }))
     await apps.hostAccessDecide({ workId: work.id, allow: true }, owner)
     const copy = await works.duplicateWork('local', work.id)
     expect((await apps.read({ workId: work.id }, owner)).hostAccess.state).toBe('allowed')
     expect((await apps.read({ workId: copy.id }, owner)).hostAccess.state).toBe('pending')
   })
 
-  test('an app with no server module has no host functions, and a component is such an app', async () => {
+  test('an app with no server module has no host functions', async () => {
     const { apps } = service()
-    const work = await createApp('export default function App() { return null }')
+    const work = await createApp(appPage())
     expect(await apps.toolInfo({ workId: work.id, name: appFunctionCallName('greet') }, owner)).toMatchObject({ callable: false, refusal: 'This app has no host functions.' })
   })
 })
 
 describe('create_app', () => {
   const ctx = () => ({ sessionId: undefined, agentProvider: 'claude-code' as const, cwd: dataDir })
-  const SOURCES = { 'src/App.tsx': 'export default function App() { return null }', 'server.ts': 'export async function greet() { return 1 }' }
+  /** Stands in for the headless browser: records what a preview was asked to render and with what behind it. */
+  function recordedPreview() {
+    const inputs: HtmlPreviewInput[] = []
+    const preview: PreviewModule['previewArtifactHtml'] = async (input) => {
+      inputs.push(input)
+      return { screenshot: 'data:image/png;base64,AA==', width: 736, appearance: 'light', contentHeight: 100, console: [], missingImages: [] }
+    }
+    return { inputs, preview }
+  }
 
-  function writeBundle(name: string, content: string): string {
-    writeFileSync(join(dataDir, name), content)
+  function writePage(name: string, html: string): string {
+    writeFileSync(join(dataDir, name), html)
     return name
   }
 
-  test('an app project\'s bundle is saved from its file, with the host access it waits for in the receipt', async () => {
-    // WHY: a bundle is megabytes, so it is read from the host and never passes
-    // through the model. The receipt is the agent's only word that the owner
-    // must allow the app before its host functions work.
-    const file = writeBundle('app.bundle.json', JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return null }', server: SERVER, integrations: [], sources: SOURCES }))
+  test('it saves an app as an artifact, renders it in the conversation, and says what host access it waits for', async () => {
+    // WHY: an app is an artifact, so it is saved, rendered, and replayed as
+    // one. The receipt is the agent's only word that the owner must allow it.
+    const { apps } = service()
+    const rendered: Array<{ workId: string; html: string }> = []
+    const html = appPage({ server: SERVER, permissions: { network: ['*'], files: { read: ['*'], write: [] } }, sources: SOURCES })
     const created = await appTools.executeCreateAppTool(
-      { title: 'Database browser', bundle_path: file, permissions: { ...DEFAULT_APP_PERMISSIONS, network: ['*'], files: { read: ['*'], write: [] } } },
-      { ctx: ctx() },
+      { title: 'Table browser', html_path: writePage('bundle.html', html) },
+      { ctx: ctx(), preview: recordedPreview().preview, onArtifact: (artifact) => rendered.push(artifact) },
     )
     expect(created.ok).toBe(true)
-    expect(created.text).toStartWith('Created the app "Database browser" (id: ')
+    expect(created.text).toStartWith('Rendered "Table browser" in the conversation and saved it as an artifact (id: ')
     expect(created.text).toContain('It asks to run its own code on this host, read every file, and reach every network host. Tell the user to allow that')
-    const workId = /\(id: ([^)]+)\)/.exec(created.text)?.[1] ?? ''
-
-    const { apps } = service()
-    const snapshot = await apps.read({ workId }, owner)
-    expect(snapshot.hostAccess).toMatchObject({ state: 'pending', asks: { functions: true, network: ['*'], files: { read: ['*'], write: [] } } })
+    const workId = rendered[0].workId
+    expect((await works.loadWork('local', workId))?.type).toBe('artifact')
+    expect((await apps.read({ workId }, owner)).hostAccess).toMatchObject({ state: 'pending', asks: { functions: true, network: ['*'] } })
 
     // read_work answers the sources, so a later session can rebuild the project.
     const read = await workTools.executeWorkTool('read_work', { work_id: workId }, { ctx: ctx() })
     expect(read.text).toContain('--- server.ts ---\nexport async function greet()')
-    expect(read.text).not.toContain('exports.greet = async')
+    expect(read.text).not.toContain('<div id="root">')
 
-    // A revision of the page alone, with the same host code and the same request, keeps the owner's decision.
+    // A revision of the page alone keeps the owner's decision; a revision of the host code asks again.
     await apps.hostAccessDecide({ workId, allow: true }, owner)
-    const samePage = writeBundle('app.bundle.json', JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return 1 }', server: SERVER, integrations: [], sources: SOURCES }))
-    const revised = await appTools.executeCreateAppTool({ title: 'Database browser', bundle_path: samePage, work_id: workId, expected_content_version: 1 }, { ctx: ctx() })
-    expect(revised.text).toStartWith('Updated the app "Database browser"')
-    expect(revised.text).not.toContain('It asks to')
-    expect((await apps.read({ workId }, owner)).hostAccess.state).toBe('allowed')
-
-    // A revision of the host code is other code: it asks again, and the receipt says so.
-    const newCode = writeBundle('app.bundle.json', JSON.stringify({ solusApp: 1, client: 'exports.default = function App() { return 1 }', server: `${SERVER}; exports.more = async () => 2`, integrations: [] }))
-    const changed = await appTools.executeCreateAppTool({ title: 'Database browser', bundle_path: newCode, work_id: workId, expected_content_version: 2 }, { ctx: ctx() })
-    expect(changed.text).toContain('It asks to run its own code on this host')
+    const pageOnly = writePage('bundle.html', appPage({ server: SERVER, permissions: { network: ['*'], files: { read: ['*'], write: [] } } }, '<p>new</p>'))
+    const revised = await workTools.executeWorkTool('update_work', { work_id: workId, html_path: pageOnly, expected_content_version: 1 }, { ctx: ctx() })
+    expect(revised.text).toBe('Updated "Table browser" (artifact, id: ' + workId + '). New content_version: 2.')
+    const newCode = writePage('bundle.html', appPage({ server: `${SERVER}; exports.more = async () => 2`, permissions: { network: ['*'], files: { read: ['*'], write: [] } } }))
+    const changed = await workTools.executeWorkTool('update_work', { work_id: workId, html_path: newCode, expected_content_version: 2 }, { ctx: ctx() })
+    expect(changed.text).toContain('New content_version: 3. It asks to run its own code on this host')
     expect((await apps.read({ workId }, owner)).hostAccess.state).toBe('pending')
   })
 
-  test('a call names one of code or bundle_path, a file that is not a bundle is refused, and permissions that do not parse are refused, never dropped', async () => {
-    const component = 'export default function App() { return null }'
-    expect((await appTools.executeCreateAppTool({ title: 'A' }, { ctx: ctx() })).text).toBe('create_app takes one of code or bundle_path.')
-    expect((await appTools.executeCreateAppTool({ title: 'A', code: component, bundle_path: 'app.bundle.json' }, { ctx: ctx() })).text).toBe('create_app takes one of code or bundle_path.')
-    // An agent that fills the unused input with an empty string still means one of them.
-    expect((await appTools.executeCreateAppTool({ title: 'A', code: component, bundle_path: '' }, { ctx: ctx() })).ok).toBe(true)
-    expect((await appTools.executeCreateAppTool({ title: 'A', bundle_path: writeBundle('notes.json', '{"hello":1}') }, { ctx: ctx() })).text).toContain('create_app refused the app')
-    expect((await appTools.executeCreateAppTool({ title: 'A', bundle_path: writeBundle('bad.json', '{"solusApp":1}') }, { ctx: ctx() })).text).toContain('The app bundle is not valid: client')
-    expect((await appTools.executeCreateAppTool({ title: 'A', bundle_path: 'missing.json' }, { ctx: ctx() })).text).toContain('bundle_path not found')
-    // SAFETY: the malformed input is the case under test.
-    const refused = await appTools.executeCreateAppTool({ title: 'A', code: component, permissions: { network: ['https://api.example.com'] } as never }, { ctx: ctx() })
-    expect(refused).toMatchObject({ ok: false, text: expect.stringContaining('create_app refused the permissions: network.0') })
+  test('it refuses a page that is not an app and a file that is not there, and saves nothing', async () => {
+    service()
+    const refused = await appTools.executeCreateAppTool({ title: 'A', html_path: writePage('plain.html', PAGE) }, { ctx: ctx(), preview: recordedPreview().preview })
+    expect(refused).toMatchObject({ ok: false, text: expect.stringContaining('it has no app manifest. Add an app.json') })
+    expect((await appTools.executeCreateAppTool({ title: 'A', html_path: 'missing.html' }, { ctx: ctx() })).text).toContain('html_path not found')
+    const broken = writePage('broken.html', `${PAGE}<script type="application/json" id="solus-app">{"solusApp":1,"permissions":{"network":["http://x"]}}</script>`)
+    expect((await appTools.executeCreateAppTool({ title: 'A', html_path: broken }, { ctx: ctx() })).text).toContain('create_app refused the page: The app manifest is not valid: permissions.network.0')
+  })
+
+  testWithNode('a preview answers the page\'s calls and changes nothing: storage in memory, a host function only for code the owner allowed', async () => {
+    // WHY: a preview is the agent looking at its own work. It must not write a
+    // person's data, and it must not be a way to run host code the owner has not allowed.
+    const { apps, storage } = service()
+    const html = appPage({ server: SERVER })
+    const file = writePage('bundle.html', html)
+    const recorded = recordedPreview()
+
+    const first = await appTools.executeCreateAppTool({ title: 'Table browser', html_path: file, preview: true }, { ctx: ctx(), preview: recorded.preview })
+    expect(first.text).toContain('call create_app again without preview')
+    const unsaved = recorded.inputs[0].app
+    expect(unsaved?.network).toEqual([])
+    await unsaved?.call(appStorageCallName('set'), { key: 'url', value: 'x.db' })
+    expect(await unsaved?.call(appStorageCallName('get'), { key: 'url' })).toBe('x.db')
+    await expect(unsaved?.call(appFunctionCallName('greet'), { name: 'Ann' })).rejects.toThrow('only after the owner of the host allowed this code')
+    await expect(unsaved?.call('linear/list_issues', {})).rejects.toThrow('A preview does not call an integration.')
+
+    const work = await createApp(html)
+    await storage.set(work.id, 'url', 'saved.db')
+    await apps.hostAccessDecide({ workId: work.id, allow: true }, owner)
+    await appTools.executeCreateAppTool({ title: 'Table browser', html_path: file, preview: true, work_id: work.id }, { ctx: ctx(), preview: recorded.preview })
+    const saved = recorded.inputs[1].app
+    // It reads the saved app's storage, and what it writes stays in the preview.
+    expect(await saved?.call(appStorageCallName('get'), { key: 'url' })).toBe('saved.db')
+    await saved?.call(appStorageCallName('set'), { key: 'url', value: 'preview.db' })
+    expect(await saved?.call(appStorageCallName('get'), { key: 'url' })).toBe('preview.db')
+    expect(await storage.get(work.id, 'url')).toBe('saved.db')
+    expect(await saved?.call(appFunctionCallName('greet'), { name: 'Ann' })).toMatchObject({ text: 'hello Ann' })
+
+    // The same work with other host code: the owner did not allow that code.
+    const other = writePage('other.html', appPage({ server: `${SERVER}; exports.more = 1` }))
+    await appTools.executeCreateAppTool({ title: 'Table browser', html_path: other, preview: true, work_id: work.id }, { ctx: ctx(), preview: recorded.preview })
+    await expect(recorded.inputs[2].app?.call(appFunctionCallName('greet'), { name: 'Ann' })).rejects.toThrow('only after the owner of the host allowed this code')
   })
 })

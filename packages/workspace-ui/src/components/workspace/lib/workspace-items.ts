@@ -16,7 +16,7 @@ export type WorkspaceItemType = 'doc' | 'artifact'
  * already uses for them in the project panel, slides included, even though
  * slides file under the Docs facet.
  */
-export type WorkspaceGlyph = 'doc' | 'slides' | 'artifact' | 'app'
+export type WorkspaceGlyph = 'doc' | 'slides' | 'artifact'
 
 /** One row of the Workspace ledger — a work, normalized to a single shape so
  *  grouping, filtering, and keyboard nav treat every artifact identically.
@@ -140,7 +140,7 @@ export function workItem(w: WorkListing, project: { key: string; label: string }
     projectLabel: project.label,
     id: w.id,
     rowKey: `work:${w.id}`,
-    type: w.type === 'artifact' || w.type === 'app' ? 'artifact' : 'doc',
+    type: w.type === 'artifact' ? w.type : 'doc',
     glyph: w.type === 'doc' ? 'doc' : w.type,
     title: w.title || 'Untitled document',
     snippet: w.preview,
@@ -299,7 +299,7 @@ export function rowStatus(item: Pick<WorkspaceItem, 'reviewState' | 'awaitingMyR
 /** HTML artifacts render their own interface, so a source-text peek has no
  * useful mobile representation. */
 export function isHtmlArtifact(item: WorkspaceItem): boolean {
-  return item.work.type === 'artifact' || item.work.type === 'app'
+  return item.work.type === 'artifact'
 }
 
 /** The external product whose mark belongs in the Workspace upstream column. */

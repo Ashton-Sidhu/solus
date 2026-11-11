@@ -3,7 +3,7 @@ import { workRecord } from '@solus/contracts/solus-api/records'
 import { SolusApiError } from '../../../admission/workspace-error'
 import { formatExternalThreads, refreshWorkExternalComments } from '../../../data/works/work-comments'
 import { z } from 'zod'
-import { GOOGLE_WORK_READ_ONLY } from '../../../data/works/work'
+import { GOOGLE_WORK_READ_ONLY, Work } from '../../../data/works/work'
 import { loadWorkAnnotations } from '../../../data/works/work-annotations'
 import { formatOpenThreads } from '../../../annotations/comment-tools'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
@@ -14,6 +14,7 @@ import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { readWorkFile } from './work-file'
 import { describeAppContent } from '../../../apps/app-content'
+import { hostAccessReceiptNote } from '../../../apps/app-permissions'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -81,7 +82,7 @@ const readWorkFields = {
 const findWorksFields = {
   cursor: z.string().max(2048).optional().describe('Continue an open-work listing with its next cursor.'),
   query: z.string().optional().describe('Full-text query to match against work titles and content. Omit it to list every open work.'),
-  type: z.enum(['doc', 'slides', 'artifact', 'app', 'any']).default('any').describe("Restrict a search to one kind of work. Defaults to 'any'; ignored when listing."),
+  type: z.enum(['doc', 'slides', 'artifact', 'any']).default('any').describe("Restrict a search to one kind of work. Defaults to 'any'; ignored when listing."),
   limit: z.number().int().min(1).default(10).describe('Maximum search results to return. Defaults to 10, at most 20 (larger values return 20); ignored when listing.'),
 }
 
@@ -240,9 +241,9 @@ function staleWrite(title: string, expectedContentVersion: number): WorkToolResu
   }
 }
 
-/** A work's body as an agent reads it. An app's bundle is megabytes of compiled code, so it reads as its sources. */
+/** A work's body as an agent reads it. An app's page is megabytes of built code, so it reads as its sources. */
 function readableContent(work: { type: WorkType; content: string }): string {
-  return work.type === 'app' ? describeAppContent(work.content) : work.content
+  return work.type === 'artifact' ? describeAppContent(work.content) : work.content
 }
 
 export async function executeWorkTool(
@@ -415,8 +416,10 @@ export async function executeWorkTool(
         contentVersion: saved.contentVersion,
         organizationId: organizationOf(context.home),
       })
+      // A revision of an app that asks for more, or that changes its host code, waits for the owner again.
+      const appNote = saved.type === 'artifact' ? hostAccessReceiptNote(saved.content, (await Work.find(ANY_ORGANIZATION, saved.id))?.app?.allowed) : ''
       // The result text starts as it always has: transcripts project the artifact id from it.
-      return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.` }
+      return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.${appNote}` }
     }
 
     return { ok: false, text: `Unknown work tool: ${name}` }

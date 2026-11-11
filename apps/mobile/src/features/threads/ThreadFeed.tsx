@@ -73,7 +73,6 @@ import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { ThreadMcpApp } from "./ThreadMcpApp";
-import { ThreadApp } from "./ThreadApp";
 import {
   pullRequestWatchWake,
   pullRequestWatchWakeMarks,
@@ -357,7 +356,6 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
 
 function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.id} />;
-  if (row.type === "app") return <ThreadApp store={context.store} id={row.id} superseded={row.superseded} />;
   if (row.type === "setup") return <WorktreeSetupCard store={context.store} id={row.id} />;
   if (row.type === "run-fold") {
     return (

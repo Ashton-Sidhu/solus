@@ -247,6 +247,71 @@ const ISOLATED_CSP_META =
   `form-action 'none'; ` +
   `base-uri 'none'">`;
 
+// An app's frame (docs/plans/apps.md §4). An app may read a person's
+// integrations, so its page gets no network but the hosts the host's owner
+// allowed: a plain artifact's open HTTPS would let a page send what it read
+// anywhere. The build puts every dependency, style, and asset in the page, so
+// nothing an app needs is lost. What stays open is what stays open for every
+// frame: it can navigate itself away.
+const APP_NETWORK_HOST = /^(?:\*\.)?[a-z0-9.-]+(?::\d{1,5})?$/i;
+
+function appCspMeta(network: readonly string[]): string {
+  const hosts = network.includes("*")
+    ? ["https:", "wss:"]
+    : network.filter((host) => APP_NETWORK_HOST.test(host)).flatMap((host) => [`https://${host}`, `wss://${host}`]);
+  const reach = hosts.join(" ");
+  return (
+    `<meta http-equiv="Content-Security-Policy" content="` +
+    `default-src 'none'; ` +
+    `script-src 'unsafe-inline'; ` +
+    `style-src 'unsafe-inline'; ` +
+    `img-src data: blob: ${reach}; ` +
+    `font-src data:; ` +
+    `media-src data: blob: ${reach}; ` +
+    `connect-src ${reach || "'none'"}; ` +
+    `form-action 'none'; ` +
+    `base-uri 'none'">`
+  );
+}
+
+// The one function an app's page reaches its host through. The project's
+// `@solus/app` module is a typed face over it and holds no protocol, so the
+// transport can change without a rebuild of any app. In a frame it posts to
+// the parent; in a phone's web view, which has no parent, to the native side.
+// A host that renders the page with its own `solusApp` (a preview) keeps it.
+const APP_BRIDGE = `<script>(function(){
+  if (window.solusApp) return;
+  var pending = {}, next = 1, native = window.ReactNativeWebView;
+  function post(message){
+    if (native) native.postMessage(JSON.stringify(message));
+    else if (parent !== window) parent.postMessage(message, "*");
+    else return false;
+    return true;
+  }
+  window.addEventListener("message", function(event){
+    var data = event.data;
+    if (!native && event.source !== parent) return;
+    if (!data || data.type !== "solus-app-result") return;
+    var call = pending[data.id];
+    if (!call) return;
+    delete pending[data.id];
+    if (data.ok) call.resolve(data.value);
+    else call.reject(new Error(data.error || "The call failed."));
+  });
+  window.solusApp = {
+    call: function(name, args){
+      return new Promise(function(resolve, reject){
+        var id = next++;
+        pending[id] = { resolve: resolve, reject: reject };
+        if (!post({ type: "solus-app-call", id: id, name: String(name), args: args || {} })) {
+          delete pending[id];
+          reject(new Error("This page is not open in Solus, so the app cannot reach its host."));
+        }
+      });
+    }
+  };
+})();</script>`;
+
 // Answers "what is under this point?" for the lens comment pin: the nearest
 // element that names a place in the change, and its text for the quote. The
 // render can forge the answer, so the host treats it as untrusted text and
@@ -412,9 +477,17 @@ export function sandboxThemeCss(isDark: boolean, read: (variable: SolusThemeVari
  *  `{ type: "solus-artifact-height", h }`, and the forwarders that pass app
  *  shortcuts and link clicks up to a parent frame. `isolated` swaps in the
  *  no-network CSP and adds the lens anchor responder; it forwards no links,
- *  because a link out of a lens could carry the change it describes. */
-export function wrapSandboxDocument(inner: string, themeCss: string, isolated = false): string {
-  const csp = isolated ? ISOLATED_CSP_META : CSP_META;
+ *  because a link out of a lens could carry the change it describes. `app`
+ *  makes it an app's frame: the app policy and the call bridge. */
+export function wrapSandboxDocument(inner: string, themeCss: string, isolated = false, app?: SandboxAppFrame): string {
+  const csp = isolated ? ISOLATED_CSP_META : app ? appCspMeta(app.network) : CSP_META;
   const responder = isolated ? ANCHOR_RESPONDER : LINK_FORWARDER;
-  return `<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${inner}`;
+  const bridge = app && !isolated ? APP_BRIDGE : "";
+  return `<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${bridge}${inner}`;
+}
+
+/** What makes a frame an app's frame: the network hosts in force for it. A
+ *  caller passes it only for a page that has an app manifest. */
+export interface SandboxAppFrame {
+  network: readonly string[];
 }

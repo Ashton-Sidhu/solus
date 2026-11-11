@@ -60,7 +60,7 @@ const log = createLogger('folio', 'works.ts')
 const workRefRowSchema = z.object({
   id: z.string(),
   title: z.string(),
-  type: z.enum(['doc', 'slides', 'artifact', 'app']),
+  type: z.enum(['doc', 'slides', 'artifact']),
   session_id: z.string(),
 })
 
@@ -150,9 +150,9 @@ export async function duplicateWork(scope: RecordScope, id: string, ownerKey: st
     // doc would overwrite each other with no way to tell which won.
     mirroredDoc: undefined,
   }
-  // A copy of an app keeps its permissions and asks for its host access again
-  // (docs/plans/apps.md §6): the owner allowed one app, and a copy can go to another person and other code.
-  if (meta.app) meta.app = { permissions: meta.app.permissions }
+  // A copy of an app asks for its host access again (docs/plans/apps.md §6):
+  // the owner allowed one app, and a copy can go to another person and other code.
+  delete meta.app
   return insertNewWork(row.organization_id, ownerKey, randomUUID(), meta, source.content, source.contentAuthor)
 }
 
@@ -238,14 +238,12 @@ export async function listWorkRefsForSessions(
 }
 
 /** The file a work exports as: the content is already in that form. */
-export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' | 'tsx' {
+export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
   switch (type) {
     case 'doc':
       return 'md'
     case 'artifact':
       return 'html'
-    case 'app':
-      return 'tsx'
     case 'slides':
       return 'json'
   }

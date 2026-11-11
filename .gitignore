@@ -62,6 +62,3 @@ claudestreaming.md
 # design-sync
 ds-bundle/
 .ds-work/
-
-# Built app shell (scripts/build-app-shell.ts)
-resources/app-shell/

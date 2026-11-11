@@ -1,19 +1,18 @@
 import { z } from 'zod'
-import { MCP_APP_MAX_DATA_BYTES, type McpAppCsp } from './mcp-apps'
+import { MCP_APP_MAX_DATA_BYTES } from './mcp-apps'
 
 /**
- * Apps (docs/plans/apps.md): a work of type `app`. Its content is one React
- * component, or the bundle an app project builds. An app builds with its own
- * storage, the network hosts it names, its own host functions, and the
- * viewer's integrations; every one leaves the frame as data and is checked by
- * the server.
+ * Apps (docs/plans/apps.md): an `artifact` work whose page carries an app
+ * manifest. The manifest turns on the app's own storage, the network hosts it
+ * names, its own host functions, and the viewer's integrations; every one
+ * leaves the frame as data and is checked by the server.
  */
 
 const APP_CALL_NAME_SEPARATOR = '/'
 const APP_STORAGE_CALL_PREFIX = '@storage/'
 const APP_SERVER_CALL_PREFIX = '@server/'
 
-/** What the frame puts on the wire: `<slug>/<tool>`, `@storage/<operation>`, or `@server/<function>`. */
+/** What the page puts on the wire: `<slug>/<tool>`, `@storage/<operation>`, or `@server/<function>`. */
 export const appCallNameSchema = z.string().min(3).max(512).regex(/^[^/\s]+\/[^\s]+$/)
 
 /** `<slug>/<tool>`, an integration tool as the permissions list it. A slug never starts with `@`. */
@@ -29,10 +28,10 @@ const appFilePathsSchema = z.array(appFilePathSchema).max(32)
 const appFilesSchema = z.object({ read: appFilePathsSchema.default([]), write: appFilePathsSchema.default([]) })
 
 /**
- * The app's own settings (§5). `tools` and `writes` are its ceiling under the
- * gateway's: they can narrow what the viewer's integrations allow, never widen
- * it. `network` and `files` are what it asks of the host; they are in force
- * only when the host's owner allowed them (§6).
+ * What an app declares in its project's `app.json` (§5). `tools` is its
+ * ceiling under the gateway's: it can narrow what the viewer's integrations
+ * allow, never widen it. `writes: 'allow'`, `network`, and `files` are in
+ * force only when the host's owner allowed them (§6).
  */
 export const appPermissionsSchema = z.object({
   tools: z.union([z.literal('all'), z.literal('read-only'), z.object({ selected: z.array(appToolNameSchema).max(256) })]).default('all'),
@@ -44,10 +43,73 @@ export type AppPermissions = z.infer<typeof appPermissionsSchema>
 
 export const DEFAULT_APP_PERMISSIONS: AppPermissions = { tools: 'all', writes: 'ask', network: [], files: { read: [], write: [] } }
 
+/**
+ * The app manifest (§3): one JSON block the build writes into the page.
+ * `server` is a CommonJS module for Node; each of its exported functions is a
+ * host function. `sources` are the project's own files, so a later session
+ * can read and rebuild them.
+ */
+export const appManifestSchema = z.object({
+  solusApp: z.literal(1),
+  permissions: appPermissionsSchema.default(DEFAULT_APP_PERMISSIONS),
+  integrations: z.array(z.string().min(1).max(64)).max(64).default([]),
+  server: z.string().min(1).optional(),
+  sources: z.record(z.string().min(1).max(512), z.string()).optional(),
+})
+export type AppManifest = z.infer<typeof appManifestSchema>
+
+const MANIFEST_OPEN = '<script type="application/json" id="solus-app">'
+const MANIFEST_CLOSE = '</script>'
+
+/** The manifest as the block a build writes into a page. Every `<` is escaped, so nothing in it can end the script element. */
+export function appManifestBlock(manifest: AppManifest): string {
+  return `${MANIFEST_OPEN}${JSON.stringify(manifest).replace(/</g, '\\u003c')}${MANIFEST_CLOSE}`
+}
+
+/**
+ * Whether a page has an app manifest block. A frame's policy is decided from
+ * this alone, with no parse: a page that says it is an app runs as one.
+ */
+export function hasAppManifest(html: string): boolean {
+  return html.includes(MANIFEST_OPEN)
+}
+
+/** What a page says of itself: no manifest block, a valid manifest, or a block that is not one. */
+export type AppPageRead = { kind: 'none' } | { kind: 'app'; manifest: AppManifest } | { kind: 'invalid'; problem: string }
+
+/**
+ * Reads the app manifest of a page. This is the one reader, for the server
+ * and for every client: a frame's policy, a call's permissions, and a save's
+ * check all come from the same answer for the same text.
+ */
+export function readAppPage(html: string): AppPageRead {
+  const start = html.indexOf(MANIFEST_OPEN)
+  if (start < 0) return { kind: 'none' }
+  const end = html.indexOf(MANIFEST_CLOSE, start)
+  if (end < 0) return { kind: 'invalid', problem: 'The app manifest block does not end.' }
+  let manifest: ReturnType<typeof appManifestSchema.safeParse>
+  try {
+    manifest = appManifestSchema.safeParse(JSON.parse(html.slice(start + MANIFEST_OPEN.length, end)))
+  } catch {
+    return { kind: 'invalid', problem: 'The app manifest is not JSON.' }
+  }
+  if (manifest.success) return { kind: 'app', manifest: manifest.data }
+  const issue = manifest.error.issues[0]
+  return { kind: 'invalid', problem: `The app manifest is not valid: ${issue ? `${issue.path.join('.') || 'manifest'}: ${issue.message}` : 'unknown shape'}.` }
+}
+
+/** A page's manifest, or null when the page is not a valid app. */
+export function appManifestOf(html: string): AppManifest | null {
+  const read = readAppPage(html)
+  return read.kind === 'app' ? read.manifest : null
+}
+
 /** What an app asks of the host outside integrations and storage (§6). */
 export const appHostAccessSchema = z.object({
   /** It has host functions: its own code runs on the host. */
   functions: z.boolean(),
+  /** Its integration writes run without asking. */
+  writes: z.boolean().default(false),
   network: appNetworkSchema,
   files: z.object({ read: appFilePathsSchema, write: appFilePathsSchema }),
 })
@@ -64,55 +126,11 @@ export const appAllowedHostAccessSchema = z.object({
 })
 export type AppAllowedHostAccess = z.infer<typeof appAllowedHostAccessSchema>
 
-/** What rides a work's meta for an app: its permissions, and what the host's owner allowed. */
+/** What rides a work's meta for an app: what the host's owner allowed. Everything the app declares is in its page. */
 export const appMetaSchema = z.object({
-  permissions: appPermissionsSchema,
   allowed: appAllowedHostAccessSchema.optional(),
 })
 export type AppMeta = z.infer<typeof appMetaSchema>
-
-/**
- * The built form of an app project (§3). `client` and `server` are CommonJS
- * module bodies: the shell runs the first in the frame, the runner the second
- * on the host. `sources` are the project's own files, so a later session can
- * read and rebuild them.
- */
-export const appBundleSchema = z.object({
-  solusApp: z.literal(1),
-  client: z.string().min(1),
-  css: z.string().optional(),
-  server: z.string().min(1).optional(),
-  integrations: z.array(z.string().min(1).max(64)).max(64).default([]),
-  sources: z.record(z.string().min(1).max(512), z.string()).optional(),
-})
-export type AppBundle = z.infer<typeof appBundleSchema>
-
-/** A work's content as an app bundle; null when it is a component, or says it is a bundle and is not a valid one. */
-export function parseAppBundle(content: string): AppBundle | null {
-  if (!content.trimStart().startsWith('{')) return null
-  try {
-    const bundle = appBundleSchema.safeParse(JSON.parse(content))
-    return bundle.success ? bundle.data : null
-  } catch {
-    return null
-  }
-}
-
-/** A bundle's sources as one text, each file under a line that names it; empty when it carries none. */
-export function appBundleSourceText(bundle: AppBundle): string {
-  return Object.entries(bundle.sources ?? {}).map(([path, text]) => `--- ${path} ---\n${text}`).join('\n\n')
-}
-
-/**
- * An app's content as the source a person reads, copies, and compares: a
- * component is its own source, a bundle is its sources. The compiled code of
- * a bundle is never source.
- */
-export function appSourceText(content: string): string {
-  const bundle = parseAppBundle(content)
-  if (!bundle) return content
-  return appBundleSourceText(bundle) || 'This app is a bundle that carries no sources.'
-}
 
 /** One integration the app names (the slug in `tools.<slug>.<tool>`), as the viewer sees it. */
 export interface AppRoleState {
@@ -133,14 +151,13 @@ export interface AppHostAccessView {
   canDecide: boolean
 }
 
-/** What a client gets to show an app: the composed document and the facts its header shows. */
-export interface AppSnapshot {
-  html: string
-  csp: McpAppCsp
-  title: string
+/** What a client needs to run an app's frame and show its header: nothing of the page, which the client has as the work's content. */
+export interface AppState {
   roles: AppRoleState[]
   permissions: AppPermissions
   hostAccess: AppHostAccessView
+  /** The network hosts in force: the app's own, once the owner allowed them. */
+  network: string[]
   contentVersion: number
 }
 
@@ -155,9 +172,6 @@ export const appCallRequestSchema = appToolRequestSchema.extend({
   approved: z.boolean(),
 })
 export type AppCallRequest = z.infer<typeof appCallRequestSchema>
-
-export const appPermissionsUpdateSchema = appRequestSchema.extend({ permissions: appPermissionsSchema })
-export type AppPermissionsUpdate = z.infer<typeof appPermissionsUpdateSchema>
 
 /** `allow: true` puts what the app asks now in force; `false` revokes it. */
 export const appHostAccessDecisionSchema = appRequestSchema.extend({ allow: z.boolean() })
@@ -195,12 +209,6 @@ export function parseAppCallName(name: string): AppCall | null {
   return { kind: 'tool', slug: name.slice(0, at), tool: name.slice(at + 1) }
 }
 
-/** A one-line reading of the integration permissions, for a header. */
-export function describeAppPermissions(permissions: Pick<AppPermissions, 'tools' | 'writes'>): string {
-  const tools = permissions.tools === 'all' ? 'All tools' : permissions.tools === 'read-only' ? 'Read-only tools' : `${permissions.tools.selected.length} selected tools`
-  return `${tools} · writes ${permissions.writes === 'ask' ? 'ask first' : 'run on click'}`
-}
-
 function listed(entries: readonly string[], every: string): string {
   return entries.includes('*') ? every : entries.join(', ')
 }
@@ -218,6 +226,7 @@ export function describeAppHostAccess(access: AppHostAccess): string {
     if (access.files.write.length > 0) clauses.push(`write ${listed(access.files.write, 'every file')}`)
   }
   if (access.network.length > 0) clauses.push(`reach ${listed(access.network, 'every network host')}`)
+  if (access.writes) clauses.push('change data through your integrations without asking')
   if (clauses.length <= 2) return clauses.join(' and ')
   return `${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}`
 }
@@ -230,4 +239,9 @@ export function appHostAccessNotice(view: AppHostAccessView): string | null {
   return view.canDecide
     ? `This app asks to ${access}. An agent wrote it. Until you allow it, those parts of the app do not work.`
     : `This app asks to ${access}. Only the owner of its host can allow that.`
+}
+
+/** A manifest's sources as one text, each file under a line that names it; empty when it carries none. */
+export function appSourceText(manifest: AppManifest): string {
+  return Object.entries(manifest.sources ?? {}).map(([path, text]) => `--- ${path} ---\n${text}`).join('\n\n')
 }

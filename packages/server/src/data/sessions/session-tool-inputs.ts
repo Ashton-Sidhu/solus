@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import type { SessionLoadMessage, WireSessionLoadMessage, SessionToolInput } from '@solus/contracts/session-history'
 
 // These inputs reconstruct visible cards or subagent metadata during replay.
 // Ordinary tool rows need only their name/status until the summary is opened.
 const CARD_INPUT_TOOLS = [
-  'create_work', 'render_artifact', 'update_work', 'create_automation', 'update_automation',
+  'create_work', 'render_artifact', 'create_app', 'update_work', 'create_automation', 'update_automation',
   'start_session', 'send_session', 'stop_session',
   'AskUserQuestion', 'request_user_input',
   'claude_subagent', 'codex_subagent', 'spawnAgent',
@@ -69,10 +70,10 @@ export function deferSavedArtifactHtml(messages: WireSessionLoadMessage[]): Wire
   const savedToolIds = new Set(messages.flatMap((message) =>
     message.role === 'tool_result' && message.toolResultForId && message.artifactWorkRef?.contentVersion
       ? [message.toolResultForId] : []))
-  const newest = messages.findLast((message) => message.role === 'tool' && message.toolName?.endsWith('render_artifact'))
+  const newest = messages.findLast((message) => message.role === 'tool' && isArtifactRenderTool(message.toolName))
   return messages.map((message) => {
     if (message === newest || message.role !== 'tool' || !message.toolInput || !message.toolId || !savedToolIds.has(message.toolId)
-      || !message.toolName?.endsWith('render_artifact') || !message.toolInput.includes('"html"')) return message
+      || !isArtifactRenderTool(message.toolName) || !message.toolInput.includes('"html"')) return message
     try {
       const input = savedArtifactInput.safeParse(JSON.parse(message.toolInput))
       if (!input.success) return message

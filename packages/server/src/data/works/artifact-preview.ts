@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises'
+import { z } from 'zod'
 import { SOLUS_THEME_SNAPSHOT, sandboxThemeCss, wrapSandboxDocument } from '@solus/contracts/artifact-sandbox'
 import { BROWSER_PARTITION_PREFIX, type BrowserConsoleEntry } from '@solus/contracts/browser-types'
 import { inlineLocalImages } from '@solus/contracts/html-local-images'
@@ -119,6 +120,81 @@ const ERROR_REPORTER = `<script>(function(){
   });
 })();</script>`
 
+/**
+ * What answers an app page's calls while it is previewed (docs/plans/apps.md
+ * §7). The page runs under the app policy with these network hosts, and each
+ * `solusApp.call` it makes is answered by `call` before the picture is taken.
+ */
+export interface AppPreviewHost {
+  network: readonly string[]
+  call(name: string, args: AppPreviewArguments): Promise<AppPreviewValue>
+}
+
+const appPreviewValueSchema = z.json()
+export type AppPreviewValue = z.infer<typeof appPreviewValueSchema>
+const appPreviewArgumentsSchema = z.record(z.string(), appPreviewValueSchema)
+export type AppPreviewArguments = z.infer<typeof appPreviewArgumentsSchema>
+const appPreviewCallsSchema = z.array(z.object({ id: z.number(), name: z.string(), args: appPreviewArgumentsSchema.catch({}) }))
+
+/** How long a preview answers an app's calls before it takes the picture anyway. */
+const APP_PREVIEW_CALLS_MS = 12_000
+const APP_PREVIEW_POLL_MS = 120
+/** Polls with no call and none in flight before the page counts as settled. */
+const APP_PREVIEW_IDLE_POLLS = 3
+
+// The page's own bridge posts to a parent frame, and a preview page has none.
+// This one keeps the calls for the driver to take, since the driver can
+// evaluate in the page and the page cannot reach the driver.
+const APP_PREVIEW_BRIDGE = `<script>(function(){
+  var queue = [], pending = {}, next = 1;
+  window.__solusAppPreview = {
+    take: function(){ var out = queue; queue = []; return JSON.stringify(out); },
+    settle: function(id, ok, value){
+      var call = pending[id];
+      if (!call) return;
+      delete pending[id];
+      if (ok) call.resolve(value); else call.reject(new Error(String(value)));
+    },
+    waiting: function(){ return Object.keys(pending).length; }
+  };
+  window.solusApp = { call: function(name, args){
+    return new Promise(function(resolve, reject){
+      var id = next++;
+      pending[id] = { resolve: resolve, reject: reject };
+      queue.push({ id: id, name: String(name), args: args || {} });
+    });
+  } };
+})();</script>`
+
+/** A value the driver evaluated: the guest's JSON text, which may itself hold JSON text. */
+function evaluated(text: string): AppPreviewValue {
+  const value = appPreviewValueSchema.parse(JSON.parse(text))
+  const nested = z.string().safeParse(value)
+  return nested.success ? appPreviewValueSchema.parse(JSON.parse(nested.data)) : value
+}
+
+/** Answers the page's calls until it makes no more, so the picture shows the app with its data and not its loading state. */
+async function answerAppCalls(driver: BrowserSurfaceDriver, app: AppPreviewHost): Promise<void> {
+  const deadline = Date.now() + APP_PREVIEW_CALLS_MS
+  let idlePolls = 0
+  while (Date.now() < deadline && idlePolls < APP_PREVIEW_IDLE_POLLS) {
+    const calls = appPreviewCallsSchema.parse(evaluated(await driver.evaluate('window.__solusAppPreview.take()')))
+    if (calls.length === 0) {
+      idlePolls++
+      await driver.evaluate(`new Promise((resolve) => setTimeout(() => resolve('ok'), ${APP_PREVIEW_POLL_MS}))`)
+      continue
+    }
+    idlePolls = 0
+    await Promise.all(calls.map(async (call) => {
+      const answer = await app.call(call.name, call.args).then(
+        (value) => ({ ok: true, value }),
+        (error) => ({ ok: false, value: error instanceof Error ? error.message : String(error) }),
+      )
+      await driver.evaluate(`window.__solusAppPreview.settle(${call.id}, ${answer.ok}, ${JSON.stringify(answer.value ?? null)}), 'ok'`)
+    }))
+  }
+}
+
 const MEASURE_SCRIPT = `(() => {
   const b = document.body, root = document.documentElement
   if (!b) return JSON.stringify(root ? root.scrollHeight : 0)
@@ -147,18 +223,26 @@ export async function previewArtifactHtml(input: {
   html: string
   width?: number
   appearance?: ArtifactPreviewAppearance
+  /** The page is an app: it runs under the app policy, and this answers its calls. */
+  app?: AppPreviewHost
 }): Promise<HtmlPreview> {
   const appearance = input.appearance ?? 'light'
   const width = Math.round(Math.min(HTML_PREVIEW_MAX_WIDTH, Math.max(HTML_PREVIEW_MIN_WIDTH, input.width ?? HTML_PREVIEW_DEFAULT_WIDTH)))
   const inlined = await inlineLocalImages(input.html, readHostImage)
   const themeCss = sandboxThemeCss(appearance === 'dark', (variable) => SOLUS_THEME_SNAPSHOT[appearance][variable])
-  const page = wrapSandboxDocument(ERROR_REPORTER + inlined.html, themeCss)
+  const page = input.app
+    ? wrapSandboxDocument(ERROR_REPORTER + APP_PREVIEW_BRIDGE + inlined.html, themeCss, false, { network: input.app.network })
+    : wrapSandboxDocument(ERROR_REPORTER + inlined.html, themeCss)
   // The page is laid out in a short viewport first. The sandbox page renders in
   // quirks mode, where the root stretches to the viewport, so a tall first
   // viewport would be measured as the page's own height.
   const driver = await openPreviewPage(page, appearance, { width, height: HTML_PREVIEW_MEASURE_HEIGHT, deviceScaleFactor: 1 })
   try {
     await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
+    if (input.app) {
+      await answerAppCalls(driver, input.app)
+      await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
+    }
     const contentHeight = Number(JSON.parse(await driver.evaluate(MEASURE_SCRIPT))) || 0
     const captureHeight = Math.min(HTML_PREVIEW_MAX_CAPTURE_HEIGHT, Math.max(1, contentHeight))
     // The viewport grows to the page so the screenshot holds all of it.

@@ -25,7 +25,7 @@ const workTransferOutlineSchema = z.object({
     id: z.string().min(1),
     content: z.string(),
     title: z.string(),
-    type: z.enum(['doc', 'slides', 'artifact', 'app']),
+    type: z.enum(['doc', 'slides', 'artifact']),
     contentVersion: z.number().int().positive(),
     contentHash: z.string().min(1),
     contentAuthor: attributionOutlineSchema,

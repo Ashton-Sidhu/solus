@@ -7,6 +7,8 @@
   import { getSettingsContext, getSurfaceContext, hasSurfaceContext, runtime } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { hasAppManifest } from "@solus/contracts/apps";
+  import { appCallMessageSchema, appResultMessage, type AppCallArguments, type AppCallValue } from "@solus/client-core/app-calls";
   import { buildSandboxThemeCss, wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
   import {
     artifactHeightMessageSchema,
@@ -74,6 +76,11 @@
     /** HTML someone other than the user can influence (a review lens): no
      *  network, no popups, no forms, no downloads. */
     isolated?: boolean;
+    /** What answers the calls of a page that is an app (docs/plans/apps.md §4),
+     *  and the network hosts in force for it. A caller that holds the app's
+     *  work passes it; without it, such a page still runs as an app, with no
+     *  network, and each of its calls is answered with an error. */
+    app?: { network: readonly string[]; call(name: string, args: AppCallArguments): Promise<AppCallValue> };
   }
 
   let {
@@ -91,7 +98,14 @@
     tooltips = true,
     onExpandOnTouch,
     isolated = false,
+    app,
   }: Props = $props();
+
+  // The page decides: one with an app manifest runs under the app policy
+  // whether or not anything answers its calls, so it never has calls and an
+  // open network together.
+  const isApp = $derived(html !== undefined && !isolated && hasAppManifest(html));
+  const appNetwork = $derived(isApp ? (app?.network ?? []) : null);
 
   // A caller is either inside the component tree or outside it for its whole
   // life, so this choice is made once and never re-made.
@@ -101,7 +115,7 @@
 
   // Built when the frame mounts, not before: a frame still waiting for the
   // viewport needs only its placeholder.
-  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated));
+  const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated, appNetwork ? { network: appNetwork } : undefined));
 
   let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
   const frameSettled = $derived(frameResult !== null && frameResult.srcdoc === srcdoc && frameResult.reloadKey === reloadKey);
@@ -196,6 +210,25 @@
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
+  });
+
+  // An app's call. It is answered for this frame's own page only, and a page
+  // with nothing behind it gets an error at once, so it never waits.
+  $effect(() => {
+    if (!isApp) return;
+    const calls = app;
+    function onCall(e: MessageEvent) {
+      const frame = iframeEl;
+      if (!frame || e.source !== frame.contentWindow) return;
+      const message = appCallMessageSchema.safeParse(e.data);
+      if (!message.success) return;
+      const answer = calls
+        ? calls.call(message.data.name, message.data.args)
+        : Promise.reject(new Error("This view shows the app and cannot run its calls. Open the app from the conversation or the works list."));
+      void appResultMessage(message.data.id, answer).then((result) => frame.contentWindow?.postMessage(result, "*"));
+    }
+    window.addEventListener("message", onCall);
+    return () => window.removeEventListener("message", onCall);
   });
 
   // A link click or a shortcut the render passes on. The page can post either
@@ -310,7 +343,7 @@
         class:animates-height={frameSettled}
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
-        sandbox={isolated ? "allow-scripts" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
+        sandbox={isolated ? "allow-scripts" : isApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
         allow="clipboard-write"
         style="color-scheme:{colorScheme};{expanded
           ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`

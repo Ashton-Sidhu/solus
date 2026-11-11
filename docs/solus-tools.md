@@ -132,17 +132,16 @@ status, pending input, and history. There is no separate task-session read tool.
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.
 
-`create_app` makes an app that lives in Solus (docs/plans/apps.md), saved as an
-`app` work and opened on desktop, web, and mobile. It takes one of `code` (one
-React component) or `bundle_path` (the `app.bundle.json` that the apps skill's
-project builds, with any npm package and optional host functions). An app
-builds with `storage` (its own data on the host), `fetch` (the hosts in
-`permissions.network`), `server` (its own functions on the host), and
-`tools.<slug>.<tool>(args)` (the viewer's own integrations, under `tools`: all,
-read-only, or a selected list, and `writes`: ask or allow). Host functions,
-network hosts, and file paths are the app's host access: the host's owner
-allows it in the app's header, and the receipt says when an app waits. Pass
-`work_id` and `expected_content_version` to replace an app in place.
+`create_app` saves an app that lives in Solus (docs/plans/apps.md). An app is an
+artifact whose page has an app manifest: the agent builds it with the
+visual-artifacts skill, in a project that has an `app.json`, and passes the
+built `bundle.html` as `html_path`. The page builds with `storage` (its own
+data on the host), `fetch` (the hosts in its permissions), `server` (its own
+functions on the host), and `tools.<slug>.<tool>(args)` (the viewer's own
+integrations). `create_app` is `render_artifact` with an app check: it refuses
+a page with no manifest, its `preview: true` answers the page's calls, and its
+receipt says what host access the app waits for. The host's owner allows host
+access in the app's header. A revision is `update_work` with `html_path`.
 
 Works includes `publish_work` and `pull_work_upstream` for connected document
 providers. Publish sends a work to Confluence or Google Docs and keeps the link.

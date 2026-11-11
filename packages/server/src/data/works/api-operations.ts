@@ -63,7 +63,7 @@ export class WorkApiOperations {
         createdAt: work.createdAt, updatedAt: work.updatedAt, title: work.title, type: work.type,
         preview: work.preview, sessionIds: work.sessionIds ?? (work.sessionId ? [work.sessionId] : []),
         projectId: projects.get(work.organizationId)?.get(work.cwd) ?? null, pinned: work.pinned ?? false,
-        editable: work.mirroredDoc?.provider !== 'gdrive', cwd: work.cwd, agentProvider: work.agentProvider, mirroredDoc: work.mirroredDoc, app: work.app,
+        editable: work.mirroredDoc?.provider !== 'gdrive', cwd: work.cwd, agentProvider: work.agentProvider, mirroredDoc: work.mirroredDoc,
         share: owned.share,
       }
     })

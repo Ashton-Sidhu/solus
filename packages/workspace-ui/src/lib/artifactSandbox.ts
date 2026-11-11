@@ -2,7 +2,7 @@
 // (`@solus/contracts/artifact-sandbox`) from the live document, so a render
 // follows the user's theme. The frame cannot read the host's CSS itself
 // without allow-same-origin.
-import { sandboxThemeCss, wrapSandboxDocument } from "@solus/contracts/artifact-sandbox";
+import { sandboxThemeCss, wrapSandboxDocument, type SandboxAppFrame } from "@solus/contracts/artifact-sandbox";
 
 /** Read the host palette for initial injection and live theme messages. The
  *  root is transparent, so a render has no background of its own and shows
@@ -25,7 +25,7 @@ export function buildSandboxThemeCss(isDark: boolean): string {
 
 let palette: { root: Element; key: string; css: string } | null = null;
 
-/** Wrap inner HTML into a full sandbox srcdoc in the live theme. */
-export function wrapSandboxSrcdoc(inner: string, isDark: boolean, isolated = false): string {
-  return wrapSandboxDocument(inner, buildSandboxThemeCss(isDark), isolated);
+/** Wrap inner HTML into a full sandbox srcdoc in the live theme. `app` makes it an app's frame. */
+export function wrapSandboxSrcdoc(inner: string, isDark: boolean, isolated = false, app?: SandboxAppFrame): string {
+  return wrapSandboxDocument(inner, buildSandboxThemeCss(isDark), isolated, app);
 }

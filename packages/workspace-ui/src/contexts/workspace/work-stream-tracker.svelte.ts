@@ -1,3 +1,4 @@
+import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import type { AgentId, Message, NormalizedEvent, Session } from '@solus/contracts/types'
 import { nextMsgId } from './session.utils'
 import type { RouterStore } from './routing/router.store.svelte'
@@ -27,11 +28,6 @@ type ArtifactCreatedEvent = Extract<NormalizedEvent, { type: 'artifact_created' 
 /** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
 function isCreateWorkTool(name: string | undefined): boolean {
   return !!name && name.endsWith('create_work')
-}
-
-/** Matches both Claude (`mcp__solus__render_artifact`) and Codex (`render_artifact`). */
-function isRenderArtifactTool(name: string | undefined): boolean {
-  return !!name && name.endsWith('render_artifact')
 }
 
 export class WorkStreamTracker {
@@ -83,7 +79,7 @@ export class WorkStreamTracker {
   updateStreamingArtifact(session: Session, toolName: string | undefined, toolInput: string, toolId?: string): void {
     if (!toolId) return
     const isUpdate = !!toolName?.endsWith('update_work')
-    if (!isRenderArtifactTool(toolName) && !isUpdate) return
+    if (!isArtifactRenderTool(toolName) && !isUpdate) return
     // The html can stream before the preview flag. A preview renders nothing in
     // the conversation, so its card goes as soon as the input says so.
     if (!isUpdate && isPreviewArtifactCall(toolInput)) return this.failArtifact(session, toolId)

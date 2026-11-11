@@ -203,7 +203,7 @@
   // A duplicate lands in the sharer's Workspace, which a guest cannot open.
   const canOpenWorkspace = $derived(shell.canOpenResource("workspace"));
   // An artifact has no maximize, so its cluster is one pill shorter.
-  const canMaximizePane = $derived(shell.hasCompanionPanes && workMetadata?.type !== "artifact" && workMetadata?.type !== "app");
+  const canMaximizePane = $derived(shell.hasCompanionPanes && workMetadata?.type !== "artifact");
   // Starting an agent on the work is the workspace's: a client with no runner
   // behind it has no session to start.
   const canStartSession = $derived(!!session.workspace && shell.canOpenResource("chat"));
@@ -247,7 +247,7 @@
     if (!work || !exportStartPath) return;
     exportDraft = "payload" in request
       ? request
-      : { fileName: exportFileName(work.title, storedExportExtension(work.type, draft?.content ?? "")), payload: null };
+      : { fileName: exportFileName(work.title, storedExportExtension(work.type)), payload: null };
   }
 
   /** The work's host writes its stored content to the path the picker chose. */
@@ -314,33 +314,7 @@
     {/if}
     {#key `${work.id}-${renderKey}-${liveBinding ? "live" : "saved"}-${liveReady}`}
       <div class="flex-1 min-h-0">
-        {#if work.type === "app"}
-          <!-- An app (docs/plans/apps.md): the MCP App frame over the document
-               the host composed, with its permissions in the header. -->
-          {#await import("../app/AppShell.svelte")}
-            <DocumentModalSkeleton inline title={work.title} />
-          {:then appModule}
-            {@const AppShell = appModule.default}
-            <AppShell
-              content={draft.content}
-              title={work.title}
-              workId={work.id}
-              onClose={handleClose}
-              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-              onRename={viewerReadOnly ? undefined : handleRename}
-              onDelete={canDelete ? handleDelete : undefined}
-              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
-              onExport={exportStartPath ? handleExport : undefined}
-              {hostIsRemote}
-            />
-          {:catch error}
-            <RouteLoadError
-              {error}
-              compact
-              onRetry={() => (renderKey += 1)}
-            />
-          {/await}
-        {:else if work.type === "artifact"}
+        {#if work.type === "artifact"}
           <!-- Lazy like the document shell: the artifact frame, its
                rail, and the header actions load when an artifact opens. -->
           {#await import("../artifact/ArtifactShell.svelte")}
@@ -418,7 +392,7 @@
         destinationFixed={!!work.cwd && work.cwd !== "~"}
         {onAttachFile}
         {onScreenshot}
-        label={work.type === "app" ? "Work with this app" : work.type === "artifact" ? "Work with this artifact" : "Work with this document"}
+        label={work.type === "artifact" ? "Work with this artifact" : "Work with this document"}
       />
     {/if}
     {#if canOpenWorkspace}
@@ -426,7 +400,7 @@
         onClose={handleClose}
         onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
         maximized={pane.maximized}
-        closeLabel={work.type === "app" ? "Close app" : work.type === "artifact" ? "Close artifact" : "Close document"}
+        closeLabel={work.type === "artifact" ? "Close artifact" : "Close document"}
         closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
         raised="strong"
       />

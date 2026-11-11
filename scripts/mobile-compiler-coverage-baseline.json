@@ -1792,10 +1792,9 @@
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/threads/ThreadApp.tsx": {
+    "apps/mobile/src/features/threads/artifact-app.ts": {
       "compiled": [
-        "AppCard",
-        "ThreadApp"
+        "useArtifactApp"
       ],
       "skipped": []
     },
@@ -1805,6 +1804,7 @@
         "ArtifactPage",
         "ArtifactPendingFullScreen",
         "ArtifactWebView",
+        "SavedArtifactPage",
         "ThreadArtifact",
         "ThreadArtifactFullScreen",
         "WorkArtifactFullScreen"

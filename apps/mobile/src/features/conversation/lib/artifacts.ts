@@ -1,3 +1,4 @@
+import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import { z } from 'zod'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { WireNormalizedEvent } from '@solus/contracts/types'
@@ -41,10 +42,6 @@ const updateInput = z.object({
   html_path: z.string().optional(),
 })
 
-/** Claude names the tool `mcp__solus__render_artifact`; Codex `render_artifact`. */
-function isRenderArtifactTool(toolName: string): boolean {
-  return toolName.endsWith('render_artifact')
-}
 
 /** A call's input, read by `schema`; null when it does not match. */
 function parseInput<T>(schema: z.ZodType<T>, text: string | null): T | null {
@@ -61,7 +58,7 @@ type ArtifactWorkRef = WireSessionLoadMessage['artifactWorkRef']
 /** The render a finished call in history shows, or null when it shows none. */
 export function artifactFromHistory(toolName: string, toolInput: string | null, result: WireSessionLoadMessage): ArtifactRender | null {
   if (result.status === 'error') return null
-  if (isRenderArtifactTool(toolName)) return renderFromHistory(toolInput, result.artifactWorkRef)
+  if (isArtifactRenderTool(toolName)) return renderFromHistory(toolInput, result.artifactWorkRef)
   if (toolName.endsWith('update_work')) return updateFromHistory(toolInput, result.artifactWorkRef)
   return null
 }
@@ -84,12 +81,6 @@ function updateFromHistory(toolInput: string | null, ref: ArtifactWorkRef): Arti
   if (input.content !== undefined) return { html: input.content, title: ref.title, workId: ref.workId }
   if (!input.html_path || !ref.contentVersion) return null
   return { html: '', title: ref.title, workId: ref.workId, contentVersion: ref.contentVersion }
-}
-
-/** The app work a finished `create_app` call made or revised (docs/plans/apps.md), from its receipt. */
-export function appFromHistory(toolName: string, result: WireSessionLoadMessage): { workId: string; title: string } | null {
-  if (result.status === 'error' || !toolName.endsWith('create_app') || !result.artifactWorkRef) return null
-  return { workId: result.artifactWorkRef.workId, title: result.artifactWorkRef.title }
 }
 
 /** The render a live `artifact_created` event shows. */

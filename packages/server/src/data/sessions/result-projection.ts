@@ -1,3 +1,4 @@
+import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { isSecretTool, secretOutcomesFromResult } from '@solus/contracts/secret-request'
 import { parseExchangeTag, parseOrchestrationItems } from '@solus/contracts/session-exchange'
@@ -123,18 +124,15 @@ function secretProjection(toolName: string | undefined, content: string, failed?
 
 function artifactProjection(toolName: string | undefined, content: string, failed?: boolean): Pick<WireSessionLoadMessage, 'artifactWorkRef' | 'workUpdateSucceeded' | 'workContentVersion'> {
   if (failed) return {}
-  const match = toolName?.endsWith('render_artifact')
+  const match = isArtifactRenderTool(toolName)
     ? /Rendered "([\s\S]*?)" in the conversation and saved it as an artifact \(id: ([^\s)]+)\)/.exec(content)
     : toolName?.endsWith('update_work')
       ? /Updated "([\s\S]*?)" \(artifact, id: ([^\s)]+)\)/.exec(content)
-      // An app (docs/plans/apps.md): its receipt names the work the feed row opens.
-      : toolName?.endsWith('create_app')
-        ? /(?:Created|Updated) the app "([\s\S]*?)" \(id: ([^\s)]+)\)/.exec(content)
-        : null
+      : null
   const result: Pick<WireSessionLoadMessage, 'artifactWorkRef' | 'workUpdateSucceeded' | 'workContentVersion'> = {}
   if (match) {
     // A new work's first body is version 1; an update receipt names its version.
-    const contentVersion = toolName?.endsWith('render_artifact') || content.startsWith('Created the app') ? 1 : Number(/New content_version: (\d+)/.exec(content)?.[1])
+    const contentVersion = isArtifactRenderTool(toolName) ? 1 : Number(/New content_version: (\d+)/.exec(content)?.[1])
     result.artifactWorkRef = { title: match[1], workId: match[2] }
     if (contentVersion) result.artifactWorkRef.contentVersion = contentVersion
   }

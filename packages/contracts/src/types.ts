@@ -1539,7 +1539,7 @@ export interface Message {
 /** How a work's `content` renders: markdown for `doc` and `slides`, and a
  *  self-contained HTML document for `artifact` (the `render_artifact` tool's
  *  output, shown in a sandbox). */
-export type WorkType = 'doc' | 'slides' | 'artifact' | 'app'
+export type WorkType = 'doc' | 'slides' | 'artifact'
 
 export interface WorkMeta {
   /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */

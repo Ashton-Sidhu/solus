@@ -24,6 +24,17 @@ export const SECRET_REF_TTL_MS = 15 * 60 * 1000
  */
 export const SECRET_FILE_TTL_MS = 24 * 60 * 60 * 1000
 
+/**
+ * Whether a tool call renders a page in the conversation and saves it as an
+ * artifact: `render_artifact`, or `create_app`, which is the same save for a
+ * page that is an app (docs/plans/apps.md §2 decision 6). The two take the
+ * same input and write the same receipt, so every replay of one is a replay
+ * of the other. Claude names them `mcp__solus__…`; Codex passes them bare.
+ */
+export function isArtifactRenderTool(name: string | undefined): boolean {
+  return !!name && (name.endsWith('render_artifact') || name.endsWith('create_app'))
+}
+
 /** User-controlled tools, grouped by their function in Settings. */
 export const SOLUS_TOOL_GROUPS = [
   { id: 'works', label: 'Works', tools: [

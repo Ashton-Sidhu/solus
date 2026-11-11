@@ -12,7 +12,7 @@ const log = createLogger('folio', 'work-applier.ts')
 const workCreatePayloadSchema = z.object({
   taskId: z.string().optional(),
   title: z.string(),
-  docType: z.enum(['doc', 'slides', 'artifact', 'app']),
+  docType: z.enum(['doc', 'slides', 'artifact']),
   content: z.string(),
   agentProvider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
   originSessionId: z.string().optional(),

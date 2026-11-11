@@ -121,7 +121,6 @@ export const RPC_PLANES = {
   appRead: 'execution',
   appToolInfo: 'execution',
   appCallTool: 'execution',
-  appPermissionsUpdate: 'execution',
   appHostAccessDecide: 'execution',
   loadSessionPreview: 'collaboration',
   loadSessionMessageWindow: 'collaboration',

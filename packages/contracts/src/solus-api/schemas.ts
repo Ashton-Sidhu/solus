@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { appMetaSchema } from '../apps'
 import { activitySchema } from '../activity'
 import { hubNotificationSchema } from '../notification-hub'
 import { resourceRoleSchema, shareSummarySchema } from '../sharing'
@@ -82,7 +81,7 @@ export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
 
 // Works
 
-const workType = z.enum(['doc', 'slides', 'artifact', 'app'])
+const workType = z.enum(['doc', 'slides', 'artifact'])
 const agentProvider = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const workExample = { id: 'work_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerKey: 'local:host_user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'API notes', type: 'doc', preview: 'Review notes', sessionIds: [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'codex' }
 
@@ -112,8 +111,6 @@ export const workspaceWorkSummarySchema = z.strictObject({
   cwd: z.string().max(4096),
   agentProvider,
   mirroredDoc: workspaceLinkedDocumentSchema.optional(),
-  /** An `app` work's own settings (docs/plans/apps.md §3). */
-  app: appMetaSchema.optional(),
   /** Who else may open it (docs/workspace-page.md). Absent from a host older than the field. */
   share: shareSummarySchema.optional(),
 }).meta({ description: 'Work metadata without the content. Read an individual work for its content.', examples: [workExample] })

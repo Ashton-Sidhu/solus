@@ -30,7 +30,7 @@ import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, 
 import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
-import type { AppCallRequest, AppHostAccessDecision, AppPermissionsUpdate, AppRequest, AppSnapshot, AppToolRequest } from './apps'
+import type { AppCallRequest, AppHostAccessDecision, AppRequest, AppState, AppToolRequest } from './apps'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
@@ -495,16 +495,14 @@ export interface SolusAPI {
   mcpAppCallTool(request: McpAppCallRequest): Promise<string>
   /** Reads a resource of the app's integration with the caller's connection. Returns the result as JSON. */
   mcpAppReadResource(request: McpAppResourceRequest): Promise<string>
-  /** Apps (docs/plans/apps.md): the composed document of an `app` work with its roles, permissions, and host access, in the caller's scope. */
-  appRead(request: AppRequest): Promise<AppSnapshot>
+  /** Apps (docs/plans/apps.md): what an artifact with an app manifest needs to run and to show its header: its roles, permissions, host access, and the network hosts in force, in the caller's scope. Fails for an artifact that is not an app. */
+  appRead(request: AppRequest): Promise<AppState>
   /** Whether the app may make a call now: an integration tool with the caller's own integration, its storage, or one of its host functions. */
   appToolInfo(request: AppToolRequest): Promise<McpAppToolInfo>
   /** Runs one call for the app as the caller; an integration write needs `approved`. Answers the result as JSON text. */
   appCallTool(request: AppCallRequest): Promise<string>
-  /** Changes the app's own permissions; takes effect on the next call. */
-  appPermissionsUpdate(request: AppPermissionsUpdate): Promise<AppSnapshot>
   /** The host's owner allows what the app asks of the host, or revokes it. */
-  appHostAccessDecide(request: AppHostAccessDecision): Promise<AppSnapshot>
+  appHostAccessDecide(request: AppHostAccessDecision): Promise<AppState>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
   /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */

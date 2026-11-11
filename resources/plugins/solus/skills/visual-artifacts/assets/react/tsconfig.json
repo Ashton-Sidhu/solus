@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./src/*"], "@solus/app": ["./src/solus-app.ts"] }
   },
-  "include": ["src"]
+  "include": ["src", "server.ts"]
 }

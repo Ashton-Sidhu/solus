@@ -41,7 +41,6 @@ async function main(): Promise<void> {
     await installNodeRuntime(target, staging)
     await buildHeadless(staging)
     copyBundledPlugins(staging)
-    await copyAppShell(staging)
     copyPreviewBrowserDriver(staging)
     await installFileFinder(target, staging, workDir)
     writeLaunchers(staging, target.platform)
@@ -290,12 +289,6 @@ async function installFileFinder(target: Target, staging: string, workDir: strin
  *  bundledResourcesDir() looks: `$SOLUS_INSTALL_DIR/resources`. */
 function copyBundledPlugins(staging: string): void {
   cpSync(join(repoRoot, 'resources', 'plugins'), join(staging, 'resources', 'plugins'), { recursive: true })
-}
-
-/** The app shell (docs/plans/apps.md): built here, so a package never ships without the page its apps run in. */
-async function copyAppShell(staging: string): Promise<void> {
-  await run(process.execPath, [join(repoRoot, 'scripts', 'build-app-shell.ts')])
-  cpSync(join(repoRoot, 'resources', 'app-shell'), join(staging, 'resources', 'app-shell'), { recursive: true })
 }
 
 export function writeLaunchers(staging: string, platform: Target['platform']): void {

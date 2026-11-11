@@ -4,19 +4,27 @@ import { ActivityIndicator, Linking, Modal, Pressable, View } from "react-native
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
+import { appResultMessage } from "@solus/client-core/app-calls";
+import { appHostAccessNotice } from "@solus/contracts/apps";
+
+import { useApp } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { ConversationStore } from "../conversation/conversation-store";
+import { useArtifactApp, type ArtifactApp } from "./artifact-app";
 import {
+  appResultScript,
   artifactDocument,
   artifactThemeCss,
   artifactThemeScript,
   isArtifactDocumentUrl,
   isExternalLink,
+  readAppCall,
   readArtifactHeight,
 } from "./artifact-frame";
+import { confirmWithAlert } from "./ThreadMcpApp";
 import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 120;
@@ -34,12 +42,16 @@ function ArtifactWebView(props: {
   /** In the feed the page grows to its content; full screen it scrolls. */
   readonly scrollable: boolean;
   readonly onHeight?: (height: number) => void;
+  /** What answers the page's calls when it is an app; without it each call gets an error. */
+  readonly app?: ArtifactApp | null;
 }) {
   const { themeAppearance } = useAppearancePreferences();
   const canvas = useUniwindTheme()["--color-screen"];
   const themeCss = artifactThemeCss(themeAppearance, canvas, props.scrollable);
   const [initialThemeCss] = useState(themeCss);
-  const source = useMemo(() => ({ html: artifactDocument(props.html, initialThemeCss) }), [props.html, initialThemeCss]);
+  // The network hosts in force are part of the document's policy: a change of them is a new document.
+  const appNetwork = props.app?.network;
+  const source = useMemo(() => ({ html: artifactDocument(props.html, initialThemeCss, appNetwork) }), [props.html, initialThemeCss, appNetwork]);
   const webView = useRef<WebView<object>>(null);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -97,7 +109,14 @@ function ArtifactWebView(props: {
         }}
         onMessage={(event: WebViewMessageEvent) => {
           const height = readArtifactHeight(event.nativeEvent.data);
-          if (height !== null) props.onHeight?.(height);
+          if (height !== null) return props.onHeight?.(height);
+          // An app's call: the page always gets an answer, so it never waits.
+          const call = readAppCall(event.nativeEvent.data);
+          if (!call) return;
+          const answer = props.app
+            ? props.app.call(call.name, call.args)
+            : Promise.reject(new Error("This view shows the app and cannot run its calls."));
+          void appResultMessage(call.id, answer).then((result) => webView.current?.injectJavaScript(appResultScript(result)));
         }}
         onLoadEnd={() => setLoaded(true)}
         onError={() => setFailed(true)}
@@ -113,7 +132,7 @@ function ArtifactWebView(props: {
   );
 }
 
-function ArtifactFullScreen(props: { readonly html: string; readonly title: string; readonly onClose: () => void }) {
+function ArtifactFullScreen(props: { readonly html: string; readonly title: string; readonly app?: ArtifactApp | null; readonly onClose: () => void }) {
   const insets = useSafeAreaInsets();
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={props.onClose}>
@@ -133,7 +152,7 @@ function ArtifactFullScreen(props: { readonly html: string; readonly title: stri
           </Pressable>
         </View>
         <View className="flex-1 px-4">
-          <ArtifactWebView html={props.html} title={props.title} scrollable />
+          <ArtifactWebView html={props.html} title={props.title} scrollable app={props.app} />
         </View>
       </View>
     </Modal>
@@ -145,7 +164,7 @@ function ArtifactFullScreen(props: { readonly html: string; readonly title: stri
  * screen. `heightKey` names the page across mounts, so a row the list mounts
  * again keeps its size.
  */
-export function ArtifactPage(props: { readonly html: string; readonly title: string; readonly heightKey: string }) {
+export function ArtifactPage(props: { readonly html: string; readonly title: string; readonly heightKey: string; readonly app?: ArtifactApp | null }) {
   const [height, setHeight] = useState(() => reportedHeights.get(props.heightKey) ?? INITIAL_HEIGHT);
   const [fullScreen, setFullScreen] = useState(false);
   const onHeight = (next: number) => {
@@ -156,7 +175,7 @@ export function ArtifactPage(props: { readonly html: string; readonly title: str
   return (
     <>
       <View style={{ height }}>
-        <ArtifactWebView html={props.html} title={props.title} scrollable={false} onHeight={onHeight} />
+        <ArtifactWebView html={props.html} title={props.title} scrollable={false} onHeight={onHeight} app={props.app} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Open ${props.title} full screen`}
@@ -173,8 +192,48 @@ export function ArtifactPage(props: { readonly html: string; readonly title: str
         </Pressable>
       </View>
       {fullScreen ? (
-        <ArtifactFullScreen html={props.html} title={props.title} onClose={() => setFullScreen(false)} />
+        <ArtifactFullScreen html={props.html} title={props.title} app={props.app} onClose={() => setFullScreen(false)} />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * A render of a saved work. A page with an app manifest is an app
+ * (docs/plans/apps.md): its calls go to the work's host, and its host access
+ * shows above it, with Allow and Revoke for the host's owner.
+ */
+function SavedArtifactPage(props: {
+  readonly store: ConversationStore;
+  readonly html: string;
+  readonly title: string;
+  readonly workId: string | null;
+  readonly heightKey: string;
+}) {
+  const api = useApp().connections.connection(props.store.controller.hostId)?.api;
+  const artifactApp = useArtifactApp(api, props.workId, props.html, confirmWithAlert);
+  const hostAccess = artifactApp?.state?.hostAccess ?? null;
+  const notice = hostAccess ? appHostAccessNotice(hostAccess) : null;
+  const allows = hostAccess?.state === "pending";
+
+  return (
+    <>
+      {hostAccess && notice ? (
+        <View accessibilityRole="summary" className="mb-2 flex-row items-center gap-2 rounded-lg border border-border px-3 py-2">
+          <Text className="min-w-0 flex-1 text-sm text-foreground-muted">{notice}</Text>
+          {hostAccess.canDecide ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={allows ? "Allow this app's host access" : "Revoke this app's host access"}
+              onPress={() => artifactApp?.decideHostAccess(allows)}
+              className="min-h-11 justify-center px-3"
+            >
+              <Text className="font-t3-medium text-sm text-foreground">{allows ? "Allow" : "Revoke"}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      <ArtifactPage html={props.html} title={props.title} heightKey={props.heightKey} app={artifactApp} />
     </>
   );
 }
@@ -241,7 +300,7 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
           )}
         </View>
       ) : showsPage ? (
-        <ArtifactPage html={item.html} title={item.title} heightKey={props.id} />
+        <SavedArtifactPage store={props.store} html={item.html} title={item.title} workId={item.workId} heightKey={props.id} />
       ) : null}
     </View>
   );

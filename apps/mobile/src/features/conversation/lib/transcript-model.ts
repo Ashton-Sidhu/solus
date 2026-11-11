@@ -9,7 +9,7 @@ import { settleSetupCard } from '@solus/contracts/setup-card'
 import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-cards'
 import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } from './message-attachments'
 import { AgentPlans } from './agent-plans'
-import { appFromHistory, artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
+import { artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
 import type { AgentSwitch } from './provider-handoff'
 
 /**
@@ -54,8 +54,6 @@ export type TranscriptItem =
   | { kind: 'notice'; id: string; text: string; tone: 'error' | 'info' }
   /** An HTML render the agent showed (`artifacts.ts`). */
   | ({ kind: 'artifact'; id: string } & ArtifactRender)
-  /** An app work (docs/plans/apps.md) the agent made or revised; the row runs it in the app frame. */
-  | { kind: 'app'; id: string; workId: string; title: string }
   /** A context compaction: running from its start event, settled by its stop. */
   | { kind: 'compaction'; id: string; compaction: ContextCompaction }
   | {
@@ -308,8 +306,6 @@ export class TranscriptModel {
     if (tool?.kind === 'tool') {
       const render = artifactFromHistory(tool.toolName, tool.input, row)
       if (render) this.place({ kind: 'artifact', id: this.mintId('r'), ...render })
-      const app = appFromHistory(tool.toolName, row)
-      if (app) this.place({ kind: 'app', id: this.mintId('app'), ...app })
     }
     this.patchToolById(row.toolResultForId, false, (tool) => ({
       ...tool,
@@ -413,12 +409,8 @@ export class TranscriptModel {
       if (render) this.append({ kind: 'artifact', id: this.mintId('r'), ...render })
       return true
     }
-    if (event.type === 'work_created') {
-      if (event.docType === 'app') this.append({ kind: 'app', id: this.mintId('app'), workId: event.workId, title: event.title || 'App' })
-      return true
-    }
     if (event.type !== 'work_updated') return false
-    if (!this.applyAppUpdate(event)) this.applyWorkUpdate(event)
+    this.applyWorkUpdate(event)
     return true
   }
 
@@ -562,21 +554,6 @@ export class TranscriptModel {
       this.proseSinceUser = true
     }
     this.streamTarget = null
-  }
-
-  /** A saved revision of an app work is a new row, and the earlier one folds to a line. The host can report
-   *  a cloud-owned save as `doc`, so an earlier row of the work also counts. False when the work is not an app. */
-  private applyAppUpdate(event: Extract<WireNormalizedEvent, { type: 'work_updated' }>): boolean {
-    let earlier: Extract<TranscriptItem, { kind: 'app' }> | undefined
-    for (const item of this.items.values()) {
-      if (item.kind === 'app' && item.workId === event.workId) earlier = item
-    }
-    if (event.docType !== 'app' && !earlier) return false
-    const applied = this.artifactUpdates.get(event.workId)
-    if (applied !== undefined && applied >= event.updatedAt) return true
-    this.artifactUpdates.set(event.workId, event.updatedAt)
-    this.append({ kind: 'app', id: this.mintId('app'), workId: event.workId, title: event.title || earlier?.title || 'App' })
-    return true
   }
 
   /** A saved revision of an artifact work is a new render. The host can report

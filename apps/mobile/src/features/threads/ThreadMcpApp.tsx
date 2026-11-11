@@ -6,9 +6,9 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { z } from "zod";
 import type { HostApi } from "@solus/client-core/host-api";
 import { nativeMcpAppDocument, nativeMcpAppPost } from "@solus/client-core/mcp-app-document";
-import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHost, type McpAppHostContext, type McpAppHostOptions } from "@solus/client-core/mcp-app-host";
+import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHost, type McpAppHostContext } from "@solus/client-core/mcp-app-host";
 import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
-import type { McpAppReference, McpAppSnapshot } from "@solus/contracts/mcp-apps";
+import type { McpAppReference, McpAppRequest, McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
 import { useApp } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
@@ -22,7 +22,8 @@ const INITIAL_HEIGHT = 320;
 const CLOSED_APP: McpAppRead = { phase: "idle" };
 const relayMessageSchema = z.object({ secret: z.string(), json: z.string().optional(), navigated: z.boolean().optional() });
 
-function confirmWithAlert(title: string, detail: string): Promise<boolean> {
+/** The person's answer to one approval, as a native alert. */
+export function confirmWithAlert(title: string, detail: string): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       title,
@@ -112,15 +113,11 @@ function McpAppCard(props: {
   }
 
   // Inline and full screen are separate frames: each presentation starts its own app.
-  const calls: McpAppCalls = {
-    toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
-    callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
-    readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
-  };
   const frame = (fullscreen: boolean) => (
     <McpAppWebView
       snapshot={state.snapshot}
-      calls={calls}
+      api={api}
+      request={request}
       store={store}
       isFullscreen={fullscreen}
       onDisplayMode={setIsFullscreen}
@@ -174,19 +171,17 @@ function McpAppCard(props: {
  * One app frame. The bridge belongs to one web view load: a retry, a new
  * snapshot, or an unmount disposes it, and a navigation of the app stops it.
  */
-/** The three host calls a frame's app makes: a captured app's session activity, or an `app` work (docs/plans/apps.md). */
-export type McpAppCalls = Pick<McpAppHostOptions, "toolInfo" | "callTool" | "readResource">;
-
-export function McpAppWebView(props: {
+function McpAppWebView(props: {
   readonly snapshot: McpAppSnapshot;
-  readonly calls: McpAppCalls;
+  readonly api: HostApi;
+  readonly request: McpAppRequest;
   readonly store: ConversationStore;
   readonly isFullscreen: boolean;
   readonly onDisplayMode: (fullscreen: boolean) => void;
   readonly onHeight: (height: number) => void;
   readonly onClose: () => void;
 }) {
-  const { snapshot, store, isFullscreen } = props;
+  const { snapshot, api, request, store, isFullscreen } = props;
   const app = useApp();
   const theme = useUniwindTheme();
   const { themeAppearance } = useAppearancePreferences();
@@ -224,9 +219,9 @@ export function McpAppWebView(props: {
       snapshot,
       context: () => latest.current.context,
       post: (json) => webView.current?.injectJavaScript(nativeMcpAppPost(json)),
-      toolInfo: (name) => latest.current.props.calls.toolInfo(name),
-      callTool: (name, argumentsJson, approved) => latest.current.props.calls.callTool(name, argumentsJson, approved),
-      readResource: (uri) => latest.current.props.calls.readResource(uri),
+      toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
+      callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
+      readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
       confirm: confirmWithAlert,
       sendMessage: (text) => store.controller.send(text, { delivery: "queue" }),
       openLink: (url) => app.platform.openBrowser(url),
@@ -239,7 +234,7 @@ export function McpAppWebView(props: {
       bridge.dispose();
       host.current = null;
     };
-  }, [app, snapshot, store, generation]);
+  }, [app, snapshot, api, request, store, generation]);
 
   // Inline, the app's own height report is not a change of the app's box.
   const frameHeight = isFullscreen ? frameSize.height : undefined;

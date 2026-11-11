@@ -1,3 +1,4 @@
+import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import { z } from 'zod'
 import type { Message, Work, WorkMeta } from '@solus/contracts/types'
 import type { WorksStore } from '../works/works.store.svelte'
@@ -74,7 +75,7 @@ export async function loadArtifactFileBodies(
   const wanted: { toolId: string; workId: string; contentVersion: number }[] = []
   for (const message of history) {
     if (message.role !== 'tool' || !message.toolId || !message.toolInput?.includes('"html_path"')) continue
-    if (!message.toolName?.endsWith('render_artifact') && !message.toolName?.endsWith('update_work')) continue
+    if (!isArtifactRenderTool(message.toolName) && !message.toolName?.endsWith('update_work')) continue
     if (!namesHtmlPath(message.toolInput)) continue
     const ref = (results.get(message.toolId) ?? message).artifactWorkRef
     if (!ref?.contentVersion) continue

@@ -18,7 +18,4 @@ bun run electron-vite dev 2>&1 | tee -a dev-console.log &
 # runs; it finishes in the background while Electron comes up. Edits to the web
 # client after that need another `bun run build:client`.
 (cd "$repo_root/apps/client" && bun run vite build --logLevel warn 2>&1 | sed 's/^/[client] /' | tee -a "$repo_root/dev-console.log") &
-# The app shell (docs/plans/apps.md) is one esbuild pass; the host inlines it
-# into every app it serves, so it must exist before an app opens.
-(bun scripts/build-app-shell.ts 2>&1 | sed 's/^/[app-shell] /' | tee -a "$repo_root/dev-console.log") &
 wait

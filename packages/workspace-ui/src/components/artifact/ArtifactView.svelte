@@ -9,8 +9,11 @@
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { downloadPayload } from "../work/lib/work-export";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import AppAccessBar from "./AppAccessBar.svelte";
   import ArtifactRail from "./ArtifactRail.svelte";
   import SandboxFrame from "./SandboxFrame.svelte";
+  import { AppFrame } from "./app-frame.svelte";
   import { runHost } from "../../contexts/workspace/run-location";
 
   /**
@@ -109,6 +112,19 @@
     return undefined;
   });
 
+  // An artifact whose page has an app manifest is an app (docs/plans/apps.md):
+  // its frame gets the hosts in force and something to answer its calls.
+  const app = new AppFrame({
+    workId: () => workRef?.workId,
+    contentVersion: () => workRef?.contentVersion,
+    html: () => (artifact.kind === "html" ? artifact.html : undefined),
+    api: () => {
+      const serverId = workRef ? session.worksStore.hostFor(workRef.workId) : undefined;
+      return serverId ? serverConnections.apiFor(serverId) : null;
+    },
+  });
+  $effect(() => app.load());
+
   // An image retries with a freshly signed URL; an HTML render re-creates its frame.
   function retryArtifact() {
     renderError = null;
@@ -149,6 +165,9 @@
 >
   {#if workRef}
     <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
+  {/if}
+  {#if app.workId}
+    <AppAccessBar {app} />
   {/if}
   {#if artifactError}
     <div
@@ -232,6 +251,7 @@
       reloadKey={retryAttempt + reloadKey}
       lazy={!fillAvailable}
       expandable={!fillAvailable && !workRef}
+      app={app.frame}
       onError={() => (renderError = "This artifact could not be rendered.")}
     />
   {:else}

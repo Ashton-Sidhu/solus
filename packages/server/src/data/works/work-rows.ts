@@ -20,7 +20,7 @@ import { initializeWorkStorage, storageForWork } from './work-storage'
  */
 
 const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
-export const workTypeSchema = z.enum(['doc', 'slides', 'artifact', 'app'])
+export const workTypeSchema = z.enum(['doc', 'slides', 'artifact'])
 const workExtraSchema = z.object({
   mirroredDoc: workExternalLinkSchema.optional(),
   app: appMetaSchema.optional(),

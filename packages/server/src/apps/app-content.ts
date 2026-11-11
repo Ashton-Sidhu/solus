@@ -1,99 +1,35 @@
 import { createHash } from 'node:crypto'
-import { z } from 'zod'
-import { appBundleSchema, appBundleSourceText, type AppBundle } from '@solus/contracts/apps'
-import { appSourceProblem, compileAppComponent, extractAppRoles } from './app-source'
+import { appSourceText, readAppPage, type AppManifest } from '@solus/contracts/apps'
 
 /**
- * An app's content (docs/plans/apps.md §3): one component the server compiles,
- * or the bundle an app project builds. This is the one place that knows both
- * forms. Pure: no store, so it is tested as text.
+ * An app's page on the server (docs/plans/apps.md §3). `readAppPage` in the
+ * contract is the one reader of a manifest; this module adds what only the
+ * server needs of it. Pure: no store, so it is tested as text.
  */
-export type AppContent = { kind: 'component'; code: string } | { kind: 'bundle'; bundle: AppBundle }
-
-/** A body that says it is a bundle and is not a valid one. */
-export class AppContentError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'AppContentError'
-  }
-}
-
-/** A bundle is a JSON object that says so; every other body is a component. */
-const bundleMarkerSchema = z.object({ solusApp: z.number() })
-
-export function readAppContent(content: string): AppContent {
-  if (!content.trimStart().startsWith('{')) return { kind: 'component', code: content }
-  let marked: boolean
-  let bundle: ReturnType<typeof appBundleSchema.safeParse>
-  try {
-    const json = z.json().parse(JSON.parse(content))
-    marked = bundleMarkerSchema.safeParse(json).success
-    bundle = appBundleSchema.safeParse(json)
-  } catch {
-    return { kind: 'component', code: content }
-  }
-  if (!marked) return { kind: 'component', code: content }
-  if (!bundle.success) {
-    const issue = bundle.error.issues[0]
-    throw new AppContentError(`The app bundle is not valid: ${issue ? `${issue.path.join('.') || 'bundle'}: ${issue.message}` : 'unknown shape'}. Build it with \`npm run bundle\` in the app project.`)
-  }
-  return { kind: 'bundle', bundle: bundle.data }
-}
-
-/** Why a body cannot be an app's content, or null when it can. Every write of an `app` work passes here. */
-export function appContentProblem(content: string): string | null {
-  try {
-    const read = readAppContent(content)
-    return read.kind === 'component' ? appSourceProblem(read.code) : null
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
-}
-
-/** The integration slugs the app names: read from a component's source, listed by a bundle's build. */
-export function appRoles(content: AppContent): string[] {
-  return content.kind === 'component' ? extractAppRoles(content.code) : content.bundle.integrations
-}
-
-/** The CommonJS module body the shell runs in the frame. */
-export function appClientModule(content: AppContent): string {
-  return content.kind === 'component' ? compileAppComponent(content.code) : content.bundle.client
-}
-
-/** The CommonJS module the runner loads on the host, when the app has host functions. */
-export function appServerModule(content: AppContent): string | null {
-  return content.kind === 'bundle' ? content.bundle.server ?? null : null
-}
 
 /** The name of the host code the owner allows: changed code has another name. Null when the app has none. */
-export function appServerHash(content: AppContent): string | null {
-  const server = appServerModule(content)
-  return server === null ? null : createHash('sha256').update(server).digest('hex')
+export function appServerHash(manifest: AppManifest): string | null {
+  return manifest.server === undefined ? null : createHash('sha256').update(manifest.server).digest('hex')
 }
 
 const KIB = 1024
 
 /**
- * An app's content as an agent reads it. A component is its own source. A
- * bundle is megabytes of compiled code, so the agent gets its sources and
- * what it holds, never the compiled text.
+ * A work's body as an agent reads it. An app's page is megabytes of built
+ * code, so the agent gets what the app is and its sources. Any other body is
+ * itself.
  */
-export function describeAppContent(content: string): string {
-  let read: AppContent
-  try {
-    read = readAppContent(content)
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
-  if (read.kind === 'component') return content
-  const { bundle } = read
+export function describeAppContent(html: string): string {
+  const read = readAppPage(html)
+  if (read.kind !== 'app') return html
+  const { manifest } = read
   const facts = [
-    `client ${Math.ceil(bundle.client.length / KIB)} KiB`,
-    bundle.server ? `host functions ${Math.ceil(bundle.server.length / KIB)} KiB` : 'no host functions',
-    bundle.integrations.length ? `integrations ${bundle.integrations.join(', ')}` : 'no integrations',
+    `page ${Math.ceil(html.length / KIB)} KiB`,
+    manifest.server ? `host functions ${Math.ceil(manifest.server.length / KIB)} KiB` : 'no host functions',
+    manifest.integrations.length ? `integrations ${manifest.integrations.join(', ')}` : 'no integrations',
   ].join('; ')
-  const files = appBundleSourceText(bundle)
-  const head = `This app is a bundle built from an app project (${facts}). The compiled code is not shown.`
-  if (!files) return `${head} The bundle carries no sources: revise it from its project folder, or make the project again with the apps skill.`
-  return `${head} To revise it, put these sources in an app project (apps skill), change them, run \`npm run bundle\`, and call create_app with work_id and path.\n\n${files}`
+  const files = appSourceText(manifest)
+  const head = `This artifact is an app built from a visual-artifacts project (${facts}). The built page is not shown.`
+  if (!files) return `${head} It carries no sources: revise it from its project folder, or make the project again.`
+  return `${head} To revise it, put these sources in a visual-artifacts project, change them, run \`npm run bundle\`, and call create_app with work_id and html_path.\n\n${files}`
 }

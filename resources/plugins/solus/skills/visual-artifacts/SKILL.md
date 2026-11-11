@@ -1,6 +1,6 @@
 ---
 name: visual-artifacts
-description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, and render as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use the apps skill for an app the user keeps and that holds data or runs code; use web-building skills for deployed apps.
+description: Build visual HTML artifacts and apps that live in Solus with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, preview, and save as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools, and for an app, a tool, a tracker, or a browser for the user's data that keeps its own data, runs its own code on the host, or uses the user's connected integrations. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
 ---
 
 # Visual artifacts
@@ -10,6 +10,8 @@ Build a useful visual result, not a website around an answer. Start with what th
 **One authoring path: initialize React → develop → compile one HTML file → render a Solus work.** Use it for small charts and complex interactive tools alike. Complexity changes the components, not the pipeline. Sharing is an explicit action on the same work, not a second deployment.
 
 The deliverable is a portable Solus work with a stable identity, native theme integration, version-checked revisions, reusable document embeds, and explicit access controls. The temporary React project is its build input, not a separate deployed app.
+
+**An app is the same deliverable with a host behind it.** When the user asks for something they keep and use, such as a tracker, a tool, or a browser for their data, build it here and make it an app: it then keeps its own data, can run its own code on the host (a database, files, any Node package), and can use the user's connected integrations. Read [apps](references/apps.md) before you write one. Everything else in this file applies to an app unchanged.
 
 ## Quick start
 
@@ -95,12 +97,12 @@ Include reset and meaningful presets where useful. Derive preview and output fro
 ## Sandbox contract
 
 - One complete HTML document, no raw JSX, TypeScript, unresolved imports, local paths, or development URLs.
-- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload.
+- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app is the one exception: it has storage, host functions, and integrations through `@solus/app` ([apps](references/apps.md)), and no network but the hosts it names.
 - Inline scripts and styles work. The build includes local assets and dependencies. Ordinary renders permit absolute HTTPS resources, but isolated review renders can block all network access.
 - HTTPS fetch/XHR still needs target CORS support for an opaque origin. Prefer session data inlined at build time; live data needs loading, error, source, and refresh states. Do not disguise a snapshot as live.
 - Never embed credentials or send private data to external services. Artifact creation is not permission for uploads or external writes.
 - The host measures content height and supplies theme variables. Use normal flow and content-driven height, not `100vh`, fixed page shells, or custom resize loops. Stack panels in narrow containers. Use bounded overflow only for content such as wide tables.
-- Local controls and copy-back text do not execute agent commands, update project files, or provide a persistence bridge. Explain incompatible requirements before building.
+- Local controls and copy-back text do not execute agent commands, update project files, or provide a persistence bridge. When the user needs persistence, files, a database, or live data from their integrations, build an app instead of explaining the limit.
 
 ## Design
 

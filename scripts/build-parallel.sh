@@ -20,9 +20,6 @@ trap 'rm -f "$desktop_log" "$client_log"' EXIT
 # dev mode, which mounts far more slowly (docs/plans/session-open-performance.md).
 export NODE_ENV=production
 
-# The app shell (docs/plans/apps.md) is one small esbuild pass; it runs first so every bundle ships it.
-bun scripts/build-app-shell.ts || exit 1
-
 bun run electron-vite build --logLevel warn "$@" >"$desktop_log" 2>&1 &
 desktop_pid=$!
 
