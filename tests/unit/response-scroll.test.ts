@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { JSDOM } from 'jsdom'
-import { createEndFollow } from '@solus/workspace-ui/components/conversation/lib/response-scroll'
+import { createEndFollow, settleScroll } from '@solus/workspace-ui/components/conversation/lib/response-scroll'
 
 describe('following the end of a conversation', () => {
   let dom: JSDOM
@@ -97,5 +97,57 @@ describe('following the end of a conversation', () => {
     setup(true, false)
     follower.follow(false)
     expect(requests).toEqual([])
+  })
+})
+
+describe('settling a conversation as it opens', () => {
+  const realFrame = globalThis.requestAnimationFrame
+  let frames: FrameRequestCallback[]
+  let element: { scrollTop: number; scrollHeight: number; clientHeight: number }
+
+  beforeEach(() => {
+    frames = []
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => frames.push(callback)) as typeof requestAnimationFrame
+    element = { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }
+  })
+  afterEach(() => { globalThis.requestAnimationFrame = realFrame })
+
+  const runFrame = () => frames.shift()?.(0)
+  const toEnd = () => element.scrollHeight - element.clientHeight
+
+  test('follows rows that measure late, and settles only once the end holds still', async () => {
+    let settled = false
+    void settleScroll(element as HTMLElement, toEnd, () => false).then(() => { settled = true })
+    // Highlighted code below the first jump measures a frame later.
+    element.scrollHeight = 1300
+    runFrame()
+    expect(element.scrollTop).toBe(900)
+    runFrame()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    runFrame()
+    await Promise.resolve()
+    expect(settled).toBe(true)
+    expect(element.scrollTop).toBe(900)
+  })
+
+  test('a view that never holds still stops settling within its frame budget', async () => {
+    let settled = false
+    void settleScroll(element as HTMLElement, toEnd, () => false).then(() => { settled = true })
+    for (let frame = 0; frame < 61 && !settled; frame++) {
+      element.scrollHeight += 50
+      runFrame()
+      await Promise.resolve()
+    }
+    expect(settled).toBe(true)
+  })
+
+  test('a new arrival cancels the old one without writing', async () => {
+    let settled = false
+    void settleScroll(element as HTMLElement, () => 0, () => true).then(() => { settled = true })
+    runFrame()
+    await Promise.resolve()
+    expect(settled).toBe(true)
+    expect(element.scrollTop).toBe(600)
   })
 })

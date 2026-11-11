@@ -1,6 +1,6 @@
 import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { z } from 'zod'
-import type { PrPageRequest, RepositoryPage } from '../types'
+import type { PrPageRequest, PriorityNumbers } from '../types'
 import { githubFailureFacts, type GitHubClient } from './octokit'
 import { createLogger } from '../../logger'
 import { randomUUID } from 'node:crypto'
@@ -18,11 +18,14 @@ const log = createLogger('main', 'github-pr-list')
 // ─── The pull request list ────────────────────────────────────────────────────
 // One GitHub search over many repositories answers a page of all of them:
 // `is:pr is:open repo:a repo:b … sort:updated-desc`, then the rows are split by
-// repository. The viewer's own pull requests and the ones that ask for their
-// review are three more searches over the same repositories, in the same
-// document. A later page is the same search with `updated:<=` the last row the
-// page before it held, so each repository keeps its own cursor and repositories
-// at the same place share one search.
+// repository. A later page is the same search with `updated:<=` the last row
+// the page before it held, so each repository keeps its own cursor and
+// repositories at the same place share one search.
+//
+// The viewer's own pull requests and the ones that ask for their review are
+// three more searches, read after the page so the list shows first. They ask
+// for numbers only: a row costs about as much as a search, and the page already
+// holds most of them (`readPriorityNumbers`).
 //
 // Search can miss a repository: a renamed one is known to search only by its
 // new name, and the index can lag a new pull request. Each repository's facts
@@ -144,15 +147,19 @@ interface Part {
 
 const ROW_CONNECTION = `pageInfo { hasNextPage endCursor } nodes { ...NeedsReviewFields }`
 
+/** What a priority search asks of each match: which pull request, and whose. */
+const NUMBER_CONNECTION = `pageInfo { hasNextPage } nodes { ... on PullRequest { number baseRepository { nameWithOwner } } }`
+
 function searchPart(
   query: string,
   repositories: string[],
   kind: Extract<Part['kind'], `${string}-search`> = 'list-search',
+  connection = ROW_CONNECTION,
 ): Part {
   return {
     kind,
     repositories,
-    field: (alias, rowsPerPage) => `${alias}: search(query: $${alias}q, type: ISSUE, first: ${rowsPerPage}) { ${ROW_CONNECTION} }`,
+    field: (alias, rowsPerPage) => `${alias}: search(query: $${alias}q, type: ISSUE, first: ${rowsPerPage}) { ${connection} }`,
     variables: [{ name: 'q', type: 'String!', value: query }],
   }
 }
@@ -320,7 +327,7 @@ interface Block {
 }
 
 interface RoundOutcome {
-  pages: Map<number, RepositoryPage>
+  pages: Map<number, PrListPage>
   /** Targets read again, on their own or with the names search knows. */
   retry: Target[]
 }
@@ -328,8 +335,6 @@ interface RoundOutcome {
 interface Request {
   filter: PrFilter | undefined
   state: NonNullable<PrFilter['state']>
-  viewer: string
-  withPriority: boolean
   isRetry: boolean
 }
 
@@ -337,30 +342,17 @@ function isUnsearched(filter: PrFilter | undefined): boolean {
   return !filter?.query?.trim() && !filter?.author && !filter?.head
 }
 
-/**
- * Many repositories at the same place, read by one search. On page one of an
- * unsearched list, the viewer's priority rows come with it.
- */
+/** Many repositories at the same place, read by one search. */
 function searchBlock(targets: Target[], request: Request, client: GitHubClient, accessFor: AccessFor): Block {
   const cursor = targets[0].cursor
   const before = cursor.kind === 'search' ? cursor.before : undefined
   const isFirstUnsearched = cursor.kind === 'first' && isUnsearched(request.filter)
-  const withPriority = request.withPriority && isFirstUnsearched
   const slugs = targets.map((target) => searchSlugOf(target.repo))
-  const query = (state: NonNullable<PrFilter['state']>, extra?: string) => pullRequestSearchQuery(slugs, state, {
-    query: extra ? undefined : request.filter?.query,
-    author: extra ? undefined : request.filter?.author,
-    before: extra ? undefined : before,
-    extra,
-  })
-  // A review request only stands on an open pull request.
-  const withReviewSearches = withPriority && request.state !== 'closed'
-  const parts = [searchPart(query(request.state), slugs)]
-  if (withPriority) parts.push(searchPart(query(request.state, `author:${request.viewer}`), slugs, 'authored-search'))
-  if (withReviewSearches) {
-    parts.push(searchPart(query('open', `review-requested:${request.viewer}`), slugs, 'review-requested-search'), searchPart(query('open', `assignee:${request.viewer}`), slugs, 'assigned-search'))
-  }
-  const priorityCount = parts.length
+  const parts = [searchPart(pullRequestSearchQuery(slugs, request.state, {
+    query: request.filter?.query,
+    author: request.filter?.author,
+    before,
+  }), slugs)]
   // The count tells a repository search missed from one with nothing to show.
   const countStates = isFirstUnsearched ? statesLiteral(request.state) : null
   for (const target of targets) parts.push(factsPart(target.repo, countStates))
@@ -368,9 +360,9 @@ function searchBlock(targets: Target[], request: Request, client: GitHubClient, 
   return {
     parts,
     repositories: targets.length,
-    connections: priorityCount,
+    connections: 1,
     settle: async (answers, outcome) => {
-      const facts = targets.map((_target, index) => repositoryOf(answers[priorityCount + index]))
+      const facts = targets.map((_target, index) => repositoryOf(answers[1 + index]))
       const rows = connectionOf(answers[0])
       // A repository search knew by another name: say the new one next time.
       let renamed = false
@@ -396,10 +388,6 @@ function searchBlock(targets: Target[], request: Request, client: GitHubClient, 
         return
       }
       const split = groupBy(pullRequestNodes(rows), byRepository)
-      const splitAt = (index: number) => splitOf(connectionOf(answers[index]), byRepository)
-      const authored = withPriority ? splitAt(1) : null
-      const requested = withReviewSearches ? splitAt(2) : null
-      const assigned = withReviewSearches ? splitAt(3) : null
       const nodes = pullRequestNodes(rows)
       const boundary = nodes.at(-1)?.updatedAt
       const hasMore = rows.pageInfo.hasNextPage && !!boundary
@@ -417,43 +405,10 @@ function searchBlock(targets: Target[], request: Request, client: GitHubClient, 
         }
         const page: PrListPage = { items: await rowsFor(found, target.repo, accessFor), page: target.page, hasMore }
         if (hasMore) page.cursor = `search:${boundary}`
-        const authoredPage: PrListPage | null = authored
-          ? { items: await rowsFor(authored.groups.get(index) ?? [], target.repo, accessFor), page: 1, hasMore: authored.hasNextPage }
-          : null
-        const needsReview = await needsReviewOf(requested, assigned, index, target.repo, accessFor)
-        outcome.pages.set(target.index, { page, authored: authoredPage, needsReview })
+        outcome.pages.set(target.index, page)
       }))
     },
   }
-}
-
-/** One search's rows by target index, and whether it had more. */
-interface Split {
-  hasNextPage: boolean
-  groups: Map<number, GqlNeedsReviewPullRequest[]>
-}
-
-function splitOf(connection: GqlRowConnection | null, byRepository: Map<string, number>): Split | null {
-  return connection
-    ? { hasNextPage: connection.pageInfo.hasNextPage, groups: groupBy(pullRequestNodes(connection), byRepository) }
-    : null
-}
-
-/** The review requests and assignments together, newest first, as
- *  `listPullRequestsNeedingReview` answers. Null when either is missing or has
- *  more rows than one page: that read pages to the end. */
-async function needsReviewOf(
-  requested: Split | null,
-  assigned: Split | null,
-  index: number,
-  repo: RepoRef,
-  accessFor: AccessFor,
-): Promise<PullRequest[] | null> {
-  if (!requested || !assigned || requested.hasNextPage || assigned.hasNextPage) return null
-  const byNumber = new Map<number, PullRequest>()
-  const both = [...requested.groups.get(index) ?? [], ...assigned.groups.get(index) ?? []]
-  for (const row of await rowsFor(both, repo, accessFor)) byNumber.set(row.number, row)
-  return [...byNumber.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
 /** How a repository is read alone: its listing where the reader typed
@@ -494,7 +449,7 @@ function listingBlock(target: Target, request: Request, client: GitHubClient, ac
         hasMore: rows.pageInfo.hasNextPage && !!rows.pageInfo.endCursor,
       }
       if (page.hasMore) page.cursor = `list:${rows.pageInfo.endCursor}`
-      outcome.pages.set(target.index, { page, authored: null, needsReview: null })
+      outcome.pages.set(target.index, page)
     },
   }
 }
@@ -505,7 +460,7 @@ function blocksOf(targets: Target[], request: Request, client: GitHubClient, acc
   for (const target of targets) {
     if (target.strategy === 'listing') blocks.push(listingBlock(target, request, client, accessFor))
     // One repository searched alone, by the name search knows it by.
-    else if (target.strategy === 'repository-search') blocks.push(searchBlock([target], { ...request, withPriority: false }, client, accessFor))
+    else if (target.strategy === 'repository-search') blocks.push(searchBlock([target], request, client, accessFor))
     else {
       // Repositories at the same place share one search.
       const place = target.cursor.kind === 'search' ? target.cursor.before : ''
@@ -572,11 +527,9 @@ export async function readPullRequestPages(
   client: GitHubClient,
   requests: PrPageRequest[],
   filter: PrFilter | undefined,
-  viewer: string,
-  withPriority: boolean,
   accessFor: AccessFor,
-): Promise<Array<RepositoryPage | null>> {
-  const request: Request = { filter, state: filter?.state ?? 'open', viewer, withPriority, isRetry: false }
+): Promise<Array<PrListPage | null>> {
+  const request: Request = { filter, state: filter?.state ?? 'open', isRetry: false }
   const targets: Target[] = requests.map((entry, index) => {
     const cursor = decodeCursor(entry.cursor)
     const strategy: Strategy = filter?.head || cursor.kind === 'list' ? 'listing' : 'search'
@@ -589,4 +542,58 @@ export async function readPullRequestPages(
     for (const [index, page] of second.pages) pages.set(index, page)
   }
   return targets.map((target) => pages.get(target.index) ?? null)
+}
+
+/** A repository's numbers in one priority search, newest activity first. */
+function numbersOf(connection: GqlRowConnection, repository: string): number[] {
+  return pullRequestNodes(connection)
+    .filter((node) => node.baseRepository?.nameWithOwner.toLowerCase() === repository)
+    .map((node) => node.number)
+}
+
+/**
+ * Which pull requests of each repository are the viewer's, in the order asked,
+ * with one document per 100 repositories. Null for a repository whose search
+ * could not answer; the caller reads that one alone.
+ */
+export async function readPriorityNumbers(
+  client: GitHubClient,
+  repos: RepoRef[],
+  state: NonNullable<PrFilter['state']>,
+  viewer: string,
+): Promise<Array<PriorityNumbers | null>> {
+  const answers: Array<PriorityNumbers | null> = repos.map(() => null)
+  const starts = Array.from({ length: Math.ceil(repos.length / REPOSITORIES_PER_SEARCH) }, (_start, index) => index * REPOSITORIES_PER_SEARCH)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < starts.length) {
+      const start = starts[next++]
+      const slugs = repos.slice(start, start + REPOSITORIES_PER_SEARCH).map(searchSlugOf)
+      const search = (searchState: NonNullable<PrFilter['state']>, extra: string, kind: Extract<Part['kind'], `${string}-search`>) =>
+        searchPart(pullRequestSearchQuery(slugs, searchState, { extra }), slugs, kind, NUMBER_CONNECTION)
+      // A review request only stands on an open pull request.
+      const withReviewSearches = state !== 'closed'
+      const [authoredAnswer, requestedAnswer, assignedAnswer] = await readAnswer(client, [
+        search(state, `author:${viewer}`, 'authored-search'),
+        ...(withReviewSearches ? [
+          search('open', `review-requested:${viewer}`, 'review-requested-search'),
+          search('open', `assignee:${viewer}`, 'assigned-search'),
+        ] : []),
+      ])
+      const authored = connectionOf(authoredAnswer)
+      if (!authored) continue
+      const requested = connectionOf(requestedAnswer)
+      const assigned = connectionOf(assignedAnswer)
+      const isReviewWhole = requested && assigned && !requested.pageInfo.hasNextPage && !assigned.pageInfo.hasNextPage
+      slugs.forEach((slug, index) => {
+        const repository = slug.toLowerCase()
+        answers[start + index] = {
+          authored: { numbers: numbersOf(authored, repository), hasMore: authored.pageInfo.hasNextPage },
+          needsReview: isReviewWhole ? [...numbersOf(requested, repository), ...numbersOf(assigned, repository)] : null,
+        }
+      })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_REQUESTS, starts.length) }, worker))
+  return answers
 }

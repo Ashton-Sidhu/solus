@@ -11,12 +11,19 @@ import { getIndexedSession } from '../../db/session-indexer'
 import type { BackendSession, SessionStatus, NormalizedEvent, SessionRecordStatus, ThreadGoal } from '@solus/contracts/types'
 import { isSessionBusyStatus } from '@solus/contracts/types'
 import type { SessionRuntime } from '../session-runtime'
+import { backgroundWorkHolds } from './background-work'
+import { deriveSessionStatus, turnOfStatus } from './derived-status'
 
 const log = createLogger('SessionRuntime', 'session-statuses.ts')
 
 /** The `session.statusChanged` field for a waiting message-mode question; absent when there is none. */
 function pendingQuestionFact(sessionId: string): { hasPendingQuestion?: true } {
   return hasPendingAsyncQuestion(sessionId) ? { hasPendingQuestion: true } : {}
+}
+
+/** The first stack frame outside this file: the call site that wrote the status. */
+function statusWriter(stack: string | undefined): string | null {
+  return stack?.split('\n').slice(1).map((line) => line.trim()).find((line) => !line.includes('session-statuses.')) ?? null
 }
 
 const RUN_WATCHDOG_INTERVAL_MS = 30_000
@@ -319,6 +326,34 @@ export class SessionStatuses {
     })
   }
 
+  /**
+   * Shadow mode (docs/plans/derived-session-status.md, step 1): logs a status
+   * write that the facts beneath it do not give. It changes nothing.
+   */
+  private compareWithDerived(sessionId: string, session: BackendSession, oldStatus: SessionStatus, newStatus: SessionStatus): void {
+    const input = this.pendingInputStatus(session)
+    const parked = this.rt.rateLimitPark.rateLimits.peek(sessionId)
+    const facts = {
+      turn: turnOfStatus(newStatus),
+      pendingInput: input === 'awaiting_input' || input === 'awaiting_plan' ? input : null,
+      rateLimitParked: !!parked && parked.deferCurrentRun !== true,
+      backgroundHolds: backgroundWorkHolds(session),
+    }
+    const derived = deriveSessionStatus(facts)
+    if (derived === newStatus) return
+    log.info('session_status_derived_mismatch', {
+      sessionId,
+      agentSessionId: session.agentSessionId ?? null,
+      oldStatus,
+      newStatus,
+      derived,
+      pendingInput: facts.pendingInput,
+      rateLimitParked: facts.rateLimitParked,
+      backgroundHolds: facts.backgroundHolds,
+      writer: statusWriter(new Error().stack),
+    })
+  }
+
   private applyStatus(sessionId: string, newStatus: SessionStatus): void {
     if (!this.rt.isShuttingDown && (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'interrupted' || newStatus === 'dead' || newStatus === 'rate_limited')) {
       this.rt.restarts.restartRuns?.remove(sessionId)
@@ -366,6 +401,7 @@ export class SessionStatuses {
     }
 
     log.info('session_status_changed', { sessionId, agentSessionId, oldStatus, newStatus })
+    if (session) this.compareWithDerived(sessionId, session, oldStatus, newStatus)
     // The collaboration plane's record keeps one fact of this: a turn open or
     // not. Most transitions (connecting, awaiting input, rate limited) keep that
     // fact, so write only when it changes. The record exists once the provider started a thread.

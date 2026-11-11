@@ -1,3 +1,4 @@
+import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
@@ -279,7 +280,7 @@ export interface BootOptions {
     shutdown(): void
   }
   /** Optional voice transcription implementation supplied by the desktop host. */
-  transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
+  transcribeAudio?: (samples: Float32Array, options?: VoiceTranscriptionOptions) => Promise<{ error: string | null; transcript: string | null }>
 }
 
 export interface BootedServer {

@@ -1126,7 +1126,6 @@ export interface Session {
    *  The sidebar's project view orders each folder by it. */
   lastSentAt?: number | null
   isStreamingText: boolean
-  isReconnecting: boolean
   permissionQueue: PermissionRequest[]
   questionQueue: QuestionRequest[]
   permissionDenied: { tools: Array<{ toolName: string; toolUseId: string }> } | null

@@ -738,7 +738,7 @@ describe('session orchestration', () => {
     }
   })
 
-  test('a plan whose turn already ended is approved by a follow-up message', async () => {
+  test('a plan whose turn already ended cannot be decided', async () => {
     const { backend, plane, orchestrator, updates } = await sessions()
     try {
       await orchestrator.send('solus-sender', 'solus-target', { prompt: 'plan it', delivery: 'queue', notify: true })
@@ -749,11 +749,9 @@ describe('session orchestration', () => {
       backend.complete('thread-1', 'here is the plan')
       await until(() => updates.some((update) => update.phase === 'settled'))
 
-      expect(await orchestrator.decidePlan('solus-sender', 'solus-target', 'approve', decider())).toBe(true)
-      expect(backend.permissions.permissionAnswers).toEqual([])
-      await backend.started(4)
-      expect(backend.requests[3]!.prompt).toStartWith('Implement this plan:\n\n# Ship the parser')
-      expect(updates.filter((update) => update.phase === 'dispatched')).toHaveLength(2)
+      const requestsBefore = backend.requests.length
+      expect(await orchestrator.decidePlan('solus-sender', 'solus-target', 'approve', decider())).toBe(false)
+      expect(backend.requests).toHaveLength(requestsBefore)
     } finally {
       plane.shutdown()
     }
@@ -1132,6 +1130,30 @@ describe('waiting for an outcome inside the call', () => {
       backend.complete('thread-2', 'moved on')
       await orchestratorRun(backend, 'thread-2')
       expect(reportsIn(orchestratorRuns(backend, 'thread-2')[0]!).map((report) => report.reply)).toEqual(['long job done'])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test("a parent whose turn ends while its call still waits is woken once by the late report", async () => {
+    // pingdotgg/t3code#32573: the waiting call outlived the parent's turn
+    // (a Stop, an interrupt, a provider tool timeout). The late report then
+    // went to a call nobody read, and the idle parent was never woken.
+    const { backend, plane, orchestrator } = await sessions()
+    try {
+      backend.complete('thread-1', 'first')
+      await until(() => !backend.handles.has('thread-1'))
+      const sending = orchestrator.send('solus-sender', 'solus-target', { prompt: 'slow check', delivery: 'queue', notify: true, waitMs: 60_000 })
+      await backend.started(3)
+      backend.complete('thread-2', 'gave up waiting')
+      // The call ends with the turn, without the report.
+      expect((await sending).waited).toBeNull()
+      await until(() => !plane.statuses.isSessionBusy('solus-sender'))
+
+      backend.complete('thread-1', 'slow check done')
+      await orchestratorRun(backend, 'thread-2')
+      expect(orchestratorRuns(backend, 'thread-2').map((prompt) => reportsIn(prompt).map((report) => report.reply)))
+        .toEqual([['slow check done']])
     } finally {
       plane.shutdown()
     }

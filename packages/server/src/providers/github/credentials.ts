@@ -27,6 +27,9 @@ export type GithubCredentialSource = 'account' | 'delegated' | 'host' | 'gh-cli'
 export interface GithubCredential {
   source: GithubCredentialSource
   token: string
+  /** `gh config http_unix_socket`: every request of a `gh-cli` credential goes
+   *  through this socket, never directly to GitHub. */
+  unixSocket?: string
 }
 
 /**
@@ -64,6 +67,8 @@ export interface GitHubCredentialsDeps {
   vault: () => Vault
   /** What `gh auth token` prints for `host`; rejects when `gh` is missing or signed out. */
   ghToken: (host: string) => Promise<string>
+  /** What `gh config get http_unix_socket` prints for `host`; empty when it is not set. */
+  ghUnixSocket: (host: string) => Promise<string>
   delegations: GithubDelegations
   /** The paired device whose dispatch checkout `cwd` is, or null. */
   checkoutOwnerOf: (cwd: string) => Promise<string | null>
@@ -102,7 +107,7 @@ function toStatus(token: GithubStoredToken | null): AuthStatus {
 export class GitHubCredentials implements ProviderAuth {
   /** One device flow per person: on the workspace service several people may be connecting at once (cloud-service-model.md §22). */
   private readonly connecting = new Map<string, AbortController>()
-  private readonly ghTokenByHost = new Map<string, { token: Promise<string | null>; readAt: number }>()
+  private readonly ghCredentialByHost = new Map<string, { credential: Promise<GithubCredential | null>; readAt: number }>()
 
   constructor(private readonly deps: GitHubCredentialsDeps) {}
 
@@ -148,13 +153,13 @@ export class GitHubCredentials implements ProviderAuth {
     const chain: GithubCredential[] = []
     for (const { from, optional } of this.sourcesFor(personKey)) {
       const read = this.read(from, personKey, host, cwd)
-      const token = optional
+      const credential = optional
         ? await read.catch((error) => {
           if (from === 'account') log.warn('github_account_token_unreadable', { error: error instanceof Error ? error.message : String(error) })
           return null
         })
         : await read
-      if (token) chain.push({ source: from, token })
+      if (credential) chain.push(credential)
     }
     return chain
   }
@@ -234,41 +239,48 @@ export class GitHubCredentials implements ProviderAuth {
     log.info('github_disconnected')
   }
 
-  private async read(from: GithubCredentialSource, personKey: string | null, host: string, cwd: string | undefined): Promise<string | null> {
+  private async read(from: GithubCredentialSource, personKey: string | null, host: string, cwd: string | undefined): Promise<GithubCredential | null> {
+    const signedWith = (token: string | null | undefined): GithubCredential | null => token ? { source: from, token } : null
     switch (from) {
       case 'delegated': {
         const ownerKey = cwd ? await this.deps.checkoutOwnerOf(cwd) : null
-        return ownerKey ? this.delegated(ownerKey) : null
+        return signedWith(ownerKey ? this.delegated(ownerKey) : null)
       }
       case 'host':
-        return (await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken ?? null
+        return signedWith((await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken)
       case 'account':
         // The account holds a github.com login only.
         if (host !== 'github.com') return null
-        return (await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken ?? null
+        return signedWith((await this.deps.vault().read(personKey, GITHUB, githubStoredTokenSchema))?.accessToken)
       case 'gh-cli':
-        return this.ghToken(host)
+        return this.ghCredential(host)
     }
   }
 
-  /** The credential `gh` is signed in with for `host`, or null when `gh` is
-   *  missing, signed out, or does not know the host. */
-  private ghToken(host: string): Promise<string | null> {
-    const cached = this.ghTokenByHost.get(host)
-    if (cached && Date.now() - cached.readAt < GH_TOKEN_TTL_MS) return cached.token
+  /** The credential `gh` is signed in with for `host`, with the socket `gh`
+   *  sends it through, or null when `gh` is missing, signed out, or does not
+   *  know the host. */
+  private ghCredential(host: string): Promise<GithubCredential | null> {
+    const cached = this.ghCredentialByHost.get(host)
+    if (cached && Date.now() - cached.readAt < GH_TOKEN_TTL_MS) return cached.credential
     log.info('gh_credential_lookup_started', { host })
-    const token = this.deps.ghToken(host)
-      .then((output) => {
-        if (output) return output
-        log.warn('gh_credential_unavailable', { host, error: 'gh auth token returned no token' })
-        return null
+    const credential = this.deps.ghToken(host)
+      .then(async (output): Promise<GithubCredential | null> => {
+        if (!output) {
+          log.warn('gh_credential_unavailable', { host, error: 'gh auth token returned no token' })
+          return null
+        }
+        const unixSocket = (await this.deps.ghUnixSocket(host).catch(() => '')).trim()
+        if (!unixSocket) return { source: 'gh-cli', token: output }
+        log.info('gh_credential_unix_socket', { host })
+        return { source: 'gh-cli', token: output, unixSocket }
       })
       .catch((error) => {
         log.warn('gh_credential_unavailable', { host, error: error instanceof Error ? error.message : String(error) })
         return null
       })
-    this.ghTokenByHost.set(host, { token, readAt: Date.now() })
-    return token
+    this.ghCredentialByHost.set(host, { credential, readAt: Date.now() })
+    return credential
   }
 }
 
@@ -276,6 +288,7 @@ export class GitHubCredentials implements ProviderAuth {
 const HOST_DEPS: GitHubCredentialsDeps = {
   vault,
   ghToken: (host) => runAsync('gh', ['auth', 'token', '--hostname', host], ANY_DIRECTORY, { timeout: GH_TIMEOUT_MS }),
+  ghUnixSocket: (host) => runAsync('gh', ['config', 'get', 'http_unix_socket', '--host', host], ANY_DIRECTORY, { timeout: GH_TIMEOUT_MS }),
   delegations: { load: loadDelegation, save: saveDelegation, clear: clearDelegation },
   // The layout module is loaded on demand: it reaches the worktree manager and
   // the database, which a plain provider read has no business loading.

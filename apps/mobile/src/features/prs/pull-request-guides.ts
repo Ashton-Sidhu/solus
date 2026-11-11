@@ -5,7 +5,7 @@ import { Listeners } from '../../lib/listeners'
 import { projectContext } from '../conversation/lib/ipc-context'
 import type { HostConnection } from '../hosts/host-connections'
 import { hasSavedGuide, isGuideEventFor, prGuideKey, prGuideTarget, type PullRequestGuide } from './lib/pull-request-guide-state'
-import { memoryPullRequestCacheDatabase, PullRequestCache } from './pull-request-cache'
+import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { detailKey, type PullRequestRef } from './pull-request-directory'
 import { connectedHost, HostReads, IDLE, shownValue, type LoadState } from './pull-request-reads'
 

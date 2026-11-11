@@ -48,6 +48,10 @@
     /** Open another layer of the row's stack. */
     onOpenStackLayer: (pr: PullRequest, number: number) => void;
     onLoadMore: () => void;
+    /** The pointer or the focus came to a row, or left it: a rest reads the
+     *  pull request before it is opened (`lib/pr-rest-prefetch.ts`). */
+    onRest: (pr: PullRequest) => void;
+    onLeave: (pr: PullRequest) => void;
   }
   let {
     items,
@@ -72,6 +76,8 @@
     storedPullRequest,
     onOpenStackLayer,
     onLoadMore,
+    onRest,
+    onLeave,
   }: Props = $props();
 </script>
 
@@ -169,6 +175,12 @@
           }}
           onContextMenu={(event) => {
             if (pr) onContextMenu(event, pr);
+          }}
+          onRest={() => {
+            if (pr) onRest(pr);
+          }}
+          onLeave={() => {
+            if (pr) onLeave(pr);
           }}
         />
       {/if}

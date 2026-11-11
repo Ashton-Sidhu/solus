@@ -52,12 +52,6 @@ const NO_REPLY = '(no final assistant reply available)'
 import { MAX_WAIT_MS, type RunExchanges, type SettledRun, type SpawnOrder, type SendOrder, type PromptOrder, type OrchestratedRuntime, type OrchestratorDeps, type SpawnedSession, type RemoteTarget } from './session-orders'
 export * from './session-orders'
 
-/** The last plan a session's turn wrote. */
-interface OpenPlan {
-  planToolUseId?: string
-  planContent: string
-}
-
 export class SessionOrchestrator {
   private readonly ledger: ExchangeLedger
   private readonly exchanges: Map<string, Exchange>
@@ -69,10 +63,6 @@ export class SessionOrchestrator {
   private readonly openNotices = new Set<string>()
   /** Exchanges whose sender stopped the target itself: its own action needs no report. */
   private readonly stoppedBySender = new Set<string>()
-  /** Target session → the last plan its turn wrote, until its next turn starts.
-   *  A plan whose turn already ended (Codex) holds nothing open to answer, so a
-   *  person's decision on it comes from here. */
-  private readonly openPlans = new Map<string, OpenPlan>()
   /** Exchange → the target host whose session it follows, until it settles. */
   private readonly remoteFollows = new Map<string, { host: RemoteHost; stop: () => void }>()
   /** Target session → its last run that ended with background work still
@@ -439,7 +429,6 @@ export class SessionOrchestrator {
       ? await this.approvePlan(pending, senderSessionId, targetSessionId)
       : await this.requestPlanChanges(pending, note, senderSessionId, targetSessionId)
     if (!decided) return false
-    this.openPlans.delete(targetSessionId)
     const status = decision === 'approve' ? 'accepted' : 'rejected'
     const meta = this.runtime.sessionMeta(targetSessionId)
     if (meta && await recordPlanDecision(targetSessionId, meta, pending, status, note || undefined, attributionOf(actor))) {
@@ -451,15 +440,10 @@ export class SessionOrchestrator {
     return true
   }
 
-  /** The plan the target is waiting on, held open or already reported. */
+  /** The plan the target's turn is waiting on. */
   private pendingPlan(targetSessionId: string): PendingPlan | null {
     const held = describePendingInput(this.runtime.pendingInputEvents(targetSessionId))
-    if (held?.kind === 'plan') return held
-    const ended = this.openPlans.get(targetSessionId)
-    if (!ended) return null
-    const plan: PendingPlan = { kind: 'plan', questionId: '', planContent: ended.planContent, blocking: false }
-    if (ended.planToolUseId) plan.planToolUseId = ended.planToolUseId
-    return plan
+    return held?.kind === 'plan' ? held : null
   }
 
   private async approvePlan(pending: PendingPlan, senderSessionId: string, targetSessionId: string): Promise<boolean> {
@@ -657,11 +641,6 @@ export class SessionOrchestrator {
 
   /** Plans, works and changed files the target produced while its turn answered these exchanges. */
   runEvent(run: RunExchanges, event: NormalizedEvent): void {
-    if (event.type === 'plan') {
-      const plan: OpenPlan = { planContent: event.planContent }
-      if (event.planToolUseId) plan.planToolUseId = event.planToolUseId
-      this.openPlans.set(run.sessionId, plan)
-    }
     const output = outputFromEvent(event, run.sessionId)
     if (!output) return
     for (const exchange of this.exchangesOf(run)) addOutput(exchange.outputs, output)
@@ -715,11 +694,6 @@ export class SessionOrchestrator {
     }
   }
 
-  /** Any turn of a session started: whatever plan it wrote before was acted on. */
-  sessionTurnStarted(sessionId: string): void {
-    this.openPlans.delete(sessionId)
-  }
-
   /** A target was stopped, from any surface: every card talking to its running turn
    *  closes. Stop keeps the queue, so a message whose run still waits in
    *  `queuedRunIds` stays open and runs next (plan 004 D12). */
@@ -742,6 +716,14 @@ export class SessionOrchestrator {
       if (exchange.kind !== 'independent' && exchange.senderSessionId === senderSessionId && exchange.notify && isOpenExchange(exchange)) return true
     }
     return false
+  }
+
+  /** The sender's turn ended: a tool call it left waiting has no reader now.
+   *  Its waits end, so a later report goes to the sender's queue and wakes it. */
+  senderTurnEnded(senderSessionId: string): void {
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.senderSessionId === senderSessionId && exchange.wait) this.endWait(exchange, null)
+    }
   }
 
   /** A stopped sender stops waiting: its open messages settle, and nothing is

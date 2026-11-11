@@ -19,7 +19,7 @@ orchestrator in `packages/server/src/execution/orchestration/`.
   `send_session` and `stop_session` calls themselves show only when they fail;
   the card shows what they did. Desktop, web, and mobile show the same group.
 - **Requests come to the card.** When the other session needs a person — a
-  question, a plan to approve, or a permission — the request shows on the card
+  question, a plan that holds its turn open, or a permission — the request shows on the card
   with the same question, plan or permission card the other session shows in
   its own tab. Answer it in either place; the first answer wins. Only a person
   answers: an agent never answers or approves for another session.

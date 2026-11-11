@@ -60,6 +60,22 @@ test('on a branch, the change totals match the branch review, not only uncommitt
   expect(status?.uncommittedChanges.fileCount).toBe(2)
   // committed.ts (+2), base.ts (−1), untracked.ts (+3): what the diff shows.
   expect(status?.branchChanges).toEqual({ fileCount: 3, insertions: 5, deletions: 1 })
+  // The uncommitted part leaves out committed.ts: what the next commit takes.
+  expect(status?.uncommittedTotals).toEqual({ fileCount: 2, insertions: 3, deletions: 1 })
+})
+
+test('on a branch, a commit clears the uncommitted totals and keeps the branch totals', async () => {
+  // WHY: the Changes row reported only the branch total, so a commit left the
+  // same diff in place and read as if the commit had not happened.
+  const directory = repository()
+  git(['checkout', '-b', 'feature'], directory)
+  writeFileSync(join(directory, 'base.ts'), 'one\ntwo\nthree\nfour\n')
+  git(['commit', '-am', 'on the branch'], directory)
+
+  const status = await computeGitState(directory, { includeDetails: true })
+
+  expect(status?.uncommittedTotals).toEqual({ fileCount: 0, insertions: 0, deletions: 0 })
+  expect(status?.branchChanges).toEqual({ fileCount: 1, insertions: 1, deletions: 0 })
 })
 
 test('on the target branch, the change totals are the uncommitted work', async () => {
@@ -70,6 +86,7 @@ test('on the target branch, the change totals are the uncommitted work', async (
   const status = await computeGitState(directory, { includeDetails: true })
 
   expect(status?.branchChanges).toEqual({ fileCount: 2, insertions: 2, deletions: 0 })
+  expect(status?.uncommittedTotals).toEqual(status?.branchChanges)
 })
 
 test('the status scan reports whitespace in file names exactly', async () => {

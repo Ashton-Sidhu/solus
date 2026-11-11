@@ -68,6 +68,8 @@ describe("which code spans name a file", () => {
     expect(codeSpanFileTarget("/srv/app/main.ts")).toEqual({ path: "/srv/app/main.ts" });
     expect(codeSpanFileTarget("docker/Dockerfile")).toEqual({ path: "docker/Dockerfile" });
     expect(codeSpanFileTarget("Makefile:12")).toEqual({ path: "Makefile", line: 12 });
+    // `.cc` is the C++ extension in Google-style code; a line makes it a file.
+    expect(codeSpanFileTarget("allocator.cc:217")).toEqual({ path: "allocator.cc", line: 217 });
     expect(codeSpanFileTarget("conf.d/site.conf")).toEqual({ path: "conf.d/site.conf" });
     expect(codeSpanFileTarget("src\\lib\\a.ts")).toEqual({ path: "src/lib/a.ts" });
     expect(codeSpanFileTarget("C:\\repo\\a.ts")).toEqual({ path: "C:\\repo\\a.ts" });
@@ -80,6 +82,7 @@ describe("which code spans name a file", () => {
       "feature/new-thing",
       "@solus/contracts",
       "github.com/x/y.ts",
+      "example.cc/docs",
       "localhost:5173",
       "127.0.0.1:8080",
       "port:3000",

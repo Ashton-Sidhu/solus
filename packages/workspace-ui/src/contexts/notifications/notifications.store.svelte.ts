@@ -250,6 +250,8 @@ async function showBrowserNotification(
       body: request.body,
       tag: request.dedupKey,
       data: request,
+      // The Sound channel plays the Solus sound; the browser must not add its own.
+      silent: true,
     })
     notification.onclick = () => {
       window.focus()
@@ -265,6 +267,7 @@ async function showBrowserNotification(
         body: request.body,
         tag: request.dedupKey,
         data: request,
+        silent: true,
       })
       return true
     } catch {

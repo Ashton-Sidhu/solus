@@ -10,6 +10,8 @@ import type { AgentId, DetectedEditor } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
 import { IMAGE_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@solus/contracts/media-types'
+import { localEditorFileUrl } from '@solus/contracts/local-editor-links'
+import { voiceTranscriptionOptionsSchema } from '@solus/contracts/voice-dictionary'
 import { transcribeAudio, warmTranscription, startVoiceStream, feedVoiceStream, finishVoiceStream, cancelVoiceStream } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '@solus/server/model-downloader'
@@ -95,8 +97,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   server.register('openExternal', async (args) => {
     const [url, options] = args
     try {
-      if (!/^https?:\/\//i.test(url)) return false
-      await shell.openExternal(url)
+      // A web page, or a file link of a local editor such as vscode://file/...
+      const target = /^https?:\/\//i.test(url) ? url : localEditorFileUrl(url)
+      if (!target) return false
+      await shell.openExternal(target)
       if (options?.hideAppAfterOpen) deps.hideAppWindow()
       return true
     } catch {
@@ -172,20 +176,21 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('transcribeAudio', (args) => {
-    const [audio] = args
-    if (audio instanceof Float32Array) return transcribeAudio(audio)
+    const [audio, request] = args
+    const options = voiceTranscriptionOptionsSchema.optional().parse(request)
+    if (audio instanceof Float32Array) return transcribeAudio(audio, options)
     const maxBase64Chars = Math.ceil(MAX_VOICE_WAV_BYTES / 3) * 4
     if (audio.length > maxBase64Chars) {
       return { error: 'Voice recording exceeds the 60 minute limit', transcript: null }
     }
-    return transcribeAudio(readWav(Buffer.from(audio, 'base64')))
+    return transcribeAudio(readWav(Buffer.from(audio, 'base64')), options)
   })
 
-  server.register('voiceStreamStart', async (_args, ctx) => {
+  server.register('voiceStreamStart', async ([request], ctx) => {
     const contents = deps.getWorkspaceWindow()?.webContents
     const streamId = await startVoiceStream(ctx.clientId, () => {
       if (contents && !contents.isDestroyed()) contents.setBackgroundThrottling(true)
-    })
+    }, voiceTranscriptionOptionsSchema.optional().parse(request))
     // An active capture must keep consuming worklet packets while minimized.
     if (contents && !contents.isDestroyed()) contents.setBackgroundThrottling(false)
     return { streamId }

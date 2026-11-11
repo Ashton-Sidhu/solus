@@ -3,6 +3,7 @@
   import { formatVoiceModelBytes } from "./lib/voice-model-bytes";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
+  import VoiceDictionaryField from "./VoiceDictionaryField.svelte";
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
@@ -114,3 +115,5 @@
   />
 </SettingsSection>
 {/if}
+
+<VoiceDictionaryField />

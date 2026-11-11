@@ -150,14 +150,18 @@ export class PrWatcher {
     // A timer acts for whoever the work is for (plans/019-acting-identity.md).
     // The fingerprints of every group go at once, so the groups of one account
     // share one document (docs/plans/pr-watch.md §11). The full reads that
-    // follow go one group at a time.
-    const entries = [...groups.values()]
-    const looks = await Promise.all(entries.map(({ group, numbers }) =>
-      withUserScope(group.actingUserKey, () => this.readFingerprints(group, numbers))))
-    for (const [index, { group, numbers }] of entries.entries()) {
-      const look = looks[index]
-      if (look) await withUserScope(group.actingUserKey, () => this.readGroup(look.host, group, numbers, look.fingerprints))
-    }
+    // follow go one group at a time, each when its own fingerprints land: a
+    // slow host holds back only its own groups.
+    let reads: Promise<void> = Promise.resolve()
+    const sweeps = await Promise.allSettled([...groups.values()].map(async ({ group, numbers }) => {
+      const look = await withUserScope(group.actingUserKey, () => this.readFingerprints(group, numbers))
+      if (!look) return
+      const read = reads.then(() => withUserScope(group.actingUserKey, () => this.readGroup(look.host, group, numbers, look.fingerprints)))
+      reads = read.catch(() => {})
+      await read
+    }))
+    const failed = sweeps.find((sweep) => sweep.status === 'rejected')
+    if (failed) throw failed.reason
   }
 
   /** The fingerprints of one group, or null when there is nothing to read. */

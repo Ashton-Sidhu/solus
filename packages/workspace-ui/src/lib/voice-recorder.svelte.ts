@@ -1,3 +1,4 @@
+import { applyVoiceDictionary, type VoiceDictionary } from '@solus/contracts/voice-dictionary'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import type { VoicePartial } from '@solus/contracts/voice-stream'
 import { VoiceStreamSession } from './voice-stream'
@@ -37,6 +38,7 @@ type DevVoiceSessionStats = {
 }
 
 type PendingVoiceTranscription = {
+  dictionary: VoiceDictionary
   samples: Float32Array
   host: HostApi
   startedAtIso: string | null
@@ -77,6 +79,7 @@ export class VoiceRecorder {
   #recordedSamples = 0
   #stream: VoiceStreamSession | null = null
   #recordingHost: HostApi | null = null
+  #dictionary: VoiceDictionary = []
   #pendingTranscription: PendingVoiceTranscription | null = null
   #speechDetected = false
   #preRoll: Float32Array = new Float32Array()
@@ -98,7 +101,7 @@ export class VoiceRecorder {
   // e.g. cancel the current one, then start the next once this fires.
   onIdle: ((allowAutoRearm: boolean) => void) | null = null
 
-  constructor(getVadSilenceMs: () => number, getVadMinSpeechMs: () => number = () => 0) {
+  constructor(getVadSilenceMs: () => number, getVadMinSpeechMs: () => number = () => 0, private getDictionary: () => VoiceDictionary = () => []) {
     this.#getVadSilenceMs = getVadSilenceMs
     this.#getVadMinSpeechMs = getVadMinSpeechMs
   }
@@ -123,6 +126,7 @@ export class VoiceRecorder {
     // Pin the transcription device for this capture, independently of where
     // its agent runs or a later change to Run on.
     this.#recordingHost = transcriptionHostApi()
+    this.#dictionary = this.getDictionary().map(entry => ({ term: entry.term, aliases: [...entry.aliases] }))
     void this.#recordingHost?.warmTranscription?.().catch(() => {})
 
     let stream: MediaStream
@@ -248,7 +252,7 @@ export class VoiceRecorder {
       this.#stream = new VoiceStreamSession(this.#recordingHost, (partial) => {
         if (generation !== this.#startGeneration || this.#cancelled || !this.#speechDetected) return
         this.partialTranscript = partial
-      })
+      }, { vocabulary: this.#dictionary.map(entry => entry.term) })
     this.state = 'recording'
     this.starting = false
     this.#recordingStartedAtMs = performance.now()
@@ -311,7 +315,7 @@ export class VoiceRecorder {
       this.#toIdle(false)
       return
     }
-    await this.#transcribe({ samples, host, startedAtIso: recordingStartedAtIso, listeningMs }, liveStream)
+    await this.#transcribe({ samples, host, dictionary: this.#dictionary, startedAtIso: recordingStartedAtIso, listeningMs }, liveStream)
   }
 
   async #transcribe(pending: PendingVoiceTranscription, liveStream: VoiceStreamSession | null = null): Promise<void> {
@@ -328,7 +332,7 @@ export class VoiceRecorder {
       }
       if (this.#cancelled) return
       if (!result || result.error || !result.transcript?.trim())
-        result = await pending.host.transcribeAudio(pending.samples)
+        result = await pending.host.transcribeAudio(pending.samples, { vocabulary: pending.dictionary.map(entry => entry.term) })
       if (this.#cancelled) return
       this.#logDevTranscriptionSession({
         transcript: result.transcript,
@@ -347,7 +351,7 @@ export class VoiceRecorder {
         allowAutoRearm = true
         if (result.transcript) {
           this.#setError(null, null)
-          this.onTranscript?.(result.transcript)
+          this.onTranscript?.(applyVoiceDictionary(result.transcript, pending.dictionary))
         }
       }
     } catch (err: any) {

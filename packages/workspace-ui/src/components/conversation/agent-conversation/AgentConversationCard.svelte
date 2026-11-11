@@ -26,11 +26,9 @@
     isPendingAgent,
     openAgentSession,
     pendingRequest,
-    planAwaitingDecision,
     provenanceLine,
   } from "./lib/agent-conversation";
   import { agentConversationMeta } from "./agent-conversation-meta.store.svelte";
-  import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import AgentRequestCard from "./AgentRequestCard.svelte";
   import ArtifactChipRow from "./ArtifactChipRow.svelte";
   import { ensureLinkedArtifacts, linkedArtifacts } from "./lib/linked-artifacts.svelte";
@@ -108,11 +106,6 @@
   // What the other agent's turn waits on a person for; answered right here.
   const request = $derived(cardState === "waiting" ? pendingRequest(ref) : null);
   const taskId = $derived(cardTaskId(ref));
-  const planToDecide = $derived(live ? null : planAwaitingDecision(ref));
-
-  // The header is the whole summary; the dialogue is read in the agent's own
-  // session. A body appears only when the other agent waits on a person here.
-  const needsDecision = $derived(!!request || !!planToDecide);
 
   function open(options: { split?: boolean; background?: boolean } = {}) {
     void openAgentSession(
@@ -154,7 +147,7 @@
 </script>
 
 <!-- Colour is identity for the other agent while the exchange is live; the
-     request and plan blocks below read the same variable. -->
+     request block below reads the same variable. -->
 <div
   class={grouped ? "" : `py-1 ${skipMotion ? "" : "animate-msg-in-side"}`}
   style:--agent-accent={live ? agentAccent(accentIndex) : "var(--muted-foreground)"}
@@ -179,7 +172,9 @@
       trailing={neverStarted ? undefined : rowActions}
       below={linked.length > 0 ? linkedChips : undefined}
     />
-    {#if needsDecision}
+    <!-- The header is the whole summary; the dialogue is read in the agent's own
+         session. A body appears only when the other agent waits on a person here. -->
+    {#if request}
       <!-- Indented to the title: px-2, the 24px avatar, and the 10px gap. -->
       <!-- A click in the answer must not open the session. -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -188,14 +183,7 @@
         class="cursor-auto pt-1 pr-2 pb-1 pl-[2.625rem] text-transcript-meta"
         onclick={(e) => e.stopPropagation()}
       >
-        {#if planToDecide}
-          <div class="pb-0.5">
-            <AgentPlanDecision {tabId} targetSessionId={ref.sessionId} />
-          </div>
-        {/if}
-        {#if request}
-          <AgentRequestCard {ref} {request} {tabId} />
-        {/if}
+        <AgentRequestCard {ref} {request} {tabId} />
       </div>
     {/if}
   </div>

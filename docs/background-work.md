@@ -52,6 +52,14 @@ wait as background work. The result wakes the agent. Solus has no host-side
 watch or probe of its own. Watches were removed because they duplicated this
 path.
 
+A Claude session schedule (`CronCreate`, `ScheduleWakeup`, `/loop`) is unmarked
+work too. The Claude process holds the schedule, so the query stays open while
+one is pending, and the clients show the background row with its Stop. Each turn
+end reads the pending list from the SDK's Stop hook (`session_crons`). Stop
+closes the query, and an in-memory schedule ends with the process. Durable work
+that must outlive the session is an automation (`create_automation`). See
+`docs/plans/session-schedules.md`.
+
 ## Status
 
 | Event | Status |

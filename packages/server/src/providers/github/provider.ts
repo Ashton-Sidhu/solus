@@ -3,7 +3,7 @@ import { isGithubNotFound, type GitHubClient } from './octokit'
 import { runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
-import type { PrPageRequest, Provider, PullRequestWatchFingerprint, RepositoryPage, ReviewProvider } from '../types'
+import type { PrPageRequest, PriorityNumbers, Provider, PullRequestWatchFingerprint, ReviewProvider } from '../types'
 import { decodeWatchFingerprints, fingerprintRows } from './watch-fingerprints'
 import { pullRequestsByNumber } from './pull-requests-by-number'
 import { readPullRequestsByHead } from './pull-requests-by-head'
@@ -17,7 +17,7 @@ import type {
   PrDiffSlice,
   PrReviewer,
   PrReviewerCandidate,
-  PrFilter,
+  PrFilter, PrListPage,
   PullRequest,
   PullRequestOverview,
   PullRequestUpdate,
@@ -58,7 +58,7 @@ import { readGithubViewedFiles, writeGithubViewedFiles } from './viewed-files'
 import { canonicalRepoRef } from './canonical-repo'
 import { readGithubPullRequestCommits, readGithubPullRequestDetail } from './pull-request-detail'
 import { readGithubPullRequestDiff } from './pull-request-diff'
-import { readPullRequestPages } from './pull-request-search'
+import { readPriorityNumbers, readPullRequestPages } from './pull-request-search'
 import { checkRows, normalizeChecksResponse, uniquePrNumbers } from './checks'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import {
@@ -677,16 +677,25 @@ export class GitHubProvider implements ReviewProvider {
     requests: PrPageRequest[],
     filter: PrFilter | undefined,
     viewer: string,
-    withPriority: boolean,
-  ): Promise<Array<RepositoryPage | null>> {
+  ): Promise<Array<PrListPage | null>> {
     if (requests.length === 0) return []
     return this.withClient('list_pull_request_pages', requests[0].repo.host, async (client) => {
       const login = viewer || await viewerLogin(client)
       // Repository-level access: a list row does not read its base branch's
       // rules. The detail read narrows the merge methods by them.
-      return readPullRequestPages(client, requests, filter, login, withPriority, (repo, author) =>
+      return readPullRequestPages(client, requests, filter, (repo, author) =>
         githubPullRequestAccessFor(client, repo, login, author))
     })
+  }
+
+  async listPriorityNumbers(
+    repos: RepoRef[],
+    state: NonNullable<PrFilter['state']>,
+    viewer: string,
+  ): Promise<Array<PriorityNumbers | null>> {
+    if (repos.length === 0) return []
+    return this.withClient('list_priority_numbers', repos[0].host, async (client) =>
+      readPriorityNumbers(client, repos, state, viewer || await viewerLogin(client)))
   }
 
   async createPullRequest(

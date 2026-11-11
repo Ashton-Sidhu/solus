@@ -1,3 +1,4 @@
+import { encodeVoiceUpload, VOICE_UPLOAD_CONTENT_TYPE, type VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { SolusApiClient } from '@solus/contracts/solus-api/client'
 import { workspaceRecordMethods } from './workspace-records'
 import { HostSocket, type HostEventEnvelope, type HostRequestHandler, type HostSocketClose } from './host-socket'
@@ -414,10 +415,10 @@ export class WsTransport {
 
     // Encode PCM as compact WAV before transport. Direct connections upload
     // over HTTP; cloud connections use the host's base64 WAV RPC contract.
-    Reflect.set(api, 'transcribeAudio', (audio: Float32Array | string, ctx?: IpcContext) =>
+    Reflect.set(api, 'transcribeAudio', (audio: Float32Array | string, options?: VoiceTranscriptionOptions, ctx?: IpcContext) =>
       audio instanceof Float32Array
-        ? this.transcribeAudio(audio, ctx)
-        : this.invoke('transcribeAudio', [audio, ctx]))
+        ? this.transcribeAudio(audio, options, ctx)
+        : this.invoke('transcribeAudio', [audio, options, ctx]))
 
     // Records go over this socket: its principal is their authority, so no credential is exchanged.
     const records = workspaceRecordMethods(new SolusApiClient({
@@ -628,7 +629,7 @@ export class WsTransport {
     this.dialSocket()
   }
 
-  private async transcribeAudio(samples: Float32Array, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }> {
+  private async transcribeAudio(samples: Float32Array, options?: VoiceTranscriptionOptions, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }> {
     if (samples.length > MAX_VOICE_SAMPLES) {
       return {
         error: `Voice recordings can be up to ${MAX_VOICE_RECORDING_MINUTES} minutes long.`,
@@ -647,11 +648,11 @@ export class WsTransport {
       for (let offset = 0; offset < bytes.length; offset += chunkSize) {
         chunks.push(btoa(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))))
       }
-      return this.invoke('transcribeAudio', [chunks.join(''), ctx])
+      return this.invoke('transcribeAudio', [chunks.join(''), options, ctx])
     }
-    let response = await this.postVoiceRecording(wav)
+    let response = await this.postVoiceRecording(wav, options)
     if (response.status === 401 && await this.refreshToken() === 'refreshed') {
-      response = await this.postVoiceRecording(wav)
+      response = await this.postVoiceRecording(wav, options)
     }
 
     const bodySchema = z.object({
@@ -672,13 +673,15 @@ export class WsTransport {
     }
   }
 
-  private postVoiceRecording(wav: ArrayBuffer): Promise<Response> {
-    const headers = { 'content-type': 'audio/wav' }
+  private postVoiceRecording(wav: ArrayBuffer, options?: VoiceTranscriptionOptions): Promise<Response> {
+    const hasVocabulary = Boolean(options?.vocabulary.length)
+    const body = options?.vocabulary.length ? encodeVoiceUpload(wav, options).buffer : wav
+    const headers = { 'content-type': hasVocabulary ? VOICE_UPLOAD_CONTENT_TYPE : 'audio/wav' }
     if (this.opts.sessionToken) Object.assign(headers, { authorization: `Bearer ${this.opts.sessionToken}` })
     return fetch(`${this.opts.serverUrl}/voice/transcribe`, {
       method: 'POST',
       headers,
-      body: wav,
+      body,
     })
   }
 

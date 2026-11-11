@@ -277,17 +277,22 @@ function NewTaskProjectScreen(props: { readonly preferredHostId: string | null }
               </Text>
               {Platform.OS === "android" ? (
                 <>
-                  <MaterialButton
-                    label={hasHosts ? "Add new project" : "Add host"}
-                    tone="primary"
-                    onPress={() => (hasHosts ? addProject() : navigation.navigate("Hosts"))}
-                  />
-                  {scratchHostId !== null ? (
+                  {/* MaterialButton aligns itself to the start edge; the View lets the card center it. */}
+                  <View>
                     <MaterialButton
-                      label="Start without a project"
-                      tone="secondary"
-                      onPress={startScratch}
+                      label={hasHosts ? "Add new project" : "Add host"}
+                      tone="primary"
+                      onPress={() => (hasHosts ? addProject() : navigation.navigate("Hosts"))}
                     />
+                  </View>
+                  {scratchHostId !== null ? (
+                    <View>
+                      <MaterialButton
+                        label="Start without a project"
+                        tone="secondary"
+                        onPress={startScratch}
+                      />
+                    </View>
                   ) : null}
                 </>
               ) : !hasHosts ? (

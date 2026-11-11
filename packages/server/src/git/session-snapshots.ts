@@ -749,15 +749,27 @@ export async function getEpisodeNumstat(
   /** A pending base resolves while the index is prepared; it must not reject. */
   baseSha: string | Promise<string>,
 ): Promise<ChangedFileStat[]> {
-  const out = await withWorkingTreeIndex(workTree, repoRoot, async (env, head) => {
-    const base = await baseSha
-    return runAsync('git',
+  const [files] = await getEpisodeNumstats(workTree, repoRoot, [baseSha])
+  return files
+}
+
+/** `getEpisodeNumstat` against several bases, in order, over one intent-to-add
+ *  index: the index file is per repository, so two concurrent reads would
+ *  replace each other's index. */
+export async function getEpisodeNumstats(
+  workTree: string,
+  repoRoot: string,
+  baseShas: Array<string | Promise<string>>,
+): Promise<ChangedFileStat[][]> {
+  const outputs = await withWorkingTreeIndex(workTree, repoRoot, async (env, head) => {
+    const bases = await Promise.all(baseShas)
+    return Promise.all(bases.map((base) => runAsync('git',
       ['-c', 'core.quotepath=false', 'diff', base === 'HEAD' ? head : base, '--numstat', '--summary'],
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER },
-    )
+    )))
   })
-  return parseChangedFileStats(out)
+  return outputs.map(parseChangedFileStats)
 }
 
 /**

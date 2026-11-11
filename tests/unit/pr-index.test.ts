@@ -39,7 +39,7 @@ function fakeProvider(viewer = 'alice', gate?: Promise<void>): { provider: Provi
     },
     listPullRequestPages: async () => {
       calls.listPullRequestPages += 1
-      return [{ page: { items: [], page: 1, hasMore: false }, authored: null, needsReview: null }]
+      return [{ items: [], page: 1, hasMore: false }]
     },
     listPullRequestFileStats: async () => {
       calls.listPullRequestFileStats += 1

@@ -290,6 +290,10 @@ export interface GitState extends GitIdentity {
   targetAheadCount?: number
   /** Loaded with details. */
   branchChanges?: BranchChanges
+  /** The uncommitted part of `branchChanges`, against HEAD: what a commit
+   *  takes. A commit empties it; it leaves `branchChanges` as it was. Loaded
+   *  with details. */
+  uncommittedTotals?: BranchChanges
   prUrl?: string
   /** Present only when the request asked for refs. */
   refs?: GitProjectRefs

@@ -78,17 +78,17 @@ describe('GitHub pull request search', () => {
     } as unknown as GitHubClient
 
     const [found] = await new SearchProvider(client).listPullRequestPages(
-      [{ repo, page: 1, cursor: null }], { state: 'open', query: 'label:"bug"' }, 'sidhu', false)
+      [{ repo, page: 1, cursor: null }], { state: 'open', query: 'label:"bug"' }, 'sidhu')
 
     expect(restCalls).toBe(0)
     expect(searched).toEqual(['is:pr is:open repo:acme/app sort:updated-desc label:"bug"'])
-    expect(found?.page.items.map((item) => [item.number, item.headRef, item.baseRepo.repo, item.reviewStatus])).toEqual([
+    expect(found?.items.map((item) => [item.number, item.headRef, item.baseRepo.repo, item.reviewStatus])).toEqual([
       [9, 'feature/9', 'app', 'approved'],
       [4, 'feature/4', 'app', 'approved'],
     ])
-    expect(found?.page.items[0]?.defaultBranch).toBe('main')
-    expect(found?.page.items[0]?.baseRef).toBe('release')
-    expect(found?.page.hasMore).toBe(false)
+    expect(found?.items[0]?.defaultBranch).toBe('main')
+    expect(found?.items[0]?.baseRef).toBe('release')
+    expect(found?.hasMore).toBe(false)
   })
 
   test('the index caches a search apart from the listing it replaces', async () => {
@@ -99,7 +99,7 @@ describe('GitHub pull request search', () => {
       review: {
         listPullRequestPages: async (requests: PrPageRequest[], filter?: PrFilter) => {
           asked.push(filter?.query)
-          return requests.map(() => ({ page: { items: [], page: 1, hasMore: false } satisfies PrListPage, authored: null, needsReview: null }))
+          return requests.map(() => ({ items: [], page: 1, hasMore: false } satisfies PrListPage))
         },
       },
     } as unknown as Provider

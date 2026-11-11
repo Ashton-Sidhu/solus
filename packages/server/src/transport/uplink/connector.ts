@@ -127,11 +127,13 @@ export class CloudflaredConnector {
   /** Idempotent: a running connector with the same token is left alone. */
   start(token: string): void {
     if (this.child && this.token === token) return
+    // stop() clears the token, so the new token is set after it starts.
+    const stopped = this.child ? this.stop() : null
     this.token = token
     this.restartAttempt = 0
     this.clearRestartTimer()
-    if (this.child) {
-      void this.stop().then(() => { if (this.token === token) this.spawnProcess() })
+    if (stopped) {
+      void stopped.then(() => { if (this.token === token) this.spawnProcess() })
       return
     }
     this.spawnProcess()

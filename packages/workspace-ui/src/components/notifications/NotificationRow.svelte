@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { Archive as ArchiveIcon, ArchiveRestore as RestoreIcon, Circle as UnreadIcon, CircleCheck as ReadIcon } from "@lucide/svelte";
   import type { HubNotification } from "@solus/contracts/notification-hub";
   import { attributionLabel } from "@solus/contracts/user";
@@ -20,8 +21,11 @@
     onOpen: () => void;
     onSetRead: (read: boolean) => void;
     onSetArchived: (archived: boolean) => void;
+    /** The page's selection checkbox, a sibling of the button rather than a
+     *  child, so no interactive element nests inside another. */
+    leading?: Snippet;
   }
-  let { notification, sourceLabel, openLabel, canChange, disabledReason, now, onOpen, onSetRead, onSetArchived }: Props = $props();
+  let { notification, sourceLabel, openLabel, canChange, disabledReason, now, onOpen, onSetRead, onSetArchived, leading }: Props = $props();
 
   const isUnread = $derived(notification.readAt === null);
   const isArchived = $derived(notification.archivedAt !== null);
@@ -32,6 +36,7 @@
   class="group flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] focus-within:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] pointer-coarse:py-3"
   data-testid="notification-row"
 >
+  {#if leading}{@render leading()}{/if}
   <button
     type="button"
     class="flex min-w-0 flex-1 flex-col items-start gap-0.5 overflow-hidden text-left focus-visible:outline-none"

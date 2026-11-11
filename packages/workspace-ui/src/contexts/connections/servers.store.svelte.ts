@@ -56,6 +56,7 @@ import { hostRowLabel, SOLUS_CLOUD_LABEL } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
+import { prDeviceCache } from '../prs/pr-device-cache'
 
 const DISCOVERY_INTERVAL_MS = 30_000
 
@@ -386,11 +387,13 @@ class ServersStore {
 
     this.trackConnections(updateAutoDiscovery)
 
-    // Forgetting a host is total: its skew dismissals and queued sends leave
-    // with it (the session snapshot cache purges itself the same way).
+    // Forgetting a host is total: its skew dismissals, queued sends and kept
+    // pull requests leave with it (the session snapshot cache purges itself
+    // the same way).
     onServerRemoving((server) => {
       forgetSkewDismissals(server.id)
       sendOutbox.forgetHost(server.id)
+      void prDeviceCache.forgetHost(server.id)
       if (listingOf(server)) this.forgetListed(server.id)
     })
     // A host this client pairs or forgets goes to the person's host list (plans/031 D7).

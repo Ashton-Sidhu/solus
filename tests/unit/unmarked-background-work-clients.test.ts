@@ -44,6 +44,38 @@ describe('desktop and web', () => {
   })
 })
 
+// Stop sets `interrupted` at once; the run exits after, and only then does the
+// host say the background work ended with it.
+describe('a session Stop', () => {
+  test('clears the row on desktop and web', () => {
+    const session = { status: 'completed', messages: [], outboundPrompts: [], permissionQueue: [], questionQueue: [], rateLimitInfo: null } as unknown as Session
+    const reducer = new SessionEventReducer({
+      registry: { tabIdsBySession: new Map() },
+      sessions: { byId: { session } },
+      settings: { rateLimitBehavior: 'ask' },
+      workStreamTracker: { sweep: () => {} },
+      isSessionVisible: () => true,
+      publishSessionViewed: () => {},
+      playNotificationIfHidden: () => {},
+      log: () => {},
+    } as unknown as SessionEventReducerDeps)
+
+    reducer.apply('session', { type: 'background_work', running: true })
+    session.status = 'interrupted'
+    reducer.apply('session', { type: 'background_work', running: false })
+    expect(showsBackgroundWork(session.status, !!session.backgroundWorkRunning)).toBe(false)
+  })
+
+  test('clears the pill on mobile', () => {
+    const model = TranscriptModel.fromHistory('session-1', { messages: [], before: null })
+    model.setStatus('completed')
+    model.apply({ type: 'background_work', running: true })
+    model.setStatus('interrupted')
+    model.apply({ type: 'background_work', running: false })
+    expect(showsBackgroundWork(model.status, model.backgroundWorkRunning)).toBe(false)
+  })
+})
+
 describe('mobile', () => {
   test('the transcript model keeps the fact and tells the pill that it changed', () => {
     const model = TranscriptModel.fromHistory('session-1', { messages: [], before: null })

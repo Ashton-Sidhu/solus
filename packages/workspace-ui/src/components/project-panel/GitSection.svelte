@@ -55,6 +55,7 @@
   } from "./lib/git-action-selection";
   import { useGitSectionReads } from "./lib/git-section-reads.svelte";
   import { mergeConflictDraft } from "./lib/merge-conflict-draft";
+  import { changesRow, filesText } from "./lib/changes-row";
   import { isGitActionRowShown, isPanelItemShown } from "./lib/panel-items";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import {
@@ -93,9 +94,7 @@
   const uncommittedFileCount = $derived(
     status?.uncommittedChanges.fileCount ?? 0,
   );
-  // The Changes row counts what it opens: the branch review, not only the
-  // uncommitted part of it.
-  const branchChanges = $derived(status?.branchChanges);
+  const changes = $derived(changesRow(status));
   const actions = $derived(gitActionsFor(sourceId, session, environmentStore, pullRequests.projects));
   // "Discard changes…" arms in place rather than opening a dialog — the row
   // swaps to a confirm label, which is what the ellipsis promises.
@@ -242,20 +241,14 @@
       });
     defs.push({
       key: "changes",
-      label: "Changes",
+      label: changes.label,
       icon: FileDiffIcon,
-      diffStat: branchChanges,
-      badge: branchChanges?.fileCount
-        ? `${branchChanges.fileCount} file${branchChanges.fileCount === 1 ? "" : "s"}`
-        : undefined,
+      diffStat: changes.lines,
+      // Line counts, as a git client shows them; the file count stands in
+      // only until the host has counted lines.
+      badge: changes.fileCount && !changes.lines ? filesText(changes.fileCount) : undefined,
       phase: "idle",
-      tooltip: !branchChanges
-        ? undefined
-        : branchChanges.fileCount === 0
-          ? "No changes"
-          : status && status.branch !== status.targetBranch
-            ? `Changes since this branch left ${status.targetBranch}`
-            : "Uncommitted changes",
+      tooltip: changes.tooltip,
       disabled: !canGit,
       run: () => openReviewView("diff"),
     });

@@ -44,10 +44,6 @@
   import { Button } from "../ui/button";
   import { toasts } from "../../lib/toasts";
   import {
-    TasksSelectionStore,
-    setTasksSelection,
-  } from "./tasks-selection.store.svelte";
-  import {
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
@@ -76,7 +72,11 @@
     ListFilterBar,
     ListProjectFilter,
     ListGroup,
+    ListBulkAction,
+    ListBulkBar,
     ListPage,
+    ListSelectCheckbox,
+    ListSelection,
     ListRailRow,
     ListRow,
     ListFilterGroup,
@@ -239,10 +239,8 @@
   let taskLoadEpoch = 0;
   const canCreate = $derived(!!taskContext);
 
-  // ── List-view multi-select ── owned by a context store so the selection isn't
-  // threaded through the row components.
-  const selection = new TasksSelectionStore();
-  setTasksSelection(selection);
+  // ── List-view multi-select ──
+  const selection = new ListSelection();
   // Composer state for adding into a board column: the column's status, null =
   // closed. The task it makes stays on the list; New task opens its page
   // instead (`startNewTask`). It files into the page's current project, so a
@@ -896,7 +894,7 @@
       const task = taskById(selectedKey);
       if (!task) return;
       e.preventDefault();
-      selection.toggle(task, e);
+      selection.toggle(task.id, e);
     }
   }
 
@@ -1032,25 +1030,6 @@
       {/if}
     {/snippet}
   </ListFilterBar>
-{/snippet}
-
-{#snippet rowCheckbox(taskId: string)}
-  {@const task = taskById(taskId)}
-  {#if task}
-    <button
-      type="button"
-      class="mr-2 grid size-4 shrink-0 cursor-pointer place-items-center rounded border-0 text-xs transition-opacity {selection.has(
-        taskId,
-      )
-        ? 'bg-primary text-primary-foreground opacity-100'
-        : 'bg-[var(--wash-3)] text-transparent opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'}"
-      onclick={(e) => selection.toggle(task, e)}
-      aria-pressed={selection.has(taskId)}
-      aria-label={selection.has(taskId) ? "Deselect task" : "Select task"}
-    >
-      ✓
-    </button>
-  {/if}
 {/snippet}
 
 {#if open}
@@ -1246,7 +1225,7 @@
                       }}
                     >
                       {#snippet leading()}
-                        {@render rowCheckbox(item.row.key)}
+                        <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
                       {/snippet}
                     </TaskListRow>
                   {:else if splitList}
@@ -1267,7 +1246,7 @@
                       }}
                     >
                       {#snippet leading()}
-                        {@render rowCheckbox(item.row.key)}
+                        <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
                       {/snippet}
                     </ListRailRow>
                   {:else}
@@ -1288,7 +1267,7 @@
                       }}
                     >
                       {#snippet leading()}
-                        {@render rowCheckbox(item.row.key)}
+                        <ListSelectCheckbox {selection} id={item.row.key} noun="task" class="mr-2" />
                       {/snippet}
                     </ListRow>
                   {/if}
@@ -1333,133 +1312,86 @@
       </div>
     {/if}
 
-    <!-- Bulk action bar — floats over the list while a selection is held.
-         ── The record rung (`@max-[30rem]/pane`) ──
-         Eleven controls on one line is a desktop pill. At 393px it was wider
-         than the pane, so it clipped at both edges, wrapped "In progress" onto
-         two lines, and painted over the row underneath with no inset for the
-         home indicator. The ladder: the count and Clear take a line of their
-         own, the four status buttons collapse into one Status menu, and the
-         remaining actions wrap rather than clip — a control that does not fit
-         gets its own line, it never loses its label. -->
+    <!-- The status buttons are this page's rung: four labels the narrow bar has
+         no room for collapse into one Status menu. -->
     {#if layout === "list" && selection.size > 0 && !panelOpen}
-      <div
-        class="pointer-events-none absolute inset-x-0 bottom-14 z-10 flex justify-center px-4 @max-[30rem]/pane:bottom-0 @max-[30rem]/pane:px-2 @max-[30rem]/pane:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
-      >
-        <div
-          class="pointer-events-auto flex items-center gap-1.5 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-2 py-1.5 shadow-[var(--solus-popover-shadow)] @max-[30rem]/pane:w-full @max-[30rem]/pane:flex-col @max-[30rem]/pane:items-stretch @max-[30rem]/pane:gap-2 @max-[30rem]/pane:rounded-2xl @max-[30rem]/pane:p-2.5"
-          role="toolbar"
-          aria-label="Bulk actions"
-        >
-          <!-- `contents` keeps the wide pill one flat line; at the rung this
-               becomes the header line, with Clear held to the right by the
-               `order-last` that also puts it at the end of the pill. -->
-          <div
-            class="contents @max-[30rem]/pane:flex @max-[30rem]/pane:items-center @max-[30rem]/pane:justify-between"
+      <ListBulkBar {selection}>
+        <ListBulkAction onclick={() => void bulkComplete()}>
+          <CheckIcon size={14} class="shrink-0" />Complete
+        </ListBulkAction>
+        {#if sessionSidebar}
+          <ListBulkAction onclick={() => void bulkMarkUnread()}>
+            <DotOutlineIcon size={14} weight="fill" class="shrink-0" />Unread
+          </ListBulkAction>
+        {/if}
+        <span
+          class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
+          aria-hidden="true"
+        ></span>
+        {#each BOARD_COLUMNS as col (col.status)}
+          <button
+            type="button"
+            class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:hidden"
+            onclick={() => bulkSetStatus(col.status)}
+            title={`Set ${col.label}`}
           >
-            <span class="px-1.5 font-medium tabular-nums whitespace-nowrap">
-              {selection.size} selected
-            </span>
-            <button
-              type="button"
-              class="order-last cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:px-3 @max-[30rem]/pane:text-workspace-chrome"
-              onclick={() => selection.clear()}
-              title="Clear selection (Esc)"
-            >
-              Clear
-            </button>
-          </div>
-          <span
-            class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
-            aria-hidden="true"
-          ></span>
-          <div
-            class="contents @max-[30rem]/pane:flex @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:items-center @max-[30rem]/pane:gap-1.5"
-          >
-            <button
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome"
-              onclick={() => void bulkComplete()}
-              ><CheckIcon size={14} class="shrink-0" />Complete</button
-            >
-            {#if sessionSidebar}
-              <button
-                type="button"
-                class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome"
-                onclick={() => void bulkMarkUnread()}
-                ><DotOutlineIcon size={14} weight="fill" class="shrink-0" />Unread</button
-              >
-            {/if}
             <span
-              class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
-              aria-hidden="true"
+              class="block size-2 shrink-0 rounded-full {STATUS_META[
+                col.status
+              ].dotClass}"
             ></span>
-            {#each BOARD_COLUMNS as col (col.status)}
+            {col.label}
+          </button>
+        {/each}
+        <!-- Four statuses are four labels the rung has no room for, so they
+             become one menu. The label still says which four they are. -->
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
               <button
+                {...props}
                 type="button"
-                class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:hidden"
-                onclick={() => bulkSetStatus(col.status)}
-                title={`Set ${col.label}`}
+                class="hidden cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:inline-flex @max-[30rem]/pane:h-9 @max-[30rem]/pane:text-workspace-chrome"
+                aria-label="Set status on the selected tasks"
               >
+                <CircleDashedIcon size={14} class="shrink-0 opacity-75" />
+                Status
+                <CaretDownIcon size={9} class="shrink-0 opacity-60" />
+              </button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content
+            side="top"
+            align="start"
+            sideOffset={6}
+            class="w-[190px]"
+          >
+            {#each BOARD_COLUMNS as col (col.status)}
+              <DropdownMenu.Item onSelect={() => bulkSetStatus(col.status)}>
                 <span
-                  class="block size-2 shrink-0 rounded-full {STATUS_META[
+                  class="mr-2 block size-2 shrink-0 rounded-full {STATUS_META[
                     col.status
                   ].dotClass}"
                 ></span>
-                {col.label}
-              </button>
+                <span class="flex-1">{col.label}</span>
+              </DropdownMenu.Item>
             {/each}
-            <!-- Four statuses are four labels the rung has no room for, so they
-                 become one menu. The label still says which four they are. -->
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="hidden cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-xs font-medium whitespace-nowrap text-(--solus-text-secondary) transition-colors duration-100 hover:bg-(--solus-surface-hover) @max-[30rem]/pane:inline-flex @max-[30rem]/pane:h-9 @max-[30rem]/pane:text-workspace-chrome"
-                    aria-label="Set status on the selected tasks"
-                  >
-                    <CircleDashedIcon size={14} class="shrink-0 opacity-75" />
-                    Status
-                    <CaretDownIcon size={9} class="shrink-0 opacity-60" />
-                  </button>
-                {/snippet}
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content
-                side="top"
-                align="start"
-                sideOffset={6}
-                class="w-[190px]"
-              >
-                {#each BOARD_COLUMNS as col (col.status)}
-                  <DropdownMenu.Item onSelect={() => bulkSetStatus(col.status)}>
-                    <span
-                      class="mr-2 block size-2 shrink-0 rounded-full {STATUS_META[
-                        col.status
-                      ].dotClass}"
-                    ></span>
-                    <span class="flex-1">{col.label}</span>
-                  </DropdownMenu.Item>
-                {/each}
-              </DropdownMenu.Content>
-            </DropdownMenu.Root>
-            <span
-              class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
-              aria-hidden="true"
-            ></span>
-            <button
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
-              onclick={bulkDelete}
-              title="Delete selected"
-            >
-              <TrashIcon size={14} class="shrink-0" />
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+        <span
+          class="h-4 w-px bg-(--solus-container-border) @max-[30rem]/pane:hidden"
+          aria-hidden="true"
+        ></span>
+        <button
+          type="button"
+          class="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2 py-1 text-xs font-medium whitespace-nowrap text-[#cf222e] transition-colors duration-100 hover:bg-[#cf222e]/10 @max-[30rem]/pane:h-9 @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:px-2.5 @max-[30rem]/pane:text-workspace-chrome [.dark_&]:text-[#f85149] [.dark_&]:hover:bg-[#f85149]/10"
+          onclick={bulkDelete}
+          title="Delete selected"
+        >
+          <TrashIcon size={14} class="shrink-0" />
+          Delete
+        </button>
+      </ListBulkBar>
     {/if}
 
 

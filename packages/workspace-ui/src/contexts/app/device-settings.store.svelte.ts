@@ -90,6 +90,9 @@ const DEVICE_LAYOUT_FIELDS = {
   // default. It is how this client's settings page is folded.
   typographyAdvanced: layoutField(z.boolean().catch(false), false),
   keybindings: layoutField<BindingOverrides>(keybindingsSchema.catch({}), {}),
+  // The session sidebar as the person last left it. An automatic collapse for
+  // a review is not their choice, so only their own toggle writes it.
+  sidebarOpen: layoutField(z.boolean().catch(true), true),
   projectPanelOpen: layoutField(z.boolean().catch(false), false),
   splitProjectPanelOpen: layoutField(z.boolean().catch(false), false),
   projectPanelWidth: layoutField<number | null>(z.number().positive().nullable().catch(null), null),

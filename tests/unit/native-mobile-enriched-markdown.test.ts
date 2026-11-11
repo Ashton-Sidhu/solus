@@ -380,17 +380,24 @@ describe("HTML in native Markdown", () => {
     );
   });
 
-  it("links HTML anchors in a table cell without breaking the row at <br>", () => {
-    const table = parseMarkdown(
-      "| Status | Preview URL |\n| - | - |\n| Done | <a href='https://commit.example.com'>Commit</a><br><a href='https://branch.example.com'>Branch</a> |",
-    ).children[0];
+  // T3 #29355: separate items in one cell must not run together.
+  it("keeps <br> line breaks in a table cell without breaking the row", () => {
+    const markdown =
+      "| Status | Preview URL |\n| - | - |\n| Done | <a href='https://commit.example.com'>Commit</a><br><a href='https://branch.example.com'>Branch</a> |\n| • One<br/>• Two<BR />**Three** | `<br>` |";
+    // md4c decodes the reference to a newline in the cell's text, as remark does.
+    expect(markdownWithHtml(markdown)).toContain("| • One&#10;• Two&#10;**Three** | `<br>` |");
+    const table = parseMarkdown(markdown).children[0];
     expect(table?.type).toBe("table");
     if (table?.type !== "table") return;
-    expect(table.children).toHaveLength(2);
+    expect(table.children.map((row) => row.children.length)).toEqual([2, 2, 2]);
     expect(table.children[1]?.children[1]?.children).toMatchObject([
       { type: "link", url: "https://commit.example.com", children: [{ value: "Commit" }] },
-      { type: "text", value: " " },
+      { type: "text", value: "\n" },
       { type: "link", url: "https://branch.example.com", children: [{ value: "Branch" }] },
+    ]);
+    expect(table.children[2]?.children).toMatchObject([
+      { children: [{ value: "• One\n• Two\n" }, { type: "strong" }] },
+      { children: [{ type: "inlineCode", value: "<br>" }] },
     ]);
   });
 

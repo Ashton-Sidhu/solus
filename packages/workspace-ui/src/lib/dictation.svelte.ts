@@ -1,3 +1,4 @@
+import type { VoiceDictionary } from '@solus/contracts/voice-dictionary'
 import { VoiceRecorder, type VoiceErrorKind, type VoiceState } from './voice-recorder.svelte'
 import { dictationInsertion } from '../components/input/lib/dictation-text'
 
@@ -63,6 +64,7 @@ class Dictation {
   #getVadSilenceMs = () => 1500
   #getAutoEnabled = () => false
   #getVoiceReady = () => true
+  getDictionary: () => VoiceDictionary = () => []
   // Set right before our own post-transcript `el.focus()` so the synthetic
   // focus event it fires doesn't immediately re-arm dictation in a loop.
   #justInserted = false
@@ -72,6 +74,7 @@ class Dictation {
   #voice = new VoiceRecorder(
     () => this.#getVadSilenceMs(),
     () => this.#vadMinSpeechMsMap.get(this.target!) ?? 0,
+    () => this.getDictionary(),
   )
 
   constructor() {

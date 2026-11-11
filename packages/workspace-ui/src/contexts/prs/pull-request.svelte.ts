@@ -47,6 +47,7 @@ import type {
 } from '@solus/contracts/types'
 import { detached, type ProjectPrs } from './project-prs.svelte'
 import { PrViewedFiles } from './pr-viewed-files.svelte'
+import { prDeviceCache } from './pr-device-cache'
 
 /** What the Activity tab can paint immediately, without awaiting anything. */
 export interface CachedPrActivity {
@@ -57,6 +58,15 @@ export interface CachedPrActivity {
   comments?: PrConversationItem[]
   changedFiles?: ChangedFileStat[]
 }
+
+/** What this device keeps of an opened pull request, so that the next load of
+ *  the app paints its Activity tab at once. Candidates are not kept: they are
+ *  read only when the picker opens. */
+type KeptPrActivity = Omit<CachedPrActivity, 'reviewerCandidates'>
+
+/** Reads that land together (an open reads the overview, the comments and the
+ *  files at once) are kept in one write. */
+const KEEP_DELAY_MS = 1_000
 
 type ReadOptions = { force?: boolean }
 
@@ -167,6 +177,12 @@ export class PullRequest implements Contracts.PullRequest {
   /** Each write in flight re-shows its outcome over whatever a read says in
    *  the meantime: until the host answers the write, the write is newer. */
   readonly #shownWhileWriting = new Set<() => void>()
+
+  /** The detail the host last answered in this load of the app. Kept on the
+   *  device with the activity, and the mark that a kept copy is older. */
+  #liveDetail: Contracts.PullRequest | undefined
+  #restored: Promise<KeptPrActivity> | null = null
+  #keepTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private readonly store: ProjectPrs,
@@ -312,6 +328,53 @@ export class PullRequest implements Contracts.PullRequest {
     }
   }
 
+  /** Where this device keeps the pull request: per host, project and number. */
+  private get deviceKey(): string {
+    return `pr-activity:${this.store.projectScope}:${this.number}`
+  }
+
+  /**
+   * The parts of the Activity tab this device kept from an earlier load of the
+   * app, put in the fields no read has filled yet. Answers only the parts it
+   * put; a part a read already filled stays the read's. The kept detail is
+   * taken only when no read of this load answered one and it is not older
+   * than what is held. Read from the device once per load of the app.
+   */
+  restoreActivity(): Promise<KeptPrActivity> {
+    this.#restored ??= prDeviceCache.read<KeptPrActivity>(this.store.serverId, this.deviceKey).then((kept) => {
+      const restored: KeptPrActivity = {}
+      if (!kept) return restored
+      if (kept.detail && !this.#liveDetail && (!this.#described || kept.detail.updatedAt >= this.updatedAt)) {
+        this.store.absorb(kept.detail)
+        restored.detail = kept.detail
+      }
+      if (kept.commits && this.commits === undefined) restored.commits = this.commits = kept.commits
+      if (kept.reviewers && this.reviewers === undefined) restored.reviewers = this.reviewers = kept.reviewers
+      if (kept.comments && this.comments === undefined) restored.comments = this.comments = kept.comments
+      if (kept.changedFiles && this.changedFileStats === undefined) restored.changedFiles = this.changedFileStats = kept.changedFiles
+      return restored
+    })
+    return this.#restored
+  }
+
+  /** Keep what the reads of this load answered, once they settle. Only a pull
+   *  request whose detail was read is kept: that is one somebody opened or
+   *  rested on, not every row a list drew. */
+  private keep(): void {
+    if (this.#keepTimer) return
+    this.#keepTimer = setTimeout(() => {
+      this.#keepTimer = null
+      if (!this.#liveDetail) return
+      void prDeviceCache.write<KeptPrActivity>(this.store.serverId, this.deviceKey, {
+        detail: this.#liveDetail,
+        commits: $state.snapshot(this.commits),
+        reviewers: $state.snapshot(this.reviewers),
+        comments: $state.snapshot(this.comments),
+        changedFiles: $state.snapshot(this.changedFileStats),
+      })
+    }, KEEP_DELAY_MS)
+  }
+
   // --- Reads ---------------------------------------------------------------
 
   /**
@@ -334,7 +397,9 @@ export class PullRequest implements Contracts.PullRequest {
     this.store.mirrors.reviewers.seed(this.key, overview.reviewers)
     this.commits = overview.commits
     this.reviewers = overview.reviewers
+    this.#liveDetail = overview.pullRequest
     this.store.absorb(overview.pullRequest)
+    this.keep()
     return overview
   }
 
@@ -347,7 +412,10 @@ export class PullRequest implements Contracts.PullRequest {
       !!opts.force,
       () => this.api.prGetDetail(ctx, this.number),
     )
-    return this.store.mirrors.detail.holds(this.key, detail) ? this.store.absorb(detail) : this
+    if (!this.store.mirrors.detail.holds(this.key, detail)) return this
+    this.#liveDetail = detail
+    this.keep()
+    return this.store.absorb(detail)
   }
 
   /**
@@ -365,7 +433,10 @@ export class PullRequest implements Contracts.PullRequest {
   async loadCommits(opts: ReadOptions = {}): Promise<PrCommit[]> {
     const ctx = detached(this.ctx)
     const commits = await this.store.mirrors.commits.read(this.key, !!opts.force, () => this.api.prListCommits(ctx, this.number))
-    if (this.store.mirrors.commits.holds(this.key, commits)) this.commits = commits
+    if (this.store.mirrors.commits.holds(this.key, commits)) {
+      this.commits = commits
+      this.keep()
+    }
     return commits
   }
 
@@ -379,7 +450,10 @@ export class PullRequest implements Contracts.PullRequest {
   async loadReviewers(opts: ReadOptions = {}): Promise<PrReviewer[]> {
     const ctx = detached(this.ctx)
     const reviewers = await this.store.mirrors.reviewers.read(this.key, !!opts.force, () => this.api.prListReviewers(ctx, this.number))
-    if (this.store.mirrors.reviewers.holds(this.key, reviewers)) this.reviewers = reviewers
+    if (this.store.mirrors.reviewers.holds(this.key, reviewers)) {
+      this.reviewers = reviewers
+      this.keep()
+    }
     return reviewers
   }
 
@@ -404,7 +478,10 @@ export class PullRequest implements Contracts.PullRequest {
   async loadComments(opts: ReadOptions = {}): Promise<PrConversationItem[]> {
     const ctx = detached(this.ctx)
     const comments = await this.store.mirrors.comments.read(this.key, !!opts.force, () => this.api.prListComments(ctx, this.number))
-    if (this.store.mirrors.comments.holds(this.key, comments)) this.comments = comments
+    if (this.store.mirrors.comments.holds(this.key, comments)) {
+      this.comments = comments
+      this.keep()
+    }
     return comments
   }
 
@@ -417,7 +494,10 @@ export class PullRequest implements Contracts.PullRequest {
   async loadChangedFiles(opts: ReadOptions = {}): Promise<ChangedFileStat[]> {
     const ctx = detached(this.ctx)
     const files = await this.store.mirrors.changedFiles.read(this.key, !!opts.force, () => this.api.prChangedFiles(ctx, this.number))
-    if (this.store.mirrors.changedFiles.holds(this.key, files)) this.changedFileStats = files
+    if (this.store.mirrors.changedFiles.holds(this.key, files)) {
+      this.changedFileStats = files
+      this.keep()
+    }
     return files
   }
 

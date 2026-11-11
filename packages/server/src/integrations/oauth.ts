@@ -357,6 +357,11 @@ export class IntegrationOAuth {
         log.warn('integration_token_persist_failed', { integrationId, error: errorText(error) })
       }
       log.info('integration_token_refreshed', { integrationId, personKey })
+      // An earlier failed refresh said it tries again; this try worked.
+      if (this.deps.connections.get(integrationId, personKey, accountId)?.status === 'error') {
+        const connection = this.deps.connections.upsert(integrationId, personKey, { status: 'connected', error: null }, accountId)
+        this.deps.events.connectionChanged(personKey, { integrationId, connection })
+      }
       return refreshed
     } catch (error) {
       log.warn('integration_token_refresh_failed', { integrationId, personKey, error: errorText(error) })

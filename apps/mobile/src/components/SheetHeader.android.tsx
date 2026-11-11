@@ -26,7 +26,10 @@ export function SheetHeader(props: SheetHeaderProps) {
       <View className="flex-row items-center gap-2">
         {props.trailing}
         {confirmation ? (
-          <MaterialButton label={confirmation.label} tone="text" onPress={confirmation.onPress} />
+          // MaterialButton aligns itself to the start edge; the View lets the row center it.
+          <View className="self-center">
+            <MaterialButton label={confirmation.label} tone="text" onPress={confirmation.onPress} />
+          </View>
         ) : null}
       </View>
     ) : undefined;

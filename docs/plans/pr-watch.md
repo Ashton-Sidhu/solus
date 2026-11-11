@@ -114,7 +114,10 @@ belongs to a session, not to a task.
     state, mergeability and head (2026-10-14). PR sync keeps that row fresh,
     because the watching session links the pull request, so a moved check or
     a new comment costs no second read of it. Sessions that watch the same pull
-    request share one read. Sweeps are background work: they leave GitHub's
+    request share one read. The full reads go one group at a time, and a group
+    is read as soon as its own fingerprints land: a slow code host holds back
+    only its own pull requests, not the wakes of the others (2026-11-07).
+    Sweeps are background work: they leave GitHub's
     reserve to people and back off on a rate limit
     (`providers/github/request-budget.ts`).
 12. **The wake.** `PromptDispatch.promptSession(sessionId, text, 'queue',

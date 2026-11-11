@@ -3,7 +3,7 @@ import { useId } from "react";
 import { createNativeHeaderMenu } from "./nativeHeaderMenu.ios";
 import { ScreenHeaderButton } from "./ScreenHeaderButton";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../native/StackHeader";
-import { useAdaptiveWorkspaceLayout } from "../features/layout/AdaptiveWorkspaceLayout";
+import { useAdaptiveWorkspaceLayout, useWorkspacePaneState } from "../features/layout/AdaptiveWorkspaceLayout";
 import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
@@ -33,7 +33,8 @@ function mailMenuItems(items: ReadonlyArray<ScreenHeaderMenuItem>): MailMenu["it
 
 export function ScreenHeader(props: ScreenHeaderProps) {
   const headerId = useId();
-  const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
+  const { layout, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
+  const { panes } = useWorkspacePaneState();
   const { themeVariables } = useAppearancePreferences();
   const { search, menus } = props;
   const menu = menus?.[0];

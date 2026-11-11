@@ -24,7 +24,8 @@ export function showDesktopNotification(
   if (shownAtByKey.has(input.dedupKey)) return false
   shownAtByKey.set(input.dedupKey, now)
 
-  const notification = new Notification({ title: input.title, body: input.body })
+  // Silent: the Sound channel plays the Solus sound, so the OS must not add its own.
+  const notification = new Notification({ title: input.title, body: input.body, silent: true })
   notification.on('click', () => onClick(input.route))
   log.info('desktop_notification_shown', {
     sessionId: input.sessionId,

@@ -17,6 +17,8 @@ export const SETTINGS_PAGE_ROUTES: ReadonlySet<string> = new Set([
   'AppearanceSettings',
   'AgentDefaults',
   'NotificationSettings',
+  'VoiceSettings',
+  'VoiceTerm',
   'Policy',
   'HostSettings',
   'HostAccess',

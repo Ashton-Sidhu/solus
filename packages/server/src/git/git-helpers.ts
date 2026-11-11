@@ -4,7 +4,7 @@ import type { RepoRef } from '@solus/contracts/providers'
 import { createLogger } from '../logger'
 import { gitOutputPath, runAsync } from './exec'
 import { GitUnavailableError } from './git-availability'
-import { getEpisodeNumstat } from './session-snapshots'
+import { getEpisodeNumstats } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
@@ -142,8 +142,8 @@ async function computeGitStateDetails(
   // a second status pipeline when the visible panel asks for details.
   const status = await computeGitState(cwd)
   if (!status) return null
-  const [branchChanges, prUrl, targetAheadCount] = await Promise.all([
-    getBranchChanges(cwd, status).catch(() => undefined),
+  const [changeTotals, prUrl, targetAheadCount] = await Promise.all([
+    getChangeTotals(cwd, status).catch(() => undefined),
     status.branch && status.branch !== status.targetBranch
       ? getExistingPR(status.branch, cwd, options.bypassCache === true)
       : Promise.resolve(null),
@@ -155,7 +155,8 @@ async function computeGitStateDetails(
   ])
   return {
     ...status,
-    branchChanges,
+    branchChanges: changeTotals?.branch,
+    uncommittedTotals: changeTotals?.uncommitted,
     targetAheadCount,
     prUrl: prUrl ?? undefined,
   }
@@ -199,16 +200,27 @@ async function readCheckoutUncached(cwd: string): Promise<CheckoutRead | null> {
 
 /** Count the branch review's change without building its patch: the same base
  *  `resolveReviewContext` gives the review pane, minus the session base it
- *  falls back to on the target branch, because this status is per checkout. */
-async function getBranchChanges(cwd: string, status: GitState): Promise<BranchChanges> {
+ *  falls back to on the target branch, because this status is per checkout.
+ *  The uncommitted part is counted against HEAD in the same pass; on the
+ *  target branch the two are the same count. */
+async function getChangeTotals(cwd: string, status: GitState): Promise<{ branch: BranchChanges; uncommitted: BranchChanges }> {
   // Not awaited here: merge-base reads only refs and objects, so it runs while
   // the numstat prepares its throwaway index.
-  const base = status.branch && status.branch !== status.targetBranch
-    ? runAsync('git', ['merge-base', status.targetBranch, 'HEAD'], cwd)
+  const onTarget = !status.branch || status.branch === status.targetBranch
+  const base = onTarget
+    ? 'HEAD'
+    : runAsync('git', ['merge-base', status.targetBranch, 'HEAD'], cwd)
       .then((sha) => sha.trim() || 'HEAD')
       .catch(() => 'HEAD')
-    : 'HEAD'
-  const files = await getEpisodeNumstat(cwd, status.repoRoot, base)
+  const [branchFiles, uncommittedFiles = branchFiles] = await getEpisodeNumstats(
+    cwd,
+    status.repoRoot,
+    onTarget ? [base] : [base, 'HEAD'],
+  )
+  return { branch: totalOf(branchFiles), uncommitted: totalOf(uncommittedFiles) }
+}
+
+function totalOf(files: Array<{ additions: number; deletions: number }>): BranchChanges {
   let insertions = 0
   let deletions = 0
   for (const file of files) {

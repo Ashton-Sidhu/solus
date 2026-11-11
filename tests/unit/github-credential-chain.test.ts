@@ -317,12 +317,12 @@ describe('GitHub requests run down the credential chain', () => {
     const cli = scriptedClient('gh-cli', 'accepts')
     const provider = new ChainedProvider([host, cli])
 
-    const [page] = await provider.listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open', head: 'feature' }, 'sidhu', false)
+    const [page] = await provider.listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open', head: 'feature' }, 'sidhu')
 
     expect(host.calls).toEqual(['graphql'])
     expect(cli.calls).toEqual(['graphql'])
-    expect(page?.page.items[0]?.headRef).toBe('feature')
-    expect(page?.page.items[0]?.reviewStatus).toBe('approved')
+    expect(page?.items[0]?.headRef).toBe('feature')
+    expect(page?.items[0]?.reviewStatus).toBe('approved')
   })
 
   test('pull request checks fall through to the gh credential', async () => {

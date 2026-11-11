@@ -1,3 +1,4 @@
+import type { VoiceTranscriptionOptions } from './voice-dictionary'
 import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest, VoiceWarmRequest } from './voice-stream'
 import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanceTarget, ProviderInstanceCode, ProviderInstanceStatus } from './provider-instances'
 import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
@@ -212,8 +213,8 @@ export interface SolusAPI {
   assetFindUrl(ctx: IpcContext | undefined, request: AssetFindUrlRequest): Promise<AssetFindUrlResult | null>
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
-  transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
-  voiceStreamStart(): Promise<{ streamId: string }>
+  transcribeAudio(audio: Float32Array | string, options?: VoiceTranscriptionOptions, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
+  voiceStreamStart(options?: VoiceTranscriptionOptions): Promise<{ streamId: string }>
   voiceStreamFeed(request: VoiceStreamFeedRequest): Promise<VoicePartial>
   voiceStreamFinish(request: VoiceStreamRequest): Promise<VoiceTranscript>
   voiceStreamCancel(request: VoiceStreamRequest): Promise<void>

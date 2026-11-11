@@ -67,6 +67,9 @@ export class SessionControls {
     if (!session) return true
     const idx = session.permissionQueue.findIndex((p) => p.questionId === questionId)
     if (idx !== -1) session.permissionQueue.splice(idx, 1)
+    // The clicked option was disabled and its card leaves: without this, focus
+    // falls to the page and the next keystroke goes nowhere.
+    requestInputFocus({ tabId })
     return true
   }
 

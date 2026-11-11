@@ -289,9 +289,10 @@ export class PrsStore {
     return !project.holdsFreshListing(filter)
   }
 
-  /** One `prListProjects` for projects that share a host. The host also reads
-   *  each project's authored and review-requested pull requests, so those
-   *  sections are whole even when the first page is other people's work. */
+  /** One `prListProjects` for projects that share a host. The host then pushes
+   *  each project's authored and review-requested pull requests that the first
+   *  page does not hold (`pr.changed`), so those sections are whole even when
+   *  that page is other people's work. */
   private async listHost(projects: ProjectPrs[], filter: PrFilter, force: boolean): Promise<void> {
     const reads = projects.map((project) => ({ project, token: project.beginListing(filter) }))
     try {

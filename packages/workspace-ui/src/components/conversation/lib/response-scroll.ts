@@ -7,6 +7,39 @@ export function scrollConversationTo(element: HTMLElement, top: number): void {
   })
 }
 
+/** A view that never holds still (a streaming reply moves the end every
+ *  frame) stops settling after this many frames; following takes over. */
+const SETTLE_MAX_FRAMES = 60
+
+/**
+ * Row heights start as estimates, and highlighted code, images, and diagrams
+ * measure frames after the first jump. Writes `target` each frame until the
+ * scroll holds it for two frames, the frame budget runs out, the caller
+ * cancels, or there is no target.
+ */
+export function settleScroll(
+  element: HTMLElement,
+  target: () => number | undefined,
+  isCancelled: () => boolean,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let stableFrames = 0
+    let frames = 0
+    const reconcile = () => {
+      const top = target()
+      frames += 1
+      if (isCancelled() || top === undefined || frames > SETTLE_MAX_FRAMES) return resolve()
+      const clamped = Math.max(0, Math.min(top, element.scrollHeight - element.clientHeight))
+      if (Math.abs(element.scrollTop - clamped) > 1) {
+        stableFrames = 0
+        element.scrollTop = clamped
+      } else if (++stableFrames >= 2) return resolve()
+      requestAnimationFrame(reconcile)
+    }
+    requestAnimationFrame(reconcile)
+  })
+}
+
 /** How close to the end still counts as reading the end. */
 const AT_END_PX = 60
 /** Long enough for a newly revealed row or card to measure before following

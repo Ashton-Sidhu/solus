@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/usePullRequestReviewDraft.ts (MIT, see UPSTREAM.md).
 import { Listeners } from '../../lib/listeners'
 import { clearSubmittedReview, EMPTY_REVIEW_DRAFT, isReviewDraftEmpty, type PendingReviewComment, type ReviewDraft } from './lib/pull-request-review-draft'
-import type { PullRequestCache } from './pull-request-cache'
+import type { PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { detailKey, type PullRequestRef } from './pull-request-directory'
 
 /**

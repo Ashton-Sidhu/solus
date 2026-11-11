@@ -36,7 +36,6 @@ export function makeSession(
     currentTurnStart: null,
     currentTurnStartedAt: null,
     isStreamingText: false,
-    isReconnecting: false,
     permissionQueue: [],
     questionQueue: [],
     permissionDenied: null,

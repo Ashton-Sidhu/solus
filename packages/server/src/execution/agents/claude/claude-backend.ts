@@ -363,7 +363,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       // Emit before finishRun: a run that failed before session_init has no
       // agentSessionId, so the SessionRuntime can only find its session through
       // the pending handles — which finishRun empties. See _runLoop's catch.
-      this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
+      this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)), handle)
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
     })
@@ -415,7 +415,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       this.finishRun(handle)
       log.info('run_complete', { sessionId, denials: handle.permissionDenials.length })
       handle._resolveRun()
-      this.emit('exit', sessionId, final.signal === 'SIGINT' ? null : 0, final.signal)
+      this.emit('exit', sessionId, final.signal === 'SIGINT' ? null : 0, final.signal, handle)
     } catch (err: any) {
       const sessionId = handle.agentSessionId
       // `cwdExists: false` here means the SDK's "binary … failed to launch" is
@@ -434,7 +434,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       // pending handles; finishRun removes this handle from them, and the error
       // then reaches no session at all. The record is left behind for the run
       // watchdog, which reports it as `exit null` with the real reason lost.
-      this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
+      this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)), handle)
       this.finishRun(handle)
       handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
     }

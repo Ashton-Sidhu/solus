@@ -37,11 +37,12 @@ interface Quota {
 export class RequestBudget {
   private readonly quotas = new Map<string, Quota>()
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /** `send` carries the request; without it, the global `fetch` does. */
+  constructor(private readonly now: () => number = Date.now, private readonly send?: typeof fetch) {}
 
   /** `fetch` that records each answer's quota headers. */
   readonly fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const response = await globalThis.fetch(input, init)
+    const response = await (this.send ?? globalThis.fetch)(input, init)
     this.observe(response.headers)
     return response
   }

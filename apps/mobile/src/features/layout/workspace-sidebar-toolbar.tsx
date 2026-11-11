@@ -2,10 +2,11 @@ import { Platform } from "react-native";
 
 import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 
-import { useAdaptiveWorkspaceLayout } from "./AdaptiveWorkspaceLayout";
+import { useAdaptiveWorkspaceLayout, useWorkspacePaneState } from "./AdaptiveWorkspaceLayout";
 
 export function AndroidWorkspaceSidebarButton() {
-  const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
+  const { layout, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
+  const { panes } = useWorkspacePaneState();
   if (Platform.OS !== "android" || !layout.usesSplitView) return null;
 
   return (

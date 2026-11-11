@@ -57,7 +57,7 @@ const TURN_LOG_MAX_EVENTS = 2000
 /** The hooks the session orchestrator takes run facts through. */
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
-  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy'
+  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy' | 'senderTurnEnded'
   | 'backgroundExchangeIds' | 'backgroundEnded' | 'childrenAtWork' | 'stopChildren'>
 
 export interface SessionRunLifecycle {
@@ -404,6 +404,7 @@ export class SessionRuntime extends EventEmitter {
     runMeta: { durationMs?: number; toolCallCount?: number; error?: string },
   ): void {
     if (!this.orchestration) return
+    this.orchestration.senderTurnEnded(run.sessionId)
     const agentSessionId = handle.agentSessionId
     const hasBackgroundWork = !!agentSessionId && !!this.backends.get(run.input.provider)?.hasBackgroundTasks?.(agentSessionId)
     // Any turn that ends with nothing left running ends the wait of an earlier

@@ -78,18 +78,15 @@ export interface PrPageRequest {
   cursor: string | null
 }
 
-/**
- * A page of a repository's pull requests, with the viewer's own and the ones
- * waiting on their review where the read asked for them. A priority part is
- * null where the read could not answer it whole; the reader then asks for that
- * part alone.
- */
-export interface RepositoryPage {
-  page: PrListPage
+/** Which pull requests of a repository are the viewer's. Numbers only: the
+ *  reader already holds most of these rows from the page it just read. */
+export interface PriorityNumbers {
   /** The first page of the viewer's own pull requests, as the author search pages it. */
-  authored: PrListPage | null
-  /** Every open pull request that requests or assigns the viewer. */
-  needsReview: PullRequest[] | null
+  authored: { numbers: number[]; hasMore: boolean }
+  /** Every open pull request that requests or assigns the viewer, newest first.
+   *  Null where the read could not answer it whole; the reader then asks for
+   *  it alone. */
+  needsReview: number[] | null
 }
 
 /**
@@ -100,16 +97,21 @@ export interface RepositoryPage {
 export interface ReviewProvider {
   /**
    * A page of each repository's pull requests, in the order asked, in as few
-   * requests as the host allows. `withPriority` asks for the viewer's own and
-   * review-requested rows of page one of an unsearched list too. Null for a
-   * repository the read could not answer; the reader lists that one alone.
+   * requests as the host allows. Null for a repository the read could not
+   * answer; the reader lists that one alone.
    */
   listPullRequestPages(
     requests: PrPageRequest[],
     filter: PrFilter | undefined,
     viewer: string,
-    withPriority: boolean,
-  ): Promise<Array<RepositoryPage | null>>
+  ): Promise<Array<PrListPage | null>>
+  /** Which pull requests of each repository are the viewer's, in the order
+   *  asked. Null for a repository the read could not answer. */
+  listPriorityNumbers(
+    repos: RepoRef[],
+    state: NonNullable<PrFilter['state']>,
+    viewer: string,
+  ): Promise<Array<PriorityNumbers | null>>
   createPullRequest(
     repo: RepoRef,
     input: { baseRef: string; headRef: string; title: string; body: string; credentialCwd?: string },

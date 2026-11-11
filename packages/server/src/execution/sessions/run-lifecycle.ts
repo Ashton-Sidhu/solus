@@ -52,9 +52,6 @@ export async function startRun(
   request.exchangeIds ??= []
   request.runId ??= crypto.randomUUID()
   if (request.reportExchangeIds?.length) rt.orchestration?.reportsAccepted(request.reportExchangeIds)
-  // Before launch: the provider can report this turn's own plan before the
-  // launch step returns, and that plan must survive.
-  rt.orchestration?.sessionTurnStarted(request.sessionId)
   const runStartedAt = Date.now()
   const promptSource = request.options.promptSource ?? 'typed'
   // Read before dispatch: Auto routing overwrites the model with the one it

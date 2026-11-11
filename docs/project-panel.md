@@ -16,7 +16,7 @@ Goal shows only while a goal is set, Agents only after the conversation starts a
 
 A section shows while it is on and at least one of its rows is on. When the last row of a section is off, the section hides. When the Environment section is hidden, the panel's header buttons (refresh, choose, collapse) and the window drag band stay in a bar with no card.
 
-The Git Changes row includes untracked files before the first commit. Its count and diff use an empty tree as the base until the repository has a commit. Reading changes does not change the staged files.
+The Git Changes row shows the added and removed lines of uncommitted work, as a git client does, so a commit clears its count. The tooltip gives the file count. When the working tree is clean on a branch, the row counts the changes since the branch left its target, and its label names the target ("Changes vs main"). The Changes row includes untracked files before the first commit. Its count and diff use an empty tree as the base until the repository has a commit. Reading changes does not change the staged files.
 
 ## How to change them
 

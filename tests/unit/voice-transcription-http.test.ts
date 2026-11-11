@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { Server as HttpServer } from 'http'
 import { issueSessionToken, resetAuthStateForTests } from '@solus/server/admission/auth'
+import { encodeVoiceUpload, VOICE_UPLOAD_CONTENT_TYPE, type VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { encodePcm16Wav } from '@solus/contracts/voice-audio'
 
 mock.module('@solus/server/project-config/projects-manifest', () => ({
@@ -32,10 +33,14 @@ describe('long-form voice HTTP transport', () => {
     resetAuthStateForTests()
 
     let received: Float32Array | null = null
+    let receivedOptions: VoiceTranscriptionOptions | undefined
+    let calls = 0
     const built = buildHttpServer({
       host: '127.0.0.1',
       port: 0,
-      transcribeAudio: async (samples) => {
+      transcribeAudio: async (samples, options) => {
+        calls++
+        receivedOptions = options
         received = samples
         return { error: null, transcript: 'Recovered idea dump.' }
       },
@@ -66,6 +71,27 @@ describe('long-form voice HTTP transport', () => {
     expect(received!.length).toBe(5)
     expect(received![0]).toBe(-1)
     expect(Math.abs(received![3] - 0.25)).toBeLessThan(1 / 0x7fff)
+    expect(receivedOptions).toBeUndefined()
+
+    const options = { vocabulary: ['Solus', 'Café'] }
+    const hinted = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': VOICE_UPLOAD_CONTENT_TYPE },
+      body: encodeVoiceUpload(wav, options),
+    })
+    expect(hinted.status).toBe(200)
+    expect(receivedOptions).toEqual(options)
+    expect(received!.length).toBe(5)
+
+    const invalid = encodeVoiceUpload(wav, options)
+    new DataView(invalid.buffer).setUint32(0, 0xffffffff, true)
+    const rejected = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': VOICE_UPLOAD_CONTENT_TYPE },
+      body: invalid,
+    })
+    expect(rejected.status).toBe(400)
+    expect(calls).toBe(2)
   })
 
   test('rejects a concurrent upload before decoding another body', async () => {

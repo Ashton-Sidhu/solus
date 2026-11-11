@@ -298,3 +298,33 @@ describe('the cloudflared QUIC to HTTP/2 fallback', () => {
     await h.connector.stop()
   })
 })
+
+describe('a new run token', () => {
+  // A re-link hands the connector a new token while the old child still runs.
+  // The old child must stop and a new one must start with the new token.
+  test('replaces the running child with one that carries the new token', async () => {
+    const children: FakeChild[] = []
+    const tokens: Array<string | undefined> = []
+    const connector = new CloudflaredConnector({
+      resolveBinary: () => '/fake/cloudflared',
+      onObservation: () => {},
+      env: {},
+      spawnImpl: (_command, _args, options) => {
+        tokens.push(options.env?.TUNNEL_TOKEN)
+        const child = new FakeChild(100 + children.length)
+        children.push(child)
+        return child as unknown as ChildProcess
+      },
+      setTimeoutFn: ((() => ({ unref() {} })) as unknown) as typeof setTimeout,
+      clearTimeoutFn: (() => {}) as typeof clearTimeout,
+    })
+    connector.start('token-old')
+    connector.start('token-new')
+    await flush()
+
+    expect(children[0].signals).toEqual(['SIGTERM'])
+    expect(tokens).toEqual(['token-old', 'token-new'])
+    expect(connector.running).toBe(true)
+    await connector.stop()
+  })
+})

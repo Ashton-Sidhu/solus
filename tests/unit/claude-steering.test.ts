@@ -25,7 +25,17 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   query: ({ options }: { options: Options }) => {
     capturedOptions = options
     return Object.assign((async function* () {
-      for (const msg of scriptedMessages) yield msg
+      for (const msg of scriptedMessages) {
+        // A turn end: the CLI runs the Stop hook with the schedules it holds.
+        if (msg && typeof msg === 'object' && 'stopHookCrons' in msg) {
+          const hookInput = { hook_event_name: 'Stop', session_crons: msg.stopHookCrons }
+          for (const matcher of options.hooks?.Stop ?? []) {
+            for (const hook of matcher.hooks) await hook(hookInput as never, undefined, { signal: new AbortController().signal })
+          }
+          continue
+        }
+        yield msg
+      }
     })(), { stopTask: async () => {} })
   },
 }))
@@ -134,18 +144,60 @@ describe('ClaudeBackend steering', () => {
 })
 
 describe('ClaudeAgent turn input lifetime', () => {
-  test('withholds Claude cloud scheduling in favor of Solus automations', async () => {
+  test('withholds Claude cloud scheduling in favor of Solus automations, and keeps session schedules', async () => {
     scriptedMessages = [{ type: 'result', subtype: 'success', result: 'done' }]
     const { events } = new ClaudeAgent().run({ prompt: 'Schedule a reminder', cwd: '/tmp' })
     for await (const _event of events) { /* drain the mocked run */ }
 
-    expect(capturedOptions?.disallowedTools).toEqual(expect.arrayContaining([
-      'RemoteTrigger',
-      'CronCreate',
-      'CronDelete',
-      'CronList',
-      'Skill(schedule)',
-    ]))
+    expect(capturedOptions?.disallowedTools).toEqual(expect.arrayContaining(['RemoteTrigger', 'Skill(schedule)']))
+    // A session schedule fires in this session, which stays open for it.
+    for (const tool of ['CronCreate', 'CronDelete', 'CronList']) expect(capturedOptions?.disallowedTools).not.toContain(tool)
+  })
+
+  // WHY: the CLI keeps a session schedule (CronCreate, ScheduleWakeup, /loop)
+  // in its own process. Closing the input at the result ends that process, so
+  // the schedule never fires. It must keep the query open, without holding the
+  // turn: the turn still completes (docs/plans/session-schedules.md).
+  test('a pending schedule keeps the stream open until a turn end no longer reports it', async () => {
+    const wake = { id: 'cron-1', schedule: '*/10 * * * *', recurring: false, prompt: 'check the log' }
+    scriptedMessages = [
+      { stopHookCrons: [wake] },
+      { type: 'result', subtype: 'success', result: 'scheduled' },
+      // The fire: a turn the CLI starts in the open query.
+      { type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude', tools: [], skills: [] },
+      { stopHookCrons: [] },
+      { type: 'result', subtype: 'success', result: 'checked' },
+    ]
+    const input = new TurnInputChannel(opening('Check the log in 10 minutes'), 'Check the log in 10 minutes')
+    const { events } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
+    const stream = events[Symbol.asyncIterator]()
+
+    expect((await stream.next()).value).toEqual({ type: 'background_task_started', taskId: 'schedule:cron-1', awaitable: true })
+    expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
+    expect(input.closed).toBe(false)
+
+    let event = await stream.next()
+    while (!event.done && event.value.type !== 'background_task_settled') event = await stream.next()
+    expect(event.value).toEqual({ type: 'background_task_settled', taskId: 'schedule:cron-1', status: 'completed' })
+    while (!(await stream.next()).done) { /* drain the fired turn */ }
+    expect(input.closed).toBe(true)
+  })
+
+  test('stopping a pending schedule while the agent is idle closes the stream', async () => {
+    scriptedMessages = [
+      { stopHookCrons: [{ id: 'cron-1', schedule: '*/10 * * * *', recurring: true, prompt: 'check the log' }] },
+      { type: 'result', subtype: 'success', result: 'scheduled' },
+    ]
+    const input = new TurnInputChannel(opening('Check the log every 10 minutes'), 'Check the log every 10 minutes')
+    const { events, stopTask } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
+    const stream = events[Symbol.asyncIterator]()
+    expect((await stream.next()).value).toMatchObject({ type: 'background_task_started', taskId: 'schedule:cron-1' })
+    expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
+    expect(input.closed).toBe(false)
+
+    // No call deletes a schedule; it ends with the process the closed input ends.
+    expect(await stopTask('schedule:cron-1')).toBe(true)
+    expect(input.closed).toBe(true)
   })
 
   test('requests TodoWrite so Claude 5 models can drive the progress tracker', async () => {

@@ -6,6 +6,7 @@ import { githubRateLimitOf } from './rate-limit'
 import { ConditionalReads } from './conditional-reads'
 import { RequestBudget, restResourceOf, withRequestSlot } from './request-budget'
 import { githubCredentials, type GithubCredential, type GitHubCredentials } from './credentials'
+import { unixSocketFetch } from './unix-socket-fetch'
 
 const log = createLogger('main', 'github-octokit')
 
@@ -102,17 +103,22 @@ export function isGithubNotFound<Failure>(error: Failure): boolean {
   return notFoundSchema.safeParse(error).success
 }
 
-// One client per token for the process lifetime: concurrent reads share one
-// instance, and a token that GitHub rejects is dropped so the next request
-// rebuilds against whatever credential replaces it.
-const clientsByToken = new Map<string, GitHubClient>()
+// One client per credential for the process lifetime: concurrent reads share
+// one instance, and a credential that GitHub rejects is dropped so the next
+// request rebuilds against whatever credential replaces it.
+const clientsByCredential = new Map<string, GitHubClient>()
+
+function credentialKey(credential: GithubCredential): string {
+  return credential.unixSocket ? `${credential.token}\0${credential.unixSocket}` : credential.token
+}
 
 /** REST + GraphQL clients signed with one credential. */
 export function clientFor(credential: GithubCredential): GitHubClient {
-  const cached = clientsByToken.get(credential.token)
+  const key = credentialKey(credential)
+  const cached = clientsByCredential.get(key)
   if (cached) return cached
   const client = createClient(credential)
-  clientsByToken.set(credential.token, client)
+  clientsByCredential.set(key, client)
   return client
 }
 
@@ -129,7 +135,7 @@ export async function buildClient(auth: GitHubCredentials): Promise<GitHubClient
  */
 function createClient(credential: GithubCredential): GitHubClient {
   const rejected = (): never => {
-    clientsByToken.delete(credential.token)
+    clientsByCredential.delete(credentialKey(credential))
     if (credential.source === 'host') {
       log.warn('github_unauthorized_token_cleared')
       void githubCredentials().clear()
@@ -141,7 +147,7 @@ function createClient(credential: GithubCredential): GitHubClient {
 
   // Every request of this account shares one quota, one set of remembered
   // answers, and the process-wide limit on concurrent requests.
-  const budget = new RequestBudget()
+  const budget = new RequestBudget(Date.now, credential.unixSocket ? unixSocketFetch(credential.unixSocket) : undefined)
   const rest = new Octokit({ auth: credential.token, userAgent: 'Solus', request: { fetch: budget.fetch } })
   const conditionalReads = new ConditionalReads<Awaited<ReturnType<Octokit['request']>>>()
   rest.hook.wrap('request', async (request, options) => {

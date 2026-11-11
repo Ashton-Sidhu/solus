@@ -10,6 +10,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,11 +67,8 @@ export interface WorkspaceLocation {
   readonly settingsOpen: boolean;
 }
 
-interface AdaptiveWorkspaceContextValue {
-  readonly layout: Layout;
-  readonly panes: WorkspacePaneLayout;
-  readonly fileInspector: FileInspectorPaneLayout;
-  readonly primarySidebarSearchQuery: string;
+/** The workspace's commands; their identities never change. */
+interface AdaptiveWorkspaceCommands {
   readonly selectThread: (thread: SolusThreadShell) => void;
   readonly activateAuxiliaryPaneRole: (role: WorkspaceAuxiliaryPaneRole) => () => void;
   /**
@@ -89,6 +87,18 @@ interface AdaptiveWorkspaceContextValue {
   readonly setAuxiliaryPaneWidth: (width: number) => void;
 }
 
+/** Changes only with the window size, never with a pane toggle. */
+interface AdaptiveWorkspaceLayoutValue extends AdaptiveWorkspaceCommands {
+  readonly layout: Layout;
+}
+
+/** Changes as panes toggle; read it only where that shows. */
+interface WorkspacePaneStateValue {
+  readonly panes: WorkspacePaneLayout;
+  readonly fileInspector: FileInspectorPaneLayout;
+  readonly primarySidebarSearchQuery: string;
+}
+
 const compactLayout = deriveLayout({ width: 0, height: 0 });
 const compactPanes = deriveWorkspacePaneLayout({
   layout: compactLayout,
@@ -100,11 +110,8 @@ const compactFileInspector = deriveFileInspectorPaneLayout({
   layout: compactLayout,
   viewportWidth: 0,
 });
-const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
+const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceLayoutValue>({
   layout: compactLayout,
-  panes: compactPanes,
-  fileInspector: compactFileInspector,
-  primarySidebarSearchQuery: "",
   selectThread: () => undefined,
   activateAuxiliaryPaneRole: () => () => undefined,
   registerWorkspaceInspector: () => () => undefined,
@@ -115,8 +122,44 @@ const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceContextValue>({
   setAuxiliaryPaneWidth: () => undefined,
 });
 
-export function useAdaptiveWorkspaceLayout(): AdaptiveWorkspaceContextValue {
+const WorkspacePaneStateContext = createContext<WorkspacePaneStateValue>({
+  panes: compactPanes,
+  fileInspector: compactFileInspector,
+  primarySidebarSearchQuery: "",
+});
+
+/** The window's layout and the workspace's commands. A pane toggle does not re-render readers. */
+export function useAdaptiveWorkspaceLayout(): AdaptiveWorkspaceLayoutValue {
   return use(AdaptiveWorkspaceContext);
+}
+
+/** Which panes show. Re-renders on every pane toggle. */
+export function useWorkspacePaneState(): WorkspacePaneStateValue {
+  return use(WorkspacePaneStateContext);
+}
+
+/**
+ * Commands whose identities never change, so a pane toggle does not re-render
+ * every screen that holds one. Each call runs the latest render's handler.
+ */
+function useStableCommands(commands: AdaptiveWorkspaceCommands): AdaptiveWorkspaceCommands {
+  const latest = useRef(commands);
+  useLayoutEffect(() => {
+    latest.current = commands;
+  });
+  const [stable] = useState(
+    (): AdaptiveWorkspaceCommands => ({
+      selectThread: (thread) => latest.current.selectThread(thread),
+      activateAuxiliaryPaneRole: (role) => latest.current.activateAuxiliaryPaneRole(role),
+      registerWorkspaceInspector: (render) => latest.current.registerWorkspaceInspector(render),
+      setPrimarySidebarSearchQuery: (query) => latest.current.setPrimarySidebarSearchQuery(query),
+      showAuxiliaryPane: (role) => latest.current.showAuxiliaryPane(role),
+      toggleAuxiliaryPane: () => latest.current.toggleAuxiliaryPane(),
+      togglePrimarySidebar: () => latest.current.togglePrimarySidebar(),
+      setAuxiliaryPaneWidth: (width) => latest.current.setAuxiliaryPaneWidth(width),
+    }),
+  );
+  return stable;
 }
 
 /** File routes own the inspector role; T3 matches a `/files` path. */
@@ -392,35 +435,20 @@ export function AdaptiveWorkspaceLayout(props: {
   // A new share's notice opens the thread as the sidebar does.
   useSharedWithYouNotices(handleSelectThread);
 
-  const contextValue = useMemo(
-    () => ({
-      layout,
-      panes,
-      fileInspector,
-      primarySidebarSearchQuery,
-      selectThread: handleSelectThread,
-      activateAuxiliaryPaneRole,
-      registerWorkspaceInspector,
-      setPrimarySidebarSearchQuery,
-      showAuxiliaryPane,
-      toggleAuxiliaryPane,
-      togglePrimarySidebar,
-      setAuxiliaryPaneWidth,
-    }),
-    [
-      activateAuxiliaryPaneRole,
-      fileInspector,
-      handleSelectThread,
-      layout,
-      panes,
-      primarySidebarSearchQuery,
-      registerWorkspaceInspector,
-      showAuxiliaryPane,
-      setPrimarySidebarSearchQuery,
-      setAuxiliaryPaneWidth,
-      toggleAuxiliaryPane,
-      togglePrimarySidebar,
-    ],
+  const commands = useStableCommands({
+    selectThread: handleSelectThread,
+    activateAuxiliaryPaneRole,
+    registerWorkspaceInspector,
+    setPrimarySidebarSearchQuery,
+    showAuxiliaryPane,
+    toggleAuxiliaryPane,
+    togglePrimarySidebar,
+    setAuxiliaryPaneWidth,
+  });
+  const contextValue = useMemo(() => ({ ...commands, layout }), [commands, layout]);
+  const paneState = useMemo(
+    () => ({ panes, fileInspector, primarySidebarSearchQuery }),
+    [panes, fileInspector, primarySidebarSearchQuery],
   );
 
   // iPad columns: UIKit draws the sidebar and the detail (createWorkspaceStackNavigator.ios.tsx).
@@ -428,7 +456,9 @@ export function AdaptiveWorkspaceLayout(props: {
     return (
       <HomeListOptionsProvider>
         <AdaptiveWorkspaceContext.Provider value={contextValue}>
-          {props.children}
+          <WorkspacePaneStateContext.Provider value={paneState}>
+            {props.children}
+          </WorkspacePaneStateContext.Provider>
         </AdaptiveWorkspaceContext.Provider>
       </HomeListOptionsProvider>
     );
@@ -436,90 +466,92 @@ export function AdaptiveWorkspaceLayout(props: {
   return (
     <HomeListOptionsProvider>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
-        <View testID="adaptive-workspace-layout" className="flex-1 flex-row">
-          {/* The rail's slot, 0 wide without one; the rail itself draws over the panes below, so it can widen in place. */}
-          <Animated.View className="self-stretch" style={railAnimatedStyle} />
-          {shouldRenderPrimarySidebar && layout.listPaneWidth !== null ? (
-            <Animated.View
-              className="self-stretch overflow-hidden"
-              accessibilityElementsHidden={!panes.primarySidebarVisible}
-              collapsable={false}
-              importantForAccessibility={
-                panes.primarySidebarVisible ? "auto" : "no-hide-descendants"
-              }
-              pointerEvents={panes.primarySidebarVisible ? "auto" : "none"}
-              style={sidebarAnimatedStyle}
-            >
-              <View className="flex-1" style={{ width: layout.listPaneWidth }}>
-                <RenderErrorBoundary
-                  renderFallback={(fallback) => (
-                    <RenderFailureView
-                      {...fallback}
-                      title="The sidebar couldn't be displayed"
-                      exit={{ label: "Open settings", onPress: handleOpenSettings }}
-                    />
-                  )}
-                >
-                  {/* New session is in the rail on Android, so the sidebar has no button of its own. */}
-                  <ThreadNavigationSidebar
-                    width={layout.listPaneWidth}
-                    visible={panes.primarySidebarVisible}
-                    onRequestVisibility={revealPrimarySidebar}
-                    selectedThreadKey={selectedThreadKey}
-                    onOpenProject={(hostId) => navigation.navigate("OpenProject", { hostId })}
-                    onOpenSettings={handleOpenSettings}
-                    onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
-                    onSelectThread={handleSelectThread}
-                    onSearchQueryChange={setPrimarySidebarSearchQuery}
-                    searchQuery={primarySidebarSearchQuery}
-                  />
-                </RenderErrorBoundary>
-              </View>
-            </Animated.View>
-          ) : null}
-          <View
-            className={
-              Platform.OS === "android"
-                ? "flex-1 overflow-hidden bg-header"
-                : "flex-1 overflow-hidden bg-screen"
-            }
-            collapsable={false}
-          >
-            <View
-              collapsable={false}
-              style={
-                contentSettledWidth !== null
-                  ? {
-                      flex: 1,
-                      width: contentSettledWidth,
-                    }
-                  : { flex: 1 }
-              }
-            >
-              <WorkspaceContentWidthContext
-                value={layout.usesSplitView ? renderedContentWidth : null}
+        <WorkspacePaneStateContext.Provider value={paneState}>
+          <View testID="adaptive-workspace-layout" className="flex-1 flex-row">
+            {/* The rail's slot, 0 wide without one; the rail itself draws over the panes below, so it can widen in place. */}
+            <Animated.View className="self-stretch" style={railAnimatedStyle} />
+            {shouldRenderPrimarySidebar && layout.listPaneWidth !== null ? (
+              <Animated.View
+                className="self-stretch overflow-hidden"
+                accessibilityElementsHidden={!panes.primarySidebarVisible}
+                collapsable={false}
+                importantForAccessibility={
+                  panes.primarySidebarVisible ? "auto" : "no-hide-descendants"
+                }
+                pointerEvents={panes.primarySidebarVisible ? "auto" : "none"}
+                style={sidebarAnimatedStyle}
               >
-                {props.children}
-              </WorkspaceContentWidthContext>
+                <View className="flex-1" style={{ width: layout.listPaneWidth }}>
+                  <RenderErrorBoundary
+                    renderFallback={(fallback) => (
+                      <RenderFailureView
+                        {...fallback}
+                        title="The sidebar couldn't be displayed"
+                        exit={{ label: "Open settings", onPress: handleOpenSettings }}
+                      />
+                    )}
+                  >
+                    {/* New session is in the rail on Android, so the sidebar has no button of its own. */}
+                    <ThreadNavigationSidebar
+                      width={layout.listPaneWidth}
+                      visible={panes.primarySidebarVisible}
+                      onRequestVisibility={revealPrimarySidebar}
+                      selectedThreadKey={selectedThreadKey}
+                      onOpenProject={(hostId) => navigation.navigate("OpenProject", { hostId })}
+                      onOpenSettings={handleOpenSettings}
+                      onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
+                      onSelectThread={handleSelectThread}
+                      onSearchQueryChange={setPrimarySidebarSearchQuery}
+                      searchQuery={primarySidebarSearchQuery}
+                    />
+                  </RenderErrorBoundary>
+                </View>
+              </Animated.View>
+            ) : null}
+            <View
+              className={
+                Platform.OS === "android"
+                  ? "flex-1 overflow-hidden bg-header"
+                  : "flex-1 overflow-hidden bg-screen"
+              }
+              collapsable={false}
+            >
+              <View
+                collapsable={false}
+                style={
+                  contentSettledWidth !== null
+                    ? {
+                        flex: 1,
+                        width: contentSettledWidth,
+                      }
+                    : { flex: 1 }
+                }
+              >
+                <WorkspaceContentWidthContext
+                  value={layout.usesSplitView ? renderedContentWidth : null}
+                >
+                  {props.children}
+                </WorkspaceContentWidthContext>
+              </View>
             </View>
+            <WorkspaceInspectorPane
+              pathname={`${routeName ?? ""}:${props.location.routeKey ?? ""}`}
+              renderedInspectorWidth={renderedInspectorWidth}
+              active={workspaceInspector?.active ?? false}
+              panes={panes}
+              renderInspector={workspaceInspector?.render}
+              setAuxiliaryPaneWidth={setAuxiliaryPaneWidth}
+              onClosed={handleWorkspaceInspectorClosed}
+            />
+            <AndroidWorkspaceRail
+              split={layout.usesSplitView}
+              visible={railWidth > 0}
+              settingsOpen={props.location.settingsOpen}
+              onStartNewTask={handleStartNewTask}
+              onSelect={revealPrimarySidebar}
+            />
           </View>
-          <WorkspaceInspectorPane
-            pathname={`${routeName ?? ""}:${props.location.routeKey ?? ""}`}
-            renderedInspectorWidth={renderedInspectorWidth}
-            active={workspaceInspector?.active ?? false}
-            panes={panes}
-            renderInspector={workspaceInspector?.render}
-            setAuxiliaryPaneWidth={setAuxiliaryPaneWidth}
-            onClosed={handleWorkspaceInspectorClosed}
-          />
-          <AndroidWorkspaceRail
-            split={layout.usesSplitView}
-            visible={railWidth > 0}
-            settingsOpen={props.location.settingsOpen}
-            onStartNewTask={handleStartNewTask}
-            onSelect={revealPrimarySidebar}
-          />
-        </View>
+        </WorkspacePaneStateContext.Provider>
       </AdaptiveWorkspaceContext.Provider>
     </HomeListOptionsProvider>
   );

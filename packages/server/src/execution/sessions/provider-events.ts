@@ -6,7 +6,7 @@ import { ANY_ORGANIZATION } from '../../admission/principal'
 import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession, persistIndexedSessionStart } from '../../db/session-indexer'
 import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread } from '../../data/sessions/session-lineage'
-import type { AgentBackend } from '../agents/agent-backend'
+import type { AgentBackend, RunHandle } from '../agents/agent-backend'
 import type { SessionStatus, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
 import { encodePathAsFolder, isSessionBusyStatus } from '@solus/contracts/types'
 import { indexLivePlan } from '../../plans/plan-index'
@@ -485,28 +485,27 @@ export class ProviderEvents {
       if (initializedGoal) this.rt.publish(sessionId, { type: 'goal_updated', goal: initializedGoal })
     })
 
-    backend.on('exit', (agentSessionId: string | null, code: number | null, signal: string | null) => {
+    backend.on('exit', (agentSessionId: string | null, code: number | null, signal: string | null, run?: RunHandle) => {
       if (agentSessionId) this.rt.inputRequests.expirePendingInput(backend, agentSessionId)
 
-      // The sessions this exit settles: the one the provider named, or — when it
-      // died before ever issuing a thread — whatever runs are still pending on
-      // this backend, each of which already knows its own Solus id.
+      // The sessions this exit settles: the one the provider named, or the run
+      // that ended, which knows its own Solus id. Only an exit with neither may
+      // belong to any pending run on this backend.
+      const exitedRuns = run ? [run] : agentSessionId ? [] : backend.getPendingHandles()
       const namedSessionId = agentSessionId ? this.rt.agentSessionToSession.get(agentSessionId) : undefined
       const settledSessionIds = namedSessionId
         ? [namedSessionId]
-        : agentSessionId
-          ? []
-          : [...new Set(
-              backend.getPendingHandles()
-                .map((handle) => handle.sessionId)
-                .filter((id): id is string => !!id),
-            )]
+        : [...new Set(
+            exitedRuns
+              .map((handle) => handle.sessionId)
+              .filter((id): id is string => !!id),
+          )]
 
       // No early return when nobody is watching: a headless agent (created via
       // start_session, card not yet opened) still needs its exit lifecycle —
       // status broadcast, cleanup, and above all the queue drain, or prompts
       // relayed into it while busy would hang forever.
-      for (const handle of backend.getPendingHandles()) {
+      for (const handle of exitedRuns) {
         const pending = this.rt.launcher.pendingStarts.get(handle)
         if (pending) {
           this.rt.launcher.pendingStarts.delete(handle)
@@ -604,21 +603,22 @@ export class ProviderEvents {
       if (sessionId) this.endBackgroundWait(sessionId)
     })
 
-    backend.on('error', (agentSessionId: string | null, err: Error) => {
+    backend.on('error', (agentSessionId: string | null, err: Error, run?: RunHandle) => {
       if (agentSessionId) this.rt.inputRequests.expirePendingInput(backend, agentSessionId)
 
+      // One backend runs many sessions: an error that names its run fails that
+      // run only. Without a run or a provider id, any pending run may be the one.
+      const failedRuns = run ? [run] : agentSessionId ? [] : backend.getPendingHandles()
       const namedSessionId = agentSessionId ? this.rt.agentSessionToSession.get(agentSessionId) : undefined
       const failedSessionIds = namedSessionId
         ? [namedSessionId]
-        : agentSessionId
-          ? []
-          : [...new Set(
-              backend.getPendingHandles()
-                .map((handle) => handle.sessionId)
-                .filter((id): id is string => !!id),
-            )]
+        : [...new Set(
+            failedRuns
+              .map((handle) => handle.sessionId)
+              .filter((id): id is string => !!id),
+          )]
 
-      for (const handle of backend.getPendingHandles()) {
+      for (const handle of failedRuns) {
         const pending = this.rt.launcher.pendingStarts.get(handle)
         if (pending) {
           this.rt.launcher.pendingStarts.delete(handle)

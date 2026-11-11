@@ -2422,7 +2422,17 @@ button.solus-token {
 }
 .transcript-table-scroll {
   overflow-x: auto;
-  scrollbar-width: thin;
+}
+/* A table wider than the reply hides columns, and only its scrollbar says so:
+   this thumb shows at rest, not only while the table moves. A table that fits
+   has no thumb to show. */
+.transcript-table-scroll::-webkit-scrollbar-thumb {
+  background: var(--solus-scroll-thumb);
+  background-clip: padding-box;
+}
+.transcript-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--solus-scroll-thumb-hover);
+  background-clip: padding-box;
 }
 /* A table fits the column and its cells wrap. The scroller is only for a
    cell that cannot break, such as a long unbroken token. */

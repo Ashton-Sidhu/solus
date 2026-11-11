@@ -274,7 +274,7 @@
       window.innerWidth,
   );
 
-  let sidebarOpen = $state(true);
+  let sidebarOpen = $state(settings.sidebarOpen);
   let isResizingSidebar = $state(false);
   let sidebarClosedForOverlay = $state(false);
   // Overlay-driven collapse/expand lands in the same single layout pass as the
@@ -316,6 +316,7 @@
     } else {
       closeSidebar();
     }
+    settings.setLayout("sidebarOpen", sidebarOpen);
   }
 
   // The leading rail's toggle. Each conversation view owns its rail, so the

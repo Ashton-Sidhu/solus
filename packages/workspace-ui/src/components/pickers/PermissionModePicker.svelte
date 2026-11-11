@@ -50,7 +50,9 @@
     <display.icon class="text-(--solus-text-tertiary)" />
     <span class="whitespace-nowrap">{display.label}</span>
   </DropdownMenu.SubTrigger>
-  <DropdownMenu.SubContent class="w-[min(18rem,calc(100vw-2rem))]" side="right" align="end" sideOffset={4}>
+  <!-- `text-start` is load-bearing: bits-ui also writes `align` onto this div as
+       an HTML attribute, and the browser reads `align="end"` as `text-align: end`. -->
+  <DropdownMenu.SubContent class="w-[min(18rem,calc(100vw-2rem))] text-start" side="right" align="end" sideOffset={4}>
     <DropdownMenu.RadioGroup value={permissionMode}>
       <DropdownMenu.GroupHeading>Permission mode</DropdownMenu.GroupHeading>
       {#each permissionOptions as mode (mode)}
