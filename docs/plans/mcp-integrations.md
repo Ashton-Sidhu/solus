@@ -77,7 +77,9 @@ inside Solus instead of beside it.
 
 - **Apps, deployments, and workerd.** Solus governs servers and documents,
   not programs. Only the agent's program runs in the sandbox, and every tool
-  call leaves it through the gateway. Authored apps are out of scope.
+  call leaves it through the gateway. Apps a person builds are their own
+  domain (`docs/plans/apps.md`): an app reaches an integration through this
+  gateway and never holds a connection.
 - **Scoped connections and grants.** Those exist because Executor is an MCP
   server for many clients. Solus has one client, itself.
 - **Policy, in the first release.** Allow, ask, and block per tool come
