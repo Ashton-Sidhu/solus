@@ -11,7 +11,7 @@ Build a useful visual result, not a website around an answer. Start with what th
 
 The deliverable is a portable Solus work with a stable identity, native theme integration, version-checked revisions, reusable document embeds, and explicit access controls. The temporary React project is its build input, not a separate deployed app.
 
-**An app is the same deliverable with a host behind it.** When the user asks for something they keep and use, such as a tracker, a tool, or a browser for their data, build it here and make it an app: it then keeps its own data, can run its own code on the host (a database, files, any Node package), and can use the user's connected integrations. Read [apps](references/apps.md) before you write one. Everything else in this file applies to an app unchanged.
+**An app is a full application built the same way.** When the user asks for something they keep and use, such as a tracker, a tool, or a browser for their data, build it here and make it an app. An app has its own window, as many pages as it needs, and a host behind it: it keeps its own data, can run its own code on the host (a database, files, any Node package), and can use the user's connected integrations. Read [apps](references/apps.md) before you write one. The project, the build, the design guidelines, and the verification in this file apply to an app. The frame rules for a visual in a reply (content height, no page shell, no title) do not: an app lays out its own window.
 
 ## Quick start
 

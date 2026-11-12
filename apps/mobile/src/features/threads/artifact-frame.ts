@@ -41,8 +41,13 @@ const VIEWPORT = '<meta name="viewport" content="width=device-width,initial-scal
  * under the app policy, with no network when no host is in force.
  */
 export function artifactDocument(html: string, themeCss: string, appNetwork: readonly string[] = []): string {
-  return VIEWPORT + wrapSandboxDocument(HEIGHT_BRIDGE + html, themeCss, false, hasAppManifest(html) ? { network: appNetwork } : undefined)
+  // An app's document starts with its doctype, so the viewport tag goes inside it.
+  if (hasAppManifest(html)) return wrapSandboxDocument(VIEWPORT + html, themeCss, false, { network: appNetwork })
+  return VIEWPORT + wrapSandboxDocument(HEIGHT_BRIDGE + html, themeCss)
 }
+
+/** An app is an application, not a document: in the feed it is a window of this height, and it opens full screen to be used. */
+export const APP_WINDOW_HEIGHT = 440
 
 /** The call an app's page posted, or null for any other message. */
 export function readAppCall(data: string): AppCallMessage | null {

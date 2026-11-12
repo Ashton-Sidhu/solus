@@ -279,10 +279,12 @@ describe('create_app', () => {
     const file = writePage('bundle.html', html)
     const recorded = recordedPreview()
 
-    const first = await appTools.executeCreateAppTool({ title: 'Table browser', html_path: file, preview: true }, { ctx: ctx(), preview: recorded.preview })
+    const first = await appTools.executeCreateAppTool({ title: 'Table browser', html_path: file, preview: true, preview_route: '/customers/3' }, { ctx: ctx(), preview: recorded.preview })
     expect(first.text).toContain('call create_app again without preview')
     const unsaved = recorded.inputs[0].app
     expect(unsaved?.network).toEqual([])
+    // An app has pages: the preview opens the one the agent names.
+    expect(unsaved?.route).toBe('/customers/3')
     await unsaved?.call(appStorageCallName('set'), { key: 'url', value: 'x.db' })
     expect(await unsaved?.call(appStorageCallName('get'), { key: 'url' })).toBe('x.db')
     await expect(unsaved?.call(appFunctionCallName('greet'), { name: 'Ann' })).rejects.toThrow('only after the owner of the host allowed this code')

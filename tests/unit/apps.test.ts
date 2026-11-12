@@ -190,6 +190,18 @@ describe('the app frame', () => {
     expect(policyOf(wrapSandboxDocument(PAGE, theme))).toContain('connect-src https:;')
   })
 
+  test('an app\'s document is a window: it is laid out in standards mode, its page scrolls, and a plain render is left as it was', () => {
+    // WHY: an app is an application with a shell and its own scroll regions.
+    // The render document is written for a page that grows to its content and
+    // never scrolls, and renders in saved works were written against it.
+    const app = wrapSandboxDocument(appPage(), theme, false, { network: [] })
+    expect(app.startsWith('<!doctype html>')).toBe(true)
+    expect(app).toContain('<style>html{overflow:auto;scrollbar-width:thin;height:100%}body{min-height:100%}</style>')
+    const render = wrapSandboxDocument(PAGE, theme)
+    expect(render.startsWith('<meta charset="utf-8">')).toBe(true)
+    expect(render).not.toContain('html{overflow:auto')
+  })
+
   test('only an app frame has the bridge, and an isolated frame never has it', () => {
     expect(wrapSandboxDocument(appPage(), theme, false, { network: [] })).toContain('window.solusApp = {')
     expect(wrapSandboxDocument(PAGE, theme)).not.toContain('window.solusApp')

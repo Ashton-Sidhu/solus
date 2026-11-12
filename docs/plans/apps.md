@@ -1,18 +1,21 @@
 # Apps: what a person builds to live in Solus
 
-Status: decided 2026-11-11, third model. An app is an artifact. It is built
-by the `visual-artifacts` skill, it runs in the artifact frame, and it adds
-four things an artifact does not have (§0). Sharing and deployment are next
+Status: decided 2026-11-11, third model; the app's window decided 2026-11-12.
+An app is a full application. It is built by the `visual-artifacts` skill, it
+is saved as an artifact, it runs in the artifact frame as a window with its
+own pages, and it adds four things an artifact does not have (§0). Sharing and deployment are next
 and not started (§9). §10 says what the two earlier models were and why they
 were replaced.
 
 ## 0. The idea
 
 A person asks for an app and gets one that lives in Solus: it is a work, it
-renders in the conversation and opens in a pane on desktop, web, and mobile,
-and it keeps its own data. The agent builds it as it builds any visual
+opens in its own window on desktop, web, and mobile, and it keeps its own
+data. It is a full application: it has as many pages as it needs, its own
+navigation, and its own layout. The agent builds it as it builds any visual
 artifact: a React and TypeScript project with Tailwind, any npm package, its
-own styles, and a preview it can look at before the person does.
+own styles, the skill's design guidelines, and a preview it can look at
+before the person does.
 
 An app is an artifact whose page carries an **app manifest**. The manifest
 turns on four things, and each is optional:
@@ -56,8 +59,11 @@ allowed.
   and can revoke it (§6).
 - **call name** — what the page puts on the wire: `<slug>/<tool>` for an
   integration tool, `@storage/<operation>`, or `@server/<function>`.
-- **app frame** — the artifact frame of a page that has a manifest: no network
-  but the allowed hosts, and a bridge for calls (§4).
+- **app frame** — the artifact frame of a page that has a manifest: a window of
+  a fixed size the page scrolls inside, no network but the allowed hosts, and
+  a bridge for calls (§4).
+- **page** — one screen of an app: a route in the address after `#`. All the
+  pages of an app are in its one built file.
 - **create_app** — the agent tool that saves or updates an app.
 
 Do not call an app a widget, a plugin, or a dashboard. Do not call a host
@@ -65,13 +71,15 @@ function a tool, an action, or an endpoint.
 
 ## 2. Decisions
 
-1. **An app is an artifact.** Its content is the page: one HTML file. It has
-   everything an artifact has with no second implementation: the render in
-   the conversation, the pane, history with change marks, comments, embeds in
-   a document or plan, the session's artifacts, the mobile row, the cloud
-   copy, `read_work` and `update_work`. There is no `app` work type.
+1. **An app is saved as an artifact.** Its content is one built HTML file. It
+   has everything an artifact work has with no second implementation: the
+   pane, history with change marks, comments, embeds in a document or plan,
+   the session's artifacts, the mobile row, the cloud copy, `read_work` and
+   `update_work`. There is no `app` work type.
 2. **One authoring path: the `visual-artifacts` skill.** The same project,
-   the same build, the same design rules, the same preview. An `app.json` in
+   the same build, the same design guidelines, the same preview. An app takes
+   the skill's guidelines, not the frame rules of a visual in a reply: those
+   are for a document, and an app is an application (decision 15). An `app.json` in
    the project makes it an app: the build then writes the manifest into
    `bundle.html`, and bundles `server.ts` into it when there is one. There is
    no second skill, no prebuilt shell, and no component kit.
@@ -114,6 +122,16 @@ function a tool, an action, or an endpoint.
     built-in database integration and no declared app inputs.
 14. **Not taken:** Executor's custom tool apps, QuickJS, workerd, and deploy
     tokens; a bundler inside the Solus server.
+15. **An app is a window, not a document.** A visual in a reply is as tall as
+    its content and has no shell. An app's frame is a window of a fixed size:
+    all of the pane it opens in, a fixed height in a conversation, a document,
+    or a history view, and the full screen on a phone. The page lays itself
+    out in that window and scrolls inside it, in standards mode, so it can
+    have a sidebar, a header that stays in place, and its own scroll regions.
+16. **An app has pages, in one file.** A page is a route in the address after
+    `#`. A link that starts with `#` stays in the frame; any other link opens
+    outside it. Nothing of this is in the manifest or on the server: the app
+    routes itself. A preview opens one page by its route.
 
 ## 3. Data
 
@@ -171,6 +189,9 @@ removes the folder.
 artifact frame's document. For a page with a manifest it takes the app's
 allowed network hosts and:
 
+- starts the document with a doctype, so the page is laid out in standards
+  mode, and adds the window stylesheet: the page scrolls and is at least as
+  tall as the window;
 - writes the app policy: no network but those hosts (as HTTPS and WSS origins
   for `connect-src`, and for images and media), inline scripts and styles,
   `data:` fonts;
@@ -182,7 +203,11 @@ The project's `@solus/app` module is a typed face over that one function:
 `storage`, `server`, and `tools`. It holds no protocol, so the host can change
 the transport without a rebuild of any app.
 
-The host side is `answerAppCall` in `@solus/client-core/app-calls`, shared by
+A frame host gives an app its window and ignores the height the page
+reports: `SandboxFrame.svelte` on desktop and web, `ThreadArtifact.tsx` on a
+phone. The artifact pane gives an app all of its body, with no padding.
+
+The host side of a call is `answerAppCall` in `@solus/client-core/app-calls`, shared by
 desktop, web, and mobile: it asks `appToolInfo`, asks the person before a
 call that is not read-only, runs `appCallTool`, and gives the page the value.
 A frame that has no work to call for (a fenced page in a reply, an embed, a
@@ -274,10 +299,11 @@ the hosts the owner allowed.
 - `transport/handlers/app-handlers.ts` — `appRead`, `appToolInfo`,
   `appCallTool`, `appHostAccessDecide`.
 - `execution/agents/tools/app-tools.ts` — `create_app`: `title`, `html_path`,
-  `work_id?` with `expected_content_version`, and the preview inputs of
-  `render_artifact`.
+  the preview inputs of `render_artifact`, `preview_route` for one page, and
+  `work_id` for a preview of a saved app.
 - `data/works/artifact-preview.ts` — the preview takes an optional app host:
-  it drains the page's calls, answers them, and then takes the picture.
+  it opens the page the route names in a window 800px tall, drains the
+  page's calls, answers them, and then takes a picture of the window.
 
 A preview answers storage from memory, runs a host function only when the
 owner already allowed this code for this work, and never writes through an

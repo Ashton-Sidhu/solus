@@ -10,7 +10,7 @@
    * for or has, with Allow and Revoke for the host's owner, and the approval
    * a call waits on. An artifact that is not an app renders nothing here.
    */
-  let { app }: { app: AppFrame } = $props();
+  let { app, inPane = false }: { app: AppFrame; /** The app has all of a pane: the bars keep their own margin from its edges. */ inPane?: boolean } = $props();
 
   const session = getSurfaceContext();
   const hostAccess = $derived(app.state?.hostAccess ?? null);
@@ -24,7 +24,7 @@
 </script>
 
 {#if app.missingRoles.length > 0}
-  <div class="mb-2 flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-workspace-chrome text-muted-foreground" role="status" data-testid="app-connect">
+  <div class="mb-2 flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-workspace-chrome text-muted-foreground {inPane ? 'mx-4 mt-3' : ''}" role="status" data-testid="app-connect">
     <ConnectIcon size={14} class="shrink-0" />
     <span class="min-w-0 flex-1">
       This app uses {app.missingRoles.map((role) => role.name ?? role.slug).join(", ")} with your own account. Connect {app.missingRoles.length === 1 ? "it" : "them"}, then reload the app.
@@ -38,7 +38,7 @@
 {/if}
 
 {#if app.notice && hostAccess}
-  <div class="mb-2 flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-workspace-chrome text-muted-foreground" role="status" data-testid="app-host-access">
+  <div class="mb-2 flex min-h-11 flex-wrap items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-workspace-chrome text-muted-foreground {inPane ? 'mx-4 mt-3' : ''}" role="status" data-testid="app-host-access">
     <HostAccessIcon size={14} class="shrink-0" />
     <span class="min-w-0 flex-1">{app.notice}</span>
     {#if hostAccess.canDecide}

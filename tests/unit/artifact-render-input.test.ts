@@ -101,8 +101,9 @@ function loadPage(isolated: boolean) {
     },
   }
   const document = { readyState: 'loading', addEventListener() {}, baseURI: 'about:srcdoc' }
+  const location = { hash: '' }
   for (const script of scripts) {
-    runInNewContext(script, { window, parent, document, URL, setTimeout() {} })
+    runInNewContext(script, { window, parent, document, location, URL, setTimeout() {} })
   }
   function dispatch(type: string, fields: Record<string, unknown>, page?: (e: FakeEvent) => void) {
     const event: FakeEvent = {
@@ -118,7 +119,7 @@ function loadPage(isolated: boolean) {
     return event
   }
   const sendChords = (chords: RenderChord[]) => dispatch('message', { source: parent, data: { type: 'solus-artifact-shortcuts', chords } })
-  return { posted, dispatch, sendChords }
+  return { posted, dispatch, sendChords, location }
 }
 
 const anchor = (href: string) => ({ matches: (selector: string) => selector === 'a[href]', getAttribute: () => href })
@@ -135,8 +136,18 @@ describe('the page forwards what the app owns', () => {
   test('a link the page handles, or one that is not a web link, stays with the page', () => {
     const page = loadPage(false)
     page.dispatch('click', { button: 0, target: anchor('https://example.com/') }, (e) => e.preventDefault())
-    page.dispatch('click', { button: 0, target: anchor('#section') })
     page.dispatch('click', { button: 0, target: anchor('javascript:void 0') })
+    expect(page.posted).toEqual([])
+  })
+
+  test('a link to a place in the page moves within the page', () => {
+    // WHY: the frame's document has no address of its own, so the browser
+    // resolves "#/customers" against the app around the frame and loads that
+    // in the frame. An app with several pages moves between them with these links.
+    const page = loadPage(false)
+    const click = page.dispatch('click', { button: 0, target: anchor('#/customers/42') })
+    expect(click.defaultPrevented).toBe(true)
+    expect(page.location.hash).toBe('#/customers/42')
     expect(page.posted).toEqual([])
   })
 

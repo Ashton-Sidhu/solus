@@ -167,7 +167,7 @@
     <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
   {/if}
   {#if app.workId}
-    <AppAccessBar {app} />
+    <AppAccessBar {app} inPane={fillAvailable} />
   {/if}
   {#if artifactError}
     <div

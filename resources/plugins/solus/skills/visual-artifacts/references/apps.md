@@ -1,8 +1,8 @@
 # Apps
 
-An app is an artifact with a host behind it. The project, the build, the design rules, the preview, and the revision flow are the ones in the skill's main file. This chapter adds only what an app has that a plain artifact does not.
+An app is a full application that lives in Solus. It has its own window, as many pages as it needs, and a host behind it. The project, the build, the design guidelines, the preview, and the revision flow are the ones in the skill's main file. This chapter adds what an app has that a visual in a reply does not.
 
-Build whatever the user asked for. Do not reduce the request to what one data source offers.
+Build whatever the user asked for, at the size they asked for. Do not reduce the request to one screen, or to what one data source offers.
 
 | | What it is | Needs the user to allow it |
 |---|---|---|
@@ -29,11 +29,30 @@ Each is optional. Integrations are the easy way to data the user already connect
 
 3. For code on the host, add `server.ts` next to `package.json`.
 4. `npm run bundle` as always. With an `app.json`, the build writes the app's manifest into `bundle.html`.
-5. Check it: `create_app` with `html_path` and `preview: true`. Fix what the screenshot shows. Check about 390px wide and dark mode too.
+5. Check it: `create_app` with `html_path` and `preview: true`. Fix what the screenshot shows. Check each page with `preview_route`, and check about 390px wide and dark mode too.
 6. Save it: `create_app` with `title` and `html_path`. Do not use `render_artifact` for an app.
 7. Revise it: `update_work` with `work_id`, `html_path`, and `expected_content_version`, as for any artifact.
 
 When a receipt says the app waits for host access, tell the user to press **Allow** in the app's header. Until then, host functions, the network, and writes that do not ask do not work.
+
+## The app's window
+
+A visual in a reply is a document: it is as tall as its content and has no shell. An app is not. It gets a window of a fixed size and lays out everything inside it:
+
+- On desktop and web the window is all of the pane the app opens in. In a conversation it is a window about 540px tall, and on a phone it opens full screen.
+- Fill it. Give the root `min-h-dvh` or `h-dvh`, and build the shell the app needs: a sidebar, a header, a toolbar, a footer that stays in place. Let the content region scroll (`overflow-auto`), or let the page scroll. `100vh` and `100dvh` are the window here, so the main file's rule against them does not apply to an app.
+- The window can be 360px wide or 1400px wide. Design both: a sidebar that becomes a top bar or a menu, a table that scrolls sideways. Use container queries or wrapping layouts.
+- The app may have its own title, navigation, and background. Use the theme tokens for color, so it follows light and dark mode.
+
+## Pages
+
+An app with more than one screen has pages. The whole app is still one `bundle.html`, so the pages are routes inside it:
+
+- Keep the page in the address after `#`: `#/customers`, `#/customers/42`, `#/settings`. Read `location.hash`, listen for `hashchange`, and link with `<a href="#/customers/42">`. A link that starts with `#` stays in the app; any other link opens outside it.
+- To move from code, assign the fragment: `location.hash = '#/customers/42'`. Do not use `location.assign`, `location.replace`, or `history.pushState` with an address: the page runs in a frame that has no address of its own, so they fail or load something else. For the same reason a routing library needs its in-memory router (`createMemoryRouter` in React Router), not its hash or browser router.
+- Every page handles a reload: it loads what it shows from `storage`, `server`, or `tools` by what is in the address, not from state another page left in memory.
+- Give every page a way back, and show which page is open in the navigation.
+- Check each page: `create_app` with `preview: true` and `preview_route: "/customers/42"`.
 
 ## storage
 
@@ -128,7 +147,7 @@ Host functions, network hosts, file paths, and `"writes": "allow"` together are 
 
 ## Preview
 
-`create_app` with `preview: true` renders the app and answers its calls before it takes the picture:
+`create_app` with `preview: true` opens the app in a window 800px tall, at the width you ask for (1100px by default), answers its calls, and takes a picture of the window. `preview_route` opens one page:
 
 - `storage` works in memory. With `work_id`, reads come from the saved app's storage; nothing is written.
 - A host function runs only for a saved app the user already allowed, with the same host code. Pass `work_id`. So the order for an app with host functions is: save, ask the user to allow it, then iterate on the page with real data in every preview. Before that, the preview shows your loading and error states, which you must design anyway.
@@ -136,7 +155,9 @@ Host functions, network hosts, file paths, and `"writes": "allow"` together are 
 
 ## Design for an app
 
-The design section of the main file applies. An app has more states than a visual, so check each one in a preview: first open with no data, loading, an error from a host function or a tool with a way to try again, a long list, and a narrow pane. Show real data; never put a hard-coded array where live data belongs.
+The design guidelines of the main file apply: the theme tokens, the type, the motion, and the accessibility rules. Its layout rules for a visual in a reply do not; the section on the app's window replaces them. When a design skill is installed, load it for the app's screens as you would for any product UI.
+
+An app has more states than a visual, so check each one in a preview: first open with no data, loading, an error from a host function or a tool with a way to try again, a long list, every page, and a narrow window. Show real data; never put a hard-coded array where live data belongs.
 
 ## Revise an app
 

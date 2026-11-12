@@ -65,9 +65,11 @@ function openPreviewPage(
   html: string,
   appearance: ArtifactPreviewAppearance,
   viewport: { width: number; height: number; deviceScaleFactor: number },
+  /** The part of the address after `#`: the page of an app to open. */
+  fragment = '',
 ): Promise<BrowserSurfaceDriver> {
   return headlessHost().open({
-    url: `data:text/html;charset=utf-8;base64,${Buffer.from(html, 'utf8').toString('base64')}`,
+    url: `data:text/html;charset=utf-8;base64,${Buffer.from(html, 'utf8').toString('base64')}${fragment ? `#${encodeURI(fragment)}` : ''}`,
     // Its own profile, apart from every project's logins. The name keeps the
     // browser profiles' prefix: the Playwright host refuses any other.
     partition: `${BROWSER_PARTITION_PREFIX}-artifact-preview`,
@@ -128,7 +130,13 @@ const ERROR_REPORTER = `<script>(function(){
 export interface AppPreviewHost {
   network: readonly string[]
   call(name: string, args: AppPreviewArguments): Promise<AppPreviewValue>
+  /** The page of the app to open: what its address has after `#`. */
+  route?: string
 }
+
+/** An app is a window, not a document: it is previewed in a window of this size, at the width asked for. */
+export const APP_PREVIEW_DEFAULT_WIDTH = 1100
+export const APP_PREVIEW_HEIGHT = 800
 
 const appPreviewValueSchema = z.json()
 export type AppPreviewValue = z.infer<typeof appPreviewValueSchema>
@@ -227,22 +235,19 @@ export async function previewArtifactHtml(input: {
   app?: AppPreviewHost
 }): Promise<HtmlPreview> {
   const appearance = input.appearance ?? 'light'
-  const width = Math.round(Math.min(HTML_PREVIEW_MAX_WIDTH, Math.max(HTML_PREVIEW_MIN_WIDTH, input.width ?? HTML_PREVIEW_DEFAULT_WIDTH)))
+  const width = Math.round(Math.min(HTML_PREVIEW_MAX_WIDTH, Math.max(HTML_PREVIEW_MIN_WIDTH, input.width ?? (input.app ? APP_PREVIEW_DEFAULT_WIDTH : HTML_PREVIEW_DEFAULT_WIDTH))))
   const inlined = await inlineLocalImages(input.html, readHostImage)
   const themeCss = sandboxThemeCss(appearance === 'dark', (variable) => SOLUS_THEME_SNAPSHOT[appearance][variable])
   const page = input.app
     ? wrapSandboxDocument(ERROR_REPORTER + APP_PREVIEW_BRIDGE + inlined.html, themeCss, false, { network: input.app.network })
     : wrapSandboxDocument(ERROR_REPORTER + inlined.html, themeCss)
+  if (input.app) return previewAppWindow(page, input.app, { width, appearance, missingImages: inlined.missing })
   // The page is laid out in a short viewport first. The sandbox page renders in
   // quirks mode, where the root stretches to the viewport, so a tall first
   // viewport would be measured as the page's own height.
   const driver = await openPreviewPage(page, appearance, { width, height: HTML_PREVIEW_MEASURE_HEIGHT, deviceScaleFactor: 1 })
   try {
     await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
-    if (input.app) {
-      await answerAppCalls(driver, input.app)
-      await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
-    }
     const contentHeight = Number(JSON.parse(await driver.evaluate(MEASURE_SCRIPT))) || 0
     const captureHeight = Math.min(HTML_PREVIEW_MAX_CAPTURE_HEIGHT, Math.max(1, contentHeight))
     // The viewport grows to the page so the screenshot holds all of it.
@@ -259,6 +264,30 @@ export async function previewArtifactHtml(input: {
       console: driver.consoleEntries(),
       missingImages: inlined.missing,
     }
+  } catch (error) {
+    log.warn('html_preview_failed', { error: error instanceof Error ? error.message : String(error) })
+    throw error
+  } finally {
+    await driver.dispose().catch(() => {})
+  }
+}
+
+/**
+ * An app as its window shows it: the page of the app the route names, in a
+ * window of the preview's size, after its calls were answered. The picture is
+ * the window, not the whole page: an app scrolls inside it.
+ */
+async function previewAppWindow(
+  page: string,
+  app: AppPreviewHost,
+  shown: Pick<HtmlPreview, 'width' | 'appearance' | 'missingImages'>,
+): Promise<HtmlPreview> {
+  const driver = await openPreviewPage(page, shown.appearance, { width: shown.width, height: APP_PREVIEW_HEIGHT, deviceScaleFactor: 1 }, app.route)
+  try {
+    await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
+    await answerAppCalls(driver, app)
+    await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
+    return { ...shown, screenshot: await driver.captureScreenshot(), contentHeight: APP_PREVIEW_HEIGHT, console: driver.consoleEntries() }
   } catch (error) {
     log.warn('html_preview_failed', { error: error instanceof Error ? error.message : String(error) })
     throw error

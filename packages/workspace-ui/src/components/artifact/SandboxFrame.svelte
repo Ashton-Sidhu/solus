@@ -103,7 +103,9 @@
 
   // The page decides: one with an app manifest runs under the app policy
   // whether or not anything answers its calls, so it never has calls and an
-  // open network together.
+  // open network together. An app is an application, not a document: its
+  // frame is a window of a fixed size (all of a pane, a fixed height
+  // elsewhere) and the page scrolls inside it, so it reports no height.
   const isApp = $derived(html !== undefined && !isolated && hasAppManifest(html));
   const appNetwork = $derived(isApp ? (app?.network ?? []) : null);
 
@@ -191,6 +193,7 @@
   $effect(() => {
     function onMessage(e: MessageEvent) {
       if (!iframeEl || e.source !== iframeEl.contentWindow) return;
+      if (isApp) return;
       const parsed = artifactHeightMessageSchema.safeParse(e.data);
       // Zero is "not laid out yet", not a height: Chromium throttles an
       // off-screen cross-origin frame, which is exactly where a frame now
@@ -307,6 +310,11 @@
   });
 
   const colorScheme = $derived(dark ? "dark" : "light");
+  // A render is as tall as its content, and zooms when expanded. An app's
+  // window is sized by the stylesheet alone.
+  const frameSize = $derived(
+    isApp ? "" : expanded ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})` : `height:${contentHeight}px`,
+  );
 </script>
 
 {#if expanded}
@@ -327,6 +335,7 @@
 <div
   class="artifact-frame"
   class:expanded
+  class:is-app={isApp}
   class:fill-available={fillAvailable}
   data-testid="artifact-view"
   bind:this={frameEl}
@@ -340,14 +349,13 @@
         title="Rendered artifact"
         class="artifact-iframe"
         class:invisible={!frameSettled || frameResult?.failed}
-        class:animates-height={frameSettled}
+        class:animates-height={frameSettled && !isApp}
+        class:is-app={isApp}
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
         sandbox={isolated ? "allow-scripts" : isApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-popups allow-forms allow-modals allow-downloads"}
         allow="clipboard-write"
-        style="color-scheme:{colorScheme};{expanded
-          ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`
-          : `height:${contentHeight}px`}"
+        style="color-scheme:{colorScheme};{frameSize}"
         onload={() => {
           frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: false };
           syncTheme();
@@ -376,7 +384,7 @@
   {:else if html !== undefined}
     <!-- Reserves the frame's resting height so a scroll past an unmounted
          render does not jump when the iframe lands. -->
-    <div class="artifact-placeholder" style="height:{contentHeight}px"></div>
+    <div class="artifact-placeholder" style={isApp ? undefined : `height:${contentHeight}px`}></div>
   {/if}
 
   {#if (children || (frameSettled && !frameResult?.failed)) && (actions || expandable)}
@@ -437,6 +445,31 @@
     flex: 1;
     flex-direction: column;
     min-height: 100%;
+  }
+
+  /* An app is a window, not a document: a fixed height where it sits among
+     other content (a conversation, a document, a history view), and all of
+     the pane that holds it. Its page scrolls inside. */
+  .artifact-frame.is-app {
+    height: min(34rem, 80svh);
+  }
+
+  .artifact-frame.is-app.fill-available {
+    height: auto;
+    min-height: 0;
+  }
+
+  .artifact-frame.is-app.expanded {
+    height: auto;
+  }
+
+  .artifact-iframe.is-app {
+    height: 100%;
+  }
+
+  .artifact-iframe.is-app.fill-available {
+    flex: 1 1 0;
+    min-height: 0;
   }
 
   .artifact-frame.expanded {
@@ -501,6 +534,12 @@
   .artifact-frame.expanded .artifact-iframe {
     /* Fullscreen pins width and scales via transform — no height to animate. */
     transition: none;
+  }
+
+  /* An expanded app fills the overlay at its real size: a zoomed window would be an app one cannot read. */
+  .artifact-frame.expanded .artifact-iframe.is-app {
+    width: 100%;
+    height: 100%;
   }
 
   @media (prefers-reduced-motion: reduce) {

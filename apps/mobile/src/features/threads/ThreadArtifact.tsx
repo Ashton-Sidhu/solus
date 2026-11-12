@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { appResultMessage } from "@solus/client-core/app-calls";
-import { appHostAccessNotice } from "@solus/contracts/apps";
+import { appHostAccessNotice, hasAppManifest } from "@solus/contracts/apps";
 
 import { useApp } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
@@ -15,6 +15,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import type { ConversationStore } from "../conversation/conversation-store";
 import { useArtifactApp, type ArtifactApp } from "./artifact-app";
 import {
+  APP_WINDOW_HEIGHT,
   appResultScript,
   artifactDocument,
   artifactThemeCss,
@@ -165,7 +166,9 @@ function ArtifactFullScreen(props: { readonly html: string; readonly title: stri
  * again keeps its size.
  */
 export function ArtifactPage(props: { readonly html: string; readonly title: string; readonly heightKey: string; readonly app?: ArtifactApp | null }) {
-  const [height, setHeight] = useState(() => reportedHeights.get(props.heightKey) ?? INITIAL_HEIGHT);
+  const [reportedHeight, setHeight] = useState(() => reportedHeights.get(props.heightKey) ?? INITIAL_HEIGHT);
+  // A render grows to its content. An app is a window: it does not scroll in the feed, and it opens full screen to be used.
+  const height = hasAppManifest(props.html) ? APP_WINDOW_HEIGHT : reportedHeight;
   const [fullScreen, setFullScreen] = useState(false);
   const onHeight = (next: number) => {
     reportedHeights.set(props.heightKey, next);

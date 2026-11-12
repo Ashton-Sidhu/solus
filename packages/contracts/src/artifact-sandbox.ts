@@ -274,6 +274,13 @@ function appCspMeta(network: readonly string[]): string {
   );
 }
 
+// An app is an application, not a document (docs/plans/apps.md §4): its frame
+// is a window of a fixed size, and the page scrolls and lays itself out
+// inside it. The theme stylesheet above is written for a render that grows to
+// its content and never scrolls, and it is replaced on a theme change, so
+// what an app needs instead is a second stylesheet after it.
+const APP_WINDOW_STYLE = `<style>html{overflow:auto;scrollbar-width:thin;height:100%}body{min-height:100%}</style>`;
+
 // The one function an app's page reaches its host through. The project's
 // `@solus/app` module is a typed face over it and holds no protocol, so the
 // transport can change without a rebuild of any app. In a frame it posts to
@@ -385,6 +392,13 @@ const LINK_FORWARDER = `<script>(function(){
       if (path[i] && path[i].matches && path[i].matches("a[href]")) link = path[i];
     }
     if (!link) return;
+    // A link to a place in the page itself stays in the page: it is how an
+    // app with several pages moves between them. The frame's document has no
+    // address of its own to resolve "#page" against, so the browser would
+    // resolve it against the app around the frame and load that. Setting the
+    // fragment moves within the page and fires hashchange.
+    var href = link.getAttribute("href");
+    if (href.charAt(0) === "#") { e.preventDefault(); location.hash = href; return; }
     try { url = new URL(link.getAttribute("href"), document.baseURI); } catch (x) { return; }
     if (!/^(https?|mailto):$/.test(url.protocol)) return;
     e.preventDefault();
@@ -478,12 +492,18 @@ export function sandboxThemeCss(isDark: boolean, read: (variable: SolusThemeVari
  *  shortcuts and link clicks up to a parent frame. `isolated` swaps in the
  *  no-network CSP and adds the lens anchor responder; it forwards no links,
  *  because a link out of a lens could carry the change it describes. `app`
- *  makes it an app's frame: the app policy and the call bridge. */
+ *  makes it an app's frame: the app policy, the call bridge, and a page that
+ *  scrolls inside a window of a fixed size. */
 export function wrapSandboxDocument(inner: string, themeCss: string, isolated = false, app?: SandboxAppFrame): string {
   const csp = isolated ? ISOLATED_CSP_META : app ? appCspMeta(app.network) : CSP_META;
   const responder = isolated ? ANCHOR_RESPONDER : LINK_FORWARDER;
-  const bridge = app && !isolated ? APP_BRIDGE : "";
-  return `<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${bridge}${inner}`;
+  const isApp = app !== undefined && !isolated;
+  // An app's page is laid out in standards mode, as the tools that built it
+  // expect. A render keeps the mode it always had: pages in saved works and
+  // transcripts were written against it.
+  const doctype = isApp ? "<!doctype html>" : "";
+  const appParts = isApp ? APP_WINDOW_STYLE + APP_BRIDGE : "";
+  return `${doctype}<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${appParts}${inner}`;
 }
 
 /** What makes a frame an app's frame: the network hosts in force for it. A
