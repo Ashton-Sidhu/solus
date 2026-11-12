@@ -108,7 +108,7 @@ const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pa
  *  project to scaffold, so the prompt says which is which (docs/plans/apps.md §8). */
 const APP_INSTRUCTIONS = `## Apps
 
-When the user asks for an app, a tool, a tracker, or a browser for their data, and names no codebase for it, build an app that lives in Solus: load the visual-artifacts skill, read its app chapter, and save the result with create_app. The app is an artifact that renders in the conversation and opens on desktop, web, and mobile. It keeps its own data, can run its own code on the host, and can use the user's connected integrations. Check it with create_app preview: true before you save it. Use the building-for-web skill only when the user wants a web project as a codebase to deploy.`
+When the user asks for an app, a tool, a tracker, or a browser for their data, and names no codebase for it, build an app that lives in Solus: load the visual-artifacts skill, read its app chapter, and save the result with create_app. The app is an artifact that renders in the conversation and opens on desktop, web, and mobile. It keeps its own data, can run its own code on the host, and can use the user's connected integrations. Check it with create_app preview: true before you save it. Scaffold a web project only when the user wants a codebase to deploy.`
 
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [

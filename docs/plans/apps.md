@@ -322,8 +322,8 @@ is the app chapter; the main file points to it. In the project template:
   manifest into `bundle.html`.
 
 The runtime instructions name the skill and `create_app` for a run that has
-the tool, and the `building-for-web` skill says it is for a codebase to
-deploy, not for an app that lives in Solus.
+the tool, and say that a web project is scaffolded only for a codebase to
+deploy. The `building-for-web` skill says the same of itself.
 
 ## 9. Next: sharing and deployment
 
