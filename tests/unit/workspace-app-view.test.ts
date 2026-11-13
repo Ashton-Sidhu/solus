@@ -7,6 +7,7 @@ import {
   appSurfacePhase,
   callerText,
   headerAttention,
+  unsetSecretCount,
   scheduleLastRunText,
   scheduleNextRunText,
   scheduleTriggerText,
@@ -58,6 +59,17 @@ describe('what the app surface shows', () => {
     expect(appSurfacePhase(facts({ app: stopped, state: stateOf(stopped) })).kind).toBe('frame')
     // The stopped bar has its own Start button, so the header does not say it twice.
     expect(headerAttention(stopped)).toEqual([])
+  })
+
+  test('a secret that is not set is a mark on the menu, not a warning above the app', () => {
+    // WHY: an app can work without a secret (a database browser with SQLite only), and its own UI
+    // says when it needs one. A warning line above the app read as an error of the app.
+    const waiting = app({ attention: [
+      { kind: 'secret-missing', detail: 'PostgreSQL URL is not set.' },
+      { kind: 'schedule-failed', detail: 'The schedule sync failed: timeout' },
+    ] })
+    expect(headerAttention(waiting).map((item) => item.kind)).toEqual(['schedule-failed'])
+    expect(unsetSecretCount(waiting)).toBe(1)
   })
 
   test('the operations, for an app with no UI', () => {

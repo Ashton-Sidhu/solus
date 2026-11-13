@@ -20,14 +20,14 @@
     appDeleteConfirmText,
     appSurfacePhase,
     headerAttention,
+    unsetSecretCount,
     versionLabel,
     type AppMenuSection,
   } from "./lib/app-view";
 
   /**
    * One app (docs/plans/apps.md §9): a header with its name, its active
-   * version, what it may use, and its menu, over the app frame, which gets all
-   * of the pane. An app with no UI shows its operations.
+   * version, and its menu, over the app frame, which gets all of the pane. An app with no UI shows its operations.
    */
   let { params, paneId }: RouteSurfaceProps<"app"> = $props();
 
@@ -136,6 +136,7 @@
     {#if app && serverId}
       <AppMenu
         stopped={app.stopped}
+        unsetSecrets={unsetSecretCount(app)}
         disabled={isBusy}
         onOpenSection={(section) => (menuSection = section)}
         onToggleStopped={toggleStopped}

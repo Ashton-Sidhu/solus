@@ -65,9 +65,19 @@ export function appSurfacePhase(facts: AppSurfaceFacts): AppSurfacePhase {
   return facts.ui ? { kind: 'frame', state, ui: facts.ui } : { kind: 'operations', state }
 }
 
-/** The attention items a header shows. `stopped` has its own bar with a Start button. */
+/**
+ * The faults a header shows above the app: a version that did not start and a
+ * schedule that failed. `stopped` has its own bar with a Start button. A
+ * secret that is not set is not a fault (the app can work without it, and its
+ * own UI says when it needs one), so the menu marks it and the header does not.
+ */
 export function headerAttention(app: AppSummary): AppAttention[] {
-  return app.attention.filter((item) => item.kind !== 'stopped')
+  return app.attention.filter((item) => item.kind !== 'stopped' && item.kind !== 'secret-missing')
+}
+
+/** How many of the app's secrets have no value: what the menu marks on its Secrets row. */
+export function unsetSecretCount(app: AppSummary): number {
+  return app.attention.filter((item) => item.kind === 'secret-missing').length
 }
 
 export function versionLabel(version: number | null): string {

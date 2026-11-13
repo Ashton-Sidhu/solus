@@ -10,12 +10,14 @@
    */
   interface Props {
     stopped: boolean;
+    /** How many secrets have no value. The button and the Secrets row mark it. */
+    unsetSecrets: number;
     disabled: boolean;
     onOpenSection: (section: AppMenuSection) => void;
     onToggleStopped: () => void;
     onDelete: () => void;
   }
-  let { stopped, disabled, onOpenSection, onToggleStopped, onDelete }: Props = $props();
+  let { stopped, unsetSecrets, disabled, onOpenSection, onToggleStopped, onDelete }: Props = $props();
 
   // A section takes the keyboard when it opens, so the menu must not give it back to its button.
   let opensSection = false;
@@ -28,8 +30,18 @@
 <DropdownMenu.Root>
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
-      <button {...props} type="button" class={PAGE_ICON_BTN} aria-label="App menu" title="App menu" data-testid="app-menu">
+      <button
+        {...props}
+        type="button"
+        class={PAGE_ICON_BTN}
+        aria-label={unsetSecrets > 0 ? "App menu, a secret is not set" : "App menu"}
+        title="App menu"
+        data-testid="app-menu"
+      >
         <MenuIcon size={16} />
+        {#if unsetSecrets > 0}
+          <span class="absolute top-1 right-1 size-1.5 rounded-full bg-(--warning)" aria-hidden="true" data-testid="app-menu-mark"></span>
+        {/if}
       </button>
     {/snippet}
   </DropdownMenu.Trigger>
@@ -46,6 +58,9 @@
     {#each APP_MENU_SECTIONS as section (section.id)}
       <DropdownMenu.Item class="text-workspace-chrome" data-testid={`app-menu-${section.id}`} onSelect={() => openSection(section.id)}>
         <span class="flex-1 text-left">{section.label}</span>
+        {#if section.id === "secrets" && unsetSecrets > 0}
+          <span class="text-xs text-muted-foreground" data-testid="app-menu-secrets-unset">{unsetSecrets} not set</span>
+        {/if}
       </DropdownMenu.Item>
     {/each}
     <DropdownMenu.Separator />

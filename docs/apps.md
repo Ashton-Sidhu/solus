@@ -108,9 +108,10 @@ You can also make a webhook by hand with the action **call an app mutation**.
 
 ## Secrets
 
-The app's menu lists the secrets it declares and says which are set. Set a
-value there. Solus never shows a value again. The values are in the host's
-secret store, not in the app's data.
+The app's menu lists the secrets it declares and says which are set. When one
+has no value, the menu button has a dot and the Secrets row says how many are
+not set. Set a value there. Solus never shows a value again. The values are
+in the host's secret store, not in the app's data.
 
 ## Stop and delete
 

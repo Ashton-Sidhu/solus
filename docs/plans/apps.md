@@ -499,7 +499,7 @@ Surfaces, on desktop, web, and mobile:
 | Surface | What it shows |
 |---|---|
 | **Apps tab** of the Workspace page | The apps of every connected host, as cards: name, host, active version, the session it came from, last call, and what needs attention (a failed version, a secret that is not set, a failed schedule, stopped). The search, the sort, and the project and time facets apply. `⌥4` opens the tab. |
-| **App** (`app`, a destination or a surface) | The app frame in all of the pane, under a thin header: name, version, and a menu. |
+| **App** (`app`, a destination or a surface) | The app frame in all of the pane, under a thin header: name, version, and a menu. A line above the app says a fault only: a version that did not start, or a schedule that failed. A secret that is not set is not a fault: the menu button has a dot, and the Secrets row says how many are not set. |
 | **App menu** | Versions (the source diff to the one before, and **Make active**), Schedules (pause, turn on, run now, last outcome), Secrets (set, clear), Calls (the call log), Sessions (the linked sessions), Source (clone path), Stop or Start, Delete. |
 | **Conversation** | A deploy opens the app's surface beside the conversation that made it, when that conversation is on screen (`apps.changed` names the session). The turn's chips name the app. The app's window is not drawn inside the transcript. |
 | **Artifacts surface, session chips, turn chips** | An app the session linked, as one more kind. A row or a chip opens the app's surface. |
