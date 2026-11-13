@@ -12715,7 +12715,8 @@
                 "review_job.finished",
                 "mention",
                 "session.shared",
-                "session.unshared"
+                "session.unshared",
+                "app.signal"
               ]
             }
           },
@@ -12953,6 +12954,25 @@
                                   "kind"
                                 ],
                                 "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "app.signal"
+                                  },
+                                  "signal": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "signal"
+                                ],
+                                "additionalProperties": false
                               }
                             ]
                           },
@@ -13144,6 +13164,29 @@
                                   "kind",
                                   "job",
                                   "pr"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "app"
+                                  },
+                                  "appId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "slug": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "appId",
+                                  "slug"
                                 ],
                                 "additionalProperties": false
                               }
@@ -22698,6 +22741,25 @@
                   "kind"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "app.signal"
+                  },
+                  "signal": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "kind",
+                  "signal"
+                ],
+                "additionalProperties": false
               }
             ]
           },
@@ -22889,6 +22951,29 @@
                   "kind",
                   "job",
                   "pr"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "app"
+                  },
+                  "appId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "slug": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "appId",
+                  "slug"
                 ],
                 "additionalProperties": false
               }
