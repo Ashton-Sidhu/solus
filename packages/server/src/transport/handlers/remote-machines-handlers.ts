@@ -5,7 +5,8 @@ import { createLogger } from '../../logger'
 import type { SshClient } from '../../platform/ssh'
 import type { ForwardedHosts } from '../../remote-machines/forwarded-hosts'
 import type { SshProvisioner } from '../../remote-machines/ssh-provisioner'
-import { formatSshTarget, resolveSshTarget } from '../../remote-machines/ssh-targets'
+import { formatSshTarget, resolveSshTarget, sshConfigHostCandidates } from '../../remote-machines/ssh-targets'
+import { isHostOwner } from '../../admission/principal'
 import { wslTarget } from '../../remote-machines/wsl'
 import type { SolusServer } from '../server'
 
@@ -97,6 +98,12 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
   })
 
   server.register('hostsListWslDistros', () => deps.listWslDistros())
+
+  // The names and addresses of the owner's own machines: no one else reads them.
+  server.register('hostsListSshConfigHosts', (_args, ctx) => {
+    if (!isHostOwner(ctx.principal)) throw new Error('Only the owner of this host can read its SSH config.')
+    return sshConfigHostCandidates()
+  })
 
   server.register('hostsAddWsl', async ([input], ctx): Promise<SshAddResult> => {
     if (!ctx.deviceId) throw new Error('Adding a WSL distro requires an authenticated device.')

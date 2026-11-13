@@ -201,6 +201,7 @@ export const RPC_PLANES = {
   hostsListForwarded: 'collaboration',
   hostsUnlockForwarded: 'collaboration',
   hostsListWslDistros: 'collaboration',
+  hostsListSshConfigHosts: 'collaboration',
   hostsAddWsl: 'collaboration',
   hostsRemoveForwarded: 'collaboration',
   hostListRead: 'collaboration',

@@ -56,6 +56,7 @@ const PERMISSION_OF_METHOD = {
   hostsListForwarded: 'host.local.reach',
   hostsUnlockForwarded: 'host.local.reach',
   hostsListWslDistros: 'host.local.reach',
+  hostsListSshConfigHosts: 'host.local.reach',
   hostsAddWsl: 'host.local.reach',
   hostsRemoveForwarded: 'host.local.reach',
   // The owner's own list; the handler also refuses anyone but the host owner.

@@ -69,7 +69,7 @@ import type { HostRoute } from './host-routes'
 import type { HostSelfTest } from './host-connection'
 import type { HostListing } from './host-list'
 import type { AccountDocumentName, AccountDocumentRequest, AccountDocumentResult } from './account-documents'
-import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
+import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, SshTargetCandidate, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest } from './sharing'
@@ -388,6 +388,11 @@ export interface SolusAPI {
   hostsUnlockForwarded(args: { installationId: string; authSecret: string }): Promise<ForwardedHost>
   /** The WSL distros this Windows host can add as machines. */
   hostsListWslDistros(): Promise<WslDistroList>
+  /**
+   * The machines this host's `~/.ssh/config` names, as targets to add over SSH: the
+   * Discover source of docs/plans/host-fleet.md D7. Only the host owner may read them.
+   */
+  hostsListSshConfigHosts(): Promise<SshTargetCandidate[]>
   /** Adds one of this host's WSL distros as a machine it forwards to. */
   hostsAddWsl(request: WslAddRequest): Promise<SshAddResult>
   /** Closes the forward and forgets the host. With `stopRemote`, also removes the service Solus installed there. */
