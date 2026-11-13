@@ -72,6 +72,20 @@ describe('the list of apps', () => {
     expect(store.rowsForHost('b')).toHaveLength(1)
   })
 
+  test('a host that this client reaches through two connections lists each app once', async () => {
+    // WHY: on web, `local` is a second connection to the primary host. The Apps tab showed every app twice.
+    stubHosts({ a: { appList: async () => [app('notes')] }, local: { appList: async () => [app('notes')] }, b: { appList: async () => [app('notes')] } })
+    // SAFETY: the store reads only the target's id of a connection.
+    spyOn(serverConnections, 'connectionFor').mockImplementation((serverId: string) =>
+      (serverId === 'local' ? { target: { id: 'a' } } : undefined) as ReturnType<typeof serverConnections.connectionFor>)
+    const store = new AppsStore()
+    await Promise.all([store.load('local'), store.load('a'), store.load('b')])
+
+    expect(store.rows.map((row) => row.serverId)).toEqual(['a', 'b'])
+    // A route that names the second connection still finds its app.
+    expect(store.find('local', 'notes')?.app.id).toBe('notes')
+  })
+
   test('a list read that started before a change does not put the old row back', async () => {
     // WHY: an event is newer than a read in flight. The read must not undo a deploy or a delete.
     const list = deferred<AppSummary[]>()

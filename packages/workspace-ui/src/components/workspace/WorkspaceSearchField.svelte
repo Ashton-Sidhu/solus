@@ -15,6 +15,8 @@
     filter: WorkspaceFilter;
     /** Item count for the placeholder ("Search 418 artifacts in solus…"). */
     totalCount: number;
+    /** What the tab lists, as the placeholder and the label name it. */
+    itemNoun?: string;
     /** The scope the placeholder names. */
     scopeLabel: string;
     /** Match count shown while a query is active; null hides it. */
@@ -22,7 +24,7 @@
     ref?: HTMLInputElement | null;
   }
 
-  let { filter, totalCount, scopeLabel, matches, ref = $bindable(null) }: Props = $props();
+  let { filter, totalCount, itemNoun = "artifacts", scopeLabel, matches, ref = $bindable(null) }: Props = $props();
 
   const chips = $derived(filterChips(filter));
 
@@ -101,8 +103,8 @@
     class="{FILTER_SEARCH_INPUT} min-w-16"
     placeholder={chips.length > 0
       ? "Filter…"
-      : `Search ${totalCount > 0 ? `${totalCount} ` : ""}artifacts in ${scopeLabel}…`}
-    aria-label="Search artifacts"
+      : `Search ${totalCount > 0 ? `${totalCount} ` : ""}${itemNoun} in ${scopeLabel}…`}
+    aria-label="Search {itemNoun}"
     oninput={handleInput}
     onkeydown={handleKeydown}
   />

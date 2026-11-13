@@ -673,7 +673,7 @@
           </div>
 
           <div class="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--hairline)] px-4 pt-2 pb-2.5 text-workspace-chrome">
-            <WorkspaceSearchField filter={ledger.filter} totalCount={ledger.tabTotal} scopeLabel={ledger.scopeLabel} matches={ledger.searching ? ledger.walkLength : null} bind:ref={searchEl} />
+            <WorkspaceSearchField filter={ledger.filter} totalCount={ledger.tabTotal} itemNoun={ledger.tab === "apps" ? "apps" : undefined} scopeLabel={ledger.scopeLabel} matches={ledger.searching ? ledger.walkLength : null} bind:ref={searchEl} />
             <WorkspaceFilterControls {ledger} />
           </div>
         {:else}
@@ -706,6 +706,7 @@
           <WorkspaceSearchField
             filter={ledger.filter}
             totalCount={ledger.tabTotal}
+            itemNoun={ledger.tab === "apps" ? "apps" : undefined}
             scopeLabel={ledger.scopeLabel}
             matches={ledger.searching ? ledger.walkLength : null}
             bind:ref={searchEl}

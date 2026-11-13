@@ -57,7 +57,8 @@ that deployed it.
 ## What an app may use
 
 An app declares the network hosts it reaches and the host paths its backend
-reads and writes. Its header says them in one sentence. Solus refuses a host
+reads and writes. The Versions section of its menu says them in one sentence
+for each version. Solus refuses a host
 or a path that the app did not declare. The app's own database and files
 folder need no permission.
 

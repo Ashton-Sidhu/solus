@@ -131,15 +131,8 @@
     {#if app}
       <span class="shrink-0 text-xs tabular-nums text-muted-foreground" data-testid="app-surface-version">{versionLabel(app.activeVersion)}</span>
     {/if}
-    <!-- What the app may use, as the host says it. The narrow pane keeps the
-         name and the menu; the sentence stays in the menu's Versions list. -->
-    <span
-      class="min-w-0 flex-1 truncate text-xs text-muted-foreground @max-[30rem]/pane:invisible"
-      title={appState?.permissionsNotice ?? undefined}
-      data-testid="app-surface-permissions"
-    >
-      {appState?.permissionsNotice ?? ""}
-    </span>
+    <!-- What the app may use is in the menu's Versions list, with each version. -->
+    <span class="min-w-0 flex-1"></span>
     {#if app && serverId}
       <AppMenu
         stopped={app.stopped}

@@ -160,13 +160,27 @@ export class AppsStore {
 
   // ─── Answers ───
 
-  /** Every row, sorted by name, then by host. */
+  /**
+   * Every app once, sorted by name, then by host. A client can hold two
+   * connections to one host (on web, `local` is a second connection to the
+   * primary host) and it then reads each app twice: the row under the host's
+   * own id stays.
+   */
   get rows(): AppRow[] {
-    return [...this.entries.values()].sort((a, b) => a.app.name.localeCompare(b.app.name) || a.serverId.localeCompare(b.serverId))
+    const rows = new Map<string, AppRow>()
+    for (const row of this.entries.values()) {
+      const hostId = serverConnections.connectionFor(row.serverId)?.target.id ?? row.serverId
+      const key = appKey(hostId, row.app.id)
+      if (!rows.has(key) || row.serverId === hostId) rows.set(key, row)
+    }
+    return [...rows.values()].sort((a, b) => a.app.name.localeCompare(b.app.name) || a.serverId.localeCompare(b.serverId))
   }
 
+  /** The rows read through one connection, for a route that names it. */
   rowsForHost(serverId: string): AppRow[] {
-    return this.rows.filter((row) => row.serverId === serverId)
+    return [...this.entries.values()]
+      .filter((row) => row.serverId === serverId)
+      .sort((a, b) => a.app.name.localeCompare(b.app.name))
   }
 
   /** Whether any host still reads its first list. */
