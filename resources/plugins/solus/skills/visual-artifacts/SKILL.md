@@ -106,6 +106,8 @@ Include reset and meaningful presets where useful. Derive preview and output fro
 
 ## Design
 
+This section is for an artifact: a visual in a reply or a saved work. An artifact matches the theme of Solus, so that it reads as a part of the conversation or the document it is in. An app is different: there you have creative liberty with the design, and [apps](references/apps.md) has its rules.
+
 Follow the user's direction, then the target product's real design system, then Solus integration. Read real tokens and components before showing a product's current UI. Scope product-specific styles to the preview.
 
 For Solus-native visuals, keep the outer body transparent, use clear spacing and thin borders, and avoid a generic marketing-page shell, gradients, glow, and heavy shadows. Product mockups can reproduce their actual surface treatment.

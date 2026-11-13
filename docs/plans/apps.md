@@ -466,7 +466,9 @@ The frame is the third model's: a window of a fixed size that the UI scrolls
 inside, in standards mode, with no network but the declared hosts and the
 bridge `window.solusApp.call`.
 
-**An app is a product, on the workspace's surfaces.** A render in a reply
+**An app is a product, on the workspace's surfaces.** The rule: an artifact
+matches the theme of Solus, and an app gives the agent creative liberty with
+the design. A render in a reply
 takes the render palette and a 14px root. An app frame takes the workspace's
 own chrome for its neutral tokens (`APP_NATIVE_STYLE` in
 `@solus/contracts/artifact-sandbox`): `--border`, `--input`, `--ring`,

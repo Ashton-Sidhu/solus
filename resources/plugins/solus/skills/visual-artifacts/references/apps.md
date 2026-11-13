@@ -189,13 +189,13 @@ For an app with no UI, set `ui: false` in `defineApp`. Its surface in Solus list
 
 ### Design a product
 
-An app is a product that the user opens every day. Design it to the standard of an application that a good product team ships. A column of inputs under a toolbar is a form over a database, and it is not an acceptable result. Decide the design before you write components.
+An artifact matches the theme of Solus. An app does not have to: you have creative liberty with its layout, its palette, its type, and its components. An app is a product that the user opens every day. Design it to the standard of an application that a good product team ships. A column of inputs under a toolbar is a form over a database, and it is not an acceptable result. Decide the design before you write components.
 
 - **Identity.** Give the app a wordmark and an icon in its navigation, and one accent color that fits its subject. Define your own colors for both modes with `light-dark()`; the page's `color-scheme` follows the theme of Solus, so do not use Tailwind's `dark:` variant or a media query for them.
   ```css
   :root { --brand: light-dark(#247259, #62c7a2); --brand-soft: light-dark(#edf3ed, #18261f); }
   ```
-- **Neutral surfaces come from the theme.** `bg-background`, `bg-sidebar`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`. With these the app sits in the workspace with no seam, in light and in dark mode. Never force a light page.
+- **Light and dark.** The app follows the mode of Solus; never force one mode. The simple way is the theme tokens for the neutral surfaces: `bg-background`, `bg-sidebar`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`. With these the app sits in the workspace with no seam. A palette of your own is also fine when `light-dark()` defines each color for both modes.
 - **Type.** Use a real scale: a page title of 24px to 30px with tight tracking, section labels, 13px to 14px body text, 11px to 12px for meta text, `tabular-nums` for numbers, and a mono face for code and ids. `--font-sans` is the face of the workspace. For a face of your own, install a `@fontsource-variable/<name>` package and import it in `src/main.tsx`; the build puts the font in the page.
 - **Icons.** `npm install --save-exact lucide-react` and use icons in the navigation, on buttons, in empty states, and for status. 16px, stroke width 1.75.
 - **Shell.** Navigation that fits the app: a sidebar with the wordmark, the sections, and the things the user made (connections, lists, boards), or a top bar with tabs. Each page has a header: where the user is, one line that says what the page is for, and the primary action. In a narrow window the sidebar becomes a drawer behind a menu button.
