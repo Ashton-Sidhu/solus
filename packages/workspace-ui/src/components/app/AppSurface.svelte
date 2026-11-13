@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { LayoutGrid as AppIcon, Play as StartIcon, TriangleAlert as AttentionIcon } from "@lucide/svelte";
+  import { LayoutGrid as AppIcon, Play as StartIcon } from "@lucide/svelte";
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -19,8 +19,8 @@
     APP_HOST_GONE_TEXT,
     appDeleteConfirmText,
     appSurfacePhase,
-    headerAttention,
-    unsetSecretCount,
+    appProblems,
+    problemsTone,
     versionLabel,
     type AppMenuSection,
   } from "./lib/app-view";
@@ -61,7 +61,7 @@
       uiError: serverId && app ? appsStore.uiErrorFor(serverId, app.id) : null,
     }),
   );
-  const attention = $derived(app ? headerAttention(app) : []);
+  const problems = $derived(app ? appProblems(app) : []);
 
   // What the frame needs of the app: the hosts its policy allows, and the host call behind its bridge.
   const frameApp = $derived.by(() => {
@@ -134,9 +134,11 @@
     <!-- What the app may use is in the menu's Versions list, with each version. -->
     <span class="min-w-0 flex-1"></span>
     {#if app && serverId}
+      <!-- The app's problems are not drawn over the app: the menu button has a dot, and the menu's Problems row opens them. -->
       <AppMenu
         stopped={app.stopped}
-        unsetSecrets={unsetSecretCount(app)}
+        problemCount={problems.length}
+        problemTone={problemsTone(problems)}
         disabled={isBusy}
         onOpenSection={(section) => (menuSection = section)}
         onToggleStopped={toggleStopped}
@@ -144,17 +146,6 @@
       />
     {/if}
   </div>
-
-  {#if attention.length > 0}
-    <ul class="m-0 flex shrink-0 list-none flex-col gap-0.5 px-4 pb-2" aria-label="What needs you">
-      {#each attention as item (item.kind + item.detail)}
-        <li class="flex min-w-0 items-start gap-1.5 text-xs text-(--warning)">
-          <AttentionIcon size={12} class="mt-0.5 shrink-0" aria-hidden="true" />
-          <span class="min-w-0 text-pretty">{item.detail}</span>
-        </li>
-      {/each}
-    </ul>
-  {/if}
 
   {#if app?.stopped}
     <div class="flex shrink-0 flex-wrap items-center gap-2 border-y border-border/50 px-4 py-2 text-xs text-muted-foreground" role="status">
@@ -206,7 +197,7 @@
         <div class="absolute inset-0 z-10 bg-(--solus-container-bg)" role="status" aria-busy="true" aria-label="Loading the app menu"></div>
       {:then menuModule}
         {@const AppMenuPanel = menuModule.default}
-        <AppMenuPanel bind:section={menuSection} {serverId} {app} state={appState} onClose={closeMenu} />
+        <AppMenuPanel bind:section={menuSection} {serverId} {app} state={appState} {problems} onClose={closeMenu} />
       {:catch}
         <div class="absolute inset-0 z-10 flex flex-col items-start gap-2 bg-(--solus-container-bg) px-4 py-3" role="alert">
           <span class="text-sm text-destructive">The app menu did not load.</span>

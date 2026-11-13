@@ -17,7 +17,7 @@ import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { errorMessage } from "../settings/integrations";
 import { AppFrame } from "./AppFrame";
-import { appBody, operationKindLabel, versionLabel } from "./apps";
+import { appBody, appProblemCount, manageAppLabel, operationKindLabel, versionLabel } from "./apps";
 import { useAppChange, useAppState, useHostRead } from "./use-app";
 
 /**
@@ -39,6 +39,7 @@ export function AppScreen({ navigation, route }: ScreenProps<"App">) {
     if (event === "data-changed") setDataChanges((count) => count + 1);
   });
   const loaded = state.kind === "loaded" && !isDeleted ? state.value : null;
+  const problemCount = loaded ? appProblemCount(loaded.app) : 0;
 
   return (
     <View collapsable={false} className="flex-1 bg-screen">
@@ -49,8 +50,9 @@ export function AppScreen({ navigation, route }: ScreenProps<"App">) {
         onBack={() => navigation.goBack()}
         actions={[
           {
-            accessibilityLabel: "Manage app",
+            accessibilityLabel: manageAppLabel(problemCount),
             icon: "ellipsis",
+            badge: problemCount > 0 ? { value: String(problemCount) } : undefined,
             disabled: !loaded,
             onPress: () => {
               if (loaded) navigation.navigate("AppManage", { hostId, appId: loaded.app.id });

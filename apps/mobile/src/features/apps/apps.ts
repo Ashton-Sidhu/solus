@@ -88,6 +88,21 @@ export function appListItem(app: AppSummary, now: number): AppListItem {
 }
 
 /**
+ * How many problems the owner must act on. The app screen draws none of them
+ * over the app: its menu button has a badge, and the manage screen lists them.
+ * Stopped is the owner's own choice, so it is not a problem.
+ */
+export function appProblemCount(app: AppSummary): number {
+  return app.attention.filter((attention) => attention.kind !== 'stopped').length
+}
+
+/** The label of the app screen's menu button. Android lists the button by its label, so the label carries the count. */
+export function manageAppLabel(problemCount: number): string {
+  if (problemCount === 0) return 'Manage app'
+  return problemCount === 1 ? 'Manage app, 1 problem' : `Manage app, ${problemCount} problems`
+}
+
+/**
  * What the app screen shows under its header. An app with no active version
  * has nothing to run, so it shows why the deploy failed. An app with no UI
  * shows its operations. Stopped is not here: a stopped app still opens.

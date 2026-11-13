@@ -9,7 +9,8 @@
   import AppWebhooks from "./menu/AppWebhooks.svelte";
   import AppCalls from "./menu/AppCalls.svelte";
   import AppSessions from "./menu/AppSessions.svelte";
-  import { APP_MENU_SECTIONS, APP_SOURCE_TEXT, type AppMenuSection } from "./lib/app-view";
+  import AppProblems from "./menu/AppProblems.svelte";
+  import { APP_SOURCE_TEXT, appMenuSections, type AppMenuSection, type AppProblem } from "./lib/app-view";
 
   /**
    * One section of the app menu, over the app. The app's frame stays mounted
@@ -21,9 +22,10 @@
     app: AppSummary;
     /** Undefined until the host answers with the state; the Secrets section needs it. */
     state: AppState | undefined;
+    problems: AppProblem[];
     onClose: () => void;
   }
-  let { section = $bindable(), serverId, app, state: appState, onClose }: Props = $props();
+  let { section = $bindable(), serverId, app, state: appState, problems, onClose }: Props = $props();
 
   // The panel takes the keyboard when it opens, so Escape goes back to the app.
   let panelEl = $state<HTMLElement | null>(null);
@@ -48,7 +50,7 @@
 >
   <div class="flex shrink-0 items-center gap-1 border-b border-border/50 px-3 py-1.5">
     <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:h-0" role="tablist" aria-label="App menu sections">
-      {#each APP_MENU_SECTIONS as entry (entry.id)}
+      {#each appMenuSections(problems.length, section) as entry (entry.id)}
         {@const isActive = entry.id === section}
         <button
           type="button"
@@ -70,7 +72,9 @@
   </div>
 
   <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-3 text-sm" role="tabpanel">
-    {#if section === "versions"}
+    {#if section === "problems"}
+      <AppProblems {problems} onOpenSection={(next) => (section = next)} />
+    {:else if section === "versions"}
       <AppVersions {serverId} {app} />
     {:else if section === "schedules"}
       <AppSchedules {serverId} {app} />

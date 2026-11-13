@@ -6,8 +6,9 @@ import {
   appDeleteConfirmText,
   appSurfacePhase,
   callerText,
-  headerAttention,
-  unsetSecretCount,
+  appMenuSections,
+  appProblems,
+  problemsTone,
   scheduleLastRunText,
   scheduleNextRunText,
   scheduleTriggerText,
@@ -57,19 +58,41 @@ describe('what the app surface shows', () => {
   test('a stopped app still opens its UI: only its operations do not run', () => {
     const stopped = app({ stopped: true, attention: [{ kind: 'stopped', detail: 'The app is stopped.' }] })
     expect(appSurfacePhase(facts({ app: stopped, state: stateOf(stopped) })).kind).toBe('frame')
-    // The stopped bar has its own Start button, so the header does not say it twice.
-    expect(headerAttention(stopped)).toEqual([])
+    // Stopped is the owner's own choice, with its own bar and a Start button: it is not a problem.
+    expect(appProblems(stopped)).toEqual([])
+    expect(problemsTone(appProblems(stopped))).toBeNull()
   })
 
-  test('a secret that is not set is a mark on the menu, not a warning above the app', () => {
-    // WHY: an app can work without a secret (a database browser with SQLite only), and its own UI
-    // says when it needs one. A warning line above the app read as an error of the app.
+  test('each problem names the section of the menu where the owner acts on it', () => {
+    // WHY: the app surface says no problem over the app. The menu button has a dot and the menu opens the
+    // Problems section, so each row there must lead to the place that fixes it.
     const waiting = app({ attention: [
       { kind: 'secret-missing', detail: 'PostgreSQL URL is not set.' },
       { kind: 'schedule-failed', detail: 'The schedule sync failed: timeout' },
+      { kind: 'version-failed', detail: 'Version 2 did not start: no such table' },
     ] })
-    expect(headerAttention(waiting).map((item) => item.kind)).toEqual(['schedule-failed'])
-    expect(unsetSecretCount(waiting)).toBe(1)
+    expect(appProblems(waiting).map((problem) => [problem.tone, problem.section])).toEqual([
+      ['warning', 'secrets'],
+      ['error', 'schedules'],
+      ['error', 'versions'],
+    ])
+  })
+
+  test('the dot is a warning for a secret with no value, and an error when a part of the app does not work', () => {
+    // WHY: an app works without a secret it does not use (a database browser with SQLite only),
+    // so that must not look like a failure of the app.
+    const secret = { kind: 'secret-missing', detail: 'PostgreSQL URL is not set.' } as const
+    expect(problemsTone(appProblems(app({ attention: [secret] })))).toBe('warning')
+    expect(problemsTone(appProblems(app({ attention: [secret, { kind: 'schedule-failed', detail: 'The schedule sync failed.' }] })))).toBe('error')
+    expect(problemsTone(appProblems(app({})))).toBeNull()
+  })
+
+  test('the menu lists Problems while the app has one, and keeps it for the person who reads it', () => {
+    const ids = (count: number, open: Parameters<typeof appMenuSections>[1] = null) => appMenuSections(count, open).map((section) => section.id)
+    expect(ids(0)).not.toContain('problems')
+    expect(ids(2)[0]).toBe('problems')
+    // The last problem went away while the section was open: the section stays and says so.
+    expect(ids(0, 'problems')).toContain('problems')
   })
 
   test('the operations, for an app with no UI', () => {

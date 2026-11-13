@@ -66,18 +66,41 @@ export function appSurfacePhase(facts: AppSurfaceFacts): AppSurfacePhase {
 }
 
 /**
- * The faults a header shows above the app: a version that did not start and a
- * schedule that failed. `stopped` has its own bar with a Start button. A
- * secret that is not set is not a fault (the app can work without it, and its
- * own UI says when it needs one), so the menu marks it and the header does not.
+ * One thing the app's owner must act on. The app surface draws none of them
+ * over the app: the menu button has a dot, and the Problems section of the
+ * menu lists them, each with the section where the owner acts.
  */
-export function headerAttention(app: AppSummary): AppAttention[] {
-  return app.attention.filter((item) => item.kind !== 'stopped' && item.kind !== 'secret-missing')
+export interface AppProblem {
+  kind: Exclude<AppAttention['kind'], 'stopped'>
+  /** One sentence, as the host says it. */
+  detail: string
+  /** `error`: a part of the app does not work. `warning`: the app waits for a value and works without it. */
+  tone: 'error' | 'warning'
+  /** The section of the menu where the owner acts on it. */
+  section: AppMenuSection
+  /** The label of the button that opens that section. */
+  action: string
 }
 
-/** How many of the app's secrets have no value: what the menu marks on its Secrets row. */
-export function unsetSecretCount(app: AppSummary): number {
-  return app.attention.filter((item) => item.kind === 'secret-missing').length
+const PROBLEM_FIXES = {
+  'version-failed': { tone: 'error', section: 'versions', action: 'Open Versions' },
+  'schedule-failed': { tone: 'error', section: 'schedules', action: 'Open Schedules' },
+  'secret-missing': { tone: 'warning', section: 'secrets', action: 'Set in Secrets' },
+} as const
+
+/** The problems of one app. `stopped` is the owner's own choice and has its own bar with a Start button. */
+export function appProblems(app: AppSummary): AppProblem[] {
+  return app.attention.flatMap((item) => (item.kind === 'stopped' ? [] : [{ kind: item.kind, detail: item.detail, ...PROBLEM_FIXES[item.kind] }]))
+}
+
+/** The dot on the menu button: an error when one problem is an error, else a warning; null with no problem. */
+export function problemsTone(problems: readonly AppProblem[]): AppProblem['tone'] | null {
+  if (problems.length === 0) return null
+  return problems.some((problem) => problem.tone === 'error') ? 'error' : 'warning'
+}
+
+export function problemsLabel(count: number): string {
+  return count === 1 ? '1 problem' : `${count} problems`
 }
 
 export function versionLabel(version: number | null): string {
@@ -155,6 +178,7 @@ export function appDeleteConfirmText(name: string): string {
 
 /** The sections of the app menu, in the order the menu lists them. */
 export const APP_MENU_SECTIONS = [
+  { id: 'problems', label: 'Problems' },
   { id: 'versions', label: 'Versions' },
   { id: 'schedules', label: 'Schedules' },
   { id: 'secrets', label: 'Secrets' },
@@ -165,6 +189,15 @@ export const APP_MENU_SECTIONS = [
 ] as const
 
 export type AppMenuSection = (typeof APP_MENU_SECTIONS)[number]['id']
+
+/**
+ * The sections a menu lists now. Problems is there while the app has one, and
+ * while it is the open section: the last problem that goes away must not take
+ * the section from under its reader.
+ */
+export function appMenuSections(problemCount: number, openSection: AppMenuSection | null = null) {
+  return APP_MENU_SECTIONS.filter((section) => section.id !== 'problems' || problemCount > 0 || openSection === 'problems')
+}
 
 export const APP_SOURCE_TEXT = 'Ask an agent to change this app: it calls checkout_app.'
 export const APP_ROLLBACK_NOTE = 'An earlier version runs again. The data of the app is not rewound.'

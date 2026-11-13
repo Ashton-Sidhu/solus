@@ -14,6 +14,8 @@ import {
   triggerText,
   versionLines,
   webhookLines,
+  appProblemCount,
+  manageAppLabel,
 } from '../../apps/mobile/src/features/apps/apps'
 import { appDocument, appMessageScript, readAppCall, relayAppCall } from '../../apps/mobile/src/features/apps/app-frame'
 
@@ -117,6 +119,22 @@ describe('the app screen', () => {
     const failed = summary({ activeVersion: null, attention: [{ kind: 'version-failed', detail: 'Version 1 failed: migration 0001 has a syntax error.' }] })
     expect(appBody(appState(failed, false))).toEqual({ kind: 'no-version', error: 'Version 1 failed: migration 0001 has a syntax error.' })
     expect(appBody(appState(summary({ activeVersion: null }), false))).toEqual({ kind: 'no-version', error: null })
+  })
+})
+
+describe('the problems of an app', () => {
+  test('the menu button counts what the owner must act on, and stopped is not one', () => {
+    // WHY: the app screen says no problem over the app. The badge on its menu button is the
+    // only sign there, and Android shows the button by its label.
+    const app = summary({ stopped: true, attention: [
+      { kind: 'stopped', detail: 'This app is stopped.' },
+      { kind: 'secret-missing', detail: 'PostgreSQL URL is not set.' },
+      { kind: 'schedule-failed', detail: 'The schedule sync failed: timeout' },
+    ] })
+    expect(appProblemCount(app)).toBe(2)
+    expect(manageAppLabel(2)).toBe('Manage app, 2 problems')
+    expect(manageAppLabel(1)).toBe('Manage app, 1 problem')
+    expect(manageAppLabel(appProblemCount(summary({})))).toBe('Manage app')
   })
 })
 

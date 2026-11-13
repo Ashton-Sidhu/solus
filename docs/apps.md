@@ -108,10 +108,19 @@ You can also make a webhook by hand with the action **call an app mutation**.
 
 ## Secrets
 
-The app's menu lists the secrets it declares and says which are set. When one
-has no value, the menu button has a dot and the Secrets row says how many are
-not set. Set a value there. Solus never shows a value again. The values are
+The app's menu lists the secrets it declares and says which are set. Set a
+value there. Solus never shows a value again. The values are
 in the host's secret store, not in the app's data.
+
+## Problems
+
+Solus draws nothing over an app when the app has a problem. The menu button
+(`…`) of the app gets a dot: red when a part of the app does not work (a
+version that did not start, a schedule that failed), amber when the app only
+waits for a secret. The first row of the menu is then **Problems**. It lists
+each problem with a button that opens the section where you act on it. On a
+phone, the menu button has a badge with the count, and the manage screen
+lists the problems.
 
 ## Stop and delete
 
