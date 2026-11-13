@@ -1,6 +1,7 @@
 import { cutText } from '@solus/contracts/text-cut'
 import { MODEL_PROFILES, REASONING_EFFORT_LABELS, modelLabelFor, type AgentId, type Message } from '@solus/contracts/types'
-import { getToolDescription, participleFor } from './activity-summary'
+import { liveToolStep } from './activity-summary'
+import { intentInProgress } from './activity-phrase'
 import { parseSubagentInput } from './subagent'
 import { z } from 'zod'
 
@@ -70,25 +71,18 @@ function lastRunningTool(subs: Message[]): Message | undefined {
 }
 
 /**
- * What the agent is doing this second: the participle for the call in flight and
+ * What the agent is doing this second: the sentence for the call in flight and
  * the target that call names. A backgrounded agent describes its own step, and
  * that description wins — it is the agent's word for the work, not ours.
  */
 export function subagentLiveStep(message: Message): SubagentLiveStep {
   const progress = message.backgroundTaskProgress
   const description = progress?.description?.trim() ?? ''
-  if (description) return { activity: description, target: '' }
+  if (description) return { activity: intentInProgress(description) ?? description, target: '' }
 
   const live = lastRunningTool(message.subMessages ?? [])
-  return {
-    activity: participleFor(live?.toolName || progress?.lastToolName),
-    // The participle already carries the verb, so drop the description's own.
-    target: live
-      ? getToolDescription(live.toolName || 'Tool', live.toolInput)
-        .replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, '')
-        .trim()
-      : '',
-  }
+  const step = liveToolStep(live?.toolName || progress?.lastToolName || 'Tool', live?.toolInput)
+  return { activity: step.label, target: step.target }
 }
 
 /** The agent's answer as a fact — one line, never the whole result. */

@@ -8,10 +8,9 @@
   import {
     activityKinds,
     formatActivityDuration,
-    getToolDescription,
     liveActivityLabel,
+    liveToolStep,
     parseToolInput,
-    participleFor,
     toolPathsFromParsed,
     type BackgroundWait,
   } from "./lib/activity-summary";
@@ -109,9 +108,14 @@
   const showsBackgroundWait = $derived(
     live && !runningTool && !setupLabel && backgroundWait !== null,
   );
-  const liveLabel = $derived(
+  const runningStep = $derived(
     runningTool
-      ? participleFor(runningTool.toolName)
+      ? liveToolStep(runningTool.toolName || "Tool", runningTool.toolInput)
+      : null,
+  );
+  const liveLabel = $derived(
+    runningStep
+      ? runningStep.label
       : (setupLabel ??
         backgroundWait?.label ??
         liveActivityLabel(
@@ -121,18 +125,11 @@
           turnStart,
         )),
   );
-  const liveTarget = $derived.by(() => {
-    if (showsBackgroundWait) return backgroundWait?.target ?? "";
-    if (!runningTool) return "";
-    const raw = getToolDescription(
-      runningTool.toolName || "Tool",
-      runningTool.toolInput,
-    );
-    // The participle already carries the verb, so drop the description's own.
-    return raw
-      .replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "")
-      .trim();
-  });
+  const liveTarget = $derived(
+    showsBackgroundWait
+      ? (backgroundWait?.command ?? "")
+      : (runningStep?.target ?? ""),
+  );
 
   const filesTouched = $derived.by(() => {
     if (!turn.end) return 0;
@@ -165,7 +162,6 @@
   stacked={state === "failed"}
   glyphClass={state === "failed" ? "is-destructive" : ""}
   target={state === "live" && liveTarget ? liveTargetText : undefined}
-  proseTarget={showsBackgroundWait}
   actions={state === "failed" && onRetry ? rowRetry : undefined}
   testid="turn-row-{state}"
 >

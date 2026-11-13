@@ -6,7 +6,7 @@ import {
   getToolDescriptionFromParsed,
   liveActivityLabel,
   parseToolInput,
-  participleFor,
+  liveToolStep,
   settledBackgroundWait,
   toolActivityTarget,
 } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
@@ -69,9 +69,19 @@ describe('describeBackgroundWait', () => {
   test('names the running command instead of claiming the session is planning', () => {
     // WHY: the session sat here for four minutes with a poll loop in flight and
     // told the user it was planning the next step. The wait is the fact.
-    const wait = describeBackgroundWait(turn(backgroundBash()))
-    expect(wait?.label).toBe('Running in the background…')
-    expect(wait?.target).toBe(POLL_DESCRIPTION)
+    // The intent and the wait are one sentence, not a status and a caption.
+    expect(describeBackgroundWait(turn(backgroundBash()))).toEqual({
+      label: 'Polling until www.solus.sh resolves and serves 200 in the background…',
+      command: '',
+    })
+  })
+
+  test('quotes an intent that does not start with a verb it can inflect', () => {
+    // WHY: guessing a verb turns "Dev server for the client" into "Deving server".
+    const wait = describeBackgroundWait(
+      turn(backgroundBash({ toolInput: JSON.stringify({ command: 'bun dev', description: 'Dev server for the client' }) })),
+    )
+    expect(wait?.label).toBe('Running “Dev server for the client” in the background…')
   })
 
   test('a turn that ended in the background state still names the work', () => {
@@ -79,10 +89,10 @@ describe('describeBackgroundWait', () => {
     // row. That row must say the task still runs — with the task's own intent
     // when this turn launched it, and in general words when an earlier turn did.
     expect(settledBackgroundWait(turn(backgroundBash()))).toEqual({
-      label: 'Running in the background',
-      target: POLL_DESCRIPTION,
+      label: 'Polling until www.solus.sh resolves and serves 200 in the background',
+      command: '',
     })
-    expect(settledBackgroundWait([])).toEqual({ label: 'Running in the background', target: '' })
+    expect(settledBackgroundWait([])).toEqual({ label: 'Running in the background', command: '' })
   })
 
   test('stops naming the command once its task settles', () => {
@@ -101,15 +111,14 @@ describe('describeBackgroundWait', () => {
       { kind: 'assistant', message: { id: 'a1', role: 'assistant', content: 'polling', timestamp: LAUNCHED_AT + 1 } as Message },
       ...turn(later),
     ]
-    expect(describeBackgroundWait(items)?.target).toBe(POLL_DESCRIPTION)
+    expect(describeBackgroundWait(items)?.label).toBe('Polling until www.solus.sh resolves and serves 200 in the background…')
   })
 
   test('counts rather than picking a winner when several are in flight', () => {
     const wait = describeBackgroundWait(
       turn(backgroundBash(), backgroundBash({ id: 'bash-2', backgroundTaskId: 'bxyz' })),
     )
-    expect(wait?.label).toBe('Running 2 background commands…')
-    expect(wait?.target).toBe('')
+    expect(wait).toEqual({ label: 'Running 2 commands in the background…', command: '' })
   })
 
   test('falls back to the command when the provider states no intent', () => {
@@ -118,7 +127,8 @@ describe('describeBackgroundWait', () => {
     const wait = describeBackgroundWait(
       turn(backgroundBash({ toolInput: JSON.stringify({ command: POLL_COMMAND }) })),
     )
-    expect(wait?.target).toBe(POLL_COMMAND)
+    // The command follows the label, so the label does not end in an ellipsis.
+    expect(wait).toEqual({ label: 'Running in the background', command: POLL_COMMAND })
   })
 
   function subagent(overrides: Partial<Message> = {}): Message {
@@ -142,7 +152,7 @@ describe('describeBackgroundWait', () => {
       { kind: 'subagent-group', messages: [subagent(), subagent({ id: 'agent-2', toolStatus: 'completed' })] },
       { kind: 'assistant', message: { id: 'a1', role: 'assistant', content: 'One report is in.', timestamp: LAUNCHED_AT + 1 } as Message },
     ]
-    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on a subagent…', target: 'Study Solus diff panel' })
+    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on a subagent to study Solus diff panel…', command: '' })
   })
 
   test('counts sub-agents when several are running, ahead of any command', () => {
@@ -150,7 +160,7 @@ describe('describeBackgroundWait', () => {
       ...turn(backgroundBash()),
       { kind: 'subagent-group', messages: [subagent(), subagent({ id: 'agent-2' })] },
     ]
-    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on 2 subagents…', target: '' })
+    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on 2 subagents…', command: '' })
   })
 
   test('says nothing once every sub-agent has reported', () => {
@@ -191,7 +201,7 @@ describe('describeBackgroundWait', () => {
       { kind: 'agent-conversation-group', messages: [watchedPeer()] },
       { kind: 'assistant', message: { id: 'a1', role: 'assistant', content: 'I will start when it reports.', timestamp: LAUNCHED_AT + 1 } as Message },
     ]
-    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on Claude Code…', target: '' })
+    expect(describeBackgroundWait(items)).toEqual({ label: 'Waiting on Claude Code…', command: '' })
   })
 
   test('puts another session ahead of a sub-agent, and drops it once it replies', () => {
@@ -249,9 +259,34 @@ describe('toolActivityTarget', () => {
   })
 })
 
-test('Write uses its own live verb', () => {
-  expect(participleFor('Write')).toBe('Writing')
-  expect(participleFor('Edit')).toBe('Editing')
+describe('liveToolStep', () => {
+  const input = (fields: object) => JSON.stringify(fields)
+
+  test('says the intent of the agent for a command as one sentence', () => {
+    // WHY: "Running  for i in $(seq 1 30)…" says how, not why. The intent the
+    // agent stated reads as a sentence; the raw command is the fallback.
+    expect(liveToolStep('Bash', input({ command: 'bun test tests/unit', description: 'Run focused unit tests' })))
+      .toEqual({ label: 'Running focused unit tests', target: '' })
+    expect(liveToolStep('Bash', input({ command: 'git status', description: 'Show working tree status.' })))
+      .toEqual({ label: 'Showing working tree status', target: '' })
+    expect(liveToolStep('Bash', input({ command: 'bun test' }))).toEqual({ label: 'Running', target: 'bun test' })
+    expect(liveToolStep('Bash')).toEqual({ label: 'Running a command', target: '' })
+  })
+
+  test('names a file by its name, not its whole path', () => {
+    // WHY: a long absolute path truncates to its root, which says nothing.
+    expect(liveToolStep('Read', input({ file_path: '/repo/src/App.svelte' }))).toEqual({ label: 'Reading', target: 'App.svelte' })
+    expect(liveToolStep('Write', input({ file_path: '/repo/src/App.svelte' }))).toEqual({ label: 'Writing', target: 'App.svelte' })
+    expect(liveToolStep('Edit', input({ file_path: '/repo/a.ts' })).label).toBe('Editing')
+    expect(liveToolStep('Read', '')).toEqual({ label: 'Reading', target: '' })
+  })
+
+  test('reads searches and other tools as sentences', () => {
+    expect(liveToolStep('Grep', input({ pattern: 'TODO' }))).toEqual({ label: 'Searching for', target: 'TODO' })
+    expect(liveToolStep('WebSearch', input({ query: 'svelte 5 runes' })).label).toBe('Searching the web for “svelte 5 runes”')
+    expect(liveToolStep('mcp__linear__create_issue', input({ title: 'x' })).label).toBe('Creating issue')
+    expect(liveToolStep('mcp__acme__gizmo', '{}').label).toBe('Using gizmo')
+  })
 })
 
 describe('getToolDescription', () => {

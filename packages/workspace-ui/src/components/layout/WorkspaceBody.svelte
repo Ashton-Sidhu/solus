@@ -1,11 +1,25 @@
 <script module lang="ts">
   import type CompanionSurfaceStripComponent from "./CompanionSurfaceStrip.svelte";
+  import type UnifiedPickerComponent from "../session/unified-picker/UnifiedPicker.svelte";
+  import { afterPaint } from "../../lib/after-paint";
 
   // A companion pane's strip loads beside the workspace, not in its first
   // chunks: the first screen has no companion pane. Kept as state so a pane
   // that opens later draws its strip at once, without an await frame.
   let CompanionSurfaceStrip = $state<typeof CompanionSurfaceStripComponent | null>(null);
   void import("./CompanionSurfaceStrip.svelte").then((module) => (CompanionSurfaceStrip = module.default));
+
+  // The search loads after the first paint and is kept, so each open draws it at
+  // once. An `{#await import()}` made a new promise on every open; it resolved
+  // late, so the skeleton painted first and the search then faded in over it.
+  let UnifiedPicker = $state<typeof UnifiedPickerComponent | null>(null);
+  let unifiedPickerFailed = $state(false);
+  void afterPaint()
+    .then(() => import("../session/unified-picker/UnifiedPicker.svelte"))
+    .then(
+      (module) => (UnifiedPicker = module.default),
+      () => (unifiedPickerFailed = true),
+    );
 </script>
 
 <script lang="ts">
@@ -16,7 +30,6 @@
     getSettingsContext,
     getSessionEnvironmentStore,
   } from "../../contexts";
-  import { afterPaint } from "../../lib/after-paint";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SessionSidebarSkeleton from "../session/SessionSidebarSkeleton.svelte";
   import PickerShellSkeleton from "../session/unified-picker/PickerShellSkeleton.svelte";
@@ -743,19 +756,18 @@
                       data-conversation-space
                     >
                       {#if active && session.ui.unifiedPickerOpen}
-                        {#await import("../session/unified-picker/UnifiedPicker.svelte")}
-                          <PickerShellSkeleton onClose={() => (session.ui.unifiedPickerOpen = false)} />
-                        {:then module}
-                          {@const UnifiedPicker = module.default}
+                        {#if UnifiedPicker}
                           <UnifiedPicker
                             open={active && session.ui.unifiedPickerOpen}
                             onClose={() => {
                               session.ui.unifiedPickerOpen = false;
                             }}
                           />
-                        {:catch}
+                        {:else if unifiedPickerFailed}
                           <p role="alert">Could not load the search.</p>
-                        {/await}
+                        {:else}
+                          <PickerShellSkeleton onClose={() => (session.ui.unifiedPickerOpen = false)} />
+                        {/if}
                       {/if}
 
                       <div

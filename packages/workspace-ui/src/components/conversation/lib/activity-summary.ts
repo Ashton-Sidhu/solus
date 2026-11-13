@@ -8,6 +8,8 @@ import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { GroupedItem } from './turns'
 import { parseSubagentInput } from './subagent'
 import { agentsAwaitingReply, waitingOnLabel } from '../agent-conversation/lib/agent-conversation'
+import { intentAsPurpose, intentInProgress } from './activity-phrase'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 /** The things an activity block can report having done. Thinking is a kind
  *  too: it always arrives with the tools, so it folds into the same sentence
@@ -38,17 +40,6 @@ const VERB_FOR_KIND = {
   edit: 'edited',
   run: 'ran commands',
   other: 'used tools',
-} as const satisfies Record<ActivityKind, string>
-
-/** Present participle, because a running block reads as a sentence in progress. */
-const PARTICIPLE_FOR_KIND = {
-  think: 'Thinking',
-  ask: 'Asking',
-  search: 'Searching',
-  read: 'Reading',
-  edit: 'Editing',
-  run: 'Running',
-  other: 'Working',
 } as const satisfies Record<ActivityKind, string>
 
 const CHANGE_PATH_KEYS = [
@@ -137,9 +128,72 @@ export function activityKind(toolName: string | undefined): ActivityKind {
   return KIND_FOR_TOOL[toolName] ?? 'other'
 }
 
-export function participleFor(toolName: string | undefined): string {
-  if (toolName === 'Write') return 'Writing'
-  return PARTICIPLE_FOR_KIND[activityKind(toolName)]
+/** What a running tool is doing, said as one sentence: the label is the
+ *  sentence, and the target is its object in the mono face — a file, a
+ *  pattern, a command — or empty when the label already says it all. */
+export interface LiveToolStep {
+  label: string
+  target: string
+}
+
+function filesTarget(parsed: ParsedToolInput | null): string {
+  const paths = parsed ? toolPathsFromParsed(parsed) : []
+  if (paths.length === 0) return ''
+  const name = hostPathBaseName(paths[0]) || paths[0]
+  return paths.length === 1 ? name : `${name} and ${paths.length - 1} more`
+}
+
+/** The tool's own name as words: `mcp__linear__create_issue` → "create issue". */
+function toolNameWords(name: string): string {
+  return (name.split('__').at(-1) ?? name).replace(/_/g, ' ').trim()
+}
+
+function commandStep(parsed: ParsedToolInput | null): LiveToolStep {
+  const intent = parsed?.description ? intentInProgress(parsed.description) : null
+  if (intent) return { label: intent, target: '' }
+  const command = parsed?.command?.trim() ?? ''
+  return command ? { label: 'Running', target: command } : { label: 'Running a command', target: '' }
+}
+
+function webSearchStep(parsed: ParsedToolInput | null): LiveToolStep {
+  const query = parsed?.query || parsed?.search_query
+  return { label: query ? `Searching the web for “${query}”` : 'Searching the web', target: '' }
+}
+
+/** The step for a tool whose target is one input field, or a fuller label
+ *  when that field has not arrived yet. */
+function objectStep(label: string, emptyLabel: string, target: string | undefined): LiveToolStep {
+  return target ? { label, target } : { label: emptyLabel, target: '' }
+}
+
+const STEP_FOR_TOOL = new Map<string, (parsed: ParsedToolInput | null) => LiveToolStep>([
+  ['Bash', commandStep],
+  ['exec_command', commandStep],
+  ['Read', (parsed) => ({ label: 'Reading', target: filesTarget(parsed) })],
+  ['NotebookRead', (parsed) => ({ label: 'Reading', target: filesTarget(parsed) })],
+  ['Edit', (parsed) => ({ label: 'Editing', target: filesTarget(parsed) })],
+  ['NotebookEdit', (parsed) => ({ label: 'Editing', target: filesTarget(parsed) })],
+  ['Write', (parsed) => ({ label: 'Writing', target: filesTarget(parsed) })],
+  ['Grep', (parsed) => objectStep('Searching for', 'Searching the code', parsed?.pattern)],
+  ['Glob', (parsed) => objectStep('Finding files matching', 'Finding files', parsed?.pattern)],
+  ['WebSearch', webSearchStep],
+  ['WebFetch', (parsed) => objectStep('Fetching', 'Fetching a page', parsed?.url)],
+  ['Skill', (parsed) => ({ label: parsed?.skill ? `Using the ${parsed.skill} skill` : 'Using a skill', target: '' })],
+  ['Agent', () => ({ label: 'Starting a subagent', target: '' })],
+])
+
+/**
+ * "Reading App.svelte", "Running unit tests", "Searching for TODO". The agent's
+ * stated intent wins over the raw command, because it says why rather than how.
+ */
+export function liveToolStep(name: string, input?: string): LiveToolStep {
+  if (isQuestionTool(name)) return { label: 'Asking you a question', target: '' }
+  const step = STEP_FOR_TOOL.get(name)
+  if (step) return step(input ? parseToolInput(input) : null)
+  // Solus and MCP tools are named as commands ("Find works", "create_issue"),
+  // so a known verb reads as the step itself.
+  const words = solusAgentToolName(name) ? prettyToolName(name) : toolNameWords(name)
+  return { label: intentInProgress(words) ?? `Using ${words}`, target: '' }
 }
 
 /**
@@ -182,13 +236,13 @@ export function liveActivityLabel(
   return activity || (hasTools ? 'Planning the next step…' : 'Thinking it through…')
 }
 
-/** What the row says while a backgrounded command is still running: the wait
- *  itself, plus the command's own account of why it is running. */
+/** What the row says while a backgrounded command is still running, as one
+ *  sentence: "Running unit tests in the background…". */
 export interface BackgroundWait {
   label: string
-  /** The tool's stated intent. Empty when the provider gave none, or when
-   *  several commands are in flight and no one of them speaks for the rest. */
-  target: string
+  /** The command itself, set in the mono face after the label. Only when the
+   *  provider stated no intent the label can say instead. */
+  command: string
 }
 
 /**
@@ -206,7 +260,7 @@ export function describeBackgroundWait(items: GroupedItem[]): BackgroundWait | n
   // Another session's reply is the whole reason the turn is still open: the
   // host holds it running until the reply arrives, whatever else it said.
   const peerWait = waitingOnLabel(agentsAwaitingReply(items))
-  if (peerWait) return { label: peerWait, target: '' }
+  if (peerWait) return { label: peerWait, command: '' }
   const subagents: Message[] = []
   const commands: Message[] = []
   for (const item of items) {
@@ -226,17 +280,23 @@ export function describeBackgroundWait(items: GroupedItem[]): BackgroundWait | n
   }
   // The agents are the larger wait, and the turn resumes when they report.
   if (subagents.length > 1) {
-    return { label: `Waiting on ${subagents.length} subagents…`, target: '' }
+    return { label: `Waiting on ${subagents.length} subagents…`, command: '' }
   }
-  if (subagents.length === 1) {
-    const parsed = parseSubagentInput(subagents[0].toolInput)
-    return { label: 'Waiting on a subagent…', target: (parsed.description || parsed.prompt || '').trim() }
-  }
+  if (subagents.length === 1) return { label: `${subagentWait(subagents[0])}…`, command: '' }
   if (commands.length === 0) return null
   if (commands.length > 1) {
-    return { label: `Running ${commands.length} background commands…`, target: '' }
+    return { label: `Running ${commands.length} commands in the background…`, command: '' }
   }
-  return { label: 'Running in the background…', target: backgroundCommandIntent(commands[0]) }
+  return backgroundCommandWait(commands[0])
+}
+
+/** "Waiting on a subagent to study the diff panel". The prompt is too long to
+ *  say in a row, so only the short description names the task. */
+function subagentWait(message: Message): string {
+  const description = parseSubagentInput(message.toolInput).description?.trim()
+  if (!description) return 'Waiting on a subagent'
+  const purpose = intentAsPurpose(description)
+  return purpose ? `Waiting on a subagent ${purpose}` : `Waiting on the subagent “${description}”`
 }
 
 /**
@@ -250,22 +310,26 @@ export function settledBackgroundWait(items: GroupedItem[]): BackgroundWait {
   const wait = describeBackgroundWait(items)
   return {
     label: (wait?.label ?? 'Running in the background').replace(/…$/, ''),
-    target: wait?.target ?? '',
+    command: wait?.command ?? '',
   }
 }
 
 /**
  * The command's stated intent, never the command itself: a poll loop's own
- * script is unreadable in a status row, and `getToolDescriptionFromParsed`
- * returns exactly that for Bash. Providers that state no intent fall back to
- * the command, which is the best the row can honestly say.
+ * script is unreadable in a status row. An intent without a known verb is
+ * quoted as the work's name. Providers that state no intent fall back to the
+ * command, which is the best the row can honestly say.
  */
-function backgroundCommandIntent(message: Message): string {
-  if (!message.toolInput) return ''
-  const parsed = parseToolInput(message.toolInput)
-  if (!parsed) return ''
-  if (parsed.description) return parsed.description
-  return parsed.command ?? ''
+function backgroundCommandWait(message: Message): BackgroundWait {
+  const parsed = message.toolInput ? parseToolInput(message.toolInput) : null
+  const description = parsed?.description?.trim().replace(/\.$/, '')
+  if (description) {
+    const intent = intentInProgress(description)
+    return { label: `${intent ?? `Running “${description}”`} in the background…`, command: '' }
+  }
+  const command = parsed?.command?.trim() ?? ''
+  // The command follows the label, so the sentence does not end in an ellipsis.
+  return command ? { label: 'Running in the background', command } : { label: 'Running in the background…', command: '' }
 }
 
 function addToolPath(paths: Set<string>, value: string | undefined): void {

@@ -66,12 +66,12 @@ describe('browser evidence', () => {
       worktreePath: '/repo/wt',
       pullRequest: { number: 7, url: 'https://github.com/acme/widgets/pull/7' },
     }
-    const choices = evidenceChoices(options, [task({ title: 'Fix the crash' })], '/repo/wt')
+    const choices = evidenceChoices(options, [task({ title: 'Fix the crash', state: { name: 'In review', category: 'active' } })], '/repo/wt')
     const [first] = choices
     expect(first.id).toBe('store')
     expect(first.target).toBeUndefined()
     // A task row names the task and its state in the provider's words, and files by task key.
-    expect(choices.at(-1)).toMatchObject({ label: 'Fix the crash', detail: 'Open', target: { kind: 'task', taskId: 'github:I_1' } })
+    expect(choices.at(-1)).toMatchObject({ label: 'Fix the crash', detail: 'In review', target: { kind: 'task', taskId: 'github:I_1' } })
     // Every choice carries a glyph so the destination kind reads at a glance.
     expect(choices.every((choice) => choice.icon != null)).toBe(true)
   })

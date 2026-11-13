@@ -23,8 +23,8 @@
     getToolDescription,
     getToolDescriptionFromParsed,
     liveActivityLabel,
+    liveToolStep,
     parseToolInput,
-    participleFor,
     toolActivityTarget,
     toolEndMs,
     type BackgroundWait,
@@ -116,8 +116,8 @@
   const duration = $derived(durationMs === null ? "" : formatActivityDuration(durationMs));
 
   // While running, the sentence names what is happening now, not the whole group.
-  const runningLabel = $derived(
-    runningTool ? participleFor(runningTool.toolName) : "",
+  const runningStep = $derived(
+    runningTool ? liveToolStep(runningTool.toolName || "Tool", runningTool.toolInput) : null,
   );
   // Running and failed both name the tool they are talking about; a finished
   // group names none, because the summary already counts them.
@@ -130,7 +130,7 @@
     working && !namedTool && backgroundWait !== null,
   );
   const namedTarget = $derived.by(() => {
-    if (showsBackgroundWait) return backgroundWait?.target ?? "";
+    if (showsBackgroundWait) return backgroundWait?.command ?? "";
     if (!namedTool) return "";
     return toolActivityTarget(namedTool.toolName || "Tool", namedTool.toolInput);
   });
@@ -215,8 +215,8 @@
     {/snippet}
 
     {#snippet label()}
-      {#if runningTool}
-        <span class="activity-shimmer">{runningLabel}{namedTarget ? ` ${namedTarget}` : ""}</span>
+      {#if runningStep}
+        <span class="activity-shimmer">{runningStep.label}{runningStep.target ? ` ${runningStep.target}` : ""}</span>
       {:else if working && !failedTool}
         <span class="activity-shimmer">
           {backgroundWait?.label ??

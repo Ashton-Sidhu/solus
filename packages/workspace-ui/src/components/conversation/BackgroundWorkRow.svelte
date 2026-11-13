@@ -38,7 +38,7 @@
   }
 </script>
 
-{#snippet targetText()}{wait.target}{/snippet}
+{#snippet commandText()}{wait.command}{/snippet}
 
 <!-- Stop sits on the rail, where a finished row keeps its step count, and takes
      the rail's own type: the row adds a control, not a new style. -->
@@ -60,8 +60,7 @@
 {/snippet}
 
 <ActivityRow
-  target={wait.target ? targetText : undefined}
-  proseTarget
+  target={wait.command ? commandText : undefined}
   rail={stopRail}
   testid="background-work-row"
 >

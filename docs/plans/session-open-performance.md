@@ -2,8 +2,12 @@
 
 Status: steps 1–7 implemented, and the turn image gallery mounts its carousel
 only when a turn has an image. Clean A/B on 2026-10-15: the same tree built
-twice, with and without steps 1–7 (`session-open-ab-a*.json`,
-`session-open-ab-b*.json`). The server goal is met; the client goal is not.
+twice, with and without steps 1–7 (rounds A and B). The server goal is met;
+the client goal is not.
+
+The tables below keep the results of rounds A–G. The raw JSON reports were
+removed from the working tree; they remain in Git history. The benchmark
+scripts, recorded baselines, and goal limits remain in `tests/benchmarks/`.
 
 | Median, ms | 1× A → B | 4× A → B |
 |---|---|---|
@@ -30,7 +34,7 @@ Open problems found by the A/B:
   mounts. Read the HTML of the newest revision of each artifact right after
   the transcript paints, not when the frame mounts.
 
-Round C (`session-open-ab-c*.json`) tried the three fixes above:
+Round C tried the three fixes above:
 
 - The minimap and the outer scrollbar now read layout in their frame. Style
   plus layout at 4× fell on heavy and huge (536 / 597 → 517 / 513 ms).
@@ -46,7 +50,7 @@ Round C (`session-open-ab-c*.json`) tried the three fixes above:
   reorders, and another row lands under the resting pointer. Row tooltips now
   stay shut after a click until the pointer moves more than 4 px.
 
-Round D (`session-open-ab-d*.json`) measures the corrections. Median, A → D:
+Round D measures the corrections. Median, A → D:
 
 | | 1× painted | 4× painted | 4× settled | 4× blocking |
 |---|---|---|---|---|
@@ -67,7 +71,7 @@ Builds A–D compiled Svelte in dev mode: the agent shell inherits
 `NODE_ENV=development`, and Vite treats a build as production only when
 `NODE_ENV` is unset or `production`. `scripts/build-parallel.sh` now sets
 `NODE_ENV=production`, and `session-open.ts` refuses a dev-mode build. Round D
-built for production (`session-open-prod*.json`), median:
+built for production, median:
 
 | | 1× painted | 4× painted |
 |---|---|---|
@@ -94,7 +98,7 @@ component; request history from the row's own facts at pointer down. Reaching
 300 ms at 4× likely also needs the tab and composer to stay mounted across
 opens instead of mounting again.
 
-Round E (`session-open-prod2*.json`, production build) adds: the composer
+Round E (production build) adds: the composer
 reads the caret's box only while its menu is open and focuses once per frame;
 finished replies write plain blocks as HTML; the history request leaves at
 pointer down from the row's own facts; opt-in mount timing
@@ -114,7 +118,7 @@ is 349–385 ms, and the longest task grew to 257–284 ms. Still open: paint �
 ms and tasks ≤ 100 ms at 4×, tool artifact frames (1186 ms at 4×), and the
 agentic page size (338 KB).
 
-Round F (`session-open-prod3*.json`) adds: a view that opens at the end
+Round F adds: a view that opens at the end
 chooses the first page's rows at the end and scrolls there in its first render
 (the top rows used to mount, then the jump to the end mounted the rest: all 10
 turns of `heavy`, now 2), and `setKeys` ranges from the last read instead of
@@ -136,7 +140,7 @@ Still open at 4×: the longest task (209–250 ms, goal 100) and blocking time
 (310–389 ms, goal 150), paint for heavy, huge, and agentic (304–323 ms), tool
 artifact frames, and the agentic page size.
 
-Round G (`session-open-prod4*.json`) keeps the newest render's HTML in the
+Round G keeps the newest render's HTML in the
 history page, and measures the page as the socket sends it: deflated
 (`perMessageDeflate`, over 1 KB). The agentic page is 338 KB of JSON and 41 KB
 on the wire, and parses in under a millisecond, so smaller tool rows would save

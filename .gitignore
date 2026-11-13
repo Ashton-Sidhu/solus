@@ -56,6 +56,16 @@ apps/site/static/demo/
 # Playwright test artifacts
 test-results/
 playwright-report/
+
+# Generated benchmark reports (keep recorded baselines and goal limits)
+/tests/benchmarks/session-open-ab-*.json
+/tests/benchmarks/session-open-prod*.json
+/tests/benchmarks/results.json
+/tests/benchmarks/code-block-results.json
+/tests/benchmarks/diff-highlight-results.json
+/tests/benchmarks/picker-search-results*.json
+/tests/benchmarks/transcript-results.json
+
 workerpool.md
 claudestreaming.md
 

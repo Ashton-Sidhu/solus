@@ -238,6 +238,12 @@
     translate: 0 0.0625rem;
   }
 
+  /* A mono target is the object of the label's sentence ("Reading App.svelte"),
+     so it sits a word space from the label rather than the full row gap. */
+  .activity-target:not(.is-prose) {
+    margin-inline-start: -0.3125rem;
+  }
+
   /* A sentence set in the mono face reads as a command. The sans face keeps it a
      sentence, and sits on the label's baseline without the nudge above. */
   .activity-target.is-prose {
