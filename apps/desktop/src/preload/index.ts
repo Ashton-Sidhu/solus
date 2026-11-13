@@ -9,6 +9,7 @@ import type { HostPolicyAssignRequest, HostPolicyCreateRequest, PolicyWriteReque
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
 import type { AccountDocumentRequest } from '@solus/contracts/account-documents'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
+import type { ManagedHostSpecChangeRequest, ManagedHostSpecRequest } from '@solus/contracts/uplink'
 import { isAppFullscreenElement } from '../main/html-fullscreen'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
@@ -103,6 +104,12 @@ const nativeApi: NativeSolusAPI = {
   uplinkListDirectory: () => ipcRenderer.invoke('solus:uplink-directory'),
   accountAccessToken: (resource: ConnectionTokenResource, options?: { refused?: string }) => ipcRenderer.invoke('solus:account-access-token', resource, options),
   uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),
+  uplinkStopManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-stop-managed-host', hostId),
+  uplinkRestartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-restart-managed-host', hostId),
+  uplinkUpdateManagedHostSpec: (hostId: string, change: ManagedHostSpecChangeRequest) => ipcRenderer.invoke('solus:uplink-update-managed-host-spec', hostId, change),
+  uplinkDeleteManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-delete-managed-host', hostId),
+  uplinkCreateManagedHost: (organizationId: string, options: { label?: string; spec?: ManagedHostSpecRequest }) => ipcRenderer.invoke('solus:uplink-create-managed-host', organizationId, options),
+  uplinkReadAccount: () => ipcRenderer.invoke('solus:uplink-read-account'),
   uplinkRemoveHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-remove-host', hostId),
   accountSettingsGet: () => ipcRenderer.invoke('solus:account-settings-get'),
   accountSettingsPatch: (request: AccountSettingsPatchRequest) => ipcRenderer.invoke('solus:account-settings-patch', request),

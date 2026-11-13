@@ -46,7 +46,7 @@ import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPre
 import type { HostPoliciesResponse, HostPolicyAssignRequest, HostPolicyCreateRequest, HostPolicySummary, OrganizationPolicyResponse, PolicyHost, PolicyWriteRequest } from './policy-api'
 import type { PolicySet } from './policy'
 
-import type { AccountState, SignInEnd } from './account-types'
+import type { AccountState, CreateManagedHostOutcome, SignInEnd } from './account-types'
 import type { ConnectionTokenResource } from './auth/clients'
 import type { SolusApiRequest, SolusApiResponse } from './solus-api/request'
 import type { DesktopUpdateStatus } from './desktop-update-types'
@@ -67,12 +67,12 @@ import type {
   WebhookWithUrl,
 } from './webhooks'
 import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
-import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
+import type { AccountResponse, HostKind, ManagedHostLifecycle, ManagedHostSpecChangeRequest, ManagedHostSpecRequest, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
 import type { HostSelfTest } from './host-connection'
 import type { HostListing } from './host-list'
 import type { AccountDocumentName, AccountDocumentRequest, AccountDocumentResult } from './account-documents'
-import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
+import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, SshTargetCandidate, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest } from './sharing'
@@ -391,6 +391,11 @@ export interface SolusAPI {
   hostsUnlockForwarded(args: { installationId: string; authSecret: string }): Promise<ForwardedHost>
   /** The WSL distros this Windows host can add as machines. */
   hostsListWslDistros(): Promise<WslDistroList>
+  /**
+   * The machines this host's `~/.ssh/config` names, as targets to add over SSH: the
+   * Discover source of docs/plans/host-fleet.md D7. Only the host owner may read them.
+   */
+  hostsListSshConfigHosts(): Promise<SshTargetCandidate[]>
   /** Adds one of this host's WSL distros as a machine it forwards to. */
   hostsAddWsl(request: WslAddRequest): Promise<SshAddResult>
   /** Closes the forward and forgets the host. With `stopRemote`, also removes the service Solus installed there. */
@@ -1409,6 +1414,17 @@ export interface NativeSolusAPI {
   uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
   /** Start the organization's managed host; the lifecycle it is in afterwards. */
   uplinkStartManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** Stop a managed host (it keeps its disk), or restart a running one's service; the lifecycle afterwards. */
+  uplinkStopManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  uplinkRestartManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** Change a managed host's packages or setup script; true when something changed, null when refused. */
+  uplinkUpdateManagedHostSpec(hostId: string, change: ManagedHostSpecChangeRequest): Promise<boolean | null>
+  /** Destroy a managed host's machine; true when the account no longer has it, so it is idempotent. */
+  uplinkDeleteManagedHost(hostId: string): Promise<boolean>
+  /** Create an organization's managed host; its host id, or why Solus Cloud did not. */
+  uplinkCreateManagedHost(organizationId: string, options: { label?: string; spec?: ManagedHostSpecRequest }): Promise<CreateManagedHostOutcome>
+  /** The signed-in account: organizations and the managed host size catalog. */
+  uplinkReadAccount(): Promise<AccountResponse | null>
   /** End the registration of a host the account owns; true when the account no longer
    *  lists it, so it is idempotent. False when refused or unanswered. */
   uplinkRemoveHost(hostId: string): Promise<boolean>

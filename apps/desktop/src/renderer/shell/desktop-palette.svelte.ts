@@ -6,6 +6,7 @@ import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
 import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
+import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
 import {
   Plus as PlusIcon,
   GitCompareArrows as GitDiffIcon,
@@ -309,14 +310,7 @@ export function createDesktopPalette(
         ui.shortcutsModalOpen = true;
       },
     },
-    {
-      id: "add-server",
-      label: "Add host",
-      group: "Servers",
-      icon: PlugsIcon,
-      keywords: ["remote", "pair", "connect"],
-      run: () => serversStore.openAddServer(),
-    },
+    ...fleetPaletteCommands(() => session.showSettings("api-access", "palette")),
     addOverSshPaletteCommand(),
     ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
     {
@@ -332,20 +326,6 @@ export function createDesktopPalette(
           connectionsNav.back();
           session.showSettings("api-access", "palette");
         }
-      },
-    },
-    {
-      id: "find-hosts",
-      label: "Find hosts nearby",
-      group: "Servers",
-      icon: PlugsIcon,
-      keywords: ["discover", "scan", "lan", "tailscale", "nearby"],
-      // Settings → Hosts owns the fuller version of this: a scan button,
-      // last-seen times and connect. The old switcher chip is not rendered in
-      // the workspace.
-      run: () => {
-        session.showSettings("api-access", "palette");
-        void serversStore.scanForServers();
       },
     },
   ];

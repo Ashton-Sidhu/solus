@@ -561,6 +561,20 @@ export const managedHostStartResponseSchema = z.object({
   lifecycle: managedHostLifecycleSchema.nullable(),
 })
 
+/** `POST /v1/hosts/<hostId>/stop`: the lifecycle a managed host is in after a member
+ *  asked it to stop. The machine keeps its disk; `start` brings it back. */
+export const managedHostStopResponseSchema = managedHostStartResponseSchema
+
+/** `POST /v1/hosts/<hostId>/restart`: the lifecycle a running managed host is in after a
+ *  member asked its service to restart. The machine and its disk stay; the client waits
+ *  for the directory to say `ready` again. A host not wanted running answers 404. */
+export const managedHostRestartResponseSchema = managedHostStartResponseSchema
+
+/* `DELETE /v1/hosts/<hostId>/machine`: an organization owner destroys the managed host's
+ * machine and its rows, after its registration ends. `204` with no body. A failure part-way
+ * answers `502 managed_provisioning_failed` and leaves the host `deleting`; the same call
+ * again finishes it. `DELETE /v1/hosts/<hostId>` only ends a registration. */
+
 // ── Managed host specs and the size catalog ─────────────────────────────────
 
 /** An apt package name, as Debian allows it; nothing a shell could read as more. */
@@ -586,6 +600,23 @@ export const managedHostSpecRequestSchema = z.object({
   setupScript: z.string().max(MAX_MANAGED_HOST_SETUP_SCRIPT_LENGTH).optional(),
 })
 export type ManagedHostSpecRequest = z.infer<typeof managedHostSpecRequestSchema>
+
+/**
+ * `PATCH /v1/hosts/<hostId>/spec` with the account session: an organization owner changes
+ * a managed host's packages or setup script. The size is the machine's own and is not
+ * part of a change. An absent field keeps its value; `packages: []` or `setupScript: ""`
+ * clears it. The new spec applies on the host's next boot, and a running host restarts
+ * after the answer to take it.
+ */
+export const managedHostSpecChangeRequestSchema = managedHostSpecRequestSchema
+  .pick({ packages: true, setupScript: true })
+  .strict()
+export type ManagedHostSpecChangeRequest = z.infer<typeof managedHostSpecChangeRequestSchema>
+
+/** Whether the change asked for anything new; `false` changed nothing and restarts nothing. */
+export const managedHostSpecChangeResponseSchema = z.object({
+  changed: z.boolean(),
+})
 
 /** One size a managed host may have. CPU and memory are absent when the machine grows on its own. */
 export const managedHostSizeSchema = z.object({

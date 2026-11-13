@@ -1,9 +1,16 @@
 import {
+  accountResponseSchema,
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
+  managedHostRestartResponseSchema,
+  managedHostSpecChangeResponseSchema,
   managedHostStartResponseSchema,
+  managedHostStopResponseSchema,
   organizationDirectorySchema,
+  type AccountResponse,
   type ManagedHostLifecycle,
+  type ManagedHostSpecChangeRequest,
+  type ManagedHostSpecRequest,
   type DirectoryHost,
   type OrganizationDirectory,
   type UplinkDirectory,
@@ -11,10 +18,11 @@ import {
 } from '@solus/contracts/uplink'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
-import type { AccountState } from '@solus/contracts/account-types'
+import type { AccountState, CreateManagedHostOutcome } from '@solus/contracts/account-types'
 import type { ResourceRefusal } from './oauth-session'
 import type { WebTokenSession } from './web-token-session'
 import { httpClient, type HttpRequest } from './http-request'
+import { createManagedHostBody, createManagedHostOutcome } from './cloud-account'
 import { dialableRoutes, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
 import type { SavedServer, SavedServerUplink } from './server-registry'
 
@@ -46,6 +54,23 @@ export interface UplinkAccountSource {
   /** Ask an organization's managed host to run (docs/plans/project-model.md §6);
    *  the lifecycle it is in afterwards, or null when the call was refused. */
   startManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** Ask a managed host to stop; it keeps its disk. The lifecycle afterwards, or null when refused. */
+  stopManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** Restart a running managed host's service. The lifecycle afterwards, or null when refused
+   *  (a host not wanted running is refused). */
+  restartManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** Change a managed host's packages or setup script (owners only); the size cannot change.
+   *  True when something changed (a running host restarts to take it), false when nothing did,
+   *  null when refused or unanswered. */
+  updateManagedHostSpec(hostId: string, change: ManagedHostSpecChangeRequest): Promise<boolean | null>
+  /** Destroy a managed host's machine and end its registration (owners only). A host the
+   *  account no longer has is already gone, so this is idempotent. False when refused or unanswered. */
+  deleteManagedHost(hostId: string): Promise<boolean>
+  /** Create an organization's managed host; its host id, or why Solus Cloud did not. */
+  createManagedHost(organizationId: string, options: { label?: string; spec?: ManagedHostSpecRequest }): Promise<CreateManagedHostOutcome>
+  /** The signed-in account: its organizations and the managed host size catalog. Null when
+   *  signed out or the website did not answer. */
+  readAccount(): Promise<AccountResponse | null>
   /** End the registration of a host this account owns, on every device. A host the
    *  account does not list is already removed, so this is idempotent. False when refused or unanswered. */
   removeHost(hostId: string): Promise<boolean>
@@ -95,6 +120,38 @@ export function webUplinkAccountSource(
       if (!response?.ok) return null
       const parsed = managedHostStartResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data.lifecycle : null
+    },
+    async stopManagedHost(hostId) {
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/stop`, { method: 'POST' })
+      if (!response?.ok) return null
+      const parsed = managedHostStopResponseSchema.safeParse(await response.json().catch(() => null))
+      return parsed.success ? parsed.data.lifecycle : null
+    },
+    async restartManagedHost(hostId) {
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/restart`, { method: 'POST' })
+      if (!response?.ok) return null
+      const parsed = managedHostRestartResponseSchema.safeParse(await response.json().catch(() => null))
+      return parsed.success ? parsed.data.lifecycle : null
+    },
+    async updateManagedHostSpec(hostId, change) {
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/spec`, { method: 'PATCH', body: change })
+      if (!response?.ok) return null
+      const parsed = managedHostSpecChangeResponseSchema.safeParse(await response.json().catch(() => null))
+      return parsed.success ? parsed.data.changed : null
+    },
+    async deleteManagedHost(hostId) {
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/machine`, { method: 'DELETE' })
+      // 404: the account has no such host any more, which is the state asked for.
+      return response?.ok === true || response?.status === 404
+    },
+    async createManagedHost(organizationId, options) {
+      return createManagedHostOutcome(await call('/v1/hosts', { method: 'POST', body: createManagedHostBody(organizationId, options) }))
+    },
+    async readAccount() {
+      const response = await call('/v1/account')
+      if (!response?.ok) return null
+      const parsed = accountResponseSchema.safeParse(await response.json().catch(() => null))
+      return parsed.success ? parsed.data : null
     },
     async removeHost(hostId) {
       const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}`, { method: 'DELETE' })

@@ -6,6 +6,8 @@ import type { SettingsRequestFailure } from '@solus/contracts/host-api'
 import { accountAgentProfilePatchRequestSchema } from '@solus/contracts/agent-profile'
 import { vaultSaveKeyRequestSchema, vaultConnectRequestSchema, vaultDisconnectRequestSchema } from '@solus/contracts/vault'
 import { accountSettingsPatchRequestSchema } from '@solus/contracts/settings'
+import { createManagedHostRequestSchema, managedHostSpecChangeRequestSchema } from '@solus/contracts/uplink'
+import type { CreateManagedHostOutcome } from '@solus/contracts/account-types'
 import { hostPolicyAssignRequestSchema, hostPolicyCreateRequestSchema, policyWriteRequestSchema } from '@solus/contracts/policy-api'
 import { desktopAgentProfileRequests } from './agent-profile-client'
 import { accountDocumentCall } from '@solus/client-core/account-documents'
@@ -15,7 +17,19 @@ import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
 import { loopbackAuthorizer } from './loopback-authorizer'
 import { desktopSettingsRequests } from './settings-client'
-import { issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, removeHost, startManagedHost } from './uplink-client'
+import {
+  createManagedHost,
+  deleteManagedHost,
+  issueEnrollmentTicket,
+  listDirectory,
+  loadOrganizationDirectory,
+  readAccount,
+  removeHost,
+  restartManagedHost,
+  startManagedHost,
+  stopManagedHost,
+  updateManagedHostSpec,
+} from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -27,6 +41,12 @@ export const ACCOUNT_CHANNELS = {
   uplinkDirectory: 'solus:uplink-directory',
   accountAccessToken: 'solus:account-access-token',
   uplinkStartManagedHost: 'solus:uplink-start-managed-host',
+  uplinkStopManagedHost: 'solus:uplink-stop-managed-host',
+  uplinkRestartManagedHost: 'solus:uplink-restart-managed-host',
+  uplinkUpdateManagedHostSpec: 'solus:uplink-update-managed-host-spec',
+  uplinkDeleteManagedHost: 'solus:uplink-delete-managed-host',
+  uplinkCreateManagedHost: 'solus:uplink-create-managed-host',
+  uplinkReadAccount: 'solus:uplink-read-account',
   uplinkRemoveHost: 'solus:uplink-remove-host',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
   uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
@@ -57,6 +77,9 @@ const INVALID_REQUEST: SettingsRequestFailure = { kind: 'error', code: 'invalid_
 const hostIdSchema = z.string().min(1).max(64)
 const organizationIdSchema = z.string().min(1).max(128)
 const policyIdSchema = z.string().min(1).max(128)
+/** A managed host's name and spec; the organization comes as its own argument. */
+const createManagedHostOptionsSchema = createManagedHostRequestSchema.omit({ organizationId: true }).strict()
+const INVALID_CREATE: CreateManagedHostOutcome = { ok: false, code: 'invalid_request', message: null }
 /** What a renderer may get a token for: one host or the Solus API, never the account plane. */
 const connectionTokenResourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('host'), hostId: hostIdSchema }).strict(),
@@ -109,6 +132,29 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     const hostId = hostIdSchema.safeParse(rawHostId)
     return hostId.success ? startManagedHost(session, hostId.data) : null
   })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkStopManagedHost, (_event, rawHostId) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return hostId.success ? stopManagedHost(session, hostId.data) : null
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkRestartManagedHost, (_event, rawHostId) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return hostId.success ? restartManagedHost(session, hostId.data) : null
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkUpdateManagedHostSpec, (_event, rawHostId, rawChange) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    const change = managedHostSpecChangeRequestSchema.safeParse(rawChange)
+    return hostId.success && change.success ? updateManagedHostSpec(session, hostId.data, change.data) : null
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkDeleteManagedHost, (_event, rawHostId) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return hostId.success ? deleteManagedHost(session, hostId.data) : false
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkCreateManagedHost, (_event, rawOrganizationId, rawOptions) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    const options = createManagedHostOptionsSchema.safeParse(rawOptions ?? {})
+    return organizationId.success && options.success ? createManagedHost(session, organizationId.data, options.data) : INVALID_CREATE
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkReadAccount, () => readAccount(session))
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkRemoveHost, (_event, rawHostId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)
     return hostId.success ? removeHost(session, hostId.data) : false

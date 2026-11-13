@@ -31,6 +31,12 @@ function detectSource(): UplinkAccountSource | null {
     issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
     loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
     startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),
+    stopManagedHost: (hostId) => native.uplinkStopManagedHost(hostId),
+    restartManagedHost: (hostId) => native.uplinkRestartManagedHost(hostId),
+    updateManagedHostSpec: (hostId, change) => native.uplinkUpdateManagedHostSpec(hostId, change),
+    deleteManagedHost: (hostId) => native.uplinkDeleteManagedHost(hostId),
+    createManagedHost: (organizationId, options) => native.uplinkCreateManagedHost(organizationId, options),
+    readAccount: () => native.uplinkReadAccount(),
     removeHost: (hostId) => native.uplinkRemoveHost(hostId),
   }
 }

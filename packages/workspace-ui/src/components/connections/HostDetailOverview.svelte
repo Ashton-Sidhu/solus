@@ -1,11 +1,16 @@
 <script lang="ts">
   import HostUpdateRow from "./HostUpdateRow.svelte";
-  /** Where a host stands, at a glance — each summary row is a way into the tab
-   *  that can actually change it. */
+  /** Where a host stands (docs/plans/host-fleet.md D2): what runs on it, the
+   *  machine, its readiness, and the one way to remove it that fits its kind.
+   *  Each readiness row is a way into the tab that can change it. */
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
-  import { serversStore, uplinkStore, type ServerItem } from "../../contexts";
+  import { isSessionBusyStatus } from "@solus/contracts/types";
+  import { getWorkspaceContext, managedHostsStore, serversStore, uplinkStore, type ServerItem } from "../../contexts";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
+  import { runHost } from "../../contexts/workspace/run-location";
+  import HostStateIcon from "../fleet/HostStateIcon.svelte";
+  import { isManagedHost } from "../servers/lib/managed-host";
   import { Button } from "../ui/button";
-  import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { relativeTime } from "../../lib/relative-time";
@@ -22,6 +27,21 @@
   let addressCopied = $state(false);
   /** Set by Test alone: the row reads "checked" only once the user asked. */
   let testing = $state(false);
+  /** The danger row asks once before it acts. */
+  let isConfirmingRemove = $state(false);
+
+  const workspace = getWorkspaceContext();
+  const running = $derived(
+    Object.values(workspace.sessions.byId).filter((session) => runHost(session.run) === host.id && isSessionBusyStatus(session.status)),
+  );
+  const isManaged = $derived(isManagedHost(host.uplink));
+  const principal = $derived(hosts.get(host.id).me.principal);
+  const isShared = $derived(!isManaged && (principal === "org-member" || principal === "guest"));
+
+  async function remove() {
+    if (isManaged) await managedHostsStore.delete(host.id);
+    else await serversStore.remove(host.id);
+  }
 
   const github = $derived(setup.readiness?.github);
   const uplink = $derived(uplinkStore.statusFor(host.id));
@@ -60,7 +80,22 @@
   }
 </script>
 
-<SettingsSection label="This host">
+<SettingsSection label="Running here">
+  {#each running as session (session.id)}
+    <button
+      type="button"
+      class="flex w-full items-center gap-3 overflow-hidden px-4 py-3 text-left hover:bg-(--wash-1)"
+      onclick={() => void workspace.revealSession(session.id, host.id)}
+    >
+      <span class="min-w-0 flex-1 truncate text-workspace-chrome">{session.title || "Untitled session"}</span>
+      <HostStateIcon state="running" />
+    </button>
+  {:else}
+    <p class="px-4 py-3.5 text-workspace-chrome text-muted-foreground">No sessions are running on this host.</p>
+  {/each}
+</SettingsSection>
+
+<SettingsSection label="Machine">
   <HostUpdateRow {host} />
   <SettingsRow label="Reachable" description={reachability}>
     {#snippet control()}
@@ -92,29 +127,9 @@
       </Button>
     {/snippet}
   </SettingsRow>
-
-  <SettingsRow
-    label="Edit address"
-    description="Point Solus at this host on a different port or interface."
-    comingSoon
-  >
-    {#snippet control()}
-      <Button variant="outline" size="sm">Edit</Button>
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Reconnect automatically"
-    description="Come back to this host on its own when it drops off the network."
-    comingSoon
-  >
-    {#snippet control()}
-      <Switch checked={false} size="default" aria-label="Reconnect automatically" />
-    {/snippet}
-  </SettingsRow>
 </SettingsSection>
 
-<SettingsSection label="Setup">
+<SettingsSection label="Readiness">
   {#if uplinkStore.controlFor(host.id) !== "none"}
     <SettingsRow
       label="Solus Cloud"
@@ -167,17 +182,26 @@
 {#if !host.local}
   <SettingsSection label="Danger zone">
     <SettingsRow
-      label="Remove host"
-      description="Forget this host, here and in your Solus account. You'll need to pair with it again."
+      label={isManaged ? "Delete this machine" : isShared ? "Remove from your hosts" : "Forget this host"}
+      description={isConfirmingRemove
+        ? isManaged ? `Delete ${host.label} and its disk? This cannot be undone.` : `Remove ${host.label}? You will need to pair with it again.`
+        : isManaged ? "Deletes the machine and its disk. Its sessions stay in your history."
+          : isShared ? "The owner keeps it. You can add it again from the organization."
+            : "Removes it here and from your Solus account. Solus keeps running on it."}
     >
       {#snippet control()}
-        <Button
-          variant="destructive"
-          size="sm"
-          onclick={() => void serversStore.remove(host.id)}
-        >
-          Forget
-        </Button>
+        {#if isConfirmingRemove}
+          <span class="flex gap-1.5">
+            <Button variant="ghost" size="sm" onclick={() => (isConfirmingRemove = false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" disabled={managedHostsStore.busy?.serverId === host.id} onclick={() => void remove()}>
+              {isManaged ? "Delete" : "Remove"}
+            </Button>
+          </span>
+        {:else}
+          <Button variant="outline" size="sm" class="text-(--solus-status-error)" onclick={() => (isConfirmingRemove = true)}>
+            {isManaged ? "Delete" : isShared ? "Remove" : "Forget"}
+          </Button>
+        {/if}
       {/snippet}
     </SettingsRow>
   </SettingsSection>

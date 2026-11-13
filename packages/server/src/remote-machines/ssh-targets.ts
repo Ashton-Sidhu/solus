@@ -102,6 +102,28 @@ export function sshTargetCandidates(server: DiscoveredServer): SshTargetCandidat
   return [...candidates.values()]
 }
 
+/** Git hosting services: `~/.ssh/config` names them for `git push`, and none is a machine to add. */
+const GIT_HOSTS = new Set(['github.com', 'gitlab.com', 'bitbucket.org', 'ssh.dev.azure.com', 'vs-ssh.visualstudio.com', 'codeberg.org'])
+
+/**
+ * Every machine `~/.ssh/config` names, as a target to add over SSH
+ * (docs/plans/host-fleet.md D7). A pattern entry (`Host *`) names no machine, and a
+ * git hosting service is not one either. The first plain alias of an entry is its name.
+ */
+export function sshConfigHostCandidates(entries: SshConfigEntry[] = readSshConfigEntries()): SshTargetCandidate[] {
+  const candidates = new Map<string, SshTargetCandidate>()
+  for (const entry of entries) {
+    const alias = entry.hosts.find((host) => !hasSshPattern(host))
+    if (!alias) continue
+    if (GIT_HOSTS.has(alias.toLowerCase()) || (entry.hostname && GIT_HOSTS.has(entry.hostname.toLowerCase()))) continue
+    const destination = entry.user ? `${entry.user}@${alias}` : alias
+    const target = entry.port ? `${destination}:${entry.port}` : destination
+    if (candidates.has(target)) continue
+    candidates.set(target, { target, label: entry.hostname ? `${alias} -> ${entry.hostname}` : alias, source: 'ssh-config' })
+  }
+  return [...candidates.values()]
+}
+
 export interface SshConfigEntry {
   hosts: string[]
   hostname?: string

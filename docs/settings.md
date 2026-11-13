@@ -186,10 +186,40 @@ preferences contain an unknown key or a bad value. It does not drop the bad valu
 
 ## Hosts and the Solus Cloud link
 
-Settings → Hosts lists every host. Each host has its own page:
+Settings → Hosts opens on the fleet ([the plan](plans/host-fleet.md)), on desktop
+and web:
 
-- **Overview**: whether the host answers, its address, and a summary row for each
-  setup step. Each row opens the tab that changes it.
+- **Summary**: how many hosts answer, the sessions that run, the average CPU, and
+  what needs attention.
+- **Map**: this device at the center and a zone for each route — your machines
+  (local network, Tailscale, or the tunnel), SSH and WSL, Solus Cloud, and hosts
+  shared with you. A link is green when connected, amber when it reconnects, and
+  red when the host cannot be reached; a terracotta light moves along a link that
+  carries sessions. A zone with more hosts than cards fit shows one tile for each
+  host; open it to see its groups and act on them together. Tiles take their color
+  from status, CPU, or sessions. The light moves and loads are read only while the
+  map is on screen; **Live** pauses both, and reduced motion turns the light off.
+- **Discover**: machines this device can see but has not added — on the local
+  network, on Tailscale, the WSL distros of this Windows computer, and the
+  machines in the SSH config of the host that scans. Each has its own action.
+- **Needs attention**: hosts that cannot be reached, agents to sign in, and
+  updates. A long list groups by kind.
+- **List** shows the same hosts as rows.
+
+State is an icon; its name is in the tooltip. **Add machine** opens one page:
+**Nearby** first, then the other ways — create a cloud machine, link a machine you
+own with one command, pair with a code, or add over SSH. One way is marked
+**Recommended**. Each way except SSH finishes on that page. The command palette's
+**Add machine** and **Find hosts nearby** open the same pages.
+
+Every host has the same page. Its header shows the host's mark in a CPU ring, its
+state, its kind, and its actions: **New session**, and for a Solus Cloud machine
+**Start**, **Restart**, and **Stop**. Below it are CPU, memory, sessions, and latency.
+
+- **Overview**: the sessions running here; the machine (its Solus version, whether
+  it answers, its address); its readiness, each row opening the tab that changes
+  it; and the one way to remove it that fits its kind — **Delete** a cloud machine
+  and its disk, **Forget** your own host, or **Remove** a shared host.
 - **Resources**: the CPU and memory of the machine. A host admin also sees Solus and
   the agents it started: totals, CPU use over the last five minutes, and the busiest
   processes. The host samples only while this tab is open. A host without the
@@ -200,7 +230,7 @@ Settings → Hosts lists every host. Each host has its own page:
   trust, address), pairing, and the devices with access.
 - **Git**, **AI providers**, and **Environment**.
 
-The Hosts list has an **Auto balance** section when you have two or more hosts
+The Hosts **List** has an **Auto balance** section when you have two or more hosts
 ([Run on](run-on.md#auto-balance)).
 
 On desktop, **This computer → Local host** turns off the host that the app runs

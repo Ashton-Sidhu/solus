@@ -8,6 +8,7 @@ import { appsPaletteCommands } from "@solus/workspace-ui/components/app/lib/app-
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
 import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
+import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
 import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
 import { settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
@@ -66,6 +67,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
   ...updateAllPaletteCommands(),
   addOverSshPaletteCommand(),
   ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
+  ...fleetPaletteCommands(() => session.showSettings("api-access", "palette")),
   {
     id: "open-project",
     label: "Open project…",
