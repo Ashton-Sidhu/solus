@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { appDescriptorSchema, parseAppCallName } from '@solus/contracts/apps'
 import { defineApp, mutation, query, webhookRequest } from '../../resources/plugins/solus/skills/visual-artifacts/assets/react/src/solus-app-backend'
@@ -99,5 +101,23 @@ describe('the names the project\'s module posts', () => {
 
   test('a tool path with no tool names nothing to call', async () => {
     await expect(app.tools.linear()).rejects.toThrow('names nothing to call')
+  })
+})
+
+describe('the chapter and the project template', () => {
+  test('every module of Solus that the chapter imports is a file the template has', () => {
+    // WHY: an agent copies the chapter's imports. A name the template does not
+    // resolve fails the build, or sends the agent to npm for a package that is
+    // not there. The chapter named a control kit once; the kit is gone.
+    const skill = join(import.meta.dir, '../../resources/plugins/solus/skills/visual-artifacts')
+    const chapter = readFileSync(join(skill, 'references/apps.md'), 'utf8')
+    const config: { compilerOptions: { paths: { [name: string]: string[] } } } = JSON.parse(readFileSync(join(skill, 'assets/react/tsconfig.json'), 'utf8'))
+    const imported = new Set([...chapter.matchAll(/from '(@solus\/[a-z/-]+)'/g)].map((match) => match[1]!))
+
+    expect([...imported].sort()).toEqual(['@solus/app', '@solus/app/backend'])
+    for (const name of imported) {
+      const file = config.compilerOptions.paths[name]?.[0]
+      expect(file !== undefined && existsSync(join(skill, 'assets/react', file))).toBe(true)
+    }
   })
 })

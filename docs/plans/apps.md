@@ -340,9 +340,9 @@ A call has 60 seconds. A result is JSON, at most 1 MiB.
 
 `permissions` in `app.ts` names the network hosts the app may reach and the
 host paths its backend may read and write. `*` is every host or every path.
-The app's own data needs no permission. The app's header shows the
-permissions of the active version in one sentence, and the receipt of a
-deploy says the same sentence to the agent.
+The app's own data needs no permission. The Versions section of the app's
+menu shows the permissions of each version in one sentence, and the receipt
+of a deploy says the same sentence to the agent.
 
 Nobody decides the permissions a second time. They are there so that an app
 does what it says: the runner refuses a path or a host the app did not
@@ -458,7 +458,7 @@ web view only on a desktop client whose host is the same machine. On web and
 on mobile it is a streamed picture of the host's browser: text selection,
 input methods, scrolling, and latency are the host's, not the device's. The
 app frame is a frame in the client's own page on every client. It takes the
-live theme, so an app looks like a part of Solus, and its calls go through the
+live theme, so an app has no seam with the workspace, and its calls go through the
 typed RPC layer over IPC and WebSockets alike. An app has no URL in this
 release (§12), so there is nothing for the browser pane to open.
 
@@ -466,16 +466,29 @@ The frame is the third model's: a window of a fixed size that the UI scrolls
 inside, in standards mode, with no network but the declared hosts and the
 bridge `window.solusApp.call`.
 
-**An app looks like a pane of Solus.** A render in a reply takes the render
-palette and a 14px root. An app frame takes the workspace's own chrome
-(`APP_NATIVE_STYLE` in `@solus/contracts/artifact-sandbox`): `--border`,
-`--input`, `--ring`, `--muted`, `--primary`, `--sidebar`, and `--radius` are
-the values `workspace.css` gives its own controls, and the root is 16px, so a
-size in `rem` is the size the workspace's own controls have. The project
-template has the controls (`src/solus-ui.tsx`, `@solus/ui`): the workspace's
-button, input, sidebar row, toolbar, table, and empty state, with the same
-classes. The skill's chapter says: use them, draw no title bar (Solus shows
-the app's name), 14px text, panes split by hairlines. Two changes: the client decides that a frame is
+**An app is a product, on the workspace's surfaces.** A render in a reply
+takes the render palette and a 14px root. An app frame takes the workspace's
+own chrome for its neutral tokens (`APP_NATIVE_STYLE` in
+`@solus/contracts/artifact-sandbox`): `--border`, `--input`, `--ring`,
+`--muted`, `--primary`, `--sidebar`, and `--radius` are the values
+`workspace.css` gives its own controls, and the root is 16px, so a size in
+`rem` is what it says. The app's background, hairlines, and text then match
+the pane around it in light and dark mode. The rest is the app's own: its
+wordmark, its accent color (`light-dark()`, because the frame's
+`color-scheme` follows the theme), its type scale, its icons, its navigation,
+and its controls. The skill's chapter asks for the design of a shipped
+product ("Design a product"), and it allows a design skill.
+
+A kit of controls was tried twice and removed twice. The second one, in the template
+(`@solus/ui`) with rules to use it for every control, 14px text only, and no
+identity gave apps that worked and looked like a form over a database: a
+person compared one with an app an agent built with no skill, and the app
+with no skill was the better product. A kit and strict rules set a low
+ceiling; a brief and a preview to judge set a high one: in a trial, the same
+request with the new chapter gave an app with a wordmark, an accent, a
+sidebar, sample data, a detail view, and an export, in light and dark mode.
+
+Two changes to the third model's frame: the client decides that a frame is
 an app frame because it shows an app, not from a block in the page; and the
 bridge gets events (`solus-app-event`) for live refresh.
 
@@ -484,7 +497,7 @@ Surfaces, on desktop, web, and mobile:
 | Surface | What it shows |
 |---|---|
 | **Apps tab** of the Workspace page | The apps of every connected host, as cards: name, host, active version, the session it came from, last call, and what needs attention (a failed version, a secret that is not set, a failed schedule, stopped). The search, the sort, and the project and time facets apply. `⌥4` opens the tab. |
-| **App** (`app`, a destination or a surface) | The app frame in all of the pane, under a header: name, version, what the app may use, and a menu. |
+| **App** (`app`, a destination or a surface) | The app frame in all of the pane, under a thin header: name, version, and a menu. |
 | **App menu** | Versions (the source diff to the one before, and **Make active**), Schedules (pause, turn on, run now, last outcome), Secrets (set, clear), Calls (the call log), Sessions (the linked sessions), Source (clone path), Stop or Start, Delete. |
 | **Conversation** | A deploy opens the app's surface beside the conversation that made it, when that conversation is on screen (`apps.changed` names the session). The turn's chips name the app. The app's window is not drawn inside the transcript. |
 | **Artifacts surface, session chips, turn chips** | An app the session linked, as one more kind. A row or a chip opens the app's surface. |

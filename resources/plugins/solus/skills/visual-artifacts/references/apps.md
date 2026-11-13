@@ -4,7 +4,7 @@ An app is a small program that lives in Solus, on the user's host. It has a back
 
 Build whatever the user asked for, at the size they asked for. Do not reduce the request to one screen, or to what one data source offers.
 
-The project, the UI build, the design guidelines, and the preview are the ones in the skill's main file. This chapter adds the backend and what an app's UI has that a visual in a reply does not.
+The project, the UI build, and the preview are the ones in the skill's main file. This chapter adds the backend and the design of an app. The design section of the main file is for a visual in a reply; an app is a product, and "Design a product" below replaces it.
 
 | Part | Where | What it is |
 |---|---|---|
@@ -22,9 +22,9 @@ Each part is optional. A to-do list needs only a UI and `storage`. A database br
 ## Steps
 
 1. Start the project with the skill's initializer, as for any artifact.
-2. Add `app.ts` next to `package.json`. It makes the project an app.
+2. Add `app.ts` next to `package.json`. It makes the project an app. `@solus/app` and `@solus/app/backend` are files of the project (`src/solus-app.ts`, `src/solus-app-backend.ts`), not npm packages: import them, and do not install them.
 3. Add `migrations/0001_<name>.sql` when the app keeps data.
-4. Write the UI in `src/` with `@solus/app` for its data and `@solus/ui` for its controls.
+4. Design the app as a product ("Design a product"), then write the UI in `src/` with `@solus/app` for its data.
 5. `npm run bundle`. With an `app.ts`, the build also writes `dist/app/`.
 6. Check the UI: `preview_app` with `path` (the project folder). Fix what the screenshot shows. Check each page with `route`, and check about 390px wide and dark mode too.
 7. Deploy: `deploy_app` with `path`. A deploy makes the version active at once and links the app to this session. The receipt says the app's slug.
@@ -162,7 +162,7 @@ permissions: {
 - `network`: hosts the backend and the UI reach. A host, a host with a port, `*.example.com`, or `'*'` for every host.
 - `files`: absolute or `~/` host paths the backend reads and writes. `'*'` is every path. A path it may write, it may read.
 
-The app's own database and `ctx.files` need no permission. Solus refuses a host or a path the app did not declare, and the app's header shows what it declares. Ask for exactly what the app uses: a database browser that takes any URL needs `network: ['*']`; one for a single known database needs that one host. Open a SQLite file of the user's that you only read with `{ readOnly: true }`.
+The app's own database and `ctx.files` need no permission. Solus refuses a host or a path the app did not declare, and the app's menu shows what each version declares. Ask for exactly what the app uses: a database browser that takes any URL needs `network: ['*']`; one for a single known database needs that one host. Open a SQLite file of the user's that you only read with `{ readOnly: true }`.
 
 ## The UI
 
@@ -187,24 +187,30 @@ export default function App() {
 
 For an app with no UI, set `ui: false` in `defineApp`. Its surface in Solus lists its operations.
 
-### Look like a part of Solus
+### Design a product
 
-An app opens inside Solus, beside conversations, diffs, and tasks. It must read as one more pane of Solus, not as a web page in a frame. Solus gives an app's window its own chrome colors and its own type scale, and the template has the controls:
+An app is a product that the user opens every day. Design it to the standard of an application that a good product team ships. A column of inputs under a toolbar is a form over a database, and it is not an acceptable result. Decide the design before you write components.
 
-```tsx
-import { Badge, Button, Checkbox, Empty, Field, Input, Notice, Segmented, Select, Sidebar, SidebarItem, SidebarLabel, Table, Td, Textarea, Th, Toolbar, Tr } from '@solus/ui'
-```
+- **Identity.** Give the app a wordmark and an icon in its navigation, and one accent color that fits its subject. Define your own colors for both modes with `light-dark()`; the page's `color-scheme` follows the theme of Solus, so do not use Tailwind's `dark:` variant or a media query for them.
+  ```css
+  :root { --brand: light-dark(#247259, #62c7a2); --brand-soft: light-dark(#edf3ed, #18261f); }
+  ```
+- **Neutral surfaces come from the theme.** `bg-background`, `bg-sidebar`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`. With these the app sits in the workspace with no seam, in light and in dark mode. Never force a light page.
+- **Type.** Use a real scale: a page title of 24px to 30px with tight tracking, section labels, 13px to 14px body text, 11px to 12px for meta text, `tabular-nums` for numbers, and a mono face for code and ids. `--font-sans` is the face of the workspace. For a face of your own, install a `@fontsource-variable/<name>` package and import it in `src/main.tsx`; the build puts the font in the page.
+- **Icons.** `npm install --save-exact lucide-react` and use icons in the navigation, on buttons, in empty states, and for status. 16px, stroke width 1.75.
+- **Shell.** Navigation that fits the app: a sidebar with the wordmark, the sections, and the things the user made (connections, lists, boards), or a top bar with tabs. Each page has a header: where the user is, one line that says what the page is for, and the primary action. In a narrow window the sidebar becomes a drawer behind a menu button.
+- **First open.** Never a blank form. Show what the app is for and the one action that starts it, in a compact panel: once the user has things of their own, those come first. Where it helps, offer sample data to explore, marked as a sample, that the user can remove.
+- **Depth.** Build what a person expects from this kind of app, not only what the user named, and nothing that goes against the request (a reader of data gets no edit dialog): search, sort, filter, pages with counts, a detail view of one row, a `<dialog>` to create and to edit, copy and export, a confirm or an undo for a delete, and keyboard shortcuts for repeated actions.
+- **States.** A quiet busy state that keeps the last data on screen. An empty state with an icon, one sentence, and an action. An error with the message and a way to try again. A disabled control that says why. Status as a badge with a dot and a label.
+- **Finish.** Spacing in steps of 4px, hairline borders, one radius scale, hover and `focus-visible` on every control, color transitions of 150ms, `text-wrap: balance` on titles, and truncation with a `title` for long values. No placeholder text and no placeholder art.
 
-- **Use `@solus/ui` for every control.** A button is 32px tall, a row is 32px, the radius is 8px, and the hover wash, hairlines, and focus ring are the workspace's. Do not write your own button, input, or list row, and do not change a control's color, height, or radius with `className`. When the app needs a control that is not there, add it to your own file in the same style.
-- **Do not draw the app's name.** Solus shows the name, the version, and the menu above the window. Start with your navigation or your content. A `Toolbar` names the open view ("All notes"), not the app.
-- **Text is 14px (`text-sm`, the default). Secondary text is 12px (`text-xs text-muted-foreground`).** A view title is `text-sm font-medium`. Use nothing larger, and no heading scale, no hero, no marketing copy.
-- **Color comes from the tokens:** `bg-background`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-muted` (the hover wash), `bg-sidebar`, `bg-primary` (one solid button in a view, for its main action). No gradient, no shadow on a panel, no card inside a card, no colored panel backgrounds.
-- **Layout is panes, not a page.** `h-dvh` root, a `Sidebar` for navigation when there is more than one view, a `Toolbar` over each view, and content that scrolls under it. Split with hairlines (`border-border`), not with boxes and gaps. A form is a narrow column of `Field`s in the view, not a centered card.
-- **Density is the workspace's.** Padding inside a view is `p-2` or `p-3`. A list is rows of 32px with `hover:bg-muted`, not cards. A table uses `Table`, `Th`, `Tr`, `Td`.
-- **States are quiet.** `Empty` for nothing to show, with the one thing to do next. `Notice tone="danger"` for an error, with a way to try again. No spinner that fills the window: keep the last data on screen while a query runs.
-- Icons are inline SVG at 16px, in the text color. Motion is a color transition only.
+Write the controls the app needs as its own components, in its own style. Native elements (`<button>`, `<input>`, `<select>`, `<dialog>`) with your classes are enough; add a component library only when the app needs what it has.
 
-In `rem`, a size here is the size Solus's own controls have (the root is 16px), so the Tailwind scale means what it means in Solus: `h-8` is 32px and `text-sm` is 14px.
+When the session has a design skill, use it for the UI. The rules of this chapter about the window, the pages, and the sandbox still apply.
+
+Solus draws a thin bar above the window with the app's name, its menu, and close. Do not draw a second window bar. Versions, secrets, schedules, and webhooks are in that menu, and the app cannot open it: where the app needs a secret, say which one to set there.
+
+The root is 16px, so a size in `rem` (every Tailwind size) is what it says: `h-8` is 32px and `text-sm` is 14px.
 
 ### The app's window
 
@@ -213,7 +219,7 @@ A visual in a reply is a document: it is as tall as its content and has no shell
 - On desktop and web the window is all of the pane the app opens in. On a phone it opens full screen.
 - Fill it. Give the root `min-h-dvh` or `h-dvh`, and build the shell the app needs: a sidebar, a header, a toolbar, a footer that stays in place. Let the content region scroll (`overflow-auto`), or let the page scroll. `100vh` and `100dvh` are the window here, so the main file's rule against them does not apply to an app.
 - The window can be 360px wide or 1400px wide. Design both: a sidebar that becomes a top bar or a menu, a table that scrolls sideways. Use container queries or wrapping layouts.
-- The app has its own navigation, and no title bar of its own: Solus draws the app's name above the window. The tokens follow light and dark mode.
+- The app has its own navigation and its own identity. The theme tokens follow light and dark mode.
 
 ### Pages
 
@@ -228,7 +234,8 @@ An app with more than one screen has pages. The whole UI is one built file, so t
 
 `preview_app` opens the UI in a window 800px tall, at the width you ask for (1100px by default), answers its calls, and takes a picture of the window. `route` opens one page. Nothing is deployed, and it needs no approval.
 
-- Operations run for real, against a new, empty database with the project's migrations. So the first picture shows the empty state. To see the app with data, check the empty state first, then deploy; from your next turn each operation is a tool you can call.
+- Operations run for real, against a new, empty database with the project's migrations. So the first picture shows the state of a first open. Sample rows that a migration adds are there; the user's own data is not. To see the app with real data, deploy; from your next turn each operation is a tool you can call.
+- A preview is a picture of one route. It does not click or type. Give each state that matters a route (a page, a tab, an open detail view) so that you can check it, and say which behavior you did not check.
 - A secret is not set in a preview, and an integration is not called. Design those states from the known shapes, and say that the live view was not checked.
 - `storage` works in memory.
 
@@ -241,8 +248,8 @@ Try an operation's SQL before you deploy: `sqlite3` or `node:sqlite` in a scratc
 - When the receipt says a secret is not set, tell the user to set it in the app's menu, under Secrets.
 - When the receipt says the version did not start, the version before it still runs. Fix the cause and deploy again with `app: "<slug>"`.
 
-## Design for an app
+## Check the design
 
-The accessibility and motion rules of the main file apply. Its layout, type, and color rules are for a visual in a reply; for an app, "Look like a part of Solus" and "The app's window" replace them. Do not load a general design skill to restyle an app: an app takes the look of Solus.
+The accessibility and motion rules of the main file apply. Its layout, type, color, and icon rules are for a visual in a reply; for an app, "Design a product" and "The app's window" replace them.
 
-An app has more states than a visual, so check each one in a preview: first open with no data, loading, an error from an operation with a way to try again, a long list, every page, and a narrow window. Show real data; never put a hard-coded array where live data belongs.
+Look at each preview as the user will: would a person take this for a product that a team shipped? If it reads as a form, a debug view, or a default page, design it again before you deploy. Check each state in a preview: first open with no data, loading, an error from an operation with a way to try again, a long list, every page, a narrow window, and dark mode. Show real data; never put a hard-coded array where live data belongs.

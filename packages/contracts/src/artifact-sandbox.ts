@@ -300,8 +300,8 @@ function appCspMeta(network: readonly string[]): string {
 // what an app needs instead is a second stylesheet after it.
 const APP_WINDOW_STYLE = `<style>html{overflow:auto;scrollbar-width:thin;height:100%}body{min-height:100%}</style>`;
 
-// An app is a part of Solus, not a render in a reply, so its frame draws with
-// the workspace's own chrome and not with the render palette: the hairlines,
+// An app sits in a pane of the workspace, so the neutral tokens of its frame
+// are the workspace's own chrome and not the render palette: the hairlines,
 // the hover wash, the focus ring, the solid button, the sidebar, and the
 // radius are the ones of `workspace.css` (`--border`, `--muted`, `--ring`,
 // `--primary`, `--sidebar`, `--radius`). The root is 16px, as the workspace's
