@@ -32,3 +32,11 @@ export type SignInEnd = 'approved' | 'denied' | 'cancelled' | 'error'
 
 /** How one device-grant sign-in (the CLI) ended: a code can also expire. */
 export type DeviceSignInEnd = SignInEnd | 'expired'
+
+/**
+ * How creating a managed host ended. A refused create names the `/v1` error code;
+ * `code` is null when Solus Cloud did not answer, which does not prove that no host was made.
+ */
+export type CreateManagedHostOutcome =
+  | { ok: true; hostId: string }
+  | { ok: false; code: string | null; message: string | null }

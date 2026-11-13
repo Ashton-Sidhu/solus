@@ -73,6 +73,7 @@ export { hosts, type Host } from './hosts/hosts.svelte'
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'
+export { managedHostsStore } from './connections/managed-hosts.store.svelte'
 export {
   compareNearbyHosts,
   discoveredServerUrl,
@@ -126,3 +127,4 @@ export type { AtlassianConnectFailure } from './atlassian/atlassian.store.svelte
 export type { DiscoveryFilterInput, NearbyHost } from './connections/discovery'
 export type { HostAffinityGlyph, HostAffinityTarget } from './connections/host-affinity'
 export type { AddHostMode, ServerItem, UnknownRemoteHost } from './connections/servers.store.svelte'
+export type { ManagedHostAction } from './connections/managed-hosts.store.svelte'

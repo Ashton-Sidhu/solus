@@ -8,6 +8,7 @@ import {
   type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
 import type { SeatProvider } from '@solus/contracts/seats'
+import type { CreateManagedHostOutcome } from '@solus/contracts/account-types'
 import type { AccountSettingsResponse } from '@solus/contracts/settings'
 import { VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
 import type { WebTokenSession } from './web-token-session'
@@ -59,13 +60,33 @@ export interface CloudAccount {
   readonly consoleUrl: string
 }
 
-/**
- * A refused create names the `/v1` error code; `code` is null when Solus Cloud did
- * not answer, which does not prove that no host was made.
- */
-export type CreateManagedHostOutcome =
-  | { ok: true; hostId: string }
-  | { ok: false; code: string | null; message: string | null }
+/** The `POST /v1/hosts` body: a label or spec left out is Solus Cloud's default. */
+export function createManagedHostBody(
+  organizationId: string,
+  options: { label?: string; spec?: ManagedHostSpecRequest } = {},
+): CreateManagedHostRequest {
+  const { label, spec } = options
+  const body: CreateManagedHostRequest = { organizationId }
+  if (label) body.label = label
+  if (spec && Object.keys(spec).length > 0) body.spec = spec
+  return body
+}
+
+/** Decodes the `POST /v1/hosts` answer; a null response is one that never came. */
+export async function createManagedHostOutcome(response: Response | null): Promise<CreateManagedHostOutcome> {
+  if (!response) return { ok: false, code: null, message: null }
+  const answer = await response.json().catch(() => null)
+  if (!response.ok) {
+    const refusal = uplinkErrorBodySchema.safeParse(answer)
+    return refusal.success
+      ? { ok: false, code: refusal.data.error, message: refusal.data.message ?? null }
+      : { ok: false, code: `http_${response.status}`, message: null }
+  }
+  const parsed = createManagedHostResponseSchema.safeParse(answer)
+  return parsed.success
+    ? { ok: true, hostId: parsed.data.hostId }
+    : { ok: false, code: 'invalid_response', message: null }
+}
 
 /** One agent seat login in the account vault. A seat whose CLI was signed out is not connected. */
 export interface CloudAgentSeat {
@@ -118,25 +139,7 @@ export function webCloudAccount(origin: string, session: CloudAccountSession, fe
       return !!response?.ok
     },
     async createManagedHost(organizationId, options = {}) {
-      const { label, spec } = options
-      const body: CreateManagedHostRequest = {
-        organizationId,
-        ...(label ? { label } : {}),
-        ...(spec && Object.keys(spec).length > 0 ? { spec } : {}),
-      }
-      const response = await call('/v1/hosts', { method: 'POST', body })
-      if (!response) return { ok: false, code: null, message: null }
-      const answer = await response.json().catch(() => null)
-      if (!response.ok) {
-        const refusal = uplinkErrorBodySchema.safeParse(answer)
-        return refusal.success
-          ? { ok: false, code: refusal.data.error, message: refusal.data.message ?? null }
-          : { ok: false, code: `http_${response.status}`, message: null }
-      }
-      const parsed = createManagedHostResponseSchema.safeParse(answer)
-      return parsed.success
-        ? { ok: true, hostId: parsed.data.hostId }
-        : { ok: false, code: 'invalid_response', message: null }
+      return createManagedHostOutcome(await call('/v1/hosts', { method: 'POST', body: createManagedHostBody(organizationId, options) }))
     },
     async shareHost(hostId, organizationId, enabled) {
       const host = encodeURIComponent(hostId)
