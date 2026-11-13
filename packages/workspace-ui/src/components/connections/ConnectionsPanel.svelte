@@ -1,10 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  /** Hosts is two pages: the list of hosts, and one host. Everything about how
-   *  one host is reached — its network, pairing, devices, and Solus Cloud link —
-   *  is on that host's page, so the list stays a list. */
+  /** Hosts is three pages: the fleet, one host, and Add a machine
+   *  (docs/plans/host-fleet.md). Everything about how one host is reached — its
+   *  network, pairing, devices, and Solus Cloud link — is on that host's page. */
   import { connectionsStore, serversStore } from "../../contexts";
-  import HostDirectory from "../servers/HostDirectory.svelte";
+  import AddMachinePage from "../fleet/AddMachinePage.svelte";
+  import FleetView from "../fleet/FleetView.svelte";
   import HostDetail from "./HostDetail.svelte";
   import { connectionsNav } from "./connections-nav.svelte";
 
@@ -27,8 +28,10 @@
   });
 </script>
 
-{#if host}
+{#if connectionsNav.isAdding}
+  <AddMachinePage />
+{:else if host}
   <HostDetail {host} />
 {:else}
-  <HostDirectory />
+  <FleetView />
 {/if}

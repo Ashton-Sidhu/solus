@@ -413,7 +413,7 @@
   }
 
   function goBack() {
-    if (session.settingsTab === "api-access" && connectionsNav.hostId) {
+    if (session.settingsTab === "api-access" && connectionsNav.isOnPage) {
       connectionsNav.back();
       return;
     }
@@ -441,11 +441,13 @@
   // Hosts is the one tab with a page under it, so the crumb trail grows a
   // third step. The host page draws its own header.
   const openHostLabel = $derived(
-    session.settingsTab === "api-access" && connectionsNav.hostId
-      ? (serversStore.servers.find(
-          (server) => server.id === connectionsNav.hostId,
-        )?.label ?? null)
-      : null,
+    session.settingsTab !== "api-access" ? null
+      : connectionsNav.isAdding ? "Add a machine"
+        : connectionsNav.hostId
+          ? (serversStore.servers.find(
+              (server) => server.id === connectionsNav.hostId,
+            )?.label ?? null)
+          : null,
   );
 
   function selectProjectScope(projectCwd: string | null) {

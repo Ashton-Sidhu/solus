@@ -1,6 +1,6 @@
 # Host fleet: one map of every machine, one host page, one way to add
 
-Status: proposed, 2026-11-13. Not built.
+Status: built for desktop and web on `solus/host-fleet`, 2026-11-13. Mobile follows (D10).
 
 Mockup: the Solus work "Hosts fleet mockup" (`2fc8211f-8b2d-4802-a88c-000f2c5d77d6`).
 Where this text and the mockup differ, this text wins.
@@ -28,7 +28,7 @@ Solus Cloud machines, and machines an organization shares with them.
 |---|---|
 | **fleet view** | Settings → Hosts. It has two views: **Map** (default) and **List**. |
 | **map** | The picture of how this device reaches each host. |
-| **zone** | One region of the map for one kind of route: Local network, SSH, Solus Cloud, and one zone for each organization that shares hosts. |
+| **zone** | One region of the map for one kind of route: Your machines (local network, Tailscale, or the tunnel), SSH and WSL (forwarded), Solus Cloud, and Shared with you. Inside a zone, cloud machines group by organization and shared hosts by owner. |
 | **route** | How this device reaches a host. This is the existing `HostRoute` (`docs/plans/host-routes.md`); the map draws it, it does not add a new concept. |
 | **tile** | One small square for one host, used when a zone has more hosts than cards fit. |
 | **found machine** | A machine that a Discover source sees and that the person has not added. |
@@ -52,12 +52,19 @@ Every host has the same page: header, the four numbers (CPU, memory, sessions,
 latency), the six existing tabs, and on Overview: Running here, Machine,
 Readiness, Danger zone. Only the actions a host supports change:
 
-| Host | Header actions | Machine rows | Danger zone |
-|---|---|---|---|
-| Solus Cloud | Start or Stop, New session | Size (with Resize in place), Region, Disk, System, Connection, Solus | Delete (ends the machine and its disk) |
-| This device | Restart Solus, New session | System, Solus | Forget |
-| Local network, SSH, WSL | Restart Solus, New session | System, Connection, Solus | Forget |
-| Shared by an organization | New session | Owner, System, Connection, Solus | Remove from your hosts |
+| Host | Header actions | Danger zone |
+|---|---|---|
+| Solus Cloud | Start, or Restart and Stop; New session | Delete (ends the machine and its disk) |
+| This device | New session | none |
+| Your machines, SSH, WSL | New session | Forget |
+| Shared by an organization | New session | Remove from your hosts |
+
+The Machine section (Solus version and update, Reachable with Test, Address) and
+the Readiness section are the same for every host.
+
+A cloud machine's size is fixed when it is made: `PATCH /v1/hosts/:hostId/spec`
+changes only its packages and setup script, so the host page offers no Resize.
+No RPC restarts Solus on a host, so a host you own has no Restart.
 
 The existing tab components (`HostDetailResources`, `HostDetailAccess`,
 `HostDetailGit`, `HostDetailProviders`, `HostDetailEnvironment`) keep their
@@ -186,16 +193,17 @@ the account session:
 |---|---|
 | `POST /v1/hosts/:hostId/stop` | `stopManagedHost` |
 | `POST /v1/hosts/:hostId/restart` | `restartManagedHost` |
-| `PATCH /v1/hosts/:hostId/spec` | `updateManagedHostSpec` |
+| `PATCH /v1/hosts/:hostId/spec` | `updateManagedHostSpec` (packages and setup script; the size is fixed) |
 | `DELETE /v1/hosts/:hostId/machine` | `deleteManagedHost` |
 
 `DELETE /v1/hosts/:hostId` (`deleteHost`) only ends a registration. It does not
 remove a cloud machine. "Delete" on a cloud host page calls the machine route;
 "Forget" on any other host keeps today's behavior.
 
-Clients add `stopManagedHost`, `restartManagedHost`, `resizeManagedHost`, and
-`deleteManagedHost` beside `startManagedHost` in `client-core/uplink-session.ts`,
-and the desktop native bridge.
+Every account source (web at the account origin, desktop through the native
+bridge) gets create, stop, restart, spec change, machine delete, and the account
+read. The renderer reaches them through one store, `managedHostsStore`
+(`contexts/connections/managed-hosts.store.svelte.ts`).
 
 ### D10. Mobile follows in a second change
 
@@ -207,8 +215,10 @@ capability. This is a product decision of 2026-11-13, not an omission.
 
 - The web command palette gets "Add host" and "Find hosts nearby", which today only
   the desktop palette has.
-- "Add machine" gets `opt+A` on the Hosts page. The global keybindings
-  `global.add-server` and `global.find-hosts` keep no default key.
+- Both palettes and the keybindings `global.add-server` and `global.find-hosts`
+  run the same commands (`components/fleet/fleet-commands.ts`): "Add machine"
+  opens the Add page, "Find hosts nearby" opens the fleet and scans. The
+  keybindings keep no default key.
 
 ## Out of scope
 

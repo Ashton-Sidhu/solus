@@ -3,6 +3,7 @@ import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-
 import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
 
 import { hosts, serversStore } from "@solus/workspace-ui/contexts";
+import { fleetPaletteCommands } from "@solus/workspace-ui/components/fleet/fleet-commands";
 import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store.svelte";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
@@ -445,7 +446,9 @@ export function installDesktopKeybindings(
       }),
     );
   });
-  useKeybinding("global.add-server", () => serversStore.openAddServer());
+  // The same commands the palette runs (docs/plans/host-fleet.md D11).
+  const [addMachine, findHosts] = fleetPaletteCommands(() => session.showSettings("api-access", "keybinding"));
+  useKeybinding("global.add-server", () => addMachine?.run?.());
   useKeybinding(
     "global.switch-organization",
     () => actions.openCommandPalette({ id: "switch-organization", title: "Switch organization" }),
@@ -453,10 +456,7 @@ export function installDesktopKeybindings(
       enabled: () => paletteAvailable && serversStore.organizations.length > 0,
     },
   );
-  useKeybinding("global.find-hosts", () => {
-    session.showSettings("api-access", "keybinding");
-    void serversStore.scanForServers();
-  });
+  useKeybinding("global.find-hosts", () => findHosts?.run?.());
   useKeybinding("global.check-for-updates", () => void checkAllUpdates(), {
     enabled: () => updatesStore.isAvailable,
   });
