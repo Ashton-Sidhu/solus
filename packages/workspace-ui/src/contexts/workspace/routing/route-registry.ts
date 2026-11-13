@@ -115,7 +115,8 @@ export interface RouteParams {
   /** `webhooks` is the Webhooks page's view (its filters and the open webhook),
    *  as query text, so a link opens the same view (docs/plans/webhooks.md §4). */
   settings: { tab?: SettingsTab; projectCwd?: string; webhooks?: string }
-  folio: Record<string, never>
+  /** `tab` names the group the page opens on; absent, the page keeps its own choice. */
+  folio: { tab?: 'apps' }
   automations: { automationId?: string }
   /** The notifications hub (plans/015): every source's notifications addressed to the person. */
   notifications: Record<string, never>
@@ -130,6 +131,10 @@ export interface RouteParams {
   /** What a session produced or linked, and what the sessions it started did.
    *  Names the session, as `goal` does, not the tab that opened it. */
   artifacts: { sessionId: string; serverId?: string }
+  /** One app on one host (docs/plans/apps.md §9). `slug` is the app's slug; an
+   *  app id resolves too, for a link that knows only the id. Without a host the
+   *  surface takes the first connected host that has the app. */
+  app: { slug: string; serverId?: string }
   /** The one surface for reading a local change: map, guide, and diff. `view`
    *  is which face is showing; `scope` is *which* change all three read. An
    *  absent scope is the branch review — the whole branch against its target,
@@ -391,8 +396,8 @@ export const ROUTES: RouteTable = {
     component: () => import('../../../components/settings/SettingsDialog.svelte'),
   },
   folio: {
-    parse: () => ({}),
-    serialize: () => '',
+    parse: (s) => (s === 'apps' ? { tab: 'apps' } : {}),
+    serialize: (p) => p.tab ?? '',
     placement: 'destination',
     // The workspace paints to the window's top edge and keeps one fixed header
     // position when the session sidebar changes.
@@ -471,6 +476,19 @@ export const ROUTES: RouteTable = {
     surfaceKey: (p) => p.sessionId,
     defaultWeight: 0.34,
     component: () => import('../../../components/session/artifacts/ArtifactsSurface.svelte'),
+  },
+  app: {
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      if (!id) return null
+      return serverId ? { slug: id, serverId } : { slug: id }
+    },
+    serialize: (p) => serializeScopedId(p.slug, p.serverId),
+    // The destination from the Workspace page or a link, a surface beside the
+    // conversation that deployed it.
+    placement: 'either',
+    defaultWeight: 0.5,
+    component: () => import('../../../components/app/AppSurface.svelte'),
   },
   review: {
     parse: (s) => {

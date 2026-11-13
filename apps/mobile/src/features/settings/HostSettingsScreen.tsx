@@ -166,6 +166,15 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               />
             </SettingsSection>
 
+            <SettingsSection title="Apps">
+              <SettingsRow
+                icon="square.grid.2x2"
+                label="Apps"
+                value="Programs on this host that an agent made for you"
+                onPress={() => navigation.navigate("Apps", { hostId })}
+              />
+            </SettingsSection>
+
             <View className="gap-3">
               <SettingsSection title="Solus">
                 <SettingsValueRow

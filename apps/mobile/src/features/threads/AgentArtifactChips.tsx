@@ -35,6 +35,7 @@ const CHIP_CLASS = {
   file: "bg-artifact-file-fill",
   image: "bg-artifact-image-fill",
   automation: "bg-artifact-automation-fill",
+  app: "bg-artifact-app-fill",
 } as const satisfies { readonly [tone in ArtifactChipTone]: string };
 
 const TEXT_CLASS = {
@@ -44,6 +45,7 @@ const TEXT_CLASS = {
   file: "text-artifact-file",
   image: "text-artifact-image",
   automation: "text-artifact-automation",
+  app: "text-artifact-app",
 } as const satisfies { readonly [tone in ArtifactChipTone]: string };
 
 const ICON_TINT = {
@@ -53,6 +55,7 @@ const ICON_TINT = {
   file: "accent-artifact-file",
   image: "accent-artifact-image",
   automation: "accent-artifact-automation",
+  app: "accent-artifact-app",
 } as const satisfies { readonly [tone in ArtifactChipTone]: string };
 
 const PR_STATE_TINT = {
@@ -70,6 +73,7 @@ const TONE_ICON = {
   file: "doc",
   image: "photo",
   automation: "clock",
+  app: "square.grid.2x2",
 } as const satisfies { readonly [tone in ArtifactChipTone]: AppSymbolName };
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;

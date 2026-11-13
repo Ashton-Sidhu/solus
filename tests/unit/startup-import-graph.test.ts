@@ -149,6 +149,14 @@ const DEFERRED_COMPONENTS = [
   'packages/workspace-ui/src/contexts/devices/devices.store.svelte.ts',
   'packages/workspace-ui/src/components/devices/lib/device-entry.ts',
   'packages/workspace-ui/src/components/settings/integrations.store.svelte.ts',
+  // An app's surface and its menu load when an app opens, and the apps store
+  // after the first paint (app-deploy-open.svelte.ts). Startup keeps only the
+  // rule that opens an app beside the conversation that deployed it.
+  'packages/workspace-ui/src/contexts/apps/apps.store.svelte.ts',
+  'packages/workspace-ui/src/components/app/AppSurface.svelte',
+  'packages/workspace-ui/src/components/app/AppMenuPanel.svelte',
+  'packages/workspace-ui/src/components/app/lib/app-view.ts',
+  'packages/workspace-ui/src/components/workspace/WorkspaceAppsTab.svelte',
   // The changed-file scan and the file icon set load beside the workspace.
   'packages/workspace-ui/src/lib/changedFiles.ts',
   'packages/client-core/src/file-icons.ts',

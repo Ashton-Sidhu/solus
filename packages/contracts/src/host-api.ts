@@ -30,7 +30,10 @@ import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, 
 import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
-import type { AppCallRequest, AppHostAccessDecision, AppRequest, AppState, AppToolRequest } from './apps'
+import type {
+  AppCallRequest, AppCallsRequest, AppCallView, AppRequest, AppScheduleRequest, AppScheduleSetRequest, AppScheduleView, AppSecretSetRequest,
+  AppSessionLink, AppState, AppSummary, AppUi, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookView,
+} from './apps'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
@@ -495,14 +498,36 @@ export interface SolusAPI {
   mcpAppCallTool(request: McpAppCallRequest): Promise<string>
   /** Reads a resource of the app's integration with the caller's connection. Returns the result as JSON. */
   mcpAppReadResource(request: McpAppResourceRequest): Promise<string>
-  /** Apps (docs/plans/apps.md): what an artifact with an app manifest needs to run and to show its header: its roles, permissions, host access, and the network hosts in force, in the caller's scope. Fails for an artifact that is not an app. */
+  /** Apps (docs/plans/apps.md): the apps of this host that the caller may use. */
+  appList(): Promise<AppSummary[]>
+  /** What a client needs to show one app: its header and the policy of its frame. `appId` is an id or a slug. */
   appRead(request: AppRequest): Promise<AppState>
-  /** Whether the app may make a call now: an integration tool with the caller's own integration, its storage, or one of its host functions. */
-  appToolInfo(request: AppToolRequest): Promise<McpAppToolInfo>
-  /** Runs one call for the app as the caller; an integration write needs `approved`. Answers the result as JSON text. */
-  appCallTool(request: AppCallRequest): Promise<string>
-  /** The host's owner allows what the app asks of the host, or revokes it. */
-  appHostAccessDecide(request: AppHostAccessDecision): Promise<AppState>
+  /** The UI of the active version; null when the app has none. */
+  appUi(request: AppRequest): Promise<AppUi | null>
+  /** Runs one call for the app's UI as the caller: an operation, its storage, or an integration tool. Answers the result as JSON text. */
+  appCall(request: AppCallRequest): Promise<string>
+  /** Stops the app: no operation runs and no schedule fires until `appStart`. */
+  appStop(request: AppRequest): Promise<AppState>
+  appStart(request: AppRequest): Promise<AppState>
+  /** Deletes the app with its repository, its data, its schedules, its secrets, and its webhooks. */
+  appDelete(request: AppRequest): Promise<boolean>
+  appVersions(request: AppRequest): Promise<AppVersionView[]>
+  /** The source change of one version against the version before it. */
+  appVersionDiff(request: AppVersionRequest): Promise<AppVersionDiff>
+  /** Makes an earlier version active. It does not rewind the app's data. */
+  appActivate(request: AppVersionRequest): Promise<AppState>
+  appSchedules(request: AppRequest): Promise<AppScheduleView[]>
+  appScheduleSet(request: AppScheduleSetRequest): Promise<AppScheduleView[]>
+  /** Runs a schedule's mutation now. */
+  appScheduleRun(request: AppScheduleRequest): Promise<AppScheduleView[]>
+  /** Sets or clears one secret. The value is never read back. */
+  appSecretSet(request: AppSecretSetRequest): Promise<AppState>
+  /** The app's webhooks with their URLs and signing secrets, for its owner. */
+  appWebhooks(request: AppRequest): Promise<AppWebhookView[]>
+  /** The newest calls of the call log. */
+  appCalls(request: AppCallsRequest): Promise<AppCallView[]>
+  /** The sessions linked to the app. */
+  appSessions(request: AppRequest): Promise<AppSessionLink[]>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
   /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */

@@ -8,10 +8,10 @@ import type { SessionPullRequestLink } from '@solus/contracts/session-pull-reque
  * total per kind on a folded group. Desktop, web, and the phone draw the same
  * chips from this model.
  *
- * The tone is the type, except for a pull request: its chip is plain, and its
+ * The tone is the type (an app has its own), except for a pull request: its chip is plain, and its
  * icon takes the colour of its state.
  */
-export type ArtifactChipTone = 'pull-request' | 'written' | 'drawn' | 'file' | 'image' | 'automation'
+export type ArtifactChipTone = 'pull-request' | 'written' | 'drawn' | 'file' | 'image' | 'automation' | 'app'
 
 /** What PR sync last saw; null until it first answers. */
 export type PullRequestChipState = 'open' | 'draft' | 'merged' | 'closed' | 'missing'
@@ -43,7 +43,7 @@ export interface CardChips {
 /** Chips a card shows before it counts the rest as `+N`. */
 export const MAX_CARD_CHIPS = 4
 
-const KIND_ORDER: readonly SessionArtifactKind[] = ['pull-request', 'work', 'file', 'image', 'automation']
+const KIND_ORDER: readonly SessionArtifactKind[] = ['pull-request', 'work', 'app', 'file', 'image', 'automation']
 
 const KIND_NOUN = {
   'pull-request': ['PR', 'PRs'],
@@ -51,6 +51,7 @@ const KIND_NOUN = {
   file: ['file', 'files'],
   image: ['image', 'images'],
   automation: ['automation', 'automations'],
+  app: ['app', 'apps'],
 } as const satisfies { [Kind in SessionArtifactKind]: readonly [string, string] }
 
 const STATE_NOTE = {
@@ -80,6 +81,7 @@ function toneOf(artifact: SessionArtifact): ArtifactChipTone {
     case 'file':
     case 'image':
     case 'automation':
+    case 'app':
       return artifact.kind
   }
 }
@@ -101,6 +103,7 @@ export function artifactChip(artifact: SessionArtifact): ArtifactChip {
       return { tone: artifact.kind, label: hostPathBaseName(artifact.path) || artifact.title, note: null, pullRequestState: null, artifact }
     case 'work':
     case 'automation':
+    case 'app':
       return { tone: toneOf(artifact), label: artifact.title || 'Untitled', note: null, pullRequestState: null, artifact }
   }
 }

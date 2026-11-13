@@ -104,6 +104,13 @@ const LEGACY_THEME_VARS = [
   '--solus-art-6',
   '--solus-art-positive',
   '--solus-art-negative',
+  // The workspace's own chrome: an app frame draws with these (APP_NATIVE_STYLE).
+  '--solus-surface-hover',
+  '--solus-container-border',
+  '--solus-input-border',
+  '--solus-input-focus-border',
+  '--solus-stop-bg',
+  '--solus-sidebar-bg',
 ] as const;
 
 
@@ -168,6 +175,12 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-accent-border-medium': 'rgba(217, 119, 87, 0.25)',
     '--solus-tool-border': '#dddad2',
     '--solus-art-2': '#f59e0b',
+    '--solus-surface-hover': 'color-mix(in oklch, var(--foreground) 6%, transparent)',
+    '--solus-container-border': '#d2cfc5',
+    '--solus-input-border': '#dddad2',
+    '--solus-input-focus-border': 'rgba(217, 119, 87, 0.45)',
+    '--solus-stop-bg': '#ef4444',
+    '--solus-sidebar-bg': '#f9f8f4',
   },
   dark: {
     '--solus-container-bg': '#262522fa',
@@ -210,6 +223,12 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-accent-border-medium': '#e68e6b4d',
     '--solus-tool-border': '#ffffff1f',
     '--solus-art-2': '#fbbf24',
+    '--solus-surface-hover': 'color-mix(in oklch, var(--foreground) 6%, transparent)',
+    '--solus-container-border': '#ffffff20',
+    '--solus-input-border': '#ffffff1f',
+    '--solus-input-focus-border': 'rgba(217, 119, 87, 0.45)',
+    '--solus-stop-bg': '#ef4444',
+    '--solus-sidebar-bg': '#262522',
   },
 } as const satisfies Record<'light' | 'dark', Record<SolusThemeVariable, string>>
 
@@ -281,14 +300,27 @@ function appCspMeta(network: readonly string[]): string {
 // what an app needs instead is a second stylesheet after it.
 const APP_WINDOW_STYLE = `<style>html{overflow:auto;scrollbar-width:thin;height:100%}body{min-height:100%}</style>`;
 
+// An app is a part of Solus, not a render in a reply, so its frame draws with
+// the workspace's own chrome and not with the render palette: the hairlines,
+// the hover wash, the focus ring, the solid button, the sidebar, and the
+// radius are the ones of `workspace.css` (`--border`, `--muted`, `--ring`,
+// `--primary`, `--sidebar`, `--radius`). The root is 16px, as the workspace's
+// is, so a size in `rem` (every Tailwind size) is the size the workspace's own
+// controls have: a 2rem button is 32px here and there. The body keeps the
+// workspace's 14px text. It comes after the theme stylesheet, which a theme
+// change replaces, and reads the same variables, so it follows the theme.
+const APP_NATIVE_STYLE = `<style>:root{--muted:var(--solus-surface-hover);--muted-foreground:var(--solus-text-tertiary);--primary:var(--solus-accent);--primary-foreground:var(--brand-foreground);--secondary:var(--solus-accent-light);--secondary-foreground:var(--solus-accent);--accent:var(--solus-surface-hover);--accent-foreground:var(--solus-text-primary);--destructive:var(--solus-stop-bg);--border:var(--solus-container-border);--input:var(--solus-input-border);--ring:var(--solus-input-focus-border);--sidebar:var(--solus-sidebar-bg);--sidebar-accent:var(--solus-surface-hover);--sidebar-border:var(--solus-container-border);--radius:0.5rem}html{font-size:16px}body{font-size:0.875rem;line-height:1.1875rem}</style>`;
+
 // The one function an app's page reaches its host through. The project's
 // `@solus/app` module is a typed face over it and holds no protocol, so the
 // transport can change without a rebuild of any app. In a frame it posts to
 // the parent; in a phone's web view, which has no parent, to the native side.
 // A host that renders the page with its own `solusApp` (a preview) keeps it.
+// The host also posts `{ type: "solus-app-event", event }` when the app's data
+// changed outside this page; `solusApp.on` gives each one to its listeners.
 const APP_BRIDGE = `<script>(function(){
   if (window.solusApp) return;
-  var pending = {}, next = 1, native = window.ReactNativeWebView;
+  var pending = {}, listeners = [], next = 1, native = window.ReactNativeWebView;
   function post(message){
     if (native) native.postMessage(JSON.stringify(message));
     else if (parent !== window) parent.postMessage(message, "*");
@@ -298,6 +330,10 @@ const APP_BRIDGE = `<script>(function(){
   window.addEventListener("message", function(event){
     var data = event.data;
     if (!native && event.source !== parent) return;
+    if (data && data.type === "solus-app-event") {
+      listeners.slice().forEach(function(listener){ try { listener(data.event); } catch (error) { console.error(error); } });
+      return;
+    }
     if (!data || data.type !== "solus-app-result") return;
     var call = pending[data.id];
     if (!call) return;
@@ -315,6 +351,10 @@ const APP_BRIDGE = `<script>(function(){
           reject(new Error("This page is not open in Solus, so the app cannot reach its host."));
         }
       });
+    },
+    on: function(listener){
+      listeners.push(listener);
+      return function(){ listeners = listeners.filter(function(kept){ return kept !== listener; }); };
     }
   };
 })();</script>`;
@@ -502,12 +542,12 @@ export function wrapSandboxDocument(inner: string, themeCss: string, isolated = 
   // expect. A render keeps the mode it always had: pages in saved works and
   // transcripts were written against it.
   const doctype = isApp ? "<!doctype html>" : "";
-  const appParts = isApp ? APP_WINDOW_STYLE + APP_BRIDGE : "";
+  const appParts = isApp ? APP_WINDOW_STYLE + APP_NATIVE_STYLE + APP_BRIDGE : "";
   return `${doctype}<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${appParts}${inner}`;
 }
 
 /** What makes a frame an app's frame: the network hosts in force for it. A
- *  caller passes it only for a page that has an app manifest. */
+ *  caller passes it only for the UI of an app (docs/plans/apps.md §9). */
 export interface SandboxAppFrame {
   network: readonly string[];
 }

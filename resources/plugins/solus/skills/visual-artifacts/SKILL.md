@@ -1,6 +1,6 @@
 ---
 name: visual-artifacts
-description: Build visual HTML artifacts and apps that live in Solus with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, preview, and save as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools, and for an app, a tool, a tracker, or a browser for the user's data that keeps its own data, runs its own code on the host, or uses the user's connected integrations. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
+description: Build visual HTML artifacts and apps that live in Solus with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, preview, and save as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools, and for an app: a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook, with a backend on the host, its own data, and operations that agents can call. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
 ---
 
 # Visual artifacts
@@ -11,7 +11,7 @@ Build a useful visual result, not a website around an answer. Start with what th
 
 The deliverable is a portable Solus work with a stable identity, native theme integration, version-checked revisions, reusable document embeds, and explicit access controls. The temporary React project is its build input, not a separate deployed app.
 
-**An app is a full application built the same way.** When the user asks for something they keep and use, such as a tracker, a tool, or a browser for their data, build it here and make it an app. An app has its own window, as many pages as it needs, and a host behind it: it keeps its own data, can run its own code on the host (a database, files, any Node package), and can use the user's connected integrations. Read [apps](references/apps.md) before you write one. The project, the build, the design guidelines, and the verification in this file apply to an app. The frame rules for a visual in a reply (content height, no page shell, no title) do not: an app lays out its own window.
+**An app is a full application built the same way.** When the user asks for something they keep and use, such as a tracker, a tool, a browser for their data, or a job that runs on a schedule or a webhook, build it here and make it an app. An app is not a work: it is a program on the host with a backend (`app.ts`: typed queries and mutations, schedules, webhooks, secrets), its own SQLite data, and a UI in its own window with as many pages as it needs. Its operations are also tools for agents. Read [apps](references/apps.md) before you write one, and deliver it with `deploy_app`, not `render_artifact`. The project, the UI build, the design guidelines, and the verification in this file apply to an app's UI. The frame rules for a visual in a reply (content height, no page shell, no title) do not: an app lays out its own window.
 
 ## Quick start
 
@@ -97,7 +97,7 @@ Include reset and meaningful presets where useful. Derive preview and output fro
 ## Sandbox contract
 
 - One complete HTML document, no raw JSX, TypeScript, unresolved imports, local paths, or development URLs.
-- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app is the one exception: it has storage, host functions, and integrations through `@solus/app` ([apps](references/apps.md)), and no network but the hosts it names.
+- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app's UI is the one exception: it has its backend's operations, storage, and integrations through `@solus/app` ([apps](references/apps.md)), and no network but the hosts it names.
 - Inline scripts and styles work. The build includes local assets and dependencies. Ordinary renders permit absolute HTTPS resources, but isolated review renders can block all network access.
 - HTTPS fetch/XHR still needs target CORS support for an opaque origin. Prefer session data inlined at build time; live data needs loading, error, source, and refresh states. Do not disguise a snapshot as live.
 - Never embed credentials or send private data to external services. Artifact creation is not permission for uploads or external writes.

@@ -75,8 +75,14 @@ import { registerIntegrationHandlers } from './transport/handlers/integration-ha
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
 import { registerAppHandlers } from './transport/handlers/app-handlers'
 import { Apps } from './apps/apps'
-import { AppFunctions } from './apps/app-functions'
+import { onAppDataChanged, onAppsChanged } from './apps/app-events'
+import { AppRepositories } from './apps/app-repository'
+import { AppRunners } from './apps/app-runners'
+import { AppSchedules } from './apps/app-schedules'
 import { AppStorage } from './apps/app-storage'
+import { AppWebhooks, webhookInput } from './apps/app-webhooks'
+import { failInterruptedCalls } from './data/apps/app-store'
+import { unlinkAppFromSessions } from './data/sessions/session-links'
 import { useAppsForTools } from './execution/agents/tools/app-tools'
 import { IntegrationApps } from './integrations/mcp-apps'
 import { ClaudeAppProcesses, useClaudeAppCapture } from './execution/agents/claude/claude-mcp-apps'
@@ -776,14 +782,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
-  // Apps (docs/plans/apps.md): an artifact with an app manifest. An app's
-  // integration calls go through the gateway; its host functions run in its own runner.
-  const appFunctions = new AppFunctions()
-  const apps = new Apps(integrationGateway, integrations, new AppStorage(), appFunctions)
-  registerAppHandlers(server, apps)
+  // Apps (docs/plans/apps.md): a backend on this host with its own data. An app's
+  // integration calls go through the gateway; its operations run in its own runner.
+  const appRunners = new AppRunners()
+  const apps = new Apps({ gateway: integrationGateway, integrations, storage: new AppStorage(), runners: appRunners, repositories: new AppRepositories() })
+  const appSchedules = new AppSchedules(apps)
+  apps.addLifecyclePart(appSchedules)
+  // A deleted app leaves no session linked to it.
+  apps.addLifecyclePart({ activated: async () => {}, removed: (app) => unlinkAppFromSessions(app.id) })
   useAppsForTools(apps)
-  // A deleted app's runner stops and its data on this host goes with it.
-  domainEventUnsubscribes.push(onWorkDeleted(async (change) => async () => { await apps.forget(change.workId); return 0 }))
+  domainEventUnsubscribes.push(
+    onAppsChanged((event) => events.broadcast('apps.changed', event)),
+    onAppDataChanged((event) => events.broadcast('apps.dataChanged', event)),
+  )
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
@@ -1122,6 +1133,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   orchestrator.recover()
   if (interruptedSessions) orchestrator.reportChildrenInterruptedByRestart(interruptedSessions)
   startAutomationScheduler()
+  // A call that was running when the host last stopped did not finish; then the app schedules start.
+  void failInterruptedCalls(Date.now()).catch((err) => log.warn('app_calls_recovery_failed', { error: err instanceof Error ? err.message : String(err) })).then(() => appSchedules.start())
   // A policy with `updates.mode: off` manages this host's updates (plans/030 §6.8).
   const assertUpdatesAllowed = () => {
     const rule = hostPolicies().hostSetting('updates')
@@ -1482,7 +1495,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     isPausedByAdmin: (webhookId: string) => hostOrganizations.isWebhookPausedByAdmin(webhookId),
     organizationRefusal: (organizationId: string, work: { unverified: boolean }) => unattendedOrganizationRefusal(hostOrganizations.organization(organizationId)?.hostRules ?? null, hostPolicies().forWork(organizationId), work.unverified)?.message ?? null,
   }
-  const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
+  // A webhook's `call_app` action runs an app mutation as the app's owner (docs/plans/apps.md §8).
+  const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts, async ({ appId, operation, data, webhookId }) => {
+    await apps.callOperation(appId, operation, webhookInput(data), { kind: 'webhook', webhookId }, null)
+  })
   const webhookService = createWebhookService({
     ...webhookFacts,
     urls: {
@@ -1509,6 +1525,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }),
   )
   setWebhookToolServices({ webhooks: webhookService, actions: webhooks.actions })
+  // The webhooks an app declares are ordinary webhook records, made when a version becomes active.
+  const appWebhooks = new AppWebhooks(apps, webhookService)
+  apps.addLifecyclePart(appWebhooks)
+  registerAppHandlers(server, apps, appSchedules, appWebhooks)
   registerWebhookHandlers(server, {
     actions: webhooks.actions,
     webhooks: webhookService,
@@ -1941,6 +1961,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         remoteHosts.close()
         forwardedHosts.closeAll()
         stopAutomationScheduler()
+        appSchedules.stop()
         stopMetricsRollover()
         prSync.stop()
         prWatcher.stop()
@@ -1951,7 +1972,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopSupervisor?.()
         codeIntel.dispose()
         await claudeAppProcesses.closeAll()
-        appFunctions.dispose()
+        appRunners.dispose()
         devices.runs.dispose()
         await devices.manager.dispose()
         await devices.bridge.stop()

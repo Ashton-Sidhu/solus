@@ -33,7 +33,7 @@ export const THEME_COLOR_ROLES = [
   'sidebarMutedForeground', 'sidebarControlSurface', 'sidebarRowHover', 'sidebarRowActive',
   'sidebarRowSelected', 'sidebarBorder', 'terminalBackground', 'terminalForeground',
   'terminalCursor', 'terminalSelection', 'terminalScrollbar', 'terminalScrollbarHover',
-  'composerSurface', 'green', 'amber', 'blue', 'purple', 'red', 'teal', 'rose',
+  'composerSurface', 'green', 'amber', 'blue', 'purple', 'red', 'teal', 'rose', 'sky',
 ] as const
 
 export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number]
@@ -111,10 +111,12 @@ export const SOLUS_LIGHT_THEME_COLORS = {
   blue: '#1b4ed8',
   purple: '#9333ea',
   red: '#ef4444',
-  // The two art hues that are not states (--solus-art-4, --solus-art-1): the
-  // tints of written works and images on a session card's chips.
+  // The three art hues that are not states (--solus-art-4, --solus-art-1,
+  // --solus-art-7): the tints of written works, images, and apps on a session
+  // card's chips.
   teal: '#0d9488',
   rose: '#e11d48',
+  sky: '#0284c7',
 } as const satisfies ThemeColors
 
 export const SOLUS_DARK_THEME_COLORS = {
@@ -183,6 +185,7 @@ export const SOLUS_DARK_THEME_COLORS = {
   red: '#ef4444',
   teal: '#2dd4bf',
   rose: '#fb7185',
+  sky: '#38bdf8',
 } as const satisfies ThemeColors
 
 export function themeColorsFor(appearance: ThemeAppearance): ThemeColors {

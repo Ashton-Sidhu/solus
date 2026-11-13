@@ -132,16 +132,20 @@ status, pending input, and history. There is no separate task-session read tool.
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.
 
-`create_app` saves an app that lives in Solus (docs/plans/apps.md). An app is an
-artifact whose page has an app manifest: the agent builds it with the
-visual-artifacts skill, in a project that has an `app.json`, and passes the
-built `bundle.html` as `html_path`. The page builds with `storage` (its own
-data on the host), `fetch` (the hosts in its permissions), `server` (its own
-functions on the host), and `tools.<slug>.<tool>(args)` (the viewer's own
-integrations). `create_app` is `render_artifact` with an app check: it refuses
-a page with no manifest, its `preview: true` answers the page's calls, and its
-receipt says what host access the app waits for. The host's owner allows host
-access in the app's header. A revision is `update_work` with `html_path`.
+Apps (docs/apps.md) have four tools. `deploy_app` makes a version of an app
+from an app project: a visual-artifacts project with an `app.ts`, after
+`npm run bundle`. It takes the project folder as `path`, and `app` (a slug)
+for a new version of an app that exists. A deploy makes the version active and
+links the app to the calling session; it needs approval. `preview_app` deploys
+nothing and answers a picture of the project's UI; it needs no approval.
+`checkout_app` writes the source of a version
+into a folder, so a later session can change the app. `list_apps` lists the
+apps of the host with their operations.
+
+Each operation of a running app is also a tool, named `<slug>__<operation>`,
+in every run that starts after the deploy. A query and a mutation run with no
+approval of their own. `link`, `unlink`, and `list_links` take `kind: "app"`
+with the app's slug or id.
 
 Works includes `publish_work` and `pull_work_upstream` for connected document
 providers. Publish sends a work to Confluence or Google Docs and keeps the link.

@@ -39,7 +39,18 @@ export interface AutomationArtifact {
   linkedAt: number
 }
 
-export type SessionArtifact = PullRequestArtifact | WorkArtifact | FileArtifact | AutomationArtifact
+/** One app linked to the session (docs/plans/apps.md decision 18). */
+export interface AppArtifact {
+  kind: 'app'
+  hostId: string
+  appId: string
+  /** The app's slug: what its surface's address goes by. */
+  slug: string
+  title: string
+  linkedAt: number
+}
+
+export type SessionArtifact = PullRequestArtifact | WorkArtifact | FileArtifact | AutomationArtifact | AppArtifact
 export type SessionArtifactKind = SessionArtifact['kind']
 
 /** The artifacts of one session. A lead's list carries one group per session it started. */

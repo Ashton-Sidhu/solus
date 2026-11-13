@@ -14,11 +14,13 @@ import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { errorMessage } from "../settings/integrations";
+import { appNames } from "../apps/apps";
+import { useApps } from "../apps/use-apps";
 import { useWebhook, type DeliveryListState } from "./use-webhook";
 import { useHostWebhookSettings } from "./use-webhooks";
 import { PillButton, WebhookListRow, type RowLine } from "./webhook-rows";
 import {
-  actionTypeLabel,
+  actionText,
   isFailingOutcome,
   lostText,
   outcomeLabel,
@@ -83,7 +85,7 @@ export function WebhookScreen({ navigation, route }: ScreenProps<"Webhook">) {
                 hostSettings.isPersonalHost,
               )}
             />
-            <ActionsSection webhook={webhook.webhook} />
+            <ActionsSection hostId={hostId} webhook={webhook.webhook} />
             <DeliveriesSection
               webhook={webhook.webhook}
               deliveries={model.deliveries}
@@ -197,14 +199,30 @@ function UrlSection(props: {
   );
 }
 
-function ActionsSection(props: { readonly webhook: Webhook }) {
+const NO_APP_NAMES: ReadonlyMap<string, string> = new Map();
+
+/** The host's apps are read only for a webhook that calls one: the action names the app. */
+function ActionsSection(props: { readonly hostId: string; readonly webhook: Webhook }) {
+  return props.webhook.actions.some((action) => action.type === "call_app") ? (
+    <AppActionRows hostId={props.hostId} webhook={props.webhook} />
+  ) : (
+    <ActionRows webhook={props.webhook} appNames={NO_APP_NAMES} />
+  );
+}
+
+function AppActionRows(props: { readonly hostId: string; readonly webhook: Webhook }) {
+  const apps = useApps(props.hostId).hosts[0]?.list;
+  return <ActionRows webhook={props.webhook} appNames={appNames(apps?.kind === "loaded" ? apps.apps : [])} />;
+}
+
+function ActionRows(props: { readonly webhook: Webhook; readonly appNames: ReadonlyMap<string, string> }) {
   return (
     <SettingsSection title="Actions">
       {props.webhook.actions.map((action) => (
         <ListRowLayout
           key={action.id}
           icon="bolt.circle"
-          label={actionTypeLabel(action.type)}
+          label={actionText(action, props.appNames)}
           description={[
             action.enabled ? null : "Off",
             action.filters.length === 0

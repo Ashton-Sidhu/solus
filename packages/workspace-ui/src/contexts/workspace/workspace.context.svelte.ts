@@ -2254,6 +2254,17 @@ export class WorkspaceContext implements SurfaceContext {
     )
   }
 
+  /** Open one app (docs/plans/apps.md §9): beside the destination, or as the
+   *  destination. `slug` is the app's slug, or its id where only the id is known. */
+  openApp(serverId: string, slug: string, target: OpenTarget = 'companion'): void {
+    this.router.navigate({ name: 'app', params: { slug, serverId } }, { target })
+  }
+
+  /** The Workspace page on its Apps tab. */
+  openApps(via: Via = 'click'): void {
+    this.showPage({ name: 'folio', params: { tab: 'apps' } }, via, 'workspace')
+  }
+
   // ─── Reviews ───
 
   /** Open one view of the review pane. `scope` is the guide scope: a session

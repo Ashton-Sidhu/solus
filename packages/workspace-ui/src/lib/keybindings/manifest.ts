@@ -148,11 +148,12 @@ export const KEYBINDINGS = {
   // card, pinned, on the focused row. No hover state is ever required to reach
   // information.
   'workspace.peek':               { combo: { code: 'Space' },                              scope: 'workspace',          label: 'Peek',                     group: 'Workspace' },
-  // The three groups of the page, one key each: the reader's own works, the
-  // works shared with them, the sessions shared with them.
+  // The four groups of the page, one key each: the reader's own works, the
+  // works shared with them, the sessions shared with them, the apps.
   'workspace.tab-yours':          { combo: { alt: true, code: 'Digit1' },                  scope: 'workspace',          label: 'Your works',               group: 'Workspace' },
   'workspace.tab-shared-works':   { combo: { alt: true, code: 'Digit2' },                  scope: 'workspace',          label: 'Shared works',             group: 'Workspace' },
   'workspace.tab-shared-sessions':{ combo: { alt: true, code: 'Digit3' },                  scope: 'workspace',          label: 'Shared sessions',          group: 'Workspace' },
+  'workspace.tab-apps':           { combo: { alt: true, code: 'Digit4' },                  scope: 'workspace',          label: 'Apps',                     group: 'Workspace' },
 
   // ── Plan review ────────────────────────────────────────────────────────────
   'plan-review.approve-ask':      { combo: { alt: true, code: 'KeyY' },                    scope: 'plan-action-bar',    label: 'Approve (ask mode)',       group: 'Review' },

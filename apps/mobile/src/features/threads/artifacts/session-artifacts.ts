@@ -11,12 +11,13 @@ import { allSessionArtifacts, type SessionArtifact, type SessionArtifactKind, ty
 
 export type ArtifactFilter = 'all' | SessionArtifactKind
 
-const KIND_ORDER: readonly SessionArtifactKind[] = ['pull-request', 'work', 'file', 'image', 'automation']
+const KIND_ORDER: readonly SessionArtifactKind[] = ['pull-request', 'work', 'app', 'file', 'image', 'automation']
 
 const FILTER_LABEL = {
   all: 'All',
   'pull-request': 'PRs',
   work: 'Works',
+  app: 'Apps',
   file: 'Files',
   image: 'Images',
   automation: 'Automations',
@@ -25,6 +26,7 @@ const FILTER_LABEL = {
 const KIND_TITLE = {
   'pull-request': 'Pull requests',
   work: 'Works',
+  app: 'Apps',
   file: 'Files',
   image: 'Images',
   automation: 'Automations',
@@ -94,13 +96,14 @@ export function artifactKey(item: SessionArtifact): string {
     case 'file':
     case 'image': return `${item.kind}:${item.hostId}:${item.path}`
     case 'automation': return `automation:${item.hostId}:${item.automationId}`
+    case 'app': return `app:${item.hostId}:${item.appId}`
   }
 }
 
 /**
  * A row's title, the line under it, and what its icon stands for. The icon
  * carries the kind and the state, so the line under the title names only
- * where the item lives; a work or an automation has no such line.
+ * where the item lives; a work, an app, or an automation has no such line.
  */
 export interface ArtifactRowText {
   readonly title: string
@@ -130,6 +133,7 @@ export function artifactRowText(item: SessionArtifact): ArtifactRowText {
     case 'file': return { title: item.title, detail: item.path, iconLabel: 'File' }
     case 'image': return { title: item.title, detail: item.path, iconLabel: 'Image' }
     case 'automation': return { title: item.title, detail: null, iconLabel: 'Automation' }
+    case 'app': return { title: item.title || 'Untitled', detail: null, iconLabel: 'App' }
   }
 }
 
@@ -165,5 +169,6 @@ export function artifactIcon(item: SessionArtifact): AppSymbolName {
     case 'file': return 'doc'
     case 'image': return 'photo'
     case 'automation': return 'clock'
+    case 'app': return 'square.grid.2x2'
   }
 }

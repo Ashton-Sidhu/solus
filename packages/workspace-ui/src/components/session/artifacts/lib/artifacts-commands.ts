@@ -10,7 +10,7 @@ type ArtifactsShell = Pick<WorkspaceContext, 'focusedChatTabId' | 'sessionFor' |
 export function artifactsPaletteCommands(shell: ArtifactsShell): Command[] {
   const sessionId = shell.focusedChatTabId ? shell.sessionFor(shell.focusedChatTabId)?.id : undefined
   if (!sessionId) return []
-  const keywords = ['artifacts', 'outputs', 'linked', 'pull requests', 'works', 'files', 'images', 'automations']
+  const keywords = ['artifacts', 'outputs', 'linked', 'pull requests', 'works', 'apps', 'files', 'images', 'automations']
   return [{
     id: 'open-artifacts',
     label: 'Open artifacts',

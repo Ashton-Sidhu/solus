@@ -2,7 +2,7 @@ import type { AttentionEntry } from '@solus/contracts/attention-types'
 import type { HostEvent } from '@solus/contracts/host-events'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { actorFor, ownerKeyOf } from '../admission/actor'
-import { readsWholeDisk, type Principal } from '../admission/principal'
+import { isHostOwner, readsWholeDisk, type Principal } from '../admission/principal'
 import type { ShareManager } from './share-manager'
 
 /**
@@ -61,6 +61,8 @@ function personalEventVisibleTo(principal: Principal, event: HostEvent): boolean
   if (event.type === 'browser.profilesChanged') return principal.kind !== 'system' && ownerKeyOf(actorFor(principal)) === event.payload.ownerKey
   // One member's workspace became ready (docs/plans/member-isolation.md §8.1): theirs alone to hear.
   if (event.type === 'connection.memberWorkspaceReady') return principal.kind === 'org-member' && principal.userId === event.payload.userId
+  // An app is its host owner's (docs/plans/apps.md decision 10).
+  if (event.type === 'apps.changed' || event.type === 'apps.dataChanged') return principal.kind === 'system' || isHostOwner(principal)
   return null
 }
 

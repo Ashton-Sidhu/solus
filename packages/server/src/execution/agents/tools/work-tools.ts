@@ -3,7 +3,7 @@ import { workRecord } from '@solus/contracts/solus-api/records'
 import { SolusApiError } from '../../../admission/workspace-error'
 import { formatExternalThreads, refreshWorkExternalComments } from '../../../data/works/work-comments'
 import { z } from 'zod'
-import { GOOGLE_WORK_READ_ONLY, Work } from '../../../data/works/work'
+import { GOOGLE_WORK_READ_ONLY } from '../../../data/works/work'
 import { loadWorkAnnotations } from '../../../data/works/work-annotations'
 import { formatOpenThreads } from '../../../annotations/comment-tools'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
@@ -13,8 +13,6 @@ import type { WorkspaceRecordHome } from '@solus/contracts/solus-api'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { readWorkFile } from './work-file'
-import { describeAppContent } from '../../../apps/app-content'
-import { hostAccessReceiptNote } from '../../../apps/app-permissions'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { randomUUID } from 'node:crypto'
 import {
@@ -241,11 +239,6 @@ function staleWrite(title: string, expectedContentVersion: number): WorkToolResu
   }
 }
 
-/** A work's body as an agent reads it. An app's page is megabytes of built code, so it reads as its sources. */
-function readableContent(work: { type: WorkType; content: string }): string {
-  return work.type === 'artifact' ? describeAppContent(work.content) : work.content
-}
-
 export async function executeWorkTool(
   name: string,
   args: WorkToolArgs,
@@ -314,7 +307,7 @@ export async function executeWorkTool(
       }
       // An organization's work: its content from the Solus API; its comment threads are on its page there.
       // A mention reads as `@Name`: an agent reads people, it does not write mentions (plan 004 item 13).
-      if (remote) return { ok: true, text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}:\n\n${readableContent(work)}`) }
+      if (remote) return { ok: true, text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}:\n\n${work.content}`) }
       // Surface the open threads alongside the content so the agent sees
       // feedback without the user having to paste it into chat. Rendered by the
       // same formatter as read_plan, so both read identically.
@@ -322,7 +315,7 @@ export async function executeWorkTool(
       const annotations = await loadWorkAnnotations(ANY_ORGANIZATION, workId)
       return {
         ok: true,
-        text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${readableContent(work)}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined, work.mirroredDoc?.url)}`),
+        text: mentionsAsText(`Work "${work.title}" (${work.type}, id: ${work.id}, content_version: ${work.contentVersion})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined, work.mirroredDoc?.url)}`),
       }
     }
 
@@ -416,10 +409,8 @@ export async function executeWorkTool(
         contentVersion: saved.contentVersion,
         organizationId: organizationOf(context.home),
       })
-      // A revision of an app that asks for more, or that changes its host code, waits for the owner again.
-      const appNote = saved.type === 'artifact' ? hostAccessReceiptNote(saved.content, (await Work.find(ANY_ORGANIZATION, saved.id))?.app?.allowed) : ''
       // The result text starts as it always has: transcripts project the artifact id from it.
-      return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.${appNote}` }
+      return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}. New content_version: ${saved.contentVersion}.` }
     }
 
     return { ok: false, text: `Unknown work tool: ${name}` }

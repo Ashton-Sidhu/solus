@@ -37,6 +37,15 @@ describe('a card chip', () => {
     expect(artifactChip(file('/repo/docs/plan.md'))).toMatchObject({ tone: 'file', label: 'plan.md' })
     expect(artifactChip(image('/tmp/shot.png'))).toMatchObject({ tone: 'image', label: 'shot.png' })
   })
+
+  test('an app has a tone of its own and goes by its name', () => {
+    // WHY: an app is not a work (docs/plans/apps.md decision 18). Its chip must
+    // not take the drawn tone of an HTML artifact, and its total counts apart.
+    const app: SessionArtifact = { kind: 'app', hostId: 'h', appId: 'app_1', slug: 'notes', title: 'Notes', linkedAt: 1 }
+    expect(artifactChip(app)).toMatchObject({ tone: 'app', label: 'Notes', note: null, pullRequestState: null })
+    expect(artifactChip({ ...app, title: '' }).label).toBe('Untitled')
+    expect(chipTotals([[app, work('artifact')], [app]]).map((total) => [total.tone, total.label])).toEqual([['drawn', '1 work'], ['app', '2 apps']])
+  })
 })
 
 describe('the chips at the end of a turn', () => {

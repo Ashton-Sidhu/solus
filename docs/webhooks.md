@@ -2,8 +2,8 @@
 
 A webhook lets another service start agent work on a host. The service sends a
 request to the webhook's secret URL. Solus checks the request, then runs the
-webhook's actions: start a session, send a prompt to a session, or run an
-automation. The design is in `docs/plans/webhooks.md`.
+webhook's actions: start a session, send a prompt to a session, run an
+automation, or call a mutation of an app. The design is in `docs/plans/webhooks.md`.
 
 ## Where webhooks live
 
@@ -104,6 +104,10 @@ template, and the actions of one delivery run at the same time.
   on the agent, model, reasoning level, folder, and worktree choice you set.
 - `send_to_session`: sends the rendered prompt to one session. A busy session
   queues it. An archived or deleted session fails only this action.
+- `call_app`: runs one mutation of an app on this host (docs/apps.md). The
+  mutation's input is the request: `{ headers, query, body }`. This action has
+  no template. An app that declares a webhook gets a webhook with this action
+  when it is deployed.
 - `run_automation`: starts one run of a saved automation. The rendered
   template goes into the run's prompt as webhook context. If the automation
   already runs, the result is `busy`; replay the delivery later.

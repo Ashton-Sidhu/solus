@@ -14,6 +14,8 @@ import {
   filterChips,
 } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-list'
 import { artifactKey, newestAddedKey } from '@solus/workspace-ui/contexts/sessions/session-artifacts'
+import { openArtifact } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-open'
+import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 function pr(number: number, linkedAt: number, extra: Partial<SessionPullRequestLink> = {}): SessionArtifact {
   return {
@@ -34,6 +36,7 @@ function pr(number: number, linkedAt: number, extra: Partial<SessionPullRequestL
 const work = (workId: string, linkedAt: number): SessionArtifact => ({ kind: 'work', workId, title: `Work ${workId}`, workType: 'slides', linkedAt })
 const file = (path: string, linkedAt: number): SessionArtifact => ({ kind: 'file', hostId: 'h1', path, title: path, linkedAt })
 const image = (path: string, linkedAt: number): SessionArtifact => ({ kind: 'image', hostId: 'h1', path, title: path, linkedAt })
+const app = (appId: string, linkedAt: number, title = `App ${appId}`): SessionArtifact => ({ kind: 'app', hostId: 'h1', appId, slug: `slug-${appId}`, title, linkedAt })
 
 describe('artifact filter chips', () => {
   test('All counts every artifact, own and children, and a kind with no items has no chip', () => {
@@ -115,6 +118,42 @@ describe('artifact rows', () => {
     // The link's hostId ('h1') is the machine's id; the route needs the connection.
     expect(fileRouteParams(inside, 'server-a', '/repo')).toEqual({ serverId: 'server-a', cwd: '/repo', path: 'src/a.ts' })
     expect(fileRouteParams(outside, 'server-a', '/repo')).toEqual({ serverId: 'server-a', cwd: '/tmp/out', path: 'b.log' })
+  })
+})
+
+describe('an app the session linked', () => {
+  test('it has its own section after the works, its own chip, and a row named by its title', () => {
+    // WHY: an app is a kind of its own (docs/plans/apps.md decision 18). It must
+    // not fold into the works, whose rows open a document.
+    const artifacts: SessionArtifacts = { own: [file('/r/a', 1), app('app_1', 2, 'Notes'), work('w1', 3)], children: [] }
+    expect(artifactSections(artifacts, 'all').map((section) => section.title)).toEqual(['Works', 'Apps', 'Files'])
+    expect(filterChips(artifacts).map((chip) => [chip.filter, chip.label, chip.count])).toContainEqual(['app', 'Apps', 1])
+    expect(artifactSections(artifacts, 'app').map((section) => section.items.map(artifactKey))).toEqual([['app:h1:app_1']])
+    expect(artifactTitle(app('app_1', 1, 'Notes'))).toBe('Notes')
+    expect(artifactTitle(app('app_1', 1, ''))).toBe('Untitled')
+    expect(artifactKindLabel(app('app_1', 1))).toBe('App')
+    expect(artifactIconLabel(app('app_1', 1))).toBe('App')
+    expect(artifactDetail(app('app_1', 1))).toBeNull()
+    expect(artifactMatchesQuery(app('app_1', 1, 'Notes'), 'app')).toBe(true)
+  })
+
+  test('a row or a chip opens the app surface beside the conversation, on the session\'s host', () => {
+    // WHY: the link holds the machine's id, and the route needs the connection
+    // of the session. The artifact carries the app's slug, so the surface a chip
+    // opens is the one a link or the Apps tab opens, not a second one.
+    const opened: { ref: RouteRef; target: string | undefined }[] = []
+    const workspace = {
+      router: { navigate: (ref: RouteRef, options?: { target?: string }) => { opened.push({ ref, target: options?.target }) } },
+      sessions: { byId: {} },
+      serverIdForSession: () => 'server-a',
+    } as unknown as Parameters<typeof openArtifact>[0]
+
+    openArtifact(workspace, app('app_1', 1), 'session-1')
+    openArtifact(workspace, app('app_2', 1), 'session-1', 'server-b')
+    expect(opened).toEqual([
+      { ref: { name: 'app', params: { slug: 'slug-app_1', serverId: 'server-a' } }, target: 'companion' },
+      { ref: { name: 'app', params: { slug: 'slug-app_2', serverId: 'server-b' } }, target: 'companion' },
+    ])
   })
 })
 

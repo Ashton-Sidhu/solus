@@ -184,15 +184,17 @@ export class SessionApiOperations {
     requireScope(context, 'sessions:read')
     await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'read')
     const items = await readOwnSessionArtifacts(apiScope(context), sessionId)
-    return { items: items.map((item): WorkspaceSessionLinkList['items'][number] => {
+    return { items: items.flatMap((item): WorkspaceSessionLinkList['items'] => {
+      // An app link is on its host alone: the Solus API's link list does not name it (docs/plans/apps.md decision 18).
+      if (item.kind === 'app') return []
       if (item.kind === 'pull-request') {
         const { link } = item
         const state = link.missing ? 'missing' : link.snapshot ? (link.snapshot.draft && link.snapshot.state === 'open' ? 'draft' : link.snapshot.state) : 'not yet synced'
-        return { target: { kind: 'pr', url: link.url }, title: link.snapshot?.title || link.title || '', state, source: link.source }
+        return [{ target: { kind: 'pr', url: link.url }, title: link.snapshot?.title || link.title || '', state, source: link.source }]
       }
-      if (item.kind === 'work') return { target: { kind: 'work', id: item.workId }, title: item.title }
-      if (item.kind === 'automation') return { target: { kind: 'automation', id: item.automationId, hostId: item.hostId }, title: item.title }
-      return { target: { kind: 'file', path: item.path, hostId: item.hostId }, title: item.title }
+      if (item.kind === 'work') return [{ target: { kind: 'work', id: item.workId }, title: item.title }]
+      if (item.kind === 'automation') return [{ target: { kind: 'automation', id: item.automationId, hostId: item.hostId }, title: item.title }]
+      return [{ target: { kind: 'file', path: item.path, hostId: item.hostId }, title: item.title }]
     }) }
   }
 

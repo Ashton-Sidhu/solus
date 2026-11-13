@@ -436,7 +436,7 @@ export function materializeSessionTranscript(
       if (revision) messages.push(revision)
       continue
     } else if (m.role === 'tool' && isArtifactRenderTool(m.toolName)) {
-      // A render_artifact or create_app call replays as a tool row (debug visibility) followed by
+      // A render_artifact call replays as a tool row (debug visibility) followed by
       // its rendered artifact. The tool input carries everything to re-render.
       // Receipt metadata keeps the saved identity even after a rename.
       messages.push(msg)

@@ -36,6 +36,69 @@ CREATE TABLE `activity` (
 --> statement-breakpoint
 CREATE INDEX `activity_by_subject` ON `activity` (`subject_kind`,`subject_id`,`at`,`id`);--> statement-breakpoint
 CREATE INDEX `activity_for_user` ON `activity` (`user_id`,`at`,`id`);--> statement-breakpoint
+CREATE TABLE `app_calls` (
+	`id` text PRIMARY KEY NOT NULL,
+	`app_id` text NOT NULL,
+	`version` integer NOT NULL,
+	`operation` text NOT NULL,
+	`caller` text NOT NULL,
+	`started_at` integer NOT NULL,
+	`finished_at` integer,
+	`outcome` text NOT NULL,
+	`error` text,
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `app_calls_by_app` ON `app_calls` (`app_id`,`started_at`,`id`);--> statement-breakpoint
+CREATE TABLE `app_schedules` (
+	`app_id` text NOT NULL,
+	`name` text NOT NULL,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`next_run_at` integer,
+	`last_run_at` integer,
+	`last_outcome` text,
+	`last_error` text,
+	PRIMARY KEY(`app_id`, `name`),
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `app_schedules_due` ON `app_schedules` (`next_run_at`);--> statement-breakpoint
+CREATE TABLE `app_versions` (
+	`app_id` text NOT NULL,
+	`number` integer NOT NULL,
+	`source_commit` text NOT NULL,
+	`build_commit` text NOT NULL,
+	`descriptor` text NOT NULL,
+	`has_backend` integer NOT NULL,
+	`has_ui` integer NOT NULL,
+	`state` text NOT NULL,
+	`error` text,
+	`message` text DEFAULT '' NOT NULL,
+	`author` text NOT NULL,
+	`created_at` integer NOT NULL,
+	PRIMARY KEY(`app_id`, `number`),
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `apps` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text DEFAULT 'local' NOT NULL,
+	`created_by` text NOT NULL,
+	`slug` text NOT NULL,
+	`name` text NOT NULL,
+	`description` text DEFAULT '' NOT NULL,
+	`active_version` integer,
+	`stopped` integer DEFAULT 0 NOT NULL,
+	`repository` text NOT NULL,
+	`project` text,
+	`author` text NOT NULL,
+	`webhook_ids` text DEFAULT '{}' NOT NULL,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `apps_by_slug` ON `apps` (`slug`);--> statement-breakpoint
+CREATE INDEX `apps_by_creator` ON `apps` (`organization_id`,`created_by`);--> statement-breakpoint
 CREATE TABLE `asset_publications` (
 	`asset_id` text NOT NULL,
 	`provider` text NOT NULL,

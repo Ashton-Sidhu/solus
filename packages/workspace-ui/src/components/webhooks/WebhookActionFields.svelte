@@ -4,32 +4,41 @@
   import { Plus as PlusIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import { WEBHOOK_MAX_FILTERS } from "@solus/contracts/webhooks";
   import type { Automation } from "@solus/contracts/types";
+  import type { AppSummary } from "@solus/contracts/apps";
+  import { untrack } from "svelte";
+  import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { Textarea } from "../ui/textarea";
   import { Switch } from "../ui/switch";
   import SettingsSelect from "../settings/SettingsSelect.svelte";
   import { actionTypeLabel } from "./lib/webhooks-view";
-  import { FILTER_OPS, filterOpLabel, REASONING_EFFORTS, type ActionDraft } from "./lib/webhook-draft";
+  import { appMutationNames, FILTER_OPS, filterOpLabel, REASONING_EFFORTS, type ActionDraft } from "./lib/webhook-draft";
 
   let {
     action = $bindable(),
     index,
+    serverId,
     automations,
+    apps,
     disabled = false,
     onRemove,
   }: {
     action: ActionDraft;
     index: number;
+    /** The webhook's host: an action runs there. */
+    serverId: string;
     /** The automations of the webhook's host, for `run_automation`. */
     automations: Automation[];
+    /** The apps of the webhook's host, for `call_app`. */
+    apps: AppSummary[];
     disabled?: boolean;
     onRemove?: () => void;
   } = $props();
 
   const typeChoices: { value: ActionDraft["type"]; label: string }[] = [
     { value: "", label: "Choose" },
-    ...(["start_session", "send_to_session", "run_automation"] as const).map((type) => ({ value: type, label: actionTypeLabel(type) })),
+    ...(["start_session", "send_to_session", "run_automation", "call_app"] as const).map((type) => ({ value: type, label: actionTypeLabel(type) })),
   ];
   const providerChoices: { value: ActionDraft["agentProvider"]; label: string }[] = [
     { value: "", label: "Choose" },
@@ -47,6 +56,22 @@
   const automationChoices = $derived([
     { value: "", label: "Choose" },
     ...automations.map((automation) => ({ value: automation.id, label: automation.name })),
+  ]);
+  const appChoices = $derived([
+    { value: "", label: "Choose" },
+    ...apps.map((app) => ({ value: app.id, label: app.name })),
+  ]);
+  // The mutations come from the descriptor of the chosen app's active version.
+  $effect(() => {
+    const hostId = serverId;
+    const appId = action.type === "call_app" ? action.appId : "";
+    if (appId) untrack(() => appsStore.ensureState(hostId, appId));
+  });
+  const mutations = $derived(action.appId ? appMutationNames(appsStore.stateFor(serverId, action.appId)?.descriptor) : []);
+  // A saved operation stays a choice while the descriptor loads, or after a deploy removed it.
+  const operationChoices = $derived([
+    { value: "", label: "Choose" },
+    ...(action.operation && !mutations.includes(action.operation) ? [action.operation] : []).concat(mutations).map((name) => ({ value: name, label: name })),
   ]);
 </script>
 
@@ -98,6 +123,28 @@
       <span class="text-xs text-muted-foreground">Automation</span>
       <SettingsSelect compact ariaLabel="Automation" options={automationChoices} value={action.automationId} {disabled} onSelect={(automationId) => (action.automationId = automationId)} />
     </div>
+  {:else if action.type === "call_app"}
+    <div class="flex flex-wrap items-end gap-2">
+      <div class="flex flex-col gap-1">
+        <span class="text-xs text-muted-foreground">App</span>
+        <SettingsSelect
+          compact
+          ariaLabel="App"
+          options={appChoices}
+          value={action.appId}
+          {disabled}
+          onSelect={(appId) => {
+            if (appId !== action.appId) action.operation = "";
+            action.appId = appId;
+          }}
+        />
+      </div>
+      <div class="flex flex-col gap-1">
+        <span class="text-xs text-muted-foreground">Mutation</span>
+        <SettingsSelect compact ariaLabel="Mutation" options={operationChoices} value={action.operation} disabled={disabled || !action.appId} onSelect={(operation) => (action.operation = operation)} />
+      </div>
+    </div>
+    <span class="text-xs text-muted-foreground">The mutation gets the headers, the query, and the body of the request as its input.</span>
   {/if}
 
   <div class="flex flex-col gap-2">
@@ -129,10 +176,12 @@
     {/if}
   </div>
 
+  {#if action.type !== "call_app"}
   <label class="flex flex-col gap-1">
     <span class="text-xs text-muted-foreground">
       Prompt template. Use {"{{body.path}}"}, {"{{headers.name}}"}, {"{{query.name}}"}, {"{{body}}"}, or {"{{request}}"}. Request text is not safe: the tags help the agent, but they do not make sure that it ignores the text.
     </span>
     <Textarea bind:value={action.template} {disabled} rows={4} class="font-mono text-xs" aria-label="Action {index + 1} template" />
   </label>
+  {/if}
 </div>

@@ -22,8 +22,7 @@ const INITIAL_HEIGHT = 320;
 const CLOSED_APP: McpAppRead = { phase: "idle" };
 const relayMessageSchema = z.object({ secret: z.string(), json: z.string().optional(), navigated: z.boolean().optional() });
 
-/** The person's answer to one approval, as a native alert. */
-export function confirmWithAlert(title: string, detail: string): Promise<boolean> {
+function confirmWithAlert(title: string, detail: string): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       title,

@@ -1,4 +1,4 @@
-import type { Webhook, WebhookActionType, WebhookDeliveryOutcome, WebhookUrlMode } from '@solus/contracts/webhooks'
+import type { Webhook, WebhookAction, WebhookActionType, WebhookDeliveryOutcome, WebhookUrlMode } from '@solus/contracts/webhooks'
 import { attributionLabel } from '@solus/contracts/user'
 import { hostPathBaseName, sameHostPath } from '@solus/contracts/host-path'
 
@@ -160,17 +160,27 @@ const ACTION_TYPE_LABELS = {
   start_session: 'Start session',
   send_to_session: 'Send to session',
   run_automation: 'Run automation',
+  call_app: 'Call app',
 } satisfies Record<WebhookActionType, string>
 
 export function actionTypeLabel(type: WebhookActionType): string {
   return ACTION_TYPE_LABELS[type]
 }
 
-/** "3 actions: Start session, Run automation". */
-export function actionsSummary(webhook: Webhook): string {
-  const types = [...new Set(webhook.actions.map((action) => action.type))].map(actionTypeLabel)
+/** The name of an app on the webhook's host; undefined when no list names it. */
+export type AppNameLookup = (appId: string) => string | undefined
+
+/** What one action does, for a list: its type, or "Call Notes · addNote" for a call to an app. */
+export function actionLabel(action: WebhookAction, appName: AppNameLookup = () => undefined): string {
+  if (action.type !== 'call_app') return actionTypeLabel(action.type)
+  return `Call ${appName(action.appId) ?? 'app'} · ${action.operation}`
+}
+
+/** "3 actions: Start session, Run automation, Call Notes · addNote". */
+export function actionsSummary(webhook: Webhook, appName?: AppNameLookup): string {
+  const labels = [...new Set(webhook.actions.map((action) => actionLabel(action, appName)))]
   const count = webhook.actions.length
-  return `${count} ${count === 1 ? 'action' : 'actions'}: ${types.join(', ')}`
+  return `${count} ${count === 1 ? 'action' : 'actions'}: ${labels.join(', ')}`
 }
 
 function matchesOutcome(webhook: Webhook, outcome: WebhookOutcomeFilter): boolean {

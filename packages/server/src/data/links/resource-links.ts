@@ -18,7 +18,7 @@ import { resourceLinks } from './schema'
  */
 
 export type LinkSourceKind = 'task' | 'session'
-export type LinkTargetKind = 'work' | 'plan' | 'pr' | 'automation' | 'session' | 'file'
+export type LinkTargetKind = 'work' | 'plan' | 'pr' | 'automation' | 'session' | 'file' | 'app'
 export type LinkRelation = 'works-on' | 'reference' | 'output' | 'member' | 'pull-request'
 /** Who or what made an edge: a person, an agent, Solus itself; a pull request also by its branch or its creation. */
 export type LinkProvenance = 'manual' | 'agent' | 'system' | 'branch' | 'created'

@@ -12,6 +12,8 @@ export function artifactKey(artifact: SessionArtifact): string {
       return `${artifact.kind}:${artifact.hostId}:${artifact.path}`
     case 'automation':
       return `automation:${artifact.hostId}:${artifact.automationId}`
+    case 'app':
+      return `app:${artifact.hostId}:${artifact.appId}`
   }
 }
 

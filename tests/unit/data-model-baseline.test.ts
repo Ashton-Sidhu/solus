@@ -16,7 +16,8 @@ const FTS_SHADOW = /_fts_(data|idx|docsize|config|content)$/
 
 /** The `solus.db` tables: the host's own, and the records when SQLite is the engine. */
 const SOLUS_TABLES = [
-  'acl_entry', 'activity', 'activity_mirror_rows', 'asset_publications', 'async_questions', 'automation_runs',
+  'acl_entry', 'activity', 'activity_mirror_rows', 'app_calls', 'app_schedules', 'app_versions', 'apps',
+  'asset_publications', 'async_questions', 'automation_runs',
   'automations', 'browser_profiles', 'comment_threads', 'delivery_queue', 'host_list', 'indexed_plans', 'insight_log_events',
   'insight_span_texts', 'insight_spans', 'integration', 'integration_connection', 'kv', 'member_folder',
   'notification_pr_observations', 'notifications', 'operation_receipts', 'outbox_ops', 'personal_resource_state',
@@ -31,6 +32,7 @@ const SOLUS_TABLES = [
 
 const SOLUS_INDEXES = [
   'acl_entry_by_subject', 'acl_entry_secret_idx', 'acl_entry_subject', 'activity_by_subject', 'activity_for_user',
+  'app_calls_by_app', 'app_schedules_due', 'apps_by_creator', 'apps_by_slug',
   'async_questions_by_agent', 'async_questions_by_session', 'async_questions_retained', 'browser_profiles_default',
   'comment_threads_external', 'comment_threads_pending', 'comment_threads_position', 'comment_threads_task_order',
   'delivery_queue_by_destination', 'delivery_queue_by_key', 'indexed_plans_by_project', 'indexed_plans_by_session',
@@ -58,7 +60,8 @@ const SOLUS_TRIGGERS = [
 
 /** The records on a Postgres host: every ported table, nothing host-local. */
 const POSTGRES_TABLES = [
-  'acl_entry', 'activity', 'asset_publications', 'comment_threads', 'indexed_plans', 'insight_log_events',
+  'acl_entry', 'activity', 'app_calls', 'app_schedules', 'app_versions', 'apps', 'asset_publications',
+  'comment_threads', 'indexed_plans', 'insight_log_events',
   'insight_span_texts', 'insight_spans', 'notifications', 'operation_receipts', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'pull_request_observations', 'resource_links',
   'runner_delivery_cursors', 'session_records', 'session_transcripts', 'task_source_access', 'task_source_items',

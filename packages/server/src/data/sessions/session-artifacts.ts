@@ -4,6 +4,7 @@ import { artifactLinkedAt, isImagePath, type SessionArtifact, type SessionArtifa
 import { getDatabase } from '../../db/database'
 import { ANY_ORGANIZATION, type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
+import { apps } from '../apps/schema'
 import { resourceLinks } from '../links/schema'
 import { works } from '../works/schema'
 import { workTypeSchema } from '../works/work-rows'
@@ -52,9 +53,11 @@ const workRowSchema = z.object({
   type: workTypeSchema.nullable(),
 })
 
+const appSlugRowSchema = z.object({ id: z.string(), slug: z.string() })
+
 const linkRowSchema = z.object({
   session_id: z.string(),
-  target_kind: z.enum(['file', 'automation']),
+  target_kind: z.enum(['file', 'automation', 'app']),
   host_id: z.string(),
   target_key: z.string(),
   title: z.string(),
@@ -86,13 +89,19 @@ async function readLinkArtifacts(scope: RecordScope, sessionIds: readonly string
       resource_links.title, resource_links.created_at AS linked_at
     FROM ${resourceLinks}
     WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND resource_links.source_kind = 'session'
-      AND resource_links.target_kind IN ('file', 'automation') AND resource_links.source_id IN (${inList(sessionIds)})
+      AND resource_links.target_kind IN ('file', 'automation', 'app') AND resource_links.source_id IN (${inList(sessionIds)})
   `))
+  // An app's surface goes by its slug, which only the app's own row holds. A link to an app that is gone names nothing.
+  const appIds = [...new Set(rows.filter((row) => row.target_kind === 'app').map((row) => row.target_key))]
+  const slugs = new Map(appIds.length === 0 ? [] : appSlugRowSchema.array().parse(await getDatabase().all(sql`SELECT id, slug FROM ${apps} WHERE id IN (${inList(appIds)})`)).map((row) => [row.id, row.slug]))
   for (const row of rows) {
     const items = into.get(row.session_id)
     if (!items) continue
     if (row.target_kind === 'file') {
       items.push({ kind: isImagePath(row.target_key) ? 'image' : 'file', hostId: row.host_id, path: row.target_key, title: row.title, linkedAt: row.linked_at })
+    } else if (row.target_kind === 'app') {
+      const slug = slugs.get(row.target_key)
+      if (slug) items.push({ kind: 'app', hostId: row.host_id, appId: row.target_key, slug, title: row.title, linkedAt: row.linked_at })
     } else {
       items.push({ kind: 'automation', hostId: row.host_id, automationId: row.target_key, title: row.title, linkedAt: row.linked_at })
     }

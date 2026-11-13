@@ -18,7 +18,7 @@
 
   /**
    * What a session produced or linked (docs/plans/session-artifacts.md): its
-   * pull requests, works, files, images, and automations, and for a session
+   * pull requests, works, apps, files, images, and automations, and for a session
    * that started others, each one's under its name. A row opens its record as
    * a surface of its own.
    */
@@ -123,7 +123,7 @@
       {/if}
     {:else if chips[0].count === 0}
       <PageEmpty icon={ArtifactsIcon} compact title="Nothing linked yet.">
-        Pull requests, works, files, images, and automations this session makes or links appear here.
+        Pull requests, works, apps, files, images, and automations this session makes or links appear here.
       </PageEmpty>
     {:else if sections.length === 0}
       <PageEmpty compact title="No matches.">

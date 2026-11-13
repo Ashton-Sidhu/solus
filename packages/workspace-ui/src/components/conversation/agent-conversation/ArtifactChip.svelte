@@ -5,6 +5,7 @@
     FileText as DocIcon,
     GitPullRequest as GitPullRequestIcon,
     Image as ImageIcon,
+    LayoutGrid as AppIcon,
     Presentation as SlidesIcon,
     Workflow as AutomationIcon,
   } from "@lucide/svelte";
@@ -33,8 +34,9 @@
   }
   let { tone, label, note = null, pullRequestState = null, workType, filePath, title, onclick }: Props = $props();
 
-  // Works take the WorkspaceCard hues: teal is written, purple drawn. Amber and
-  // sage are left out; they mean "needs you" and "done". The ink mixes in oklab,
+  // Works take the WorkspaceCard hues: teal is written, purple drawn. An app
+  // takes sky, which no other kind has. Amber and sage are left out; they mean
+  // "needs you" and "done". The ink mixes in oklab,
   // as `.solus-token` does: in oklch the hue turns on its way to the warm
   // foreground, so purple reads as magenta and teal as green.
   const HUE = {
@@ -44,6 +46,7 @@
     file: "var(--solus-art-5)",
     image: "var(--solus-art-1)",
     automation: "var(--solus-accent)",
+    app: "var(--solus-art-7)",
   } satisfies Record<ArtifactChipTone, string>;
 
   const WORK_ICONS = {
@@ -67,7 +70,9 @@
         ? WORK_ICONS[workType ?? (tone === "written" ? "doc" : "artifact")]
         : tone === "image"
           ? ImageIcon
-          : AutomationIcon,
+          : tone === "app"
+            ? AppIcon
+            : AutomationIcon,
   );
 </script>
 

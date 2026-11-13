@@ -56,11 +56,11 @@ describe('the Organization view rows', () => {
 
   test('the last delivery and action types read as words; an unknown value shows as it is', () => {
     const row = webhookAdminRow('org-1', entry({
-      actionTypes: ['start_session', 'run_automation', 'start_session', 'later_type'],
+      actionTypes: ['start_session', 'run_automation', 'start_session', 'call_app', 'later_type'],
       lastDelivery: { deliveryId: 'd1', receivedAt: 5, outcome: 'partial', actionStatuses: ['started', 'failed'] },
       deliveriesLast24Hours: 3,
     }))
-    expect(row.actionTypes).toBe('Start session, Run automation, later_type')
+    expect(row.actionTypes).toBe('Start session, Run automation, Call app, later_type')
     expect(row.lastDelivery).toEqual({ outcome: 'Partly failed', isFailing: true, at: 5 })
     expect(row.deliveries24h).toBe(3)
     expect(webhookAdminRow('org-1', entry({ lastDelivery: { deliveryId: 'd', receivedAt: 1, outcome: 'new_outcome', actionStatuses: [] } })).lastDelivery?.outcome).toBe('new_outcome')

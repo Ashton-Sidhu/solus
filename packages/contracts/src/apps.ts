@@ -1,247 +1,360 @@
 import { z } from 'zod'
 import { MCP_APP_MAX_DATA_BYTES } from './mcp-apps'
+import type { Attribution } from './user'
+import { webhookVerificationSchema, type WebhookUrlMode } from './webhooks'
 
 /**
- * Apps (docs/plans/apps.md): an `artifact` work whose page carries an app
- * manifest. The manifest turns on the app's own storage, the network hosts it
- * names, its own host functions, and the viewer's integrations; every one
- * leaves the frame as data and is checked by the server.
+ * Apps (docs/plans/apps.md): a record on a host with a repository, versions,
+ * its own data, and a backend whose operations four callers use: the app's
+ * UI, an agent, a schedule, and a webhook. This module is the contract: the
+ * descriptor a build writes, what a client reads of an app, and the names a
+ * UI puts on the wire.
  */
 
-const APP_CALL_NAME_SEPARATOR = '/'
+// ─── Names ───
+
+export const appSlugSchema = z.string().min(1).max(48).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+
+/** An operation, a schedule, a secret, or a webhook: a name a program can write. */
+const declaredNameSchema = z.string().min(1).max(64).regex(/^[A-Za-z][A-Za-z0-9_]*$/)
+
+/** A slug for an app from its name; `app` when the name has no letter or digit. */
+export function appSlugOf(name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '')
+  return slug || 'app'
+}
+
 const APP_STORAGE_CALL_PREFIX = '@storage/'
-const APP_SERVER_CALL_PREFIX = '@server/'
+const APP_OPERATION_CALL_PREFIX = '@app/'
 
-/** What the page puts on the wire: `<slug>/<tool>`, `@storage/<operation>`, or `@server/<function>`. */
+/** What a UI puts on the wire: `<slug>/<tool>`, `@storage/<operation>`, or `@app/<operation>`. */
 export const appCallNameSchema = z.string().min(3).max(512).regex(/^[^/\s]+\/[^\s]+$/)
-
-/** `<slug>/<tool>`, an integration tool as the permissions list it. A slug never starts with `@`. */
-export const appToolNameSchema = appCallNameSchema.refine((name) => !name.startsWith('@'))
-
-/** A network host an app may reach: `api.example.com`, `*.example.com`, `db.internal:5432`, or `*` for every host. */
-const appNetworkHostSchema = z.string().max(256).regex(/^(?:\*|(?:\*\.)?[a-z0-9.-]+(?::\d{1,5})?)$/i)
-const appNetworkSchema = z.array(appNetworkHostSchema).max(32)
-
-/** A host path an app's host functions may use: absolute, under `~`, or `*` for every path. */
-const appFilePathSchema = z.string().max(1024).regex(/^(?:\*|~(?:[\\/].*)?|\/.*|[A-Za-z]:[\\/].*)$/)
-const appFilePathsSchema = z.array(appFilePathSchema).max(32)
-const appFilesSchema = z.object({ read: appFilePathsSchema.default([]), write: appFilePathsSchema.default([]) })
-
-/**
- * What an app declares in its project's `app.json` (§5). `tools` is its
- * ceiling under the gateway's: it can narrow what the viewer's integrations
- * allow, never widen it. `writes: 'allow'`, `network`, and `files` are in
- * force only when the host's owner allowed them (§6).
- */
-export const appPermissionsSchema = z.object({
-  tools: z.union([z.literal('all'), z.literal('read-only'), z.object({ selected: z.array(appToolNameSchema).max(256) })]).default('all'),
-  writes: z.enum(['ask', 'allow']).default('ask'),
-  network: appNetworkSchema.default([]),
-  files: appFilesSchema.default({ read: [], write: [] }),
-})
-export type AppPermissions = z.infer<typeof appPermissionsSchema>
-
-export const DEFAULT_APP_PERMISSIONS: AppPermissions = { tools: 'all', writes: 'ask', network: [], files: { read: [], write: [] } }
-
-/**
- * The app manifest (§3): one JSON block the build writes into the page.
- * `server` is a CommonJS module for Node; each of its exported functions is a
- * host function. `sources` are the project's own files, so a later session
- * can read and rebuild them.
- */
-export const appManifestSchema = z.object({
-  solusApp: z.literal(1),
-  permissions: appPermissionsSchema.default(DEFAULT_APP_PERMISSIONS),
-  integrations: z.array(z.string().min(1).max(64)).max(64).default([]),
-  server: z.string().min(1).optional(),
-  sources: z.record(z.string().min(1).max(512), z.string()).optional(),
-})
-export type AppManifest = z.infer<typeof appManifestSchema>
-
-const MANIFEST_OPEN = '<script type="application/json" id="solus-app">'
-const MANIFEST_CLOSE = '</script>'
-
-/** The manifest as the block a build writes into a page. Every `<` is escaped, so nothing in it can end the script element. */
-export function appManifestBlock(manifest: AppManifest): string {
-  return `${MANIFEST_OPEN}${JSON.stringify(manifest).replace(/</g, '\\u003c')}${MANIFEST_CLOSE}`
-}
-
-/**
- * Whether a page has an app manifest block. A frame's policy is decided from
- * this alone, with no parse: a page that says it is an app runs as one.
- */
-export function hasAppManifest(html: string): boolean {
-  return html.includes(MANIFEST_OPEN)
-}
-
-/** What a page says of itself: no manifest block, a valid manifest, or a block that is not one. */
-export type AppPageRead = { kind: 'none' } | { kind: 'app'; manifest: AppManifest } | { kind: 'invalid'; problem: string }
-
-/**
- * Reads the app manifest of a page. This is the one reader, for the server
- * and for every client: a frame's policy, a call's permissions, and a save's
- * check all come from the same answer for the same text.
- */
-export function readAppPage(html: string): AppPageRead {
-  const start = html.indexOf(MANIFEST_OPEN)
-  if (start < 0) return { kind: 'none' }
-  const end = html.indexOf(MANIFEST_CLOSE, start)
-  if (end < 0) return { kind: 'invalid', problem: 'The app manifest block does not end.' }
-  let manifest: ReturnType<typeof appManifestSchema.safeParse>
-  try {
-    manifest = appManifestSchema.safeParse(JSON.parse(html.slice(start + MANIFEST_OPEN.length, end)))
-  } catch {
-    return { kind: 'invalid', problem: 'The app manifest is not JSON.' }
-  }
-  if (manifest.success) return { kind: 'app', manifest: manifest.data }
-  const issue = manifest.error.issues[0]
-  return { kind: 'invalid', problem: `The app manifest is not valid: ${issue ? `${issue.path.join('.') || 'manifest'}: ${issue.message}` : 'unknown shape'}.` }
-}
-
-/** A page's manifest, or null when the page is not a valid app. */
-export function appManifestOf(html: string): AppManifest | null {
-  const read = readAppPage(html)
-  return read.kind === 'app' ? read.manifest : null
-}
-
-/** What an app asks of the host outside integrations and storage (§6). */
-export const appHostAccessSchema = z.object({
-  /** It has host functions: its own code runs on the host. */
-  functions: z.boolean(),
-  /** Its integration writes run without asking. */
-  writes: z.boolean().default(false),
-  network: appNetworkSchema,
-  files: z.object({ read: appFilePathsSchema, write: appFilePathsSchema }),
-})
-export type AppHostAccess = z.infer<typeof appHostAccessSchema>
-
-/**
- * The owner's decision (§6): the host access they allowed, and the host code
- * they allowed it for. `serverHash` names the server module as it was then;
- * changed host code is other code, and asks again. Null when the app had none.
- */
-export const appAllowedHostAccessSchema = z.object({
-  access: appHostAccessSchema,
-  serverHash: z.string().nullable(),
-})
-export type AppAllowedHostAccess = z.infer<typeof appAllowedHostAccessSchema>
-
-/** What rides a work's meta for an app: what the host's owner allowed. Everything the app declares is in its page. */
-export const appMetaSchema = z.object({
-  allowed: appAllowedHostAccessSchema.optional(),
-})
-export type AppMeta = z.infer<typeof appMetaSchema>
-
-/** One integration the app names (the slug in `tools.<slug>.<tool>`), as the viewer sees it. */
-export interface AppRoleState {
-  slug: string
-  /** The name of the viewer's integration with that slug; null when they have none. */
-  name: string | null
-  connected: boolean
-}
-
-/** `none`: the app asks for nothing. `pending`: it asks for more than the owner allowed. `allowed`: what it asks is in force. */
-export type AppHostAccessState = 'none' | 'pending' | 'allowed'
-
-/** The app's host access as a header shows it. */
-export interface AppHostAccessView {
-  asks: AppHostAccess
-  state: AppHostAccessState
-  /** The caller is the host's owner, who alone allows and revokes. */
-  canDecide: boolean
-}
-
-/** What a client needs to run an app's frame and show its header: nothing of the page, which the client has as the work's content. */
-export interface AppState {
-  roles: AppRoleState[]
-  permissions: AppPermissions
-  hostAccess: AppHostAccessView
-  /** The network hosts in force: the app's own, once the owner allowed them. */
-  network: string[]
-  contentVersion: number
-}
-
-export const appRequestSchema = z.object({ workId: z.string().min(1) })
-export type AppRequest = z.infer<typeof appRequestSchema>
-
-export const appToolRequestSchema = appRequestSchema.extend({ name: appCallNameSchema })
-export type AppToolRequest = z.infer<typeof appToolRequestSchema>
-
-export const appCallRequestSchema = appToolRequestSchema.extend({
-  argumentsJson: z.string().max(MCP_APP_MAX_DATA_BYTES),
-  approved: z.boolean(),
-})
-export type AppCallRequest = z.infer<typeof appCallRequestSchema>
-
-/** `allow: true` puts what the app asks now in force; `false` revokes it. */
-export const appHostAccessDecisionSchema = appRequestSchema.extend({ allow: z.boolean() })
-export type AppHostAccessDecision = z.infer<typeof appHostAccessDecisionSchema>
 
 export const APP_STORAGE_OPERATIONS = ['get', 'set', 'delete', 'keys'] as const
 export type AppStorageOperation = (typeof APP_STORAGE_OPERATIONS)[number]
 
 /** What a call name addresses. */
-export type AppCall =
+export type AppCallTarget =
   | { kind: 'tool'; slug: string; tool: string }
   | { kind: 'storage'; operation: AppStorageOperation }
-  | { kind: 'function'; name: string }
+  | { kind: 'operation'; name: string }
 
 export function appStorageCallName(operation: AppStorageOperation): string {
   return `${APP_STORAGE_CALL_PREFIX}${operation}`
 }
 
-export function appFunctionCallName(name: string): string {
-  return `${APP_SERVER_CALL_PREFIX}${name}`
+export function appOperationCallName(name: string): string {
+  return `${APP_OPERATION_CALL_PREFIX}${name}`
 }
 
 /** What a call name addresses, or null when it addresses nothing. */
-export function parseAppCallName(name: string): AppCall | null {
+export function parseAppCallName(name: string): AppCallTarget | null {
   if (name.startsWith(APP_STORAGE_CALL_PREFIX)) {
     const operation = APP_STORAGE_OPERATIONS.find((known) => known === name.slice(APP_STORAGE_CALL_PREFIX.length))
     return operation ? { kind: 'storage', operation } : null
   }
-  if (name.startsWith(APP_SERVER_CALL_PREFIX)) {
-    const functionName = name.slice(APP_SERVER_CALL_PREFIX.length)
-    return functionName ? { kind: 'function', name: functionName } : null
+  if (name.startsWith(APP_OPERATION_CALL_PREFIX)) {
+    const operation = declaredNameSchema.safeParse(name.slice(APP_OPERATION_CALL_PREFIX.length))
+    return operation.success ? { kind: 'operation', name: operation.data } : null
   }
-  const at = name.indexOf(APP_CALL_NAME_SEPARATOR)
+  const at = name.indexOf('/')
   if (name.startsWith('@') || at <= 0 || at === name.length - 1) return null
   return { kind: 'tool', slug: name.slice(0, at), tool: name.slice(at + 1) }
 }
+
+// ─── The descriptor (§3): what a build says the backend declares ───
+
+/** A network host an app may reach: `api.example.com`, `*.example.com`, `db.internal:5432`, or `*` for every host. */
+const appNetworkHostSchema = z.string().max(256).regex(/^(?:\*|(?:\*\.)?[a-z0-9.-]+(?::\d{1,5})?)$/i)
+
+/** A host path the backend may use: absolute, under `~`, or `*` for every path. */
+const appFilePathSchema = z.string().max(1024).regex(/^(?:\*|~(?:[\\/].*)?|\/.*|[A-Za-z]:[\\/].*)$/)
+const appFilePathsSchema = z.array(appFilePathSchema).max(32)
+
+/** What the app may use outside its own data (§6). The runner and the frame enforce it; nobody decides it a second time. */
+export const appPermissionsSchema = z.object({
+  network: z.array(appNetworkHostSchema).max(32).default([]),
+  files: z.object({ read: appFilePathsSchema.default([]), write: appFilePathsSchema.default([]) }).default({ read: [], write: [] }),
+})
+export type AppPermissions = z.infer<typeof appPermissionsSchema>
+
+/** A JSON Schema, as the build wrote it for an operation's input. */
+const appJsonSchemaSchema = z.record(z.string(), z.json())
+export type AppJsonSchema = z.infer<typeof appJsonSchemaSchema>
+
+export const appOperationSchema = z.object({
+  name: declaredNameSchema,
+  /** A query reads and gets a read-only database. A mutation writes. */
+  kind: z.enum(['query', 'mutation']),
+  description: z.string().max(1000).default(''),
+  input: appJsonSchemaSchema,
+})
+export type AppOperation = z.infer<typeof appOperationSchema>
+
+export const appScheduleTriggerSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('interval'), everyMinutes: z.number().int().min(1).max(525_600) }),
+  z.object({ type: z.literal('cron'), expr: z.string().min(1).max(120), timezone: z.string().min(1).max(64).optional() }),
+])
+export type AppScheduleTrigger = z.infer<typeof appScheduleTriggerSchema>
+
+const appInputSchema = z.record(z.string(), z.json())
+
+export const appScheduleDeclarationSchema = z.object({
+  name: declaredNameSchema,
+  trigger: appScheduleTriggerSchema,
+  /** The mutation the schedule runs. */
+  run: declaredNameSchema,
+  input: appInputSchema.default({}),
+})
+export type AppScheduleDeclaration = z.infer<typeof appScheduleDeclarationSchema>
+
+export const appSecretDeclarationSchema = z.object({
+  name: declaredNameSchema,
+  label: z.string().min(1).max(80),
+  description: z.string().max(500).default(''),
+})
+export type AppSecretDeclaration = z.infer<typeof appSecretDeclarationSchema>
+
+export const appWebhookDeclarationSchema = z.object({
+  name: declaredNameSchema,
+  /** How the webhook owner checks a request (docs/plans/webhooks.md §3.7). */
+  verify: webhookVerificationSchema,
+  /** A template; a second delivery with the same rendered key is a duplicate. */
+  replayKey: z.string().min(1).max(200).optional(),
+  /** The mutation a delivery runs, with `{ headers, query, body }` as its input. */
+  run: declaredNameSchema,
+})
+export type AppWebhookDeclaration = z.infer<typeof appWebhookDeclarationSchema>
+
+interface Named { name: string }
+
+function repeatedName(entries: readonly Named[]): string | null {
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    if (seen.has(entry.name)) return entry.name
+    seen.add(entry.name)
+  }
+  return null
+}
+
+export const appDescriptorSchema = z.object({
+  solusApp: z.literal(2),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().max(500).default(''),
+  permissions: appPermissionsSchema.default({ network: [], files: { read: [], write: [] } }),
+  /** The roles: the integrations the app calls, by slug. */
+  integrations: z.array(appSlugSchema).max(64).default([]),
+  secrets: z.array(appSecretDeclarationSchema).max(32).default([]),
+  operations: z.array(appOperationSchema).max(128).default([]),
+  schedules: z.array(appScheduleDeclarationSchema).max(32).default([]),
+  webhooks: z.array(appWebhookDeclarationSchema).max(16).default([]),
+}).superRefine((descriptor, context) => {
+  for (const [field, entries] of [['operations', descriptor.operations], ['schedules', descriptor.schedules], ['secrets', descriptor.secrets], ['webhooks', descriptor.webhooks]] as const) {
+    const repeated = repeatedName(entries)
+    if (repeated) context.addIssue({ code: 'custom', path: [field], message: `The name ${repeated} is used twice.` })
+  }
+  const mutations = new Set(descriptor.operations.filter((operation) => operation.kind === 'mutation').map((operation) => operation.name))
+  for (const schedule of descriptor.schedules) {
+    if (!mutations.has(schedule.run)) context.addIssue({ code: 'custom', path: ['schedules', schedule.name], message: `The schedule ${schedule.name} runs ${schedule.run}, which is not a mutation of this app.` })
+  }
+  for (const webhook of descriptor.webhooks) {
+    if (!mutations.has(webhook.run)) context.addIssue({ code: 'custom', path: ['webhooks', webhook.name], message: `The webhook ${webhook.name} runs ${webhook.run}, which is not a mutation of this app.` })
+  }
+})
+export type AppDescriptor = z.infer<typeof appDescriptorSchema>
 
 function listed(entries: readonly string[], every: string): string {
   return entries.includes('*') ? every : entries.join(', ')
 }
 
 /**
- * What a host access lets an app do, as the end of a sentence that starts
- * "This app asks to" or "This app can": "run its own code on this host, read
- * every file, and reach api.example.com". Empty when it lets it do nothing.
+ * What an app may use, as one sentence for its header and for the approval of
+ * a deploy; null when it has no backend and reaches no network host.
  */
-export function describeAppHostAccess(access: AppHostAccess): string {
+export function describeAppPermissions(permissions: AppPermissions, hasBackend: boolean): string | null {
   const clauses: string[] = []
-  if (access.functions) {
-    clauses.push('run its own code on this host')
-    if (access.files.read.length > 0) clauses.push(`read ${listed(access.files.read, 'every file')}`)
-    if (access.files.write.length > 0) clauses.push(`write ${listed(access.files.write, 'every file')}`)
+  if (hasBackend) {
+    clauses.push('runs its own code on this host')
+    if (permissions.files.read.length > 0) clauses.push(`reads ${listed(permissions.files.read, 'every file')}`)
+    if (permissions.files.write.length > 0) clauses.push(`writes ${listed(permissions.files.write, 'every file')}`)
   }
-  if (access.network.length > 0) clauses.push(`reach ${listed(access.network, 'every network host')}`)
-  if (access.writes) clauses.push('change data through your integrations without asking')
-  if (clauses.length <= 2) return clauses.join(' and ')
-  return `${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}`
+  if (permissions.network.length > 0) clauses.push(`reaches ${listed(permissions.network, 'every network host')}`)
+  if (clauses.length === 0) return null
+  const sentence = clauses.length <= 2 ? clauses.join(' and ') : `${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}`
+  return `This app ${sentence}.`
 }
 
-/** What a header says of an app's host access, on every client; null when the app asks for nothing. */
-export function appHostAccessNotice(view: AppHostAccessView): string | null {
-  if (view.state === 'none') return null
-  const access = describeAppHostAccess(view.asks)
-  if (view.state === 'allowed') return `This app can ${access}.`
-  return view.canDecide
-    ? `This app asks to ${access}. An agent wrote it. Until you allow it, those parts of the app do not work.`
-    : `This app asks to ${access}. Only the owner of its host can allow that.`
+// ─── What a client reads ───
+
+export type AppVersionState = 'active' | 'superseded' | 'failed'
+
+/** What needs the owner: a version that failed, a secret that is not set, a schedule whose last run failed, or the app is stopped. */
+export interface AppAttention {
+  kind: 'version-failed' | 'secret-missing' | 'schedule-failed' | 'stopped'
+  /** One sentence for the person. */
+  detail: string
 }
 
-/** A manifest's sources as one text, each file under a line that names it; empty when it carries none. */
-export function appSourceText(manifest: AppManifest): string {
-  return Object.entries(manifest.sources ?? {}).map(([path, text]) => `--- ${path} ---\n${text}`).join('\n\n')
+/** One app, as a list shows it. */
+export interface AppSummary {
+  id: string
+  /** Unique on the host; the namespace an agent's tools and a link use. */
+  slug: string
+  name: string
+  description: string
+  organizationId: string
+  /** The version that runs; null when no deploy succeeded yet. */
+  activeVersion: number | null
+  latestVersion: number | null
+  stopped: boolean
+  hasUi: boolean
+  operationCount: number
+  /** The folder the app was first deployed from: the project a list groups it under. */
+  project: string | null
+  createdBy: Attribution
+  createdAt: number
+  updatedAt: number
+  lastCallAt: number | null
+  attention: AppAttention[]
 }
+
+/** One integration the app names, as the reader has it. */
+export interface AppRoleState {
+  slug: string
+  /** The name of the reader's integration with that slug; null when they have none. */
+  name: string | null
+  connected: boolean
+}
+
+/** One secret the app declares. A client never reads its value. */
+export interface AppSecretState {
+  name: string
+  label: string
+  description: string
+  isSet: boolean
+}
+
+/** What a client needs to show an app: its header, and the policy of its frame. Never the UI itself (`appUi`). */
+export interface AppState {
+  app: AppSummary
+  /** The active version's descriptor; null when no version is active. */
+  descriptor: AppDescriptor | null
+  roles: AppRoleState[]
+  secrets: AppSecretState[]
+  /** The network hosts the frame may reach. */
+  network: string[]
+  /** What the active version may use, in one sentence; null when it uses nothing outside its data. */
+  permissionsNotice: string | null
+}
+
+/** The UI of the active version: one built HTML file. */
+export interface AppUi {
+  version: number
+  html: string
+}
+
+export interface AppVersionView {
+  number: number
+  state: AppVersionState
+  /** Why a failed version did not become active. */
+  error: string | null
+  message: string
+  createdAt: number
+  createdBy: Attribution
+  permissionsNotice: string | null
+  operationCount: number
+  hasUi: boolean
+}
+
+export interface AppScheduleView {
+  name: string
+  trigger: AppScheduleTrigger
+  run: string
+  enabled: boolean
+  nextRunAt: number | null
+  lastRunAt: number | null
+  lastOutcome: 'ok' | 'failed' | null
+  lastError: string | null
+}
+
+/** One webhook the app declares, for its owner: the URL and the secret are credentials. */
+export interface AppWebhookView {
+  name: string
+  run: string
+  /** Null while the webhook record could not be made; `problem` says why. */
+  webhookId: string | null
+  enabled: boolean
+  urlMode: WebhookUrlMode
+  url: string | null
+  /** The signing secret the host made, as text; null for a scheme with no shared secret, or after the owner set another one. */
+  secret: string | null
+  problem: string | null
+}
+
+export const appCallerSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('ui') }),
+  z.object({ kind: z.literal('agent'), sessionId: z.string().nullable() }),
+  z.object({ kind: z.literal('schedule'), name: z.string() }),
+  z.object({ kind: z.literal('webhook'), webhookId: z.string() }),
+])
+export type AppCaller = z.infer<typeof appCallerSchema>
+
+/** One call in the call log. It names the operation and its caller; never the input or the result. */
+export interface AppCallView {
+  id: string
+  version: number
+  operation: string
+  caller: AppCaller
+  startedAt: number
+  finishedAt: number | null
+  outcome: 'running' | 'ok' | 'failed'
+  error: string | null
+}
+
+/** A session linked to the app. */
+export interface AppSessionLink {
+  sessionId: string
+  title: string | null
+  linkedAt: number
+}
+
+/** The source change of one version: a unified patch against the version before it. */
+export interface AppVersionDiff {
+  version: number
+  /** The version the patch is against; null for the first version. */
+  base: number | null
+  patch: string
+  /** True when the patch was cut at the size limit. */
+  truncated: boolean
+}
+
+export type AppsChangedEvent =
+  | { kind: 'saved'; app: AppSummary; /** The session whose deploy made this change, so its conversation can open the app. */ deployedBySessionId?: string }
+  | { kind: 'deleted'; appId: string }
+
+// ─── Requests ───
+
+export const appRequestSchema = z.object({ appId: z.string().min(1) })
+export type AppRequest = z.infer<typeof appRequestSchema>
+
+export const appCallRequestSchema = appRequestSchema.extend({
+  name: appCallNameSchema,
+  argumentsJson: z.string().max(MCP_APP_MAX_DATA_BYTES),
+})
+export type AppCallRequest = z.infer<typeof appCallRequestSchema>
+
+export const appVersionRequestSchema = appRequestSchema.extend({ version: z.number().int().min(1) })
+export type AppVersionRequest = z.infer<typeof appVersionRequestSchema>
+
+export const appScheduleRequestSchema = appRequestSchema.extend({ name: declaredNameSchema })
+export type AppScheduleRequest = z.infer<typeof appScheduleRequestSchema>
+
+export const appScheduleSetRequestSchema = appScheduleRequestSchema.extend({ enabled: z.boolean() })
+export type AppScheduleSetRequest = z.infer<typeof appScheduleSetRequestSchema>
+
+/** `value: null` clears the secret. */
+export const appSecretSetRequestSchema = appRequestSchema.extend({ name: declaredNameSchema, value: z.string().min(1).max(8192).nullable() })
+export type AppSecretSetRequest = z.infer<typeof appSecretSetRequestSchema>
+
+export const appCallsRequestSchema = appRequestSchema.extend({ limit: z.number().int().min(1).max(500).optional() })
+export type AppCallsRequest = z.infer<typeof appCallsRequestSchema>

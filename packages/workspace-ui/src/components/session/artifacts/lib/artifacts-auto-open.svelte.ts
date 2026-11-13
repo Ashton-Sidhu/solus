@@ -1,11 +1,11 @@
 import type { WorkspaceContext } from '../../../../contexts/workspace/workspace.context.svelte'
 import { sessionArtifactsStore } from '../../../../contexts/sessions/session-artifacts.store.svelte'
-import { shouldOpenArtifacts } from './auto-open'
+import { opensBehindNewestItem, shouldOpenArtifacts } from './auto-open'
 
 type AutoOpenShell = Pick<WorkspaceContext, 'router' | 'activeTabId' | 'sessionFor' | 'serverIdForSession' | 'openArtifacts'>
 
 /** The session of the conversation in the leading pane, or null when a page or a draft leads. */
-function onScreenSessionId(shell: AutoOpenShell): string | null {
+export function onScreenSessionId(shell: Pick<AutoOpenShell, 'router' | 'activeTabId' | 'sessionFor'>): string | null {
   const destination = shell.router.destination
   if (destination.name !== 'chat') return null
   return destination.params.sessionId ?? shell.sessionFor(shell.activeTabId)?.id ?? null
@@ -29,7 +29,14 @@ export function useArtifactsAutoOpen(shell: AutoOpenShell): void {
       if (!shouldOpenArtifacts(change.previousCount, change.count)) return
       if (onScreenSessionId(shell) !== change.sessionId) return
       const focusedPaneId = shell.router.focusedPaneId
-      shell.openArtifacts(change.sessionId)
+      if (opensBehindNewestItem(change.newestKey)) {
+        shell.router.navigate(
+          { name: 'artifacts', params: { sessionId: change.sessionId, serverId: shell.serverIdForSession(change.sessionId) } },
+          { target: 'companion', background: true },
+        )
+      } else {
+        shell.openArtifacts(change.sessionId)
+      }
       shell.router.focusPane(focusedPaneId)
     }),
   )

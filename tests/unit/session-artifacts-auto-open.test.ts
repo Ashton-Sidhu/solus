@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   HIGHLIGHT_WINDOW_MS,
   highlightedArtifactKey,
+  opensBehindNewestItem,
   shouldOpenArtifacts,
 } from '@solus/workspace-ui/components/session/artifacts/lib/auto-open'
 
@@ -14,6 +15,17 @@ describe('artifacts auto-open rule', () => {
     expect(shouldOpenArtifacts(2, 5)).toBe(true)
     expect(shouldOpenArtifacts(3, 3)).toBe(false)
     expect(shouldOpenArtifacts(3, 2)).toBe(false)
+  })
+})
+
+describe('a new app link', () => {
+  test('the list opens behind the app, and in front for every other kind', () => {
+    // WHY: a deploy opens the app's own surface beside the conversation. The
+    // Artifacts surface joins the strip too, and must not cover the app.
+    expect(opensBehindNewestItem('app:h1:app_1')).toBe(true)
+    expect(opensBehindNewestItem('work:w1')).toBe(false)
+    expect(opensBehindNewestItem('file:h1:/repo/app:notes.md')).toBe(false)
+    expect(opensBehindNewestItem(null)).toBe(false)
   })
 })
 

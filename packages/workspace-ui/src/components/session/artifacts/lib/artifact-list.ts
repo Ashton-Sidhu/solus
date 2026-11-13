@@ -27,7 +27,7 @@ export interface ArtifactSection {
   items: SessionArtifact[]
 }
 
-const KIND_ORDER: readonly SessionArtifactKind[] = ['pull-request', 'work', 'file', 'image', 'automation']
+const KIND_ORDER: readonly SessionArtifactKind[] = ['pull-request', 'work', 'app', 'file', 'image', 'automation']
 
 const CHIP_LABELS = {
   'pull-request': 'PRs',
@@ -35,6 +35,7 @@ const CHIP_LABELS = {
   file: 'Files',
   image: 'Images',
   automation: 'Automations',
+  app: 'Apps',
 } satisfies { [Kind in SessionArtifactKind]: string }
 
 const SECTION_TITLES = {
@@ -43,6 +44,7 @@ const SECTION_TITLES = {
   file: 'Files',
   image: 'Images',
   automation: 'Automations',
+  app: 'Apps',
 } satisfies { [Kind in SessionArtifactKind]: string }
 
 const KIND_LABELS = {
@@ -50,6 +52,7 @@ const KIND_LABELS = {
   file: 'File',
   image: 'Image',
   automation: 'Automation',
+  app: 'App',
 } satisfies { [Kind in Exclude<SessionArtifactKind, 'work'>]: string }
 
 const WORK_TYPE_LABELS = {
@@ -132,6 +135,7 @@ export function artifactTitle(artifact: SessionArtifact): string {
       return hostPathBaseName(artifact.path) || artifact.title
     case 'work':
     case 'automation':
+    case 'app':
       return artifact.title || 'Untitled'
   }
 }
@@ -146,6 +150,7 @@ export function artifactTooltip(artifact: SessionArtifact): string {
       return artifact.path
     case 'work':
     case 'automation':
+    case 'app':
       return artifactTitle(artifact)
   }
 }
@@ -183,7 +188,7 @@ export function artifactIconLabel(artifact: SessionArtifact): string {
 
 /**
  * The row's muted line after the title: where a pull request lives, the folder a file or
- * image is in. A work or an automation is named by its title alone.
+ * image is in. A work, an automation, or an app is named by its title alone.
  */
 export function artifactDetail(artifact: SessionArtifact): string | null {
   switch (artifact.kind) {
@@ -197,6 +202,7 @@ export function artifactDetail(artifact: SessionArtifact): string | null {
     }
     case 'work':
     case 'automation':
+    case 'app':
       return null
   }
 }

@@ -1,36 +1,67 @@
 @import "tailwindcss" source(".");
 
-:root {
-  --artifact-border: var(--border, #e2e2e2);
-  --artifact-text: var(--foreground, #262626);
-  --artifact-accent: var(--primary, #d97757);
-  font-family: var(--font-sans, system-ui, sans-serif);
-  color: var(--artifact-text);
+/* The Solus theme as Tailwind colors: `bg-background`, `text-muted-foreground`,
+   `border-border`, `bg-primary`, `ring-ring`. Solus puts the values in the
+   page; the second value is for a page opened outside Solus. */
+@theme inline {
+  --color-background: var(--background, #fffffd);
+  --color-foreground: var(--foreground, #2a2618);
+  --color-card: var(--card, #fffffd);
+  --color-popover: var(--popover, #ffffff);
+  --color-muted: var(--muted, rgb(42 38 24 / 0.06));
+  --color-muted-foreground: var(--muted-foreground, #7d7a6e);
+  --color-primary: var(--primary, #d97757);
+  --color-primary-foreground: var(--primary-foreground, #ffffff);
+  --color-secondary: var(--secondary, rgb(217 119 87 / 0.07));
+  --color-secondary-foreground: var(--secondary-foreground, #d97757);
+  --color-destructive: var(--destructive, #ef4444);
+  --color-success: var(--success, #26894c);
+  --color-warning: var(--warning, #b86e00);
+  --color-border: var(--border, #d2cfc5);
+  --color-input: var(--input, #dddad2);
+  --color-ring: var(--ring, rgb(217 119 87 / 0.45));
+  --color-sidebar: var(--sidebar, var(--background, #f9f8f4));
+  --color-sidebar-accent: var(--sidebar-accent, var(--muted, rgb(42 38 24 / 0.06)));
+  --color-sidebar-border: var(--sidebar-border, var(--border, #d2cfc5));
+  --radius-lg: var(--radius, 0.5rem);
+  --radius-md: calc(var(--radius, 0.5rem) - 2px);
+  --radius-sm: calc(var(--radius, 0.5rem) - 4px);
 }
 
-body {
-  margin: 0;
-  background: transparent;
-}
-
-input, meter {
-  accent-color: var(--artifact-accent);
-}
-
-button {
-  cursor: pointer;
-}
-
-:focus-visible {
-  outline: 2px solid var(--artifact-accent);
-  outline-offset: 3px;
-}
-
-@media (prefers-color-scheme: dark) {
+/* In the base layer, so a utility on an element wins over these defaults. */
+@layer base {
   :root {
-    --artifact-border: var(--border, #3d3d3d);
-    --artifact-text: var(--foreground, #ededed);
-    --artifact-accent: var(--primary, #e68e6b);
+    --artifact-border: var(--border, #e2e2e2);
+    --artifact-text: var(--foreground, #262626);
+    --artifact-accent: var(--primary, #d97757);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    color: var(--artifact-text);
+  }
+
+  body {
+    margin: 0;
+    background: transparent;
+  }
+
+  input, meter {
+    accent-color: var(--artifact-accent);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--artifact-accent);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --artifact-border: var(--border, #3d3d3d);
+      --artifact-text: var(--foreground, #ededed);
+      --artifact-accent: var(--primary, #e68e6b);
+    }
   }
 }
 

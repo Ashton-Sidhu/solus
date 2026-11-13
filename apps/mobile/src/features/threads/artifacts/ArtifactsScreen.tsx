@@ -27,8 +27,9 @@ import { useSessionArtifacts } from "./use-session-artifacts";
 /**
  * What a session produced or linked (docs/plans/session-artifacts.md). Pull
  * requests open their screen, or the browser when no project of the host
- * reads them; files and images open the file screen of their host. Works and
- * automations have no screen on the phone, so their rows only name them.
+ * reads them; files and images open the file screen of their host; an app
+ * opens its screen. Works and automations have no screen on the phone, so
+ * their rows only name them.
  */
 export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifacts">) {
   const { hostId, sessionId } = route.params;
@@ -82,7 +83,7 @@ export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifa
         <EmptyState
           variant="plain"
           title="Nothing linked yet."
-          detail="Pull requests, works, files, and automations of this session show here."
+          detail="Pull requests, works, apps, files, and automations of this session show here."
         />
       ) : (
         <>

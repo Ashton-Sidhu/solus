@@ -1,4 +1,3 @@
-import type { AppMeta } from './apps'
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
@@ -1563,8 +1562,6 @@ export interface WorkMeta {
   /** The upstream doc this work mirrors, when the user has published or
    *  imported it. Absent for the great majority of works, which are local only. */
   mirroredDoc?: WorkExternalLink
-  /** An `app` work's own settings (docs/plans/apps.md §3). Absent on every other type. */
-  app?: AppMeta
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
 }

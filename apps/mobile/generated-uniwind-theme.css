@@ -137,6 +137,8 @@
       --color-artifact-image-fill: rgba(225, 29, 72, 0.14);
       --color-artifact-automation: #a86045;
       --color-artifact-automation-fill: rgba(217, 119, 87, 0.14);
+      --color-artifact-app: #0d6a96;
+      --color-artifact-app-fill: rgba(2, 132, 199, 0.14);
     }
     @variant dark {
       --color-screen: #262522;
@@ -274,6 +276,8 @@
       --color-artifact-image-fill: rgba(251, 113, 133, 0.14);
       --color-artifact-automation: #e9a98d;
       --color-artifact-automation-fill: rgba(230, 142, 107, 0.14);
+      --color-artifact-app: #6ccaf3;
+      --color-artifact-app-fill: rgba(56, 189, 248, 0.14);
     }
   }
 }

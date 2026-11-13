@@ -192,7 +192,7 @@ const storedRequestSchema = z.object({
 })
 const actionResultSchema = z.object({
   actionId: z.string(),
-  type: z.enum(['start_session', 'send_to_session', 'run_automation']),
+  type: z.enum(['start_session', 'send_to_session', 'run_automation', 'call_app']),
   status: z.enum(['skipped', 'matched', 'started', 'queued', 'busy', 'failed']),
   filters: z.array(z.object({ filter: webhookFilterSchema, matched: z.boolean() })),
   prompt: z.string().optional(),

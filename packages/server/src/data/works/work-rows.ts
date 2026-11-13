@@ -1,6 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
-import { appMetaSchema } from '@solus/contracts/apps'
 import type { Work as WorkRecord, WorkMeta, WorkRevision, WorkRevisionReason, WorkRevisionSummary } from '@solus/contracts/types'
 import type { Attribution } from '@solus/contracts/user'
 import type { Db } from '../../db/database'
@@ -23,7 +22,6 @@ const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'
 export const workTypeSchema = z.enum(['doc', 'slides', 'artifact'])
 const workExtraSchema = z.object({
   mirroredDoc: workExternalLinkSchema.optional(),
-  app: appMetaSchema.optional(),
 })
 const memberSessionIdsSchema = z.array(z.string())
 
@@ -139,7 +137,7 @@ export function authorFromJson(value: string | null): Attribution | null {
  * its own. Named, so a record passed as its meta cannot store its body here.
  * Membership is not one of them: it is the session's edge (`resource_links`). */
 export function metaJson(meta: WorkMeta): string {
-  const extra: z.infer<typeof workExtraSchema> = { mirroredDoc: meta.mirroredDoc, app: meta.app }
+  const extra: z.infer<typeof workExtraSchema> = { mirroredDoc: meta.mirroredDoc }
   return JSON.stringify(extra)
 }
 

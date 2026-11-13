@@ -45,7 +45,7 @@ Do not coin "panel tab", "side tab", "aside tab" or "secondary tab". The
    |---|---|
    | destination | `tasks`, `prs`, `reviewMode`, `settings`, `folio`, `automations`, `notifications` |
    | surface | `task`, `prReview`, `prDiff`, `plan`, `work`, `automation`, `goal`, `review`, `files`, `subagent`, `browser`, `devices` |
-   | either | `chat`, `draft`, `sessionRecord`, `insights` |
+   | either | `chat`, `draft`, `sessionRecord`, `insights`, `app` (an app, by its slug and host; docs/plans/apps.md §9) |
 
    `task` and `prReview` leave the page group. `plan`, `work` and `automation`
    no longer take the leading pane.

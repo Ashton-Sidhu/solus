@@ -31,6 +31,62 @@ CREATE TABLE "activity" (
 	"data" text DEFAULT '{}' NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "app_calls" (
+	"id" text PRIMARY KEY NOT NULL,
+	"app_id" text NOT NULL,
+	"version" integer NOT NULL,
+	"operation" text NOT NULL,
+	"caller" text NOT NULL,
+	"started_at" bigint NOT NULL,
+	"finished_at" bigint,
+	"outcome" text NOT NULL,
+	"error" text
+);
+--> statement-breakpoint
+CREATE TABLE "app_schedules" (
+	"app_id" text NOT NULL,
+	"name" text NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"next_run_at" bigint,
+	"last_run_at" bigint,
+	"last_outcome" text,
+	"last_error" text,
+	CONSTRAINT "app_schedules_app_id_name_pk" PRIMARY KEY("app_id","name")
+);
+--> statement-breakpoint
+CREATE TABLE "app_versions" (
+	"app_id" text NOT NULL,
+	"number" integer NOT NULL,
+	"source_commit" text NOT NULL,
+	"build_commit" text NOT NULL,
+	"descriptor" text NOT NULL,
+	"has_backend" boolean NOT NULL,
+	"has_ui" boolean NOT NULL,
+	"state" text NOT NULL,
+	"error" text,
+	"message" text DEFAULT '' NOT NULL,
+	"author" text NOT NULL,
+	"created_at" bigint NOT NULL,
+	CONSTRAINT "app_versions_app_id_number_pk" PRIMARY KEY("app_id","number")
+);
+--> statement-breakpoint
+CREATE TABLE "apps" (
+	"id" text PRIMARY KEY NOT NULL,
+	"organization_id" text DEFAULT 'local' NOT NULL,
+	"created_by" text NOT NULL,
+	"slug" text NOT NULL,
+	"name" text NOT NULL,
+	"description" text DEFAULT '' NOT NULL,
+	"active_version" integer,
+	"stopped" boolean DEFAULT false NOT NULL,
+	"repository" text NOT NULL,
+	"project" text,
+	"author" text NOT NULL,
+	"webhook_ids" text DEFAULT '{}' NOT NULL,
+	"created_at" bigint NOT NULL,
+	"updated_at" bigint NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "asset_publications" (
 	"asset_id" text NOT NULL,
 	"provider" text NOT NULL,
@@ -485,6 +541,9 @@ CREATE TABLE "workspace_projects" (
 	"created_at" bigint NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "app_calls" ADD CONSTRAINT "app_calls_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_schedules" ADD CONSTRAINT "app_schedules_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_versions" ADD CONSTRAINT "app_versions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "webhook_deliveries" ADD CONSTRAINT "webhook_deliveries_webhook_id_webhooks_id_fk" FOREIGN KEY ("webhook_id") REFERENCES "public"."webhooks"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "work_live_docs" ADD CONSTRAINT "work_live_docs_work_id_works_id_fk" FOREIGN KEY ("work_id") REFERENCES "public"."works"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "work_reviewers" ADD CONSTRAINT "work_reviewers_work_id_works_id_fk" FOREIGN KEY ("work_id") REFERENCES "public"."works"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -495,6 +554,10 @@ CREATE INDEX "acl_entry_secret_idx" ON "acl_entry" USING btree ("link_secret_has
 CREATE INDEX "acl_entry_by_subject" ON "acl_entry" USING btree ("subject_kind","subject_id","resource_kind","resource_id");--> statement-breakpoint
 CREATE INDEX "activity_by_subject" ON "activity" USING btree ("subject_kind","subject_id","at","id");--> statement-breakpoint
 CREATE INDEX "activity_for_user" ON "activity" USING btree ("user_id","at","id");--> statement-breakpoint
+CREATE INDEX "app_calls_by_app" ON "app_calls" USING btree ("app_id","started_at","id");--> statement-breakpoint
+CREATE INDEX "app_schedules_due" ON "app_schedules" USING btree ("next_run_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "apps_by_slug" ON "apps" USING btree ("slug");--> statement-breakpoint
+CREATE INDEX "apps_by_creator" ON "apps" USING btree ("organization_id","created_by");--> statement-breakpoint
 CREATE INDEX "comment_threads_position" ON "comment_threads" USING btree ("organization_id","subject_kind","subject_id","subject_part","position","thread_id");--> statement-breakpoint
 CREATE INDEX "comment_threads_task_order" ON "comment_threads" USING btree ("organization_id","subject_kind","subject_id","subject_part","created_at","thread_id") WHERE subject_kind = 'task';--> statement-breakpoint
 CREATE INDEX "comment_threads_pending" ON "comment_threads" USING btree ("organization_id","subject_kind","subject_id","subject_part","created_at","thread_id") WHERE delivery_state = 'pending';--> statement-breakpoint

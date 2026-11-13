@@ -19,7 +19,7 @@ import { workspaceResourceVisibility } from '../tasks/resource-visibility'
 import { getSessionRecord } from '../sessions/session-records'
 import { works } from './schema'
 import { createWork, loadWork, readWorkMetadataPage } from './works'
-import { Work, WorkContentInvalidError, WorkMovedError, WorkVersionConflictError } from './work'
+import { Work, WorkMovedError, WorkVersionConflictError } from './work'
 import { workLocation } from './work-rows'
 import { workMembership } from './session-access'
 import { announceWorkDeleted } from './work-events'
@@ -33,7 +33,6 @@ async function domainAnswer<T>(write: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof WorkVersionConflictError) throw new SolusApiError(412, 'STALE_VERSION', error.message)
     if (error instanceof WorkMovedError) throw new SolusApiError(404, 'MOVED', error.message)
-    if (error instanceof WorkContentInvalidError) throw new SolusApiError(400, 'INVALID_REQUEST', error.message)
     throw error
   }
 }

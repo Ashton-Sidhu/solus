@@ -256,34 +256,6 @@ describe('session transcript rehydration', () => {
     })
   })
 
-  test('a create_app call replays as the artifact it saved, and a refused one leaves no card', async () => {
-    // WHY: an app is an artifact saved through create_app. A reopened
-    // conversation must render it as it rendered when it was made, from the
-    // revision the call wrote, and a refused call saved nothing to render.
-    const html = '<!doctype html><html><head><title>Table browser</title></head><body>app</body></html>'
-    connections.registerPrimary('transcript-host', {
-      loadSession: async () => projectSessionHistory([
-        { role: 'tool', content: '', toolName: 'mcp__solus__create_app', toolId: 'made', toolInput: JSON.stringify({ title: 'Table browser', html_path: 'app/bundle.html' }), timestamp: 1 },
-        { role: 'tool_result', content: 'Rendered "Table browser" in the conversation and saved it as an artifact (id: app-1). Revise it with update_work; do not render a second copy.', toolResultForId: 'made', timestamp: 2 },
-        { role: 'tool', content: '', toolName: 'mcp__solus__create_app', toolId: 'refused', toolInput: JSON.stringify({ title: 'Broken', html_path: 'plain/bundle.html' }), timestamp: 3 },
-        { role: 'tool_result', content: 'create_app refused the page: it has no app manifest.', toolResultForId: 'refused', status: 'error', timestamp: 4 },
-      ] as SessionLoadMessage[]),
-    })
-    const ctx = {
-      apiForSession: () => connections.apiFor('transcript-host'),
-      automationsStore: { loaded: true },
-      worksStore: { works: {}, history: { bodyAtVersion: async (workId: string, version: number) => workId === 'app-1' && version === 1 ? html : null } },
-    } as unknown as WorkspaceContext
-    const transcript = await loadSessionTranscript(ctx, {
-      sessionId: 'session-1', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
-      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
-    })
-    expect(transcript.messages.filter((message) => message.role === 'tool')).toHaveLength(2)
-    expect(transcript.messages.flatMap((message) => message.artifact ? [{ artifact: message.artifact, workRef: message.workRef }] : [])).toEqual([
-      { artifact: { kind: 'html', html, path: undefined }, workRef: { workId: 'app-1', title: 'Table browser', workType: 'artifact', contentVersion: 1 } },
-    ])
-  })
-
   test('a preview call replays as its tool row and no artifact card', () => {
     // WHY: a preview showed nothing in the conversation when it ran. A reload
     // must not show the draft beside the render the agent gave afterwards.

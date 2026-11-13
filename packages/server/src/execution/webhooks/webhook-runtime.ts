@@ -34,9 +34,10 @@ export function webhookActor(webhook: WebhookRecord): Actor {
   return actor
 }
 
-export function webhookActionDeps(runtime: SessionRuntime, facts: Pick<WebhookHostFacts, 'isPausedByAdmin'>): WebhookActionDeps {
+export function webhookActionDeps(runtime: SessionRuntime, facts: Pick<WebhookHostFacts, 'isPausedByAdmin'>, callApp: WebhookActionDeps['callApp']): WebhookActionDeps {
   return {
     actorFor: webhookActor,
+    callApp,
     isPausedByAdmin: facts.isPausedByAdmin,
     startSession: ({ prompt, action, actor, webhookId, deliveryId, organizationId }) => withActorScope(actor, async () => {
       const cwd = action.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(crypto.randomUUID(), actor.principal) : expandHome(action.cwd)
@@ -78,8 +79,8 @@ export interface WebhookServices {
   actions: WebhookActionRunner
 }
 
-export function createWebhookServices(runtime: SessionRuntime, facts: WebhookHostFacts): WebhookServices {
-  const actions = createWebhookActionRunner(webhookActionDeps(runtime, facts))
+export function createWebhookServices(runtime: SessionRuntime, facts: WebhookHostFacts, callApp: WebhookActionDeps['callApp']): WebhookServices {
+  const actions = createWebhookActionRunner(webhookActionDeps(runtime, facts, callApp))
   const receiver = createWebhookReceiver({
     ...facts,
     runDelivery: async (delivery) => { await actions.runDelivery(delivery) },

@@ -159,7 +159,7 @@ describe('each way a session starts names its starter on the run', () => {
     expect(offered[0]).toEqual(namesOf(Object.values(solusToolbox)))
     expect(offered[1]).toEqual(namesOf(Object.values(solusToolbox)))
     expect(offered[2]).toEqual(namesOf(Object.values(unattended)))
-    expect(offered[0]).toContain('create_app')
+    expect(offered[0]).toContain('deploy_app')
     expect(Object.values(automations).length + Object.values(webhooks).length).toBeGreaterThan(0)
   })
 

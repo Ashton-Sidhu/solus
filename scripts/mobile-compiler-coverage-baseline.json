@@ -525,6 +525,71 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/apps/app-rows.tsx": {
+      "compiled": [
+        "AppDetailRow",
+        "CopyPill"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/AppFrame.tsx": {
+      "compiled": [
+        "AppFrame"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/AppManageScreen.tsx": {
+      "compiled": [
+        "AppManageScreen",
+        "StateSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/AppManageSections.tsx": {
+      "compiled": [
+        "CallsSection",
+        "LoadedSection",
+        "SchedulesSection",
+        "SecretsSection",
+        "SessionsSection",
+        "VersionsSection",
+        "WebhooksSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/AppScreen.tsx": {
+      "compiled": [
+        "AppScreen",
+        "LoadedApp",
+        "Loading",
+        "Operations",
+        "StoppedBanner"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/AppsScreen.tsx": {
+      "compiled": [
+        "AppsScreen",
+        "HostAppsSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/use-app.ts": {
+      "compiled": [
+        "useAppChange",
+        "useAppEvents",
+        "useAppLists",
+        "useAppState",
+        "useHostRead"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/apps/use-apps.ts": {
+      "compiled": [
+        "useApps"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/connection/CloudEnvironmentRows.tsx": {
       "compiled": [
         "CloudEnvironmentRow",
@@ -1603,16 +1668,41 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/threads/AgentArtifactChips.tsx": {
+      "compiled": [
+        "AgentArtifactChips",
+        "AgentGroupArtifactTotals",
+        "AgentRowArtifacts",
+        "Chip",
+        "ChipsFrame",
+        "OwnAgentArtifacts",
+        "TurnArtifactChips",
+        "useCallerArtifacts"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/artifacts/ArtifactsScreen.tsx": {
+      "compiled": [
+        "ArtifactsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/artifacts/use-open-artifact.ts": {
+      "compiled": [
+        "useOpenArtifact"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/artifacts/use-session-artifacts.ts": {
+      "compiled": [
+        "useSessionArtifacts"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/threads/ComposerQueuedEdit.tsx": {
       "compiled": [
         "ComposerQueuedEditAttachments",
         "ComposerQueuedEditBanner"
-      ],
-      "skipped": []
-    },
-    "apps/mobile/src/features/threads/PullRequestWatchMarks.tsx": {
-      "compiled": [
-        "PullRequestWatchMarks"
       ],
       "skipped": []
     },
@@ -1700,6 +1790,12 @@
           ]
         }
       ]
+    },
+    "apps/mobile/src/features/threads/PullRequestWatchMarks.tsx": {
+      "compiled": [
+        "PullRequestWatchMarks"
+      ],
+      "skipped": []
     },
     "apps/mobile/src/features/threads/queued-message-edit.ts": {
       "compiled": [
@@ -1792,22 +1888,12 @@
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/threads/artifact-app.ts": {
-      "compiled": [
-        "useArtifactApp"
-      ],
-      "skipped": []
-    },
     "apps/mobile/src/features/threads/ThreadArtifact.tsx": {
       "compiled": [
         "ArtifactFullScreen",
         "ArtifactPage",
-        "ArtifactPendingFullScreen",
         "ArtifactWebView",
-        "SavedArtifactPage",
-        "ThreadArtifact",
-        "ThreadArtifactFullScreen",
-        "WorkArtifactFullScreen"
+        "ThreadArtifact"
       ],
       "skipped": []
     },
@@ -2063,6 +2149,18 @@
         "SetupDetails",
         "StageRow",
         "WorktreeSetupCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/webhooks/WebhookScreen.tsx": {
+      "compiled": [
+        "ActionRows",
+        "ActionsSection",
+        "AppActionRows",
+        "DeliveriesSection",
+        "StateSection",
+        "UrlSection",
+        "WebhookScreen"
       ],
       "skipped": []
     },

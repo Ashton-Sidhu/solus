@@ -26,6 +26,7 @@ export const SETTINGS_PAGE_ROUTES: ReadonlySet<string> = new Set([
   'Webhooks',
   'Webhook',
   'WebhookDelivery',
+  'Apps',
   'GitHubConnection',
   'About',
 ])

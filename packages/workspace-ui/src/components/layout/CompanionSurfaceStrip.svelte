@@ -2,6 +2,7 @@
   import {
     Bot as SubagentIcon,
     Boxes as ArtifactsIcon,
+    LayoutGrid as AppIcon,
     ClipboardList as TaskIcon,
     FileDiff as DiffIcon,
     FileText as DocumentIcon,
@@ -19,6 +20,7 @@
     X as XIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
+  import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
   import { ROUTES, surfaceKey, type RouteRef } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -61,6 +63,7 @@
     devices: DevicesIcon,
     goal: GoalIcon,
     artifacts: ArtifactsIcon,
+    app: AppIcon,
     prReview: PullRequestIcon,
     prDiff: PullRequestIcon,
     tasks: DocumentIcon,
@@ -79,6 +82,10 @@
     workTitle: (workId) => session.worksStore.get(workId)?.title,
     planTitle: (planId) => session.planStore.get(planId)?.title,
     automationName: (automationId) => session.automationsStore.get(automationId)?.name,
+    appName: (serverId, slugOrId) => {
+      const hostId = serverId ?? appsStore.hostOf(slugOrId);
+      return hostId ? appsStore.find(hostId, slugOrId)?.app.name : undefined;
+    },
   };
 
   let menu = $state<{ index: number; x: number; y: number } | null>(null);

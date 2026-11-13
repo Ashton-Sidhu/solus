@@ -1,5 +1,6 @@
 import { isAbsolute, win32 } from 'node:path'
 import { sql } from 'drizzle-orm'
+import { z } from 'zod'
 import { sessionLinkInputSchema, type SessionLinkInput } from '@solus/contracts/session-links'
 import type { Attribution } from '@solus/contracts/user'
 import { getDatabase } from '../../db/database'
@@ -14,7 +15,7 @@ import { emitSessionArtifactsChanged } from './session-artifacts'
 
 type ItemTarget = SessionLinkInput['target']
 
-/** A session's file or automation edge: the host that holds the item is the scope, its path or id the key. */
+/** A session's file, automation, or app edge: the host that holds the item is the scope, its path or id the key. */
 function edgeOf(sessionId: string, target: Exclude<ItemTarget, { kind: 'work' }>): LinkEdge {
   return {
     sourceKind: 'session',
@@ -57,6 +58,24 @@ export async function linkSessionItem(sessionId: string, raw: SessionLinkInput, 
     `)
   })
   if (inserted.changes > 0) await emitSessionArtifactsChanged(sessionId)
+}
+
+/** The sessions linked to an app on a host, the newest link first. */
+export async function readAppSessionLinks(appId: string): Promise<{ sessionId: string; linkedAt: number }[]> {
+  const rows = z.array(z.object({ session_id: z.string(), linked_at: z.coerce.number() })).parse(await getDatabase().all(sql`
+    SELECT source_id AS session_id, created_at AS linked_at FROM ${resourceLinks}
+    WHERE source_kind = 'session' AND target_kind = 'app' AND target_key = ${appId}
+    ORDER BY created_at DESC
+  `))
+  return rows.map((row) => ({ sessionId: row.session_id, linkedAt: row.linked_at }))
+}
+
+/** A deleted app: the edges of every session to it go, and each session's clients read its artifacts again. */
+export async function unlinkAppFromSessions(appId: string): Promise<void> {
+  const links = await readAppSessionLinks(appId)
+  if (links.length === 0) return
+  await getDatabase().run(sql`DELETE FROM ${resourceLinks} WHERE source_kind = 'session' AND target_kind = 'app' AND target_key = ${appId}`)
+  for (const link of links) await emitSessionArtifactsChanged(link.sessionId)
 }
 
 /** The reverse of `linkSessionItem`. A link that is not there changes nothing. */

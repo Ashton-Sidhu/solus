@@ -8,6 +8,8 @@ export interface SurfaceTitleSources {
   workTitle(workId: string): string | undefined
   planTitle(planId: string): string | undefined
   automationName(automationId: string): string | undefined
+  /** `slugOrId` is what the route holds: the app's slug, or its id. */
+  appName(serverId: string | undefined, slugOrId: string): string | undefined
 }
 
 const REVIEW_VIEW_LABELS = {
@@ -34,6 +36,7 @@ const KIND_LABELS = {
   devices: 'Devices',
   goal: 'Goal',
   artifacts: 'Artifacts',
+  app: 'App',
   prReview: 'Pull request',
   prDiff: 'Pull request diff',
   tasks: 'Tasks',
@@ -61,6 +64,8 @@ function subjectName(ref: RouteRef, sources: SurfaceTitleSources): string | unde
       return ref.params.planId ? sources.planTitle(ref.params.planId) : undefined
     case 'automation':
       return ref.params.automationId ? sources.automationName(ref.params.automationId) : undefined
+    case 'app':
+      return sources.appName(ref.params.serverId, ref.params.slug)
     case 'files':
       return ref.params.path && hostPathBaseName(ref.params.path)
     case 'review':

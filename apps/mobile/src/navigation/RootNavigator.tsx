@@ -80,6 +80,9 @@ import { PullRequestLabelsScreen } from '../features/prs/PullRequestLabelsScreen
 import { PullRequestFilterSearchScreen } from '../features/prs/PullRequestFilterSearchScreen'
 import { FilesScreen } from '../features/files/FilesScreen'
 import { ArtifactsScreen } from '../features/threads/artifacts/ArtifactsScreen'
+import { AppsScreen } from '../features/apps/AppsScreen'
+import { AppScreen } from '../features/apps/AppScreen'
+import { AppManageScreen } from '../features/apps/AppManageScreen'
 import { FileScreen } from '../features/files/FileScreen'
 import { useKeyboardCommand } from '../features/keyboard/use-keyboard-command'
 import type { RootStackParamList } from './routes'
@@ -189,6 +192,8 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'Webhooks',
   'Webhook',
   'WebhookDelivery',
+  'Apps',
+  'AppManage',
   'GitHubConnection',
   'About',
   'PullRequestReview',
@@ -379,6 +384,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="Webhooks" component={WebhooksScreen} options={{ title: 'Webhooks' }} />
             <Stack.Screen name="Webhook" component={WebhookScreen} options={{ title: 'Webhook' }} />
             <Stack.Screen name="WebhookDelivery" component={WebhookDeliveryScreen} options={{ title: 'Delivery' }} />
+            <Stack.Screen name="Apps" component={AppsScreen} options={{ title: 'Apps' }} />
             <Stack.Screen name="SettingsScope" component={SettingsScopeScreen} options={{ title: 'Apply settings for' }} />
             <Stack.Screen name="ProviderInstances" component={ProviderInstancesScreen} options={{ title: 'Provider instances' }} />
             <Stack.Screen name="Providers" component={ProvidersScreen} options={{ title: 'Providers' }} />
@@ -436,6 +442,13 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
           <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />
           <Stack.Screen name="ThreadArtifacts" component={ArtifactsScreen} options={{ title: 'Artifacts' }} />
+          {/* The app frame scrolls inside its web view, so the header is solid. */}
+          <Stack.Screen name="App" component={AppScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'App' }} />
+          <Stack.Screen
+            name="AppManage"
+            component={AppManageScreen}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'App', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </WorkspaceTabsProvider>

@@ -9,8 +9,6 @@
     ChevronRight as CaretRightIcon,
     MessagesSquare as SharedSessionsIcon,
     Plus as PlusIcon,
-    Pin as PushPinIcon,
-    UserCheck as UserCheckIcon,
     PanelLeft as SidebarSimpleIcon,
     Users as SharedIcon,
   } from "@lucide/svelte";
@@ -33,16 +31,11 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
-  import {
-    ListFilterMenu,
-    ListFilterGroup,
-    ListSortMenu,
-    PageCrumbLine,
-    syncStamp,
-  } from "../ui/list-page";
+  import { PageCrumbLine, syncStamp } from "../ui/list-page";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
-  import * as DropdownMenu from "../ui/dropdown-menu";
   import PageEmpty from "../ui/PageEmpty.svelte";
+  import WorkspaceAppsTab from "./WorkspaceAppsTab.svelte";
+  import WorkspaceFilterControls from "./WorkspaceFilterControls.svelte";
   import WorkspaceCard from "./WorkspaceCard.svelte";
   import WorkspaceSessionCard from "./WorkspaceSessionCard.svelte";
   import WorkspaceTabStrip from "./WorkspaceTabStrip.svelte";
@@ -59,9 +52,15 @@
   import { PeekHover } from "./lib/peek-hover.svelte";
   import { isStackedPane, observePaneWidth } from "../../lib/pane-width";
   import { SessionLabels } from "./lib/session-labels.svelte";
-  import { SORT_OPTIONS, WorkspaceLedger } from "./lib/workspace-ledger.svelte";
+  import { WorkspaceLedger } from "./lib/workspace-ledger.svelte";
   import type { WorkspaceItem, WorkspaceSessionItem, WorkspaceTab } from "./lib/workspace-items";
   import { buildWorkspaceItems, isHtmlArtifact } from "./lib/workspace-items";
+  import { buildWorkspaceAppItems, type WorkspaceAppItem } from "./lib/workspace-apps";
+  import { appsStore } from "../../contexts/apps/apps.store.svelte";
+  import type { RouteParams } from "../../contexts/workspace/routing/route-registry";
+
+  /** The route names the tab a link opens on (`/folio/apps`); the cloud console mounts the page with no route. */
+  let { params }: { params?: RouteParams["folio"] } = $props();
 
   const session = getSurfaceContext();
   // The ledger is mounted by the workspace and by the cloud console alike
@@ -97,13 +96,41 @@
       awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
     }),
   );
-  // The three groups (docs/workspace-page.md): the reader's own works, the
-  // works other people shared with them, and the sessions other people shared
-  // with them — the ones in this person's list with a role below owner.
+  // The apps of every connected host (docs/plans/apps.md §9). A project is
+  // named as the works name it, so one Project filter serves every tab.
+  $effect(() => appsStore.watch());
+  const appItems: WorkspaceAppItem[] = $derived(
+    buildWorkspaceAppItems(appsStore.rows, {
+      hostLabel: (serverId) => hostLabelFor(serverId) ?? serverId,
+      projectKeyOf: (serverId, folder) => projectsStore.projectKeyFor(serverId, folder),
+      optionsFor: (projectKeys) => session.projectOptionsFor(projectKeys),
+    }),
+  );
+  // The four groups (docs/workspace-page.md): the reader's own works, the
+  // works other people shared with them, the sessions other people shared
+  // with them — the ones in this person's list with a role below owner — and
+  // the apps on their hosts.
   const ledger = new WorkspaceLedger({
     works: () => allItems,
     sessions: () => sessionListStore.sessionsInOrganization(serversStore.activeOrganizationId),
+    apps: () => appItems,
   });
+  // The Apps tab is in the route, so a link and the palette open it. The other
+  // tabs are the page's own state.
+  $effect(() => {
+    const routed = params?.tab;
+    untrack(() => {
+      if (routed === "apps") ledger.tab = "apps";
+      else if (ledger.tab === "apps") ledger.tab = "yours";
+    });
+  });
+  function selectTab(next: WorkspaceTab) {
+    ledger.tab = next;
+    // The route changes only when the page moves to the Apps tab or away from it.
+    if (workspace?.router.destination.name === "folio" && (params?.tab === "apps") !== (next === "apps")) {
+      workspace.router.navigate({ name: "folio", params: next === "apps" ? { tab: "apps" } : {} }, { replace: true });
+    }
+  }
   const anyLoading = $derived(session.worksStore.listLoading);
   const loading = $derived(allItems.length === 0 && anyLoading);
   const backgroundLoading = $derived(!loading && anyLoading);
@@ -117,6 +144,7 @@
 
   function load() {
     void session.worksStore.loadAll();
+    void appsStore.loadAll();
   }
 
   // ── View state ──
@@ -322,6 +350,7 @@
     () => {
       if (ledger.selectedItem) void openItem(ledger.selectedItem);
       else if (ledger.selectedSession) void openSharedSession(ledger.selectedSession);
+      else if (ledger.selectedApp) openApp(ledger.selectedApp);
     },
     { enabled: () => open && ledger.walkLength > 0 },
   );
@@ -341,9 +370,10 @@
     },
     { enabled: () => open && ledger.flat.length > 0 },
   );
-  useKeybinding("workspace.tab-yours", () => { ledger.tab = "yours"; }, { enabled: () => open });
-  useKeybinding("workspace.tab-shared-works", () => { ledger.tab = "shared-works"; }, { enabled: () => open });
-  useKeybinding("workspace.tab-shared-sessions", () => { ledger.tab = "shared-sessions"; }, { enabled: () => open });
+  useKeybinding("workspace.tab-yours", () => selectTab("yours"), { enabled: () => open });
+  useKeybinding("workspace.tab-shared-works", () => selectTab("shared-works"), { enabled: () => open });
+  useKeybinding("workspace.tab-shared-sessions", () => selectTab("shared-sessions"), { enabled: () => open });
+  useKeybinding("workspace.tab-apps", () => selectTab("apps"), { enabled: () => open });
 
   // ── Actions ──
   function close() {
@@ -422,6 +452,11 @@
       if (!(error instanceof SessionUnavailableError)) throw error;
       workspace.notifySessionUnavailable(provider);
     }
+  }
+
+  /** An app opens as the destination, in place of the page. */
+  function openApp(item: WorkspaceAppItem) {
+    workspace?.openApp(item.serverId, item.slug, "leading");
   }
 
   function togglePin(item: WorkspaceItem) {
@@ -520,33 +555,6 @@
   }
 </script>
 
-{#snippet filterControls()}
-  <ListSortMenu bind:value={ledger.sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
-  <!-- The facets cut works by type, time, project, pin and review; a session
-       has none of those, so its tab keeps only the search and the sort. -->
-  {#if ledger.tab !== "shared-sessions"}
-    <ListFilterMenu activeCount={ledger.activeFacetCount} onClear={() => ledger.clearFacets()}>
-      <ListFilterGroup label="Project" options={ledger.projectOptions} selected={[ledger.filter.project]} onChange={(next) => (ledger.filter.project = next[0])} />
-      <ListFilterGroup label="Type" icon={BooksIcon} options={ledger.typeOptions} selected={[ledger.filter.type]} onChange={(next) => (ledger.filter.type = next[0])} />
-      <ListFilterGroup label="Time" options={ledger.timeOptions} selected={[ledger.filter.time]} onChange={(next) => (ledger.filter.time = next[0])} />
-      <DropdownMenu.Separator />
-      {#if ledger.tab === "yours"}
-        <DropdownMenu.CheckboxItem checked={ledger.filter.pinnedOnly} closeOnSelect={false} onCheckedChange={(checked) => (ledger.filter.pinnedOnly = checked)}>
-          <PushPinIcon size={14} class="shrink-0 text-muted-foreground" />
-          <span class="flex-1">Pinned</span>
-          <span class="mr-1 tabular-nums text-muted-foreground">{ledger.pinnedCount}</span>
-        </DropdownMenu.CheckboxItem>
-      {/if}
-      <!-- Works a teammate asked the reader to review. -->
-      <DropdownMenu.CheckboxItem checked={ledger.filter.awaitingMyReview} closeOnSelect={false} onCheckedChange={(checked) => (ledger.filter.awaitingMyReview = checked)} data-testid="filter-needs-my-review">
-        <UserCheckIcon size={14} class="shrink-0 text-muted-foreground" />
-        <span class="flex-1">Needs my review</span>
-        <span class="mr-1 tabular-nums text-muted-foreground">{ledger.awaitingMyReviewCount}</span>
-      </DropdownMenu.CheckboxItem>
-    </ListFilterMenu>
-  {/if}
-{/snippet}
-
 {#snippet newMenu(triggerClass: string, iconSize: number)}
   <WorkspaceNewMenu
     {triggerClass}
@@ -560,7 +568,7 @@
 {/snippet}
 
 {#snippet tabStrip()}
-  <WorkspaceTabStrip tabs={ledger.tabSpecs} tab={ledger.tab} onSelect={(next) => (ledger.tab = next)} {presentIn} />
+  <WorkspaceTabStrip tabs={ledger.tabSpecs} tab={ledger.tab} onSelect={selectTab} {presentIn} />
 {/snippet}
 
 {#snippet workCard(item: WorkspaceItem, index: number)}
@@ -666,7 +674,7 @@
 
           <div class="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--hairline)] px-4 pt-2 pb-2.5 text-workspace-chrome">
             <WorkspaceSearchField filter={ledger.filter} totalCount={ledger.tabTotal} scopeLabel={ledger.scopeLabel} matches={ledger.searching ? ledger.walkLength : null} bind:ref={searchEl} />
-            {@render filterControls()}
+            <WorkspaceFilterControls {ledger} />
           </div>
         {:else}
           <!-- ── Row 1: the page title, and the controls that act on the
@@ -684,7 +692,7 @@
             />
           </div>
 
-          <!-- ── Row 2: the three groups ── -->
+          <!-- ── Row 2: the four groups ── -->
           <div
             class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
           >
@@ -702,7 +710,7 @@
             matches={ledger.searching ? ledger.walkLength : null}
             bind:ref={searchEl}
           />
-          {@render filterControls()}
+          <WorkspaceFilterControls {ledger} />
 
           <span
             class="mx-0.5 h-[18px] w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
@@ -724,7 +732,9 @@
           tabindex="-1"
           onscroll={handleLedgerScroll}
         >
-          {#if loading}
+          {#if ledger.tab === "apps"}
+            <WorkspaceAppsTab {ledger} onOpen={openApp} />
+          {:else if loading}
             <div class="grid grid-cols-3 gap-3 pt-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1" aria-hidden="true">
               {#each Array(6) as _, i (i)}
                 <div class="h-[108px] animate-pulse rounded-xl bg-[var(--wash-2)]" style="opacity:{1 - i * 0.12}"></div>

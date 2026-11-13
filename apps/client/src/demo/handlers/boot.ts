@@ -12,6 +12,7 @@ import type {
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { HostWebhookSettings, Webhook } from '@solus/contracts/webhooks'
+import type { AppSummary } from '@solus/contracts/apps'
 import type { DemoBackend } from '../server'
 import { DEMO_USER, type DemoStore } from '../store'
 
@@ -115,6 +116,8 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
   // Webhooks (docs/plans/webhooks.md): the demo host has none and no URL.
   backend.register('webhookList', (): Webhook[] => [])
   backend.register('hostWebhookSettingsRead', (): HostWebhookSettings => ({ publicUrl: null, holdWhileOffline: null, linked: false }))
+  // Apps (docs/plans/apps.md): the demo host has none.
+  backend.register('appList', (): AppSummary[] => [])
   // Organization scope (organization-scope.md): the demo host is registered to no
   // account, so it stands in no organization, publishes nothing, and has no
   // organization Insights to answer.

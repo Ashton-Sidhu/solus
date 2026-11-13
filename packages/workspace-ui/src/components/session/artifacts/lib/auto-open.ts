@@ -9,6 +9,15 @@ export function shouldOpenArtifacts(previous: number | null, next: number): bool
   return previous !== null && next > previous
 }
 
+/**
+ * Whether the Artifacts surface joins the strip without coming to the front:
+ * when the newest item is an app. A deploy opens the app's own surface
+ * (docs/plans/apps.md §9), and the list must not cover it.
+ */
+export function opensBehindNewestItem(newestKey: string | null): boolean {
+  return newestKey?.startsWith('app:') === true
+}
+
 /** How long after a change its newest row still draws attention when it mounts. */
 export const HIGHLIGHT_WINDOW_MS = 4000
 

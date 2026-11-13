@@ -322,10 +322,11 @@ describe('a record is shared with the reader when its host answered a role below
   })
 
   it('names the tabs with their counts, in the order the page draws them', () => {
-    expect(workspaceTabs({ yours: 3, 'shared-works': 1, 'shared-sessions': 0 }).map((tab) => [tab.id, tab.count])).toEqual([
+    expect(workspaceTabs({ yours: 3, 'shared-works': 1, 'shared-sessions': 0, apps: 2 }).map((tab) => [tab.id, tab.count])).toEqual([
       ['yours', 3],
       ['shared-works', 1],
       ['shared-sessions', 0],
+      ['apps', 2],
     ])
   })
 

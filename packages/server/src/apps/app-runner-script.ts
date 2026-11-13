@@ -6,9 +6,16 @@
  * line of the app runs: the host of every socket, and the path `node:sqlite`
  * opens.
  *
+ * It then opens the app's own database, applies the migrations the version
+ * brings, loads the backend module, and runs its operations. A query gets the
+ * read-only connection, whatever its code does: the kind comes from the
+ * descriptor the host holds, not from the module.
+ *
  * The protocol is one JSON object on each line. Requests arrive on stdin:
- * `load` once, then `call`. Answers leave on stdout: `ready` or `failed`, then
- * one `result` for each call. What the app prints goes to stderr.
+ * `load` once, then `call`, and `tool-result` for each `tool` the runner
+ * asked. Answers leave on stdout: `ready` or `failed`, one `result` for each
+ * call, and `tool` when an operation calls an integration. What the app
+ * prints goes to stderr.
  *
  * Plain JavaScript in a string, like the member file script: it must start on
  * the host's own Node with no file of its own to read.
@@ -28,7 +35,7 @@ const { fileURLToPath } = require('node:url')
 let network = []
 
 function denied(what) {
-  const error = new Error('This app is not allowed to ' + what + '. Its host access does not include it.')
+  const error = new Error('This app is not allowed to ' + what + '. Its permissions in app.ts do not include it.')
   error.code = 'ERR_ACCESS_DENIED'
   return error
 }
@@ -67,9 +74,12 @@ dgram.createSocket = function (...args) {
 }
 
 // node:sqlite opens a file without asking the permission model, so the path is checked here.
+// The runner keeps the unchecked class for the app's own database.
+let OwnDatabase = null
 try {
   const sqlite = require('node:sqlite')
   const Database = sqlite.DatabaseSync
+  OwnDatabase = Database
   sqlite.DatabaseSync = class DatabaseSync extends Database {
     constructor(location, ...rest) {
       const options = rest[0]
@@ -79,53 +89,159 @@ try {
         const resolved = path.resolve(file)
         if (!process.permission.has('fs.read', resolved)) throw denied('read ' + resolved)
         if (!(options && options.readOnly) && !process.permission.has('fs.write', resolved)) {
-          throw denied('write ' + resolved + ' (open it with { readOnly: true }, or ask for write access)')
+          throw denied('write ' + resolved + ' (open it with { readOnly: true }, or add the path to files.write)')
         }
       }
       super(location, ...rest)
     }
   }
 } catch {
-  // This Node has no node:sqlite. An app that needs it fails on its own require.
+  // This Node has no node:sqlite. An app with migrations fails when it loads.
 }
 require('node:module').syncBuiltinESMExports()
 
-const functions = new Map()
-let context = { dataDir: '' }
-
-function load(message) {
-  network = message.network
-  context = { dataDir: message.dataDir }
-  const module = { exports: {} }
-  new Function('require', 'module', 'exports', '__filename', '__dirname', message.code)(require, module, module.exports, path.join(message.dataDir, 'server.js'), message.dataDir)
-  for (const [name, value] of Object.entries(module.exports)) {
-    if (typeof value === 'function' && name !== 'default') functions.set(name, value)
-  }
-  send({ type: 'ready', functions: [...functions.keys()] })
-}
-
 function reason(error) {
-  // Node's own refusal names a flag the person cannot set; say what the app's host access lacks.
+  // Node's own refusal names a flag the person cannot set; say what the app's permissions lack.
   if (error && error.code === 'ERR_ACCESS_DENIED' && error.permission) {
-    return 'This app is not allowed to use ' + error.permission + (error.resource ? ' on ' + error.resource : '') + '. Its host access does not include it.'
+    return 'This app is not allowed to use ' + error.permission + (error.resource ? ' on ' + error.resource : '') + '. Its permissions in app.ts do not include it.'
   }
   const message = error && error.message ? String(error.message) : String(error)
   const cause = error && error.cause && error.cause.message ? ': ' + error.cause.message : ''
   return message + cause
 }
 
+// ── The app's own database ──
+
+let writeDb = null
+let readDb = null
+
+function sqlFace(db, begin) {
+  return Object.freeze({
+    exec(text, ...values) {
+      const rows = db.prepare(String(text)).all(...values)
+      return { all: () => rows, one: () => (rows.length > 0 ? rows[0] : null) }
+    },
+    transaction(run) {
+      db.exec(begin)
+      try {
+        const value = run()
+        if (value && typeof value.then === 'function') throw new Error('A transaction is synchronous. Do not await inside it: do the network work first.')
+        db.exec('COMMIT')
+        return value
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+    },
+  })
+}
+
+const noDatabase = Object.freeze({
+  exec() { throw new Error('This host\\'s Node has no node:sqlite, so this app has no database.') },
+  transaction() { throw new Error('This host\\'s Node has no node:sqlite, so this app has no database.') },
+})
+
+function openDatabase(file, migrations) {
+  if (!OwnDatabase) {
+    if (migrations.length > 0) throw new Error('This host\\'s Node has no node:sqlite, so it cannot run an app with migrations.')
+    return []
+  }
+  writeDb = new OwnDatabase(file)
+  writeDb.exec('PRAGMA journal_mode = WAL')
+  writeDb.exec('PRAGMA foreign_keys = ON')
+  writeDb.exec('CREATE TABLE IF NOT EXISTS solus_migrations (name TEXT PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)')
+  const known = new Set(writeDb.prepare('SELECT name FROM solus_migrations').all().map((row) => row.name))
+  const applied = []
+  for (const migration of migrations) {
+    if (known.has(migration.name)) continue
+    writeDb.exec('BEGIN IMMEDIATE')
+    try {
+      writeDb.exec(migration.sql)
+      writeDb.prepare('INSERT INTO solus_migrations (name, applied_at) VALUES (?, ?)').run(migration.name, Date.now())
+      writeDb.exec('COMMIT')
+    } catch (error) {
+      try { writeDb.exec('ROLLBACK') } catch {}
+      throw new Error('The migration ' + migration.name + ' failed: ' + reason(error))
+    }
+    applied.push(migration.name)
+  }
+  readDb = new OwnDatabase(file, { readOnly: true })
+  return applied
+}
+
+function totalChanges() {
+  return writeDb ? Number(writeDb.prepare('SELECT total_changes() AS n').get().n) : 0
+}
+
+// ── Integration calls go to the host, which holds the caller's connection ──
+
+const toolWaits = new Map()
+let nextToolId = 1
+
+function toolsFace(callId) {
+  return new Proxy({}, {
+    get: (_target, slug) => new Proxy({}, {
+      get: (_inner, tool) => (input) => new Promise((resolve, reject) => {
+        const id = nextToolId++
+        toolWaits.set(id, { resolve, reject })
+        send({ type: 'tool', id, call: callId, slug: String(slug), tool: String(tool), input: input === undefined ? {} : input })
+      }),
+    }),
+  })
+}
+
+// ── The backend ──
+
+let operations = {}
+const kinds = new Map()
+let base = { secrets: Object.freeze({}), files: '' }
+
+function load(message) {
+  network = message.network
+  base = { secrets: Object.freeze({ ...message.secrets }), files: message.filesDir }
+  for (const operation of message.operations) kinds.set(operation.name, operation.kind)
+  const applied = openDatabase(path.join(message.appFolder, 'app.sqlite'), message.migrations)
+  const module = { exports: {} }
+  new Function('require', 'module', 'exports', '__filename', '__dirname', message.code)(require, module, module.exports, path.join(message.appFolder, 'backend.cjs'), message.appFolder)
+  const definition = module.exports && module.exports.default ? module.exports.default : module.exports
+  operations = definition && definition.operations && typeof definition.operations === 'object' ? definition.operations : {}
+  const missing = message.operations.map((operation) => operation.name).filter((name) => !operations[name] || typeof operations[name].handler !== 'function')
+  if (missing.length > 0) throw new Error('The backend does not define ' + missing.join(', ') + ', which its descriptor declares. Run npm run bundle again.')
+  send({ type: 'ready', applied })
+}
+
+function checkedInput(name, operation, raw) {
+  if (!operation.input || typeof operation.input.safeParse !== 'function') return raw
+  const parsed = operation.input.safeParse(raw)
+  if (parsed.success) return parsed.data
+  const issues = parsed.error && Array.isArray(parsed.error.issues) ? parsed.error.issues : []
+  const text = issues.map((issue) => ((issue.path || []).join('.') || 'input') + ': ' + issue.message).join('; ')
+  throw new Error('Invalid input for ' + name + (text ? ': ' + text : '.'))
+}
+
 async function call(message) {
-  const run = functions.get(message.name)
-  if (!run) {
-    const names = [...functions.keys()].join(', ') || 'none'
-    send({ type: 'result', id: message.id, ok: false, message: 'This app has no host function named ' + message.name + '. It has: ' + names + '.' })
+  const operation = operations[message.name]
+  const kind = kinds.get(message.name)
+  if (!operation || !kind) {
+    const names = [...kinds.keys()].join(', ') || 'none'
+    send({ type: 'result', id: message.id, ok: false, changed: false, message: 'This app has no operation named ' + message.name + '. It has: ' + names + '.' })
     return
   }
+  const before = kind === 'mutation' ? totalChanges() : 0
   try {
-    const value = await run(message.input, context)
-    send({ type: 'result', id: message.id, ok: true, value: value === undefined ? null : value })
+    const input = checkedInput(message.name, operation, message.input)
+    const db = kind === 'query' ? readDb : writeDb
+    const context = {
+      sql: db ? sqlFace(db, kind === 'query' ? 'BEGIN' : 'BEGIN IMMEDIATE') : noDatabase,
+      secrets: base.secrets,
+      files: base.files,
+      tools: toolsFace(message.id),
+      caller: Object.freeze({ ...message.caller }),
+    }
+    const value = await operation.handler(context, input)
+    send({ type: 'result', id: message.id, ok: true, value: value === undefined ? null : value, changed: kind === 'mutation' && totalChanges() !== before })
   } catch (error) {
-    send({ type: 'result', id: message.id, ok: false, message: reason(error) })
+    send({ type: 'result', id: message.id, ok: false, message: reason(error), changed: kind === 'mutation' && totalChanges() !== before })
   }
 }
 
@@ -141,13 +257,19 @@ lines.on('line', (line) => {
     try {
       load(message)
     } catch (error) {
-      send({ type: 'failed', message: 'The app\\'s host code did not load: ' + reason(error) })
+      send({ type: 'failed', message: reason(error) })
       process.exit(1)
     }
   } else if (message.type === 'call') {
     void call(message)
+  } else if (message.type === 'tool-result') {
+    const wait = toolWaits.get(message.id)
+    if (!wait) return
+    toolWaits.delete(message.id)
+    if (message.ok) wait.resolve(message.value)
+    else wait.reject(new Error(message.message || 'The integration call failed.'))
   }
 })
-// The server closed the pipe: it stopped, or it stopped this runner.
+// The host closed the pipe: it stopped, or it stopped this runner.
 lines.on('close', () => process.exit(0))
 `

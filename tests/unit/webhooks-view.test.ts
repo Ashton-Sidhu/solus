@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { Webhook } from '@solus/contracts/webhooks'
 import {
+  actionLabel,
+  actionsSummary,
   EMPTY_WEBHOOKS_VIEW,
   filterWebhookRows,
   parseWebhooksView,
@@ -78,6 +80,32 @@ describe('webhooks view in the URL', () => {
     expect(view.urlMode).toBeNull()
     // A webhook id without its host cannot name a webhook: two hosts can hold the same id.
     expect(view.open).toBeNull()
+  })
+})
+
+describe('what a row says of its actions', () => {
+  const base = { enabled: true, filters: [], template: '' }
+
+  test('a call to an app names the app and the mutation; the other types go by their type', () => {
+    // WHY: "Call app" alone does not say what a delivery runs. The row names
+    // the app by its name on the webhook's host, and the mutation.
+    const names = (appId: string) => (appId === 'app_1' ? 'Notes' : undefined)
+    expect(actionLabel({ ...base, id: 'a', type: 'call_app', appId: 'app_1', operation: 'onIssue' }, names)).toBe('Call Notes · onIssue')
+    expect(actionLabel({ ...base, id: 'a', type: 'run_automation', automationId: 'x' }, names)).toBe('Run automation')
+    // An app this client has no row for (its host reads its list, or the app is gone) still names the mutation.
+    expect(actionLabel({ ...base, id: 'a', type: 'call_app', appId: 'gone', operation: 'onIssue' }, names)).toBe('Call app · onIssue')
+    expect(actionLabel({ ...base, id: 'a', type: 'call_app', appId: 'app_1', operation: 'onIssue' })).toBe('Call app · onIssue')
+  })
+
+  test('the summary counts every action and names each kind once', () => {
+    const summary = actionsSummary(webhook({
+      actions: [
+        { ...base, id: 'a', type: 'send_to_session', sessionId: 's' },
+        { ...base, id: 'b', type: 'call_app', appId: 'app_1', operation: 'onIssue' },
+        { ...base, id: 'c', type: 'send_to_session', sessionId: 't' },
+      ],
+    }), () => 'Notes')
+    expect(summary).toBe('3 actions: Send to session, Call Notes · onIssue')
   })
 })
 

@@ -82,6 +82,7 @@ function fakeDeps(overrides: Partial<import('@solus/server/execution/webhooks/ac
     sendToSession: async (sessionId, prompt) => { calls.push(`send:${sessionId}`); prompts.push(prompt); return { disposition: 'queued' } },
     sessionState: async () => 'active',
     runAutomation: async (automationId, context) => { calls.push(`run:${automationId}`); prompts.push(context); return { status: 'started', runId: 'run-1' } },
+    callApp: async ({ appId, operation }) => { calls.push(`app:${appId}/${operation}`) },
     ...overrides,
   }
   return { deps, calls, prompts }
@@ -160,6 +161,26 @@ describe('webhook actions', () => {
     const [result] = await runnerModule.createWebhookActionRunner(deps).runDelivery({ webhook, deliveryId, data })
     expect(result).toMatchObject({ status: 'skipped', error: 'This action is turned off.' })
     expect((await store.readDelivery(deliveryId))?.outcome).toBe('filtered')
+  })
+
+  test('an app call runs the app\'s mutation with the request, and a failed call fails only that action', async () => {
+    // WHY: a webhook that an app declares has this one action (docs/plans/apps.md §8).
+    // The mutation's input is the request itself, so the action needs no template.
+    const appCall = { id: 'app', type: 'call_app' as const, enabled: true, filters: [], template: '', appId: 'app-1', operation: 'onIssue' }
+    const webhook = await webhookWith([appCall])
+    const seen: { appId: string; operation: string; body: string; webhookId: string }[] = []
+    const { deps } = fakeDeps({ callApp: async ({ appId, operation, data, webhookId }) => { seen.push({ appId, operation, body: data.rawBody.toString('utf8'), webhookId }) } })
+    const { deliveryId, data } = await logged(webhook.id, opened, openedBody)
+    const [result] = await runnerModule.createWebhookActionRunner(deps).runDelivery({ webhook, deliveryId, data })
+    expect(result).toMatchObject({ actionId: 'app', type: 'call_app', status: 'started' })
+    expect(seen).toEqual([{ appId: 'app-1', operation: 'onIssue', body: JSON.stringify(openedBody), webhookId: webhook.id }])
+    expect((await store.readDelivery(deliveryId))?.outcome).toBe('ran')
+
+    const failing = fakeDeps({ callApp: async () => { throw new Error('This app is stopped.') } })
+    const second = await logged(webhook.id, opened, openedBody)
+    const [failed] = await runnerModule.createWebhookActionRunner(failing.deps).runDelivery({ webhook, deliveryId: second.deliveryId, data: second.data })
+    expect(failed).toMatchObject({ status: 'failed', error: 'This app is stopped.' })
+    expect((await store.readDelivery(second.deliveryId))?.outcome).toBe('failed')
   })
 
   test('a replay runs a stored delivery again, for one action, marked as a replay; a paused webhook refuses it', async () => {

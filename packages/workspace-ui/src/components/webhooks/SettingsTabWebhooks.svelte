@@ -12,6 +12,7 @@
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
+  import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import { ListEmpty, ListFilterBar, ListFilterGroup } from "../ui/list-page";
@@ -50,6 +51,8 @@
   const view = $derived(parseWebhooksView(session.settingsWebhooksView));
 
   $effect(() => untrack(() => webhooksStore.watch()));
+  // A row names the app a `call_app` action calls.
+  $effect(() => untrack(() => appsStore.watch()));
 
   function setView(patch: Partial<WebhooksView>) {
     session.setSettingsWebhooksView(serializeWebhooksView({ ...view, ...patch }));
@@ -219,7 +222,7 @@
               name={webhook.name}
               {state}
               stateLabel={webhookStateLabel(state)}
-              details={[projectLabel(webhook.project), hostLabelFor(row.serverId), urlModeLabel(webhook.urlMode), actionsSummary(webhook), webhookOwnerLabel(webhook)]}
+              details={[projectLabel(webhook.project), hostLabelFor(row.serverId), urlModeLabel(webhook.urlMode), actionsSummary(webhook, (appId) => appsStore.get(row.serverId, appId)?.app.name), webhookOwnerLabel(webhook)]}
               note={rowReachabilityText(row)}
               warning={webhook.verification.scheme === "none" ? `${UNVERIFIED_WARNING} Reason: ${webhook.verification.reason}` : null}
               lastDelivery={webhook.lastDelivery

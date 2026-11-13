@@ -7,8 +7,7 @@
   import { getSettingsContext, getSurfaceContext, hasSurfaceContext, runtime } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { hasAppManifest } from "@solus/contracts/apps";
-  import { appCallMessageSchema, appResultMessage, type AppCallArguments, type AppCallValue } from "@solus/client-core/app-calls";
+  import { APP_DATA_CHANGED_MESSAGE, answerAppCall, appCallMessageSchema, appResultMessage } from "@solus/client-core/app-calls";
   import { buildSandboxThemeCss, wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
   import {
     artifactHeightMessageSchema,
@@ -76,11 +75,14 @@
     /** HTML someone other than the user can influence (a review lens): no
      *  network, no popups, no forms, no downloads. */
     isolated?: boolean;
-    /** What answers the calls of a page that is an app (docs/plans/apps.md §4),
-     *  and the network hosts in force for it. A caller that holds the app's
-     *  work passes it; without it, such a page still runs as an app, with no
-     *  network, and each of its calls is answered with an error. */
-    app?: { network: readonly string[]; call(name: string, args: AppCallArguments): Promise<AppCallValue> };
+    /** Makes the frame an app frame (docs/plans/apps.md §9): the network hosts
+     *  the app may reach, and what runs its calls on the host. `call` answers
+     *  the host's `{ "value": ... }` as JSON text. Without it the frame is a
+     *  plain artifact frame and relays no calls. */
+    app?: { network: readonly string[]; call(name: string, argumentsJson: string): Promise<string> };
+    /** Rises when the app's data changed on the host. The frame tells the UI,
+     *  so its queries run again. */
+    dataVersion?: number;
   }
 
   let {
@@ -99,14 +101,14 @@
     onExpandOnTouch,
     isolated = false,
     app,
+    dataVersion = 0,
   }: Props = $props();
 
-  // The page decides: one with an app manifest runs under the app policy
-  // whether or not anything answers its calls, so it never has calls and an
-  // open network together. An app is an application, not a document: its
-  // frame is a window of a fixed size (all of a pane, a fixed height
-  // elsewhere) and the page scrolls inside it, so it reports no height.
-  const isApp = $derived(html !== undefined && !isolated && hasAppManifest(html));
+  // The caller decides: a frame that shows an app is an app frame. An app is
+  // an application, not a document: its frame is a window of a fixed size (all
+  // of a pane, a fixed height elsewhere) and the UI scrolls inside it, so it
+  // reports no height.
+  const isApp = $derived(app !== undefined && !isolated);
   const appNetwork = $derived(isApp ? (app?.network ?? []) : null);
 
   // A caller is either inside the component tree or outside it for its whole
@@ -215,23 +217,30 @@
     return () => window.removeEventListener("message", onMessage);
   });
 
-  // An app's call. It is answered for this frame's own page only, and a page
-  // with nothing behind it gets an error at once, so it never waits.
+  // An app's call. It is answered for this frame's own UI only.
   $effect(() => {
-    if (!isApp) return;
-    const calls = app;
+    const calls = isApp ? app : undefined;
+    if (!calls) return;
+    const callHost = (name: string, argumentsJson: string) => calls.call(name, argumentsJson);
     function onCall(e: MessageEvent) {
       const frame = iframeEl;
       if (!frame || e.source !== frame.contentWindow) return;
       const message = appCallMessageSchema.safeParse(e.data);
       if (!message.success) return;
-      const answer = calls
-        ? calls.call(message.data.name, message.data.args)
-        : Promise.reject(new Error("This view shows the app and cannot run its calls. Open the app from the conversation or the works list."));
+      const answer = answerAppCall(callHost, message.data.name, message.data.args);
       void appResultMessage(message.data.id, answer).then((result) => frame.contentWindow?.postMessage(result, "*"));
     }
     window.addEventListener("message", onCall);
     return () => window.removeEventListener("message", onCall);
+  });
+
+  // The app's data changed on the host. A frame that has not loaded yet runs
+  // its queries when it does, so it needs no message.
+  let postedDataVersion = untrack(() => dataVersion);
+  $effect(() => {
+    if (dataVersion === postedDataVersion) return;
+    postedDataVersion = dataVersion;
+    if (isApp) iframeEl?.contentWindow?.postMessage(APP_DATA_CHANGED_MESSAGE, "*");
   });
 
   // A link click or a shortcut the render passes on. The page can post either

@@ -165,6 +165,8 @@ export const webhookActionSchema = z.discriminatedUnion('type', [
   }),
   z.object({ ...actionBase, type: z.literal('send_to_session'), sessionId: z.string().min(1) }),
   z.object({ ...actionBase, type: z.literal('run_automation'), automationId: z.string().min(1) }),
+  /** Runs a mutation of an app with `{ headers, query, body }` of the request as its input (docs/plans/apps.md §8). It has no prompt, so `template` is empty. */
+  z.object({ ...actionBase, type: z.literal('call_app'), appId: z.string().min(1), operation: z.string().min(1).max(64) }),
 ])
 export type WebhookAction = z.infer<typeof webhookActionSchema>
 export type WebhookActionType = WebhookAction['type']

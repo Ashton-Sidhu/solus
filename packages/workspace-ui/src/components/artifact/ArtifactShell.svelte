@@ -4,7 +4,6 @@
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import type { FilePayload } from "../work/lib/work-export";
-  import { hasAppManifest } from "@solus/contracts/apps";
   import ArtifactView from "./ArtifactView.svelte";
   import ArtifactCommentLayer from "./ArtifactCommentLayer.svelte";
   import * as Select from "../ui/select";
@@ -100,7 +99,6 @@
   let reloadKey = $state(0);
 
   const artifact = $derived({ kind: "html" as const, html: content });
-  const isApp = $derived(hasAppManifest(content));
 
   // ─── Comments (docs/plans/multiplayer-comments.md §4) ───
   // Threads pinned to points over the render, on the same host-stamped model as
@@ -336,8 +334,7 @@
 
   <!-- A short render fills the pane; a taller render keeps its content height
        and scrolls here instead of introducing a second iframe scrollbar. -->
-  <!-- An app is an application: it gets all of the pane, with no padding, and scrolls inside its own frame. -->
-  <div class="min-h-0 flex-1 {isApp ? 'overflow-hidden' : 'overflow-auto p-4'}" data-testid="artifact-shell-body">
+  <div class="min-h-0 flex-1 overflow-auto p-4" data-testid="artifact-shell-body">
     <!-- A pinned width centres the render so the pane reads as a device
          frame rather than a left-aligned column with dead space. The box is
          as tall as the render, so the comment layer over it covers every
@@ -345,7 +342,7 @@
          grows to the pane's height: a percentage height cannot resolve
          against a min-height. -->
     <div
-      class="relative mx-auto flex flex-col {isApp ? 'h-full' : 'min-h-full'}"
+      class="relative mx-auto flex min-h-full flex-col"
       style:width={pinnedWidth ? `${pinnedWidth}px` : undefined}
     >
       <ArtifactView {artifact} {reloadKey} fillAvailable skipMotion />

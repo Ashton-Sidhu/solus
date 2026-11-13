@@ -171,7 +171,7 @@ const APP_PREVIEW_BRIDGE = `<script>(function(){
       pending[id] = { resolve: resolve, reject: reject };
       queue.push({ id: id, name: String(name), args: args || {} });
     });
-  } };
+  }, on: function(){ return function(){}; } };
 })();</script>`
 
 /** A value the driver evaluated: the guest's JSON text, which may itself hold JSON text. */

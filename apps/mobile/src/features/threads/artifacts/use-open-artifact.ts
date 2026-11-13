@@ -9,7 +9,7 @@ import { usePullRequestLinkActions } from "../../prs/use-pull-request-link-actio
 import { newThreadTarget } from "../new-thread-targets";
 
 export interface ArtifactOpener {
-  /** Whether the phone can open the item: works and automations have no screen here. */
+  /** Whether the phone can open the item: works and automations have no screen here. An app has one. */
   opens: (item: SessionArtifact) => boolean;
   open: (item: SessionArtifact) => void;
 }
@@ -17,7 +17,8 @@ export interface ArtifactOpener {
 /**
  * Open what a session linked. Pull requests open their screen, or the browser
  * when no project of the host reads them; files and images open the file
- * screen of their host. The Artifacts screen and the session cards share it.
+ * screen of their host; an app opens its screen on its host
+ * (docs/plans/apps.md §9). The Artifacts screen and the session cards share it.
  */
 export function useOpenArtifact(hostId: string, sessionId: string): ArtifactOpener {
   const app = useApp();
@@ -44,14 +45,17 @@ export function useOpenArtifact(hostId: string, sessionId: string): ArtifactOpen
           path: item.path,
         });
         return;
+      case "app":
+        navigation.navigate("App", { hostId: item.hostId, appId: item.appId });
+        return;
       default:
         return;
     }
   };
-  // A file on a host this device does not know cannot be read from here.
+  // A file or an app on a host this device does not know cannot be read from here.
   const opens = (item: SessionArtifact) =>
     item.kind === "pull-request" ||
-    ((item.kind === "file" || item.kind === "image") && app.registry.host(item.hostId) !== undefined);
+    ((item.kind === "file" || item.kind === "image" || item.kind === "app") && app.registry.host(item.hostId) !== undefined);
 
   return { open, opens };
 }

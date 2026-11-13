@@ -4,6 +4,7 @@ import { newChatCommand } from "@solus/workspace-ui/components/command-palette/l
 import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
 import { saveFileAsWorkCommands } from "@solus/workspace-ui/components/files/lib/save-file-as-work";
 import { artifactsPaletteCommands } from "@solus/workspace-ui/components/session/artifacts/lib/artifacts-commands";
+import { appsPaletteCommands } from "@solus/workspace-ui/components/app/lib/app-commands";
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
 import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
@@ -153,6 +154,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
   ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
   ...deviceCommands(session),
   ...artifactsPaletteCommands(session),
+  ...appsPaletteCommands(session),
   ...settingsOwnerCommands(session),
   sidebarViewCommand(deps.settings),
   ...webhookCommands(session),

@@ -1,5 +1,6 @@
 import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
+import type { AppsChangedEvent } from './apps'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
 import type { CheckoutChange } from './checkout'
@@ -82,6 +83,10 @@ export interface HostEventMap {
   'voice.modelStatusChanged': VoiceModelStatus
   'automation.changed': AutomationsChangedEvent
   'webhook.changed': WebhookChangedEvent
+  /** An app was deployed, changed, stopped, started, or deleted (docs/plans/apps.md). */
+  'apps.changed': AppsChangedEvent
+  /** A mutation changed an app's data: each open UI of the app runs its queries again. */
+  'apps.dataChanged': { appId: string }
   /** A short summary of one delivery, never the body (docs/plans/webhooks.md §5). */
   'webhook.delivery': WebhookDeliverySummary
   'provider.deviceCodeReceived': DeviceCodePrompt
@@ -255,6 +260,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },
   'automation.changed': { owner: 'automations', category: 'delta', recovery: 'reload', description: 'A durable automation or its run state changed.' },
   'webhook.changed': { owner: 'webhooks', category: 'delta', recovery: 'reload', description: 'A webhook was saved or deleted.' },
+  'apps.changed': { owner: 'apps', category: 'delta', recovery: 'reload', description: 'An app was deployed, changed, stopped, started, or deleted.' },
+  'apps.dataChanged': { owner: 'apps', category: 'invalidation', recovery: 'reload', description: "A mutation changed an app's data." },
   'webhook.delivery': { owner: 'webhooks', category: 'delta', recovery: 'reload', description: 'A webhook delivery arrived or its actions finished.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },

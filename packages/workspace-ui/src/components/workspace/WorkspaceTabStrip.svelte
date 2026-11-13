@@ -4,8 +4,8 @@
   import PresenceStack from "../presence/PresenceStack.svelte";
 
   /**
-   * The page's three groups as a strip: the reader's own works, then the works
-   * and the sessions other people shared with them. Soft pills: the current
+   * The page's four groups as a strip: the reader's own works, the works and
+   * the sessions other people shared with them, then the apps. Soft pills: the current
    * group sits on a quiet wash with a hairline edge, the others are plain text
    * that takes the wash under the pointer.
    *

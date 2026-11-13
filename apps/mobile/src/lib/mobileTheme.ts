@@ -386,6 +386,8 @@ export function createMobileThemeVariables(
     "--color-artifact-image-fill": withAlpha(c.rose, 0.14),
     "--color-artifact-automation": mixColors(c.accent, c.text, 0.72),
     "--color-artifact-automation-fill": withAlpha(c.accent, 0.14),
+    "--color-artifact-app": mixColors(c.sky, c.text, 0.72),
+    "--color-artifact-app-fill": withAlpha(c.sky, 0.14),
   };
 }
 

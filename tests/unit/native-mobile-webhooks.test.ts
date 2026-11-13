@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostWebhookSettings, Webhook, WebhookDeliveryOutcome, WebhookDeliverySummary, WebhookWithUrl } from '@solus/contracts/webhooks'
 import {
+  actionText,
   appendDeliveries,
   copyTarget,
   deliveries24hText,
@@ -163,5 +164,18 @@ describe('row text', () => {
   test('counts and project names read plainly', () => {
     expect([deliveries24hText(0), deliveries24hText(1), deliveries24hText(5)]).toEqual(['No deliveries in 24 hours', '1 delivery in 24 hours', '5 deliveries in 24 hours'])
     expect([projectName('/Users/me/code/solus/'), projectName('C:\\code\\app'), projectName(null)]).toEqual(['solus', 'app', null])
+  })
+})
+
+describe('actions', () => {
+  test('an action that calls an app names the app and its mutation', () => {
+    // WHY: docs/plans/apps.md §8. A phone does not edit a webhook, so this
+    // line is all a person has to know what a request will run.
+    const base = { id: 'a1', enabled: true, filters: [], template: '' }
+    const names = new Map([['app-1', 'Notes']])
+    expect(actionText({ ...base, type: 'call_app', appId: 'app-1', operation: 'onIssue' }, names)).toBe('Call Notes · onIssue')
+    // The apps of the host are not read yet, or the app is gone: the id still names it.
+    expect(actionText({ ...base, type: 'call_app', appId: 'app-9', operation: 'onIssue' }, names)).toBe('Call app-9 · onIssue')
+    expect(actionText({ ...base, type: 'run_automation', automationId: 'auto-1' }, names)).toBe('Run an automation')
   })
 })

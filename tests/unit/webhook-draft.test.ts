@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Webhook } from '@solus/contracts/webhooks'
 import {
   actionsFromDraft,
+  appMutationNames,
   createInputFromDraft,
   draftFromWebhook,
   newWebhookDraft,
@@ -112,6 +113,63 @@ describe('webhook editor draft', () => {
     draft.actions[0].filters[0].op = 'equals'
     draft.actions[0].sessionId = ''
     expect(actionsFromDraft(draft.actions)).toEqual({ ok: false, error: 'Action 1: complete the type and its fields.' })
+  })
+})
+
+// A webhook can call a mutation of an app (docs/plans/apps.md §8). The
+// mutation gets the request itself, so the action has no prompt.
+describe('an action that calls an app', () => {
+  function callDraft(): WebhookDraft {
+    const draft = newDraft()
+    draft.verification.secret = 's3cret'
+    draft.actions[0] = { ...draft.actions[0], type: 'call_app', appId: 'app_1', operation: 'onIssue', template: 'A prompt left from another type' }
+    return draft
+  }
+
+  test('it saves the app and the mutation, with an empty template whatever the field held', () => {
+    const input = createInputFromDraft(callDraft())
+    expect(input.ok && input.value.actions).toEqual([
+      { id: 'a1', type: 'call_app', enabled: true, filters: [], template: '', appId: 'app_1', operation: 'onIssue' },
+    ])
+  })
+
+  test('it is refused until an app and a mutation are chosen', () => {
+    const noApp = callDraft()
+    noApp.actions[0].appId = ''
+    expect(actionsFromDraft(noApp.actions)).toEqual({ ok: false, error: 'Action 1: complete the type and its fields.' })
+    const noOperation = callDraft()
+    noOperation.actions[0].operation = ''
+    expect(actionsFromDraft(noOperation.actions)).toEqual({ ok: false, error: 'Action 1: complete the type and its fields.' })
+  })
+
+  test('a saved one comes back with its app and its mutation, and keeps its filters', () => {
+    const webhook = savedWebhook()
+    webhook.actions = [{ id: 'a1', type: 'call_app', enabled: true, filters: [{ path: 'headers.x-github-event', op: 'equals', value: 'issues' }], template: '', appId: 'app_1', operation: 'onIssue' }]
+    const draft = draftFromWebhook(webhook)
+    expect(draft.actions[0]).toMatchObject({ type: 'call_app', appId: 'app_1', operation: 'onIssue', automationId: '', sessionId: '' })
+    const update = updateInputFromDraft(draft, webhook.verification.scheme)
+    expect(update.ok && update.value.actions).toEqual(webhook.actions)
+  })
+
+  test('the operation picker offers the mutations of the app, never a query', () => {
+    // WHY: a delivery gives the request to a mutation. A query writes nothing, and the host refuses it.
+    expect(appMutationNames({
+      solusApp: 2,
+      name: 'Notes',
+      description: '',
+      permissions: { network: [], files: { read: [], write: [] } },
+      integrations: [],
+      secrets: [],
+      operations: [
+        { name: 'list', kind: 'query', description: '', input: {} },
+        { name: 'onIssue', kind: 'mutation', description: '', input: {} },
+        { name: 'add', kind: 'mutation', description: '', input: {} },
+      ],
+      schedules: [],
+      webhooks: [],
+    })).toEqual(['onIssue', 'add'])
+    expect(appMutationNames(null)).toEqual([])
+    expect(appMutationNames(undefined)).toEqual([])
   })
 })
 

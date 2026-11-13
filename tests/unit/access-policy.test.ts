@@ -41,8 +41,9 @@ describe('the action tables', () => {
     // A method that names a session or a work in its name must carry a resource verb
     // unless it is a catalog read (listSessions, listWorks) or a creation. A workflow run is not a work.
     // `tasksPrepareForSession` binds a task before any session exists; `tasksSessions` lists the
-    // session links of tasks in the caller's scope; the others list or create.
-    const catalog = new Set(['sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'tasksSessions', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
+    // session links of tasks in the caller's scope; `appSessions` lists the sessions linked to
+    // an app of the host's owner; the others list or create.
+    const catalog = new Set(['appSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'tasksSessions', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space|flow)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
     expect(unclassified).toEqual([])
   })

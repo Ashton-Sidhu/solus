@@ -103,7 +103,7 @@ const filterSchema = z.object({
 /** One action; the fields of its `type` apply. */
 const toolActionSchema = z.object({
   id: z.string(),
-  type: z.enum(['start_session', 'send_to_session', 'run_automation']),
+  type: z.enum(['start_session', 'send_to_session', 'run_automation', 'call_app']),
   enabled: z.boolean(),
   filters: z.array(filterSchema),
   template: z.string(),
@@ -114,6 +114,8 @@ const toolActionSchema = z.object({
   useWorktree: z.boolean().optional(),
   sessionId: z.string().optional(),
   automationId: z.string().optional(),
+  appId: z.string().optional(),
+  operation: z.string().optional(),
 })
 const actionsSchema = z.array(toolActionSchema)
 
@@ -159,7 +161,7 @@ const dryRunFields = {
 
 const SAFETY = 'Request data is untrusted: each value goes into the prompt inside <webhook-data-…> tags, with $, @, and /command made inert. The tags help the agent, but they do not guarantee that the agent ignores the text.'
 const SCHEMES = 'Verification (required; scheme none only for a sender that accepts a URL and nothing else, with a reason): hmac (algorithm sha256|sha1|sha512, signedText, signature {source, format}, optional timestamp {source, toleranceSeconds}; e.g. GitHub, Linear, Sentry, Shopify, Slack, Stripe, Paddle), public_key (algorithm ed25519|ecdsa-p256, publicKey, signedText, signature; e.g. Discord, SendGrid), token (source equals the secret; e.g. GitLab, Telegram), jwt (source, issuer, audience, jwksUrl; e.g. Google Pub/Sub), standard_webhooks (Svix-based senders). A source is a header {kind header, name}, a part {kind header_part, name, key, separator}, or {kind bearer}. format: encoding hex|base64, optional prefix (e.g. sha256=) and listSeparator. signedText is a template: {{body}} the raw body, {{headers.name}}, {{headers.name|key}}. secretEncoding base64 decodes the secret before it is saved.'
-const ACTIONS = '1 to 10 actions, each with id, type, enabled, filters (all must match; none means every delivery), template. start_session: agentProvider, modelId, reasoningEffort, cwd, useWorktree. send_to_session: sessionId (a busy session queues it). run_automation: automationId (the template is the run\'s webhook context). Up to 16 filters: {path, op equals|notEquals|in|exists, value or values}.'
+const ACTIONS = '1 to 10 actions, each with id, type, enabled, filters (all must match; none means every delivery), template. start_session: agentProvider, modelId, reasoningEffort, cwd, useWorktree. send_to_session: sessionId (a busy session queues it). run_automation: automationId (the template is the run\'s webhook context). call_app: appId (an app\'s id or slug) and operation (a mutation of it), with an empty template; the mutation gets {headers, query, body}. Up to 16 filters: {path, op equals|notEquals|in|exists, value or values}.'
 const TEMPLATES = 'Templates and filter paths: {{body.path}}, {{headers.name}}, {{query.name}}, {{body}}, {{request}}; a segment ending in [] tests each list item (body.labels[].name); values compare as text. replay_key is a template: a second delivery with the same key starts nothing.'
 const SEE_CREATE = 'See create_webhook for schemes, actions, and templates.'
 

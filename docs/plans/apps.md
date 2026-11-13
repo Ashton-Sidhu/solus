@@ -1,363 +1,611 @@
-# Apps: what a person builds to live in Solus
+# Apps: a personal cloud on your host
 
-Status: decided 2026-11-11, third model; the app's window decided 2026-11-12.
-An app is a full application. It is built by the `visual-artifacts` skill, it
-is saved as an artifact, it runs in the artifact frame as a window with its
-own pages, and it adds four things an artifact does not have (§0). Sharing and deployment are next
-and not started (§9). §10 says what the two earlier models were and why they
-were replaced.
+Status: built 2026-11-12, fourth model, on desktop, web, and mobile. No screen
+was driven: the server is tested against a real runner and a real repository,
+and the clients by type checks and unit tests. §11 says what each step built
+and what was left out. §13 lists what the maintainers decided after the first
+draft. §14 says what the three earlier models were.
+
+The reference is Executor (`UsefulSoftwareCo/executor`, read at `57961f3`,
+2026-11-12): its `apps` package, its documents, and its demo apps.
 
 ## 0. The idea
 
-A person asks for an app and gets one that lives in Solus: it is a work, it
-opens in its own window on desktop, web, and mobile, and it keeps its own
-data. It is a full application: it has as many pages as it needs, its own
-navigation, and its own layout. The agent builds it as it builds any visual
-artifact: a React and TypeScript project with Tailwind, any npm package, its
-own styles, the skill's design guidelines, and a preview it can look at
-before the person does.
+An app is a small program that lives on a host. It has a backend, its own
+data, and a UI. It works when nobody looks at it.
 
-An app is an artifact whose page carries an **app manifest**. The manifest
-turns on four things, and each is optional:
+The centre of an app is its **operations**: typed queries and mutations. Four
+callers use the same operations:
 
-- **`storage`** — the app's own data, kept by the host.
-- **`fetch`** — the network, to the hosts the app names.
-- **`server`** — the app's own functions, which run on the host. This is how an
-  app opens a database, reads a file, or uses a package that needs Node.
-- **`tools`** — the person's connected integrations. This is the easy way to
-  the data a person already has. It is not what makes something an app.
+- the app's **UI**, in Solus;
+- an **agent**, as tools;
+- a **schedule**, with no person there;
+- a **webhook**, from another service.
 
-Everything an app does outside its own page leaves the frame as data and is
-checked by the server: an integration call against the app's permissions, a
-host function and a network host against the host access the host's owner
-allowed.
+The third model had the page at the centre. Its host functions served only
+that page, only while a person had it open. That is an interactive artifact.
+This model is a personal cloud: a person asks for an app, the agent writes it,
+and then the person, their agents, the clock, and other services all use it.
+
+An app is a normal app. A deploy makes it run. It does not ask the person
+before a write, and no version waits for a second decision.
+
+What stays from the third model: the `visual-artifacts` skill builds the app,
+the app frame shows it on desktop, web, and mobile, and the runner runs its
+code.
 
 ## 1. Vocabulary
 
-- **app** — an `artifact` work whose page has an app manifest.
-- **app manifest** — one JSON block in the page (§3): the app's permissions,
-  the integrations it names, its server module, and its sources. The build
-  writes it. A page without one is a plain artifact.
-- **app project** — a `visual-artifacts` project with an `app.json`. It is the
-  build input. Solus keeps the built page, not the folder.
-- **storage** — the app's own key-value data on the host. It belongs to the
-  app, not to a viewer.
-- **host function** — an export of the project's `server.ts`. The page calls it
-  as `server.<name>(input)`. It runs on the host, in the app's runner.
-- **runner** — the child process that runs one app's host functions under the
-  app's host access.
-- **role** — an integration the app names: the slug in `tools.<slug>.<tool>`.
-  Never a connection.
-- **binding** — the resolution of a role to the viewer's own integration with
-  that slug, made on every call. Nothing about a connection is stored.
-- **permissions** — what the app declares in `app.json`: which integration
-  tools it may call, whether a write asks first, the network hosts it may
-  reach, and the host paths its host functions may read and write (§5).
-- **host access** — what an app asks for outside integrations and storage: to
-  run host functions, to reach network hosts, to read and write host paths,
-  and to write through integrations without asking. The host's owner allows it
-  and can revoke it (§6).
-- **call name** — what the page puts on the wire: `<slug>/<tool>` for an
-  integration tool, `@storage/<operation>`, or `@server/<function>`.
-- **app frame** — the artifact frame of a page that has a manifest: a window of
-  a fixed size the page scrolls inside, no network but the allowed hosts, and
-  a bridge for calls (§4).
-- **page** — one screen of an app: a route in the address after `#`. All the
-  pages of an app are in its one built file.
-- **create_app** — the agent tool that saves or updates an app.
+- **app** — a record on a host: a name, a slug, an owner, a repository, its
+  versions, and its data. An app is not a work.
+- **app project** — the folder an agent builds in: a `visual-artifacts`
+  project with an `app.ts` (§3). It is the build input.
+- **backend** — the app's code that runs on the host: `app.ts` and what it
+  imports, built into one module.
+- **UI** — the app's front end: one built HTML file. An app can have no UI.
+- **page** — one screen of the UI: a route in the address after `#`.
+- **operation** — one query or one mutation that the backend declares.
+- **query** — an operation that reads. It gets a read-only database.
+- **mutation** — an operation that writes.
+- **caller** — who started a call: `ui`, `agent`, `schedule`, or `webhook`.
+- **call** — one execution of one operation for one caller.
+- **call log** — the app's record of its calls.
+- **descriptor** — what the build says the backend declares: its operations
+  with their input schemas, its schedules, its secrets, its roles, and its
+  permissions. It is JSON and holds no code.
+- **build** — the outputs of one `npm run bundle`: the descriptor, the backend
+  module, the UI file, and the migrations.
+- **app repository** — the git repository of one app. It holds the source and
+  the build of every version.
+- **version** — one immutable source commit with its build. Versions have
+  numbers from 1.
+- **active version** — the version that runs.
+- **deploy** — to make a version from an app project.
+- **app data** — the app's own SQLite database and its `files/` folder.
+- **migration** — one SQL file that changes the schema of the app data.
+- **storage** — the app's key-value data. A UI uses it with no backend.
+- **secret** — a named value the app declares and the owner gives, for example
+  a database URL. The host vault keeps it.
+- **role**, **binding** — as before: an integration the app names by its slug,
+  resolved on every call to the caller's own integration.
+- **schedule** — a trigger and a mutation that the backend declares.
+- **permissions** — what the backend may use outside its own data: network
+  hosts and host paths (§6). The app declares them; the runner enforces them.
+- **stopped** — the state of an app that the owner turned off: no operation
+  runs and no schedule fires.
+- **link** — the tie between an app and a session that made or changed it, as
+  for a work or an automation (`docs/plans/session-artifacts.md`).
+- **runner** — the child process that runs one app's backend.
+- **app frame** — the frame that shows a UI in Solus (§9).
+- **Apps tab** — the tab of the Workspace page that lists the apps of every
+  connected host.
 
-Do not call an app a widget, a plugin, or a dashboard. Do not call a host
-function a tool, an action, or an endpoint.
+Do not call an app a widget, a plugin, or an artifact. Do not call an
+operation a host function, an action, or an endpoint. An operation is a
+**tool** only where an agent sees it. Do not use "server" for the backend:
+in Solus the server is the host's own process.
 
 ## 2. Decisions
 
-1. **An app is saved as an artifact.** Its content is one built HTML file. It
-   has everything an artifact work has with no second implementation: the
-   pane, history with change marks, comments, embeds in a document or plan,
-   the session's artifacts, the mobile row, the cloud copy, `read_work` and
-   `update_work`. There is no `app` work type.
-2. **One authoring path: the `visual-artifacts` skill.** The same project,
-   the same build, the same design guidelines, the same preview. An app takes
-   the skill's guidelines, not the frame rules of a visual in a reply: those
-   are for a document, and an app is an application (decision 15). An `app.json` in
-   the project makes it an app: the build then writes the manifest into
-   `bundle.html`, and bundles `server.ts` into it when there is one. There is
-   no second skill, no prebuilt shell, and no component kit.
-3. **The page is the whole app.** The manifest is in the page, so one file
-   holds the app at every revision: a restore, a copy, and a cloud copy carry
-   the page, its permissions, and its host code together.
-4. **The frame decides from the page it runs.** A client gives a page the app
-   frame, and relays its calls, only when that page has a manifest. The
-   policy and the relay come from the same text, so a page cannot have calls
-   and an open network at once.
-5. **An app frame has no network but the allowed hosts.** A plain artifact may
-   load HTTPS resources; an app may read a person's integrations, so it may
-   not. The build already puts every dependency, style, and asset in the page.
-6. **`create_app` is the artifact tools with an app check.** It saves through
-   `render_artifact`'s own path and updates through `update_work`'s, refuses a
-   page that has no manifest, and says in its receipt what host access the app
-   waits for. Its preview is `render_artifact`'s preview with a host that
-   answers the page's calls.
-7. **Host functions run in a child process under declared host access.** One
-   runner for each app, started on the first call, stopped when idle, under
-   Node's permission model with the app's file paths; no child processes, no
-   workers, no native add-ons. §6 says what enforces what.
-8. **Host access is the owner's decision, made for the host code as it is.**
-   Nothing of it is in force until the host's owner allows it. A wider request
-   asks again; a narrower one does not. Changed host code asks again, whoever
-   changed it: the decision names the server module by its hash. A change of
-   the page alone does not ask again. The owner can revoke the decision, and a
-   copy of an app starts without one.
-9. **Host functions run only for the host's owner in this release.**
-10. **Roles bind to the viewer, never to the author.** One account for each
-    role: an integration with several accounts uses its first connected one.
-11. **Integration permissions are under the gateway's.** An app can narrow what
-    the viewer's integrations allow. It can never widen it. A write asks the
-    person each time, unless the app declares `writes: "allow"` and the owner
-    allowed that as part of its host access.
-12. **Storage belongs to the app.** Everyone who can use the app on a host
-    reads and writes the same data.
-13. **An app that needs a value asks for it.** A database browser asks for the
-    database URL in its own page and keeps it in storage. Solus has no
-    built-in database integration and no declared app inputs.
-14. **Not taken:** Executor's custom tool apps, QuickJS, workerd, and deploy
-    tokens; a bundler inside the Solus server.
-15. **An app is a window, not a document.** A visual in a reply is as tall as
-    its content and has no shell. An app's frame is a window of a fixed size:
-    all of the pane it opens in, a fixed height in a conversation, a document,
-    or a history view, and the full screen on a phone. The page lays itself
-    out in that window and scrolls inside it, in standards mode, so it can
-    have a sidebar, a header that stays in place, and its own scroll regions.
-16. **An app has pages, in one file.** A page is a route in the address after
-    `#`. A link that starts with `#` stays in the frame; any other link opens
-    outside it. Nothing of this is in the manifest or on the server: the app
-    routes itself. A preview opens one page by its route.
+1. **An app is its own record, not a work.** It has source, versions, data,
+   schedules, and callers; a work has one body. Apps reuse what works have by
+   calling the same owners (the frame, the skill, the git transport), not by
+   being a work.
+2. **Operations are the centre.** The UI is one caller of them. Everything an
+   app does for an agent, a schedule, or a webhook is an operation the UI can
+   also call.
+3. **One authoring path: the `visual-artifacts` skill.** The same project,
+   build, design guidelines, and preview. An `app.ts` makes the project an app.
+4. **The build writes the descriptor.** The host never runs app code to learn
+   what an app declares. The host enforces the descriptor: an operation the
+   descriptor calls a query gets a read-only database, whatever its code does.
+5. **One git repository for each app.** It uses the storage of works: a bare
+   repository under the host's data folder, and Cloudflare Artifacts for a
+   host in the cloud (`docs/plans/cloud-work-artifacts-integration.md`). The
+   host writes the commits. An agent does not push.
+6. **A version is immutable.** A deploy makes a new one. A rollback makes an
+   earlier version active. A rollback does not rewind app data or what an
+   operation did outside the host.
+7. **A deploy makes the version active.** There is no second decision, no
+   version that waits, and no decision bound to the backend's hash. The gate
+   is the deploy itself: `deploy_app` is a tool that needs approval, so the
+   session's permission mode decides whether a person sees it first. An app
+   has no more rights than the session that deployed it had: both are code on
+   the host. The owner can stop an app and start it again.
+8. **App data is SQLite, with migrations.** The runner applies new migrations
+   when a version becomes active. A migration that fails stops the activation.
+9. **The backend runs in the runner on the host.** Not in an isolate. An app
+   on your host can read your files and reach your private network when it
+   declares them. That is the point of an app on your own machine (§6, §12).
+10. **Only the host's owner uses an app in this release.** Their UI, their
+    agent sessions, the app's schedules, and the webhooks that call it.
+11. **An operation never asks.** A call from the UI, a schedule, or a
+    webhook runs. An app has no approval setting and no `writes` permission,
+    for its own operations and for the integration tools it calls. An agent's
+    call follows that session's permission mode, as any integration tool does.
+12. **An agent sees an app as an integration.** The gateway lists the app's
+    operations as tools. Tool lists, approval, and turned-off tools work as
+    they do for any integration.
+13. **A secret is in the vault, not in app data.** The backend gets it at run
+    time. No client, no UI, and no agent reads it back.
+14. **A schedule runs from the deploy that declares it.** The owner can pause
+    it and turn it on again.
+15. **An app declares its webhooks, and the webhook owner runs them.** The
+    declaration names a verification and a mutation. A deploy makes the webhook
+    record. The app's menu shows the URL, and the person copies it into the
+    other service. An app has no `register` step: that needs accounts (§12).
+16. **In Solus an app shows in the app frame, on every client.** Not in the
+    browser pane (§9 says why). An app is a window with its own pages.
+17. **No compatibility with the third model.** Solus has no users. Apps that
+    are artifacts stop being apps; their pages stay as plain artifacts.
+18. **An app links to sessions, as a work does.** The session that deploys an
+    app is linked to it. The `link` tool, the Artifacts surface, the chips on
+    a session card, and the chips under a turn take the kind `app`.
+19. **The Workspace page lists apps.** A fourth tab, **Apps**, beside the
+    works and the shared sessions. There is no separate Apps page.
 
-## 3. Data
+## 3. The app project
 
-An app's content is its page. The manifest is one script block in it:
+A `visual-artifacts` project with these files:
 
-```html
-<script type="application/json" id="solus-app">{"solusApp":1,"permissions":{…},"integrations":["linear"],"server":"…","sources":{"src/App.tsx":"…"}}</script>
+```text
+app.ts            the backend: defineApp(...)
+migrations/       0001_notes.sql, 0002_tags.sql, ...
+src/              the UI (React, TypeScript, Tailwind), as for any artifact
+skills/           optional: instructions for agents that use the app
 ```
 
 ```ts
-interface AppManifest {
-  solusApp: 1
-  permissions: AppPermissions
-  integrations: string[]                  // the roles, read from the sources by the build
-  server?: string                         // CommonJS module for Node; each exported function is a host function
-  sources?: { [path: string]: string }    // the project's own files, so a later session can read and rebuild them
-}
-interface AppPermissions {
-  tools: 'all' | 'read-only' | { selected: string[] }   // selected: "<slug>/<tool>"
-  writes: 'ask' | 'allow'
-  network: string[]                                     // "api.example.com", "*.example.com", "db.internal:5432", "*"
-  files: { read: string[]; write: string[] }            // absolute or "~/" host paths; "*" is every path
-}
+// app.ts
+import { defineApp, query, mutation } from '@solus/app/backend'
+import { z } from 'zod'
+
+export default defineApp({
+  name: 'Notes',
+  permissions: { network: ['*'], files: { read: [], write: [] } },
+  secrets: { database: { label: 'Database URL', description: 'A Postgres URL.' } },
+  operations: {
+    list: query(
+      { description: 'The 100 newest notes.', input: z.object({}) },
+      (ctx) => ctx.sql.exec('SELECT id, text FROM notes ORDER BY created_at DESC LIMIT 100').all(),
+    ),
+    add: mutation(
+      { description: 'Save one note.', input: z.object({ text: z.string() }) },
+      (ctx, input) => ctx.sql.exec('INSERT INTO notes (id, text, created_at) VALUES (?, ?, ?) RETURNING id, text',
+        crypto.randomUUID(), input.text, Date.now()).one(),
+    ),
+  },
+  schedules: {
+    digest: { cron: '0 9 * * 1-5', timezone: 'America/Toronto', run: 'sendDigest', input: {} },
+  },
+})
 ```
 
-Every `<` in the block is written `<`, so nothing in it can end the
-script element. `readAppPage` in `@solus/contracts/apps` is the one reader,
-for the server and for every client. A block that is there and is not a valid
-manifest is refused when the work is saved.
+```tsx
+// src/App.tsx
+import { useQuery, mutate } from '@solus/app'
+const notes = useQuery('list', {})          // runs again when the app's data changes
+await mutate('add', { text })
+```
 
-Work meta carries only the owner's decision, on the `meta` JSON column:
+What a handler gets in `ctx`:
+
+| Field | What it is |
+|---|---|
+| `sql` | The app's database. `exec(sql, ...values)` gives `.all()` and `.one()`. Each statement commits by itself; `transaction(fn)` groups statements, and `fn` is synchronous. Read-only in a query. |
+| `secrets` | The values the owner gave, by name. |
+| `tools` | The caller's integrations: `ctx.tools.linear.list_issues(input)`. |
+| `files` | The path of the app's `files/` folder. |
+| `caller` | `{ kind: 'ui' \| 'agent' \| 'schedule' \| 'webhook' }`. |
+
+`npm run bundle` builds four outputs into `dist/app/`: `descriptor.json`,
+`backend.cjs` (absent when the app declares no operation), `ui.html` (absent
+when the project has no UI), and a copy of `migrations/`. The build makes the
+descriptor from `app.ts` in the agent's own environment, with `z.toJSONSchema`
+for each input.
+
+## 4. Data
+
+### 4.1 Records
+
+On the host's database, each with the canonical `organization_id`
+(`docs/plans/organization-scope.md` §3):
 
 ```ts
-interface AppMeta {
-  /** What the host's owner allowed, and the host code it was allowed for. Absent: nothing allowed. */
-  allowed?: { access: AppHostAccess; serverHash: string | null }
+interface App {
+  id: string
+  slug: string                  // unique on the host; the agent tool namespace
+  name: string
+  organizationId: string
+  createdBy: Attribution
+  activeVersion: number | null  // null: the first deploy failed
+  stopped: boolean
+  repository: { provider: 'local-git' | 'cloudflare-artifacts'; name: string; scope: string }
 }
-interface AppHostAccess {
-  functions: boolean
-  /** Integration writes run without asking. */
-  writes: boolean
-  network: string[]
-  files: { read: string[]; write: string[] }
+interface AppVersion {
+  appId: string
+  number: number
+  sourceCommit: string
+  buildCommit: string
+  descriptor: AppDescriptor
+  state: 'active' | 'superseded' | 'failed'
+  message: string
+  createdBy: Attribution
+  createdAt: string
+}
+interface AppSchedule {
+  appId: string
+  name: string                  // the key in the descriptor
+  enabled: boolean              // true when first seen
+  nextRunAt?: string
+}
+interface AppCall {
+  id: string; appId: string; version: number
+  operation: string
+  caller: { kind: 'ui' | 'agent' | 'schedule' | 'webhook'; sessionId?: string; scheduleName?: string; webhookId?: string }
+  startedAt: string; finishedAt?: string
+  outcome: 'ok' | 'failed'
+  error?: string
 }
 ```
 
-App data is on the host, outside the works table, under
-`<data dir>/app-data/<work id>/`: `storage.json` is the app's storage; `data/`
-is a folder its host functions may always read and write. Deleting the work
-removes the folder.
+The call log keeps no input and no result. It keeps the last 2,000 calls of
+each app.
 
-## 4. The app frame
+An app's slug cannot be the slug of an integration the owner has: both are
+`tools.<slug>` to an agent and to a UI. A deploy that makes a new app adds a
+short suffix when the slug is taken.
 
-`wrapSandboxDocument` in `@solus/contracts/artifact-sandbox` builds every
-artifact frame's document. For a page with a manifest it takes the app's
-allowed network hosts and:
+### 4.2 The repository
 
-- starts the document with a doctype, so the page is laid out in standards
-  mode, and adds the window stylesheet: the page scrolls and is at least as
-  tall as the window;
-- writes the app policy: no network but those hosts (as HTTPS and WSS origins
-  for `connect-src`, and for images and media), inline scripts and styles,
-  `data:` fonts;
-- adds the bridge: `window.solusApp.call(name, args)`, which posts
-  `{ type: "solus-app-call", id, name, args }` to the host and settles on
-  `{ type: "solus-app-result", id, ok, value | error }`.
+One bare repository for each app: `<data dir>/apps/repositories/app-<hash>.git`
+on a host (`apps/app-repository.ts`), with the conventions of a work's local
+repository: private, bare, no hooks, written only by the host. The app's row
+keeps the repository's name. A Cloudflare Artifacts repository for a host in
+the cloud is later (§12).
 
-The project's `@solus/app` module is a typed face over that one function:
-`storage`, `server`, and `tools`. It holds no protocol, so the host can change
-the transport without a rebuild of any app.
+- `refs/heads/main` — the source. One commit for each deploy: the project's own
+  files (not `node_modules`, not `dist`), with the deploy's message.
+- `refs/solus/versions/<number>` — the build of that version: one commit whose
+  tree is `dist/app/` and whose parent is the source commit.
 
-A frame host gives an app its window and ignores the height the page
-reports: `SandboxFrame.svelte` on desktop and web, `ThreadArtifact.tsx` on a
-phone. The artifact pane gives an app all of its body, with no padding.
+So one repository holds the whole app at every version: a rollback, a copy to
+another host, and a cloud copy need nothing else. `git clone` of the
+repository gives a person the source with a normal history. Direct pushes are
+not supported.
 
-The host side of a call is `answerAppCall` in `@solus/client-core/app-calls`, shared by
-desktop, web, and mobile: it asks `appToolInfo`, asks the person before a
-call that is not read-only, runs `appCallTool`, and gives the page the value.
-A frame that has no work to call for (a fenced page in a reply, an embed, a
-history view) answers every call with an error, so a page never waits.
+### 4.3 App data
 
-## 5. Permissions
+`<data dir>/apps/data/<app id>/`:
 
-Declared in the project's `app.json`, written into the manifest by the build.
+- `app.sqlite` — the app's database. Only the runner opens it.
+- `files/` — a folder the backend may always read and write.
+- `storage.json` — the app's storage, as now (`app-storage.ts`).
 
-| Setting | Values | Default |
-|---|---|---|
-| `tools` | `all`, `read-only`, `selected` (a list of `<slug>/<tool>`) | `all` |
-| `writes` | `ask` (the person approves each write), `allow` | `ask` |
-| `network` | a list of hosts; `*` is every host | none |
-| `files` | paths to read, paths to write; `*` is every path | none |
+A migration is `migrations/<4 digits>_<name>.sql`. The runner applies each new
+one in order, each in a transaction, and records it in the table
+`solus_migrations`. Migrations only go forward. Deleting the app removes the
+folder, the repository, its schedules, its secrets, and its integration.
 
-`appToolInfo(name)` answers from the current state, on every call:
+### 4.4 Secrets
 
-- An integration tool is callable when the slug is one of the app's roles, the
-  caller owns an integration with that slug, the tool exists there and is not
-  turned off, and the permissions admit it. It is read-only when the tool has
-  `readOnlyHint`, or when `writes` is `allow` and the owner allowed that.
-- `@storage/<operation>` is always callable and never asks.
-- `@server/<function>` is callable when the manifest has a server module, the
-  owner allowed the app's host access, and the caller is the host's owner.
+An app's secrets are in the host's secret store, one entry for each app, as a
+webhook's token and signing secret are (`apps/app-secrets.ts`,
+`data/webhooks/webhook-secrets.ts`). They are not in a table and not in the
+app's data. The owner gives a value in the app's menu. A client reads only
+whether each secret is set. The runner gets the values when it starts, and it
+starts again when one changes. An operation that reads a secret that is not
+set gets `undefined` and says so in its own error.
 
-## 6. Host access
+The cloud vault is not used: it holds a person's credentials, which follow
+the person. An app's secret belongs to one app on one host.
 
-What the app asks for: `functions` when the manifest has a server module,
-`writes` when its permissions say `allow`, and its `network` and `files`. An
-app that asks for nothing needs no decision.
+## 5. Calls
 
-- **Pending.** The app asks for more than `allowed` covers, or its host code
-  is not the code `allowed` names. The artifact's header says what it asks
-  for, with **Allow**. Until then the frame has no network, a host function
-  call fails with a message that says so, and a write asks.
-- **Allowed.** The header says what is in force, with **Revoke**.
-- Only the host's owner sees the buttons. `create_app` tells the agent when an
-  app waits, so the agent tells the person.
+Every caller goes through one function on the host: `Apps.call(appId,
+operation, input, caller)`. It reads the active version's descriptor, checks
+the caller, validates the input against the operation's schema, runs the
+operation in the runner, and writes the call log.
 
-The runner (`apps/app-functions.ts`, `apps/app-runner-script.ts`):
+| Caller | Who it runs as |
+|---|---|
+| `ui` | The viewer (the owner, in this release) |
+| `agent` | The session's person |
+| `schedule` | The app's owner |
+| `webhook` | The app's owner |
 
-- One process for each app, started on the first call with the host's own
-  Node, stopped after five idle minutes, on a new revision, on a change of
-  host access, on revoke, and when the work is deleted. A call has 60 seconds.
-- It starts with `--permission`, `--allow-fs-read` and `--allow-fs-write` for
-  the app's paths and its `data/` folder, a small environment (no token of the
-  server's), and a memory limit. It refuses to load the app when the
-  permission model is not on.
-- Each export of the server module that is a function is a host function:
-  `async (input, context) => value`, where `input` is the one JSON object the
-  page sent and `context.dataDir` is the app's `data/` folder. The value goes
-  back as JSON, at most 1 MiB.
+A query and a mutation differ in two things only: a query gets a read-only
+database, and a mutation that changed the database starts a live refresh. To
+the gateway a query is `readOnlyHint: true` and a mutation is not, so an
+agent's session treats them as it treats the tools of any integration.
 
-What enforces what, in plain words:
+**The wire names from a UI** stay: `@storage/<operation>` for storage, and
+`<slug>/<tool>` for an integration tool. `@server/<function>` becomes
+`@app/<operation>`.
 
-- **Files** — Node's permission model, for the file system module. The runner
-  also checks the path when `node:sqlite` opens a database. SQL that opens
-  another file (`ATTACH`, `VACUUM INTO`) is not checked.
-- **Network of host functions** — the runner checks the host of every socket.
-  On a Node with the network permission (25 and later), no network host means
-  the runtime itself refuses every socket. The desktop app and the packaged
-  server run Node 24, where the check in the runner is the only one.
-- **Network of the page** — the frame's policy. A frame can still navigate
-  itself away, which no policy closes; the artifact frame has the same limit.
-- **Processes** — the permission model refuses child processes, workers, and
-  native add-ons.
+**Integrations.** A UI (`tools.<slug>.<tool>`) and a backend (`ctx.tools`)
+call the tools of the roles the descriptor names, with the caller's own
+connection. The owner can turn a tool off for an integration in Settings →
+Tools, and that holds for an app too.
 
-Host access keeps an app the owner allowed inside what the owner read. It is
-not a jail for hostile code, and that is why only the owner runs host
-functions and why sharing an app with host functions waits (§9). One limit is
-the owner's to know: the decision for network hosts does not name the page's
-code. A person with edit rights on an app can change what its page sends to
-the hosts the owner allowed.
+**Live refresh.** When a mutation ends and the database changed, the host
+sends `appDataChanged { appId }` on a new RPC topic. Each client posts
+`solus-app-event` to the open frames of that app, and `useQuery` runs its
+query again. The refresh is coarse on purpose: one event for the app, not one
+for each table.
 
-## 7. Server
+A call has 60 seconds. A result is JSON, at most 1 MiB.
 
-`packages/server/src/apps/`:
+## 6. Permissions and the runner
 
-- `app-content.ts` — a work's page as an app (`readAppPage`, kept for the
-  revision it was read from), the hash of its host code, and what `read_work`
-  answers for an app: its sources, not megabytes of built page.
-- `app-permissions.ts` — `admits` for an integration tool; the host access an
-  app asks for; `hostAccessState`.
-- `app-storage.ts` — the app's key-value file.
-- `app-functions.ts` and `app-runner-script.ts` — the runner (§6).
-- `apps.ts` — `Apps`: `read` (the app's roles, permissions, and host access),
-  `toolInfo`, `callTool`, `hostAccessDecide`, and `forget` for a deleted work.
-- `transport/handlers/app-handlers.ts` — `appRead`, `appToolInfo`,
-  `appCallTool`, `appHostAccessDecide`.
-- `execution/agents/tools/app-tools.ts` — `create_app`: `title`, `html_path`,
-  the preview inputs of `render_artifact`, `preview_route` for one page, and
-  `work_id` for a preview of a saved app.
-- `data/works/artifact-preview.ts` — the preview takes an optional app host:
-  it opens the page the route names in a window 800px tall, drains the
-  page's calls, answers them, and then takes a picture of the window.
+`permissions` in `app.ts` names the network hosts the app may reach and the
+host paths its backend may read and write. `*` is every host or every path.
+The app's own data needs no permission. The app's header shows the
+permissions of the active version in one sentence, and the receipt of a
+deploy says the same sentence to the agent.
 
-A preview answers storage from memory, runs a host function only when the
-owner already allowed this code for this work, and never writes through an
-integration.
+Nobody decides the permissions a second time. They are there so that an app
+does what it says: the runner refuses a path or a host the app did not
+declare, and the frame's policy refuses a host for the UI's `fetch`.
 
-## 8. The skill
+The runner is the third model's (`app-functions.ts`, `app-runner-script.ts`):
+one process for each app, the host's own Node under the permission model, the
+app's paths, the socket check, no child processes, a memory limit, five idle
+minutes. It changes in three ways:
 
-`resources/plugins/solus/skills/visual-artifacts/`. Its `references/apps.md`
-is the app chapter; the main file points to it. In the project template:
+- It loads the backend module and takes its operations from the default
+  export, not from the module's exports.
+- It opens `app.sqlite` with `node:sqlite`: one read-only connection for
+  queries and one for mutations. It applies new migrations before it says it
+  is ready. A migration that fails makes the version `failed`, and the version
+  before it stays active.
+- A schedule or a webhook starts it, so it does not need an open UI.
 
-- `src/solus-app.ts` — `@solus/app`: `storage`, `server`, `tools`.
-- `app.json` (the agent adds it) — `{ "permissions": { … } }`.
-- `server.ts` (the agent adds it) — the host functions.
-- `npm run bundle` — as for any artifact; with an `app.json` it also bundles
-  `server.ts` for Node, reads the roles from the sources, and writes the
-  manifest into `bundle.html`.
+**Stop** in the app's header stops the runner and every schedule. The UI
+still opens, and an operation fails with a message that says the app is
+stopped. **Start** reverses it.
 
-The runtime instructions name the skill and `create_app` for a run that has
-the tool, and say that a web project is scaffolded only for a codebase to
-deploy. The `building-for-web` skill says the same of itself.
+The runner's limits are a guard, not a jail: SQL that opens another file
+(`ATTACH`) is not checked, and on Node 24 the socket check in the runner is
+the only network check. That is acceptable because an app is the owner's own
+code on the owner's own host (decisions 7 and 10).
 
-## 9. Next: sharing and deployment
+Removed from the third model: host access, its three states, the Allow and
+Revoke bar, the decision on the work's meta, and the hash of the backend.
 
-Not started. The call path stays the same; the host becomes the Solus API.
+## 7. Agents
 
-- **Share** is the existing cloud copy of a work. Roles resolve to the
-  signed-in viewer's own cloud connections (`docs/plans/cloud-vault.md`).
-  Storage moves with the work, and that is where each-viewer storage is
-  decided.
-- **Deploy** is a standalone web app at its own URL, through `/mcp` on the
-  Solus API, with T3 Code's credential and grant design.
-- **Host functions for other people** need a runtime that is a real boundary
-  (a container or an isolate for each app). Until that exists, an app with
-  host functions is not shared and not deployed.
+### 7.1 Operations as tools
 
-## 10. The two earlier models
+A run gets one tool for each operation of each running app, beside the tools
+of the person's integrations: `appOperationAgentTools` in
+`execution/agents/tools/app-tools.ts`, called where a run lists its
+integration tools (`run-launcher.ts`). The name is `<slug>__<operation>`, as
+an integration's tools are named, so an agent sees
+`mcp__solus__<slug>__<operation>`. The input schema is the operation's. The
+call goes to `Apps.callOperation` with the caller `agent`. A name that a tool
+of the run already has is left out.
 
-**First release, 2026-11-11.** A work type `app` whose content was one TSX
-component, compiled on the server and run in a prebuilt shell
-(`packages/app-shell/`) inside the MCP App frame. An app was UI over
-integration tools and nothing else.
+An app is not an integration record. It needs no MCP session, and its tools
+change when its active version changes, with no list to keep in step.
+Settings → Tools does not list an app's operations; the app's own surface
+does.
 
-**Second model, same day, never merged.** The component or a bundle from a
-separate `apps` skill, with storage, network, and host functions, still in
-the shell and the MCP App frame.
+### 7.2 The agent's own tools
 
-Both were replaced for one reason: they were a second implementation of what
-artifacts already had. The shell's component kit looked worse than what the
-`visual-artifacts` pipeline produces, an agent had no preview of an app, and
-every artifact surface needed an `app` branch beside it. What stays from them
-is everything that was new: the manifest's permissions, host access, storage,
-the runner, and the viewer binding.
+| Tool | What it does |
+|---|---|
+| `deploy_app` | `path` (the app project), `app` (a slug; omitted makes a new app), `message`. Reads `dist/app/` and the source files, writes the two commits, makes the version active, and links the app to the session. The receipt says the version's number, whether it is active or failed, what the app may use, and which secrets are not set. It needs approval. |
+| `preview_app` | `path`, `width`, `appearance`, `route`. Deploys nothing and gives a picture of the project's UI in a window 800px tall. It needs no approval. |
+| `checkout_app` | `app`, `path`, optional `version`. Writes the source of a version into a folder, so a later session can change the app. |
+| `list_apps` | The apps of the host with their active version, their operations, and what needs the owner. |
 
-Not in this release: the permissions have no editor in the header (they are
-in `app.json`); a work in an organization's Solus API has no host access; a
-work that Share moves to an organization leaves its app data on the host it
-left; the works list does not mark an app apart from any artifact.
+`create_app` is removed. The preview is a tool of its own because a tool's
+approval is one flag: a look at a UI must not ask as a deploy does. The `link`
+tool takes `kind: 'app'` with the app's slug.
+
+A preview answers storage from memory. It runs the project's operations in a
+runner against a new database with the project's migrations, never against
+the app data, and with no secret. It never calls an integration.
+
+## 8. Schedules and webhooks
+
+**Schedules.** The descriptor lists them: a name, an interval or a cron
+expression with a time zone, a mutation, and its input. The trigger type and
+its math are the automations' (`AutomationTrigger`,
+`data/automations/automation-schedule.ts`). The state is the app's:
+`AppSchedule` rows and one timer in `apps/app-schedules.ts`, with the same
+rules as the automation scheduler: one timer for the earliest due row, a wait
+of at most five minutes, one overdue run after the host was off, and no second
+run while one is in progress. A new schedule is on. The owner pauses it and
+turns it on in the app's menu. A schedule whose declaration is gone from the
+active version is deleted. A failed run stays in
+the call log and does not retry.
+
+An app schedule is not an automation. An automation starts an agent turn; an
+app schedule runs code and costs nothing.
+
+**Webhooks.** The descriptor lists them: a name, a verification, and a
+mutation.
+
+```ts
+webhooks: {
+  issueOpened: {
+    verify: { scheme: 'hmac', header: 'x-hub-signature-256', prefix: 'sha256=' },
+    run: 'onIssue',
+  },
+},
+```
+
+A webhook gets a fourth action beside "start a session", "send a prompt", and
+"run an automation": **call an app mutation**. A deploy makes one webhook
+record for each declaration, owned by the app, with that one action. The
+mutation's input is `{ headers, query, body }` of the request. The URL, the
+verification, the replay key, the deliveries log, replay, pause, and holding
+while offline are the webhook owner's and do not change. The secret of a
+webhook is made by the host and shown once in the app's menu, with the URL.
+A declaration that is gone from the active version deletes its record. The
+person can also make a webhook by hand with the same action.
+
+**Always on.** A desktop host runs schedules only while Solus is open. A
+standalone server or a cloud machine is the host for an app that must run all
+day. The app's header says which of these its host is.
+
+## 9. In Solus
+
+**Why the app frame and not the browser pane.** The browser pane is a native
+web view only on a desktop client whose host is the same machine. On web and
+on mobile it is a streamed picture of the host's browser: text selection,
+input methods, scrolling, and latency are the host's, not the device's. The
+app frame is a frame in the client's own page on every client. It takes the
+live theme, so an app looks like a part of Solus, and its calls go through the
+typed RPC layer over IPC and WebSockets alike. An app has no URL in this
+release (§12), so there is nothing for the browser pane to open.
+
+The frame is the third model's: a window of a fixed size that the UI scrolls
+inside, in standards mode, with no network but the declared hosts and the
+bridge `window.solusApp.call`.
+
+**An app looks like a pane of Solus.** A render in a reply takes the render
+palette and a 14px root. An app frame takes the workspace's own chrome
+(`APP_NATIVE_STYLE` in `@solus/contracts/artifact-sandbox`): `--border`,
+`--input`, `--ring`, `--muted`, `--primary`, `--sidebar`, and `--radius` are
+the values `workspace.css` gives its own controls, and the root is 16px, so a
+size in `rem` is the size the workspace's own controls have. The project
+template has the controls (`src/solus-ui.tsx`, `@solus/ui`): the workspace's
+button, input, sidebar row, toolbar, table, and empty state, with the same
+classes. The skill's chapter says: use them, draw no title bar (Solus shows
+the app's name), 14px text, panes split by hairlines. Two changes: the client decides that a frame is
+an app frame because it shows an app, not from a block in the page; and the
+bridge gets events (`solus-app-event`) for live refresh.
+
+Surfaces, on desktop, web, and mobile:
+
+| Surface | What it shows |
+|---|---|
+| **Apps tab** of the Workspace page | The apps of every connected host, as cards: name, host, active version, the session it came from, last call, and what needs attention (a failed version, a secret that is not set, a failed schedule, stopped). The search, the sort, and the project and time facets apply. `⌥4` opens the tab. |
+| **App** (`app`, a destination or a surface) | The app frame in all of the pane, under a header: name, version, what the app may use, and a menu. |
+| **App menu** | Versions (the source diff to the one before, and **Make active**), Schedules (pause, turn on, run now, last outcome), Secrets (set, clear), Calls (the call log), Sessions (the linked sessions), Source (clone path), Stop or Start, Delete. |
+| **Conversation** | A deploy opens the app's surface beside the conversation that made it, when that conversation is on screen (`apps.changed` names the session). The turn's chips name the app. The app's window is not drawn inside the transcript. |
+| **Artifacts surface, session chips, turn chips** | An app the session linked, as one more kind. A row or a chip opens the app's surface. |
+| **Mobile** | An Apps list (the phone has no Workspace page), the app in a full-screen web view, the header actions in a sheet, and the app chip in the thread. |
+
+Entry points: the Workspace page, the command palette ("Apps", "Open app…"),
+the chips of a turn and of a session card, a session's Artifacts surface, and
+a link `/app/<slug>`. Each way in has its way back: deploy
+and make active, stop and start, pause and turn on, set and clear, link and
+unlink, create and delete.
+
+An app with no UI has no frame: its surface shows its operations, with a form
+to run one, as Settings → Tools does for an integration tool.
+
+## 10. Server
+
+`packages/server/src/apps/` owns the domain. Data never imports it.
+
+| File | Owns |
+|---|---|
+| `data/apps/` | The four records and their scope rules. |
+| `apps/apps.ts` | `Apps`: `deploy`, `activate`, `call`, `read`, `list`, `stop`, `start`, `delete`. |
+| `apps/app-repository.ts` | The two commits of a deploy and the reads of a version's files, over `WorkRepositoryAccess`. |
+| `apps/app-project.ts` | An app project as a deploy reads it: the build in `dist/app/` and the source files. |
+| `apps/app-runners.ts`, `app-runner-script.ts` | The runner (§6). |
+| `apps/app-schedules.ts` | Schedule rows and the timer (§8). |
+| `apps/app-webhooks.ts` | The webhook records of the webhooks an app declares (§8). |
+| `apps/app-secrets.ts` | The app's secrets in the host's secret store (§4.4). |
+| `apps/app-events.ts` | `apps.changed` and `apps.dataChanged`. |
+| `apps/app-storage.ts` | Storage, and the app's data folder. |
+| `transport/handlers/app-handlers.ts` | `appList`, `appRead`, `appUi`, `appCall`, `appStop`, `appStart`, `appDelete`, `appVersions`, `appVersionDiff`, `appActivate`, `appSchedules`, `appScheduleSet`, `appScheduleRun`, `appSecretSet`, `appWebhooks`, `appCalls`, `appSessions`; the events `apps.changed` and `apps.dataChanged`. |
+| `execution/agents/tools/app-tools.ts` | `deploy_app`, `preview_app`, `checkout_app`, `list_apps`, and the operations of running apps as tools. |
+| `data/sessions/session-artifacts.ts`, `session-link-tools.ts` | The kind `app` in a session's links and its artifact list. |
+
+Reused, not copied: the artifact frame and preview, the `visual-artifacts`
+project and bundler, the integration gateway for an app's calls to
+integrations, the host's secret store, the automations' trigger math, and the
+webhook owner. The repository follows the conventions of a work's local
+repository (`sync/works/local-work-repositories.ts`); the Cloudflare target
+is later (§12).
+
+Removed: the app manifest and its readers in `contracts/src/apps.ts`,
+`app-content.ts`, `app-permissions.ts`, host access and `AppAccessBar`, the
+write prompt in `client-core/app-calls.ts`, the app meta on a work,
+`create_app`, the manifest step of
+`bundle-artifact.mjs`, and the app branches in `ArtifactView`,
+`ArtifactShell`, and `ThreadArtifact`.
+
+## 11. What was built
+
+All five steps of the build order are done: the app record with deploy,
+versions, the runner, SQLite, storage, and live refresh; operations as agent
+tools and the call log; secrets; schedules and webhooks; versions in the UI
+with the source change of each one.
+
+Left out, each for a reason:
+
+- **No form to run an operation of an app with no UI.** Its surface lists the
+  operations. An agent or a schedule calls them.
+- **The header does not say if the host runs all day.** No fact a client reads
+  tells a desktop host from a server.
+- **The app's window is not drawn in the transcript** (§9). A deploy opens the
+  app beside the conversation, and the turn's chips name it.
+- **On a phone** a deploy does not open the app by itself, and there is no
+  link `/app/<slug>`: the chip in the thread opens the app. The Apps list is
+  reached from Settings and from a host's settings, not from a tab of its own.
+  The source change of a version is desktop and web only.
+- **An organization session** cannot link an app: the Solus API holds no app
+  links (§12).
+- **The Calls section** reads again when the app's data changes, not on each
+  call: no event names a call that changed nothing.
+
+## 12. Later
+
+- **The cloud copy.** The Cloudflare Artifacts target for an app's repository,
+  and "install this app on another host" from that copy. The repository access
+  is shared with works, so this is configuration and a move flow, not a new
+  store.
+- **A URL for an app.** The host serves the UI at its own address for a normal
+  browser and for the browser pane, with a sign-in. It needs an origin of its
+  own for each app, or a sandboxed document with a token for its calls, and it
+  must work through the tunnel.
+- **Other people.** An app for a second person needs a runtime that is a real
+  boundary (an isolate or a container for each app), an audience for each app,
+  and secrets that belong to the app and not to its owner. Until then an app
+  is the owner's.
+- **Accounts.** Executor's reusable accounts: one saved credential that several
+  apps use. A secret belongs to one app in this release.
+- **The source as a project.** Open an app's repository as a Solus project,
+  with sessions, worktrees, and diffs, and deploy from a commit.
+
+## 13. Decided
+
+Decided 2026-11-12 by the maintainers, after the first draft of this model:
+
+- No approval for an operation, no `writes` permission, and no Allow for a
+  version (decisions 7, 11, and 14).
+- Apps link to sessions (18), and the Workspace page lists apps (19).
+- App schedules are the app's own and show in its menu, not on the
+  Automations page (§8).
+- An app declares its webhooks; the webhook owner runs them and the person
+  copies the URL (15). Executor's `register`, `handle`, and `unregister`
+  callbacks are not taken: the Solus webhook owner already checks the
+  signature, removes duplicates, logs, replays, and holds requests.
+- The third model is removed in step 1 (17).
+
+## 14. The earlier models
+
+**First, 2026-11-11.** A work type `app` whose content was one TSX component,
+run in a prebuilt shell inside the MCP App frame. An app was UI over
+integration tools.
+
+**Second, same day, never merged.** The component or a bundle from a separate
+`apps` skill, with storage, network, and host functions, still in the shell.
+
+**Third, 2026-11-11 to 2026-11-12, on `main`.** An app was an `artifact` work
+whose page carried an app manifest: permissions, roles, a server module, and
+sources. It gave an app the artifact pipeline, the app frame, storage, the
+runner, and host access. All of those stay but host access.
+
+The third model was replaced because the page was the whole app. Its code ran
+only for its own page and only while the page was open, its data was one
+key-value file, its source was a JSON field in a built page, and an agent
+could not call it. A personal cloud needs the opposite of each.

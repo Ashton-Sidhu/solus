@@ -162,9 +162,9 @@ export function workItem(w: WorkListing, project: { key: string; label: string }
 
 // ─── Tabs ───
 
-/** The page's three groups: the reader's own works, then what others shared
- *  with them, works and live sessions apart. */
-export type WorkspaceTab = 'yours' | 'shared-works' | 'shared-sessions'
+/** The page's four groups: the reader's own works, then what others shared
+ *  with them, works and live sessions apart, then the apps on their hosts. */
+export type WorkspaceTab = 'yours' | 'shared-works' | 'shared-sessions' | 'apps'
 
 export interface WorkspaceTabSpec {
   id: WorkspaceTab
@@ -177,6 +177,7 @@ export function workspaceTabs(counts: Record<WorkspaceTab, number>): WorkspaceTa
     { id: 'yours', label: 'Your works', count: counts.yours },
     { id: 'shared-works', label: 'Shared works', count: counts['shared-works'] },
     { id: 'shared-sessions', label: 'Shared sessions', count: counts['shared-sessions'] },
+    { id: 'apps', label: 'Apps', count: counts.apps },
   ]
 }
 
@@ -473,7 +474,7 @@ export function parseToken(word: string): Partial<WorkspaceFilter> | null {
   return null
 }
 
-function inTimeBucket(timestamp: number, time: TimeFilter, now: Date): boolean {
+export function inTimeBucket(timestamp: number, time: TimeFilter, now: Date): boolean {
   if (time === 'all') return true
   const bucket = bucketFor(timestamp, now)
   if (time === 'older') return bucket.key !== 'today' && bucket.key !== 'yesterday' && bucket.key !== 'week'

@@ -15,6 +15,7 @@ import {
   type WebhookVerificationInput,
   type WebhookVerificationScheme,
 } from '@solus/contracts/webhooks'
+import type { AppDescriptor } from '@solus/contracts/apps'
 
 /**
  * The webhook editor's draft (docs/plans/webhooks.md §3.6, §3.7): plain text
@@ -78,6 +79,9 @@ export interface ActionDraft {
   useWorktree: boolean
   sessionId: string
   automationId: string
+  /** The app a `call_app` action calls, and the mutation it runs. */
+  appId: string
+  operation: string
 }
 
 export interface WebhookDraft {
@@ -206,7 +210,14 @@ export function emptyActionDraft(id: string): ActionDraft {
     useWorktree: false,
     sessionId: '',
     automationId: '',
+    appId: '',
+    operation: '',
   }
+}
+
+/** The operations a `call_app` action can run: the mutations of the app's active version. A query writes nothing, so a delivery has no use for it. */
+export function appMutationNames(descriptor: AppDescriptor | null | undefined): string[] {
+  return descriptor?.operations.filter((operation) => operation.kind === 'mutation').map((operation) => operation.name) ?? []
 }
 
 function filterDraft(filter: WebhookFilter): FilterDraft {
@@ -229,8 +240,11 @@ function actionDraft(action: WebhookAction): ActionDraft {
     draft.useWorktree = action.useWorktree === true
   } else if (action.type === 'send_to_session') {
     draft.sessionId = action.sessionId
-  } else {
+  } else if (action.type === 'run_automation') {
     draft.automationId = action.automationId
+  } else {
+    draft.appId = action.appId
+    draft.operation = action.operation
   }
   return draft
 }
@@ -380,6 +394,8 @@ function actionCandidate(draft: ActionDraft, filters: WebhookFilter[]): WebhookA
       }
     case 'send_to_session': return { ...base, type: 'send_to_session', sessionId: draft.sessionId.trim() }
     case 'run_automation': return { ...base, type: 'run_automation', automationId: draft.automationId }
+    // A call has no prompt: the mutation gets the request itself, so the template is saved empty.
+    case 'call_app': return { ...base, template: '', type: 'call_app', appId: draft.appId, operation: draft.operation }
   }
 }
 

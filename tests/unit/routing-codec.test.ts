@@ -6,6 +6,7 @@ import {
   ROUTES,
   ROUTE_NAMES,
   serializeRef,
+  surfaceKey,
   type RouteRef,
 } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
@@ -31,7 +32,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'settings', params: { tab: 'sessions' } },
   { name: 'settings', params: { tab: 'providers', projectCwd: '/repo/app' } },
   { name: 'settings', params: { tab: 'webhooks', webhooks: 'q=ci&project=%2Frepo%2Fapp&open=w1&on=host-a' } },
-  { name: 'folio', params: {} as Record<string, never> },
+  { name: 'folio', params: {} },
+  { name: 'folio', params: { tab: 'apps' } },
   { name: 'notifications', params: {} as Record<string, never> },
   { name: 'automations', params: {} },
   { name: 'automations', params: { automationId: 'a_3' } },
@@ -44,6 +46,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'automation', params: { automationId: null, serverId: 'remote-host' } },
   { name: 'goal', params: { sessionId: 'sess_abc' } },
   { name: 'artifacts', params: { sessionId: 'sess_abc', serverId: 'h1' } },
+  { name: 'app', params: { slug: 'notes' } },
+  { name: 'app', params: { slug: 'team-notes', serverId: 'studio-host' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'map' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide', scope: { kind: 'session' } } },
@@ -156,6 +160,30 @@ describe('the location grammar', () => {
     expect(parsed.panes[0].surfaces).toEqual([CHAT_ROUTE])
     expect(parsed.panes[1].surfaces).toEqual([{ name: 'task', params: { taskId: 'SOL-12' } }])
     expect(parsed.focusedPaneId).toBe(parsed.panes[1].id)
+  })
+
+  test('an app link names the app by its slug, and the host when the link knows it', () => {
+    // WHY: `/app/<slug>` is the link a person shares. It must open the app as
+    // the destination, and a link from a session must keep the host it is on.
+    expect(parseRoute('/app/notes')).toEqual({ name: 'app', params: { slug: 'notes' } })
+    expect(serializeRoute({ name: 'app', params: { slug: 'notes', serverId: 'h1' } })).toBe('/app/notes~h1')
+    const linked = parseLocation('/app/notes~h1')
+    expect(linked.panes.map((pane) => pane.surfaces)).toEqual([[{ name: 'app', params: { slug: 'notes', serverId: 'h1' } }]])
+    expect(parseRoute('/app/')).toBeNull()
+  })
+
+  test('an app sits beside the conversation that deployed it, and the same app is one surface', () => {
+    const beside = parseLocation('/chat?p=app%2Fnotes~h1&f=1')
+    expect(beside.panes[1]?.surfaces).toEqual([{ name: 'app', params: { slug: 'notes', serverId: 'h1' } }])
+    expect(ROUTES.app.placement).toBe('either')
+    expect(surfaceKey({ name: 'app', params: { slug: 'notes', serverId: 'h1' } }))
+      .not.toBe(surfaceKey({ name: 'app', params: { slug: 'notes', serverId: 'h2' } }))
+  })
+
+  test('the Workspace page names its Apps tab in the path, and no other tab', () => {
+    expect(serializeRoute({ name: 'folio', params: { tab: 'apps' } })).toBe('/folio/apps')
+    expect(parseRoute('/folio/apps')).toEqual({ name: 'folio', params: { tab: 'apps' } })
+    expect(parseRoute('/folio/shared-works')).toEqual({ name: 'folio', params: {} })
   })
 
   test('the removed standalone file editor route is no longer accepted', () => {
@@ -274,7 +302,7 @@ describe('untrusted input', () => {
 
 describe('link serialization', () => {
   test('a ref with no params is just its name', () => {
-    const folio: RouteRef = { name: 'folio', params: {} as Record<string, never> }
+    const folio: RouteRef = { name: 'folio', params: {} }
     expect(serializeRef(folio)).toBe('folio')
     expect(serializeRoute(folio)).toBe('/folio')
   })

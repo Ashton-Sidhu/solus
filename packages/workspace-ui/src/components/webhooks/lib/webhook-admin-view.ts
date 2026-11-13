@@ -43,7 +43,7 @@ export function webhookAdminKey(ref: WebhookAdminRef): string {
   return `${ref.organizationId}\n${ref.hostId}\n${ref.webhookId}`
 }
 
-const ACTION_TYPES: readonly WebhookActionType[] = ['start_session', 'send_to_session', 'run_automation']
+const ACTION_TYPES: readonly WebhookActionType[] = ['start_session', 'send_to_session', 'run_automation', 'call_app']
 
 /** A type that this client does not know (a newer host) shows as it is. */
 function actionTypeText(type: string): string {

@@ -14,7 +14,7 @@ export async function initArtifact(directory, { install = true } = {}) {
   await cp(resolve(skillDirectory, 'assets/react'), projectDirectory, { recursive: true, force: false })
   await mkdir(resolve(projectDirectory, '.artifact'))
   await cp(resolve(skillDirectory, 'scripts/bundle-artifact.mjs'), resolve(projectDirectory, '.artifact/bundle-artifact.mjs'))
-  await writeFile(resolve(projectDirectory, '.gitignore'), 'node_modules/\nbundle.html\n')
+  await writeFile(resolve(projectDirectory, '.gitignore'), 'node_modules/\nbundle.html\ndist/\n')
   if (install) {
     execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: projectDirectory, stdio: 'inherit' })
   }

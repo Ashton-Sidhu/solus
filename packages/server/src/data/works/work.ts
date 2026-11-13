@@ -10,7 +10,6 @@ import type {
   WorkType,
 } from '@solus/contracts/types'
 import type { WorkExternalLink } from '@solus/contracts/docs'
-import { readAppPage, type AppAllowedHostAccess, type AppMeta } from '@solus/contracts/apps'
 import type { Attribution } from '@solus/contracts/user'
 import { workPreview } from '@solus/contracts/work-preview'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
@@ -73,20 +72,6 @@ export type WorkContentChangeReason = 'edit' | 'agent'
 
 /** A write named a version the work has moved past. `content` is the body's
  * `contentVersion`; `record` is the whole record's `updatedAt`. */
-/** A body its work type cannot hold: an artifact whose app manifest block is not a valid manifest (docs/plans/apps.md §3). */
-export class WorkContentInvalidError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'WorkContentInvalidError'
-  }
-}
-
-/** Every body that reaches storage as a new or changed work passes here, whoever writes it. */
-export function validateWorkContent(type: WorkType, content: string): void {
-  if (type !== 'artifact') return
-  const page = readAppPage(content)
-  if (page.kind === 'invalid') throw new WorkContentInvalidError(`${page.problem} Build the page with \`npm run bundle\` in the app project.`)
-}
 
 export class WorkVersionConflictError extends Error {
   constructor(readonly precondition: 'content' | 'record') {
@@ -245,7 +230,6 @@ export class Work implements WorkRecord {
   cwd!: string
   pinned?: boolean
   mirroredDoc?: WorkExternalLink
-  app?: AppMeta
   content!: string
   contentVersion!: number
   contentHash!: string
@@ -331,7 +315,6 @@ export class Work implements WorkRecord {
   async updateContent(input: UpdateWorkContent): Promise<this> {
     return this.throughLiveDoc(input.author, () => this.mutate(async (db, row) => {
       assertWorkEditable(metaFromRow(row))
-      validateWorkContent(metaFromRow(row).type, input.content)
       checkPreconditions(row, input)
       await changeBody(db, row, input, input.reason === 'agent' ? 'agent' : null)
     }))
@@ -487,16 +470,6 @@ export class Work implements WorkRecord {
    * touches the upstream doc. Writes only the link, so a publish cannot make
    * the work look locally edited.
    */
-  /** What the host's owner allowed for an app (docs/plans/apps.md §6); null revokes it. */
-  async setAppAllowed(allowed: AppAllowedHostAccess | null): Promise<this> {
-    return this.mutate(async (db, row) => {
-      const meta = metaFromRow(row)
-      if (allowed) meta.app = { allowed }
-      else delete meta.app
-      await db.run(sql`UPDATE ${works} SET meta = ${metaJson(meta)} WHERE id = ${row.id}`)
-    })
-  }
-
   async setMirroredDoc(link: WorkExternalLink | null): Promise<this> {
     return this.mutate(async (db, row) => {
       const meta = metaFromRow(row)

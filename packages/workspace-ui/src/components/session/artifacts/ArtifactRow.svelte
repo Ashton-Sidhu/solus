@@ -2,6 +2,7 @@
   import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   import {
     AppWindow as HtmlArtifactIcon,
+    LayoutGrid as AppIcon,
     CircleAlert as MissingIcon,
     FileText as DocumentIcon,
     GitMerge as MergedIcon,
@@ -76,7 +77,9 @@
       ? PR_ICON_COLOR[prState]
       : artifact.kind === 'work'
         ? WORK_ICON_COLOR[artifact.workType]
-        : 'text-muted-foreground'}"
+        : artifact.kind === 'app'
+          ? 'text-[color-mix(in_oklab,var(--solus-art-7)_66%,var(--foreground))]'
+          : 'text-muted-foreground'}"
     role="img"
     aria-label={iconLabel}
     title={iconLabel}
@@ -91,6 +94,8 @@
       <FileIcon path={artifact.path} size={16} />
     {:else if artifact.kind === "automation"}
       <AutomationIcon size={16} strokeWidth={1.75} />
+    {:else if artifact.kind === "app"}
+      <AppIcon size={16} strokeWidth={1.75} />
     {/if}
   </span>
   <span class="flex min-w-0 flex-1 items-baseline gap-2">

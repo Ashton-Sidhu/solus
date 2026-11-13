@@ -10,7 +10,7 @@ type ArtifactOpener = Pick<WorkspaceContext, 'router' | 'prReview' | 'sessions' 
  * Open one artifact as its own surface, with the route that already shows that
  * kind of record. `ownerSessionId` is the session that linked it: its project
  * scopes a pull request and holds a file, and its host holds every item (a
- * file or automation link is refused unless it is on the session's host).
+ * file, automation, or app link is refused unless it is on the session's host).
  * A caller that knows the host passes it: a session with no tab here does not.
  */
 export function openArtifact(
@@ -49,5 +49,11 @@ export function openArtifact(
         name: 'automation',
         params: { automationId: artifact.automationId, serverId },
       })
+      return
+    case 'app':
+      workspace.router.navigate(
+        { name: 'app', params: { slug: artifact.slug, serverId } },
+        { target: 'companion' },
+      )
   }
 }

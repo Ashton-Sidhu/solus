@@ -1,4 +1,5 @@
 import { ACTIVITY_TABLES } from '../../data/activity/schema'
+import { APP_TABLES } from '../../data/apps/schema'
 import { COMMENT_TABLES } from '../../data/comments/schema'
 import { WORK_TABLES } from '../../data/works/schema'
 import { NOTIFICATION_TABLES } from '../../data/notifications/schema'
@@ -22,5 +23,5 @@ const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightSpanTexts, insig
 /** Every table a ported domain declares. A domain adds its list here when it is ported. */
 export const PORTED_TABLES: readonly TableDefinition[] = [
   ...TASK_TABLES, ...WORK_TABLES, ...PLAN_TABLES, ...COMMENT_TABLES, ...SHARING_TABLES, ...SESSION_TABLES, ...LINK_TABLES, ...PERSONAL_STATE_TABLES, ...OUTBOX_TABLES, ...MIRROR_TABLES,
-  ...PROJECT_TABLES, ...ACTIVITY_TABLES, ...NOTIFICATION_TABLES, ...WEBHOOK_TABLES, ...RECEIPT_TABLES,
+  ...PROJECT_TABLES, ...ACTIVITY_TABLES, ...NOTIFICATION_TABLES, ...WEBHOOK_TABLES, ...RECEIPT_TABLES, ...APP_TABLES,
 ]

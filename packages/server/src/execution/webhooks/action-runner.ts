@@ -43,6 +43,8 @@ export interface WebhookActionDeps {
   sessionState(sessionId: string, webhook: WebhookRecord): Promise<SessionState>
   /** `run_automation`: `triggerAutomationRun(automation, { context })`; `busy` while a run is active (§3.2). */
   runAutomation(automationId: string, context: string, actor: Actor): Promise<{ status: 'started'; runId: string } | { status: 'busy' }>
+  /** `call_app`: one call of an app's mutation with the request as its input (docs/plans/apps.md §8). */
+  callApp(request: { appId: string; operation: string; data: WebhookRequestData; webhookId: string }): Promise<void>
   /** An organization admin paused this webhook: Replay refuses it (§3.3). */
   isPausedByAdmin(webhookId: string): boolean
 }
@@ -78,7 +80,7 @@ export function deliveryOutcome(results: WebhookActionResult[]): DeliveryVerdict
 }
 
 export function createWebhookActionRunner(deps: WebhookActionDeps) {
-  async function runAction(webhook: WebhookRecord, deliveryId: string, tag: string, action: WebhookAction, planned: WebhookActionResult, actor: Actor): Promise<WebhookActionResult> {
+  async function runAction(webhook: WebhookRecord, deliveryId: string, tag: string, action: WebhookAction, planned: WebhookActionResult, actor: Actor, data: WebhookRequestData): Promise<WebhookActionResult> {
     const prompt = promptFor(webhook, deliveryId, tag, planned.prompt ?? '')
     switch (action.type) {
       case 'start_session': {
@@ -95,6 +97,10 @@ export function createWebhookActionRunner(deps: WebhookActionDeps) {
         const run = await deps.runAutomation(action.automationId, prompt, actor)
         if (run.status === 'busy') return { ...planned, status: 'busy', error: 'The automation has a run in progress.' }
         return { ...planned, status: 'started', automationRunId: run.runId }
+      }
+      case 'call_app': {
+        await deps.callApp({ appId: action.appId, operation: action.operation, data, webhookId: webhook.id })
+        return { ...planned, status: 'started' }
       }
     }
   }
@@ -116,7 +122,7 @@ export function createWebhookActionRunner(deps: WebhookActionDeps) {
       if (result.status !== 'matched') return result
       if (!actor) return { ...result, status: 'failed' as const, error: actorError ?? 'The owner cannot run unattended work.' }
       try {
-        const done = await runAction(webhook, deliveryId, tag, action, result, actor)
+        const done = await runAction(webhook, deliveryId, tag, action, result, actor, data)
         log.info('webhook_action_finished', { webhookId: webhook.id, deliveryId, actionId: action.id, status: done.status, sessionId: done.sessionId ?? null })
         return done
       } catch (err) {

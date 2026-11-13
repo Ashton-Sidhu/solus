@@ -130,6 +130,17 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
         </SettingsSection>
 
         {hosts.length > 0 ? (
+          <SettingsSection title="Apps">
+            <SettingsRow
+              icon="square.grid.2x2"
+              label="Apps"
+              accessibilityHint="The apps on your hosts"
+              onPress={() => navigation.navigate("Apps")}
+            />
+          </SettingsSection>
+        ) : null}
+
+        {hosts.length > 0 ? (
           <SettingsSection title="Policy">
             <SettingsRow
               icon="lock"

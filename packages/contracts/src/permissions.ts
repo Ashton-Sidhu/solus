@@ -256,6 +256,8 @@ const PERMISSION_OF_METHOD = {
   outboxAck: HOST_USE, outboxApply: HOST_USE, automationCreate: HOST_USE, automationList: HOST_USE,
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
   hostWebhookSettingsRead: HOST_USE,
+  // An app is its host owner's (docs/plans/apps.md decision 10): the Apps service refuses every other caller.
+  appList: HOST_USE, appRead: HOST_USE, appUi: HOST_USE, appCall: HOST_USE, appStop: HOST_USE, appStart: HOST_USE, appDelete: HOST_USE, appVersions: HOST_USE, appVersionDiff: HOST_USE, appActivate: HOST_USE, appSchedules: HOST_USE, appScheduleSet: HOST_USE, appScheduleRun: HOST_USE, appSecretSet: HOST_USE, appWebhooks: HOST_USE, appCalls: HOST_USE, appSessions: HOST_USE,
   // The admin rule is Solus Cloud's: the webhookAdmin port refuses a person who is not an organization admin.
   webhookAdminList: HOST_USE, webhookAdminPause: HOST_USE, webhookAdminResume: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
   browserListPages: HOST_USE, browserOpen: HOST_USE, browserClose: HOST_USE, browserNavigate: HOST_USE,
@@ -377,7 +379,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   watchSession: 'read.transcript', unwatchSession: 'read.transcript', bindRuntimeSession: 'read.transcript',
   loadSession: 'read.transcript', loadSessionPage: 'read.transcript', loadSessionSubagent: 'read.transcript',
   loadSessionToolInputs: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
-  getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', appRead: 'read.transcript',
+  getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',
   tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
   togglePinnedSession: 'read.transcript', sessionSuggestions: 'read.transcript',
@@ -396,7 +398,6 @@ export const RESOURCE_ACTION_OF_METHOD = {
   attachUpload: 'drive.attach', attachUploadToken: 'drive.attach',
   deviceOpen: 'drive.devices', deviceClose: 'drive.devices',
   mcpAppToolInfo: 'drive.apps', mcpAppCallTool: 'drive.apps', mcpAppReadResource: 'drive.apps',
-  appToolInfo: 'drive.apps', appCallTool: 'drive.apps', appHostAccessDecide: 'drive.apps',
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit',
   sessionPullRequestWatch: 'edit',

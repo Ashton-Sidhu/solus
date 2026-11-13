@@ -12,8 +12,8 @@ export interface RowLine {
 }
 
 /**
- * A row that opens a webhook or a delivery: a title and the lines a person
- * scans in a list. A `danger` line marks what needs attention.
+ * A row that opens a webhook, a delivery, or an app: a title and the lines a
+ * person scans in a list. A `danger` line marks what needs attention.
  */
 export function WebhookListRow(props: {
   readonly title: string;

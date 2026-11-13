@@ -42,6 +42,7 @@ beforeAll(async () => {
     actions: createWebhookActionRunner({
       actorFor: () => HOST_ACTOR, isPausedByAdmin: () => false, sessionState: async () => 'active',
       startSession: async () => ({ sessionId: 's' }), sendToSession: async () => ({ disposition: 'queued' }), runAutomation: async () => ({ status: 'busy' }),
+      callApp: async () => {},
     }),
   })
 })

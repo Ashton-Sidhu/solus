@@ -1,125 +1,93 @@
-import { readFile, readdir, writeFile, rename, rm, realpath } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, writeFile, rename, rm, realpath } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, relative, resolve, sep } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// An app (references/apps.md): a project with an app.json. The build then
-// writes the app manifest into the page: its permissions, the integrations
-// its code names, its host functions bundled for Node, and its sources.
+// An app (references/apps.md): a project with an app.ts. The build then also
+// writes the app's build into dist/app/: the descriptor (what the backend
+// declares, as JSON), the backend bundled for Node, the UI, and a copy of the
+// migrations. `deploy_app` reads that folder.
 
-const SERVER_ENTRIES = ['server.ts', 'server.js']
-const SOURCE_FOLDERS = ['src']
-const SOURCE_FILES = ['package.json', 'app.json', 'index.html', ...SERVER_ENTRIES]
-/** Files every new project has from the template: a rebuilt project has them already. */
-const TEMPLATE_FILES = new Set(['src/solus-app.ts', 'src/assets.d.ts'])
-const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css', '.json', '.html', '.md', '.sql', '.svg', '.txt'])
-const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'])
-const MAX_SOURCES_BYTES = 512 * 1024
+const APP_ENTRIES = ['app.ts', 'app.js']
+const APP_BUILD_FOLDER = 'dist/app'
 
-const extensionOf = (path) => (path.includes('.') ? path.slice(path.lastIndexOf('.')) : '')
-
-/** Blanks comments, keeping length and newlines, so a commented-out `tools.github` is not an integration. */
-function withCommentsBlanked(code) {
-  return code.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (text) => text.replace(/[^\n]/g, ' '))
+/** Asks the built backend what it declares, in a process of its own: loading it runs the app's top-level code. */
+const DESCRIBE_SCRIPT = `
+const loaded = require(process.argv[1])
+const app = loaded && loaded.default ? loaded.default : loaded
+if (!app || typeof app.descriptor !== 'function') {
+  console.error('app.ts must export default defineApp({ ... }) from @solus/app/backend.')
+  process.exit(2)
 }
+process.stdout.write(JSON.stringify({ descriptor: app.descriptor(), ui: app.ui !== false }))
+`
 
-const TOOLS_REFERENCE = /(?<![.\w$])tools\s*(?:\.\s*([A-Za-z_$][\w$-]*)|\[\s*(?:"([A-Za-z_$][\w$-]*)"|'([A-Za-z_$][\w$-]*)')\s*\])/g
-
-/** The integration slugs the code reaches through `tools.<slug>`, first use first. */
-export function integrationsOf(code) {
-  const found = []
-  for (const match of withCommentsBlanked(code).matchAll(TOOLS_REFERENCE)) {
-    const slug = match[1] ?? match[2] ?? match[3]
-    if (slug && !found.includes(slug)) found.push(slug)
-  }
-  return found
-}
-
-async function filesUnder(directory) {
-  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
-  const nested = await Promise.all(entries.map(async (entry) => {
-    const path = resolve(directory, entry.name)
-    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : filesUnder(path)
-    return entry.isFile() ? [path] : []
-  }))
-  return nested.flat().sort()
-}
-
-/** The project's own text files, by path from the project root; null when they are too large to carry. A later session reads them from the saved app and rebuilds it. */
-export async function collectSources(projectDirectory) {
-  const paths = [
-    ...SOURCE_FILES.map((file) => resolve(projectDirectory, file)).filter((path) => existsSync(path)),
-    ...(await Promise.all(SOURCE_FOLDERS.map((folder) => filesUnder(resolve(projectDirectory, folder))))).flat(),
-  ]
-  const sources = {}
-  let bytes = 0
-  for (const path of paths) {
-    const name = relative(projectDirectory, path).split(sep).join('/')
-    if (!SOURCE_EXTENSIONS.has(extensionOf(path)) || TEMPLATE_FILES.has(name)) continue
-    const text = await readFile(path, 'utf8')
-    bytes += Buffer.byteLength(text)
-    if (bytes > MAX_SOURCES_BYTES) return null
-    sources[name] = text
-  }
-  return sources
-}
-
-/** The manifest as the one block Solus reads from a page. Every `<` is escaped, so nothing in it can end the script element. */
-export function appManifestBlock(manifest) {
-  return `<script type="application/json" id="solus-app">${JSON.stringify(manifest).replace(/</g, '\\u003c')}</script>`
-}
-
-/** The app manifest of a project that has an app.json; null for a plain artifact. */
-async function appManifestOf(projectDirectory, build) {
-  const configPath = resolve(projectDirectory, 'app.json')
-  if (!existsSync(configPath)) {
-    if (SERVER_ENTRIES.some((entry) => existsSync(resolve(projectDirectory, entry)))) throw new Error('The project has a server.ts and no app.json. Add an app.json, even an empty {}, to make it an app.')
-    return null
-  }
-  let config
+/** The backend of a project that has an app.ts: its bundle, what it declares, and whether the app has a UI. Null for a plain artifact. */
+async function buildBackend(projectDirectory, build) {
+  const entry = APP_ENTRIES.find((name) => existsSync(resolve(projectDirectory, name)))
+  if (!entry) return null
+  const built = await build({
+    absWorkingDir: projectDirectory,
+    entryPoints: [entry],
+    outfile: 'backend.cjs',
+    bundle: true,
+    write: false,
+    format: 'cjs',
+    platform: 'node',
+    target: ['node22'],
+    minify: false,
+    sourcemap: false,
+    legalComments: 'none',
+    // A native add-on cannot load in an app's runner; fail here, not at the first call.
+    plugins: [{
+      name: 'solus-app-no-native-addons',
+      setup(builder) {
+        builder.onLoad({ filter: /\.node$/ }, ({ path }) => ({ errors: [{ text: `An app's backend cannot load a native add-on (${path}). Use a package written in JavaScript, or a Node built-in such as node:sqlite.` }] }))
+      },
+    }],
+  })
+  if (built.outputFiles.length !== 1) throw new Error('Expected one backend bundle.')
+  const code = built.outputFiles[0].text
+  const folder = resolve(projectDirectory, APP_BUILD_FOLDER)
+  await mkdir(folder, { recursive: true })
+  const probe = resolve(folder, `.describe-${process.pid}.cjs`)
   try {
-    config = JSON.parse(await readFile(configPath, 'utf8'))
-  } catch (error) {
-    throw new Error(`app.json is not JSON: ${error.message}`)
+    await writeFile(probe, code)
+    const described = JSON.parse(execFileSync(process.execPath, ['-e', DESCRIBE_SCRIPT, probe], { cwd: projectDirectory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))
+    return { code, descriptor: described.descriptor, ui: described.ui }
+  } finally {
+    await rm(probe, { force: true })
   }
-  if (config === null || typeof config !== 'object' || Array.isArray(config)) throw new Error('app.json must be an object, such as {} or { "permissions": { … } }.')
-  const manifest = { solusApp: 1, permissions: config.permissions ?? {}, integrations: [] }
+}
 
-  // The host's code, when the app has any: one CommonJS module for Node. Each exported function is a host function.
-  const serverEntry = SERVER_ENTRIES.find((entry) => existsSync(resolve(projectDirectory, entry)))
-  if (serverEntry) {
-    const built = await build({
-      absWorkingDir: projectDirectory,
-      entryPoints: [serverEntry],
-      outfile: 'server.js',
-      bundle: true,
-      write: false,
-      format: 'cjs',
-      platform: 'node',
-      target: ['node22'],
-      minify: false,
-      sourcemap: false,
-      legalComments: 'none',
-      // A native add-on cannot load in an app's runner; fail here, not at the first call.
-      plugins: [{
-        name: 'solus-app-no-native-addons',
-        setup(builder) {
-          builder.onLoad({ filter: /\.node$/ }, ({ path }) => ({ errors: [{ text: `A host function cannot load a native add-on (${path}). Use a package written in JavaScript, or a Node built-in such as node:sqlite.` }] }))
-        },
-      }],
-    })
-    if (built.outputFiles.length !== 1) throw new Error('Expected one server bundle.')
-    manifest.server = built.outputFiles[0].text
+async function writeAtomically(path, text) {
+  const temporary = `${path}.${process.pid}.tmp`
+  try {
+    await writeFile(temporary, text, { flag: 'wx' })
+    await rename(temporary, path)
+  } finally {
+    await rm(temporary, { force: true })
   }
+}
 
-  const sources = await collectSources(projectDirectory)
-  if (sources) manifest.sources = sources
-  else console.warn(`The sources are over ${MAX_SOURCES_BYTES / 1024} KiB, so the app does not carry them. Keep this project folder to revise the app.`)
-  const pageCode = Object.entries(sources ?? {}).filter(([path]) => path.startsWith('src/') && CODE_EXTENSIONS.has(extensionOf(path))).map(([, text]) => text).join('\n')
-  manifest.integrations = integrationsOf(pageCode)
-  return manifest
+/** Writes dist/app/ whole: a file a build no longer makes must not stay from the build before it. */
+async function writeAppBuild(projectDirectory, backend, html) {
+  const folder = resolve(projectDirectory, APP_BUILD_FOLDER)
+  const hasOperations = backend.descriptor.operations.length > 0
+  await writeAtomically(resolve(folder, 'descriptor.json'), JSON.stringify(backend.descriptor, null, 1))
+  if (hasOperations) await writeAtomically(resolve(folder, 'backend.cjs'), backend.code)
+  else await rm(resolve(folder, 'backend.cjs'), { force: true })
+  if (html !== null) await writeAtomically(resolve(folder, 'ui.html'), html)
+  else await rm(resolve(folder, 'ui.html'), { force: true })
+  const migrations = resolve(folder, 'migrations')
+  await rm(migrations, { recursive: true, force: true })
+  const source = resolve(projectDirectory, 'migrations')
+  const names = (await readdir(source).catch(() => [])).filter((name) => name.endsWith('.sql')).sort()
+  if (names.length > 0) await mkdir(migrations, { recursive: true })
+  for (const name of names) await cp(resolve(source, name), resolve(migrations, name))
+  return { folder, operations: backend.descriptor.operations.length, migrations: names.length, hasUi: html !== null }
 }
 
 export function assembleHtml(shell, javascript, css) {
@@ -154,6 +122,9 @@ export async function bundleArtifact(directory) {
     cwd: projectDirectory,
     stdio: 'inherit',
   })
+  const backend = await buildBackend(projectDirectory, build)
+  // An app with `ui: false` has no page: its operations are what an agent, a schedule, and a webhook call.
+  if (backend && !backend.ui) return { output: null, bytes: 0, app: await writeAppBuild(projectDirectory, backend, null) }
   const stylesheet = resolve(projectDirectory, 'src/styles.css')
   const result = await build({
     absWorkingDir: projectDirectory,
@@ -196,21 +167,12 @@ export async function bundleArtifact(directory) {
     throw new Error('Expected one JavaScript bundle and at most one stylesheet, with no separate assets or chunks.')
   }
   const shell = await readFile(resolve(projectDirectory, 'index.html'), 'utf8')
-  const page = assembleHtml(shell, scripts[0].text, styles[0]?.text ?? '')
-  const manifest = await appManifestOf(projectDirectory, build)
-  // The manifest is the last thing in the page, so the page's own markup reads the same with or without it.
-  const html = manifest ? `${page}\n${appManifestBlock(manifest)}\n` : page
+  const html = assembleHtml(shell, scripts[0].text, styles[0]?.text ?? '')
   const bytes = Buffer.byteLength(html)
   if (bytes > 8 * 1024 * 1024) throw new Error('Artifact exceeds 8 MiB. Reduce data, assets, or dependencies.')
   const output = resolve(projectDirectory, 'bundle.html')
-  const temporary = `${output}.${process.pid}.tmp`
-  try {
-    await writeFile(temporary, html, { flag: 'wx' })
-    await rename(temporary, output)
-  } finally {
-    await rm(temporary, { force: true })
-  }
-  return { output, bytes, manifest }
+  await writeAtomically(output, html)
+  return { output, bytes, app: backend ? await writeAppBuild(projectDirectory, backend, html) : null }
 }
 
 // Compare real paths: the skill is often reached through a symlink (~/.solus/plugins),
@@ -221,12 +183,11 @@ if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(f
     process.exitCode = 1
   } else {
     try {
-      const { output, bytes, manifest } = await bundleArtifact(process.argv[2] ?? process.cwd())
-      console.log(`Artifact ready: ${output} (${Math.ceil(bytes / 1024)} KiB)`)
-      if (manifest) {
-        console.log(manifest.server ? 'It is an app with host functions: the user must allow its host access before they run.' : 'It is an app with no host functions.')
-        if (manifest.integrations.length) console.log(`It names these integrations: ${manifest.integrations.join(', ')}.`)
-        console.log('Check it with create_app preview: true, then save it with create_app.')
+      const { output, bytes, app } = await bundleArtifact(process.argv[2] ?? process.cwd())
+      if (output) console.log(`Artifact ready: ${output} (${Math.ceil(bytes / 1024)} KiB)`)
+      if (app) {
+        console.log(`App build ready: ${app.folder} (${app.operations} operation${app.operations === 1 ? '' : 's'}, ${app.migrations} migration${app.migrations === 1 ? '' : 's'}, ${app.hasUi ? 'with a UI' : 'no UI'}).`)
+        console.log(app.hasUi ? 'Check it with preview_app and this folder as path, then deploy it with deploy_app.' : 'Deploy it with deploy_app and this folder as path.')
       }
     } catch (error) {
       console.error(`Artifact bundle failed: ${error.message}`)

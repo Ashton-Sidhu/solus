@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionArtifact, SessionArtifacts } from '@solus/contracts/session-artifacts'
-import { artifactFilterChips, artifactIcon, artifactRowText, artifactSections } from '../../apps/mobile/src/features/threads/artifacts/session-artifacts'
+import { artifactChip, chipTotals } from '@solus/client-core/session-artifact-chips'
+import { artifactFilterChips, artifactIcon, artifactKey, artifactRowText, artifactSections } from '../../apps/mobile/src/features/threads/artifacts/session-artifacts'
 import { SessionArtifactsFeed } from '../../apps/mobile/src/features/threads/artifacts/session-artifacts-feed'
 
 const pr = (number: number, sessionId = 'lead'): SessionArtifact => ({
@@ -9,6 +10,7 @@ const pr = (number: number, sessionId = 'lead'): SessionArtifact => ({
 })
 const work = (workId: string): SessionArtifact => ({ kind: 'work', workId, title: workId, workType: 'doc', linkedAt: 1 })
 const file = (path: string, kind: 'file' | 'image' = 'file'): SessionArtifact => ({ kind, hostId: 'h', path, title: path, linkedAt: 1 })
+const appLink = (appId: string, title = 'Notes'): SessionArtifact => ({ kind: 'app', hostId: 'h', appId, slug: appId, title, linkedAt: 1 })
 
 const titles = (artifacts: SessionArtifacts, filter: Parameters<typeof artifactSections>[1]) =>
   artifactSections(artifacts, filter).map((section) => [section.title, section.items.length])
@@ -55,6 +57,21 @@ describe('native artifacts screen: filters and sections', () => {
 
   test('an empty list has no sections', () => {
     expect(artifactSections({ own: [], children: [] }, 'all')).toEqual([])
+  })
+
+  test('an app the session linked is one more kind: its own chip, section, row, and filter', () => {
+    // WHY: docs/plans/apps.md decision 18. An app is not a work, so it must
+    // not hide under Works, and two apps of one host must stay two rows.
+    const artifacts: SessionArtifacts = { own: [file('notes.md'), appLink('a1'), work('spec'), appLink('a2', 'Digest')], children: [] }
+    expect(artifactFilterChips(artifacts).map((chip) => [chip.label, chip.count])).toEqual([['All', 4], ['Works', 1], ['Apps', 2], ['Files', 1]])
+    expect(titles(artifacts, 'all')).toEqual([['Works', 1], ['Apps', 2], ['Files', 1]])
+    expect(titles(artifacts, 'app')).toEqual([['Apps', 2]])
+    expect(artifactRowText(appLink('a1'))).toEqual({ title: 'Notes', detail: null, iconLabel: 'App' })
+    expect(artifactIcon(appLink('a1'))).toBe('square.grid.2x2')
+    expect(artifactKey(appLink('a1'))).not.toBe(artifactKey(appLink('a2')))
+    // The chip under a turn and on a session card names the app in the app tone.
+    expect(artifactChip(appLink('a1'))).toMatchObject({ tone: 'app', label: 'Notes', note: null })
+    expect(chipTotals([[appLink('a1'), appLink('a2')]])).toMatchObject([{ kind: 'app', tone: 'app', label: '2 apps' }])
   })
 })
 

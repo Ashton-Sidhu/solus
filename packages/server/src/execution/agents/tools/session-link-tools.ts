@@ -14,13 +14,15 @@ import { authorize } from '../../../admission/access-policy'
 import { actorFor } from '../../../admission/actor'
 import { roleOf } from '../../../admission/access'
 import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
-import { INTERNAL_PRINCIPAL } from '../../../admission/principal'
+import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL } from '../../../admission/principal'
 import { assertPathInScope } from '../../../data/sessions/guest-path-scope'
 import { readStoredRegistration } from '../../../host/host-registration'
 import { resolveHomePath } from '../../../platform/paths'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import { automationHomeOf, loadAutomation } from '../../../data/automations/automations-store'
-import { linkSessionItem } from '../../../data/sessions/session-links'
+import { linkSessionItem, unlinkSessionItem } from '../../../data/sessions/session-links'
+import { readOwnSessionArtifacts } from '../../../data/sessions/session-artifacts'
+import { linkedAppNamed } from './app-tools'
 import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { toolAgentAttribution } from './agent-attribution'
 
@@ -72,8 +74,35 @@ async function automationLink(named: string | undefined, hostId: string, organiz
   return { target: { kind: 'automation', targetId: id, hostId }, title: automation.name }
 }
 
+/**
+ * Links or unlinks an app and the calling session (docs/plans/apps.md decision
+ * 18). An app is on the host that runs it, and the edge is written there: the
+ * organization's Solus API holds no app links yet, so an organization session
+ * is refused.
+ */
+async function changeCallerAppLink(ctx: SessionLinkCtx, change: 'link' | 'unlink', input: { target_id?: string; title?: string }): Promise<AgentToolResult> {
+  const sessionId = ctx.sessionId
+  if (!sessionId) return { ok: false, text: `${change} needs a calling session id.` }
+  const home = await workspaceToolContext(sessionId)
+  if (home.remote) return { ok: false, text: 'An app cannot be linked to an organization session yet.' }
+  const session = await home.operations.getSession(home.context, sessionId)
+  if (!roleAllows(session.role, 'edit')) return { ok: false, text: 'This session cannot be edited.' }
+  const hostId = home.context.home.kind === 'local' ? home.context.home.hostId : readStoredRegistration()?.hostId ?? session.runnerHostId
+  if (!hostId) return { ok: false, text: 'The execution host has no id yet.' }
+  const app = await linkedAppNamed(input.target_id?.trim() ?? '')
+  const target = { kind: 'app' as const, targetId: app.id, hostId }
+  if (change === 'unlink') {
+    await unlinkSessionItem(sessionId, target)
+    return { ok: true, text: 'Removed app link from this session.' }
+  }
+  await linkSessionItem(sessionId, { target, title: input.title ?? app.name }, await toolAgentAttribution(ctx))
+  return { ok: true, text: 'Linked app to this session.' }
+}
+
 /** A session item link as the Solus API's link route names it. */
 function linkTarget(target: SessionLinkInput['target']): WorkspaceLinkTarget {
+  // An app link is written on its host (`changeCallerAppLink`), never through the Solus API.
+  if (target.kind === 'app') throw new Error('An app cannot be linked to an organization session yet.')
   if (target.kind === 'work') return { kind: 'work', id: target.targetId }
   if (target.kind === 'automation') return { kind: 'automation', id: target.targetId, hostId: target.hostId }
   return target
@@ -238,7 +267,7 @@ function countOf(count: number, noun: string): string {
 }
 
 /** List only the calling session's links, from the home that owns them. */
-async function listCallerLinks(ctx: SessionLinkCtx, kind?: 'work' | 'automation' | 'pr' | 'file'): Promise<AgentToolResult> {
+async function listCallerLinks(ctx: SessionLinkCtx, kind?: 'work' | 'automation' | 'pr' | 'file' | 'app'): Promise<AgentToolResult> {
   if (!ctx.sessionId) return { ok: false, text: 'list_links needs a calling session id.' }
   const { operations, context } = await workspaceToolContext(ctx.sessionId)
   const { items } = await operations.listSessionLinks(context, ctx.sessionId)
@@ -252,6 +281,12 @@ async function listCallerLinks(ctx: SessionLinkCtx, kind?: 'work' | 'automation'
     if (target.kind === 'work' || target.kind === 'automation') return `- ${target.kind}: ${target.id} — ${item.title}`
     return ''
   })
+  // An app link is on this host alone, so it is read here and not through the home's link list.
+  if (!kind || kind === 'app') {
+    for (const item of await readOwnSessionArtifacts(ANY_ORGANIZATION, ctx.sessionId)) {
+      if (item.kind === 'app') lines.push(`- app: ${item.appId} — ${item.title}`)
+    }
+  }
   return { ok: true, text: lines.length ? `Links for this session:\n${lines.join('\n')}` : 'No matching links for this session.' }
 }
 
@@ -291,8 +326,8 @@ function sessionLinkTool<Fields extends NonNullable<AgentTool['inputFields']>>(
 }
 
 export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file']).describe('The item to link to this session. Use file for plan files.'),
-  target_id: z.string().min(1).optional().describe('The work or automation id, or a pull request number or URL. Required except for files and target_ids.'),
+  kind: z.enum(['work', 'automation', 'pr', 'file', 'app']).describe('The item to link to this session. Use file for plan files.'),
+  target_id: z.string().min(1).optional().describe('The work or automation id, an app\'s slug or id, or a pull request number or URL. Required except for files and target_ids.'),
   target_ids: z.array(z.string().min(1)).min(1).max(200).optional().describe('For kind=pr: several pull request numbers or URLs to link in one call.'),
   path: z.string().min(1).optional().describe('For files: an absolute path on the execution host, or a path relative to this session’s working directory.'),
   title: z.string().optional().describe('Optional label; resolved from the target when omitted.'),
@@ -306,16 +341,17 @@ export const linkAgentTool = sessionLinkTool('link', LINK_DESC, {
   if (input.kind === 'pr') {
     return linkCallerPullRequest(ctx, () => workspaceToolContext(ctx.sessionId), await resolveRepoRoot(ctx.cwd) ?? ctx.cwd, input)
   }
+  if (input.kind === 'app') return changeCallerAppLink(ctx, 'link', input)
   return linkCallerItem(ctx, { ...input, kind: input.kind })
 })
 
 export const listLinksAgentTool = sessionLinkTool('list_links', LIST_LINKS_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file']).optional().describe('Omit to list all kinds.'),
+  kind: z.enum(['work', 'automation', 'pr', 'file', 'app']).optional().describe('Omit to list all kinds.'),
 }, false, async (input, ctx) => listCallerLinks(ctx, input.kind))
 
 export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
-  kind: z.enum(['work', 'automation', 'pr', 'file']).describe('Link kind.'),
-  target_id: z.string().min(1).optional().describe('The work or automation id, or PR number or URL. Required except for files and states.'),
+  kind: z.enum(['work', 'automation', 'pr', 'file', 'app']).describe('Link kind.'),
+  target_id: z.string().min(1).optional().describe('The work or automation id, an app\'s slug or id, or PR number or URL. Required except for files and states.'),
   states: z.array(z.enum(PULL_REQUEST_STATES)).min(1).optional().describe('For kind=pr without target_id: remove every linked PR whose last synced state is one of these. PRs with no synced state stay.'),
   path: z.string().min(1).optional().describe('Linked file path, absolute or relative to this session’s directory.'),
 }, true, async (input, ctx) => {
@@ -326,6 +362,7 @@ export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
     return unlinkCallerPullRequestsInStates(ctx, () => workspaceToolContext(ctx.sessionId), input.states)
   }
   if (input.kind !== 'file' && !input.target_id?.trim()) return { ok: false, text: `unlink requires target_id for kind=${input.kind}.` }
+  if (input.kind === 'app') return changeCallerAppLink(ctx, 'unlink', input)
   const home = await workspaceToolContext(ctx.sessionId)
   const session = await home.operations.getSession(home.context, ctx.sessionId)
   if (input.kind === 'pr') {

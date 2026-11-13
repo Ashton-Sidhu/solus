@@ -2,16 +2,17 @@
 
 The Workspace page is the ledger of every doc, slide deck, and HTML
 artifact this window can read, from every project. Since 2026-10-27 it also
-lists what other people shared with the reader, in its own groups.
+lists what other people shared with the reader, in its own groups. Since
+2026-11-12 it lists the apps of every connected host (docs/apps.md).
 
 Where it lives: `packages/workspace-ui/src/components/workspace/`.
 `WorkspacePage.svelte` draws it; `lib/workspace-ledger.svelte.ts` holds the open
 tab, the filter, the sort, the keyboard cursor, and everything derived from
 them; `lib/workspace-items.ts` is the item model. Mobile has no Workspace page.
 
-## Three groups
+## Four groups
 
-A tab strip under the page's crumb line names three groups. Each tab carries
+A tab strip under the page's crumb line names four groups. Each tab carries
 its count, and a shared tab carries the faces of the people present in its
 records right now.
 
@@ -20,6 +21,7 @@ records right now.
 | Your works | The reader's own works | Pinned, then Today, Yesterday, This week, then one bucket per month |
 | Shared works | Works other people shared with the reader | Needs you (a review request waits), then the date buckets |
 | Shared sessions | Sessions other people shared with the reader | Live now (the agent works), then the date buckets |
+| Apps | The apps of every connected host | The date buckets, by the app's last change |
 
 A record is shared with the reader when the host answered it with a role below
 `owner` (`docs/plans/access-model.md` §2.7). The reader's own record carries
@@ -31,7 +33,7 @@ Every tab reads the Local plus selected organization rule
 (`docs/plans/organization-scope.md` §2): a shared tab is empty while no
 organization is selected.
 
-Shortcuts: `⌥1`, `⌥2`, `⌥3` open the three tabs. `↑` and `↓` walk the cards,
+Shortcuts: `⌥1`, `⌥2`, `⌥3`, `⌥4` open the four tabs. `↑` and `↓` walk the cards,
 `⏎` opens the one under the cursor, `Space` peeks a work, `⌥P` pins it.
 Clicking a card moves the selection to that card before it opens or shows its
 preview. Keyboard actions then use the selected card.
@@ -53,6 +55,18 @@ is in it. A session whose host does not answer says "Read only from the mirror".
 
 Opening a shared work opens it as any work. Opening a shared session resumes it
 where it runs, as a tab; in the cloud console it opens the session's record.
+
+## Apps
+
+An app card shows the app's name, its host, its active version (`v3`), the
+name of the folder it was first deployed from, when it was last called, and
+what needs the reader: a version that did not start, a secret that is not set,
+a schedule whose last run failed, or that the app is stopped. A card opens the
+app as the destination. The address `/folio/apps` opens the page on this tab.
+The tab reads the apps store (`contexts/apps/apps.store.svelte.ts`), which
+loads after the first paint and reads again on `apps.changed`. The search, the
+sort, and the Project and Time facets apply. An empty tab says that an agent
+makes an app when you ask for one.
 
 ## Filters
 

@@ -5,6 +5,7 @@
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { WEBHOOK_MAX_ACTIONS, type WebhookVerificationScheme } from "@solus/contracts/webhooks";
   import { getWorkspaceContext } from "../../contexts";
+  import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
@@ -33,6 +34,9 @@
     return untrack(() => session.automationsStore.watchHost(hostId));
   });
   const automations = $derived(session.automationsStore.itemsForHost(serverId));
+  // The apps of the webhook's host, for `call_app`.
+  $effect(() => untrack(() => appsStore.watch()));
+  const apps = $derived(appsStore.rowsForHost(serverId).map((row) => row.app));
 </script>
 
 <div class="flex flex-col gap-5">
@@ -73,7 +77,9 @@
       <WebhookActionFields
         bind:action={draft.actions[index]}
         {index}
+        {serverId}
         {automations}
+        {apps}
         {disabled}
         onRemove={draft.actions.length > 1 ? () => draft.actions.splice(index, 1) : undefined}
       />

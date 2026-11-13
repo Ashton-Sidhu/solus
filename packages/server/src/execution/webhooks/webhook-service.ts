@@ -110,7 +110,8 @@ function assertActions(actions: WebhookAction[]): void {
   for (const action of actions) {
     if (ids.has(action.id)) throw new WebhookInputError(`Two actions have the ID "${action.id}". Give each action its own ID.`)
     ids.add(action.id)
-    if (!action.template.trim()) throw new WebhookInputError(`Action "${action.id}" has no template.`)
+    // An app call has no prompt: the request itself is the mutation's input.
+    if (action.type !== 'call_app' && !action.template.trim()) throw new WebhookInputError(`Action "${action.id}" has no template.`)
   }
 }
 

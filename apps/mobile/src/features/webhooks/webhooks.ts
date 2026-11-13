@@ -1,6 +1,7 @@
 import type {
   HostWebhookSettings,
   Webhook,
+  WebhookAction,
   WebhookActionStatus,
   WebhookActionType,
   WebhookDeliveryOutcome,
@@ -117,7 +118,18 @@ export function actionTypeLabel(type: WebhookActionType): string {
     case 'start_session': return 'Start a session'
     case 'send_to_session': return 'Send to a session'
     case 'run_automation': return 'Run an automation'
+    case 'call_app': return 'Call an app'
   }
+}
+
+/**
+ * What one action of a webhook does. An action that calls an app names the
+ * app and its mutation (docs/plans/apps.md §8): the app by its name when the
+ * host's apps are read, else by its id.
+ */
+export function actionText(action: WebhookAction, appNames: ReadonlyMap<string, string>): string {
+  if (action.type !== 'call_app') return actionTypeLabel(action.type)
+  return `Call ${appNames.get(action.appId) ?? action.appId} · ${action.operation}`
 }
 
 export function sourceLabel(source: WebhookDeliverySource): string {

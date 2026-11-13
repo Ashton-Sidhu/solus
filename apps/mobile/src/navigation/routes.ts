@@ -80,6 +80,12 @@ export type RootStackParamList = {
   Webhook: { hostId: string; webhookId: string }
   /** One delivery of a webhook, with its action results and Replay. */
   WebhookDelivery: { hostId: string; webhookId: string; deliveryId: string }
+  /** The apps of one host, or of every host when no host is named (docs/plans/apps.md §9). */
+  Apps: { hostId?: string } | undefined
+  /** One app, with its UI in all of the screen. `appId` is the app's id or its slug on the host. */
+  App: { hostId: string; appId: string }
+  /** The app's sheet: versions, schedules, secrets, webhooks, calls, sessions, Stop or Start, and Delete. */
+  AppManage: { hostId: string; appId: string }
   About: undefined
   PullRequest: { hostId: string; projectPath: string; number: number }
   /** Submit a review (`review`) or comment on the conversation (`comment`), as a sheet. */
@@ -103,7 +109,7 @@ export type RootStackParamList = {
   Files: { hostId: string; projectPath: string; folderPath: string }
   /** One file; `path` is root-relative. */
   File: { hostId: string; projectPath: string; path: string }
-  /** What a session produced or linked: pull requests, works, files, images, and automations. */
+  /** What a session produced or linked: pull requests, works, apps, files, images, and automations. */
   ThreadArtifacts: { hostId: string; sessionId: string }
 }
 

@@ -1,6 +1,4 @@
 import { z } from 'zod'
-import { appCallMessageSchema, type AppCallMessage, type AppResultMessage } from '@solus/client-core/app-calls'
-import { hasAppManifest } from '@solus/contracts/apps'
 import { SOLUS_THEME_SNAPSHOT, sandboxThemeCss, wrapSandboxDocument } from '@solus/contracts/artifact-sandbox'
 
 /**
@@ -35,33 +33,8 @@ export function artifactThemeCss(appearance: ArtifactAppearance, canvas: string,
 // frame grows on every report.
 const VIEWPORT = '<meta name="viewport" content="width=device-width,initial-scale=1">'
 
-/**
- * `appNetwork` is the network hosts in force for a page that is an app
- * (docs/plans/apps.md §4). The page decides: one with an app manifest runs
- * under the app policy, with no network when no host is in force.
- */
-export function artifactDocument(html: string, themeCss: string, appNetwork: readonly string[] = []): string {
-  // An app's document starts with its doctype, so the viewport tag goes inside it.
-  if (hasAppManifest(html)) return wrapSandboxDocument(VIEWPORT + html, themeCss, false, { network: appNetwork })
+export function artifactDocument(html: string, themeCss: string): string {
   return VIEWPORT + wrapSandboxDocument(HEIGHT_BRIDGE + html, themeCss)
-}
-
-/** An app is an application, not a document: in the feed it is a window of this height, and it opens full screen to be used. */
-export const APP_WINDOW_HEIGHT = 440
-
-/** The call an app's page posted, or null for any other message. */
-export function readAppCall(data: string): AppCallMessage | null {
-  try {
-    const message = appCallMessageSchema.safeParse(JSON.parse(data))
-    return message.success ? message.data : null
-  } catch {
-    return null
-  }
-}
-
-/** Script that gives the page the answer to one of its calls. */
-export function appResultScript(result: AppResultMessage): string {
-  return `window.postMessage(${JSON.stringify(result)},"*");true;`
 }
 
 /** Script that replaces the page's theme without a reload. */

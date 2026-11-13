@@ -90,6 +90,22 @@ organization and no owner. `packages/server/src/data/tasks/` owns the tables.
   `activity`) key on the task key, have an organization, and need no row in
   `tasks`.
 
+## Apps
+
+An app (docs/plans/apps.md §4.1) is a record on the host that runs it.
+`packages/server/src/data/apps/` owns the tables.
+
+| Table | Key | Holds |
+|---|---|---|
+| `apps` | `id` | One app: `slug` (unique on the host), `name`, `active_version`, `stopped`, `repository` (the name of its git repository), `project`, `webhook_ids` (the webhook record of each webhook it declares) |
+| `app_versions` | (`app_id`, `number`) | One immutable version: `source_commit`, `build_commit`, `descriptor` (what the build declares), `state` (`active`, `superseded`, `failed`), `error` |
+| `app_schedules` | (`app_id`, `name`) | The state of one schedule the active version declares: `enabled`, `next_run_at`, and how the last run ended |
+| `app_calls` | `id` | The call log: `operation`, `caller`, times, `outcome`. Never an input or a result. The newest 2,000 of each app. |
+
+An app's source and builds are in its git repository, its data is in its own
+folder, and its secrets are in the host's secret store. A session's link to an
+app is an edge of `resource_links` with `target_kind = 'app'`.
+
 ## Relationships
 
 One table, `resource_links` (`data/links/schema.ts`), holds every edge from a

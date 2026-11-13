@@ -11,7 +11,8 @@ request. Nothing new is stored: the read joins records that already exist.
 ## Vocabulary
 
 - **artifact** — one item a session produced or linked. Its kind is
-  `pull-request`, `work`, `file`, `image`, or `automation`
+  `pull-request`, `work`, `file`, `image`, `automation`, or `app` (an app the
+  session deployed or linked; docs/plans/apps.md decision 18)
   (`packages/contracts/src/session-artifacts.ts`).
 - **Artifacts surface** — the companion-pane surface that lists them, route
   `artifacts` (`docs/plans/companion-surfaces.md`). On mobile, the Artifacts
@@ -43,6 +44,9 @@ Do not call the surface a tab, a panel, or a page.
    opens if it was hidden. Not on the initial load, not on a reload, and never
    when the count falls. The newest row is highlighted once. Closing the surface
    works like any other; the next link opens it again.
+   When the newest link is an app, the app's own surface opens beside the
+   conversation (docs/plans/apps.md §9), and the Artifacts surface joins the
+   strip behind it and does not take its place.
 4. **Manual entry points**, the same as Changes and Files: the + menu in the
    companion strip, the shortcut `opt+shift+e` (`conversation.open-artifacts`;
    on web `opt+shift+'`, because the browser client's organization switcher
@@ -68,7 +72,7 @@ Do not call the surface a tab, a panel, or a page.
    (`packages/client-core/src/session-artifact-chips.ts`):
    - The tint is the type: teal for docs and slides, purple for
      artifacts, blue for files, rose for images, the Solus accent for
-     automations. A pull request's chip is plain, and its icon takes the
+     automations, sky for apps. A pull request's chip is plain, and its icon takes the
      colour and glyph of its state, as `prStatusBadge` draws them.
    - Overflow: a card shows four chips, then `+N`, which opens the session's
      Artifacts surface. One item over the limit shows as a chip, not `+1`.

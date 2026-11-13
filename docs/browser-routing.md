@@ -9,7 +9,9 @@ without a document load. Browser Back and Forward update the workspace through
 `popstate`. The path is the leading pane's destination. The URL also includes
 the companion strip (`p`, its surfaces joined by `!`), the active surface (`a`,
 only when it is not the last one), and the focused pane (`f=1` for the companion
-pane). A link to a surface, such as `/task/<id>`, opens it beside the
+pane). `/app/<slug>` opens an app as the destination; with no host in the
+address it is the first connected host that has the app. `/folio/apps` opens
+the Workspace page on its Apps tab. A link to a surface, such as `/task/<id>`, opens it beside the
 conversation (`docs/plans/companion-surfaces.md`).
 On refresh, a direct path takes priority over the saved workspace. Opening `/`
 restores the saved workspace. Old `#/...` links are converted to paths with

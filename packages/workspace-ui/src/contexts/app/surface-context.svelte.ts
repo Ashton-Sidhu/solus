@@ -120,6 +120,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'notifySessionUnavailable'
   // Plans, works, and other destinations.
   | 'openPlanModal'
+  | 'openApp'
   | 'openPlanFromDescriptor'
   | 'resumeSessionFromDescriptor'
   | 'loadPlanContent'
