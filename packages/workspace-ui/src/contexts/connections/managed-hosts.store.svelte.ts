@@ -6,7 +6,7 @@ import { toasts } from '../../lib/toasts'
 import { createHostFailureMessage } from '../../components/onboarding/lib/cloud-compute'
 import { serversStore } from './servers.store.svelte'
 
-export type ManagedHostAction = 'create' | 'start' | 'stop' | 'restart' | 'resize' | 'delete'
+export type ManagedHostAction = 'create' | 'start' | 'stop' | 'restart' | 'setup' | 'delete'
 
 export interface ManagedHostsTiming {
   /** How long `create` waits for the directory to list the new host. */
@@ -134,18 +134,10 @@ export class ManagedHostsStore {
 
   /**
    * Changes the machine's packages or setup script; a running machine restarts to take
-   * them. Solus Cloud cannot change the size of a machine that exists, so a spec that
-   * names a size is refused here, before any request.
+   * them. The size of a machine is fixed when it is made: the change has no size.
    */
-  resize(serverId: string, spec: ManagedHostSpecRequest): Promise<boolean> {
-    if (spec.size !== undefined) {
-      this.fail('Solus Cloud cannot change the size of a cloud machine. Create a new machine with the size you want.')
-      return Promise.resolve(false)
-    }
-    const change: ManagedHostSpecChangeRequest = {}
-    if (spec.packages !== undefined) change.packages = spec.packages
-    if (spec.setupScript !== undefined) change.setupScript = spec.setupScript
-    return this.run(serverId, 'resize', async (source, hostId) => {
+  updateSetup(serverId: string, change: ManagedHostSpecChangeRequest): Promise<boolean> {
+    return this.run(serverId, 'setup', async (source, hostId) => {
       return (await source.updateManagedHostSpec(hostId, change)) !== null || 'Solus Cloud did not change the machine. Only an organization owner can.'
     })
   }

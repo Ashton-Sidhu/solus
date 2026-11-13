@@ -152,7 +152,7 @@ describe('acting on a machine', () => {
     expect(await store.start('laptop')).toBe(false)
     expect(await store.stop('laptop')).toBe(false)
     expect(await store.restart('laptop')).toBe(false)
-    expect(await store.resize('laptop', { packages: ['ripgrep'] })).toBe(false)
+    expect(await store.updateSetup('laptop', { packages: ['ripgrep'] })).toBe(false)
     expect(await store.delete('laptop')).toBe(false)
     expect(calls).toEqual([])
     expect(directory.removed).toEqual([])
@@ -182,14 +182,13 @@ describe('acting on a machine', () => {
     expect(store.busy).toBeNull()
   })
 
-  test('a size change is refused before any request: a machine keeps its size', async () => {
+  // A machine keeps the size it was made with: the change type has no size, so none can be sent.
+  test('a setup change goes to Solus Cloud with the machine host id', async () => {
     const calls = account()
     servers.servers = [cloudMachine('host_cloud', 'install_cloud')]
     const store = new ManagedHostsStore()
 
-    expect(await store.resize('install_cloud', { size: 'large' })).toBe(false)
-    expect(calls).toEqual([])
-    expect(await store.resize('install_cloud', { packages: ['ripgrep'] })).toBe(true)
+    expect(await store.updateSetup('install_cloud', { packages: ['ripgrep'] })).toBe(true)
     expect(calls).toEqual(['spec host_cloud'])
   })
 
