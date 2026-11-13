@@ -177,6 +177,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
   autoRenameSessions: z.boolean(),
   /** The transcript shows the tool calls between the agent's messages. */
   showToolCalls: z.boolean(),
+  autoOpenArtifacts: z.boolean().describe('Open the Artifacts surface beside the conversation when new artifacts arrive on desktop and web.'),
   showDiffSummaryAfterTurn: z.boolean(),
   /** Each settled turn keeps its changed-files card. Off shows the latest turn's
    *  card only, until the next prompt lands. */
@@ -279,6 +280,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   rateLimitBehavior: 'ask',
   autoRenameSessions: true,
   showToolCalls: true,
+  autoOpenArtifacts: false,
   showDiffSummaryAfterTurn: true,
   keepDiffSummaryOnEarlierTurns: true,
   collapseComposerWhenIdle: true,

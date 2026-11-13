@@ -36,6 +36,9 @@ export function notificationDestination(notification: HubNotification, serverId:
       // A finished run leads to its conversation; a row without one opens the automation.
       if (resource.sessionId) return { label: 'Open conversation', route: { kind: 'session', sessionId: resource.sessionId, serverId } }
       return { label: 'Open automation', route: { kind: 'automation', automationId: resource.automationId, serverId } }
+    case 'app':
+      // A signal's notification (docs/plans/apps.md §8.4).
+      return { label: 'Open app', route: { kind: 'app', slug: resource.slug, serverId } }
   }
 }
 

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import {
+  SpanKind as OtelSpanKind,
   SpanStatusCode,
   context,
   type Context,
@@ -206,6 +207,8 @@ export interface StartSolusSpanInput {
   dimensions?: SpanDimensions
   /** The context the span hangs off. Defaults to whatever is active here. */
   parent?: Context
+  /** True for a request this host sent to another service: OTel's CLIENT span kind, which the HTTP conventions name. */
+  isClientRequest?: boolean
 }
 
 /** Starts a span carrying the Solus vocabulary the SQLite exporter projects
@@ -215,6 +218,7 @@ export function startSolusSpan(input: StartSolusSpanInput): Span {
     input.name,
     {
       startTime: epochTime(input.startedAt),
+      kind: input.isClientRequest ? OtelSpanKind.CLIENT : OtelSpanKind.INTERNAL,
       attributes: {
         [SPAN_ATTRS.kind]: input.kind,
         [SPAN_ATTRS.service]: input.service,

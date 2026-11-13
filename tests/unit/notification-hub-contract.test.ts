@@ -35,6 +35,6 @@ describe('notification hub contract', () => {
   test('results a person asked for still reach them; actions toward others do not echo back', () => {
     expect(OTHER_PERSON_KINDS.has('automation.finished')).toBe(false)
     expect(OTHER_PERSON_KINDS.has('review_job.finished')).toBe(false)
-    expect(NOTIFICATION_KINDS.filter((kind) => !OTHER_PERSON_KINDS.has(kind))).toEqual(['automation.finished', 'review_job.finished'])
+    expect(NOTIFICATION_KINDS.filter((kind) => !OTHER_PERSON_KINDS.has(kind))).toEqual(['automation.finished', 'review_job.finished', 'app.signal'])
   })
 })

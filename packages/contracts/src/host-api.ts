@@ -32,9 +32,12 @@ import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallR
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type {
-  AppCallRequest, AppCallsRequest, AppCallView, AppRequest, AppScheduleRequest, AppScheduleSetRequest, AppScheduleView, AppSecretSetRequest,
-  AppSessionLink, AppState, AppSummary, AppUi, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookView,
+  AppAgentAccessRequest, AppBuildLog, AppConfigSetRequest, AppCallDetail, AppCallReadRequest, AppCallRequest, AppCallsRequest, AppCallView, AppDeployReceipt, AppDeployRequest,
+  AppFileRequest, AppFileView, AppMetrics, AppRequest, AppRevisionDiff, AppRevisionRequest, AppRevisionView, AppRunDetail, AppRunRequest, AppRunsRequest, AppRunView,
+  AppScheduleRequest, AppScheduleSetRequest, AppScheduleView, AppSecretSetRequest, AppSessionLink, AppSignalActionRequest, AppSignalActionSaveRequest,
+  AppSignalOccurrence, AppSignalOccurrencesRequest, AppSignalView, AppState, AppSummary, AppUi, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookView,
 } from './apps'
+import type { AppModelCallRequest, AppModelCallView, AppModelCallsRequest } from './app-models'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
@@ -523,12 +526,49 @@ export interface SolusAPI {
   appScheduleRun(request: AppScheduleRequest): Promise<AppScheduleView[]>
   /** Sets or clears one secret. The value is never read back. */
   appSecretSet(request: AppSecretSetRequest): Promise<AppState>
+  /** Sets one config value, or gives the field its default again with `null`. */
+  appConfigSet(request: AppConfigSetRequest): Promise<AppState>
   /** The app's webhooks with their URLs and signing secrets, for its owner. */
   appWebhooks(request: AppRequest): Promise<AppWebhookView[]>
-  /** The newest calls of the call log. */
+  /** The newest calls of the call log that pass the request's filters. */
   appCalls(request: AppCallsRequest): Promise<AppCallView[]>
   /** The sessions linked to the app. */
   appSessions(request: AppRequest): Promise<AppSessionLink[]>
+  /** The app's revisions, the newest first: each save, with the versions built from it. */
+  appRevisions(request: AppRequest): Promise<AppRevisionView[]>
+  /** The source change of one revision against the revision before it. */
+  appRevisionDiff(request: AppRevisionRequest): Promise<AppRevisionDiff>
+  /** Builds a revision on the host and makes the version active. It answers when the build ended; `apps.changed` says each step before that. */
+  appDeploy(request: AppDeployRequest): Promise<AppDeployReceipt>
+  appBuildLog(request: AppVersionRequest): Promise<AppBuildLog>
+  /** Whether the app's operations are tools for agents. */
+  appSetAgentAccess(request: AppAgentAccessRequest): Promise<AppState>
+  /** One call with its input, its log lines, and its trace; null when the call log no longer has it. */
+  appCallRead(request: AppCallReadRequest): Promise<AppCallDetail | null>
+  /** The calls of the last 24 hours, in numbers. */
+  appMetrics(request: AppRequest): Promise<AppMetrics>
+  /** The newest workflow runs. */
+  appRuns(request: AppRunsRequest): Promise<AppRunView[]>
+  appRunRead(request: AppRunRequest): Promise<AppRunDetail | null>
+  /** Ends a run that is running or sleeping. A step in progress ends by itself. */
+  appRunTerminate(request: AppRunRequest): Promise<AppRunDetail>
+  /** Starts a failed run again: its failed step runs again, and its finished steps do not. */
+  appRunRetry(request: AppRunRequest): Promise<AppRunDetail>
+  /** The signals the active version declares, each with its signal actions. */
+  appSignals(request: AppRequest): Promise<AppSignalView[]>
+  appSignalOccurrences(request: AppSignalOccurrencesRequest): Promise<AppSignalOccurrence[]>
+  /** Makes or changes one signal action. */
+  appSignalActionSave(request: AppSignalActionSaveRequest): Promise<AppSignalView[]>
+  appSignalActionDelete(request: AppSignalActionRequest): Promise<AppSignalView[]>
+  /** The app files. Their bytes cross through `appCall` with `@files/read`. */
+  appFiles(request: AppRequest): Promise<AppFileView[]>
+  appFileRemove(request: AppFileRequest): Promise<AppFileView[]>
+  /** The newest model calls of the app, without their text (docs/plans/app-models.md). */
+  appModelCalls(request: AppModelCallsRequest): Promise<AppModelCallView[]>
+  /** One model call with its text, steps, and result; null when the host no longer keeps it. */
+  appModelCallRead(request: AppModelCallRequest): Promise<AppModelCallView | null>
+  /** Stops a queued or running model call. */
+  appModelCallCancel(request: AppModelCallRequest): Promise<AppModelCallView>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
   /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */

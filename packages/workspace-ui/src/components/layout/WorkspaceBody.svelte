@@ -105,7 +105,7 @@
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
   const router = session.router;
-  useArtifactsAutoOpen(session);
+  useArtifactsAutoOpen(session, () => settings.autoOpenArtifacts);
   useAppDeployOpen(session);
   const companions = new CompanionPanes(
     () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,

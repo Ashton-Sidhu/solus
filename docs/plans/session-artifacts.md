@@ -16,7 +16,7 @@ already exist.
 
 - **artifact** — one item a session produced or linked. Its kind is
   `pull-request`, `work`, `file`, `image`, `automation`, or `app` (an app the
-  session deployed or linked; docs/plans/apps.md decision 18)
+  session deployed or linked; docs/plans/apps.md decision 19)
   (`packages/contracts/src/session-artifacts.ts`).
 - **Artifacts surface** — the companion-pane surface that lists them, route
   `artifacts` (`docs/plans/companion-surfaces.md`). On mobile, the Artifacts
@@ -54,12 +54,15 @@ or a message, and do not call the scope a filter: the kind is the filter.
    `session.artifactsChanged { sessionId }` fires on every link or unlink of a
    pull request, work, file, or automation, and on a delegate's change for each
    ancestor too. Clients reload on it.
-3. **The surface opens itself.** When the store sees the artifact count of the
+3. **Automatic opening is optional, and off by default.** Chat settings holds
+   the personal `autoOpenArtifacts` setting on every client. Desktop and web
+   open the surface only when it is enabled. A new companion pane requests 26%
+   of the workspace width; the person can resize it. When enabled and the store sees the artifact count of the
    conversation on screen rise from an event-driven refresh, the `artifacts`
    surface is added to the strip if absent, made active, and the companion pane
    opens if it was hidden. Not on the initial load, not on a reload, and never
    when the count falls. The newest row is highlighted once. Closing the surface
-   works like any other; the next link opens it again.
+   works like any other; the next link opens it again when the setting is on.
    When the newest link is an app, the app's own surface opens beside the
    conversation (docs/plans/apps.md §9), and the Artifacts surface joins the
    strip behind it and does not take its place.

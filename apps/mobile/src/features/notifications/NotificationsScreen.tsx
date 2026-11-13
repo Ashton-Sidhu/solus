@@ -81,8 +81,13 @@ export function NotificationsScreen({ navigation }: ScreenProps<'Notifications'>
       void openPullRequest(row, destination.pr)
       return
     }
-    // The session is on the host that sent the notification; that host checks access when it opens.
+    // The session or the app is on the host that sent the notification; that host checks access when it opens.
     const hostId = hostIdOf(row)
+    if (destination.kind === 'app') {
+      if (hostId) navigation.navigate('App', { hostId, appId: destination.appId })
+      else Alert.alert(row.notification.summary.title, 'Open this app in Solus on your computer or on the web.')
+      return
+    }
     if (hostId) navigation.navigate('Thread', { hostId, sessionId: destination.sessionId })
     else Alert.alert(row.notification.summary.title, 'Open this session in Solus on your computer or on the web.')
   }

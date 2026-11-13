@@ -1,45 +1,52 @@
 # Apps: a personal cloud on your host
 
-Status: built 2026-11-12, fourth model, on desktop, web, and mobile. No screen
-was driven: the server is tested against a real runner and a real repository,
-and the clients by type checks and unit tests. §11 says what each step built
-and what was left out. §13 lists what the maintainers decided after the first
-draft. §14 says what the three earlier models were.
+Status: fifth model, built 2026-11-13 on the server, desktop, web, and mobile.
+§11 says what is built and what was left out. §13 lists what the maintainers
+decided. §14 says what the four earlier models were.
 
-The reference is Executor (`UsefulSoftwareCo/executor`, read at `57961f3`,
-2026-11-12): its `apps` package, its documents, and its demo apps.
+The reference is Executor (`UsefulSoftwareCo/executor`, read at `57961f3` on
+2026-11-12 and at `31f2483` on 2026-11-13): its `apps` package, its documents,
+its `app-authoring` skill, and its demo apps.
 
 ## 0. The idea
 
 An app is a small program that lives on a host. It has a backend, its own
 data, and a UI. It works when nobody looks at it.
 
-The centre of an app is its **operations**: typed queries and mutations. Four
+The centre of an app is its **operations**: typed queries and mutations. Five
 callers use the same operations:
 
 - the app's **UI**, in Solus;
 - an **agent**, as tools;
 - a **schedule**, with no person there;
-- a **webhook**, from another service.
+- a **webhook**, from another service;
+- a **workflow** of the app itself, one step at a time.
 
-The third model had the page at the centre. Its host functions served only
-that page, only while a person had it open. That is an interactive artifact.
-This model is a personal cloud: a person asks for an app, the agent writes it,
-and then the person, their agents, the clock, and other services all use it.
+The fourth model made an app run. The fifth model makes an app a thing you
+operate:
+
+- **A runtime.** The person gives the app a file and gets a file back. The
+  backend has durable steps, retries, and sleep. The app tells the person and
+  their agents that something happened.
+- **Safe change.** A save and a deploy are two acts. The host builds what it
+  runs. A migration applies whole or not at all. Two sessions cannot lose each
+  other's change.
+- **Observability.** Each call has its input, its log lines, its trace, and
+  its time. Each build has its log. An agent that repairs an app reads them.
+- **Management.** Each app has a Manage page. It is one click from the app,
+  not a menu over it.
 
 An app is a normal app. A deploy makes it run. It does not ask the person
-before a write, and no version waits for a second decision.
-
-What stays from the third model: the `visual-artifacts` skill builds the app,
-the app frame shows it on desktop, web, and mobile, and the runner runs its
-code.
+before a write.
 
 ## 1. Vocabulary
 
 - **app** — a record on a host: a name, a slug, an owner, a repository, its
-  versions, and its data. An app is not a work.
-- **app project** — the folder an agent builds in: a `visual-artifacts`
-  project with an `app.ts` (§3). It is the build input.
+  revisions, its versions, and its data. An app is not a work. An app can have
+  revisions and no version.
+- **app project** — the folder an agent writes in: a project from the
+  `create-app` skill, which is a `visual-artifacts` project with an `app.ts`
+  (§3).
 - **backend** — the app's code that runs on the host: `app.ts` and what it
   imports, built into one module.
 - **UI** — the app's front end: one built HTML file. An app can have no UI.
@@ -47,472 +54,596 @@ code.
 - **operation** — one query or one mutation that the backend declares.
 - **query** — an operation that reads. It gets a read-only database.
 - **mutation** — an operation that writes.
-- **caller** — who started a call: `ui`, `agent`, `schedule`, or `webhook`.
+- **caller** — who started a call: `ui`, `agent`, `schedule`, `webhook`, or
+  `workflow`.
 - **call** — one execution of one operation for one caller.
-- **call log** — the app's record of its calls.
-- **descriptor** — what the build says the backend declares: its operations
-  with their input schemas, its schedules, its secrets, its roles, and its
-  permissions. It is JSON and holds no code.
-- **build** — the outputs of one `npm run bundle`: the descriptor, the backend
-  module, the UI file, and the migrations.
-- **app repository** — the git repository of one app. It holds the source and
-  the build of every version.
-- **version** — one immutable source commit with its build. Versions have
-  numbers from 1.
+- **call log** — the app's record of its calls. One row is one call of an
+  operation, or one execution of a workflow's function (its caller is
+  `workflow` with no step).
+- **trace** — the spans of one call: each request to a network host, each
+  integration tool, the SQL total, each file, each signal. A trace is an
+  OpenTelemetry trace (§9.4).
+- **descriptor** — what a build says the backend declares: operations with
+  their schemas, schedules, webhooks, workflows, signals, secrets, roles,
+  permissions, instructions, and the protocol. It is JSON and holds no code.
+- **revision** — one commit of the app's source. A **save** makes one.
+- **save** — to commit an app project's source as a new revision. A save
+  changes nothing that runs.
+- **build** — the host's run of the bundler on one revision. Its outputs are
+  the descriptor, the backend module, the UI file, and the migrations. Its
+  text is the **build log**.
+- **version** — one immutable build of one revision. Versions have numbers
+  from 1.
 - **active version** — the version that runs.
-- **deploy** — to make a version from an app project.
-- **app data** — the app's own SQLite database and its `files/` folder.
+- **deploy** — to build a revision on the host and make the version active.
+- **app repository** — the git repository of one app. It holds every revision
+  and the build of every version.
+- **protocol** — the number of the contract between a build and the host: what
+  `ctx` holds and what the descriptor may say (§6.3).
+- **app data** — the app's own SQLite database, its app files, and its
+  `files/` folder.
 - **migration** — one SQL file that changes the schema of the app data.
+- **app file** — one file the app holds, with a record: an id, a name, a media
+  type, and a size. The person uploads one in the UI, or the backend writes
+  one.
 - **storage** — the app's key-value data. A UI uses it with no backend.
-- **secret** — a named value the app declares and the owner gives, for example
-  a database URL. The host vault keeps it.
-- **role**, **binding** — as before: an integration the app names by its slug,
-  resolved on every call to the caller's own integration.
+- **secret** — a named value the app declares and the owner gives.
+- **role**, **binding** — an integration the app names by its slug, resolved
+  on every call to the caller's own integration.
 - **schedule** — a trigger and a mutation that the backend declares.
+- **workflow** — a function of the backend that the host runs to its end, with
+  durable steps (§8.3).
+- **run** — one execution of one workflow, from its start to its end.
+- **step** — one named unit of a run. Its result is kept, so a run that starts
+  again does not do a finished step again.
+- **signal** — a typed event that the app declares and emits (§8.4).
+- **occurrence** — one emit of one signal, with its payload.
+- **signal action** — what the owner made a signal do: a notification, a
+  prompt to a session, or a run of an automation.
 - **permissions** — what the backend may use outside its own data: network
-  hosts and host paths (§6). The app declares them; the runner enforces them.
-- **stopped** — the state of an app that the owner turned off: no operation
-  runs and no schedule fires.
-- **link** — the tie between an app and a session that made or changed it, as
-  for a work or an automation (`docs/plans/session-artifacts.md`).
+  hosts and host paths.
+- **agent access** — whether the app's operations are tools for agents. The
+  owner turns it off and on.
+- **instructions** — text the app ships for the agents that use it.
+- **stopped** — the state of an app that the owner turned off.
+- **link** — the tie between an app and a session that made or changed it.
 - **runner** — the child process that runs one app's backend.
-- **app frame** — the frame that shows a UI in Solus (§9).
+- **app frame** — the frame that shows a UI in Solus.
 - **Apps tab** — the tab of the Workspace page that lists the apps of every
   connected host.
+- **Manage page** — the page of one app where its owner operates it (§9.2).
 
 Do not call an app a widget, a plugin, or an artifact. Do not call an
 operation a host function, an action, or an endpoint. An operation is a
-**tool** only where an agent sees it. Do not use "server" for the backend:
-in Solus the server is the host's own process.
+**tool** only where an agent sees it. Do not use "server" for the backend. Do
+not call a revision a draft or a commit in the UI. Do not call a signal an
+event: `apps.changed` is an event of the host. Do not call a workflow run a
+job.
 
 ## 2. Decisions
 
-1. **An app is its own record, not a work.** It has source, versions, data,
-   schedules, and callers; a work has one body. Apps reuse what works have by
-   calling the same owners (the frame, the skill, the git transport), not by
-   being a work.
-2. **Operations are the centre.** The UI is one caller of them. Everything an
-   app does for an agent, a schedule, or a webhook is an operation the UI can
-   also call.
-3. **One authoring path: the `visual-artifacts` skill.** The same project,
-   build, design guidelines, and preview. An `app.ts` makes the project an app.
-4. **The build writes the descriptor.** The host never runs app code to learn
-   what an app declares. The host enforces the descriptor: an operation the
-   descriptor calls a query gets a read-only database, whatever its code does.
-5. **One git repository for each app.** It uses the storage of works: a bare
-   repository under the host's data folder, and Cloudflare Artifacts for a
-   host in the cloud (`docs/plans/cloud-work-artifacts-integration.md`). The
-   host writes the commits. An agent does not push.
-6. **A version is immutable.** A deploy makes a new one. A rollback makes an
-   earlier version active. A rollback does not rewind app data or what an
-   operation did outside the host.
-7. **A deploy makes the version active.** There is no second decision, no
-   version that waits, and no decision bound to the backend's hash. The gate
-   is the deploy itself: `deploy_app` is a tool that needs approval, so the
-   session's permission mode decides whether a person sees it first. An app
-   has no more rights than the session that deployed it had: both are code on
-   the host. The owner can stop an app and start it again.
-8. **App data is SQLite, with migrations.** The runner applies new migrations
-   when a version becomes active. A migration that fails stops the activation.
-9. **The backend runs in the runner on the host.** Not in an isolate. An app
-   on your host can read your files and reach your private network when it
-   declares them. That is the point of an app on your own machine (§6, §12).
-10. **Only the host's owner uses an app in this release.** Their UI, their
-    agent sessions, the app's schedules, and the webhooks that call it.
-11. **An operation never asks.** A call from the UI, a schedule, or a
-    webhook runs. An app has no approval setting and no `writes` permission,
-    for its own operations and for the integration tools it calls. An agent's
-    call follows that session's permission mode, as any integration tool does.
-12. **An agent sees an app as an integration.** The gateway lists the app's
-    operations as tools. Tool lists, approval, and turned-off tools work as
-    they do for any integration.
-13. **A secret is in the vault, not in app data.** The backend gets it at run
-    time. No client, no UI, and no agent reads it back.
-14. **A schedule runs from the deploy that declares it.** The owner can pause
-    it and turn it on again.
-15. **An app declares its webhooks, and the webhook owner runs them.** The
-    declaration names a verification and a mutation. A deploy makes the webhook
-    record. The app's menu shows the URL, and the person copies it into the
-    other service. An app has no `register` step: that needs accounts (§12).
-16. **In Solus an app shows in the app frame, on every client.** Not in the
-    browser pane (§9 says why). An app is a window with its own pages.
-17. **No compatibility with the third model.** Solus has no users. Apps that
-    are artifacts stop being apps; their pages stay as plain artifacts.
-18. **An app links to sessions, as a work does.** The session that deploys an
-    app is linked to it. The `link` tool, the Artifacts surface, the chips on
-    a session card, and the chips under a turn take the kind `app`.
-19. **The Workspace page lists apps.** A fourth tab, **Apps**, beside the
-    works and the shared sessions. There is no separate Apps page.
+1. **An app is its own record, not a work.**
+2. **Operations are the centre.** The UI, an agent, a schedule, a webhook, and
+   a workflow are callers of them.
+3. **One authoring path: the `create-app` skill.** It starts each app from
+   a checked starter app (Notes), as Executor starts from its `live-inbox`
+   example, and it splits the guidance by topic so that an agent reads only
+   what the app needs. The project, its `@solus/app` modules, and the bundler
+   stay in the `visual-artifacts` skill: the host builds every app with that
+   one bundler.
+4. **The host builds.** A deploy checks out one revision into a build folder
+   on the host, installs its dependencies, and runs the host's own bundler. So
+   a version's build is the build of its revision, by construction. The step
+   of a build that loads the backend to read what it declares runs under
+   Node's permission model with no network.
+5. **One git repository for each app.** `refs/heads/main` is the source, one
+   commit for each save. `refs/solus/versions/<number>` is the build of that
+   version.
+6. **A save and a deploy are two acts.** A save makes a revision and changes
+   nothing that runs. A deploy makes a version from a revision.
+7. **A save names the revision it started from.** `checkout_app` and
+   `save_app` write the app's slug and revision into `.solus/app.json` in the
+   project. A save from a project whose revision is not the app's newest is
+   refused, with the newer revision in the message. Two sessions cannot lose
+   each other's change.
+8. **A version is immutable.** A rollback makes an earlier version active. It
+   does not rewind app data.
+9. **A deploy makes the version active.** The gate is the deploy itself:
+   `deploy_app` needs approval. The owner can also deploy a revision from the
+   Manage page.
+10. **App data is SQLite, with migrations that apply whole.** The runner
+    applies the new migrations of a version in one transaction. One that fails
+    leaves the database as it was. The host keeps a hash of each applied
+    migration and refuses a version that edits, renames, removes, or puts a
+    new file before one (§4.3).
+11. **The backend runs in the runner on the host.** Not in an isolate.
+12. **Only the host's owner uses an app in this release.**
+13. **An operation never asks.** An agent's call follows that session's
+    permission mode.
+14. **An agent sees an app as an integration**, while the app's agent access
+    is on.
+15. **A secret is in the host's secret store, not in app data.**
+16. **A schedule runs from the deploy that declares it.**
+17. **An app declares its webhooks, and the webhook owner runs them.**
+18. **In Solus an app shows in the app frame, on every client.**
+19. **An app links to sessions, as a work does.**
+20. **The Workspace page lists apps.** The Apps tab is where a person sees
+    the health of every app. Each app has a Manage page.
+21. **The call log keeps the input.** It keeps at most 16 KiB of each input,
+    the log lines, and the trace. It never keeps a result or a secret. This
+    replaces the fourth model's "no input": a person cannot repair a call they
+    cannot see. The log is on the owner's own host.
+22. **A build names its protocol, and the host runs every protocol it
+    knows.** A host update never changes what `ctx` is for a deployed build
+    (§6.3).
+23. **A workflow step runs at least once.** A step that was in progress when
+    the host stopped runs again. The step gets a stable `idempotencyKey`.
+    Exactly-once writes are not promised.
+24. **A signal does nothing by itself.** The owner's signal actions decide.
+    A new signal gets one action, a notification, turned on. An action that
+    starts agent work is made by the owner or by an agent's approved tool
+    call, and it has a limit of 30 starts in one hour.
+25. **No compatibility with the third model.**
 
 ## 3. The app project
-
-A `visual-artifacts` project with these files:
 
 ```text
 app.ts            the backend: defineApp(...)
 migrations/       0001_notes.sql, 0002_tags.sql, ...
-src/              the UI (React, TypeScript, Tailwind), as for any artifact
-skills/           optional: instructions for agents that use the app
+src/              the UI (React, TypeScript, Tailwind)
+.solus/app.json   the app and the revision this folder came from (decision 7)
 ```
 
 ```ts
 // app.ts
-import { defineApp, query, mutation } from '@solus/app/backend'
+import { defineApp, query, mutation, workflow, signal } from '@solus/app/backend'
 import { z } from 'zod'
 
+const Report = z.object({ id: z.string(), title: z.string() })
+
 export default defineApp({
-  name: 'Notes',
-  permissions: { network: ['*'], files: { read: [], write: [] } },
-  secrets: { database: { label: 'Database URL', description: 'A Postgres URL.' } },
+  name: 'Reports',
+  instructions: 'Call list before you make a report. A report takes a minute.',
+  permissions: { network: ['api.example.com'] },
+  secrets: { token: { label: 'API token' } },
+  signals: {
+    'report.ready': signal({ description: 'A report is ready.', payload: Report }),
+  },
   operations: {
-    list: query(
-      { description: 'The 100 newest notes.', input: z.object({}) },
-      (ctx) => ctx.sql.exec('SELECT id, text FROM notes ORDER BY created_at DESC LIMIT 100').all(),
-    ),
-    add: mutation(
-      { description: 'Save one note.', input: z.object({ text: z.string() }) },
-      (ctx, input) => ctx.sql.exec('INSERT INTO notes (id, text, created_at) VALUES (?, ?, ?) RETURNING id, text',
-        crypto.randomUUID(), input.text, Date.now()).one(),
-    ),
+    list: query({ description: 'Every report.', output: z.array(Report) },
+      (ctx) => ctx.sql.exec('SELECT id, title FROM reports').all()),
+    request: mutation({ description: 'Make one report.', input: z.object({ title: z.string() }) },
+      (ctx, input) => ctx.workflows.start('build', input)),
+    save: mutation({ input: Report }, (ctx, report) => {
+      ctx.sql.exec('INSERT INTO reports (id, title) VALUES (?, ?)', report.id, report.title)
+      ctx.signals.emit('report.ready', report)
+      return null
+    }),
+    importCsv: mutation({ input: z.object({ fileId: z.string() }), timeoutSeconds: 300 },
+      async (ctx, input) => parse(await ctx.files.text(input.fileId))),
   },
-  schedules: {
-    digest: { cron: '0 9 * * 1-5', timezone: 'America/Toronto', run: 'sendDigest', input: {} },
+  workflows: {
+    build: workflow({ input: z.object({ title: z.string() }) }, async (ctx, input) => {
+      const rows = await ctx.step.do('fetch', { retries: { limit: 3, delay: '2 seconds', backoff: 'exponential' } },
+        async (step) => (await fetch('https://api.example.com/rows', { signal: step.signal })).json())
+      await ctx.step.sleep('settle', '1 minute')
+      await ctx.step.runMutation('save', 'save', { id: ctx.runId, title: input.title })
+      return rows.length
+    }),
   },
+  schedules: { nightly: { cron: '0 2 * * *', run: 'request', input: { title: 'Nightly' } } },
 })
 ```
 
-```tsx
-// src/App.tsx
-import { useQuery, mutate } from '@solus/app'
-const notes = useQuery('list', {})          // runs again when the app's data changes
-await mutate('add', { text })
-```
-
-What a handler gets in `ctx`:
+What a handler gets in `ctx` (protocol 3):
 
 | Field | What it is |
 |---|---|
-| `sql` | The app's database. `exec(sql, ...values)` gives `.all()` and `.one()`. Each statement commits by itself; `transaction(fn)` groups statements, and `fn` is synchronous. Read-only in a query. |
+| `sql` | The app's database. `exec(sql, ...values)` gives `.all()` and `.one()`. `transaction(fn)` groups statements; `fn` is synchronous. Read-only in a query. |
 | `secrets` | The values the owner gave, by name. |
 | `tools` | The caller's integrations: `ctx.tools.linear.list_issues(input)`. |
-| `files` | The path of the app's `files/` folder. |
-| `caller` | `{ kind: 'ui' \| 'agent' \| 'schedule' \| 'webhook' }`. |
+| `files` | The app files: `list()`, `get(id)`, `read(id)` (bytes), `text(id)`, `path(id)`, `write(name, data, type?)`, `remove(id)`. `files.dir` is the path of the app's own `files/` folder. A query cannot write or remove. |
+| `signals` | `emit(name, payload)`. In a mutation and in a workflow step. An occurrence is kept only when the call or the step succeeds. |
+| `workflows` | `start(name, input, { key }?)` and `terminate(runId)` in a mutation; `get(runId)` and `list()` in every operation. |
+| `caller` | `{ kind: 'ui' \| 'agent' \| 'schedule' \| 'webhook' \| 'workflow' }`. |
 
-`npm run bundle` builds four outputs into `dist/app/`: `descriptor.json`,
-`backend.cjs` (absent when the app declares no operation), `ui.html` (absent
-when the project has no UI), and a copy of `migrations/`. The build makes the
-descriptor from `app.ts` in the agent's own environment, with `z.toJSONSchema`
-for each input.
+`console.log` and the other `console` functions write the call's log lines.
+
+A query and a mutation take `description`, `input`, `output`, and
+`timeoutSeconds` (60 by default, 900 at most). The host refuses a result that
+`output` does not accept.
+
+A build writes four outputs into `dist/app/`: `descriptor.json`,
+`backend.cjs`, `ui.html`, and a copy of `migrations/`. The host makes them
+(decision 4). An agent can still run `npm run bundle` to check types.
 
 ## 4. Data
 
 ### 4.1 Records
 
-On the host's database, each with the canonical `organization_id`
-(`docs/plans/organization-scope.md` §3):
+On the host's database, each app record with the canonical `organization_id`.
+`packages/server/src/data/apps/` owns the tables.
 
-```ts
-interface App {
-  id: string
-  slug: string                  // unique on the host; the agent tool namespace
-  name: string
-  organizationId: string
-  createdBy: Attribution
-  activeVersion: number | null  // null: the first deploy failed
-  stopped: boolean
-  repository: { provider: 'local-git' | 'cloudflare-artifacts'; name: string; scope: string }
-}
-interface AppVersion {
-  appId: string
-  number: number
-  sourceCommit: string
-  buildCommit: string
-  descriptor: AppDescriptor
-  state: 'active' | 'superseded' | 'failed'
-  message: string
-  createdBy: Attribution
-  createdAt: string
-}
-interface AppSchedule {
-  appId: string
-  name: string                  // the key in the descriptor
-  enabled: boolean              // true when first seen
-  nextRunAt?: string
-}
-interface AppCall {
-  id: string; appId: string; version: number
-  operation: string
-  caller: { kind: 'ui' | 'agent' | 'schedule' | 'webhook'; sessionId?: string; scheduleName?: string; webhookId?: string }
-  startedAt: string; finishedAt?: string
-  outcome: 'ok' | 'failed'
-  error?: string
-}
-```
+| Table | Key | Holds |
+|---|---|---|
+| `apps` | `id` | One app: `slug`, `name`, `active_version`, `stopped`, `agent_access`, `repository`, `latest_revision`, `project`, `webhook_ids` |
+| `app_versions` | (`app_id`, `number`) | One version: `source_commit` (its revision), `build_commit`, `descriptor`, `state` (`building`, `active`, `superseded`, `failed`), `error`, `build_log`, `build_ms` |
+| `app_schedules` | (`app_id`, `name`) | The state of one schedule |
+| `app_calls` | `id` | The call log: `operation`, `caller`, `caller_kind`, times, `outcome`, `error`, `error_stack`, `input`, `result_bytes`, `logs`, `spans`, `run_id`, `trace_id`, `span_id` (the call's OpenTelemetry span, §9.4). The newest 2,000 of each app. |
+| `app_files` | `id` | One app file: `name`, `media_type`, `size`, `caller_kind` (the kind of caller that made it), `created_at` |
+| `app_workflow_runs` | `id` | One run: `workflow`, `input`, `state`, `start_key`, `result`, `error`, `wake_at`, `started_by`, `interruptions`, times. The newest 500 finished runs of each app. |
+| `app_workflow_steps` | (`run_id`, `name`) | One step: `kind`, `state`, `attempts`, `result`, `error`, `wake_at`, times |
+| `app_signals` | `id` | One occurrence: `name`, `payload`, `emitted_at`, `call_id`, `run_id`, `deliveries`. The newest 1,000 of each app. |
+| `app_signal_actions` | `id` | One signal action: `signal`, `action`, `enabled` |
 
-The call log keeps no input and no result. It keeps the last 2,000 calls of
-each app.
-
-An app's slug cannot be the slug of an integration the owner has: both are
-`tools.<slug>` to an agent and to a UI. A deploy that makes a new app adds a
-short suffix when the slug is taken.
+An app's slug cannot be the slug of an integration the owner has.
 
 ### 4.2 The repository
 
-One bare repository for each app: `<data dir>/apps/repositories/app-<hash>.git`
-on a host (`apps/app-repository.ts`), with the conventions of a work's local
-repository: private, bare, no hooks, written only by the host. The app's row
-keeps the repository's name. A Cloudflare Artifacts repository for a host in
-the cloud is later (§12).
+One bare repository for each app, private, with no hooks, written only by the
+host.
 
-- `refs/heads/main` — the source. One commit for each deploy: the project's own
-  files (not `node_modules`, not `dist`), with the deploy's message.
+- `refs/heads/main` — the source. One commit for each save, on top of the one
+  before it.
 - `refs/solus/versions/<number>` — the build of that version: one commit whose
-  tree is `dist/app/` and whose parent is the source commit.
+  tree is `dist/app/` and whose parent is the revision it was built from.
 
-So one repository holds the whole app at every version: a rollback, a copy to
-another host, and a cloud copy need nothing else. `git clone` of the
-repository gives a person the source with a normal history. Direct pushes are
-not supported.
+A source commit holds the project's own files: not `node_modules`, not `dist`,
+not `.artifact`, not `.solus`.
 
 ### 4.3 App data
 
 `<data dir>/apps/data/<app id>/`:
 
 - `app.sqlite` — the app's database. Only the runner opens it.
-- `files/` — a folder the backend may always read and write.
-- `storage.json` — the app's storage, as now (`app-storage.ts`).
+- `blobs/<file id>` — the bytes of each app file. The backend reads one by its
+  path. The host writes an upload; the backend writes its own.
+- `files/` — a folder the backend may always read and write, with no records.
+- `storage.json` — the app's storage.
 
-A migration is `migrations/<4 digits>_<name>.sql`. The runner applies each new
-one in order, each in a transaction, and records it in the table
-`solus_migrations`. Migrations only go forward. Deleting the app removes the
-folder, the repository, its schedules, its secrets, and its integration.
+`<data dir>/apps/builds/<app id>/` is the app's build folder. It keeps
+`node_modules` between builds and is not app data.
 
-### 4.4 Secrets
+**Migrations.** A migration is `migrations/<4 digits>_<name>.sql`. When a
+version becomes active, the runner applies the migrations the database has not
+seen, in order, all in one transaction, and records each one's name and the
+SHA-256 of its text in `solus_migrations`. It refuses a version, before it
+applies anything, when:
 
-An app's secrets are in the host's secret store, one entry for each app, as a
-webhook's token and signing secret are (`apps/app-secrets.ts`,
-`data/webhooks/webhook-secrets.ts`). They are not in a table and not in the
-app's data. The owner gives a value in the app's menu. A client reads only
-whether each secret is set. The runner gets the values when it starts, and it
-starts again when one changes. An operation that reads a secret that is not
-set gets `undefined` and says so in its own error.
+- a migration that was applied has another hash now (it was edited);
+- a migration that was applied is not in the build, and the build has a
+  migration with a higher number (it was removed or renamed);
+- a migration that was not applied has a lower number than one that was (it
+  was put before an applied one).
 
-The cloud vault is not used: it holds a person's credentials, which follow
-the person. An app's secret belongs to one app on one host.
+An earlier version that is made active again has fewer migrations than the
+database has seen. That is not a refusal: the rules above compare only up to
+the build's highest number.
+
+**App files.** One file is at most 64 MiB. An app holds at most 10,000 files.
+A UI sends a file in parts through its bridge (§5). Deleting the app deletes
+its files.
+
+### 4.4 Secrets and config
+
+**Secrets** are in the host's secret store, one entry for each app. A client
+reads only whether each secret is set.
+
+**Config** (decided 2026-11-13) is the settings the owner changes without a
+new version. The descriptor declares each field: `text`, `number` (with `min`,
+`max`, `integer`), `boolean`, or `choice` (with `options`), each with a label
+and a default; a default the field does not take fails the deploy. The values
+the owner set are `config.json` in the app's data folder (§4.3), next to
+`storage.json`, so no host table changes. The owner sets a value with
+`appConfigSet` (`null` resets it), and the host checks it against the active
+version's field. The app runs with `resolveAppConfig`: the owner's value when
+the active field takes it, else the default. The runner gets the values on its
+load, as it gets the secrets, so a change starts it again on the next call; the
+host also says `apps.dataChanged`, so an open UI reads the config and its
+queries again. The backend reads `ctx.config` (protocol 3) and `step.config`;
+the UI reads `@config/get` through `useConfig`. A preview runs with the
+defaults. An agent reads the values with `inspect_app` and does not set them.
 
 ## 5. Calls
 
-Every caller goes through one function on the host: `Apps.call(appId,
-operation, input, caller)`. It reads the active version's descriptor, checks
-the caller, validates the input against the operation's schema, runs the
-operation in the runner, and writes the call log.
+Every caller goes through one function on the host:
+`Apps.callOperation(appId, operation, input, caller, authority)`. It reads the
+active version's descriptor, validates the input, runs the operation in the
+runner, validates the output, and writes the call log.
 
 | Caller | Who it runs as |
 |---|---|
 | `ui` | The viewer (the owner, in this release) |
 | `agent` | The session's person |
-| `schedule` | The app's owner |
-| `webhook` | The app's owner |
+| `schedule`, `webhook`, `workflow` | The app's owner |
 
-A query and a mutation differ in two things only: a query gets a read-only
-database, and a mutation that changed the database starts a live refresh. To
-the gateway a query is `readOnlyHint: true` and a mutation is not, so an
-agent's session treats them as it treats the tools of any integration.
+**Roles.** A role is resolved on every call: the caller's MCP integration
+with that slug first. When there is none, `github`, `atlassian`, and
+`google` are the built-in connections (`apps/app-connections.ts`). Each has
+one tool, `request` (`{ method, path, query, body }`, and `product` for
+Atlassian), that sends one REST call to that provider's API with the
+person's own credential. The host adds the credential, so the app never
+holds it, and `path` must start with one `/`, so it cannot name another host.
+An app's slug cannot be one of these three names.
 
-**The wire names from a UI** stay: `@storage/<operation>` for storage, and
-`<slug>/<tool>` for an integration tool. `@server/<function>` becomes
-`@app/<operation>`.
+**The wire names from a UI**: `@app/<operation>`, `@storage/<operation>`,
+`@files/<operation>`, and `<slug>/<tool>` for an integration tool. These go to
+the host through `appCall`. `@client/<operation>` is answered by the client
+that holds the frame and never reaches the host.
 
-**Integrations.** A UI (`tools.<slug>.<tool>`) and a backend (`ctx.tools`)
-call the tools of the roles the descriptor names, with the caller's own
-connection. The owner can turn a tool off for an integration in Settings →
-Tools, and that holds for an app too.
+| Name | Input | Answer |
+|---|---|---|
+| `@files/begin` | `{ name, type, size }` | `{ uploadId }` |
+| `@files/chunk` | `{ uploadId, index, data }` (`data` is base64, at most 384 KiB of bytes) | `null` |
+| `@files/commit` | `{ uploadId }` | the app file |
+| `@files/list` | `{}` | the app files |
+| `@files/read` | `{ id, offset }` | `{ data, size, nextOffset }` (`nextOffset` is null at the end) |
+| `@files/remove` | `{ id }` | `null` |
+| `@client/save` | `{ name, type, data }` (base64, at most 16 MiB of bytes) | `null`: the client gave the person the file (a download on desktop and web, the share sheet on a phone) |
 
-**Live refresh.** When a mutation ends and the database changed, the host
-sends `appDataChanged { appId }` on a new RPC topic. Each client posts
-`solus-app-event` to the open frames of that app, and `useQuery` runs its
-query again. The refresh is coarse on purpose: one event for the app, not one
-for each table.
+The UI module (`@solus/app`) puts `files.upload(file)`, `files.list()`,
+`files.read(id)`, `files.url(id)`, `files.save(id)`, `files.saveAs(name,
+blob)`, and `files.remove(id)` over these names. A UI uses its own
+`<input type="file">` or a drop target to get a `File`.
 
-A call has 60 seconds. A result is JSON, at most 1 MiB.
+**Live refresh.** `apps.dataChanged { appId }` when a mutation changed the
+database or an app file changed. `apps.activity { appId, kinds }` when the
+call log, the runs, the occurrences, or the files changed: the Manage page
+reads its open section again. The host sends at most one `apps.activity` for
+each app in 500 ms.
 
-## 6. Permissions and the runner
+A result is JSON, at most 1 MiB.
+
+## 6. The runner
+
+### 6.1 Permissions
 
 `permissions` in `app.ts` names the network hosts the app may reach and the
-host paths its backend may read and write. `*` is every host or every path.
-The app's own data needs no permission. The Versions section of the app's
-menu shows the permissions of each version in one sentence, and the receipt
-of a deploy says the same sentence to the agent.
+host paths its backend may read and write. The runner refuses a path or a host
+the app did not declare, and the frame's policy refuses a host for the UI's
+`fetch`. The limits are a guard, not a jail.
 
-Nobody decides the permissions a second time. They are there so that an app
-does what it says: the runner refuses a path or a host the app did not
-declare, and the frame's policy refuses a host for the UI's `fetch`.
+### 6.2 The process
 
-The runner is the third model's (`app-functions.ts`, `app-runner-script.ts`):
-one process for each app, the host's own Node under the permission model, the
-app's paths, the socket check, no child processes, a memory limit, five idle
-minutes. It changes in three ways:
+One process for each app, the host's own Node under the permission model, a
+memory limit, five idle minutes. It starts for a call, a schedule, a webhook,
+or a run that is due. A runner with a run in progress does not stop for idle.
 
-- It loads the backend module and takes its operations from the default
-  export, not from the module's exports.
-- It opens `app.sqlite` with `node:sqlite`: one read-only connection for
-  queries and one for mutations. It applies new migrations before it says it
-  is ready. A migration that fails makes the version `failed`, and the version
-  before it stays active.
-- A schedule or a webhook starts it, so it does not need an open UI.
+The host and the runner exchange one JSON object on each line. The runner asks
+the host for what the host owns: an integration tool, an app file's record, a
+step's receipt, a workflow control. It sends each log line and each span as
+it happens, so a call that the host stops for time keeps them.
 
-**Stop** in the app's header stops the runner and every schedule. The UI
-still opens, and an operation fails with a message that says the app is
-stopped. **Start** reverses it.
+### 6.3 Protocols
 
-The runner's limits are a guard, not a jail: SQL that opens another file
-(`ATTACH`) is not checked, and on Node 24 the socket check in the runner is
-the only network check. That is acceptable because an app is the owner's own
-code on the owner's own host (decisions 7 and 10).
+`solusApp` in the descriptor is the build's protocol. The backend module of
+the project (`src/solus-app-backend.ts`) writes it, so a project keeps its
+protocol until an agent replaces that file.
 
-Removed from the third model: host access, its three states, the Allow and
-Revoke bar, the decision on the work's meta, and the hash of the backend.
+| Protocol | `ctx` |
+|---|---|
+| 2 | `sql`, `secrets`, `tools`, `caller`, and `files` as the path of the `files/` folder. No output schema, no workflow, no signal. |
+| 3 | §3. |
+
+The rules:
+
+- The host runs every protocol in this table. `tests/unit/app-runners.test.ts`
+  runs a build of each one.
+- A build with a protocol the host does not know is refused at deploy, with
+  the protocols the host knows in the message.
+- To remove a protocol is a decision for this section, with a date.
+- A new field of `ctx` that an old build cannot see needs no new protocol. A
+  change to a field that an old build reads needs one.
+
+The bridge of the app frame (`window.solusApp`) is the host's and has no
+number: it only gains names.
 
 ## 7. Agents
 
 ### 7.1 Operations as tools
 
-A run gets one tool for each operation of each running app, beside the tools
-of the person's integrations: `appOperationAgentTools` in
-`execution/agents/tools/app-tools.ts`, called where a run lists its
-integration tools (`run-launcher.ts`). The name is `<slug>__<operation>`, as
-an integration's tools are named, so an agent sees
-`mcp__solus__<slug>__<operation>`. The input schema is the operation's. The
-call goes to `Apps.callOperation` with the caller `agent`. A name that a tool
-of the run already has is left out.
-
-An app is not an integration record. It needs no MCP session, and its tools
-change when its active version changes, with no list to keep in step.
-Settings → Tools does not list an app's operations; the app's own surface
-does.
+A run gets one tool for each operation of each running app whose agent access
+is on: `<slug>__<operation>`. The description is the operation's, then the
+shape of its output when it declares one. An app with instructions says so in
+each description, and `inspect_app` prints them.
 
 ### 7.2 The agent's own tools
 
 | Tool | What it does |
 |---|---|
-| `deploy_app` | `path` (the app project), `app` (a slug; omitted makes a new app), `message`. Reads `dist/app/` and the source files, writes the two commits, makes the version active, and links the app to the session. The receipt says the version's number, whether it is active or failed, what the app may use, and which secrets are not set. It needs approval. |
-| `preview_app` | `path`, `width`, `appearance`, `route`. Deploys nothing and gives a picture of the project's UI in a window 800px tall. It needs no approval. |
-| `checkout_app` | `app`, `path`, optional `version`. Writes the source of a version into a folder, so a later session can change the app. |
+| `save_app` | `path`, `app` (a slug; omitted makes a new app or uses `.solus/app.json`), `name` (of a new app), `message`. Commits the project's source as a new revision. Refused when the app has a newer revision than the project came from, and for a folder that was not checked out from the app it names. Says which files the save removed. No approval. |
+| `deploy_app` | `app`, `revision` (omitted is the newest). Builds the revision on the host, makes the version active, and links the app to the session. The receipt says the version, whether it is active, the end of the build log when it failed, what the app may use, and which secrets are not set. It needs approval. |
+| `preview_app` | `path`, `width`, `appearance`, `route`. The host builds the project folder in place and gives a picture of its UI. Nothing is saved or deployed. |
+| `checkout_app` | `app`, `path`, optional `version` or `revision`. Writes the source into a folder, with `.solus/app.json`. |
 | `list_apps` | The apps of the host with their active version, their operations, and what needs the owner. |
+| `inspect_app` | `app`, `view` (`overview`, `calls`, `call`, `runs`, `run`, `signals`, `build`), `id`. What an agent needs to repair an app: its instructions, metrics, the call log, one call with its input, log lines, and trace, the runs and their steps, the occurrences, and a build log. |
+| `set_app_signal_action` | `app`, `signal`, `type` (`notify`, `send_to_session`, `run_automation`), `session_id` or `automation_id`, `template`, `action_id` (to change one), `enabled`. Makes or changes one signal action. It needs approval. |
 
-`create_app` is removed. The preview is a tool of its own because a tool's
-approval is one flag: a look at a UI must not ask as a deploy does. The `link`
-tool takes `kind: 'app'` with the app's slug.
+## 8. Background work
 
-A preview answers storage from memory. It runs the project's operations in a
-runner against a new database with the project's migrations, never against
-the app data, and with no secret. It never calls an integration.
+### 8.1 Schedules
 
-## 8. Schedules and webhooks
+As in the fourth model: a name, an interval or a cron expression, a mutation,
+and its input. A schedule that needs a long task or a retry starts a workflow
+from its mutation.
 
-**Schedules.** The descriptor lists them: a name, an interval or a cron
-expression with a time zone, a mutation, and its input. The trigger type and
-its math are the automations' (`AutomationTrigger`,
-`data/automations/automation-schedule.ts`). The state is the app's:
-`AppSchedule` rows and one timer in `apps/app-schedules.ts`, with the same
-rules as the automation scheduler: one timer for the earliest due row, a wait
-of at most five minutes, one overdue run after the host was off, and no second
-run while one is in progress. A new schedule is on. The owner pauses it and
-turns it on in the app's menu. A schedule whose declaration is gone from the
-active version is deleted. A failed run stays in
-the call log and does not retry.
+### 8.2 Webhooks
 
-An app schedule is not an automation. An automation starts an agent turn; an
-app schedule runs code and costs nothing.
+As in the fourth model. A webhook's mutation answers fast: it stores the
+request, or it starts a workflow.
 
-**Webhooks.** The descriptor lists them: a name, a verification, and a
-mutation.
+### 8.3 Workflows
+
+A workflow is a function `(ctx, input)` that the host runs to its end.
+`ctx` has `runId` and `step`. It has no `sql`: a run changes app data through
+`step.runMutation`.
+
+| Step | What it does |
+|---|---|
+| `step.do(name, options?, fn)` | Runs `fn(step)` and keeps its JSON result. `options.retries` is `{ limit, delay, backoff: 'constant' \| 'linear' \| 'exponential' }`; `options.timeout` is a duration, 5 minutes by default and 30 at most. `fn` gets `signal`, `attempt`, `idempotencyKey`, `secrets`, `tools`, `files`, and `signals`. Throw `NonRetryableError` to fail at once. |
+| `step.sleep(name, duration)`, `step.sleepUntil(name, time)` | Waits. A wait longer than one minute frees the runner: the host starts the run again when the time comes. |
+| `step.runQuery(name, operation, input)`, `step.runMutation(name, operation, input)` | One call of an operation of the app, with the caller `workflow`. It is in the call log. |
+
+**Durable by replay.** The host keeps a receipt for each step: its state, its
+result, its attempts, and its wake time. When a run starts again (after a
+sleep, a deploy, a stop, or a host restart), the function runs from its top,
+and each step that has a receipt answers from it. So the code between steps
+must give the same steps for the same results: put time, random values, and
+I/O inside a step. Step names are unique in one run.
+
+**States.** `running`, `sleeping`, `succeeded`, `failed`, `terminated`. A run
+of a stopped app waits. A run continues on the version that is active when it
+starts again; a run whose workflow the active version no longer declares
+fails. A runner that stops five times in a row while a run is in progress
+fails the run.
+
+**Controls.** `ctx.workflows.start(name, input, { key })`: the same key and
+input give the same run; the same key with another input is an error. The
+owner terminates a run or starts a failed run again from the Manage page; the
+failed step runs again and the finished steps do not.
+
+**Limits.** An input and a step result are JSON of at most 1 MiB. A run has at
+most 1,000 steps. No step is promised to run exactly once (decision 23).
+
+### 8.4 Signals
 
 ```ts
-webhooks: {
-  issueOpened: {
-    verify: { scheme: 'hmac', header: 'x-hub-signature-256', prefix: 'sha256=' },
-    run: 'onIssue',
-  },
-},
+signals: { 'report.ready': signal({ description: 'A report is ready.', payload: Report }) }
+ctx.signals.emit('report.ready', { id, title })
 ```
 
-A webhook gets a fourth action beside "start a session", "send a prompt", and
-"run an automation": **call an app mutation**. A deploy makes one webhook
-record for each declaration, owned by the app, with that one action. The
-mutation's input is `{ headers, query, body }` of the request. The URL, the
-verification, the replay key, the deliveries log, replay, pause, and holding
-while offline are the webhook owner's and do not change. The secret of a
-webhook is made by the host and shown once in the app's menu, with the URL.
-A declaration that is gone from the active version deletes its record. The
-person can also make a webhook by hand with the same action.
+A name is lower-case words with dots, at most 64 characters. A payload is JSON
+of at most 64 KiB that the declared schema accepts. One call or one step emits
+at most 100.
 
-**Always on.** A desktop host runs schedules only while Solus is open. A
+The host keeps each occurrence and gives it to each signal action of that
+signal that is on:
+
+| Action | What it does |
+|---|---|
+| `notify` | One notification for the owner, in the notification hub. `title` and `detail` are templates. |
+| `send_to_session` | A prompt to one session. |
+| `run_automation` | One run of an automation, with the rendered template as its context. A signal that must start a new session uses this: the automation holds the agent, the model, and the folder. |
+
+A template takes `{{payload.path}}`, `{{payload}}`, `{{signal}}`, and
+`{{app}}`. A payload can hold text from another service, so the host marks it
+as data in a prompt, as the webhook owner does. Each occurrence keeps how each
+action ended.
+
+The first version that declares a signal gives it one `notify` action, turned
+on. A signal that the active version no longer declares loses its actions.
+
+### 8.5 Always on
+
+A desktop host runs schedules and wakes runs only while Solus is open. A
 standalone server or a cloud machine is the host for an app that must run all
-day. The app's header says which of these its host is.
+day.
 
 ## 9. In Solus
 
-**Why the app frame and not the browser pane.** The browser pane is a native
-web view only on a desktop client whose host is the same machine. On web and
-on mobile it is a streamed picture of the host's browser: text selection,
-input methods, scrolling, and latency are the host's, not the device's. The
-app frame is a frame in the client's own page on every client. It takes the
-live theme, so an app has no seam with the workspace, and its calls go through the
-typed RPC layer over IPC and WebSockets alike. An app has no URL in this
-release (§12), so there is nothing for the browser pane to open.
+### 9.1 The app surface
 
-The frame is the third model's: a window of a fixed size that the UI scrolls
-inside, in standards mode, with no network but the declared hosts and the
-bridge `window.solusApp.call`.
+The app frame in all of the pane, under a thin header: the app's name, its
+version, a switch between **App** and **Manage**, and a menu with Stop or
+Start and Delete. The Manage switch has a dot while the app has a problem: red
+for an error, amber when the only problems are secrets that are not set.
+Nothing is drawn over the app for a problem. The frame stays mounted while the
+Manage page shows, so the UI keeps its state.
 
-**An app is a product, on the workspace's surfaces.** The rule: an artifact
-matches the theme of Solus, and an app gives the agent creative liberty with
-the design. A render in a reply
-takes the render palette and a 14px root. An app frame takes the workspace's
-own chrome for its neutral tokens (`APP_NATIVE_STYLE` in
-`@solus/contracts/artifact-sandbox`): `--border`, `--input`, `--ring`,
-`--muted`, `--primary`, `--sidebar`, and `--radius` are the values
-`workspace.css` gives its own controls, and the root is 16px, so a size in
-`rem` is what it says. The app's background, hairlines, and text then match
-the pane around it in light and dark mode. The rest is the app's own: its
-wordmark, its accent color (`light-dark()`, because the frame's
-`color-scheme` follows the theme), its type scale, its icons, its navigation,
-and its controls. The skill's chapter asks for the design of a shipped
-product ("Design a product"), and it allows a design skill.
+An app with no UI opens on its Manage page.
 
-A kit of controls was tried twice and removed twice. The second one, in the template
-(`@solus/ui`) with rules to use it for every control, 14px text only, and no
-identity gave apps that worked and looked like a form over a database: a
-person compared one with an app an agent built with no skill, and the app
-with no skill was the better product. A kit and strict rules set a low
-ceiling; a brief and a preview to judge set a high one: in a trial, the same
-request with the new chapter gave an app with a wordmark, an accent, a
-sidebar, sample data, a detail view, and an export, in light and dark mode.
+### 9.2 The Manage page
 
-Two changes to the third model's frame: the client decides that a frame is
-an app frame because it shows an app, not from a block in the page; and the
-bridge gets events (`solus-app-event`) for live refresh.
+One page for each app, on desktop, web, and mobile. Its sections:
 
-Surfaces, on desktop, web, and mobile:
+| Section | What it shows and does |
+|---|---|
+| **Overview** | Running or stopped, the host, the active version, whether a newer revision waits for a deploy, the runner's state. The problems, each with a button to the section where the owner acts. The last 24 hours: calls, failed calls, the median and the 95th percentile of the time, a bar for each hour, and a row for each operation. What the app may use. Stop or Start. |
+| **Activity** | The call log. Filters: operation, caller, outcome. One call opens its detail: the input, the log lines, the trace as a waterfall, the error with its stack, the run it belongs to. |
+| **Workflows** | The runs, with a filter on the state. One run opens its steps: state, attempts, time, result or error, wake time. Terminate. Run again from the failed step. |
+| **Versions** | The revisions and the versions in one timeline. Deploy a revision. Make a version active. The source change of each one. The build log. What each version may use. |
+| **Schedules** | Pause, turn on, run now, last outcome. |
+| **Webhooks** | The URL and the signing secret of each one. |
+| **Signals** | Each signal: its description, its payload schema, its actions (add, change, turn off, delete), and its newest occurrences with how each action ended. |
+| **Secrets** | Set, clear. |
+| **Files** | The app files: name, type, size, who made it. Upload, download, delete. |
+| **Operations** | Each operation with its schemas, and a form to run it with a JSON input. Agent access, on or off. The app's instructions. |
+| **Sessions** | The linked sessions. |
+| **Source** | The slug, the repository path, the newest revision. Delete the app. |
+
+The sections are a rail beside the content in a wide pane and a strip above it
+in a narrow one. `⌥G` switches between the app and its Manage page (`⌥M` is the pane's own key, for maximize). The route holds the view and the section: `/app/<slug>/manage/<section>`.
+
+### 9.3 Other surfaces
 
 | Surface | What it shows |
 |---|---|
-| **Apps tab** of the Workspace page | The apps of every connected host, as cards: name, host, active version, the session it came from, last call, and what needs attention (a failed version, a secret that is not set, a failed schedule, stopped). The search, the sort, and the project and time facets apply. `⌥4` opens the tab. |
-| **App** (`app`, a destination or a surface) | The app frame in all of the pane, under a thin header: name, version, and a menu. Nothing is drawn over the app for a problem. When the app has one (a version that did not start, a schedule that failed, a secret that is not set), the menu button has a dot: red for an error, amber when the only problems are secrets that are not set. A stopped app has a bar with a Start button. |
-| **App menu** | Problems (only while the app has one: each problem, with a button that opens the section where the owner acts), Versions (the source diff to the one before, and **Make active**), Schedules (pause, turn on, run now, last outcome), Secrets (set, clear), Calls (the call log), Sessions (the linked sessions), Source (clone path), Stop or Start, Delete. |
-| **Conversation** | A deploy opens the app's surface beside the conversation that made it, when that conversation is on screen (`apps.changed` names the session). The turn's chips name the app. The app's window is not drawn inside the transcript. |
-| **Artifacts surface, session chips, turn chips** | An app the session linked, as one more kind. A row or a chip opens the app's surface. |
-| **Mobile** | An Apps list (the phone has no Workspace page), the app in a full-screen web view, the header actions in a sheet, and the app chip in the thread. The menu button of the app screen has a badge with the count of problems, and the manage screen lists them. |
+| **Apps tab** of the Workspace page | A row for each app of each connected host: name, host, state, active version, calls and failed calls of the last 24 hours, last call, and what needs attention. A row opens the app; its Manage button opens the Manage page. |
+| **Conversation** | A deploy opens the app's surface beside the conversation that made it. The turn's chips name the app. |
+| **Artifacts surface, session chips, turn chips** | An app the session linked. |
+| **Command palette** | "Apps", "Open app…", and "Manage app…". |
+| **Notification hub** | A `notify` signal action's notification. It opens the app. |
+| **Mobile** | The Apps list, the app in a full-screen web view, and the Manage screen with the same sections. A file upload uses the phone's file chooser; `@client/save` opens the share sheet. |
 
-Entry points: the Workspace page, the command palette ("Apps", "Open app…"),
-the chips of a turn and of a session card, a session's Artifacts surface, and
-a link `/app/<slug>`. Each way in has its way back: deploy
-and make active, stop and start, pause and turn on, set and clear, link and
-unlink, create and delete.
+Each way in has its way back: save and deploy, deploy and make active, stop
+and start, pause and turn on, set and clear, upload and delete, add an action
+and delete it, turn agent access off and on, terminate and run again.
 
-An app with no UI has no frame: its surface shows its operations, with a form
-to run one, as Settings → Tools does for an integration tool.
+### 9.4 OpenTelemetry
+
+An app's telemetry is OpenTelemetry. The host has one tracer
+(`execution/observability/tracer.ts`). Each span it ends goes to `metrics.db`,
+which Insights reads, and, when the owner turns on the export in Settings →
+Telemetry, to the owner's OTLP collector. A call of an app is a span of that
+tracer, so an app needs no export of its own.
+
+| Span (`solus.kind`) | Is | Parent |
+|---|---|---|
+| `app_call` | One call of an operation. Its name is the operation. | The run's `app_run` for a step's operation. For an agent's call, the span that is active at the call, if there is one. None for each other caller. |
+| `app_run` | One execution of a workflow's function. Its name is the workflow. | None. |
+| `app_work` | One thing a call waited for: a request, an integration tool, the SQL total, a file, a signal, a step. | Its call or its run. |
+
+The ids are W3C ids: 32 hexadecimal characters for a trace and 16 for a span.
+The call log keeps them (`trace_id`, `span_id`), and the call detail shows the
+trace id with a copy control, so a person finds the same call at the collector.
+
+The names follow the OpenTelemetry semantic conventions where a convention
+exists. A collector's own HTTP, database, and error views then read an app's
+trace with no mapping.
+
+| On | Attributes |
+|---|---|
+| Each span | The resource (`service.name`, `service.version`), `solus.kind`, `solus.service` (`solus.apps`), `solus.organization_id`, `solus.status`, and the OpenTelemetry status (`OK` or `ERROR`). |
+| `app_call`, `app_run` | `code.function.name` (the operation), `appId`, `appSlug`, `appVersion`, `operationKind`, `caller`, `callId`, `resultBytes`, and by the caller `runId`, `step`, `schedule`, `webhookId`. An agent's call has `solus.session_id`. |
+| A failed call | `error.type`, and an `exception` event with `exception.type`, `exception.message`, and `exception.stacktrace`. |
+| A request (`fetch`) | Span kind `CLIENT`. `http.request.method`, `server.address`, `server.port`, `url.scheme`, `http.response.status_code`. A status of 400 or more is an error with `error.type`, as the HTTP convention says for a client. Never the path or the query. |
+| An integration tool | `mcp.method.name` (`tools/call`), `gen_ai.tool.name`, `integration`. |
+| The SQL total | `db.system.name` (`sqlite`), `db.operation.batch.size`. Never a statement. |
+| A signal | `messaging.operation.type` (`send`), `messaging.destination.name`. |
+| A step | `step`, `attempt`. |
+
+A line the app's code logged is an event of the call's span (`app_log`, with
+`message` and `log.level`). `console.log` has no level in OpenTelemetry: it is
+`info`. Insights shows these lines with the host's own log events.
+
+Two metrics go to the collector when the export of metrics is on:
+`app_call_duration` (a histogram, in milliseconds) and `app_calls_total` (a
+counter). Each has `app`, `operation`, `operation_kind`, `caller`, and
+`outcome`.
+
+Three limits:
+
+- A span of an `app_work` is made when the runner reports it, with the times
+  the runner measured. The spans of a call that the host stopped are the ones
+  the runner reported before the stop.
+- The host sends no `traceparent` header on an app's request to another
+  service. An app's code decides its own headers.
+- A webhook's sender cannot continue its trace into the call. Each call from
+  a webhook, a schedule, or a UI is a trace of its own.
+
+The apps domain does not import the tracer. `apps/app-telemetry.ts` is the
+seam: `boot-server.ts` installs `execution/observability/app-emitter.ts` in
+it. With nothing installed a call runs and has no trace id.
 
 ## 10. Server
 
@@ -520,107 +651,120 @@ to run one, as Settings → Tools does for an integration tool.
 
 | File | Owns |
 |---|---|
-| `data/apps/` | The four records and their scope rules. |
-| `apps/apps.ts` | `Apps`: `deploy`, `activate`, `call`, `read`, `list`, `stop`, `start`, `delete`. |
-| `apps/app-repository.ts` | The two commits of a deploy and the reads of a version's files, over `WorkRepositoryAccess`. |
-| `apps/app-project.ts` | An app project as a deploy reads it: the build in `dist/app/` and the source files. |
+| `data/apps/` | The records and their scope rules. |
+| `apps/apps.ts` | `Apps`: `save`, `deploy`, `activate`, `callOperation`, `call`, `hostRequest`, reads, `stop`, `start`, `delete`. |
+| `apps/app-integrations.ts`, `app-connections.ts`, `app-summaries.ts` | An app's calls to integrations and to the built-in connections, and one app as a list shows it. |
+| `apps/app-repository.ts` | Revisions, the build commit of a version, and reads of a commit's files. |
+| `apps/app-project.ts` | An app project as a save reads it, and a build folder as a deploy reads it. |
+| `apps/app-builder.ts` | The host's build of a revision or of a project folder (decision 4). |
 | `apps/app-runners.ts`, `app-runner-script.ts` | The runner (§6). |
-| `apps/app-schedules.ts` | Schedule rows and the timer (§8). |
-| `apps/app-webhooks.ts` | The webhook records of the webhooks an app declares (§8). |
-| `apps/app-secrets.ts` | The app's secrets in the host's secret store (§4.4). |
-| `apps/app-events.ts` | `apps.changed` and `apps.dataChanged`. |
-| `apps/app-storage.ts` | Storage, and the app's data folder. |
-| `transport/handlers/app-handlers.ts` | `appList`, `appRead`, `appUi`, `appCall`, `appStop`, `appStart`, `appDelete`, `appVersions`, `appVersionDiff`, `appActivate`, `appSchedules`, `appScheduleSet`, `appScheduleRun`, `appSecretSet`, `appWebhooks`, `appCalls`, `appSessions`; the events `apps.changed` and `apps.dataChanged`. |
-| `execution/agents/tools/app-tools.ts` | `deploy_app`, `preview_app`, `checkout_app`, `list_apps`, and the operations of running apps as tools. |
-| `data/sessions/session-artifacts.ts`, `session-link-tools.ts` | The kind `app` in a session's links and its artifact list. |
-
-Reused, not copied: the artifact frame and preview, the `visual-artifacts`
-project and bundler, the integration gateway for an app's calls to
-integrations, the host's secret store, the automations' trigger math, and the
-webhook owner. The repository follows the conventions of a work's local
-repository (`sync/works/local-work-repositories.ts`); the Cloudflare target
-is later (§12).
-
-Removed: the app manifest and its readers in `contracts/src/apps.ts`,
-`app-content.ts`, `app-permissions.ts`, host access and `AppAccessBar`, the
-write prompt in `client-core/app-calls.ts`, the app meta on a work,
-`create_app`, the manifest step of
-`bundle-artifact.mjs`, and the app branches in `ArtifactView`,
-`ArtifactShell`, and `ThreadArtifact`.
+| `apps/app-files.ts` | App files: records, uploads in parts, reads. |
+| `apps/app-workflows.ts` | Runs, receipts, the wake timer, and recovery (§8.3). |
+| `apps/app-signals.ts`, `app-signal-runtime.ts` | Occurrences, signal actions, and delivery (§8.4); what an action reaches in the session runtime and the automation runner. |
+| `apps/app-observability.ts` | What a call keeps, and the metrics read (§9.2). |
+| `apps/app-telemetry.ts`, `execution/observability/app-emitter.ts` | The seam for a call's telemetry, and the calls as OpenTelemetry spans (§9.4). |
+| `apps/app-schedules.ts`, `app-webhooks.ts`, `app-secrets.ts`, `app-storage.ts`, `app-events.ts` | As in the fourth model. |
+| `transport/handlers/app-handlers.ts` | The app RPCs and the events `apps.changed`, `apps.dataChanged`, and `apps.activity`. |
+| `execution/agents/tools/app-tools.ts` | The tools of §7.2 and the operations of running apps as tools. |
 
 ## 11. What was built
 
-All five steps of the build order are done: the app record with deploy,
-versions, the runner, SQLite, storage, and live refresh; operations as agent
-tools and the call log; secrets; schedules and webhooks; versions in the UI
-with the source change of each one.
+Built 2026-11-13 on the server, on desktop and web, and on mobile. No screen
+was driven: the server is tested against a real runner, a real repository, and
+a real `npm` (`tests/unit/app-runners.test.ts`, `apps-service.test.ts`,
+`app-builder.test.ts`), one real project was built by the real bundler and run
+in the real runner by hand, and the clients are proved by type checks and unit
+tests.
+
+What each client has of §9:
+
+| | Desktop and web | Mobile |
+|---|---|---|
+| The App and Manage switch | In the header, with the dot. `⌥G`. | The header button of the app screen, with the problem count. Manage is a pushed screen. |
+| The Manage page | All twelve sections, a rail or a strip by the width of the pane. | All twelve sections: a list of sections with a summary on each row, and a screen for each one. |
+| An app with no UI | Opens on Manage. | Shows its operations; the header button opens Manage. |
+| Signal actions | Add, change, turn off, delete, for the three types. | `notify`: add and change. `send_to_session` and `run_automation`: turn off, turn on, and delete; they are made on desktop or on the web, because the phone has no picker for a session or an automation. |
+| The source change of a version or a revision | Yes. | No, as before. |
+| `@client/save` | A download from the workspace's own document. | The share sheet. |
+| The Apps list | State, version, calls and failed calls of 24 hours, a save that waits, each problem, a Manage button. | State, version, failed calls of 24 hours, the problem count. |
 
 Left out, each for a reason:
 
-- **No form to run an operation of an app with no UI.** Its surface lists the
-  operations. An agent or a schedule calls them.
-- **The header does not say if the host runs all day.** No fact a client reads
-  tells a desktop host from a server.
-- **The app's window is not drawn in the transcript** (§9). A deploy opens the
-  app beside the conversation, and the turn's chips name it.
-- **On a phone** a deploy does not open the app by itself, and there is no
-  link `/app/<slug>`: the chip in the thread opens the app. The Apps list is
-  reached from Settings and from a host's settings, not from a tab of its own.
-  The source change of a version is desktop and web only.
-- **An organization session** cannot link an app: the Solus API holds no app
-  links (§12).
-- **The Calls section** reads again when the app's data changes, not on each
-  call: no event names a call that changed nothing.
+- **Exactly-once steps.** A step runs at least once (decision 23).
+- **A wait for a webhook or a person inside a workflow.** A workflow has
+  steps and sleep. A webhook's mutation starts another run.
+- **A signal that a UI or another app subscribes to.** The owner's signal
+  actions are the only receivers.
+- **A signal action that starts a session by itself.** It runs an automation
+  (§8.4). A new session needs an agent, a model, and a folder, and an
+  automation already holds them.
+- **A URL for an app, other people, accounts, and the cloud copy** (§12).
+- **A `traceparent` header on an app's requests, and a trace that a
+  webhook's sender continues** (§9.4).
+- **A build log that grows while the build runs.** The log is kept when the
+  build ends; the Versions section has "Read again".
+- **Paging of the call log.** A view reads the newest 100 calls and can read
+  500. The log keeps 2,000.
+- **A picker for the session of a `send_to_session` action.** The field takes
+  a session id, as the webhook editor does.
+- **A host with no `npm`.** The host builds with `npm` and Node 22 or later
+  from its path. A host that has neither cannot deploy; it still runs the
+  versions it has.
 
 ## 12. Later
 
 - **The cloud copy.** The Cloudflare Artifacts target for an app's repository,
-  and "install this app on another host" from that copy. The repository access
-  is shared with works, so this is configuration and a move flow, not a new
-  store.
-- **A URL for an app.** The host serves the UI at its own address for a normal
-  browser and for the browser pane, with a sign-in. It needs an origin of its
-  own for each app, or a sandboxed document with a token for its calls, and it
-  must work through the tunnel.
-- **Other people.** An app for a second person needs a runtime that is a real
-  boundary (an isolate or a container for each app), an audience for each app,
-  and secrets that belong to the app and not to its owner. Until then an app
-  is the owner's.
-- **Accounts.** Executor's reusable accounts: one saved credential that several
-  apps use. A secret belongs to one app in this release.
+  and "install this app on another host".
+- **A URL for an app.**
+- **Other people.** A runtime that is a real boundary, an audience for each
+  app, and Executor's two scopes for schedules and credentials (the caller's
+  and the app's).
+- **Accounts.** One saved credential that several apps use.
 - **The source as a project.** Open an app's repository as a Solus project,
-  with sessions, worktrees, and diffs, and deploy from a commit.
+  with sessions, worktrees, and diffs.
+- **A database migration for the host's own tables.** The app tables are in
+  the baseline (`docs/database-schema.md`); a host database from before this
+  model is not opened.
 
 ## 13. Decided
 
-Decided 2026-11-12 by the maintainers, after the first draft of this model:
+Decided 2026-11-12 by the maintainers:
 
-- No approval for an operation, no `writes` permission, and no Allow for a
-  version (decisions 7, 11, and 14).
-- Apps link to sessions (18), and the Workspace page lists apps (19).
-- App schedules are the app's own and show in its menu, not on the
-  Automations page (§8).
-- An app declares its webhooks; the webhook owner runs them and the person
-  copies the URL (15). Executor's `register`, `handle`, and `unregister`
-  callbacks are not taken: the Solus webhook owner already checks the
-  signature, removes duplicates, logs, replays, and holds requests.
-- The third model is removed in step 1 (17).
+- No approval for an operation, and no Allow for a version.
+- Apps link to sessions, and the Workspace page lists apps.
+- App schedules are the app's own, not automations.
+- An app declares its webhooks; the webhook owner runs them. Executor's
+  `register`, `handle`, and `unregister` callbacks are not taken.
+
+Decided 2026-11-13 by the maintainers:
+
+- The runtime gets files that a person uploads, durable steps with retries and
+  sleep, and typed signals out.
+- The host builds. A save and a deploy are separate.
+- Apps get observability and a management UI that is not hidden.
 
 ## 14. The earlier models
 
-**First, 2026-11-11.** A work type `app` whose content was one TSX component,
-run in a prebuilt shell inside the MCP App frame. An app was UI over
-integration tools.
+**First, 2026-11-11.** A work type `app` whose content was one TSX component.
 
 **Second, same day, never merged.** The component or a bundle from a separate
-`apps` skill, with storage, network, and host functions, still in the shell.
+`apps` skill, with storage, network, and host functions.
 
-**Third, 2026-11-11 to 2026-11-12, on `main`.** An app was an `artifact` work
-whose page carried an app manifest: permissions, roles, a server module, and
-sources. It gave an app the artifact pipeline, the app frame, storage, the
-runner, and host access. All of those stay but host access.
+**Third, 2026-11-11 to 2026-11-12.** An `artifact` work whose page carried an
+app manifest. Its code ran only for its own page and only while the page was
+open.
 
-The third model was replaced because the page was the whole app. Its code ran
-only for its own page and only while the page was open, its data was one
-key-value file, its source was a JSON field in a built page, and an agent
-could not call it. A personal cloud needs the opposite of each.
+**Fourth, 2026-11-12 to 2026-11-13.** The app as its own record with
+operations, SQLite, versions, schedules, webhooks, and secrets. It was
+replaced in place by the fifth model because:
+
+- a deploy read a build the agent made, so nothing tied a version's build to
+  its source, and two sessions could overwrite each other;
+- each migration committed by itself, so a failed deploy could leave a schema
+  half changed;
+- a call had 60 seconds, a failed schedule did not retry, and an app could
+  tell nobody that something happened;
+- the call log had no input, no log line, and no time, so an agent could not
+  repair what it could not see;
+- a UI could not take a file from the person;
+- everything an owner does to an app was in a menu over the app.

@@ -42,14 +42,38 @@ CREATE TABLE `app_calls` (
 	`version` integer NOT NULL,
 	`operation` text NOT NULL,
 	`caller` text NOT NULL,
+	`caller_kind` text DEFAULT 'ui' NOT NULL,
 	`started_at` integer NOT NULL,
 	`finished_at` integer,
 	`outcome` text NOT NULL,
 	`error` text,
+	`error_stack` text,
+	`input` text,
+	`input_truncated` integer DEFAULT 0 NOT NULL,
+	`result_bytes` integer,
+	`logs` text DEFAULT '[]' NOT NULL,
+	`logs_truncated` integer DEFAULT 0 NOT NULL,
+	`spans` text DEFAULT '[]' NOT NULL,
+	`run_id` text,
+	`trace_id` text,
+	`span_id` text,
 	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE INDEX `app_calls_by_app` ON `app_calls` (`app_id`,`started_at`,`id`);--> statement-breakpoint
+CREATE INDEX `app_calls_by_run` ON `app_calls` (`run_id`);--> statement-breakpoint
+CREATE TABLE `app_files` (
+	`id` text PRIMARY KEY NOT NULL,
+	`app_id` text NOT NULL,
+	`name` text NOT NULL,
+	`media_type` text NOT NULL,
+	`size` integer NOT NULL,
+	`caller_kind` text NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `app_files_by_app` ON `app_files` (`app_id`,`created_at`,`id`);--> statement-breakpoint
 CREATE TABLE `app_schedules` (
 	`app_id` text NOT NULL,
 	`name` text NOT NULL,
@@ -63,6 +87,30 @@ CREATE TABLE `app_schedules` (
 );
 --> statement-breakpoint
 CREATE INDEX `app_schedules_due` ON `app_schedules` (`next_run_at`);--> statement-breakpoint
+CREATE TABLE `app_signal_actions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`app_id` text NOT NULL,
+	`signal` text NOT NULL,
+	`action` text NOT NULL,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`created_at` integer NOT NULL,
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `app_signal_actions_by_app` ON `app_signal_actions` (`app_id`,`signal`);--> statement-breakpoint
+CREATE TABLE `app_signals` (
+	`id` text PRIMARY KEY NOT NULL,
+	`app_id` text NOT NULL,
+	`name` text NOT NULL,
+	`payload` text NOT NULL,
+	`emitted_at` integer NOT NULL,
+	`call_id` text,
+	`run_id` text,
+	`deliveries` text DEFAULT '[]' NOT NULL,
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `app_signals_by_app` ON `app_signals` (`app_id`,`emitted_at`,`id`);--> statement-breakpoint
 CREATE TABLE `app_versions` (
 	`app_id` text NOT NULL,
 	`number` integer NOT NULL,
@@ -73,11 +121,49 @@ CREATE TABLE `app_versions` (
 	`has_ui` integer NOT NULL,
 	`state` text NOT NULL,
 	`error` text,
+	`build_log` text,
+	`build_ms` integer,
 	`message` text DEFAULT '' NOT NULL,
 	`author` text NOT NULL,
 	`created_at` integer NOT NULL,
 	PRIMARY KEY(`app_id`, `number`),
 	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `app_workflow_runs` (
+	`id` text PRIMARY KEY NOT NULL,
+	`app_id` text NOT NULL,
+	`workflow` text NOT NULL,
+	`input` text NOT NULL,
+	`state` text NOT NULL,
+	`start_key` text,
+	`result` text,
+	`error` text,
+	`wake_at` integer,
+	`started_by` text NOT NULL,
+	`interruptions` integer DEFAULT 0 NOT NULL,
+	`started_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`finished_at` integer,
+	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `app_workflow_runs_by_app` ON `app_workflow_runs` (`app_id`,`started_at`,`id`);--> statement-breakpoint
+CREATE INDEX `app_workflow_runs_by_key` ON `app_workflow_runs` (`app_id`,`workflow`,`start_key`);--> statement-breakpoint
+CREATE INDEX `app_workflow_runs_by_state` ON `app_workflow_runs` (`state`,`wake_at`);--> statement-breakpoint
+CREATE TABLE `app_workflow_steps` (
+	`run_id` text NOT NULL,
+	`name` text NOT NULL,
+	`kind` text NOT NULL,
+	`state` text NOT NULL,
+	`attempts` integer DEFAULT 0 NOT NULL,
+	`result` text,
+	`error` text,
+	`wake_at` integer,
+	`started_at` integer NOT NULL,
+	`finished_at` integer,
+	PRIMARY KEY(`run_id`, `name`),
+	FOREIGN KEY (`run_id`) REFERENCES `app_workflow_runs`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE `apps` (
@@ -89,7 +175,9 @@ CREATE TABLE `apps` (
 	`description` text DEFAULT '' NOT NULL,
 	`active_version` integer,
 	`stopped` integer DEFAULT 0 NOT NULL,
+	`agent_access` integer DEFAULT 1 NOT NULL,
 	`repository` text NOT NULL,
+	`latest_revision` text,
 	`project` text,
 	`author` text NOT NULL,
 	`webhook_ids` text DEFAULT '{}' NOT NULL,

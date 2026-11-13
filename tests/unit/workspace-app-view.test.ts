@@ -6,16 +6,19 @@ import {
   appDeleteConfirmText,
   appSurfacePhase,
   callerText,
-  appMenuSections,
   appProblems,
+  appSurfaceView,
   problemsTone,
+  showsAppViews,
   scheduleLastRunText,
   scheduleNextRunText,
   scheduleTriggerText,
   versionLabel,
   type AppSurfaceFacts,
 } from '@solus/workspace-ui/components/app/lib/app-view'
+import { adjacentManageSection, manageSectionOf, manageSections } from '@solus/workspace-ui/components/app/lib/app-manage'
 import { opensBesideConversation } from '@solus/workspace-ui/components/app/lib/app-deploy'
+import { APP_MANAGE_SECTIONS } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 function app(patch: Partial<AppSummary> = {}): AppSummary {
   return {
@@ -26,7 +29,11 @@ function app(patch: Partial<AppSummary> = {}): AppSummary {
     organizationId: 'local',
     activeVersion: 2,
     latestVersion: 2,
+    latestRevision: 'a'.repeat(40),
+    hasUndeployedRevision: false,
+    buildingVersion: null,
     stopped: false,
+    agentAccess: true,
     hasUi: true,
     operationCount: 2,
     project: null,
@@ -34,13 +41,24 @@ function app(patch: Partial<AppSummary> = {}): AppSummary {
     createdAt: 0,
     updatedAt: 0,
     lastCallAt: null,
+    calls24h: 0,
+    failed24h: 0,
     attention: [],
     ...patch,
   }
 }
 
 function stateOf(summary: AppSummary): AppState {
-  return { app: summary, descriptor: null, roles: [], secrets: [], network: ['api.example.com'], permissionsNotice: null }
+  return {
+    app: summary,
+    descriptor: null,
+    roles: [],
+    secrets: [],
+    network: ['api.example.com'],
+    permissionsNotice: null,
+    runtime: { running: false, startedAt: null, inFlight: 0, rssBytes: null },
+    repositoryPath: '/data/apps/repositories/app_1.git',
+  }
 }
 
 function facts(patch: Partial<AppSurfaceFacts>): AppSurfaceFacts {
@@ -63,43 +81,39 @@ describe('what the app surface shows', () => {
     expect(problemsTone(appProblems(stopped))).toBeNull()
   })
 
-  test('each problem names the section of the menu where the owner acts on it', () => {
-    // WHY: the app surface says no problem over the app. The menu button has a dot and the menu opens the
-    // Problems section, so each row there must lead to the place that fixes it.
+  test('each problem names the section of the Manage page where the owner acts on it', () => {
+    // WHY: the app surface says no problem over the app. The Manage switch has a dot and the Overview
+    // lists the problems, so each row there must lead to the place that fixes it.
     const waiting = app({ attention: [
       { kind: 'secret-missing', detail: 'PostgreSQL URL is not set.' },
       { kind: 'schedule-failed', detail: 'The schedule sync failed: timeout' },
       { kind: 'version-failed', detail: 'Version 2 did not start: no such table' },
+      { kind: 'workflow-failed', detail: 'The run of build failed: step fetch' },
     ] })
     expect(appProblems(waiting).map((problem) => [problem.tone, problem.section])).toEqual([
       ['warning', 'secrets'],
       ['error', 'schedules'],
       ['error', 'versions'],
+      ['error', 'workflows'],
     ])
   })
 
-  test('the dot is a warning for a secret with no value, and an error when a part of the app does not work', () => {
+  test('the dot is amber when the only problems are secrets with no value, and red when a part of the app does not work', () => {
     // WHY: an app works without a secret it does not use (a database browser with SQLite only),
     // so that must not look like a failure of the app.
     const secret = { kind: 'secret-missing', detail: 'PostgreSQL URL is not set.' } as const
     expect(problemsTone(appProblems(app({ attention: [secret] })))).toBe('warning')
     expect(problemsTone(appProblems(app({ attention: [secret, { kind: 'schedule-failed', detail: 'The schedule sync failed.' }] })))).toBe('error')
+    expect(problemsTone(appProblems(app({ attention: [secret, { kind: 'workflow-failed', detail: 'A run failed.' }] })))).toBe('error')
     expect(problemsTone(appProblems(app({})))).toBeNull()
   })
 
-  test('the menu lists Problems while the app has one, and keeps it for the person who reads it', () => {
-    const ids = (count: number, open: Parameters<typeof appMenuSections>[1] = null) => appMenuSections(count, open).map((section) => section.id)
-    expect(ids(0)).not.toContain('problems')
-    expect(ids(2)[0]).toBe('problems')
-    // The last problem went away while the section was open: the section stays and says so.
-    expect(ids(0, 'problems')).toContain('problems')
-  })
-
-  test('the operations, for an app with no UI', () => {
+  test('an app with no UI has no frame: its Manage page is what the owner sees', () => {
     const headless = app({ hasUi: false })
-    expect(appSurfacePhase(facts({ app: headless, state: stateOf(headless), ui: undefined })).kind).toBe('operations')
+    // The state is not needed to say that: the surface does not wait for it.
+    expect(appSurfacePhase(facts({ app: headless, state: undefined, ui: undefined })).kind).toBe('no-ui')
     // The host can also answer that the active version has no UI file.
-    expect(appSurfacePhase(facts({ ui: null })).kind).toBe('operations')
+    expect(appSurfacePhase(facts({ ui: null })).kind).toBe('no-ui')
   })
 
   test('the error of the failed version, when no version is active', () => {
@@ -127,6 +141,66 @@ describe('what the app surface shows', () => {
     expect(appSurfacePhase(facts({ app: undefined, state: undefined, ui: undefined, hostStatus: 'ready' }))).toEqual({ kind: 'error', message: APP_MISSING_TEXT })
     expect(appSurfacePhase(facts({ state: undefined, stateError: 'The host refused.' }))).toEqual({ kind: 'error', message: 'The host refused.' })
     expect(appSurfacePhase(facts({ ui: undefined, uiError: 'No UI answer.' }))).toEqual({ kind: 'error', message: 'No UI answer.' })
+  })
+})
+
+// The app surface has two views (docs/plans/apps.md §9.1): the app, and its Manage page.
+describe('the view the app surface opens on', () => {
+  test('an app with a UI opens on the app, and a route that names Manage opens the Manage page', () => {
+    expect(appSurfaceView(undefined, app())).toBe('app')
+    expect(appSurfaceView('manage', app())).toBe('manage')
+  })
+
+  test('an app with no UI opens on its Manage page', () => {
+    // WHY: an app with only a backend has nothing to draw in a frame. The page where
+    // its owner sees what it does is the only useful view.
+    expect(appSurfaceView(undefined, app({ hasUi: false }))).toBe('manage')
+  })
+
+  test('before the app is known the surface does not jump to Manage', () => {
+    expect(appSurfaceView(undefined, undefined)).toBe('app')
+  })
+
+  test('a view shows only when the surface knows the app and its host is there', () => {
+    // WHY: a Manage page for an app on a host that went away would list old rows and send calls that fail.
+    const known = app()
+    expect(showsAppViews(appSurfacePhase(facts({ app: known })), known)).toBe(true)
+    // No active version is not a reason to hide Manage: the owner deploys a revision there.
+    const undeployed = app({ activeVersion: null })
+    expect(showsAppViews(appSurfacePhase(facts({ app: undeployed, state: undefined, ui: undefined })), undeployed)).toBe(true)
+    expect(showsAppViews(appSurfacePhase(facts({ hostPresent: false })), known)).toBe(false)
+    expect(showsAppViews(appSurfacePhase(facts({ app: undefined, hostStatus: 'ready' })), undefined)).toBe(false)
+  })
+})
+
+describe('the sections of the Manage page', () => {
+  test('the rail and the strip list the same sections, in the order of the plan', () => {
+    // WHY: the strip replaces the rail in a narrow pane. A section that one of them lacks cannot be reached there.
+    expect(manageSections().map((section) => section.id)).toEqual([...APP_MANAGE_SECTIONS])
+    expect(manageSections().map((section) => section.label)).toEqual([
+      'Overview', 'Activity', 'Workflows', 'Versions', 'Schedules', 'Webhooks', 'Signals', 'Secrets', 'Files', 'Operations', 'Sessions', 'Source',
+    ])
+  })
+
+  test('a section has the mark of the worst problem that leads to it', () => {
+    const problems = appProblems(app({ attention: [
+      { kind: 'secret-missing', detail: 'A is not set.' },
+      { kind: 'workflow-failed', detail: 'A run failed.' },
+      { kind: 'stopped', detail: 'The app is stopped.' },
+    ] }))
+    const marks = Object.fromEntries(manageSections(problems).map((section) => [section.id, section.problemTone]))
+    expect(marks.secrets).toBe('warning')
+    expect(marks.workflows).toBe('error')
+    expect(marks.overview).toBeNull()
+    expect(marks.versions).toBeNull()
+  })
+
+  test('the page opens on Overview, and the arrow keys stop at each end', () => {
+    expect(manageSectionOf(undefined)).toBe('overview')
+    expect(manageSectionOf('files')).toBe('files')
+    expect(adjacentManageSection('overview', 1)).toBe('activity')
+    expect(adjacentManageSection('overview', -1)).toBe('overview')
+    expect(adjacentManageSection('source', 1)).toBe('source')
   })
 })
 
@@ -184,6 +258,9 @@ describe('the words of the app surface', () => {
     expect(callerText({ kind: 'schedule', name: 'digest' })).toBe('Schedule digest')
     expect(callerText({ kind: 'webhook', webhookId: 'w1' }, webhooks)).toBe('Webhook issueOpened')
     expect(callerText({ kind: 'webhook', webhookId: 'gone' }, webhooks)).toBe('A webhook')
+    // A row with an empty step is one execution of the workflow's function, not a call of a step.
+    expect(callerText({ kind: 'workflow', runId: 'r1', workflow: 'build', step: '' })).toBe('Run of build')
+    expect(callerText({ kind: 'workflow', runId: 'r1', workflow: 'build', step: 'save' })).toBe('Step save of build')
   })
 
   test('the delete confirmation names everything that goes with the app', () => {

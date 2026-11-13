@@ -23,9 +23,10 @@ import { useAppChange, useAppState, useHostRead } from "./use-app";
 /**
  * One app (docs/plans/apps.md §9): its UI in all of the screen, under a
  * header with its name, its host, and the version that runs. The header
- * button opens the app's sheet. An app with no UI shows its operations; an
- * app with no active version shows why its deploy failed. A stopped app
- * still opens, and says that it is stopped, with Start.
+ * button opens the app's Manage screen, and carries the count of the app's
+ * problems: nothing is drawn over the app for a problem. An app with no UI
+ * shows its operations; an app with no active version shows why its deploy
+ * failed. A stopped app still opens, and says that it is stopped, with Start.
  */
 export function AppScreen({ navigation, route }: ScreenProps<"App">) {
   const { hostId, appId } = route.params;
@@ -35,8 +36,10 @@ export function AppScreen({ navigation, route }: ScreenProps<"App">) {
   // change of the app's data, so the UI runs its queries again.
   const sessionGeneration = useListened(app.connections.changes, () => app.connections.state(hostId)?.sessionGeneration ?? 0);
   const [dataChanges, setDataChanges] = useState(0);
-  const { state, connected, isDeleted, reload } = useAppState(hostId, appId, (event) => {
-    if (event === "data-changed") setDataChanges((count) => count + 1);
+  const { state, connected, isDeleted, reload } = useAppState(hostId, appId, {
+    onEvent: (event) => {
+      if (event.kind === "data-changed") setDataChanges((count) => count + 1);
+    },
   });
   const loaded = state.kind === "loaded" && !isDeleted ? state.value : null;
   const problemCount = loaded ? appProblemCount(loaded.app) : 0;
@@ -51,7 +54,7 @@ export function AppScreen({ navigation, route }: ScreenProps<"App">) {
         actions={[
           {
             accessibilityLabel: manageAppLabel(problemCount),
-            icon: "ellipsis",
+            icon: "slider.horizontal.3",
             badge: problemCount > 0 ? { value: String(problemCount) } : undefined,
             disabled: !loaded,
             onPress: () => {
@@ -65,7 +68,13 @@ export function AppScreen({ navigation, route }: ScreenProps<"App">) {
       {isDeleted ? (
         <EmptyState variant="plain" title="This app no longer exists." detail="It was deleted on its host." />
       ) : loaded ? (
-        <LoadedApp key={loaded.app.id} hostId={hostId} state={loaded} dataVersion={dataChanges + sessionGeneration} />
+        <LoadedApp
+          key={loaded.app.id}
+          hostId={hostId}
+          state={loaded}
+          dataVersion={dataChanges + sessionGeneration}
+          onOpenVersions={() => navigation.navigate("AppSection", { hostId, appId: loaded.app.id, section: "versions" })}
+        />
       ) : !connected ? (
         <EmptyState variant="plain" title="This host is not connected." detail="Connect this host to open the app." />
       ) : state.kind === "error" ? (
@@ -114,7 +123,12 @@ function StoppedBanner(props: {
 }
 
 /** What the app shows under its header: the frame of its UI, its operations, or why no version runs. */
-function LoadedApp(props: { readonly hostId: string; readonly state: AppState; readonly dataVersion: number }) {
+function LoadedApp(props: {
+  readonly hostId: string;
+  readonly state: AppState;
+  readonly dataVersion: number;
+  readonly onOpenVersions: () => void;
+}) {
   const { hostId, state } = props;
   const insets = useSafeAreaInsets();
   const shown = appBody(state);
@@ -140,7 +154,12 @@ function LoadedApp(props: { readonly hostId: string; readonly state: AppState; r
       <EmptyState
         variant="plain"
         title="No version of this app runs."
-        detail={shown.error ?? "Its deploy did not succeed. Ask an agent to deploy it again."}
+        detail={
+          shown.error ??
+          (shown.waitsForDeploy ? "A save waits for a deploy." : "Its deploy did not succeed. Ask an agent to deploy it again.")
+        }
+        actionLabel="Open Versions"
+        onAction={props.onOpenVersions}
       />
     );
   }

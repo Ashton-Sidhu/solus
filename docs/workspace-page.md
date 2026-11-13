@@ -58,11 +58,17 @@ where it runs, as a tab; in the cloud console it opens the session's record.
 
 ## Apps
 
-An app card shows the app's name, its host, its active version (`v3`), the
-name of the folder it was first deployed from, when it was last called, and
-what needs the reader: a version that did not start, a secret that is not set,
-a schedule whose last run failed, or that the app is stopped. A card opens the
-app as the destination. The address `/folio/apps` opens the page on this tab.
+An app card shows the app's name, its host, its state (running, stopped, no
+version, or building), its active version (`v3`), its calls and failed calls
+of the last 24 hours, the name of the folder it was first saved from, when it
+was last called, a mark when a save waits for a deploy, and what needs the
+reader: a version that failed, a secret that is not set, or a schedule or a
+workflow whose last run failed. Each of those is a button to the section of
+the app's Manage page where the reader acts. A card opens the app as the
+destination, and its Manage button opens the Manage page (`docs/apps.md`).
+The address `/folio/apps` opens the page on this tab.
+If the host omits call counts, the card shows “Call counts unavailable”. It
+does not treat missing counts as zero. Mobile uses the same text in Activity.
 The tab reads the apps store (`contexts/apps/apps.store.svelte.ts`), which
 loads after the first paint and reads again on `apps.changed`. The search, the
 sort, and the Project and Time facets apply. An empty tab says that an agent

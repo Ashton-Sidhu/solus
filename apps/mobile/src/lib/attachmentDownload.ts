@@ -83,7 +83,7 @@ async function availableSharing(signal: AbortSignal) {
 }
 
 /** A new cache folder for one file. Folders older than a day go when the next one is made. */
-async function createCachedAttachmentFile(attachment: AttachmentFileMetadata) {
+export async function createCachedAttachmentFile(attachment: AttachmentFileMetadata) {
   const { Directory, File, Paths } = await import("expo-file-system");
   const { randomUUID } = await import("expo-crypto");
   const cache = new Directory(Paths.cache, ATTACHMENT_DOWNLOAD_DIRECTORY);

@@ -5,12 +5,16 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { APP_DATA_CHANGED_MESSAGE } from "@solus/client-core/app-calls";
 
-import { useApp } from "../../app/app-context";
 import { AppText as Text } from "../../components/AppText";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { artifactThemeCss, artifactThemeScript, isArtifactDocumentUrl, isExternalLink } from "../threads/artifact-frame";
+import { saveAppFile } from "./app-device-files";
 import { appDocument, appMessageScript, relayAppCall } from "./app-frame";
+import { useAppHostCall } from "./use-app";
+
+/** What this client answers itself (`@client`): a file the UI gives the person opens the share sheet. */
+const CLIENT_ANSWERS = { save: saveAppFile };
 
 /**
  * The app frame (docs/plans/apps.md §9): the UI of an app in all of the
@@ -18,6 +22,11 @@ import { appDocument, appMessageScript, relayAppCall } from "./app-frame";
  * change is posted into it, so the UI keeps its state. Each call of the UI
  * goes to the app's host, and a change of the app's data is posted into the
  * UI, so its queries run again. A link that leaves the app opens in the browser.
+ *
+ * A file goes in through the UI's own `<input type="file">`: the web view
+ * opens the phone's file chooser for it on iOS and on Android, needs no prop
+ * for that, and no prop below refuses it. A file comes out through
+ * `@client/save`, which opens the share sheet.
  */
 export function AppFrame(props: {
   readonly hostId: string;
@@ -30,8 +39,7 @@ export function AppFrame(props: {
   /** Grows each time the app's data changed outside this frame. */
   readonly dataVersion: number;
 }) {
-  const { hostId, appId } = props;
-  const app = useApp();
+  const callHost = useAppHostCall(props.hostId, props.appId);
   const { themeAppearance } = useAppearancePreferences();
   const canvas = useUniwindTheme()["--color-screen"];
   const themeCss = artifactThemeCss(themeAppearance, canvas, true);
@@ -60,12 +68,6 @@ export function AppFrame(props: {
     postedDataVersion.current = props.dataVersion;
     webView.current?.injectJavaScript(appMessageScript(APP_DATA_CHANGED_MESSAGE));
   }, [loaded, props.dataVersion]);
-
-  const callHost = (name: string, argumentsJson: string) => {
-    const current = app.connections.connection(hostId);
-    if (!current) return Promise.reject(new Error("This app's host is not connected."));
-    return current.api.appCall({ appId, name, argumentsJson });
-  };
 
   // A UI that keeps crashing its web process is not reloaded forever.
   const restart = () => {
@@ -109,7 +111,7 @@ export function AppFrame(props: {
           if (isExternalLink(url)) void Linking.openURL(url);
         }}
         onMessage={(event: WebViewMessageEvent) => {
-          void relayAppCall(event.nativeEvent.data, callHost).then((script) => {
+          void relayAppCall(event.nativeEvent.data, callHost, CLIENT_ANSWERS).then((script) => {
             if (script) webView.current?.injectJavaScript(script);
           });
         }}

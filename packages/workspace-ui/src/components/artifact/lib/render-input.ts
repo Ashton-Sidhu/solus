@@ -78,6 +78,7 @@ const RENDER_SHORTCUT_BINDINGS: ReadonlySet<BindingId> = new Set<BindingId>([
   "global.toggle-sidebar",
   "global.toggle-project-panel",
   "pane.maximize",
+  "app-surface.toggle-manage",
   "global.toggle-diff-panel",
   "global.toggle-files",
   "global.toggle-workspace",

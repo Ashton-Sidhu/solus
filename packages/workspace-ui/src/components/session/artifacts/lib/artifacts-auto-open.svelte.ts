@@ -18,7 +18,7 @@ export function onScreenSessionId(shell: Pick<AutoOpenShell, 'router' | 'activeT
  * The open does not take the keyboard from the pane the user is in.
  * Call once from the component that hosts the workspace.
  */
-export function useArtifactsAutoOpen(shell: AutoOpenShell): void {
+export function useArtifactsAutoOpen(shell: AutoOpenShell, enabled: () => boolean): void {
   $effect(() => {
     const sessionId = onScreenSessionId(shell)
     if (sessionId) sessionArtifactsStore.ensure(shell.serverIdForSession(sessionId), sessionId)
@@ -26,7 +26,7 @@ export function useArtifactsAutoOpen(shell: AutoOpenShell): void {
 
   $effect(() =>
     sessionArtifactsStore.onChange((change) => {
-      if (!shouldOpenArtifacts(change.previousCount, change.count)) return
+      if (!shouldOpenArtifacts(change.previousCount, change.count, enabled())) return
       if (onScreenSessionId(shell) !== change.sessionId) return
       const focusedPaneId = shell.router.focusedPaneId
       if (opensBehindNewestItem(change.newestKey)) {

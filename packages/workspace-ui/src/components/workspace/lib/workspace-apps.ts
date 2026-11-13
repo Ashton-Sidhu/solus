@@ -1,13 +1,16 @@
-import type { AppAttention, AppSummary } from '@solus/contracts/apps'
+import type { AppSummary } from '@solus/contracts/apps'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import { projectKeyLabel } from '@solus/client-core/project-identity'
 import type { AppRow } from '../../../contexts/apps/apps.store.svelte'
+import { appProblems, type AppProblem } from '../../app/lib/app-view'
+import { appRunState, type AppRunState } from '../../app/manage/lib/overview'
 import { bucketFor, inTimeBucket, type SortOrder, type WorkspaceFilter } from './workspace-items'
 
 /**
  * One app as the Apps tab of the Workspace page shows it (docs/plans/apps.md
- * §9, docs/workspace-page.md): the host that runs it, its active version, the
- * project it was first deployed from, its last call, and what needs the owner.
+ * §9.3, docs/workspace-page.md): the host that runs it, its state, its active
+ * version, the calls of the last 24 hours, the project it was first saved
+ * from, its last call, and what needs the owner.
  */
 export interface WorkspaceAppItem {
   rowKey: string
@@ -21,6 +24,13 @@ export interface WorkspaceAppItem {
   hostLabel: string
   /** The version that runs; null when no deploy succeeded yet. */
   activeVersion: number | null
+  /** Running, stopped, with no version, or with a version that the host builds now. */
+  state: AppRunState
+  /** The calls of the last 24 hours, and how many of them failed. */
+  calls24h: number
+  failed24h: number
+  /** The newest revision has no version: a save waits for a deploy. */
+  hasUndeployedRevision: boolean
   /** The logical project the app belongs to, in the key space the works use; empty with no project. */
   projectKey: string
   /** The project's name in the Project filter. */
@@ -30,7 +40,8 @@ export interface WorkspaceAppItem {
   lastCallAt: number | null
   /** When the app last moved: its last change or its last call, epoch ms. */
   timestamp: number
-  attention: AppAttention[]
+  /** What needs the owner, each with the section of the Manage page where they act. Stopped is the state, not a problem. */
+  problems: AppProblem[]
   app: AppSummary
 }
 
@@ -58,12 +69,16 @@ export function buildWorkspaceAppItems(rows: readonly AppRow[], sources: Workspa
       description: app.description,
       hostLabel: sources.hostLabel(serverId),
       activeVersion: app.activeVersion,
+      state: appRunState(app),
+      calls24h: app.calls24h,
+      failed24h: app.failed24h,
+      hasUndeployedRevision: app.hasUndeployedRevision,
       projectKey,
       projectLabel: projectKey ? labels.get(projectKey) || projectKeyLabel(projectKey) || 'No project' : 'No project',
       folderName: app.project ? hostPathBaseName(app.project) || app.project : '',
       lastCallAt: app.lastCallAt,
       timestamp: Math.max(app.updatedAt, app.lastCallAt ?? 0),
-      attention: app.attention,
+      problems: appProblems(app),
       app,
     }
   })
@@ -120,6 +135,15 @@ export function appProjectOptions(items: WorkspaceAppItem[]): { value: string; l
 }
 
 /** How many apps each Time option holds. */
+/** The calls of the last 24 hours in a few words: "No calls", "12 calls", "12 calls, 2 failed". */
+export function calls24hText(item: Pick<WorkspaceAppItem, 'calls24h' | 'failed24h'>): string {
+  // A connected host can run an older version that does not send these counts.
+  if (!Number.isFinite(item.calls24h) || !Number.isFinite(item.failed24h)) return 'Call counts unavailable'
+  if (item.calls24h === 0) return 'No calls in 24 hours'
+  const calls = item.calls24h === 1 ? '1 call' : `${item.calls24h.toLocaleString()} calls`
+  return item.failed24h === 0 ? `${calls} in 24 hours` : `${calls} in 24 hours, ${item.failed24h.toLocaleString()} failed`
+}
+
 export function appTimeCounts(items: WorkspaceAppItem[], now = new Date()) {
   const counts = { today: 0, yesterday: 0, week: 0, older: 0 }
   for (const item of items) {

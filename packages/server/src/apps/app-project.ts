@@ -1,13 +1,13 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { appDescriptorSchema, type AppDescriptor } from '@solus/contracts/apps'
+import { APP_PROTOCOLS, appDescriptorSchema, type AppDescriptor } from '@solus/contracts/apps'
 import { z } from 'zod'
 import type { AppFile } from './app-repository'
 
 /**
- * An app project as a deploy reads it (docs/plans/apps.md §3): the build that
- * `npm run bundle` wrote into `dist/app/`, and the project's own files, which
- * become the source commit.
+ * An app project as the host reads it (docs/plans/apps.md §3): its own files,
+ * which a save commits as a revision; where it came from (`.solus/app.json`);
+ * and the build that the bundler wrote into `dist/app/` of a build folder.
  */
 
 /** Where a build is in a project. */
@@ -26,7 +26,7 @@ const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024
 
 /** Folders that are never source: what a tool installed or built. */
-const SKIPPED_FOLDERS = new Set(['node_modules', 'dist', '.git', '.artifact', '.cache', '.turbo'])
+const SKIPPED_FOLDERS = new Set(['node_modules', 'dist', '.git', '.artifact', '.cache', '.turbo', '.solus'])
 const SKIPPED_FILES = new Set(['bundle.html', '.DS_Store'])
 
 /** A migration's name: four digits, an underscore, a name, `.sql`. Its order is its number. */
@@ -60,18 +60,22 @@ async function readOptional(path: string, limit: number, what: string): Promise<
 export async function readAppBuild(project: string): Promise<AppBuild> {
   const folder = join(project, APP_BUILD_FOLDER)
   const descriptorText = await readOptional(join(folder, DESCRIPTOR_FILE), MAX_BACKEND_BYTES, 'The descriptor')
-  if (descriptorText === null) throw new AppProjectError(`This folder has no app build: ${APP_BUILD_FOLDER}/${DESCRIPTOR_FILE} is missing. Run \`npm run bundle\` in the app project, which needs an app.ts.`)
+  if (descriptorText === null) throw new AppProjectError(`The build wrote no ${APP_BUILD_FOLDER}/${DESCRIPTOR_FILE}. An app project needs an app.ts next to package.json.`)
   let descriptorJson: z.infer<ReturnType<typeof z.json>>
   try {
     descriptorJson = z.json().parse(JSON.parse(descriptorText))
   } catch {
-    throw new AppProjectError('The descriptor is not JSON. Run `npm run bundle` again.')
+    throw new AppProjectError('The descriptor the build wrote is not JSON.')
+  }
+  const protocol = z.object({ solusApp: z.number() }).safeParse(descriptorJson)
+  if (protocol.success && !APP_PROTOCOLS.some((known) => known === protocol.data.solusApp)) {
+    throw new AppProjectError(`This build has protocol ${protocol.data.solusApp}. This host runs the protocols ${APP_PROTOCOLS.join(' and ')}. Update Solus on this host, or use the app template of this host's version.`)
   }
   const descriptor = appDescriptorSchema.safeParse(descriptorJson)
   if (!descriptor.success) throw new AppProjectError(`The descriptor is not valid: ${z.prettifyError(descriptor.error)}`)
   const backend = await readOptional(join(folder, BACKEND_FILE), MAX_BACKEND_BYTES, 'The backend module')
   const ui = await readOptional(join(folder, UI_FILE), MAX_UI_BYTES, 'The UI')
-  if (descriptor.data.operations.length > 0 && backend === null) throw new AppProjectError(`The descriptor declares operations, and ${APP_BUILD_FOLDER}/${BACKEND_FILE} is missing. Run \`npm run bundle\` again.`)
+  if ((descriptor.data.operations.length > 0 || descriptor.data.workflows.length > 0) && backend === null) throw new AppProjectError(`The descriptor declares operations, and the build wrote no ${APP_BUILD_FOLDER}/${BACKEND_FILE}.`)
   if (backend === null && ui === null) throw new AppProjectError('This app has no UI and no operation. Add a UI in src/, or an operation in app.ts.')
   return { descriptor: descriptor.data, backend, ui, migrations: await readMigrations(join(folder, MIGRATIONS_FOLDER)) }
 }
@@ -119,4 +123,32 @@ export async function readProjectSource(project: string): Promise<AppFile[]> {
   }
   await walk(project, '')
   return files
+}
+
+// ─── Where a project came from (decision 7) ───
+
+const ORIGIN_FILE = '.solus/app.json'
+
+/** The app a project folder is for, and the revision its files came from; `revision` is null before the first save. */
+export interface AppProjectOrigin {
+  app: string
+  revision: string | null
+}
+
+const originSchema = z.object({ app: z.string().min(1), revision: z.string().regex(/^[a-f0-9]{40}$/).nullable() })
+
+/** What `checkout_app` or the last `save_app` wrote into the project; null for a folder with no such file. */
+export async function readProjectOrigin(project: string): Promise<AppProjectOrigin | null> {
+  const text = await readFile(join(project, ORIGIN_FILE), 'utf8').catch(() => null)
+  if (text === null) return null
+  try {
+    return originSchema.parse(JSON.parse(text))
+  } catch {
+    throw new AppProjectError(`${ORIGIN_FILE} of this project is not what Solus wrote. Delete it, and check the app out again into a new folder.`)
+  }
+}
+
+export async function writeProjectOrigin(project: string, origin: AppProjectOrigin): Promise<void> {
+  await mkdir(join(project, '.solus'), { recursive: true })
+  await writeFile(join(project, ORIGIN_FILE), `${JSON.stringify(origin, null, 2)}\n`)
 }

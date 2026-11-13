@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
-import type { AppScheduleView, AppState, AppSummary, AppUi } from '@solus/contracts/apps'
+import type { AppCallView, AppDeployReceipt, AppRevisionView, AppRunDetail, AppScheduleView, AppSignalView, AppState, AppSummary, AppUi } from '@solus/contracts/apps'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -14,7 +14,11 @@ function app(id: string, patch: Partial<AppSummary> = {}): AppSummary {
     organizationId: 'local',
     activeVersion: 1,
     latestVersion: 1,
+    latestRevision: 'a'.repeat(40),
+    hasUndeployedRevision: false,
+    buildingVersion: null,
     stopped: false,
+    agentAccess: true,
     hasUi: true,
     operationCount: 1,
     project: '/repo',
@@ -22,13 +26,24 @@ function app(id: string, patch: Partial<AppSummary> = {}): AppSummary {
     createdAt: 1,
     updatedAt: 1,
     lastCallAt: null,
+    calls24h: 0,
+    failed24h: 0,
     attention: [],
     ...patch,
   }
 }
 
 function stateOf(summary: AppSummary): AppState {
-  return { app: summary, descriptor: null, roles: [], secrets: [], network: [], permissionsNotice: null }
+  return {
+    app: summary,
+    descriptor: null,
+    roles: [],
+    secrets: [],
+    network: [],
+    permissionsNotice: null,
+    runtime: { running: false, startedAt: null, inFlight: 0, rssBytes: null },
+    repositoryPath: '/data/apps/repositories/notes.git',
+  }
 }
 
 /** A promise a test settles when it chooses, to order two answers. */
@@ -269,7 +284,7 @@ describe('events of an app', () => {
   })
 })
 
-describe('the lists of the app menu', () => {
+describe('the lists of the Manage page', () => {
   const schedule = (enabled: boolean): AppScheduleView => ({
     name: 'digest',
     trigger: { type: 'interval', everyMinutes: 60 },
@@ -309,5 +324,237 @@ describe('the lists of the app menu', () => {
     store.applyChange('a', { kind: 'saved', app: app('notes') })
     await Promise.resolve()
     expect(scheduleReads).toBe(0)
+  })
+})
+
+/** Lets the reads that an event started settle. */
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 5; turn++) await Promise.resolve()
+}
+
+function call(id: string, patch: Partial<AppCallView> = {}): AppCallView {
+  return { id, version: 1, operation: 'list', caller: { kind: 'ui' }, startedAt: 1, finishedAt: 2, outcome: 'ok', error: null, durationMs: 1, logCount: 0, spanCount: 0, traceId: null, spanId: null, ...patch }
+}
+
+describe('the activity of an app', () => {
+  /** Counts each read the store makes, by the method it calls. */
+  function countedHost(extra: Partial<HostApi> = {}) {
+    const reads: string[] = []
+    const count = <Value>(name: string, value: Value) => async () => {
+      reads.push(name)
+      return value
+    }
+    stubHosts({
+      a: {
+        appCalls: async (request) => {
+          reads.push(request.runId ? 'runCalls' : 'calls')
+          return []
+        },
+        appCallRead: count('callDetail', null),
+        appMetrics: count('metrics', { since: 0, calls: 0, failed: 0, p50Ms: null, p95Ms: null, hours: [], operations: [] }),
+        appRuns: count('runs', []),
+        appRunRead: count('runDetail', null),
+        appSignals: count('signals', []),
+        appSignalOccurrences: count('occurrences', []),
+        appFiles: count('files', []),
+        ...extra,
+      },
+    })
+    return reads
+  }
+
+  test('each kind of activity reads again what a view shows of it, and nothing else', async () => {
+    // WHY: the host says that an app's activity changed up to twice in one second. A Manage page that
+    // shows the call log must not read the runs, the occurrences, and the files each time.
+    const reads = countedHost()
+    const store = new AppsStore()
+    const release = [
+      store.calls.watch('a', 'notes'), store.metrics.watch('a', 'notes'), store.runs.watch('a', 'notes'),
+      store.signals.watch('a', 'notes'), store.occurrences.watch('a', 'notes'), store.files.watch('a', 'notes'),
+    ]
+    await settle()
+    reads.length = 0
+
+    store.applyActivity('a', { appId: 'notes', kinds: ['calls'] })
+    await settle()
+    expect(reads.sort()).toEqual(['calls', 'metrics'])
+
+    reads.length = 0
+    store.applyActivity('a', { appId: 'notes', kinds: ['runs'] })
+    await settle()
+    expect(reads).toEqual(['runs'])
+
+    reads.length = 0
+    store.applyActivity('a', { appId: 'notes', kinds: ['signals', 'files'] })
+    await settle()
+    expect(reads.sort()).toEqual(['files', 'occurrences', 'signals'])
+
+    // Another app's activity, and the same app on another host, read nothing here.
+    reads.length = 0
+    store.applyActivity('a', { appId: 'budget', kinds: ['calls', 'runs', 'signals', 'files'] })
+    store.applyActivity('b', { appId: 'notes', kinds: ['calls'] })
+    await settle()
+    expect(reads).toEqual([])
+    for (const stop of release) stop()
+  })
+
+  test('a list that no view shows now is not read, even when a view loaded it before', async () => {
+    // WHY: a person opens the Manage page once and goes back to the app. An app that a schedule calls
+    // each minute must not make this client read its call log for the rest of the day.
+    const reads = countedHost()
+    const store = new AppsStore()
+    const release = store.calls.watch('a', 'notes')
+    await settle()
+    release()
+    reads.length = 0
+
+    store.applyActivity('a', { appId: 'notes', kinds: ['calls'] })
+    await settle()
+    expect(reads).toEqual([])
+    // What the view read stays, so the page opens again on it while the next read runs.
+    expect(store.calls.get('a', 'notes')).toEqual([])
+  })
+
+  test('the open call and the open run are read again with their lists', async () => {
+    const reads = countedHost()
+    const store = new AppsStore()
+    const release = [store.callDetail.watch('a', 'notes', 'c1'), store.runDetail.watch('a', 'notes', 'r1'), store.runCalls.watch('a', 'notes', 'r1')]
+    await settle()
+    reads.length = 0
+
+    store.applyActivity('a', { appId: 'notes', kinds: ['calls', 'runs'] })
+    await settle()
+    expect(reads.sort()).toEqual(['callDetail', 'runCalls', 'runDetail'])
+    for (const stop of release) stop()
+  })
+
+  test('changes that come while a read is in flight make one more read, not one for each change', async () => {
+    const answers: ReturnType<typeof deferred<AppCallView[]>>[] = []
+    stubHosts({ a: { appCalls: () => { const answer = deferred<AppCallView[]>(); answers.push(answer); return answer.promise } } })
+    const store = new AppsStore()
+    const release = store.calls.watch('a', 'notes')
+    for (let change = 0; change < 5; change++) store.applyActivity('a', { appId: 'notes', kinds: ['calls'] })
+    expect(answers).toHaveLength(1)
+
+    answers[0]!.resolve([call('old')])
+    await settle()
+    expect(answers).toHaveLength(2)
+    answers[1]!.resolve([call('new')])
+    await settle()
+    expect(answers).toHaveLength(2)
+    expect(store.calls.get('a', 'notes')?.map((row) => row.id)).toEqual(['new'])
+    release()
+  })
+
+  test('the filters go to the host, and the rows of another filter are not shown under the new one', async () => {
+    // WHY: the host applies the filters. Failed calls only, with the rows of every outcome still on screen, is a lie.
+    const requests: object[] = []
+    const failed = deferred<AppCallView[]>()
+    stubHosts({ a: { appCalls: (request) => { requests.push(request); return request.outcome === 'failed' ? failed.promise : Promise.resolve([call('ok-1')]) } } })
+    const store = new AppsStore()
+    await store.calls.load('a', 'notes', { limit: 100 })
+    expect(store.calls.get('a', 'notes')?.map((row) => row.id)).toEqual(['ok-1'])
+
+    const read = store.calls.load('a', 'notes', { limit: 100, outcome: 'failed', operation: 'save', callerKind: 'schedule' })
+    expect(store.calls.get('a', 'notes')).toBeUndefined()
+    expect(requests.at(-1)).toEqual({ appId: 'notes', limit: 100, outcome: 'failed', operation: 'save', callerKind: 'schedule' })
+    failed.resolve([call('failed-1', { outcome: 'failed' })])
+    await read
+    expect(store.calls.get('a', 'notes')?.map((row) => row.id)).toEqual(['failed-1'])
+    // A view that opens again starts from the filters it left.
+    expect(store.calls.queryFor('a', 'notes')).toEqual({ limit: 100, outcome: 'failed', operation: 'save', callerKind: 'schedule' })
+  })
+
+  test('the log of a run asks the host for the calls of that run', async () => {
+    const requests: object[] = []
+    stubHosts({ a: { appCalls: async (request) => { requests.push(request); return [call('exec', { operation: 'build', caller: { kind: 'workflow', runId: 'r1', workflow: 'build', step: '' } })] } } })
+    const store = new AppsStore()
+    await store.runCalls.load('a', 'notes', 'r1')
+    expect(requests).toEqual([{ appId: 'notes', runId: 'r1', limit: 100 }])
+    expect(store.runCalls.get('a', 'notes')?.[0]?.operation).toBe('build')
+  })
+})
+
+describe('changes of an app that the Manage page shows', () => {
+  const revision = (commit: string): AppRevisionView => ({ commit: commit.repeat(40), message: 'Save', savedAt: 1, versions: [] })
+
+  test('a change of the app reads the revisions again, with the versions', async () => {
+    // WHY: a save makes a revision and a deploy makes a version. The timeline of the Versions section joins the two.
+    let revisions = [revision('a')]
+    const reads: string[] = []
+    stubHosts({
+      a: {
+        appRevisions: async () => { reads.push('revisions'); return revisions },
+        appVersions: async () => { reads.push('versions'); return [] },
+        appSignals: async () => { reads.push('signals'); return [] },
+      },
+    })
+    const store = new AppsStore()
+    await Promise.all([store.revisions.load('a', 'notes'), store.versions.load('a', 'notes')])
+    reads.length = 0
+
+    revisions = [revision('b'), revision('a')]
+    store.applyChange('a', { kind: 'saved', app: app('notes', { hasUndeployedRevision: true }) })
+    await settle()
+    expect(reads.sort()).toEqual(['revisions', 'versions'])
+    expect(store.revisions.get('a', 'notes')).toHaveLength(2)
+  })
+
+  test('a deploy answers with the app, and reads the timeline again', async () => {
+    const receipt: AppDeployReceipt = { app: app('notes', { activeVersion: 2, latestVersion: 2 }), version: 2, active: true, error: null }
+    const requests: object[] = []
+    const reads: string[] = []
+    stubHosts({
+      a: {
+        appDeploy: async (request) => { requests.push(request); return receipt },
+        appRevisions: async () => { reads.push('revisions'); return [] },
+        appVersions: async () => { reads.push('versions'); return [] },
+      },
+    })
+    const store = new AppsStore()
+    await Promise.all([store.revisions.load('a', 'notes'), store.versions.load('a', 'notes')])
+    reads.length = 0
+
+    expect(await store.deploy('a', 'notes', 'c'.repeat(40))).toBe(receipt)
+    await settle()
+    expect(requests).toEqual([{ appId: 'notes', commit: 'c'.repeat(40) }])
+    expect(store.get('a', 'notes')?.app.activeVersion).toBe(2)
+    expect(reads.sort()).toEqual(['revisions', 'versions'])
+
+    // With no commit the host deploys the newest revision.
+    await store.deploy('a', 'notes')
+    expect(requests.at(-1)).toEqual({ appId: 'notes' })
+  })
+
+  test('the answer of a signal action is newer than a read of the signals in flight', async () => {
+    const signal = (enabled: boolean): AppSignalView => ({
+      name: 'report.ready', description: '', payload: {}, lastEmittedAt: null, count24h: 0,
+      actions: [{ id: 'act_1', signal: 'report.ready', enabled, action: { type: 'notify', title: '', detail: '' } }],
+    })
+    const slowRead = deferred<AppSignalView[]>()
+    const saves: object[] = []
+    stubHosts({ a: { appSignals: () => slowRead.promise, appSignalActionSave: async (request) => { saves.push(request); return [signal(false)] } } })
+    const store = new AppsStore()
+    const read = store.signals.load('a', 'notes')
+    await store.saveSignalAction('a', 'notes', 'report.ready', { type: 'notify', title: '', detail: '' }, false, 'act_1')
+    slowRead.resolve([signal(true)])
+    await read
+    expect(store.signals.get('a', 'notes')?.[0]?.actions[0]?.enabled).toBe(false)
+    expect(saves).toEqual([{ appId: 'notes', signal: 'report.ready', enabled: false, actionId: 'act_1', action: { type: 'notify', title: '', detail: '' } }])
+  })
+
+  test('Terminate answers with the run a view shows, and reads the list of runs again', async () => {
+    const run = (state: AppRunDetail['state']): AppRunDetail => ({
+      id: 'r1', workflow: 'build', state, startedAt: 1, updatedAt: 2, finishedAt: state === 'running' ? null : 3, wakeAt: null, error: null,
+      startedBy: { kind: 'ui' }, stepCount: 0, input: '{}', result: null, key: null, steps: [],
+    })
+    let listReads = 0
+    stubHosts({ a: { appRunRead: async () => run('running'), appRunTerminate: async () => run('terminated'), appRuns: async () => { listReads++; return [] } } })
+    const store = new AppsStore()
+    await store.runDetail.load('a', 'notes', 'r1')
+    await store.terminateRun('a', 'notes', 'r1')
+    await settle()
+    expect(store.runDetail.get('a', 'notes')?.state).toBe('terminated')
+    expect(listReads).toBe(1)
   })
 })

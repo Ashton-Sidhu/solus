@@ -119,4 +119,11 @@ describe('native notifications hub', () => {
   test('a resource the app has no screen for says where it opens', () => {
     expect(nativeDestination({ resource: { kind: 'task', taskId: 't' }, facts: { kind: 'task.assigned' } })).toEqual({ kind: 'unsupported', message: 'This app does not show tasks yet. Open it in Solus on your computer or on the web.' })
   })
+
+  test('the notification of an app signal opens the app, by its id on the host that sent it', () => {
+    // WHY: a `notify` signal action tells the owner that their app did something (docs/plans/apps.md §8.4).
+    // The slug can be taken again after a delete; the id names the app that emitted.
+    expect(nativeDestination({ resource: { kind: 'app', appId: 'app-1', slug: 'reports' }, facts: { kind: 'app.signal', signal: 'report.ready' } }))
+      .toEqual({ kind: 'app', appId: 'app-1' })
+  })
 })

@@ -1,6 +1,6 @@
 import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
-import type { AppsChangedEvent } from './apps'
+import type { AppActivityEvent, AppsChangedEvent } from './apps'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
 import type { CheckoutChange } from './checkout'
@@ -87,6 +87,8 @@ export interface HostEventMap {
   'apps.changed': AppsChangedEvent
   /** A mutation changed an app's data: each open UI of the app runs its queries again. */
   'apps.dataChanged': { appId: string }
+  /** An app's call log, runs, occurrences, or files changed: a Manage page reads its open section again. At most one for each app in 500 ms. */
+  'apps.activity': AppActivityEvent
   /** A short summary of one delivery, never the body (docs/plans/webhooks.md §5). */
   'webhook.delivery': WebhookDeliverySummary
   'provider.deviceCodeReceived': DeviceCodePrompt
@@ -262,6 +264,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'webhook.changed': { owner: 'webhooks', category: 'delta', recovery: 'reload', description: 'A webhook was saved or deleted.' },
   'apps.changed': { owner: 'apps', category: 'delta', recovery: 'reload', description: 'An app was deployed, changed, stopped, started, or deleted.' },
   'apps.dataChanged': { owner: 'apps', category: 'invalidation', recovery: 'reload', description: "A mutation changed an app's data." },
+  'apps.activity': { owner: 'apps', category: 'invalidation', recovery: 'reload', description: "An app's call log, runs, occurrences, or files changed." },
   'webhook.delivery': { owner: 'webhooks', category: 'delta', recovery: 'reload', description: 'A webhook delivery arrived or its actions finished.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },

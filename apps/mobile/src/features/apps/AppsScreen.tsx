@@ -13,9 +13,11 @@ import { appListItem, EMPTY_NOTE, UNSUPPORTED_NOTE } from "./apps";
 import { useApps, type HostApps } from "./use-apps";
 
 /**
- * The Apps list (docs/plans/apps.md §9): the apps of one host, or of every
- * host this device knows, one section for each host. A row opens the app. A
- * phone does not make an app: an agent deploys it.
+ * The Apps list (docs/plans/apps.md §9.3): the apps of one host, or of every
+ * host this device knows, one section for each host. A row says the app's
+ * state, its version, its failed calls of 24 hours, and how many problems
+ * need the owner, and opens the app. A phone does not make an app: an agent
+ * deploys it.
  */
 export function AppsScreen({ navigation, route }: ScreenProps<"Apps">) {
   const onlyHostId = route.params?.hostId ?? null;
@@ -67,7 +69,7 @@ function HostAppsSection(props: {
               key={app.id}
               first={index === 0}
               title={item.title}
-              trailing={item.trailing}
+              trailing={item.trailing ?? undefined}
               lines={item.lines}
               onPress={() => props.onOpen(app.id)}
             />

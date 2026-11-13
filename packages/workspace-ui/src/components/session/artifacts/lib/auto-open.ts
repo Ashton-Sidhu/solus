@@ -5,8 +5,8 @@ import type { SessionArtifactsChange } from '../../../../contexts/sessions/sessi
  * only when a later read finds more artifacts than the one before. The first
  * read (`previous` null) is a load, not news, and a fall is never news.
  */
-export function shouldOpenArtifacts(previous: number | null, next: number): boolean {
-  return previous !== null && next > previous
+export function shouldOpenArtifacts(previous: number | null, next: number, enabled: boolean): boolean {
+  return enabled && previous !== null && next > previous
 }
 
 /**

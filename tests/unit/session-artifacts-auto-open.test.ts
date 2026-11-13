@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { personalSettingsWithDefaults, personalSettingsDocumentSchema } from '@solus/contracts/settings'
+import { initialLocation, openSurface, companionOf } from '@solus/workspace-ui/contexts/workspace/routing/location'
 import {
   HIGHLIGHT_WINDOW_MS,
   highlightedArtifactKey,
@@ -7,14 +9,19 @@ import {
 } from '@solus/workspace-ui/components/session/artifacts/lib/auto-open'
 
 describe('artifacts auto-open rule', () => {
+  test('new artifacts do not open the surface unless enabled', () => {
+    expect(shouldOpenArtifacts(0, 1, false)).toBe(false)
+    expect(shouldOpenArtifacts(2, 5, false)).toBe(false)
+  })
+
   test('opens only when a later read finds more artifacts', () => {
     // WHY: new output is news worth showing beside the conversation; the first
     // read (a load or an app reload) is not, and a fall never is.
-    expect(shouldOpenArtifacts(null, 3)).toBe(false)
-    expect(shouldOpenArtifacts(0, 1)).toBe(true)
-    expect(shouldOpenArtifacts(2, 5)).toBe(true)
-    expect(shouldOpenArtifacts(3, 3)).toBe(false)
-    expect(shouldOpenArtifacts(3, 2)).toBe(false)
+    expect(shouldOpenArtifacts(null, 3, true)).toBe(false)
+    expect(shouldOpenArtifacts(0, 1, true)).toBe(true)
+    expect(shouldOpenArtifacts(2, 5, true)).toBe(true)
+    expect(shouldOpenArtifacts(3, 3, true)).toBe(false)
+    expect(shouldOpenArtifacts(3, 2, true)).toBe(false)
   })
 })
 
@@ -42,4 +49,19 @@ describe('newest row highlight', () => {
     expect(highlightedArtifactKey({ ...rise, previousCount: null }, 1000)).toBeNull()
     expect(highlightedArtifactKey(null, 1000)).toBeNull()
   })
+})
+
+test('automatic opening defaults off and is a valid personal preference', () => {
+  expect(personalSettingsWithDefaults({}).autoOpenArtifacts).toBe(false)
+  const document = personalSettingsDocumentSchema.parse({ autoOpenArtifacts: true })
+  expect(personalSettingsWithDefaults(document).autoOpenArtifacts).toBe(true)
+})
+
+test('Artifacts opens in a narrow companion pane and keeps a resized pane', () => {
+  const location = initialLocation()
+  openSurface(location, { name: 'artifacts', params: { sessionId: 's' } })
+  expect(companionOf(location)?.defaultSize).toBe(26)
+  companionOf(location)!.defaultSize = 42
+  openSurface(location, { name: 'artifacts', params: { sessionId: 'other' } })
+  expect(companionOf(location)?.defaultSize).toBe(42)
 })

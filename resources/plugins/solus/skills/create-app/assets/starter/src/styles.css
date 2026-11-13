@@ -1,0 +1,60 @@
+@import "tailwindcss" source(".");
+
+/* The app's own theme: a quiet cream page, hairline borders, and a dark
+   green accent. The page's `color-scheme` follows Solus, so `light-dark()`
+   gives each color its value for the open mode. Change this block first when
+   you make the starter into your app: an app has its own identity. */
+@theme {
+  --color-page: light-dark(#fafaf8, #151614);
+  --color-surface: light-dark(#ffffff, #1c1d1b);
+  --color-field: light-dark(#fafaf8, #171816);
+  --color-ink: light-dark(#232321, #ecebe6);
+  --color-ink-soft: light-dark(#85857d, #a09f97);
+  --color-ink-faint: light-dark(#a1a197, #74746c);
+  --color-line: light-dark(#e8e8e2, #2b2c29);
+  --color-line-strong: light-dark(#deded7, #353632);
+  --color-accent: light-dark(#303d34, #a9c7b1);
+  --color-accent-ink: light-dark(#ffffff, #132018);
+  --color-live: light-dark(#659674, #7fb58e);
+  --color-mark: light-dark(#80917e, #8fa58c);
+  --color-danger: light-dark(#a74636, #f0806b);
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  html, body {
+    margin: 0;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button {
+    cursor: pointer;
+    font: inherit;
+  }
+
+  button:disabled {
+    cursor: default;
+  }
+
+  input {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-mark);
+    outline-offset: 2px;
+  }
+
+  dialog::backdrop {
+    background: rgb(20 20 18 / 0.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

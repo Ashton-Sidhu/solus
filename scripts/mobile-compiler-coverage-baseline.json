@@ -574,6 +574,12 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/apps/sections/ConfigSection.tsx": {
+      "compiled": [
+        "ConfigSection"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/apps/use-app.ts": {
       "compiled": [
         "useAppChange",

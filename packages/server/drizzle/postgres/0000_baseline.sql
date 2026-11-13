@@ -37,10 +37,31 @@ CREATE TABLE "app_calls" (
 	"version" integer NOT NULL,
 	"operation" text NOT NULL,
 	"caller" text NOT NULL,
+	"caller_kind" text DEFAULT 'ui' NOT NULL,
 	"started_at" bigint NOT NULL,
 	"finished_at" bigint,
 	"outcome" text NOT NULL,
-	"error" text
+	"error" text,
+	"error_stack" text,
+	"input" text,
+	"input_truncated" boolean DEFAULT false NOT NULL,
+	"result_bytes" integer,
+	"logs" text DEFAULT '[]' NOT NULL,
+	"logs_truncated" boolean DEFAULT false NOT NULL,
+	"spans" text DEFAULT '[]' NOT NULL,
+	"run_id" text,
+	"trace_id" text,
+	"span_id" text
+);
+--> statement-breakpoint
+CREATE TABLE "app_files" (
+	"id" text PRIMARY KEY NOT NULL,
+	"app_id" text NOT NULL,
+	"name" text NOT NULL,
+	"media_type" text NOT NULL,
+	"size" bigint NOT NULL,
+	"caller_kind" text NOT NULL,
+	"created_at" bigint NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "app_schedules" (
@@ -54,6 +75,26 @@ CREATE TABLE "app_schedules" (
 	CONSTRAINT "app_schedules_app_id_name_pk" PRIMARY KEY("app_id","name")
 );
 --> statement-breakpoint
+CREATE TABLE "app_signal_actions" (
+	"id" text PRIMARY KEY NOT NULL,
+	"app_id" text NOT NULL,
+	"signal" text NOT NULL,
+	"action" text NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" bigint NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "app_signals" (
+	"id" text PRIMARY KEY NOT NULL,
+	"app_id" text NOT NULL,
+	"name" text NOT NULL,
+	"payload" text NOT NULL,
+	"emitted_at" bigint NOT NULL,
+	"call_id" text,
+	"run_id" text,
+	"deliveries" text DEFAULT '[]' NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "app_versions" (
 	"app_id" text NOT NULL,
 	"number" integer NOT NULL,
@@ -64,10 +105,43 @@ CREATE TABLE "app_versions" (
 	"has_ui" boolean NOT NULL,
 	"state" text NOT NULL,
 	"error" text,
+	"build_log" text,
+	"build_ms" integer,
 	"message" text DEFAULT '' NOT NULL,
 	"author" text NOT NULL,
 	"created_at" bigint NOT NULL,
 	CONSTRAINT "app_versions_app_id_number_pk" PRIMARY KEY("app_id","number")
+);
+--> statement-breakpoint
+CREATE TABLE "app_workflow_runs" (
+	"id" text PRIMARY KEY NOT NULL,
+	"app_id" text NOT NULL,
+	"workflow" text NOT NULL,
+	"input" text NOT NULL,
+	"state" text NOT NULL,
+	"start_key" text,
+	"result" text,
+	"error" text,
+	"wake_at" bigint,
+	"started_by" text NOT NULL,
+	"interruptions" integer DEFAULT 0 NOT NULL,
+	"started_at" bigint NOT NULL,
+	"updated_at" bigint NOT NULL,
+	"finished_at" bigint
+);
+--> statement-breakpoint
+CREATE TABLE "app_workflow_steps" (
+	"run_id" text NOT NULL,
+	"name" text NOT NULL,
+	"kind" text NOT NULL,
+	"state" text NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"result" text,
+	"error" text,
+	"wake_at" bigint,
+	"started_at" bigint NOT NULL,
+	"finished_at" bigint,
+	CONSTRAINT "app_workflow_steps_run_id_name_pk" PRIMARY KEY("run_id","name")
 );
 --> statement-breakpoint
 CREATE TABLE "apps" (
@@ -79,7 +153,9 @@ CREATE TABLE "apps" (
 	"description" text DEFAULT '' NOT NULL,
 	"active_version" integer,
 	"stopped" boolean DEFAULT false NOT NULL,
+	"agent_access" boolean DEFAULT true NOT NULL,
 	"repository" text NOT NULL,
+	"latest_revision" text,
 	"project" text,
 	"author" text NOT NULL,
 	"webhook_ids" text DEFAULT '{}' NOT NULL,
@@ -542,8 +618,13 @@ CREATE TABLE "workspace_projects" (
 );
 --> statement-breakpoint
 ALTER TABLE "app_calls" ADD CONSTRAINT "app_calls_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_files" ADD CONSTRAINT "app_files_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_schedules" ADD CONSTRAINT "app_schedules_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_signal_actions" ADD CONSTRAINT "app_signal_actions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_signals" ADD CONSTRAINT "app_signals_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_versions" ADD CONSTRAINT "app_versions_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_workflow_runs" ADD CONSTRAINT "app_workflow_runs_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app_workflow_steps" ADD CONSTRAINT "app_workflow_steps_run_id_app_workflow_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."app_workflow_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "webhook_deliveries" ADD CONSTRAINT "webhook_deliveries_webhook_id_webhooks_id_fk" FOREIGN KEY ("webhook_id") REFERENCES "public"."webhooks"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "work_live_docs" ADD CONSTRAINT "work_live_docs_work_id_works_id_fk" FOREIGN KEY ("work_id") REFERENCES "public"."works"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "work_reviewers" ADD CONSTRAINT "work_reviewers_work_id_works_id_fk" FOREIGN KEY ("work_id") REFERENCES "public"."works"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -555,7 +636,14 @@ CREATE INDEX "acl_entry_by_subject" ON "acl_entry" USING btree ("subject_kind","
 CREATE INDEX "activity_by_subject" ON "activity" USING btree ("subject_kind","subject_id","at","id");--> statement-breakpoint
 CREATE INDEX "activity_for_user" ON "activity" USING btree ("user_id","at","id");--> statement-breakpoint
 CREATE INDEX "app_calls_by_app" ON "app_calls" USING btree ("app_id","started_at","id");--> statement-breakpoint
+CREATE INDEX "app_calls_by_run" ON "app_calls" USING btree ("run_id");--> statement-breakpoint
+CREATE INDEX "app_files_by_app" ON "app_files" USING btree ("app_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "app_schedules_due" ON "app_schedules" USING btree ("next_run_at");--> statement-breakpoint
+CREATE INDEX "app_signal_actions_by_app" ON "app_signal_actions" USING btree ("app_id","signal");--> statement-breakpoint
+CREATE INDEX "app_signals_by_app" ON "app_signals" USING btree ("app_id","emitted_at","id");--> statement-breakpoint
+CREATE INDEX "app_workflow_runs_by_app" ON "app_workflow_runs" USING btree ("app_id","started_at","id");--> statement-breakpoint
+CREATE INDEX "app_workflow_runs_by_key" ON "app_workflow_runs" USING btree ("app_id","workflow","start_key");--> statement-breakpoint
+CREATE INDEX "app_workflow_runs_by_state" ON "app_workflow_runs" USING btree ("state","wake_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "apps_by_slug" ON "apps" USING btree ("slug");--> statement-breakpoint
 CREATE INDEX "apps_by_creator" ON "apps" USING btree ("organization_id","created_by");--> statement-breakpoint
 CREATE INDEX "comment_threads_position" ON "comment_threads" USING btree ("organization_id","subject_kind","subject_id","subject_part","position","thread_id");--> statement-breakpoint

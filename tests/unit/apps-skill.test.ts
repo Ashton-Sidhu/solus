@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { appDescriptorSchema, parseAppCallName } from '@solus/contracts/apps'
-import { defineApp, mutation, query, webhookRequest } from '../../resources/plugins/solus/skills/visual-artifacts/assets/react/src/solus-app-backend'
+import { initApp } from '../../resources/plugins/solus/skills/create-app/scripts/init-app.mjs'
+import { assembleHtml } from '../../resources/plugins/solus/skills/visual-artifacts/scripts/bundle-artifact.mjs'
+import { APP_FILE_CHUNK_BYTES, APP_PROTOCOL, appDescriptorSchema, parseAppCallName } from '@solus/contracts/apps'
+import { defineApp, mutation, query, signal, webhookRequest, workflow, NonRetryableError } from '../../resources/plugins/solus/skills/visual-artifacts/assets/react/src/solus-app-backend'
 
 /**
  * An app is built by the visual-artifacts skill on the agent's side and run by
@@ -71,6 +75,32 @@ describe('the app build and the contract', () => {
     expect(read.operations[1]?.input).toMatchObject({ required: ['title'] })
   })
 
+  test('the template writes the protocol the host runs now, with what the fifth model adds', () => {
+    // WHY: the template and the host share no code. A template that writes a
+    // protocol the host does not run fails every deploy, and a field the
+    // contract does not read is lost with no message.
+    const definition = defineApp({
+      name: 'Reports',
+      instructions: 'Call list first.',
+      signals: { 'report.ready': signal({ description: 'A report is ready.', payload: z.object({ title: z.string() }) }) },
+      operations: {
+        list: query({ output: z.array(z.object({ title: z.string() })) }, () => []),
+        importCsv: mutation({ input: z.object({ fileId: z.string() }), timeoutSeconds: 300 }, () => null),
+      },
+      workflows: { build: workflow({ description: 'Makes one report.', input: z.object({ title: z.string() }) }, async () => null) },
+    })
+    const read = appDescriptorSchema.parse(definition.descriptor())
+    expect(read.solusApp).toBe(APP_PROTOCOL)
+    expect(read.instructions).toBe('Call list first.')
+    expect(read.signals).toEqual([{ name: 'report.ready', description: 'A report is ready.', payload: expect.objectContaining({ required: ['title'] }) }])
+    expect(read.workflows).toEqual([{ name: 'build', description: 'Makes one report.', input: expect.objectContaining({ required: ['title'] }) }])
+    expect(read.operations[0]?.output).toMatchObject({ type: 'array' })
+    expect(read.operations[1]).toMatchObject({ timeoutSeconds: 300 })
+    expect(read.operations[1]).not.toHaveProperty('output')
+    // The runner tells this error from one that more attempts can help by its name.
+    expect(new NonRetryableError('x').name).toBe('NonRetryableError')
+  })
+
   test('an app with no operation has an empty descriptor, not an error', () => {
     expect(appDescriptorSchema.parse(defineApp({ name: 'Board' }).descriptor())).toMatchObject({ name: 'Board', operations: [] })
   })
@@ -87,6 +117,8 @@ describe('the names the project\'s module posts', () => {
     await app.storage.delete('view')
     await app.storage.keys()
     await app.tools.linear.list_issues({ team: 'ENG' })
+    await app.files.list()
+    await app.files.remove('file-1')
     expect(sent.map((call) => parseAppCallName(call.name))).toEqual([
       { kind: 'operation', name: 'list' },
       { kind: 'operation', name: 'save' },
@@ -95,8 +127,40 @@ describe('the names the project\'s module posts', () => {
       { kind: 'storage', operation: 'delete' },
       { kind: 'storage', operation: 'keys' },
       { kind: 'tool', slug: 'linear', tool: 'list_issues' },
+      { kind: 'files', operation: 'list' },
+      { kind: 'files', operation: 'remove' },
     ])
     expect(sent[0]?.args).toEqual({ limit: 5 })
+  })
+
+  test('a file crosses in parts that the server reads, and a file for the person goes to the client', async () => {
+    // WHY: the template slices a file, and the server puts the parts
+    // together. If the two do not agree on the size of a part or on a name,
+    // every upload of every app fails.
+    sent.length = 0
+    const answers: { [name: string]: unknown } = { '@files/begin': { uploadId: 'u1' }, '@files/commit': { id: 'f1', name: 'big.bin', type: 'application/octet-stream', size: 0, createdAt: 0 }, '@files/read': { data: btoa('hello'), nextOffset: null } }
+    // SAFETY: the module's host is this test's own object.
+    ;(globalThis as unknown as { window: { solusApp: { call: (name: string, args: object) => Promise<unknown> } } }).window.solusApp.call = async (name, args) => {
+      sent.push({ name, args })
+      return answers[name] ?? null
+    }
+    const bytes = new Uint8Array(APP_FILE_CHUNK_BYTES + 10).fill(7)
+    const progress: number[] = []
+    await app.files.upload(new Blob([bytes]), 'big.bin', (fraction) => progress.push(fraction))
+    expect(sent.map((call) => parseAppCallName(call.name))).toEqual([
+      { kind: 'files', operation: 'begin' }, { kind: 'files', operation: 'chunk' }, { kind: 'files', operation: 'chunk' }, { kind: 'files', operation: 'commit' },
+    ])
+    expect(sent[0]?.args).toEqual({ name: 'big.bin', type: 'application/octet-stream', size: APP_FILE_CHUNK_BYTES + 10 })
+    // SAFETY: a chunk call has these fields.
+    const parts = sent.slice(1, 3).map((call) => call.args as { index: number; data: string })
+    expect(parts.map((part) => [part.index, atob(part.data).length])).toEqual([[0, APP_FILE_CHUNK_BYTES], [1, 10]])
+    expect(progress.at(-1)).toBe(1)
+
+    sent.length = 0
+    await app.files.saveAs('export.csv', 'a,b\n')
+    expect(parseAppCallName(sent[0]?.name ?? '')).toEqual({ kind: 'client', operation: 'save' })
+    expect(sent[0]?.args).toMatchObject({ name: 'export.csv', data: btoa('a,b\n') })
+    expect(await (await app.files.read('f1')).text()).toBe('hello')
   })
 
   test('a tool path with no tool names nothing to call', async () => {
@@ -104,20 +168,80 @@ describe('the names the project\'s module posts', () => {
   })
 })
 
-describe('the chapter and the project template', () => {
-  test('every module of Solus that the chapter imports is a file the template has', () => {
-    // WHY: an agent copies the chapter's imports. A name the template does not
-    // resolve fails the build, or sends the agent to npm for a package that is
-    // not there. The chapter named a control kit once; the kit is gone.
-    const skill = join(import.meta.dir, '../../resources/plugins/solus/skills/visual-artifacts')
-    const chapter = readFileSync(join(skill, 'references/apps.md'), 'utf8')
-    const config: { compilerOptions: { paths: { [name: string]: string[] } } } = JSON.parse(readFileSync(join(skill, 'assets/react/tsconfig.json'), 'utf8'))
-    const imported = new Set([...chapter.matchAll(/from '(@solus\/[a-z/-]+)'/g)].map((match) => match[1]!))
+describe('the create-app skill and the project template', () => {
+  const skills = join(import.meta.dir, '../../resources/plugins/solus/skills')
+  const createApp = join(skills, 'create-app')
+  const template = join(skills, 'visual-artifacts/assets/react')
+
+  test('every module of Solus that the skill imports is a file the template has', () => {
+    // WHY: an agent copies the skill's imports and the starter's. A name the
+    // template does not resolve fails the build, or sends the agent to npm for
+    // a package that is not there. The chapter named a control kit once; the kit is gone.
+    const texts = [
+      join(createApp, 'SKILL.md'),
+      ...readdirSync(join(createApp, 'references')).map((name) => join(createApp, 'references', name)),
+      join(createApp, 'assets/starter/app.ts'),
+      ...readdirSync(join(createApp, 'assets/starter/src')).map((name) => join(createApp, 'assets/starter/src', name)),
+    ].map((path) => readFileSync(path, 'utf8'))
+    const config: { compilerOptions: { paths: { [name: string]: string[] } } } = JSON.parse(readFileSync(join(template, 'tsconfig.json'), 'utf8'))
+    const imported = new Set(texts.flatMap((text) => [...text.matchAll(/from '(@solus\/[a-z/-]+)'/g)].map((match) => match[1]!)))
 
     expect([...imported].sort()).toEqual(['@solus/app', '@solus/app/backend'])
     for (const name of imported) {
       const file = config.compilerOptions.paths[name]?.[0]
-      expect(file !== undefined && existsSync(join(skill, 'assets/react', file))).toBe(true)
+      expect(file !== undefined && existsSync(join(template, file))).toBe(true)
+    }
+  })
+
+  test('a new app project is the starter app on the template, ready to build', async () => {
+    // WHY: an agent starts every app from what the initializer writes. If the
+    // starter loses the template's build script, its modules, or its page
+    // markers, the agent's first build fails before it writes any code.
+    const directory = mkdtempSync(join(tmpdir(), 'solus-create-app-'))
+    try {
+      const project = await initApp(join(directory, 'notes'), { install: false })
+      for (const file of ['app.ts', 'migrations/0001_notes.sql', 'src/App.tsx', 'src/schema.ts', 'src/solus-app.ts', 'src/solus-app-backend.ts', 'tsconfig.json', '.artifact/bundle-artifact.mjs']) {
+        expect(existsSync(join(project, file))).toBe(true)
+      }
+      expect(readFileSync(join(project, 'src/App.tsx'), 'utf8')).toContain("appClient<typeof app>()")
+      expect(() => assembleHtml(readFileSync(join(project, 'index.html'), 'utf8'), '', '')).not.toThrow()
+      const manifest: { scripts: { bundle: string } } = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'))
+      expect(manifest.scripts.bundle).toBe('node .artifact/bundle-artifact.mjs')
+      await expect(initApp(project, { install: false })).rejects.toThrow()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('the starter app declares what its UI calls, in a descriptor Solus reads', async () => {
+    // WHY: the starter is the example every app copies. A starter that the
+    // host refuses, or whose UI calls an operation it does not declare, teaches
+    // each new app the same failure.
+    const backend = join(template, 'src/solus-app-backend.ts')
+    const built = await Bun.build({
+      entrypoints: [join(createApp, 'assets/starter/app.ts')],
+      target: 'node',
+      format: 'cjs',
+      plugins: [{ name: 'solus-app', setup: (build) => { build.onResolve({ filter: /^@solus\/app\/backend$/ }, () => ({ path: backend })) } }],
+    })
+    const directory = mkdtempSync(join(tmpdir(), 'solus-create-app-build-'))
+    try {
+      const file = join(directory, 'backend.cjs')
+      writeFileSync(file, await built.outputs[0]!.text())
+      const loaded = createRequire(file)(file)
+      const read = appDescriptorSchema.parse((loaded.default ?? loaded).descriptor())
+      expect(read.solusApp).toBe(APP_PROTOCOL)
+      expect(read.operations.map((operation) => [operation.name, operation.kind])).toEqual([['list', 'query'], ['get', 'query'], ['add', 'mutation'], ['remove', 'mutation']])
+      // An agent chooses the tool by its description and reads its output shape.
+      for (const operation of read.operations) {
+        expect(operation.description).not.toBe('')
+        expect(operation.output).toBeDefined()
+      }
+      const ui = readFileSync(join(createApp, 'assets/starter/src/App.tsx'), 'utf8')
+      const called = new Set([...ui.matchAll(/api\.(?:useQuery|mutate|query)\('([a-zA-Z]+)'/g)].map((match) => match[1]))
+      expect([...called].sort()).toEqual(['add', 'get', 'list', 'remove'])
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 })

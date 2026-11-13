@@ -43,6 +43,8 @@ export type Scope =
   | 'snapshot-lightbox'
   /** The browser pane while it has focus: its own sub-page keys. */
   | 'browser-pane'
+  /** The app surface while it has focus: the switch between the app and its Manage page. */
+  | 'app-surface'
   /** First-run onboarding. Exclusive and empty: while it is up nothing behind
    *  it may fire, so the shortcuts stage can invite real key presses without
    *  the real commands running under the overlay. */

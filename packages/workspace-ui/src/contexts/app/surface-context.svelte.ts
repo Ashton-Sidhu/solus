@@ -118,6 +118,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   // Plans, works, and other destinations.
   | 'openPlanModal'
   | 'openApp'
+  | 'openAppManage'
   | 'openPlanFromDescriptor'
   | 'resumeSessionFromDescriptor'
   | 'loadPlanContent'

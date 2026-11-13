@@ -97,14 +97,21 @@ An app (docs/plans/apps.md §4.1) is a record on the host that runs it.
 
 | Table | Key | Holds |
 |---|---|---|
-| `apps` | `id` | One app: `slug` (unique on the host), `name`, `active_version`, `stopped`, `repository` (the name of its git repository), `project`, `webhook_ids` (the webhook record of each webhook it declares) |
-| `app_versions` | (`app_id`, `number`) | One immutable version: `source_commit`, `build_commit`, `descriptor` (what the build declares), `state` (`active`, `superseded`, `failed`), `error` |
+| `apps` | `id` | One app: `slug` (unique on the host), `name`, `active_version`, `stopped`, `agent_access`, `repository` (the name of its git repository), `latest_revision` (the commit its source is at), `project`, `webhook_ids` (the webhook record of each webhook it declares) |
+| `app_versions` | (`app_id`, `number`) | One immutable version: `source_commit` (the revision it was built from), `build_commit`, `descriptor` (what the build declares), `state` (`building`, `active`, `superseded`, `failed`), `error`, `build_log`, `build_ms` |
 | `app_schedules` | (`app_id`, `name`) | The state of one schedule the active version declares: `enabled`, `next_run_at`, and how the last run ended |
-| `app_calls` | `id` | The call log: `operation`, `caller`, times, `outcome`. Never an input or a result. The newest 2,000 of each app. |
+| `app_calls` | `id` | The call log: `operation`, `caller`, `caller_kind`, times, `outcome`, `error`, `error_stack`, the start of the `input`, `result_bytes`, `logs`, `spans`, `run_id`, and `trace_id` and `span_id` (the call's OpenTelemetry span in `metrics.db`). Never a result or a secret. The newest 2,000 of each app. |
+| `app_files` | `id` | One app file: `name`, `media_type`, `size`, `caller_kind` (the kind of caller that made it). Its bytes are in the app's `blobs/` folder, by this id. |
+| `app_workflow_runs` | `id` | One run of a workflow: `workflow`, `input`, `state` (`running`, `sleeping`, `succeeded`, `failed`, `terminated`), `start_key`, `result`, `error`, `wake_at`, `started_by`, `interruptions`. The newest 500 finished runs of each app. |
+| `app_workflow_steps` | (`run_id`, `name`) | The receipt of one step: `kind`, `state`, `attempts`, `result`, `error`, `wake_at`. A run that starts again answers a finished step from it. |
+| `app_signals` | `id` | One occurrence of a signal: `name`, `payload`, `call_id`, `run_id`, and `deliveries` (how each signal action ended). The newest 1,000 of each app. |
+| `app_signal_actions` | `id` | One signal action: `signal`, `action`, `enabled` |
 
 An app's source and builds are in its git repository, its data is in its own
 folder, and its secrets are in the host's secret store. A session's link to an
-app is an edge of `resource_links` with `target_kind = 'app'`.
+app is an edge of `resource_links` with `target_kind = 'app'`. A row of
+`app_calls` whose caller is `workflow` with no step is one execution of a
+run's function. The commands delete an app's rows in every table with the app.
 
 ## Relationships
 

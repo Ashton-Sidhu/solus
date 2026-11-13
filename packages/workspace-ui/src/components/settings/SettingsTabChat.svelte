@@ -68,6 +68,21 @@
   </SettingsRow>
 
   <SettingsRow
+    label="Open artifacts automatically"
+    description="Open Artifacts beside the conversation when new items arrive."
+    visible={isVisible("auto-open-artifacts")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.autoOpenArtifacts}
+        onCheckedChange={(next) => theme.setPersonal("autoOpenArtifacts", next)}
+        size="default"
+        aria-label="Open artifacts automatically"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
     label="Show tool calls"
     description="Off shows only the agent's messages, questions, and cards."
     visible={isVisible("show-tool-calls")}

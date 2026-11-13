@@ -3,7 +3,9 @@
   import { LayoutGrid as AppIcon, Play as StartIcon } from "@lucide/svelte";
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
+  import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { toasts } from "../../lib/toasts";
   import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -14,22 +16,29 @@
   import { Button } from "../ui/button";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import AppMenu from "./AppMenu.svelte";
-  import AppOperations from "./AppOperations.svelte";
+  import AppViewStack from "./AppViewStack.svelte";
+  import AppViewSwitch from "./AppViewSwitch.svelte";
+  import { manageSectionOf } from "./lib/app-manage";
   import {
     APP_HOST_GONE_TEXT,
+    APP_NO_UI_TEXT,
     appDeleteConfirmText,
     appSurfacePhase,
+    appSurfaceView,
     appProblems,
     problemsTone,
+    showsAppViews,
     versionLabel,
-    type AppMenuSection,
+    type AppSurfaceView,
   } from "./lib/app-view";
 
   /**
-   * One app (docs/plans/apps.md §9): a header with its name, its active
-   * version, and its menu, over the app frame, which gets all of the pane. An app with no UI shows its operations.
+   * One app (docs/plans/apps.md §9.1): a header with its name, its active
+   * version, the switch between App and Manage, and its menu, over the app
+   * frame, which gets all of the pane. The route owns the view and the section
+   * of the Manage page, so a link opens one and the reader comes back to it.
    */
-  let { params, paneId }: RouteSurfaceProps<"app"> = $props();
+  let { params, paneId, surfaceVisible = true }: RouteSurfaceProps<"app"> = $props();
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
@@ -62,6 +71,8 @@
     }),
   );
   const problems = $derived(app ? appProblems(app) : []);
+  const view = $derived(appSurfaceView(params.view, app));
+  const section = $derived(manageSectionOf(params.section));
 
   // What the frame needs of the app: the hosts its policy allows, and the host call behind its bridge.
   const frameApp = $derived.by(() => {
@@ -72,14 +83,44 @@
     return { network, call: (name: string, argumentsJson: string) => appsStore.call(hostId, appId, name, argumentsJson) };
   });
 
-  let menuSection = $state<AppMenuSection | null>(null);
   let isBusy = $state(false);
   let reloadKey = $state(0);
+  /** The Manage page was opened with the keyboard: it takes the keyboard. */
+  let manageTakesFocus = $state(false);
 
-  function closeMenu() {
-    menuSection = null;
-    requestInputFocus();
+  /**
+   * Shows one view, in the pane this surface is in. The route keeps the section
+   * a reader left while the app shows, so Manage opens on it again.
+   */
+  function show(nextView: AppSurfaceView, nextSection: AppManageSection | undefined = params.section) {
+    const next: RouteParams["app"] = { slug: params.slug };
+    if (params.serverId) next.serverId = params.serverId;
+    if (nextView === "manage") next.view = "manage";
+    if (nextSection) next.section = nextSection;
+    session.router.navigate({ name: "app", params: next }, { replace: true, target: pane.isLeading ? "leading" : "companion" });
   }
+
+  function selectView(nextView: AppSurfaceView) {
+    manageTakesFocus = false;
+    show(nextView);
+  }
+
+  function toggleView() {
+    if (view === "manage") {
+      if (!app?.hasUi) return;
+      manageTakesFocus = false;
+      show("app");
+      requestInputFocus();
+      return;
+    }
+    manageTakesFocus = true;
+    show("manage");
+  }
+
+  // The key belongs to the app surface that has focus, not to every mounted one.
+  const hasFocus = () => surfaceVisible && session.router.focusedPaneId === paneId;
+  useScope("app-surface", { active: hasFocus });
+  useKeybinding("app-surface.toggle-manage", toggleView, { enabled: () => hasFocus() && app !== undefined });
 
   function retry() {
     reloadKey += 1;
@@ -131,25 +172,17 @@
     {#if app}
       <span class="shrink-0 text-xs tabular-nums text-muted-foreground" data-testid="app-surface-version">{versionLabel(app.activeVersion)}</span>
     {/if}
-    <!-- What the app may use is in the menu's Versions list, with each version. -->
     <span class="min-w-0 flex-1"></span>
     {#if app && serverId}
-      <!-- The app's problems are not drawn over the app: the menu button has a dot, and the menu's Problems row opens them. -->
-      <AppMenu
-        stopped={app.stopped}
-        problemCount={problems.length}
-        problemTone={problemsTone(problems)}
-        disabled={isBusy}
-        onOpenSection={(section) => (menuSection = section)}
-        onToggleStopped={toggleStopped}
-        onDelete={remove}
-      />
+      <!-- The app's problems are not drawn over the app: the Manage switch has a dot, and the Manage page lists them. -->
+      <AppViewSwitch {view} hasUi={app.hasUi} problemCount={problems.length} problemTone={problemsTone(problems)} onSelect={selectView} />
+      <AppMenu stopped={app.stopped} disabled={isBusy} onToggleStopped={toggleStopped} onDelete={remove} />
     {/if}
   </div>
 
-  {#if app?.stopped}
+  {#if app?.stopped && view === "app"}
     <div class="flex shrink-0 flex-wrap items-center gap-2 border-y border-border/50 px-4 py-2 text-xs text-muted-foreground" role="status">
-      <span class="min-w-0 flex-1">This app is stopped. No operation runs and no schedule fires.</span>
+      <span class="min-w-0 flex-1">This app is stopped. No operation runs, no schedule fires, and no run continues.</span>
       <Button size="xs" variant="outline" disabled={isBusy} onclick={toggleStopped} data-testid="app-surface-start">
         <StartIcon size={12} /> Start
       </Button>
@@ -157,25 +190,76 @@
   {/if}
 
   <div class="relative min-h-0 flex-1 overflow-hidden" data-testid="app-surface-body">
-    {#if phase.kind === "frame" && frameApp && serverId && app}
-      <!-- The app gets all of the pane, with no padding: its UI scrolls inside its own frame. -->
-      <div class="flex h-full min-h-0 flex-col">
-        <SandboxFrame
-          html={phase.ui.html}
-          app={frameApp}
-          dataVersion={appsStore.dataVersion(serverId, app.id)}
-          fillAvailable
-          expandable={false}
-          lazy={false}
-          {reloadKey}
-        />
-      </div>
-    {:else if phase.kind === "operations"}
-      <AppOperations state={phase.state} />
-    {:else if phase.kind === "no-version"}
-      <PageEmpty tone="muted" compact title="No version of this app runs.">
-        {phase.detail}
-      </PageEmpty>
+    {#if serverId && showsAppViews(phase, app)}
+      <!-- One surface can show another app when its route changes: what a reader opened or typed for one app is not the next one's. -->
+      {#key `${serverId}\n${app.id}`}
+      <AppViewStack {view}>
+        {#snippet appContent()}
+          {#if phase.kind === "frame" && frameApp}
+            <!-- The app gets all of the pane, with no padding: its UI scrolls inside its own frame. -->
+            <div class="flex h-full min-h-0 flex-col">
+              <SandboxFrame
+                html={phase.ui.html}
+                app={frameApp}
+                dataVersion={appsStore.dataVersion(serverId, app.id)}
+                fillAvailable
+                expandable={false}
+                lazy={false}
+                {reloadKey}
+              />
+            </div>
+          {:else if phase.kind === "no-ui"}
+            <PageEmpty tone="muted" compact title="This app has no UI.">
+              {APP_NO_UI_TEXT}
+              {#snippet actions()}
+                <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => selectView("manage")}>Open Manage</button>
+              {/snippet}
+            </PageEmpty>
+          {:else if phase.kind === "no-version"}
+            <PageEmpty tone="muted" compact title="No version of this app runs.">
+              {phase.detail}
+              {#snippet actions()}
+                <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => show("manage", "versions")}>Open Versions</button>
+              {/snippet}
+            </PageEmpty>
+          {:else if phase.kind === "error"}
+            <PageEmpty tone="muted" compact title="Could not open this app.">
+              {phase.message}
+              {#snippet actions()}
+                <button type="button" class={PAGE_SECONDARY_BTN} onclick={retry}>Try again</button>
+              {/snippet}
+            </PageEmpty>
+          {:else}
+            <ContentSkeleton label="Loading app" preview />
+          {/if}
+        {/snippet}
+        {#snippet manageContent()}
+          <!-- The Manage page brings the diff reader; it loads when the page first opens. -->
+          {#await import("./manage/AppManagePage.svelte")}
+            <ContentSkeleton label="Loading the Manage page" />
+          {:then manageModule}
+            {@const AppManagePage = manageModule.default}
+            <AppManagePage
+              {serverId}
+              {app}
+              state={appState}
+              {problems}
+              {section}
+              takesFocus={manageTakesFocus}
+              busy={isBusy}
+              onSelectSection={(next) => show("manage", next)}
+              onToggleStopped={toggleStopped}
+              onDelete={remove}
+            />
+          {:catch}
+            <div class="flex flex-col items-start gap-2 px-4 py-3" role="alert">
+              <span class="text-sm text-destructive">The Manage page did not load.</span>
+              <Button size="xs" variant="outline" onclick={retry}>Try again</Button>
+            </div>
+          {/await}
+        {/snippet}
+      </AppViewStack>
+      {/key}
     {:else if phase.kind === "host-gone"}
       <PageEmpty tone="muted" compact title={APP_HOST_GONE_TEXT}>
         The app opens again when its host connects.
@@ -189,21 +273,6 @@
       </PageEmpty>
     {:else}
       <ContentSkeleton label="Loading app" preview />
-    {/if}
-
-    {#if menuSection && app && serverId}
-      <!-- The menu's sections bring the diff reader; they load when the menu first opens. -->
-      {#await import("./AppMenuPanel.svelte")}
-        <div class="absolute inset-0 z-10 bg-(--solus-container-bg)" role="status" aria-busy="true" aria-label="Loading the app menu"></div>
-      {:then menuModule}
-        {@const AppMenuPanel = menuModule.default}
-        <AppMenuPanel bind:section={menuSection} {serverId} {app} state={appState} {problems} onClose={closeMenu} />
-      {:catch}
-        <div class="absolute inset-0 z-10 flex flex-col items-start gap-2 bg-(--solus-container-bg) px-4 py-3" role="alert">
-          <span class="text-sm text-destructive">The app menu did not load.</span>
-          <Button size="xs" variant="outline" onclick={closeMenu}>Back to the app</Button>
-        </div>
-      {/await}
     {/if}
   </div>
 </div>

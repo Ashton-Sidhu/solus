@@ -4,6 +4,7 @@
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import WorkspaceAppCard from "./WorkspaceAppCard.svelte";
+  import type { AppManageSection } from "../../contexts/workspace/routing/route-registry";
   import type { WorkspaceLedger } from "./lib/workspace-ledger.svelte";
   import type { WorkspaceAppItem } from "./lib/workspace-apps";
 
@@ -11,14 +12,16 @@
   interface Props {
     ledger: WorkspaceLedger;
     onOpen: (item: WorkspaceAppItem) => void;
+    /** Opens the Manage page of the app, on the section a problem leads to. */
+    onManage: (item: WorkspaceAppItem, section?: AppManageSection) => void;
   }
-  let { ledger, onOpen }: Props = $props();
+  let { ledger, onOpen, onManage }: Props = $props();
 </script>
 
 {#if ledger.appItems.length === 0 && appsStore.isLoading}
   <div class="grid grid-cols-3 gap-3 pt-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1" role="status" aria-busy="true" aria-label="Loading apps">
     {#each Array(3) as _, i (i)}
-      <div class="h-[108px] animate-pulse rounded-xl bg-[var(--wash-2)]" style="opacity:{1 - i * 0.2}"></div>
+      <div class="h-[132px] animate-pulse rounded-xl bg-[var(--wash-2)]" style="opacity:{1 - i * 0.2}"></div>
     {/each}
   </div>
 {:else if ledger.appItems.length === 0}
@@ -48,6 +51,10 @@
           onOpen={() => {
             ledger.selectedIndex = groupOffset + j;
             onOpen(item);
+          }}
+          onManage={(section) => {
+            ledger.selectedIndex = groupOffset + j;
+            onManage(item, section);
           }}
         />
       {/each}

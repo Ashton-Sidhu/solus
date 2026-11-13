@@ -33,7 +33,7 @@ import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
 import { activeSurface, type OpenTarget, type PaneId } from './routing/location'
-import { CHAT_ROUTE, chatRoute, type ReviewView, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
+import { CHAT_ROUTE, chatRoute, type AppManageSection, type ReviewView, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { canReturnToRoute, leadingHomeRoute } from './leading-home'
 import { WorkspaceUiStore } from './workspace-ui.store.svelte'
@@ -2242,6 +2242,14 @@ export class WorkspaceContext implements SurfaceContext {
    *  destination. `slug` is the app's slug, or its id where only the id is known. */
   openApp(serverId: string, slug: string, target: OpenTarget = 'companion'): void {
     this.router.navigate({ name: 'app', params: { slug, serverId } }, { target })
+  }
+
+  /** Open the Manage page of one app (docs/plans/apps.md §9.2), on `section`
+   *  when the caller names one. */
+  openAppManage(serverId: string, slug: string, section?: AppManageSection, target: OpenTarget = 'companion'): void {
+    const params: RouteParams['app'] = { slug, serverId, view: 'manage' }
+    if (section) params.section = section
+    this.router.navigate({ name: 'app', params }, { target })
   }
 
   /** The Workspace page on its Apps tab. */

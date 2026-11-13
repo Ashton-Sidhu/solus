@@ -6,6 +6,10 @@ export interface SettingItem {
 
 export const chatSettings = [
   {
+    id: "auto-open-artifacts",
+    keywords: ["artifacts", "automatic", "automatically", "auto", "open", "pane", "output"],
+  },
+  {
     id: "response-streaming",
     keywords: ["response", "streaming", "paragraph", "buffered", "text"],
   },

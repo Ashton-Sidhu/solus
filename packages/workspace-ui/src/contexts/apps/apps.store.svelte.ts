@@ -1,8 +1,25 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type {
+  AppActivityEvent,
+  AppBuildLog,
+  AppCallDetail,
   AppCallView,
+  AppCallsRequest,
+  AppConfigValue,
+  AppDeployReceipt,
+  AppFileView,
+  AppMetrics,
+  AppRevisionDiff,
+  AppRevisionView,
+  AppRunDetail,
+  AppRunView,
+  AppRunsRequest,
   AppScheduleView,
   AppSessionLink,
+  AppSignalAction,
+  AppSignalActionSaveRequest,
+  AppSignalOccurrence,
+  AppSignalView,
   AppState,
   AppSummary,
   AppUi,
@@ -11,17 +28,19 @@ import type {
   AppWebhookView,
   AppsChangedEvent,
 } from '@solus/contracts/apps'
+import type { AppModelCallView, AppModelCallsRequest } from '@solus/contracts/app-models'
 import { isSolusApiId } from '@solus/contracts/uplink'
-import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { AppResource, appKey } from './app-resource.svelte'
 
 /**
  * Every app this client can see (docs/plans/apps.md §9), read from each
  * connected host and joined into one list. Each row names its host. A host
  * that is not ready has no rows here: the list never shows old rows as
  * current. `apps.changed` keeps the rows fresh, `apps.dataChanged` raises the
- * app's data version, and a reconnect reads the host again.
+ * app's data version, `apps.activity` reads again what a Manage page shows,
+ * and a reconnect reads the host again.
  */
 
 /** `unavailable`: the host answered with an error, for example an older host without apps. */
@@ -46,67 +65,16 @@ interface AppUiRead {
   ui: AppUi | null
 }
 
-/** The call log a menu reads at one time. */
-const CALL_PAGE = 200
+/** The filters of the call log, and how many calls a view reads. */
+export type AppCallQuery = Pick<AppCallsRequest, 'operation' | 'outcome' | 'callerKind' | 'limit'>
+export type AppRunQuery = Pick<AppRunsRequest, 'state'>
+export type AppModelCallQuery = Pick<AppModelCallsRequest, 'status'>
 
-function appKey(serverId: string, appId: string): string {
-  return `${serverId}\n${appId}`
-}
-
-/**
- * One list of an app's menu (versions, schedules, webhooks, calls, sessions),
- * for each app that a view loaded it for. A read that a newer read or a
- * command's answer overtook is dropped.
- */
-class AppMenuList<Entry> {
-  private readonly lists = new SvelteMap<string, Entry[]>()
-  private readonly errors = new SvelteMap<string, string>()
-  private readonly reads = new Map<string, number>()
-
-  constructor(private readonly read: (api: HostApi, appId: string) => Promise<Entry[]>) {}
-
-  get(serverId: string, appId: string): Entry[] | undefined {
-    return this.lists.get(appKey(serverId, appId))
-  }
-
-  errorFor(serverId: string, appId: string): string | null {
-    return this.errors.get(appKey(serverId, appId)) ?? null
-  }
-
-  async load(serverId: string, appId: string): Promise<void> {
-    const key = appKey(serverId, appId)
-    const read = (this.reads.get(key) ?? 0) + 1
-    this.reads.set(key, read)
-    try {
-      const list = await this.read(serverConnections.apiFor(serverId), appId)
-      if (this.reads.get(key) !== read) return
-      this.lists.set(key, list)
-      this.errors.delete(key)
-    } catch (error) {
-      if (this.reads.get(key) !== read) return
-      this.errors.set(key, error instanceof Error && error.message ? error.message : 'The host did not answer.')
-    }
-  }
-
-  /** A command answered with the whole list: it is newer than any read in flight. */
-  accept(serverId: string, appId: string, list: Entry[]): void {
-    const key = appKey(serverId, appId)
-    this.reads.set(key, (this.reads.get(key) ?? 0) + 1)
-    this.lists.set(key, list)
-    this.errors.delete(key)
-  }
-
-  /** Read again, when a view loaded the list before. */
-  reloadIfLoaded(serverId: string, appId: string): void {
-    if (this.lists.has(appKey(serverId, appId))) void this.load(serverId, appId)
-  }
-
-  drop(key: string): void {
-    this.reads.set(key, (this.reads.get(key) ?? 0) + 1)
-    this.lists.delete(key)
-    this.errors.delete(key)
-  }
-}
+/** The call log a Manage page reads at one time. */
+const CALL_PAGE = 100
+/** The newest occurrences of every signal of one app. */
+const OCCURRENCE_PAGE = 100
+const MODEL_CALL_PAGE = 100
 
 export class AppsStore {
   /** Keyed by host and app id: two hosts can hold the same id. */
@@ -117,8 +85,9 @@ export class AppsStore {
   private readonly uis = new SvelteMap<string, AppUiRead>()
   private readonly uiErrors = new SvelteMap<string, string>()
   private readonly dataVersions = new SvelteMap<string, number>()
-  private revision = 0
-  private readonly revisions = new Map<string, number>()
+  /** Rises with each change of an app. A list read that started before an app's change does not put its old row back. */
+  private changeCount = 0
+  private readonly changedAt = new Map<string, number>()
   private readonly stateReads = new Map<string, number>()
   private readonly statesInFlight = new Set<string>()
   private readonly uiReads = new Map<string, number>()
@@ -128,23 +97,51 @@ export class AppsStore {
   private watchCount = 0
   private stopWatching: (() => void) | null = null
 
-  readonly versions = new AppMenuList<AppVersionView>((api, appId) => api.appVersions({ appId }))
-  readonly schedules = new AppMenuList<AppScheduleView>((api, appId) => api.appSchedules({ appId }))
-  readonly webhooks = new AppMenuList<AppWebhookView>((api, appId) => api.appWebhooks({ appId }))
-  readonly calls = new AppMenuList<AppCallView>((api, appId) => api.appCalls({ appId, limit: CALL_PAGE }))
-  readonly sessions = new AppMenuList<AppSessionLink>((api, appId) => api.appSessions({ appId }))
+  // What the active version declares, and the app's history: `apps.changed` reads them again.
+  readonly versions = new AppResource<AppVersionView[]>((api, appId) => api.appVersions({ appId }), null)
+  readonly revisions = new AppResource<AppRevisionView[]>((api, appId) => api.appRevisions({ appId }), null)
+  readonly schedules = new AppResource<AppScheduleView[]>((api, appId) => api.appSchedules({ appId }), null)
+  readonly webhooks = new AppResource<AppWebhookView[]>((api, appId) => api.appWebhooks({ appId }), null)
+  readonly sessions = new AppResource<AppSessionLink[]>((api, appId) => api.appSessions({ appId }), null)
+  // What the app did: `apps.activity` reads again the ones a view shows.
+  readonly metrics = new AppResource<AppMetrics>((api, appId) => api.appMetrics({ appId }), null)
+  readonly calls = new AppResource<AppCallView[], AppCallQuery>((api, appId, query) => api.appCalls({ appId, limit: CALL_PAGE, ...query }), {})
+  /** One call with its input, log lines, and trace. The query is the call's id. */
+  readonly callDetail = new AppResource<AppCallDetail | null, string | null>(
+    async (api, appId, callId) => (callId ? api.appCallRead({ appId, callId }) : null), null)
+  readonly runs = new AppResource<AppRunView[], AppRunQuery>((api, appId, query) => api.appRuns({ appId, ...query }), {})
+  /** One run with its steps. The query is the run's id. */
+  readonly runDetail = new AppResource<AppRunDetail | null, string | null>(
+    async (api, appId, runId) => (runId ? api.appRunRead({ appId, runId }) : null), null)
+  /** The log of one run: the executions of its function and the calls of its steps. The query is the run's id. */
+  readonly runCalls = new AppResource<AppCallView[], string | null>(
+    async (api, appId, runId) => (runId ? api.appCalls({ appId, runId, limit: CALL_PAGE }) : []), null)
+  readonly signals = new AppResource<AppSignalView[]>((api, appId) => api.appSignals({ appId }), null)
+  readonly occurrences = new AppResource<AppSignalOccurrence[]>((api, appId) => api.appSignalOccurrences({ appId, limit: OCCURRENCE_PAGE }), null)
+  readonly files = new AppResource<AppFileView[]>((api, appId) => api.appFiles({ appId }), null)
+  readonly modelCalls = new AppResource<AppModelCallView[], AppModelCallQuery>((api, appId, query) => api.appModelCalls({ appId, limit: MODEL_CALL_PAGE, ...query }), {})
+  /** One model call with its text, steps, and result. The query is the call's id. */
+  readonly modelCallDetail = new AppResource<AppModelCallView | null, string | null>(
+    async (api, appId, callId) => (callId ? api.appModelCallRead({ appId, callId }) : null), null)
+
+  private readonly resources: readonly { drop(key: string): void }[] = [
+    this.versions, this.revisions, this.schedules, this.webhooks, this.sessions, this.metrics, this.calls,
+    this.callDetail, this.runs, this.runDetail, this.runCalls, this.signals, this.occurrences, this.files,
+    this.modelCalls, this.modelCallDetail,
+  ]
 
   /** Surfaces that show apps hold one shared watch over every host. */
   watch(): () => void {
     if (this.watchCount++ === 0) {
       const stopChanged = subscribeAllHosts('apps.changed', (serverId, event) => this.applyChange(serverId, event))
       const stopData = subscribeAllHosts('apps.dataChanged', (serverId, change) => this.applyDataChange(serverId, change.appId))
+      const stopActivity = subscribeAllHosts('apps.activity', (serverId, activity) => this.applyActivity(serverId, activity))
       const stopReadiness = serverConnections.onReadinessChange((serverId, status) => {
         if (isSolusApiId(serverId)) return
         if (status === 'ready') void this.load(serverId)
         else this.forgetHost(serverId)
       })
-      this.stopWatching = () => { stopChanged(); stopData(); stopReadiness() }
+      this.stopWatching = () => { stopChanged(); stopData(); stopActivity(); stopReadiness() }
       void this.loadAll()
     }
     return () => {
@@ -251,7 +248,7 @@ export class AppsStore {
 
   /** Read one host's list and replace its rows. */
   async load(serverId: string): Promise<void> {
-    const startedRevision = this.revision
+    const startedAt = this.changeCount
     if (!this.hostStatus.has(serverId)) this.hostStatus.set(serverId, 'loading')
     try {
       const list = await serverConnections.apiFor(serverId).appList()
@@ -260,12 +257,12 @@ export class AppsStore {
       for (const app of list) {
         const key = appKey(serverId, app.id)
         liveKeys.add(key)
-        if ((this.revisions.get(key) ?? 0) > startedRevision) continue
+        if ((this.changedAt.get(key) ?? 0) > startedAt) continue
         this.entries.set(key, { serverId, app })
       }
       for (const [key, row] of this.entries) {
         if (row.serverId !== serverId || liveKeys.has(key)) continue
-        if ((this.revisions.get(key) ?? 0) > startedRevision) continue
+        if ((this.changedAt.get(key) ?? 0) > startedAt) continue
         this.dropApp(key)
       }
       this.hostStatus.set(serverId, 'ready')
@@ -352,23 +349,35 @@ export class AppsStore {
     return serverConnections.apiFor(serverId).appVersionDiff({ appId, version })
   }
 
+  /** The source change of one revision. Read when a view opens it; not kept. */
+  revisionDiff(serverId: string, appId: string, commit: string): Promise<AppRevisionDiff> {
+    return serverConnections.apiFor(serverId).appRevisionDiff({ appId, commit })
+  }
+
+  /** The text of one version's build. Read when a view opens it; not kept. */
+  buildLog(serverId: string, appId: string, version: number): Promise<AppBuildLog> {
+    return serverConnections.apiFor(serverId).appBuildLog({ appId, version })
+  }
+
   // ─── Events ───
 
   applyChange(serverId: string, event: AppsChangedEvent): void {
     if (event.kind === 'deleted') {
       const key = appKey(serverId, event.appId)
-      this.revisions.set(key, ++this.revision)
+      this.changedAt.set(key, ++this.changeCount)
       this.dropApp(key)
       return
     }
     const { app } = event
     this.put(serverId, app)
-    // What a view loaded can be old now: the descriptor, the secrets, and the menu's lists.
+    // What a view loaded can be old now: the descriptor, the secrets, and what the Manage page lists of a version.
     if (this.states.has(appKey(serverId, app.id))) void this.loadState(serverId, app.id)
     this.versions.reloadIfLoaded(serverId, app.id)
+    this.revisions.reloadIfLoaded(serverId, app.id)
     this.schedules.reloadIfLoaded(serverId, app.id)
     this.webhooks.reloadIfLoaded(serverId, app.id)
     this.sessions.reloadIfLoaded(serverId, app.id)
+    this.signals.reloadIfLoaded(serverId, app.id)
     if (event.deployedBySessionId) {
       const deploy: AppDeploy = { serverId, sessionId: event.deployedBySessionId, app }
       for (const listener of this.deployListeners) listener(deploy)
@@ -378,6 +387,35 @@ export class AppsStore {
   applyDataChange(serverId: string, appId: string): void {
     const key = appKey(serverId, appId)
     this.dataVersions.set(key, (this.dataVersions.get(key) ?? 0) + 1)
+  }
+
+  /** The app's activity changed: each kind reads again what a view shows of it, and nothing else. */
+  applyActivity(serverId: string, { appId, kinds }: AppActivityEvent): void {
+    for (const kind of new Set(kinds)) {
+      switch (kind) {
+        case 'calls':
+          this.calls.reloadIfWatched(serverId, appId)
+          this.callDetail.reloadIfWatched(serverId, appId)
+          this.runCalls.reloadIfWatched(serverId, appId)
+          this.metrics.reloadIfWatched(serverId, appId)
+          break
+        case 'runs':
+          this.runs.reloadIfWatched(serverId, appId)
+          this.runDetail.reloadIfWatched(serverId, appId)
+          break
+        case 'signals':
+          this.signals.reloadIfWatched(serverId, appId)
+          this.occurrences.reloadIfWatched(serverId, appId)
+          break
+        case 'files':
+          this.files.reloadIfWatched(serverId, appId)
+          break
+        case 'models':
+          this.modelCalls.reloadIfWatched(serverId, appId)
+          this.modelCallDetail.reloadIfWatched(serverId, appId)
+          break
+      }
+    }
   }
 
   // ─── Commands ───
@@ -399,7 +437,7 @@ export class AppsStore {
   async remove(serverId: string, appId: string): Promise<void> {
     if (!(await serverConnections.apiFor(serverId).appDelete({ appId }))) return
     const key = appKey(serverId, appId)
-    this.revisions.set(key, ++this.revision)
+    this.changedAt.set(key, ++this.changeCount)
     this.dropApp(key)
   }
 
@@ -407,6 +445,25 @@ export class AppsStore {
   async activate(serverId: string, appId: string, version: number): Promise<void> {
     this.acceptState(serverId, await serverConnections.apiFor(serverId).appActivate({ appId, version }))
     void this.versions.load(serverId, appId)
+  }
+
+  /**
+   * Builds one revision on the host and makes the version active; the newest
+   * revision when `commit` is absent. The host answers only when the build
+   * ended: `apps.changed` shows the version while it builds.
+   */
+  async deploy(serverId: string, appId: string, commit?: string): Promise<AppDeployReceipt> {
+    const receipt = await serverConnections.apiFor(serverId).appDeploy(commit ? { appId, commit } : { appId })
+    this.put(serverId, receipt.app)
+    if (this.states.has(appKey(serverId, appId))) void this.loadState(serverId, appId)
+    this.versions.reloadIfLoaded(serverId, appId)
+    this.revisions.reloadIfLoaded(serverId, appId)
+    return receipt
+  }
+
+  /** Turns the app's operations on or off as tools for agents. */
+  async setAgentAccess(serverId: string, appId: string, enabled: boolean): Promise<void> {
+    this.acceptState(serverId, await serverConnections.apiFor(serverId).appSetAgentAccess({ appId, enabled }))
   }
 
   async setScheduleEnabled(serverId: string, appId: string, name: string, enabled: boolean): Promise<void> {
@@ -422,11 +479,55 @@ export class AppsStore {
     this.acceptState(serverId, await serverConnections.apiFor(serverId).appSecretSet({ appId, name, value }))
   }
 
+  /** Sets one config value; null gives the field its default again. */
+  async setConfig(serverId: string, appId: string, name: string, value: AppConfigValue | null): Promise<void> {
+    this.acceptState(serverId, await serverConnections.apiFor(serverId).appConfigSet({ appId, name, value }))
+  }
+
+  /** Stops a run that is running or sleeping. */
+  async terminateRun(serverId: string, appId: string, runId: string): Promise<void> {
+    this.acceptRun(serverId, appId, await serverConnections.apiFor(serverId).appRunTerminate({ appId, runId }))
+  }
+
+  /** Starts a failed run again: the failed step runs again, and the finished steps do not. */
+  async retryRun(serverId: string, appId: string, runId: string): Promise<void> {
+    this.acceptRun(serverId, appId, await serverConnections.apiFor(serverId).appRunRetry({ appId, runId }))
+  }
+
+  /** Makes a signal action, or changes the one `actionId` names. */
+  async saveSignalAction(serverId: string, appId: string, signal: string, action: AppSignalAction, enabled: boolean, actionId?: string): Promise<void> {
+    const request: AppSignalActionSaveRequest = { appId, signal, action, enabled }
+    if (actionId) request.actionId = actionId
+    this.signals.accept(serverId, appId, await serverConnections.apiFor(serverId).appSignalActionSave(request))
+  }
+
+  async deleteSignalAction(serverId: string, appId: string, actionId: string): Promise<void> {
+    this.signals.accept(serverId, appId, await serverConnections.apiFor(serverId).appSignalActionDelete({ appId, actionId }))
+  }
+
+  /** Stops a queued or running model call. */
+  async cancelModelCall(serverId: string, appId: string, callId: string): Promise<void> {
+    const call = await serverConnections.apiFor(serverId).appModelCallCancel({ appId, callId })
+    if (this.modelCallDetail.queryFor(serverId, appId) === call.id) this.modelCallDetail.accept(serverId, appId, call)
+    void this.modelCalls.load(serverId, appId)
+  }
+
+  /** Deletes one app file. */
+  async removeFile(serverId: string, appId: string, fileId: string): Promise<void> {
+    this.files.accept(serverId, appId, await serverConnections.apiFor(serverId).appFileRemove({ appId, fileId }))
+  }
+
   // ─── Internals ───
+
+  /** A command answered with the run: it is newer than a read in flight, when a view shows that run. */
+  private acceptRun(serverId: string, appId: string, run: AppRunDetail): void {
+    if (this.runDetail.queryFor(serverId, appId) === run.id) this.runDetail.accept(serverId, appId, run)
+    void this.runs.load(serverId, appId)
+  }
 
   private put(serverId: string, app: AppSummary): void {
     const key = appKey(serverId, app.id)
-    this.revisions.set(key, ++this.revision)
+    this.changedAt.set(key, ++this.changeCount)
     this.entries.set(key, { serverId, app })
   }
 
@@ -462,11 +563,7 @@ export class AppsStore {
     this.uiReads.set(key, (this.uiReads.get(key) ?? 0) + 1)
     this.uisInFlight.delete(key)
     this.dataVersions.delete(key)
-    this.versions.drop(key)
-    this.schedules.drop(key)
-    this.webhooks.drop(key)
-    this.calls.drop(key)
-    this.sessions.drop(key)
+    for (const resource of this.resources) resource.drop(key)
   }
 }
 

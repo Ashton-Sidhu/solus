@@ -16,6 +16,12 @@ export const SPAN_KINDS = {
   agentRun: 'agent_run',
   browserLoad: 'browser_load',
   browserCapture: 'browser_capture',
+  /** One call of an operation of an app (docs/plans/apps.md §5). */
+  appCall: 'app_call',
+  /** One execution of a workflow's function, from its top (§8.3). */
+  appRun: 'app_run',
+  /** One thing a call or a run waited for: a request, an integration tool, the SQL, a file, a signal, a step. */
+  appWork: 'app_work',
   internalDispatchStep: 'internal.dispatch_step',
   internalRpc: 'internal.rpc',
   internalIndexerSweep: 'internal.indexer_sweep',
@@ -36,6 +42,7 @@ export const SPAN_SERVICES = {
   git: 'solus.git',
   insights: 'solus.insights',
   browser: 'solus.browser',
+  apps: 'solus.apps',
 } as const
 
 export type SpanService = (typeof SPAN_SERVICES)[keyof typeof SPAN_SERVICES]

@@ -1,13 +1,15 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
+import type { AppConfigValue } from '@solus/contracts/apps'
 import { dataDir } from '../platform/paths'
 import { renameRetrying } from '../platform/rename-retry'
 
 /**
  * An app's own data on the host (docs/plans/apps.md §4.3), under
  * `<data dir>/apps/data/<app id>/`: `storage.json` is its key-value storage,
- * `app.sqlite` is the database only its runner opens, and `files/` is the
+ * `config.json` is the config values its owner set, `app.sqlite` is the
+ * database only its runner opens, and `files/` is the
  * folder its backend may always read and write. The data belongs to the app,
  * not to a viewer.
  */
@@ -20,6 +22,10 @@ const storedValueSchema = z.json()
 export type StoredValue = z.infer<typeof storedValueSchema>
 const storageFileSchema = z.record(z.string(), storedValueSchema)
 type StorageFile = z.infer<typeof storageFileSchema>
+const configFileSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+
+const STORAGE_FILE = 'storage.json'
+const CONFIG_FILE = 'config.json'
 
 export class AppStorage {
   /** One writer at a time for each app: a write reads the file, so two at once would lose one. */
@@ -41,6 +47,20 @@ export class AppStorage {
     return { appFolder, filesDir }
   }
 
+  /** The config values the owner set, by name. The declaration decides which of them the app runs with (`resolveAppConfig`). */
+  async config(appId: string): Promise<{ [name: string]: AppConfigValue }> {
+    await this.writes.get(appId)
+    return configFileSchema.parse(await this.read(appId, CONFIG_FILE))
+  }
+
+  /** Sets one config value, or removes it with `null` so the field has its default again. */
+  setConfig(appId: string, name: string, value: AppConfigValue | null): Promise<void> {
+    return this.change(appId, CONFIG_FILE, (stored) => {
+      if (value === null) delete stored[name]
+      else stored[name] = value
+    })
+  }
+
   async get(appId: string, key: string): Promise<StoredValue> {
     await this.writes.get(appId)
     return (await this.read(appId))[checkedKey(key)] ?? null
@@ -53,7 +73,7 @@ export class AppStorage {
 
   set(appId: string, key: string, value: StoredValue): Promise<void> {
     const name = checkedKey(key)
-    return this.change(appId, (stored) => {
+    return this.change(appId, STORAGE_FILE, (stored) => {
       if (!(name in stored) && Object.keys(stored).length >= MAX_KEYS) throw new Error(`This app's storage holds ${MAX_KEYS} keys, which is its limit.`)
       stored[name] = value
     })
@@ -61,7 +81,7 @@ export class AppStorage {
 
   delete(appId: string, key: string): Promise<void> {
     const name = checkedKey(key)
-    return this.change(appId, (stored) => {
+    return this.change(appId, STORAGE_FILE, (stored) => {
       delete stored[name]
     })
   }
@@ -72,27 +92,27 @@ export class AppStorage {
     await rm(this.folder(appId), { recursive: true, force: true })
   }
 
-  private async read(appId: string): Promise<StorageFile> {
+  private async read(appId: string, file: string = STORAGE_FILE): Promise<StorageFile> {
     let text: string
     try {
-      text = await readFile(join(this.folder(appId), 'storage.json'), 'utf8')
+      text = await readFile(join(this.folder(appId), file), 'utf8')
     } catch {
       return {}
     }
     return storageFileSchema.parse(JSON.parse(text))
   }
 
-  private change(appId: string, apply: (stored: StorageFile) => void): Promise<void> {
+  private change(appId: string, file: string, apply: (stored: StorageFile) => void): Promise<void> {
     const run = (this.writes.get(appId) ?? Promise.resolve()).catch(() => {}).then(async () => {
-      const stored = await this.read(appId)
+      const stored = await this.read(appId, file)
       apply(stored)
       const text = JSON.stringify(stored)
       if (Buffer.byteLength(text) > MAX_STORAGE_BYTES) throw new Error('This app\'s storage is full: it holds at most 8 MiB.')
       const folder = this.folder(appId)
       await mkdir(folder, { recursive: true })
-      const temporary = join(folder, `storage.json.${process.pid}.tmp`)
+      const temporary = join(folder, `${file}.${process.pid}.tmp`)
       await writeFile(temporary, text)
-      await renameRetrying(temporary, join(folder, 'storage.json'))
+      await renameRetrying(temporary, join(folder, file))
     })
     this.writes.set(appId, run)
     void run.catch(() => {}).finally(() => {

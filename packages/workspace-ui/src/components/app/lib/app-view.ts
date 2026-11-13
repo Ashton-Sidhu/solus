@@ -10,6 +10,7 @@ import type {
   AppWebhookView,
 } from '@solus/contracts/apps'
 import type { AppHostStatus } from '../../../contexts/apps/apps.store.svelte'
+import type { AppManageSection } from '../../../contexts/workspace/routing/route-registry'
 import { relativeTime, triggerSummary } from '../../automations/lib/automation-format'
 
 /**
@@ -37,13 +38,14 @@ export type AppSurfacePhase =
   | { kind: 'error'; message: string }
   /** No deploy made a version that runs. */
   | { kind: 'no-version'; detail: string }
-  /** The app has no UI: its operations are what it is. */
-  | { kind: 'operations'; state: AppState }
+  /** The app has no UI: its Manage page is what the owner sees of it. */
+  | { kind: 'no-ui' }
   | { kind: 'frame'; state: AppState; ui: AppUi }
 
 export const APP_HOST_GONE_TEXT = 'The host of this app is not connected.'
 export const APP_MISSING_TEXT = 'This host has no app with this name.'
-export const APP_NO_VERSION_TEXT = 'No version of this app is active. Ask an agent to deploy it again.'
+export const APP_NO_VERSION_TEXT = 'No version of this app is active. Deploy a revision in Versions on the Manage page.'
+export const APP_NO_UI_TEXT = 'An agent, a schedule, a webhook, or a workflow calls its operations. The Manage page shows what it does.'
 
 /** Why no version runs: the failed version's error, as the host says it. */
 export function failedVersionDetail(app: AppSummary): string {
@@ -59,16 +61,37 @@ export function appSurfacePhase(facts: AppSurfaceFacts): AppSurfacePhase {
     return { kind: 'loading' }
   }
   if (app.activeVersion === null) return { kind: 'no-version', detail: failedVersionDetail(app) }
+  if (!app.hasUi) return { kind: 'no-ui' }
   if (!state) return facts.stateError ? { kind: 'error', message: facts.stateError } : { kind: 'loading' }
-  if (!app.hasUi) return { kind: 'operations', state }
   if (facts.ui === undefined) return facts.uiError ? { kind: 'error', message: facts.uiError } : { kind: 'loading' }
-  return facts.ui ? { kind: 'frame', state, ui: facts.ui } : { kind: 'operations', state }
+  return facts.ui ? { kind: 'frame', state, ui: facts.ui } : { kind: 'no-ui' }
+}
+
+/** The two views of the app surface (§9.1): the app's own UI, and its Manage page. */
+export type AppSurfaceView = 'app' | 'manage'
+
+/**
+ * The view the surface shows. A route that names no view opens the app, and
+ * an app with no UI opens on its Manage page: it has nothing else to show.
+ */
+export function appSurfaceView(requested: 'manage' | undefined, app: Pick<AppSummary, 'hasUi'> | undefined): AppSurfaceView {
+  if (requested === 'manage') return 'manage'
+  return app && !app.hasUi ? 'manage' : 'app'
+}
+
+/**
+ * Whether the surface knows the app well enough to show a view of it. Before
+ * that, the host is gone, the list still loads, or the host has no such app:
+ * one state takes all of the surface, under both views.
+ */
+export function showsAppViews(phase: AppSurfacePhase, app: AppSummary | undefined): app is AppSummary {
+  return app !== undefined && phase.kind !== 'host-gone'
 }
 
 /**
  * One thing the app's owner must act on. The app surface draws none of them
- * over the app: the menu button has a dot, and the Problems section of the
- * menu lists them, each with the section where the owner acts.
+ * over the app: the Manage switch has a dot, and the Overview section of the
+ * Manage page lists them, each with the section where the owner acts.
  */
 export interface AppProblem {
   kind: Exclude<AppAttention['kind'], 'stopped'>
@@ -76,8 +99,8 @@ export interface AppProblem {
   detail: string
   /** `error`: a part of the app does not work. `warning`: the app waits for a value and works without it. */
   tone: 'error' | 'warning'
-  /** The section of the menu where the owner acts on it. */
-  section: AppMenuSection
+  /** The section of the Manage page where the owner acts on it. */
+  section: AppManageSection
   /** The label of the button that opens that section. */
   action: string
 }
@@ -85,15 +108,16 @@ export interface AppProblem {
 const PROBLEM_FIXES = {
   'version-failed': { tone: 'error', section: 'versions', action: 'Open Versions' },
   'schedule-failed': { tone: 'error', section: 'schedules', action: 'Open Schedules' },
+  'workflow-failed': { tone: 'error', section: 'workflows', action: 'Open Workflows' },
   'secret-missing': { tone: 'warning', section: 'secrets', action: 'Set in Secrets' },
-} as const
+} as const satisfies { [Kind in AppProblem['kind']]: Pick<AppProblem, 'tone' | 'section' | 'action'> }
 
 /** The problems of one app. `stopped` is the owner's own choice and has its own bar with a Start button. */
-export function appProblems(app: AppSummary): AppProblem[] {
+export function appProblems(app: Pick<AppSummary, 'attention'>): AppProblem[] {
   return app.attention.flatMap((item) => (item.kind === 'stopped' ? [] : [{ kind: item.kind, detail: item.detail, ...PROBLEM_FIXES[item.kind] }]))
 }
 
-/** The dot on the menu button: an error when one problem is an error, else a warning; null with no problem. */
+/** The dot on the Manage switch: red when one problem is an error, amber when the only problems are secrets that are not set; null with no problem. */
 export function problemsTone(problems: readonly AppProblem[]): AppProblem['tone'] | null {
   if (problems.length === 0) return null
   return problems.some((problem) => problem.tone === 'error') ? 'error' : 'warning'
@@ -108,6 +132,7 @@ export function versionLabel(version: number | null): string {
 }
 
 const VERSION_STATE_LABELS = {
+  building: 'Building',
   active: 'Active',
   superseded: 'Not active',
   failed: 'Failed',
@@ -153,6 +178,11 @@ export function callerText(caller: AppCaller, webhooks: readonly AppWebhookView[
       const name = webhooks.find((webhook) => webhook.webhookId === caller.webhookId)?.name
       return name ? `Webhook ${name}` : 'A webhook'
     }
+    case 'workflow':
+      // An empty step: the row is one execution of the workflow's function, not a call of a step.
+      return caller.step ? `Step ${caller.step} of ${caller.workflow}` : `Run of ${caller.workflow}`
+    case 'model':
+      return 'A model call'
   }
 }
 
@@ -176,28 +206,5 @@ export function appDeleteConfirmText(name: string): string {
   return `Delete the app "${name}"? Its data, its repository, its schedules, its secrets, and its webhooks are deleted. You cannot get them back.`
 }
 
-/** The sections of the app menu, in the order the menu lists them. */
-export const APP_MENU_SECTIONS = [
-  { id: 'problems', label: 'Problems' },
-  { id: 'versions', label: 'Versions' },
-  { id: 'schedules', label: 'Schedules' },
-  { id: 'secrets', label: 'Secrets' },
-  { id: 'webhooks', label: 'Webhooks' },
-  { id: 'calls', label: 'Calls' },
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'source', label: 'Source' },
-] as const
-
-export type AppMenuSection = (typeof APP_MENU_SECTIONS)[number]['id']
-
-/**
- * The sections a menu lists now. Problems is there while the app has one, and
- * while it is the open section: the last problem that goes away must not take
- * the section from under its reader.
- */
-export function appMenuSections(problemCount: number, openSection: AppMenuSection | null = null) {
-  return APP_MENU_SECTIONS.filter((section) => section.id !== 'problems' || problemCount > 0 || openSection === 'problems')
-}
-
-export const APP_SOURCE_TEXT = 'Ask an agent to change this app: it calls checkout_app.'
+export const APP_SOURCE_TEXT = 'Ask an agent to change this app: it calls checkout_app, save_app, and deploy_app.'
 export const APP_ROLLBACK_NOTE = 'An earlier version runs again. The data of the app is not rewound.'

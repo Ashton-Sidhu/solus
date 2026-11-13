@@ -1,17 +1,18 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { appCallerSchema, appDescriptorSchema, type AppCaller, type AppDescriptor, type AppVersionState } from '@solus/contracts/apps'
+import { appCallerSchema, appDescriptorSchema, appLogLineSchema, appSpanSchema, type AppCallOutcome, type AppCaller, type AppCallerKind, type AppDescriptor, type AppLogLine, type AppSpan, type AppVersionState } from '@solus/contracts/apps'
 import type { Attribution } from '@solus/contracts/user'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase, type Db } from '../../db/database'
 import { scopeClause } from '../scope'
 import { attributionJson, hostAttribution, parseStoredAttribution } from '../stored-attribution'
-import { appCalls, appSchedules, appVersions, apps } from './schema'
+import { appCalls, appFiles, appSchedules, appSignalActions, appSignals, appVersions, appWorkflowRuns, appWorkflowSteps, apps } from './schema'
 
 /**
  * The app records (docs/plans/apps.md §4.1): the app, its versions, the state
- * of its schedules, and its call log. Plain functions over the ported tables,
- * so the same code runs on SQLite and Postgres.
+ * of its schedules, and its call log. Its files, its workflow runs, and its
+ * signals have stores of their own beside this one. Plain functions over the
+ * ported tables, so the same code runs on SQLite and Postgres.
  */
 
 /** The call log keeps the newest calls of each app. */
@@ -26,7 +27,10 @@ export interface AppRecord {
   description: string
   activeVersion: number | null
   stopped: boolean
+  agentAccess: boolean
   repository: string
+  /** The newest revision; null until the first save wrote it. */
+  latestRevision: string | null
   project: string | null
   createdBy: Attribution
   /** The webhook record of each webhook the app declares, by the declaration's name. */
@@ -45,6 +49,9 @@ export interface AppVersionRecord {
   hasUi: boolean
   state: AppVersionState
   error: string | null
+  /** The end of the text of the host's build; null for a version the host did not build. */
+  buildLog: string | null
+  buildMs: number | null
   message: string
   createdBy: Attribution
   createdAt: number
@@ -68,8 +75,41 @@ export interface AppCallRecord {
   caller: AppCaller
   startedAt: number
   finishedAt: number | null
-  outcome: 'running' | 'ok' | 'failed'
+  outcome: AppCallOutcome
   error: string | null
+  errorStack: string | null
+  /** The start of the input as JSON text. */
+  input: string | null
+  inputTruncated: boolean
+  resultBytes: number | null
+  logs: AppLogLine[]
+  logsTruncated: boolean
+  spans: AppSpan[]
+  runId: string | null
+  traceId: string | null
+  spanId: string | null
+}
+
+/** What a call's end writes over its row. */
+export interface AppCallEnd {
+  outcome: 'ok' | 'failed'
+  error: string | null
+  errorStack: string | null
+  resultBytes: number | null
+  logs: AppLogLine[]
+  logsTruncated: boolean
+  spans: AppSpan[]
+  finishedAt: number
+}
+
+/** The filters of a read of the call log. */
+export interface AppCallFilter {
+  operation?: string
+  outcome?: AppCallOutcome
+  callerKind?: AppCallerKind
+  runId?: string
+  /** Only calls that started before this time. */
+  before?: number
 }
 
 const flagSchema = z.union([z.boolean(), z.number()]).transform((value) => value === true || value === 1)
@@ -90,7 +130,9 @@ const appRowSchema = z.object({
   description: z.string(),
   active_version: nullableNumberSchema,
   stopped: flagSchema,
+  agent_access: flagSchema,
   repository: z.string(),
+  latest_revision: z.string().nullable(),
   project: z.string().nullable(),
   author: z.string(),
   webhook_ids: z.string(),
@@ -108,7 +150,9 @@ function appFromRow(row: z.infer<typeof appRowSchema>): AppRecord {
     description: row.description,
     activeVersion: row.active_version,
     stopped: row.stopped,
+    agentAccess: row.agent_access,
     repository: row.repository,
+    latestRevision: row.latest_revision,
     project: row.project,
     createdBy: parseStoredAttribution(row.author) ?? hostAttribution(),
     webhookIds: z.record(z.string(), z.string()).parse(JSON.parse(row.webhook_ids)),
@@ -119,16 +163,16 @@ function appFromRow(row: z.infer<typeof appRowSchema>): AppRecord {
 
 export async function insertApp(record: AppRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${apps} (id, organization_id, created_by, slug, name, description, active_version, stopped, repository, project, author, webhook_ids, created_at, updated_at)
+    INSERT INTO ${apps} (id, organization_id, created_by, slug, name, description, active_version, stopped, agent_access, repository, latest_revision, project, author, webhook_ids, created_at, updated_at)
     VALUES (
       ${record.id}, ${record.organizationId}, ${record.ownerKey}, ${record.slug}, ${record.name}, ${record.description}, ${record.activeVersion},
-      ${flag(db, record.stopped)}, ${record.repository}, ${record.project}, ${attributionJson(record.createdBy)}, ${JSON.stringify(record.webhookIds)},
+      ${flag(db, record.stopped)}, ${flag(db, record.agentAccess)}, ${record.repository}, ${record.latestRevision}, ${record.project}, ${attributionJson(record.createdBy)}, ${JSON.stringify(record.webhookIds)},
       ${record.createdAt}, ${record.updatedAt}
     )
   `)
 }
 
-/** Writes what changes after the first deploy. The slug, the owner, the organization, and the repository never change. */
+/** Writes what changes after the first save. The slug, the owner, the organization, and the repository never change. */
 export async function saveApp(record: AppRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
     UPDATE ${apps} SET
@@ -136,6 +180,8 @@ export async function saveApp(record: AppRecord, db: Db = getDatabase()): Promis
       description = ${record.description},
       active_version = ${record.activeVersion},
       stopped = ${flag(db, record.stopped)},
+      agent_access = ${flag(db, record.agentAccess)},
+      latest_revision = ${record.latestRevision},
       webhook_ids = ${JSON.stringify(record.webhookIds)},
       updated_at = ${record.updatedAt}
     WHERE id = ${record.id}
@@ -160,6 +206,11 @@ export async function listApps(scope: RecordScope, db: Db = getDatabase()): Prom
 
 export async function deleteApp(id: string, db: Db = getDatabase()): Promise<boolean> {
   return db.transaction(async (tx) => {
+    await tx.run(sql`DELETE FROM ${appSignalActions} WHERE app_id = ${id}`)
+    await tx.run(sql`DELETE FROM ${appSignals} WHERE app_id = ${id}`)
+    await tx.run(sql`DELETE FROM ${appWorkflowSteps} WHERE run_id IN (SELECT id FROM ${appWorkflowRuns} WHERE app_id = ${id})`)
+    await tx.run(sql`DELETE FROM ${appWorkflowRuns} WHERE app_id = ${id}`)
+    await tx.run(sql`DELETE FROM ${appFiles} WHERE app_id = ${id}`)
     await tx.run(sql`DELETE FROM ${appCalls} WHERE app_id = ${id}`)
     await tx.run(sql`DELETE FROM ${appSchedules} WHERE app_id = ${id}`)
     await tx.run(sql`DELETE FROM ${appVersions} WHERE app_id = ${id}`)
@@ -177,8 +228,10 @@ const versionRowSchema = z.object({
   descriptor: z.string(),
   has_backend: flagSchema,
   has_ui: flagSchema,
-  state: z.enum(['active', 'superseded', 'failed']),
+  state: z.enum(['building', 'active', 'superseded', 'failed']),
   error: z.string().nullable(),
+  build_log: z.string().nullable(),
+  build_ms: nullableNumberSchema,
   message: z.string(),
   author: z.string(),
   created_at: timeSchema,
@@ -195,6 +248,8 @@ function versionFromRow(row: z.infer<typeof versionRowSchema>): AppVersionRecord
     hasUi: row.has_ui,
     state: row.state,
     error: row.error,
+    buildLog: row.build_log,
+    buildMs: row.build_ms,
     message: row.message,
     createdBy: parseStoredAttribution(row.author) ?? hostAttribution(),
     createdAt: row.created_at,
@@ -203,11 +258,22 @@ function versionFromRow(row: z.infer<typeof versionRowSchema>): AppVersionRecord
 
 export async function insertVersion(record: AppVersionRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${appVersions} (app_id, number, source_commit, build_commit, descriptor, has_backend, has_ui, state, error, message, author, created_at)
+    INSERT INTO ${appVersions} (app_id, number, source_commit, build_commit, descriptor, has_backend, has_ui, state, error, build_log, build_ms, message, author, created_at)
     VALUES (
       ${record.appId}, ${record.number}, ${record.sourceCommit}, ${record.buildCommit}, ${JSON.stringify(record.descriptor)},
-      ${flag(db, record.hasBackend)}, ${flag(db, record.hasUi)}, ${record.state}, ${record.error}, ${record.message}, ${attributionJson(record.createdBy)}, ${record.createdAt}
+      ${flag(db, record.hasBackend)}, ${flag(db, record.hasUi)}, ${record.state}, ${record.error}, ${record.buildLog}, ${record.buildMs}, ${record.message},
+      ${attributionJson(record.createdBy)}, ${record.createdAt}
     )
+  `)
+}
+
+/** What a build that ended writes over the row a deploy made when the build started. The state stays `building` until the version starts. */
+export async function saveVersionBuild(record: Pick<AppVersionRecord, 'appId' | 'number' | 'buildCommit' | 'descriptor' | 'hasBackend' | 'hasUi' | 'buildLog' | 'buildMs'>, db: Db = getDatabase()): Promise<void> {
+  await db.run(sql`
+    UPDATE ${appVersions} SET
+      build_commit = ${record.buildCommit}, descriptor = ${JSON.stringify(record.descriptor)}, has_backend = ${flag(db, record.hasBackend)},
+      has_ui = ${flag(db, record.hasUi)}, build_log = ${record.buildLog}, build_ms = ${record.buildMs}
+    WHERE app_id = ${record.appId} AND number = ${record.number}
   `)
 }
 
@@ -236,8 +302,14 @@ export async function activateVersion(app: AppRecord, number: number, db: Db = g
   })
 }
 
-export async function failVersion(appId: string, number: number, error: string, db: Db = getDatabase()): Promise<void> {
+export async function failVersion(appId: string, number: number, error: string, build: { log: string | null; ms: number | null } | null = null, db: Db = getDatabase()): Promise<void> {
+  if (build) await db.run(sql`UPDATE ${appVersions} SET build_log = ${build.log}, build_ms = ${build.ms} WHERE app_id = ${appId} AND number = ${number}`)
   await db.run(sql`UPDATE ${appVersions} SET state = 'failed', error = ${error.slice(0, 2000)} WHERE app_id = ${appId} AND number = ${number}`)
+}
+
+/** A version that was building when the host stopped did not finish. */
+export async function failInterruptedBuilds(db: Db = getDatabase()): Promise<void> {
+  await db.run(sql`UPDATE ${appVersions} SET state = 'failed', error = 'The host stopped during the build. Deploy the revision again.' WHERE state = 'building'`)
 }
 
 // ─── Schedules ───
@@ -317,7 +389,20 @@ const callRowSchema = z.object({
   finished_at: nullableTimeSchema,
   outcome: z.enum(['running', 'ok', 'failed']),
   error: z.string().nullable(),
+  error_stack: z.string().nullable(),
+  input: z.string().nullable(),
+  input_truncated: flagSchema,
+  result_bytes: nullableNumberSchema,
+  logs: z.string(),
+  logs_truncated: flagSchema,
+  spans: z.string(),
+  run_id: z.string().nullable(),
+  trace_id: z.string().nullable(),
+  span_id: z.string().nullable(),
 })
+
+const logLinesSchema = z.array(appLogLineSchema)
+const spansSchema = z.array(appSpanSchema)
 
 function callFromRow(row: z.infer<typeof callRowSchema>): AppCallRecord {
   return {
@@ -330,24 +415,55 @@ function callFromRow(row: z.infer<typeof callRowSchema>): AppCallRecord {
     finishedAt: row.finished_at,
     outcome: row.outcome,
     error: row.error,
+    errorStack: row.error_stack,
+    input: row.input,
+    inputTruncated: row.input_truncated,
+    resultBytes: row.result_bytes,
+    logs: logLinesSchema.parse(JSON.parse(row.logs)),
+    logsTruncated: row.logs_truncated,
+    spans: spansSchema.parse(JSON.parse(row.spans)),
+    runId: row.run_id,
+    traceId: row.trace_id,
+    spanId: row.span_id,
   }
 }
 
-export async function insertCall(record: AppCallRecord, db: Db = getDatabase()): Promise<void> {
+/** A call that starts: its row has no log line and no span yet. */
+export async function insertCall(record: Pick<AppCallRecord, 'id' | 'appId' | 'version' | 'operation' | 'caller' | 'startedAt' | 'input' | 'inputTruncated' | 'runId' | 'traceId' | 'spanId'>, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${appCalls} (id, app_id, version, operation, caller, started_at, finished_at, outcome, error)
-    VALUES (${record.id}, ${record.appId}, ${record.version}, ${record.operation}, ${JSON.stringify(record.caller)}, ${record.startedAt}, ${record.finishedAt}, ${record.outcome}, ${record.error})
+    INSERT INTO ${appCalls} (id, app_id, version, operation, caller, caller_kind, started_at, outcome, input, input_truncated, run_id, trace_id, span_id)
+    VALUES (
+      ${record.id}, ${record.appId}, ${record.version}, ${record.operation}, ${JSON.stringify(record.caller)}, ${record.caller.kind}, ${record.startedAt}, 'running',
+      ${record.input}, ${flag(db, record.inputTruncated)}, ${record.runId}, ${record.traceId}, ${record.spanId}
+    )
   `)
 }
 
-export async function finishCall(id: string, outcome: 'ok' | 'failed', error: string | null, finishedAt: number, db: Db = getDatabase()): Promise<void> {
-  await db.run(sql`UPDATE ${appCalls} SET outcome = ${outcome}, error = ${error === null ? null : error.slice(0, 2000)}, finished_at = ${finishedAt} WHERE id = ${id}`)
+export async function finishCall(id: string, end: AppCallEnd, db: Db = getDatabase()): Promise<void> {
+  await db.run(sql`
+    UPDATE ${appCalls} SET
+      outcome = ${end.outcome}, error = ${end.error === null ? null : end.error.slice(0, 2000)}, error_stack = ${end.errorStack === null ? null : end.errorStack.slice(0, 8000)},
+      result_bytes = ${end.resultBytes}, logs = ${JSON.stringify(end.logs)}, logs_truncated = ${flag(db, end.logsTruncated)}, spans = ${JSON.stringify(end.spans)},
+      finished_at = ${end.finishedAt}
+    WHERE id = ${id}
+  `)
 }
 
-/** The newest calls of an app. */
-export async function listCalls(appId: string, limit: number, db: Db = getDatabase()): Promise<AppCallRecord[]> {
-  const rows = await db.all(sql`SELECT * FROM ${appCalls} WHERE app_id = ${appId} ORDER BY started_at DESC, id DESC LIMIT ${limit}`)
+/** The newest calls of an app that pass the filter. */
+export async function listCalls(appId: string, limit: number, filter: AppCallFilter = {}, db: Db = getDatabase()): Promise<AppCallRecord[]> {
+  const where = [sql`app_id = ${appId}`]
+  if (filter.operation !== undefined) where.push(sql`operation = ${filter.operation}`)
+  if (filter.outcome !== undefined) where.push(sql`outcome = ${filter.outcome}`)
+  if (filter.callerKind !== undefined) where.push(sql`caller_kind = ${filter.callerKind}`)
+  if (filter.runId !== undefined) where.push(sql`run_id = ${filter.runId}`)
+  if (filter.before !== undefined) where.push(sql`started_at < ${filter.before}`)
+  const rows = await db.all(sql`SELECT * FROM ${appCalls} WHERE ${sql.join(where, sql` AND `)} ORDER BY started_at DESC, id DESC LIMIT ${limit}`)
   return z.array(callRowSchema).parse(rows).map(callFromRow)
+}
+
+export async function loadCall(appId: string, callId: string, db: Db = getDatabase()): Promise<AppCallRecord | null> {
+  const row = await db.get(sql`SELECT * FROM ${appCalls} WHERE app_id = ${appId} AND id = ${callId}`)
+  return row ? callFromRow(callRowSchema.parse(row)) : null
 }
 
 /** Deletes the calls of an app older than its newest `MAX_CALLS_PER_APP`. */
@@ -371,4 +487,30 @@ export async function lastCallTimes(appIds: readonly string[], db: Db = getDatab
     SELECT app_id, MAX(started_at) AS at FROM ${appCalls} WHERE app_id IN (${sql.join(appIds.map((id) => sql`${id}`), sql`, `)}) GROUP BY app_id
   `))
   return new Map(rows.map((row) => [row.app_id, row.at]))
+}
+
+/** How many calls each app had since a time, and how many of them failed. */
+export async function callCountsSince(appIds: readonly string[], since: number, db: Db = getDatabase()): Promise<Map<string, { calls: number; failed: number }>> {
+  if (appIds.length === 0) return new Map()
+  const rows = z.array(z.object({ app_id: z.string(), calls: z.coerce.number(), failed: z.coerce.number() })).parse(await db.all(sql`
+    SELECT app_id, COUNT(*) AS calls, SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS failed FROM ${appCalls}
+    WHERE started_at >= ${since} AND app_id IN (${sql.join(appIds.map((id) => sql`${id}`), sql`, `)}) GROUP BY app_id
+  `))
+  return new Map(rows.map((row) => [row.app_id, { calls: row.calls, failed: row.failed }]))
+}
+
+/** One call as the metrics read it: no input, no log line. */
+export interface AppCallTiming {
+  operation: string
+  startedAt: number
+  finishedAt: number | null
+  outcome: AppCallOutcome
+}
+
+/** The calls of an app since a time, the oldest first. */
+export async function callTimingsSince(appId: string, since: number, db: Db = getDatabase()): Promise<AppCallTiming[]> {
+  const rows = z.array(z.object({ operation: z.string(), started_at: timeSchema, finished_at: nullableTimeSchema, outcome: z.enum(['running', 'ok', 'failed']) })).parse(await db.all(sql`
+    SELECT operation, started_at, finished_at, outcome FROM ${appCalls} WHERE app_id = ${appId} AND started_at >= ${since} ORDER BY started_at
+  `))
+  return rows.map((row) => ({ operation: row.operation, startedAt: row.started_at, finishedAt: row.finished_at, outcome: row.outcome }))
 }

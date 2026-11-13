@@ -4,6 +4,7 @@ import {
   appResultMessage,
   type APP_DATA_CHANGED_MESSAGE,
   type AppCallMessage,
+  type AppClientAnswers,
   type AppResultMessage,
 } from '@solus/client-core/app-calls'
 import { wrapSandboxDocument } from '@solus/contracts/artifact-sandbox'
@@ -39,13 +40,14 @@ export function appMessageScript(message: AppResultMessage | typeof APP_DATA_CHA
 }
 
 /**
- * Answers one message of an app's UI. A call runs on the host (`appCall`) and
- * always gets an answer, so the UI never waits: the value, or the reason the
- * host refused. An app never asks the person first (decision 11). Returns the
- * script that gives the UI its answer, or null for a message that is not a call.
+ * Answers one message of an app's UI. A call runs on the host (`appCall`), or
+ * on this client when it is a `@client` call (`client`), and always gets an
+ * answer, so the UI never waits: the value, or the reason for the refusal.
+ * An app never asks the person first (decision 13). Returns the script that
+ * gives the UI its answer, or null for a message that is not a call.
  */
-export async function relayAppCall(data: string, callHost: (name: string, argumentsJson: string) => Promise<string>): Promise<string | null> {
+export async function relayAppCall(data: string, callHost: (name: string, argumentsJson: string) => Promise<string>, client?: AppClientAnswers): Promise<string | null> {
   const call = readAppCall(data)
   if (!call) return null
-  return appMessageScript(await appResultMessage(call.id, answerAppCall(callHost, call.name, call.args)))
+  return appMessageScript(await appResultMessage(call.id, answerAppCall(callHost, call.name, call.args, client)))
 }

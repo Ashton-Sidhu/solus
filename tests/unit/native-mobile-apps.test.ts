@@ -16,13 +16,16 @@ import {
   webhookLines,
   appProblemCount,
   manageAppLabel,
+  parseOperationInput,
+  runtimeText,
 } from '../../apps/mobile/src/features/apps/apps'
 import { appDocument, appMessageScript, readAppCall, relayAppCall } from '../../apps/mobile/src/features/apps/app-frame'
 
 // The phone's app screens (docs/plans/apps.md §9). These pin what the owner
-// reads and what the app frame does: a list row names what needs the owner, a
-// schedule and a caller read as words, a call of the UI always gets an
-// answer, and a rollback and a delete say what they do before they run.
+// reads and what the app frame does: a list row says the app's state and how
+// many problems need the owner, a schedule and a caller read as words, a call
+// of the UI always gets an answer, a file the UI gives the person stays on
+// this client, and a rollback and a delete say what they do before they run.
 
 const NOW = Date.UTC(2026, 10, 12, 12, 0, 0)
 const MINUTE = 60_000
@@ -37,7 +40,11 @@ function summary(overrides: Partial<AppSummary> = {}): AppSummary {
     organizationId: 'local',
     activeVersion: 3,
     latestVersion: 3,
+    latestRevision: 'a'.repeat(40),
+    hasUndeployedRevision: false,
+    buildingVersion: null,
     stopped: false,
+    agentAccess: true,
     hasUi: true,
     operationCount: 2,
     project: null,
@@ -45,15 +52,18 @@ function summary(overrides: Partial<AppSummary> = {}): AppSummary {
     createdAt: NOW - 1000 * MINUTE,
     updatedAt: NOW,
     lastCallAt: NOW - 5 * MINUTE,
+    calls24h: 0,
+    failed24h: 0,
     attention: [],
     ...overrides,
   }
 }
 
 const descriptor = {
-  solusApp: 2,
+  solusApp: 3,
   name: 'Notes',
   description: '',
+  instructions: '',
   permissions: { network: [], files: { read: [], write: [] } },
   integrations: [],
   secrets: [],
@@ -63,20 +73,44 @@ const descriptor = {
   ],
   schedules: [],
   webhooks: [],
+  workflows: [],
+  signals: [],
 } satisfies AppDescriptor
 
+const idleRunner = { running: false, startedAt: null, inFlight: 0, rssBytes: null }
+
 function appState(app: AppSummary, withDescriptor = true): AppState {
-  return { app, descriptor: withDescriptor ? descriptor : null, roles: [], secrets: [], network: [], permissionsNotice: null }
+  return {
+    app,
+    descriptor: withDescriptor ? descriptor : null,
+    roles: [],
+    secrets: [],
+    network: [],
+    permissionsNotice: null,
+    runtime: idleRunner,
+    repositoryPath: '/data/apps/repositories/app-1.git',
+  }
 }
 
 describe('the Apps list', () => {
-  test('a row names the app, the version that runs, the last call, and each thing that needs the owner', () => {
-    // WHY: the list is where the owner sees that an app needs them. A stopped
-    // app is the owner's own choice, so only the other items read as faults.
+  test('a host with missing counts does not show an invalid failed-call count', () => {
+    for (const field of ['calls24h', 'failed24h']) {
+      const app = summary({ calls24h: 12, failed24h: 2 })
+      Reflect.deleteProperty(app, field)
+      expect(appListItem(app, NOW).lines).toEqual([{ text: 'Running · Last call 5m ago' }])
+    }
+  })
+
+  test('a row says the state, the version, the last call, the failed calls of 24 hours, and how many problems need the owner', () => {
+    // WHY: the list is where the owner sees that an app needs them (plan §9.3).
+    // A stopped app is the owner's own choice, so it is the state and not a problem.
     const item = appListItem(summary({
       stopped: true,
+      calls24h: 120,
+      failed24h: 3,
       attention: [
         { kind: 'secret-missing', detail: 'The secret Database URL is not set.' },
+        { kind: 'workflow-failed', detail: 'The last run of build failed.' },
         { kind: 'stopped', detail: 'The app is stopped.' },
       ],
     }), NOW)
@@ -84,17 +118,21 @@ describe('the Apps list', () => {
       title: 'Notes',
       trailing: 'v3',
       lines: [
-        { text: 'Last call 5m ago' },
-        { text: 'The secret Database URL is not set.', tone: 'danger' },
-        { text: 'The app is stopped.', tone: 'muted' },
+        { text: 'Stopped · Last call 5m ago' },
+        { text: '3 of 120 calls failed in 24 h', tone: 'danger' },
+        { text: '2 problems', tone: 'danger' },
       ],
     })
   })
 
+  test('a healthy app shows one quiet line', () => {
+    expect(appListItem(summary({ calls24h: 40 }), NOW).lines).toEqual([{ text: 'Running · Last call 5m ago' }])
+  })
+
   test('an app with no successful deploy and no call says so, and promises no version', () => {
     const item = appListItem(summary({ activeVersion: null, lastCallAt: null }), NOW)
-    expect(item.trailing).toBe('No version')
-    expect(item.lines[0]).toEqual({ text: 'No calls yet' })
+    expect(item.trailing).toBeNull()
+    expect(item.lines[0]).toEqual({ text: 'No version · No calls yet' })
   })
 
   test('apps are in name order, and an id finds its name', () => {
@@ -117,8 +155,20 @@ describe('the app screen', () => {
 
   test('an app with no active version shows why its deploy failed, never a frame', () => {
     const failed = summary({ activeVersion: null, attention: [{ kind: 'version-failed', detail: 'Version 1 failed: migration 0001 has a syntax error.' }] })
-    expect(appBody(appState(failed, false))).toEqual({ kind: 'no-version', error: 'Version 1 failed: migration 0001 has a syntax error.' })
-    expect(appBody(appState(summary({ activeVersion: null }), false))).toEqual({ kind: 'no-version', error: null })
+    expect(appBody(appState(failed, false))).toEqual({ kind: 'no-version', error: 'Version 1 failed: migration 0001 has a syntax error.', waitsForDeploy: false })
+    expect(appBody(appState(summary({ activeVersion: null }), false))).toEqual({ kind: 'no-version', error: null, waitsForDeploy: false })
+  })
+
+  test('an app that was saved and never deployed says that a save waits', () => {
+    // WHY: a save and a deploy are two acts (decision 6), so an app can have revisions and no version.
+    expect(appBody(appState(summary({ activeVersion: null, latestVersion: null, hasUndeployedRevision: true }), false)))
+      .toEqual({ kind: 'no-version', error: null, waitsForDeploy: true })
+  })
+
+  test('the runner reads as one line: off, or since when, what is in progress, and its memory', () => {
+    expect(runtimeText(idleRunner, NOW)).toBe('Off. It starts for the next call.')
+    expect(runtimeText({ running: true, startedAt: NOW - 3 * MINUTE, inFlight: 2, rssBytes: 88 * 1024 * 1024 }, NOW)).toBe('Started 3m ago · 2 in progress · 88 MiB of memory')
+    expect(runtimeText({ running: true, startedAt: NOW - 3 * MINUTE, inFlight: 0, rssBytes: null }, NOW)).toBe('Started 3m ago · idle')
   })
 })
 
@@ -158,7 +208,7 @@ describe('the app frame', () => {
   })
 
   test('a call goes to the host with its arguments as JSON, and the UI gets the value under the id of the call', async () => {
-    // WHY: an app never asks the person first (decision 11): the call runs at once.
+    // WHY: an app never asks the person first (decision 13): the call runs at once.
     const seen: [string, string][] = []
     const script = await relayAppCall(JSON.stringify({ type: 'solus-app-call', id: 7, name: '@app/add', args: { text: 'milk' } }), async (name, argumentsJson) => {
       seen.push([name, argumentsJson])
@@ -172,6 +222,32 @@ describe('the app frame', () => {
     // WHY: a UI that gets no answer waits forever. A stopped app must say that it is stopped.
     const script = await relayAppCall(JSON.stringify({ type: 'solus-app-call', id: 8, name: '@app/add', args: {} }), () => Promise.reject(new Error('This app is stopped.')))
     expect(script).toBe(appMessageScript({ type: 'solus-app-result', id: 8, ok: false, error: 'This app is stopped.' }))
+  })
+
+  test('a file the UI gives the person is answered on this client and never reaches the host', async () => {
+    // WHY: `@client/save` is the client's own to answer (plan §5): on a phone it opens the share sheet.
+    const saved: { name: string; type: string; data: string }[] = []
+    let hostCalls = 0
+    const script = await relayAppCall(
+      JSON.stringify({ type: 'solus-app-call', id: 9, name: '@client/save', args: { name: 'report.csv', type: 'text/csv', data: 'YSxi' } }),
+      async () => {
+        hostCalls += 1
+        return '{}'
+      },
+      { save: async (file) => { saved.push(file) } },
+    )
+    expect(saved).toEqual([{ name: 'report.csv', type: 'text/csv', data: 'YSxi' }])
+    expect(hostCalls).toBe(0)
+    expect(script).toBe(appMessageScript({ type: 'solus-app-result', id: 9, ok: true, value: null }))
+  })
+
+  test('a share sheet that fails still answers the UI with the reason', async () => {
+    const script = await relayAppCall(
+      JSON.stringify({ type: 'solus-app-call', id: 10, name: '@client/save', args: { name: 'report.csv', data: 'YSxi' } }),
+      async () => '{}',
+      { save: () => Promise.reject(new Error('Saving and sharing files is unavailable on this device.')) },
+    )
+    expect(script).toBe(appMessageScript({ type: 'solus-app-result', id: 10, ok: false, error: 'Saving and sharing files is unavailable on this device.' }))
   })
 
   test('a message that is not a call starts nothing on the host', async () => {
@@ -250,27 +326,36 @@ describe('versions', () => {
     permissionsNotice: null,
     operationCount: 2,
     hasUi: true,
+    revision: 'abc1234def'.padEnd(40, '0'),
+    protocol: 3,
+    buildMs: 4200,
     ...overrides,
   })
 
   test('only an earlier version can be made active', () => {
-    // WHY: the active version already runs, and a failed version never ran.
+    // WHY: the active version already runs, a failed version never ran, and a version that builds is not one yet.
     expect(canMakeActive(version())).toBe(true)
     expect(canMakeActive(version({ state: 'active' }))).toBe(false)
     expect(canMakeActive(version({ state: 'failed' }))).toBe(false)
+    expect(canMakeActive(version({ state: 'building' }))).toBe(false)
   })
 
-  test('a version shows its message, when and by whom, and why it failed', () => {
-    expect(versionLines(version(), NOW)).toEqual([{ text: 'Add tags' }, { text: '3h ago · Ada' }])
-    expect(versionLines(version({ state: 'failed', message: '', error: 'Migration 0002 failed.' }), NOW)).toEqual([
+  test('a version shows its message, when, by whom, from which revision, and how long the build took', () => {
+    expect(versionLines(version(), NOW)).toEqual([{ text: 'Add tags' }, { text: '3h ago · Ada · revision abc1234 · built in 4.2 s' }])
+  })
+
+  test('a failed version shows why, a version that builds says so, and each says what it may use', () => {
+    expect(versionLines(version({ state: 'failed', message: '', error: 'Migration 0002 failed.', buildMs: null }), NOW)).toEqual([
       { text: 'No message' },
-      { text: '3h ago · Ada' },
+      { text: '3h ago · Ada · revision abc1234' },
       { text: 'Migration 0002 failed.', tone: 'danger' },
     ])
+    expect(versionLines(version({ state: 'building', buildMs: null }), NOW)[2]).toEqual({ text: 'The host builds this version now.' })
+    expect(versionLines(version({ permissionsNotice: 'This app reaches api.example.com.' }), NOW).at(-1)).toEqual({ text: 'This app reaches api.example.com.' })
   })
 
   test('the question before a rollback says that data is not rewound', () => {
-    // WHY: decision 6. A person who expects a rollback of data would lose trust in what they see after it.
+    // WHY: decision 8. A person who expects a rollback of data would lose trust in what they see after it.
     const confirmation = makeActiveConfirmation(2)
     expect(confirmation.title).toBe('Make v2 active?')
     expect(confirmation.message).toContain('data is not rewound')
@@ -314,6 +399,13 @@ describe('webhooks and calls', () => {
     expect(callerText({ kind: 'webhook', webhookId: 'wh-9' }, [webhook()])).toBe('A webhook')
   })
 
+  test('a workflow caller is a run of the workflow, or one step of it', () => {
+    // WHY: one row of the call log is one execution of the workflow's function (no step),
+    // or the call a step made with runQuery or runMutation (a step name).
+    expect(callerText({ kind: 'workflow', runId: 'r1', workflow: 'build', step: '' })).toBe('Run of build')
+    expect(callerText({ kind: 'workflow', runId: 'r1', workflow: 'build', step: 'save' })).toBe('Step save of build')
+  })
+
   test('a call in the log names its caller and version, and a failed call shows its error', () => {
     const call = (overrides: Partial<AppCallView> = {}): AppCallView => ({
       id: 'c1',
@@ -324,10 +416,29 @@ describe('webhooks and calls', () => {
       finishedAt: NOW,
       outcome: 'ok',
       error: null,
+      durationMs: 120,
+      logCount: 0,
+      spanCount: 0,
+      traceId: null,
+      spanId: null,
       ...overrides,
     })
-    expect(callLines(call())).toEqual([{ text: 'Schedule digest · v3' }, { text: 'Completed' }])
-    expect(callLines(call({ outcome: 'running', finishedAt: null }))[1]).toEqual({ text: 'Running' })
+    expect(callLines(call())).toEqual([{ text: 'Schedule digest · v3 · 120 ms' }, { text: 'Completed' }])
+    expect(callLines(call({ outcome: 'running', finishedAt: null, durationMs: null }))).toEqual([{ text: 'Schedule digest · v3' }, { text: 'Running' }])
     expect(callLines(call({ outcome: 'failed', error: 'UNIQUE constraint failed: notes.id' }))[1]).toEqual({ text: 'UNIQUE constraint failed: notes.id', tone: 'danger' })
+  })
+})
+
+describe('a run of an operation from the Operations section', () => {
+  test('the input is a JSON object, as a UI sends it; empty text is the empty object', () => {
+    // WHY: the run goes through the same call as the UI's (`@app/<operation>`), whose arguments are an object.
+    expect(parseOperationInput('  ')).toEqual({ ok: true, argumentsJson: '{}' })
+    expect(parseOperationInput('{ "title": "Nightly" }')).toEqual({ ok: true, argumentsJson: '{"title":"Nightly"}' })
+  })
+
+  test('text that is not JSON, or JSON that is not an object, starts no call and says why', () => {
+    expect(parseOperationInput('{ title: ')).toEqual({ ok: false, message: 'The input is not JSON.' })
+    expect(parseOperationInput('[1, 2]')).toEqual({ ok: false, message: 'The input must be a JSON object.' })
+    expect(parseOperationInput('"Nightly"')).toEqual({ ok: false, message: 'The input must be a JSON object.' })
   })
 })

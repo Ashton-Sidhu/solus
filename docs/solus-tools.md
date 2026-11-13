@@ -141,19 +141,26 @@ status, pending input, and history. There is no separate task-session read tool.
 `render_artifact` saves a work associated with the calling session. It has no
 task-link option. Use `link` to attach an existing work to the current session.
 
-Apps (docs/apps.md) have four tools. `deploy_app` makes a version of an app
-from an app project: a visual-artifacts project with an `app.ts`, after
-`npm run bundle`. It takes the project folder as `path`, and `app` (a slug)
-for a new version of an app that exists. A deploy makes the version active and
-links the app to the calling session; it needs approval. `preview_app` deploys
-nothing and answers a picture of the project's UI; it needs no approval.
-`checkout_app` writes the source of a version
-into a folder, so a later session can change the app. `list_apps` lists the
-apps of the host with their operations.
+Apps (docs/apps.md) have seven tools. `save_app` commits an app project (a
+project from the `create-app` skill) as a new revision. It takes the
+project folder as `path`; a folder that `checkout_app` or an earlier save
+wrote names its app, and a new app needs no `app`. A save changes nothing that
+runs and needs no approval. It is refused when the app has a newer revision
+than the folder came from. `deploy_app` takes `app` (a slug) and has the host
+build the newest revision, or the one `revision` names, and make the version
+active. It links the app to the calling session; it needs approval.
+`preview_app` has the host build the project folder and answers a picture of
+its UI; it saves nothing and needs no approval. `checkout_app` writes the
+source of a revision into a folder, so a later session can change the app.
+`list_apps` lists the apps of the host with their operations. `inspect_app`
+reads what the host kept of an app: its state and instructions, its call log
+with each call's input, log lines, and trace, its workflow runs, its signals,
+and its build logs. `set_app_signal_action` makes or changes what one signal
+of an app does; it needs approval.
 
 Each operation of a running app is also a tool, named `<slug>__<operation>`,
-in every run that starts after the deploy. A query and a mutation run with no
-approval of their own. `link`, `unlink`, and `list_links` take `kind: "app"`
+in every run that starts after the deploy, while the app's agent access is on.
+A query and a mutation run with no approval of their own. `link`, `unlink`, and `list_links` take `kind: "app"`
 with the app's slug or id.
 
 Works includes `publish_work` and `pull_work_upstream` for connected document

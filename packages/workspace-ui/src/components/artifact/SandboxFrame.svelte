@@ -8,6 +8,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { APP_DATA_CHANGED_MESSAGE, answerAppCall, appCallMessageSchema, appResultMessage } from "@solus/client-core/app-calls";
+  import { browserAppClient } from "./lib/app-client";
   import { buildSandboxThemeCss, wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
   import {
     artifactHeightMessageSchema,
@@ -227,7 +228,7 @@
       if (!frame || e.source !== frame.contentWindow) return;
       const message = appCallMessageSchema.safeParse(e.data);
       if (!message.success) return;
-      const answer = answerAppCall(callHost, message.data.name, message.data.args);
+      const answer = answerAppCall(callHost, message.data.name, message.data.args, browserAppClient);
       void appResultMessage(message.data.id, answer).then((result) => frame.contentWindow?.postMessage(result, "*"));
     }
     window.addEventListener("message", onCall);

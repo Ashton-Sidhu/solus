@@ -62,7 +62,7 @@ function personalEventVisibleTo(principal: Principal, event: HostEvent): boolean
   // One member's workspace became ready (docs/plans/member-isolation.md §8.1): theirs alone to hear.
   if (event.type === 'connection.memberWorkspaceReady') return principal.kind === 'org-member' && principal.userId === event.payload.userId
   // An app is its host owner's (docs/plans/apps.md decision 10).
-  if (event.type === 'apps.changed' || event.type === 'apps.dataChanged') return principal.kind === 'system' || isHostOwner(principal)
+  if (event.type === 'apps.changed' || event.type === 'apps.dataChanged' || event.type === 'apps.activity') return principal.kind === 'system' || isHostOwner(principal)
   return null
 }
 

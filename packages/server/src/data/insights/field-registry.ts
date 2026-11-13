@@ -162,6 +162,23 @@ interface KindRegistration {
 
 const TOOL_NAME_FIELD = column('tool', 'name', 'string', 'Tool name, e.g. Bash, Read, Edit')
 
+/** What a span of an app's call or run says of itself (docs/plans/apps.md §9.2). The span's name is the operation or the workflow. */
+const APP_SPAN_FIELDS: RegisteredField[] = [
+  ...withGroup('dimension', [
+    attr('app', 'appSlug', 'string', 'Slug of the app'),
+    attr('app_version', 'appVersion', 'number', 'Version of the app that ran'),
+    attr('operation_kind', 'operationKind', 'string', "'query', 'mutation', or 'workflow'"),
+    attr('caller', 'caller', 'string', "Who started it: 'ui', 'agent', 'schedule', 'webhook', or 'workflow'"),
+    attr('run_id', 'runId', 'string', 'The workflow run it belongs to, when it belongs to one'),
+    attr('step', 'step', 'string', 'The workflow step that made the call, when one did'),
+  ]),
+  ...withGroup('detail', [
+    attr('call_id', 'callId', 'string', "Id of the row in the app's call log"),
+    attr('result_bytes', 'resultBytes', 'number', 'Size of the JSON result; the result itself is never kept'),
+    attr('error', 'error', 'string', 'Failure message when the call failed'),
+  ]),
+]
+
 /** Per-kind field catalog. The QuerySpec compiler resolves registry field names
  *  through it when a spec pins a kind; the turn entry is also the `turns` view.
  *  Kinds no longer get a view each — `viewNameForKind` maps them onto the
@@ -356,6 +373,26 @@ export const KIND_REGISTRY = {
         attr('worktree', 'worktree', 'string', 'Worktree path serving the page, when the scan knew one'),
         attr('host_kind', 'hostKind', 'string', "Which backend rendered it: 'webview' or 'headless'"),
         attr('attached_to', 'attachedTo', 'string', 'Where the capture was filed, when it was filed anywhere'),
+      ]),
+    ],
+  },
+  [SPAN_KINDS.appCall]: {
+    description: 'one call of an operation of an app, for its UI, an agent, a schedule, a webhook, or a workflow step',
+    fields: [...APP_SPAN_FIELDS],
+  },
+  [SPAN_KINDS.appRun]: {
+    description: "one execution of an app workflow's function, from its top; a run that sleeps or starts again has several",
+    fields: [...APP_SPAN_FIELDS],
+  },
+  [SPAN_KINDS.appWork]: {
+    description: 'one thing an app call or run waited for: a network request, an integration tool, the SQL total, a file, a signal, or a step',
+    fields: [
+      ...withGroup('dimension', [
+        attr('app', 'appSlug', 'string', 'Slug of the app'),
+        attr('work', 'work', 'string', "What it was: 'fetch', 'tool', 'sql', 'file', 'signal', 'workflow', or 'step'"),
+      ]),
+      ...withGroup('detail', [
+        attr('detail', 'detail', 'string', 'A status, a count, or the reason it failed'),
       ]),
     ],
   },

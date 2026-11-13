@@ -91,6 +91,17 @@ function isReviewView(value: string): value is ReviewView {
   return REVIEW_VIEWS.has(value)
 }
 
+/** The sections of an app's Manage page (docs/plans/apps.md §9.2), in the order the page lists them. */
+export const APP_MANAGE_SECTIONS = [
+  'overview', 'activity', 'workflows', 'versions', 'schedules', 'webhooks',
+  'signals', 'models', 'secrets', 'config', 'files', 'operations', 'sessions', 'source',
+] as const
+export type AppManageSection = (typeof APP_MANAGE_SECTIONS)[number]
+
+function isAppManageSection(value: string): value is AppManageSection {
+  return APP_MANAGE_SECTIONS.some((section) => section === value)
+}
+
 /** The params each destination carries. Serializable by construction. */
 export interface RouteParams {
   /** The conversation, named by the session it shows. No `sessionId` means the
@@ -133,8 +144,10 @@ export interface RouteParams {
   artifacts: { sessionId: string; serverId?: string }
   /** One app on one host (docs/plans/apps.md §9). `slug` is the app's slug; an
    *  app id resolves too, for a link that knows only the id. Without a host the
-   *  surface takes the first connected host that has the app. */
-  app: { slug: string; serverId?: string }
+   *  surface takes the first connected host that has the app. `view` is absent
+   *  for the app itself and `manage` for its Manage page; `section` is where
+   *  the reader is on that page. */
+  app: { slug: string; serverId?: string; view?: 'manage'; section?: AppManageSection }
   /** The one surface for reading a local change: map, guide, and diff. `view`
    *  is which face is showing; `scope` is *which* change all three read. An
    *  absent scope is the branch review — the whole branch against its target,
@@ -474,19 +487,29 @@ export const ROUTES: RouteTable = {
     // destination. An open that names no target must say `companion`.
     placement: 'either',
     surfaceKey: (p) => p.sessionId,
-    defaultWeight: 0.34,
+    defaultWeight: 0.26,
     component: () => import('../../../components/session/artifacts/ArtifactsSurface.svelte'),
   },
   app: {
     parse: (s) => {
-      const { id, serverId } = parseScopedId(s)
+      const [head = '', view, section] = s.split('/')
+      const { id, serverId } = parseScopedId(head)
       if (!id) return null
-      return serverId ? { slug: id, serverId } : { slug: id }
+      const params: RouteParams['app'] = serverId ? { slug: id, serverId } : { slug: id }
+      if (view === 'manage') {
+        params.view = 'manage'
+        if (section && isAppManageSection(section)) params.section = section
+      }
+      return params
     },
-    serialize: (p) => serializeScopedId(p.slug, p.serverId),
+    serialize: (p) =>
+      [serializeScopedId(p.slug, p.serverId), ...(p.view === 'manage' ? ['manage', ...(p.section ? [p.section] : [])] : [])].join('/'),
     // The destination from the Workspace page or a link, a surface beside the
     // conversation that deployed it.
     placement: 'either',
+    // One surface for each app on each host. The Manage page and its section
+    // are where the reader is inside it.
+    surfaceKey: (p) => serializeScopedId(p.slug, p.serverId),
     defaultWeight: 0.5,
     component: () => import('../../../components/app/AppSurface.svelte'),
   },

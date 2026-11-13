@@ -1,6 +1,6 @@
 ---
 name: visual-artifacts
-description: Build visual HTML artifacts and apps that live in Solus with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, preview, and save as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools, and for an app: a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook, with a backend on the host, its own data, and operations that agents can call. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
+description: Build visual HTML artifacts with one React, TypeScript, and Tailwind workflow — initialize, develop, compile to one HTML file, preview, and save as a Solus work. Use for charts, dashboards, comparisons, simulations, design previews, and copy-back tools. Covers saved-work revisions, document embeds, sandbox constraints, and explicit Solus Cloud sharing. For an app that lives in Solus (a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook), use the create-app skill. Use other work tools for prose and slides; use web-building skills only for a codebase to deploy.
 ---
 
 # Visual artifacts
@@ -11,7 +11,7 @@ Build a useful visual result, not a website around an answer. Start with what th
 
 The deliverable is a portable Solus work with a stable identity, native theme integration, version-checked revisions, reusable document embeds, and explicit access controls. The temporary React project is its build input, not a separate deployed app.
 
-**An app is a full application built the same way.** When the user asks for something they keep and use, such as a tracker, a tool, a browser for their data, or a job that runs on a schedule or a webhook, build it here and make it an app. An app is not a work: it is a program on the host with a backend (`app.ts`: typed queries and mutations, schedules, webhooks, secrets), its own SQLite data, and a UI in its own window with as many pages as it needs. Its operations are also tools for agents. Read [apps](references/apps.md) before you write one, and deliver it with `deploy_app`, not `render_artifact`. The project, the UI build, and the verification in this file apply to an app's UI. The design section and the frame rules for a visual in a reply (content height, no page shell, no title, quiet styling) do not: an app is a product with its own identity, and it lays out its own window.
+**An app is not an artifact.** When the user asks for something they keep and use, such as a tracker, a tool, a browser for their data, or a job that runs on a schedule or a webhook, load the create-app skill and build an app. It is a program on the host with a backend, its own data, and a UI in its own window, and it starts from that skill's starter app. The rules of this file do not apply to it.
 
 ## Quick start
 
@@ -97,7 +97,7 @@ Include reset and meaningful presets where useful. Derive preview and output fro
 ## Sandbox contract
 
 - One complete HTML document, no raw JSX, TypeScript, unresolved imports, local paths, or development URLs.
-- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app's UI is the one exception: it has its backend's operations, storage, and integrations through `@solus/app` ([apps](references/apps.md)), and no network but the hosts it names.
+- The iframe has an opaque origin. No workspace DOM, files, cookies, `localStorage`, or host API. Page state resets on reload. An app's UI is the one exception: it has its backend's operations, storage, and integrations through `@solus/app` (the create-app skill), and no network but the hosts it names.
 - Inline scripts and styles work. The build includes local assets and dependencies. Ordinary renders permit absolute HTTPS resources, but isolated review renders can block all network access.
 - HTTPS fetch/XHR still needs target CORS support for an opaque origin. Prefer session data inlined at build time; live data needs loading, error, source, and refresh states. Do not disguise a snapshot as live.
 - Never embed credentials or send private data to external services. Artifact creation is not permission for uploads or external writes.
@@ -106,7 +106,7 @@ Include reset and meaningful presets where useful. Derive preview and output fro
 
 ## Design
 
-This section is for an artifact: a visual in a reply or a saved work. An artifact matches the theme of Solus, so that it reads as a part of the conversation or the document it is in. An app is different: there you have creative liberty with the design, and [apps](references/apps.md) has its rules.
+This section is for an artifact: a visual in a reply or a saved work. An artifact matches the theme of Solus, so that it reads as a part of the conversation or the document it is in. An app is different: there you have creative liberty with the design, and the create-app skill has its rules.
 
 Follow the user's direction, then the target product's real design system, then Solus integration. Read real tokens and components before showing a product's current UI. Scope product-specific styles to the preview.
 

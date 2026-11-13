@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  APP_PROTOCOL,
+  APP_PROTOCOLS,
+  appClientCallName,
   appDescriptorSchema,
+  appFileCallName,
   appOperationCallName,
+  appSignalActionSchema,
   appSlugOf,
   appStorageCallName,
   describeAppPermissions,
@@ -44,6 +49,35 @@ describe('the app descriptor', () => {
     expect(webhook('list').error?.issues[0]?.message).toBe('The webhook pushed runs list, which is not a mutation of this app.')
   })
 
+  test('a descriptor names its protocol, and the host reads every protocol it runs', () => {
+    // WHY (decision 22): a build from before this model has protocol 2 and
+    // none of the newer fields. It must still be a descriptor the host reads,
+    // or a host update would stop every app that was deployed before it.
+    expect(APP_PROTOCOLS).toContain(APP_PROTOCOL)
+    const old = appDescriptorSchema.parse(descriptor())
+    expect(old).toMatchObject({ solusApp: 2, instructions: '', workflows: [], signals: [] })
+    expect(old.operations[0]).not.toHaveProperty('output')
+    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 3 })).success).toBe(true)
+    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 4 })).success).toBe(false)
+  })
+
+  test('a signal has a name of lower-case words with dots, and a workflow a name a program can write', () => {
+    const signal = (name: string) => appDescriptorSchema.safeParse(descriptor({ signals: [{ name, payload: { type: 'object' } }] })).success
+    expect(signal('report.ready')).toBe(true)
+    expect(signal('Report.Ready')).toBe(false)
+    expect(signal('report ready')).toBe(false)
+    expect(signal('.ready')).toBe(false)
+    const workflows = (names: string[]) => appDescriptorSchema.safeParse(descriptor({ workflows: names.map((name) => ({ name, input: {} })) }))
+    expect(workflows(['build']).success).toBe(true)
+    expect(workflows(['build', 'build']).error?.issues[0]?.message).toBe('The name build is used twice.')
+  })
+
+  test('an operation may take at most 15 minutes: longer work is a workflow', () => {
+    const timed = (timeoutSeconds: number) => appDescriptorSchema.safeParse(descriptor({ operations: [{ name: 'slow', kind: 'mutation', input: {}, timeoutSeconds }] })).success
+    expect(timed(900)).toBe(true)
+    expect(timed(901)).toBe(false)
+  })
+
   test('two operations cannot have one name', () => {
     const repeated = appDescriptorSchema.safeParse(descriptor({ operations: [{ name: 'add', kind: 'query', input: {} }, { name: 'add', kind: 'mutation', input: {} }] }))
     expect(repeated.error?.issues[0]?.message).toBe('The name add is used twice.')
@@ -74,6 +108,11 @@ describe('the names a UI puts on the wire', () => {
     expect(parseAppCallName(appOperationCallName('list'))).toEqual({ kind: 'operation', name: 'list' })
     expect(parseAppCallName(appStorageCallName('set'))).toEqual({ kind: 'storage', operation: 'set' })
     expect(parseAppCallName('linear/list_issues')).toEqual({ kind: 'tool', slug: 'linear', tool: 'list_issues' })
+    expect(parseAppCallName(appFileCallName('chunk'))).toEqual({ kind: 'files', operation: 'chunk' })
+    expect(parseAppCallName('@files/overwrite')).toBeNull()
+    // A `@client` name is the client's own to answer: the host refuses it, and a client never sends it.
+    expect(parseAppCallName(appClientCallName('save'))).toEqual({ kind: 'client', operation: 'save' })
+    expect(parseAppCallName('@client/open')).toBeNull()
     expect(parseAppCallName('@storage/drop')).toBeNull()
     expect(parseAppCallName('@app/')).toBeNull()
     expect(parseAppCallName('@app/a b')).toBeNull()
@@ -125,5 +164,16 @@ describe('a webhook that calls an app', () => {
     const action = { id: 'app', type: 'call_app', enabled: true, filters: [], template: '', appId: 'app-1', operation: 'add' }
     expect(webhookActionSchema.parse(action)).toEqual(action)
     expect(webhookActionSchema.safeParse({ ...action, operation: '' }).success).toBe(false)
+  })
+})
+
+describe('a signal action', () => {
+  test('a signal does a notification, a prompt to a session, or a run of an automation, and nothing that starts a session by itself', () => {
+    // WHY (decision 24): agent work costs money. A signal that must start a
+    // new session runs an automation, which holds the agent, the model, and the folder.
+    expect(appSignalActionSchema.parse({ type: 'notify' })).toEqual({ type: 'notify', title: '', detail: '' })
+    expect(appSignalActionSchema.parse({ type: 'send_to_session', sessionId: 's1' })).toEqual({ type: 'send_to_session', sessionId: 's1', template: '' })
+    expect(appSignalActionSchema.safeParse({ type: 'run_automation' }).success).toBe(false)
+    expect(appSignalActionSchema.safeParse({ type: 'start_session', cwd: '~', agentProvider: 'codex' }).success).toBe(false)
   })
 })

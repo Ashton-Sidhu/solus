@@ -105,6 +105,7 @@ function resourceKeyOf(resource: NotificationResource): string {
     case 'pr': return `pr:${prKey(resource.pr)}`
     case 'automation': return `automation:${resource.automationId}`
     case 'review_job': return `review_job:${resource.job}:${prKey(resource.pr)}`
+    case 'app': return `app:${resource.appId}`
   }
 }
 

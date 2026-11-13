@@ -26,6 +26,7 @@ export function notificationHeadline(notification: HubNotification): string {
     case 'mention': return 'Mentioned you'
     case 'session.shared': return `Shared with you · ${shareRoleLabel(facts.role)}`
     case 'session.unshared': return 'Removed your access'
+    case 'app.signal': return 'App signal'
   }
 }
 
@@ -44,7 +45,7 @@ export function shareRoleLabel(role: ShareRole): string {
   }
 }
 
-export type NotificationKindGroup = 'reviews' | 'tasks' | 'pull-requests' | 'automations' | 'guides' | 'mentions' | 'shares'
+export type NotificationKindGroup = 'reviews' | 'tasks' | 'pull-requests' | 'automations' | 'apps' | 'guides' | 'mentions' | 'shares'
 
 /** The kind filter's choices: each names the kinds it shows. */
 export const NOTIFICATION_KIND_GROUPS: readonly { value: NotificationKindGroup; label: string; kinds: readonly NotificationKind[] }[] = [
@@ -52,6 +53,7 @@ export const NOTIFICATION_KIND_GROUPS: readonly { value: NotificationKindGroup; 
   { value: 'tasks', label: 'Tasks', kinds: ['task.assigned'] },
   { value: 'pull-requests', label: 'Pull requests', kinds: ['pr.assigned', 'pr.review_requested'] },
   { value: 'automations', label: 'Automations', kinds: ['automation.finished'] },
+  { value: 'apps', label: 'Apps', kinds: ['app.signal'] },
   { value: 'guides', label: 'Guides and lenses', kinds: ['review_job.finished'] },
   { value: 'mentions', label: 'Mentions', kinds: ['mention'] },
   { value: 'shares', label: 'Shared with you', kinds: ['session.shared', 'session.unshared'] },

@@ -24,6 +24,7 @@ describe('notification destinations', () => {
     { kind: 'pr', pr },
     { kind: 'review_job', job: 'lens', pr, lensId: 'security' },
     { kind: 'automation', automationId: 'a1', runId: 'r1' },
+    { kind: 'app', appId: 'app_1', slug: 'notes' },
   ]
 
   test('every resource opens on the source it came from, in its existing destination', () => {
@@ -33,7 +34,13 @@ describe('notification destinations', () => {
       return destination.route.kind
     })
     // The workspace shells open each of these kinds (`WORKSPACE_RESOURCE_KINDS`).
-    expect(kinds).toEqual(['work', 'task', 'pull-request', 'pull-request', 'automation'])
+    expect(kinds).toEqual(['work', 'task', 'pull-request', 'pull-request', 'automation', 'app'])
+  })
+
+  test('the notification of a signal opens the app that emitted it', () => {
+    // WHY: a `notify` signal action says that something happened in an app (docs/plans/apps.md §8.4).
+    const destination = notificationDestination(row({ kind: 'app', appId: 'app_1', slug: 'notes' }, { facts: { kind: 'app.signal', signal: 'report.ready' } }), 'host:laptop')
+    expect(destination).toEqual({ label: 'Open app', route: { kind: 'app', slug: 'notes', serverId: 'host:laptop' } })
   })
 
   test('a pull request is named by its repository, so a number never opens in another repository', () => {

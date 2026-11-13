@@ -246,6 +246,11 @@ export const KEYBINDINGS = {
   // ── Browser pane (while it has focus) ─────────────────────────────────────
   'browser-pane.toggle-recording': { combo: { alt: true, code: 'KeyR' },                   scope: 'browser-pane',       label: 'Start or stop recording',  group: 'Browser' },
 
+  // ── App surface (while it has focus) ──────────────────────────────────────
+  // ⌥G for "manaGe" (docs/plans/apps.md §9.2). Not ⌥M: that key is the pane's,
+  // and an app opens in a companion pane, where the pane needs it.
+  'app-surface.toggle-manage':     { combo: { alt: true, code: 'KeyG' },                   scope: 'app-surface',        label: 'Switch between the app and Manage', group: 'App' },
+
   // ── Shortcuts help modal ───────────────────────────────────────────────────
   'shortcuts-help.close':         { combo: { code: 'Escape' },                             scope: 'shortcuts-help',     label: 'Close',                    group: 'Modal' },
 

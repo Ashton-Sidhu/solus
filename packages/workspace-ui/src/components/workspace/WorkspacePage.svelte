@@ -57,7 +57,7 @@
   import { buildWorkspaceItems, isHtmlArtifact } from "./lib/workspace-items";
   import { buildWorkspaceAppItems, type WorkspaceAppItem } from "./lib/workspace-apps";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
-  import type { RouteParams } from "../../contexts/workspace/routing/route-registry";
+  import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
 
   /** The route names the tab a link opens on (`/folio/apps`); the cloud console mounts the page with no route. */
   let { params }: { params?: RouteParams["folio"] } = $props();
@@ -459,6 +459,11 @@
     workspace?.openApp(item.serverId, item.slug, "leading");
   }
 
+  /** The Manage page of an app opens as the destination too, on the section a problem leads to. */
+  function manageApp(item: WorkspaceAppItem, section?: AppManageSection) {
+    workspace?.openAppManage(item.serverId, item.slug, section, "leading");
+  }
+
   function togglePin(item: WorkspaceItem) {
     void session.worksStore.setPinned(item.id, !item.pinned);
   }
@@ -734,7 +739,7 @@
           onscroll={handleLedgerScroll}
         >
           {#if ledger.tab === "apps"}
-            <WorkspaceAppsTab {ledger} onOpen={openApp} />
+            <WorkspaceAppsTab {ledger} onOpen={openApp} onManage={manageApp} />
           {:else if loading}
             <div class="grid grid-cols-3 gap-3 pt-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1" aria-hidden="true">
               {#each Array(6) as _, i (i)}

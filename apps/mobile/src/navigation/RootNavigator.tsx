@@ -83,6 +83,11 @@ import { ArtifactsScreen } from '../features/threads/artifacts/ArtifactsScreen'
 import { AppsScreen } from '../features/apps/AppsScreen'
 import { AppScreen } from '../features/apps/AppScreen'
 import { AppManageScreen } from '../features/apps/AppManageScreen'
+import { AppSectionScreen } from '../features/apps/AppSectionScreen'
+import { AppCallScreen } from '../features/apps/AppCallScreen'
+import { AppRunScreen } from '../features/apps/AppRunScreen'
+import { AppBuildLogScreen } from '../features/apps/AppBuildLogScreen'
+import { AppOperationScreen } from '../features/apps/AppOperationScreen'
 import { FileScreen } from '../features/files/FileScreen'
 import { useKeyboardCommand } from '../features/keyboard/use-keyboard-command'
 import type { RootStackParamList } from './routes'
@@ -193,7 +198,6 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'Webhook',
   'WebhookDelivery',
   'Apps',
-  'AppManage',
   'GitHubConnection',
   'About',
   'PullRequestReview',
@@ -444,11 +448,13 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="ThreadArtifacts" component={ArtifactsScreen} options={{ title: 'Artifacts' }} />
           {/* The app frame scrolls inside its web view, so the header is solid. */}
           <Stack.Screen name="App" component={AppScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'App' }} />
-          <Stack.Screen
-            name="AppManage"
-            component={AppManageScreen}
-            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'App', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
-          />
+          {/* The Manage screen and its pages are pushed on the app, as the pages of a pull request are. */}
+          <Stack.Screen name="AppManage" component={AppManageScreen} options={{ title: 'Manage' }} />
+          <Stack.Screen name="AppSection" component={AppSectionScreen} options={{ title: 'Manage' }} />
+          <Stack.Screen name="AppCall" component={AppCallScreen} options={{ title: 'Call' }} />
+          <Stack.Screen name="AppRun" component={AppRunScreen} options={{ title: 'Run' }} />
+          <Stack.Screen name="AppBuildLog" component={AppBuildLogScreen} options={{ title: 'Build log' }} />
+          <Stack.Screen name="AppOperation" component={AppOperationScreen} options={{ title: 'Operation' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </WorkspaceTabsProvider>

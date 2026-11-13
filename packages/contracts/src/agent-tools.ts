@@ -58,10 +58,13 @@ export const SOLUS_TOOL_GROUPS = [
     'list_automation_runs',
   ] },
   { id: 'apps', label: 'Apps', tools: [
+    'save_app',
     'deploy_app',
     'preview_app',
     'checkout_app',
     'list_apps',
+    'inspect_app',
+    'set_app_signal_action',
   ] },
   { id: 'webhooks', label: 'Webhooks', tools: [
     'create_webhook',

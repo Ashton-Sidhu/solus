@@ -257,7 +257,8 @@ const PERMISSION_OF_METHOD = {
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
   hostWebhookSettingsRead: HOST_USE,
   // An app is its host owner's (docs/plans/apps.md decision 10): the Apps service refuses every other caller.
-  appList: HOST_USE, appRead: HOST_USE, appUi: HOST_USE, appCall: HOST_USE, appStop: HOST_USE, appStart: HOST_USE, appDelete: HOST_USE, appVersions: HOST_USE, appVersionDiff: HOST_USE, appActivate: HOST_USE, appSchedules: HOST_USE, appScheduleSet: HOST_USE, appScheduleRun: HOST_USE, appSecretSet: HOST_USE, appWebhooks: HOST_USE, appCalls: HOST_USE, appSessions: HOST_USE,
+  appList: HOST_USE, appRead: HOST_USE, appUi: HOST_USE, appCall: HOST_USE, appStop: HOST_USE, appStart: HOST_USE, appDelete: HOST_USE, appVersions: HOST_USE, appVersionDiff: HOST_USE, appActivate: HOST_USE, appSchedules: HOST_USE, appScheduleSet: HOST_USE, appScheduleRun: HOST_USE, appSecretSet: HOST_USE, appConfigSet: HOST_USE, appWebhooks: HOST_USE, appCalls: HOST_USE, appSessions: HOST_USE,
+  appRevisions: HOST_USE, appRevisionDiff: HOST_USE, appDeploy: HOST_USE, appBuildLog: HOST_USE, appSetAgentAccess: HOST_USE, appCallRead: HOST_USE, appMetrics: HOST_USE, appRuns: HOST_USE, appRunRead: HOST_USE, appRunTerminate: HOST_USE, appRunRetry: HOST_USE, appSignals: HOST_USE, appSignalOccurrences: HOST_USE, appSignalActionSave: HOST_USE, appSignalActionDelete: HOST_USE, appFiles: HOST_USE, appFileRemove: HOST_USE, appModelCalls: HOST_USE, appModelCallRead: HOST_USE, appModelCallCancel: HOST_USE,
   // The admin rule is Solus Cloud's: the webhookAdmin port refuses a person who is not an organization admin.
   webhookAdminList: HOST_USE, webhookAdminPause: HOST_USE, webhookAdminResume: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
   browserListPages: HOST_USE, browserOpen: HOST_USE, browserClose: HOST_USE, browserNavigate: HOST_USE,

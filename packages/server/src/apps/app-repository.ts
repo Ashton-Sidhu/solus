@@ -10,10 +10,10 @@ import { withUserScope } from '../vault/acting-scope'
 /**
  * An app's git repository (docs/plans/apps.md §4.2): a private, bare
  * repository under the host's data folder, as a work's history is
- * (`sync/works/local-work-repositories.ts`). `refs/heads/main` is the source,
- * one commit for each deploy. `refs/solus/versions/<number>` is the build of
- * that version: one commit whose parent is the source commit. The host writes
- * every commit; nothing pushes to this repository.
+ * (`sync/works/local-work-repositories.ts`). `refs/heads/main` is the source:
+ * one commit, a revision, for each save. `refs/solus/versions/<number>` is the
+ * build of that version: one commit whose parent is the revision it was built
+ * from. The host writes every commit; nothing pushes to this repository.
  */
 
 /** One file of a commit: a path with `/` separators, relative to the root. */
@@ -22,9 +22,28 @@ export interface AppFile {
   bytes: Buffer
 }
 
-export interface AppVersionCommits {
-  sourceCommit: string
-  buildCommit: string
+/** One revision as the repository has it. */
+export interface AppRevision {
+  commit: string
+  message: string
+  savedAt: number
+}
+
+/** What a save wrote. */
+export interface AppSavedRevision {
+  commit: string
+  /** The revision before it; null for the first one. */
+  parent: string | null
+  /** The paths the revision before it had and this one does not. */
+  removed: string[]
+}
+
+/** A save started from a revision that is not the app's newest (decision 7). */
+export class AppRevisionConflict extends Error {
+  constructor(readonly newest: string | null) {
+    super('The app has a newer revision.')
+    this.name = 'AppRevisionConflict'
+  }
 }
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -108,20 +127,61 @@ export class AppRepositories {
     }
   }
 
-  private async head(repository: string): Promise<string | null> {
+  /** The newest revision; null for a repository with no save. */
+  async head(repository: string): Promise<string | null> {
     const commit = await this.text(repository, ['rev-parse', '--verify', '--quiet', 'refs/heads/main']).catch(() => '')
     return COMMIT.test(commit) ? commit : null
   }
 
-  /** Writes the two commits of one version (§4.2) and moves `main` to the source commit. */
-  async commitVersion(repository: string, version: { number: number; source: readonly AppFile[]; build: readonly AppFile[]; message: string; at: number }): Promise<AppVersionCommits> {
+  /**
+   * Writes one revision on top of the newest one and moves `main` to it.
+   * `expected` is the revision the source came from: when the app has another
+   * newest revision now, nothing is written (decision 7).
+   */
+  async saveRevision(repository: string, revision: { source: readonly AppFile[]; message: string; at: number; expected: string | null }): Promise<AppSavedRevision> {
     await this.ensure(repository)
     const parent = await this.head(repository)
-    const sourceCommit = await this.commit(repository, version.source, parent, version.message || `Version ${version.number}`, version.at)
-    const buildCommit = await this.commit(repository, version.build, sourceCommit, `Build of version ${version.number}`, version.at)
-    await this.git(repository, ['update-ref', `refs/solus/versions/${version.number}`, buildCommit])
-    await this.git(repository, ['update-ref', 'refs/heads/main', sourceCommit, parent ?? ''])
-    return { sourceCommit, buildCommit }
+    if (parent !== revision.expected) throw new AppRevisionConflict(parent)
+    const commit = await this.commit(repository, revision.source, parent, revision.message, revision.at)
+    // The ref moves only from the parent this save read: a save that ran at the same time loses here.
+    await this.git(repository, ['update-ref', 'refs/heads/main', commit, parent ?? '']).catch(() => {
+      throw new AppRevisionConflict(null)
+    })
+    const removed = parent
+      ? (await this.git(repository, ['diff', '--no-renames', '--diff-filter=D', '--name-only', '-z', parent, commit])).toString('utf8').split('\0').filter(Boolean)
+      : []
+    return { commit, parent, removed }
+  }
+
+  /** Writes the build of one version: one commit on top of the revision it was built from, under `refs/solus/versions/<number>`. */
+  async commitBuild(repository: string, build: { number: number; revision: string; files: readonly AppFile[]; at: number }): Promise<string> {
+    assertCommit(build.revision)
+    const buildCommit = await this.commit(repository, build.files, build.revision, `Build of version ${build.number}`, build.at)
+    await this.git(repository, ['update-ref', `refs/solus/versions/${build.number}`, buildCommit])
+    return buildCommit
+  }
+
+  /** Whether the repository has this revision on `main`. */
+  async hasRevision(repository: string, commit: string): Promise<boolean> {
+    assertCommit(commit)
+    return this.git(repository, ['merge-base', '--is-ancestor', commit, 'refs/heads/main']).then(() => true, () => false)
+  }
+
+  /** The revisions, the newest first. */
+  async revisions(repository: string, limit = 100): Promise<AppRevision[]> {
+    if (!(await this.head(repository))) return []
+    const listed = await this.text(repository, ['log', `--max-count=${limit}`, '--format=%H%x1f%ct%x1f%s%x1e', 'refs/heads/main'])
+    return listed.split('\x1e').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+      const [commit = '', seconds = '0', message = ''] = entry.split('\x1f')
+      return { commit, message, savedAt: Number(seconds) * 1000 }
+    })
+  }
+
+  /** The revision before one; null for the first. */
+  async parentOf(repository: string, commit: string): Promise<string | null> {
+    assertCommit(commit)
+    const parent = await this.text(repository, ['rev-parse', '--verify', '--quiet', `${commit}^`]).catch(() => '')
+    return COMMIT.test(parent) ? parent : null
   }
 
   /** One file of a commit; null when the commit has no such file. */
@@ -151,7 +211,7 @@ export class AppRepositories {
     return (await this.listFiles(repository, commit)).length
   }
 
-  /** The source change from one commit to another as a unified patch; `from: null` is the first version. */
+  /** The source change from one commit to another as a unified patch; `from: null` is the first revision. */
   async diff(repository: string, from: string | null, to: string): Promise<{ patch: string; truncated: boolean }> {
     if (from) assertCommit(from)
     assertCommit(to)

@@ -273,15 +273,17 @@ describe('runtime instructions', () => {
   })
 
   test('a run that can deploy an app is told that an app lives in Solus, and which skill builds it', () => {
-    // WHY: deploy_app loads behind tool search, and "create an app" also reads
-    // as a web project to scaffold. In a real session the agent scaffolded a
-    // web project for a request that an app in Solus answers.
+    // WHY: save_app and deploy_app load behind tool search, and "create an
+    // app" also reads as a web project to scaffold. In a real session the agent
+    // scaffolded a web project for a request that an app in Solus answers.
     const instructions = runtimeInstructions({ harness: 'Codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' }, [tool('deploy_app')])
     expect(instructions).toContain('## Apps')
-    expect(instructions).toContain('load the visual-artifacts skill, read its app chapter, and deploy the project with deploy_app')
-    // The agent must look at an app's UI before the person does, and a later session changes an app from its source.
-    expect(instructions).toContain('Check its UI with preview_app before you deploy it.')
+    // A save and a deploy are two acts: the agent must do both.
+    expect(instructions).toContain('load the create-app skill, start from its starter app, save the project with save_app, and deploy it with deploy_app')
+    // The agent must look at an app's UI before the person does, a later session changes an app from its source, and repairs it from its call log.
+    expect(instructions).toContain('Check its UI with preview_app before you save it.')
     expect(instructions).toContain('To change an app, get its source with checkout_app.')
+    expect(instructions).toContain('To repair one, read its call log with inspect_app.')
     expect(instructions).toContain('Scaffold a web project only when the user wants a codebase to deploy.')
     expect(runtimeInstructions({ harness: 'Codex', model: 'gpt-5.6-sol', reasoningEffort: 'high' }, [linkTool])).not.toContain('## Apps')
   })

@@ -84,8 +84,18 @@ export type RootStackParamList = {
   Apps: { hostId?: string } | undefined
   /** One app, with its UI in all of the screen. `appId` is the app's id or its slug on the host. */
   App: { hostId: string; appId: string }
-  /** The app's sheet: versions, schedules, secrets, webhooks, calls, sessions, Stop or Start, and Delete. */
+  /** The Manage screen of one app: what needs the owner, and its sections (docs/plans/apps.md §9.2). */
   AppManage: { hostId: string; appId: string }
+  /** One section of the Manage screen. In this route and the four below, `appId` is the app's id on the host. */
+  AppSection: { hostId: string; appId: string; section: import("../features/apps/app-sections").AppSectionId }
+  /** One call of the call log: its input, its log lines, its trace, and its error. */
+  AppCall: { hostId: string; appId: string; callId: string }
+  /** One run of a workflow, with its steps, Terminate, and Run again. */
+  AppRun: { hostId: string; appId: string; runId: string }
+  /** The build log of one version. */
+  AppBuildLog: { hostId: string; appId: string; version: number }
+  /** One operation: its schemas, and a form to run it with a JSON input. */
+  AppOperation: { hostId: string; appId: string; operation: string }
   About: undefined
   PullRequest: { hostId: string; projectPath: string; number: number }
   /** Submit a review (`review`) or comment on the conversation (`comment`), as a sheet. */

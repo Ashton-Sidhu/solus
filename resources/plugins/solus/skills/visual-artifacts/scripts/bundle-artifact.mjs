@@ -5,10 +5,11 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// An app (references/apps.md): a project with an app.ts. The build then also
+// An app (the create-app skill): a project with an app.ts. The build then also
 // writes the app's build into dist/app/: the descriptor (what the backend
 // declares, as JSON), the backend bundled for Node, the UI, and a copy of the
-// migrations. `deploy_app` reads that folder.
+// migrations. The host runs this script itself for a deploy and for a
+// preview; an agent runs it to check the project.
 
 const APP_ENTRIES = ['app.ts', 'app.js']
 const APP_BUILD_FOLDER = 'dist/app'
@@ -55,7 +56,10 @@ async function buildBackend(projectDirectory, build) {
   const probe = resolve(folder, `.describe-${process.pid}.cjs`)
   try {
     await writeFile(probe, code)
-    const described = JSON.parse(execFileSync(process.execPath, ['-e', DESCRIBE_SCRIPT, probe], { cwd: projectDirectory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))
+    // A host that builds what it runs (SOLUS_APP_BUILD=host) loads the backend under Node's permission
+    // model: the app's top-level code reads its own project and nothing else, and reaches no network.
+    const confined = process.env.SOLUS_APP_BUILD === 'host' ? ['--permission', `--allow-fs-read=${projectDirectory}`] : []
+    const described = JSON.parse(execFileSync(process.execPath, [...confined, '-e', DESCRIBE_SCRIPT, probe], { cwd: projectDirectory, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))
     return { code, descriptor: described.descriptor, ui: described.ui }
   } finally {
     await rm(probe, { force: true })
@@ -75,7 +79,8 @@ async function writeAtomically(path, text) {
 /** Writes dist/app/ whole: a file a build no longer makes must not stay from the build before it. */
 async function writeAppBuild(projectDirectory, backend, html) {
   const folder = resolve(projectDirectory, APP_BUILD_FOLDER)
-  const hasOperations = backend.descriptor.operations.length > 0
+  // A backend with only workflows still runs: a schedule of a later version, or the owner, starts them.
+  const hasOperations = backend.descriptor.operations.length > 0 || (backend.descriptor.workflows ?? []).length > 0
   await writeAtomically(resolve(folder, 'descriptor.json'), JSON.stringify(backend.descriptor, null, 1))
   if (hasOperations) await writeAtomically(resolve(folder, 'backend.cjs'), backend.code)
   else await rm(resolve(folder, 'backend.cjs'), { force: true })
@@ -187,7 +192,7 @@ if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(f
       if (output) console.log(`Artifact ready: ${output} (${Math.ceil(bytes / 1024)} KiB)`)
       if (app) {
         console.log(`App build ready: ${app.folder} (${app.operations} operation${app.operations === 1 ? '' : 's'}, ${app.migrations} migration${app.migrations === 1 ? '' : 's'}, ${app.hasUi ? 'with a UI' : 'no UI'}).`)
-        console.log(app.hasUi ? 'Check it with preview_app and this folder as path, then deploy it with deploy_app.' : 'Deploy it with deploy_app and this folder as path.')
+        console.log(app.hasUi ? 'Check it with preview_app and this folder as path, then save it with save_app and deploy it with deploy_app.' : 'Save it with save_app and this folder as path, then deploy it with deploy_app.')
       }
     } catch (error) {
       console.error(`Artifact bundle failed: ${error.message}`)

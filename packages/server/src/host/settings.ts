@@ -287,6 +287,24 @@ export function resolveTextGenerationModel(preferences: Pick<ExecutionPreference
   return resolveAvailableModel(preferences?.textGenerationModel ?? DEFAULT_EXECUTION_PREFERENCES.textGenerationModel)
 }
 
+/**
+ * The installed provider that runs a model id, for an app's model setting
+ * (docs/plans/app-models.md §4): the id names its own provider. An empty id is
+ * the text-generation model. An id this host cannot run is an error, not a
+ * quiet change of model.
+ */
+export function resolveModelId(modelId: string): TextGenerationModelSelection {
+  if (!modelId) return resolveTextGenerationModel(undefined)
+  for (const provider of ['claude-code', 'codex', 'opencode'] as const) {
+    const selection = { provider, model: modelId }
+    if (MODEL_PROFILES[provider]?.[modelId]) {
+      if (isAvailable(selection)) return selection
+      throw new Error(`The model ${modelId} needs ${provider}, which is not installed on this host.`)
+    }
+  }
+  throw new Error(`This host has no model ${modelId}. Choose another in the app's config.`)
+}
+
 /** The person's commit and pull-request writing choices; the built-in ones when they sent none. */
 export function sourceControlWritingFor(preferences: Pick<ExecutionPreferences, 'sourceControlWriting'> | undefined): SourceControlWritingPreferences {
   return preferences?.sourceControlWriting ?? DEFAULT_EXECUTION_PREFERENCES.sourceControlWriting

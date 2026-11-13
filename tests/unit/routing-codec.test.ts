@@ -48,6 +48,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'artifacts', params: { sessionId: 'sess_abc', serverId: 'h1' } },
   { name: 'app', params: { slug: 'notes' } },
   { name: 'app', params: { slug: 'team-notes', serverId: 'studio-host' } },
+  { name: 'app', params: { slug: 'team-notes', serverId: 'studio-host', view: 'manage' } },
+  { name: 'app', params: { slug: 'notes', view: 'manage', section: 'activity' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'map' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide', scope: { kind: 'session' } } },
@@ -170,6 +172,21 @@ describe('the location grammar', () => {
     const linked = parseLocation('/app/notes~h1')
     expect(linked.panes.map((pane) => pane.surfaces)).toEqual([[{ name: 'app', params: { slug: 'notes', serverId: 'h1' } }]])
     expect(parseRoute('/app/')).toBeNull()
+  })
+
+  test('an app link can open the Manage page, on one section', () => {
+    // WHY: a problem on the Apps tab leads to the section where the owner acts. The link must
+    // carry it, and a link from before the Manage page must still open the app.
+    const manage = { name: 'app', params: { slug: 'notes', serverId: 'h1', view: 'manage', section: 'versions' } } as const
+    expect(serializeRoute(manage)).toBe('/app/notes~h1/manage/versions')
+    expect(parseRoute('/app/notes~h1/manage/versions')).toEqual(manage)
+    expect(parseRoute('/app/notes/manage')).toEqual({ name: 'app', params: { slug: 'notes', view: 'manage' } })
+    // A section that this client does not know opens the page on its first section.
+    expect(parseRoute('/app/notes/manage/billing')).toEqual({ name: 'app', params: { slug: 'notes', view: 'manage' } })
+    // A section means nothing without the Manage page.
+    expect(serializeRoute({ name: 'app', params: { slug: 'notes', section: 'files' } })).toBe('/app/notes')
+    // The app and its Manage page are one surface: the switch does not open a second tab.
+    expect(surfaceKey(manage)).toBe(surfaceKey({ name: 'app', params: { slug: 'notes', serverId: 'h1' } }))
   })
 
   test('an app sits beside the conversation that deployed it, and the same app is one surface', () => {

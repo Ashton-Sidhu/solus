@@ -56,6 +56,8 @@ export const notificationResourceSchema = z.discriminatedUnion('kind', [
     /** The saved lens, when the job ran one. */
     lensId: z.string().optional(),
   }),
+  /** An app on the source host (docs/plans/apps.md §8.4). */
+  z.object({ kind: z.literal('app'), appId: z.string().min(1), slug: z.string().min(1) }),
 ])
 export type NotificationResource = z.infer<typeof notificationResourceSchema>
 
@@ -78,13 +80,15 @@ export const notificationFactsSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session.shared'), role: shareRoleSchema, teamId: z.string().optional() }),
   /** The reader's own share of another person's session was removed. */
   z.object({ kind: z.literal('session.unshared') }),
+  /** An app of the reader emitted a signal whose `notify` action is on. */
+  z.object({ kind: z.literal('app.signal'), signal: z.string().min(1).max(64) }),
 ])
 export type NotificationFacts = z.infer<typeof notificationFactsSchema>
 export type NotificationKind = NotificationFacts['kind']
 
 export const NOTIFICATION_KINDS = [
   'work.review_requested', 'work.review_decided', 'task.assigned', 'pr.assigned', 'pr.review_requested',
-  'automation.finished', 'review_job.finished', 'mention', 'session.shared', 'session.unshared',
+  'automation.finished', 'review_job.finished', 'mention', 'session.shared', 'session.unshared', 'app.signal',
 ] as const satisfies readonly NotificationKind[]
 
 /** Kinds a person causes for someone else: their own action never alerts them. */

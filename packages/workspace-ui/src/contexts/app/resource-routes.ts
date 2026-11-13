@@ -27,6 +27,8 @@ export type ResourceRoute =
   | { kind: 'pull-request'; target: PullRequestOpenTarget; serverId?: string; projectDirectory?: string }
   /** One automation and its runs, on the host that stores it. */
   | { kind: 'automation'; automationId: string; serverId: string }
+  /** One app on the host that runs it (docs/plans/apps.md §9). `slug` is the app's slug, or its id. */
+  | { kind: 'app'; slug: string; serverId: string }
   /** Where a code-host connection is made: the workspace's API access settings. */
   | { kind: 'connections'; serverId?: string }
 
@@ -34,7 +36,7 @@ export type ResourceRouteKind = ResourceRoute['kind']
 
 /** Every kind the workspace shells (desktop, web) open in place. */
 export const WORKSPACE_RESOURCE_KINDS: ReadonlySet<ResourceRouteKind> = new Set<ResourceRouteKind>([
-  'workspace', 'chat', 'work', 'task', 'session', 'pull-request', 'automation', 'connections',
+  'workspace', 'chat', 'work', 'task', 'session', 'pull-request', 'automation', 'app', 'connections',
 ])
 
 /** The guest shell (docs/plans/host-sharing.md §10): the workspace around the one shared resource; no task, pull request, automation, or connections pages, which a guest cannot read. */
@@ -67,6 +69,9 @@ export function openResourceInWorkspace(session: WorkspaceContext, route: Resour
       return
     case 'automation':
       session.openAutomations(route.automationId)
+      return
+    case 'app':
+      session.openApp(route.serverId, route.slug)
       return
     case 'connections':
       session.showSettings('api-access')
