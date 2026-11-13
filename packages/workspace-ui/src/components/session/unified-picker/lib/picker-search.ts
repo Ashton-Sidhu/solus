@@ -1,4 +1,4 @@
-import { searchTokens } from '@solus/contracts/search-query'
+import { searchTokens, type SearchQuery } from '@solus/contracts/search-query'
 
 /**
  * How the picker reads a query, and the two choices the reader makes about it.
@@ -40,4 +40,15 @@ export function flattenedLower(text: string): string {
     flattened.set(text, value)
   }
   return value
+}
+
+/** The passage of `text` around the earliest word of the query, whitespace
+ *  collapsed, with ellipses where it was cut. The row's second line. */
+export function matchWindow(text: string, search: SearchQuery): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  const at = search.firstHit(flat)
+  if (at < 0) return flat.slice(0, 100)
+  const start = Math.max(0, at - 32)
+  const end = Math.min(flat.length, at + 72)
+  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }

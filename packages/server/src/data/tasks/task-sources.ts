@@ -1,8 +1,6 @@
 import { taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
-import type { TaskProjectSources, TaskSourceState } from '@solus/contracts/task-types'
+import type { TaskSourceState } from '@solus/contracts/task-types'
 import { createLogger } from '../../logger'
-import { resolveHomePath } from '../../platform/paths'
-import { loadProjectConfig, resolveProjectRoot } from '../../project-config/project-config'
 import { captureActingScope, withActingScope, type ActingScope } from '../../vault/acting-scope'
 import { classifyProviderFailure } from './providers/failures'
 import { taskAdapters } from './providers/registry'
@@ -21,12 +19,13 @@ import { emitChanged } from './task-store'
 
 /**
  * The one owner of the freshness of task sources
- * (docs/plans/provider-owned-tasks.md §5). A client says which projects it
- * shows (`tasksSources`); the host reads each source that is not fresh, one
- * read at a time for each source, and reads the wanted sources again on a
- * timer. Two projects that list one source cause one read. A read runs with
- * the credentials of the person who asked, and only a read that the provider
- * answered lets that person see the tasks of the source.
+ * (docs/plans/provider-owned-tasks.md §5). A task source belongs to no
+ * project: the client sends the sources of the person's settings
+ * (`tasksSources`). The host reads each source that is not fresh, one read at
+ * a time for each source, and reads the wanted sources again on a timer. Two
+ * people who want one source cause one read. A read runs with the credentials
+ * of the person who asked, and only a read that the provider answered lets
+ * that person see the tasks of the source.
  */
 
 const log = createLogger('main', 'task-sources')
@@ -39,21 +38,6 @@ export const SOURCE_POLL_MS = 5 * 60_000
 export const SOURCE_WANTED_MS = 15 * 60_000
 /** With more changed tasks than this, one unnamed change tells clients to read the whole list. */
 const MAX_NAMED_CHANGES = 5
-
-/** The task sources a project lists in its config, and where a new task goes. */
-export interface ProjectTaskSources {
-  sources: TaskSource[]
-  /** Absent when the project has no source. */
-  defaultSourceKey?: string
-}
-
-/** The sources of the project that holds `cwd`. A path from a client is not a real path, so it is resolved first. */
-export async function projectTaskSources(cwd: string): Promise<ProjectTaskSources> {
-  const config = await loadProjectConfig(resolveProjectRoot(resolveHomePath(cwd)))
-  const sources = config?.taskSources ?? []
-  if (!sources.length) return { sources: [] }
-  return { sources, defaultSourceKey: config?.defaultTaskSource ?? taskSourceKey(sources[0]) }
-}
 
 interface SourceWant {
   source: TaskSource
@@ -117,27 +101,24 @@ function sourceState(
 }
 
 /**
- * The task sources of each project, as the host last read them for one person.
- * The call also says that the person wants these sources: the host reads each
- * one that is older than `SOURCE_FRESH_MS`, or every one with `refresh:
- * 'force'`, and does not wait for the reads. A source that this person's
- * connection never read is answered with no columns and `refreshing`; the
- * read that this call starts gives its `health`.
+ * The task sources the person names, as the host last read them for that
+ * person, in the order given and each one time. The call also says that the
+ * person wants these sources: the host reads each one that is older than
+ * `SOURCE_FRESH_MS`, or every one with `refresh: 'force'`, and does not wait
+ * for the reads. A source that this person's connection never read is
+ * answered with no columns and `refreshing`; the read that this call starts
+ * gives its `health`.
  */
 export async function tasksSources(
-  cwds: readonly string[],
+  sources: readonly TaskSource[],
   personKey: string,
   options: { refresh?: 'stale' | 'force'; now?: number } = {},
-): Promise<Record<string, TaskProjectSources>> {
+): Promise<TaskSourceState[]> {
   const now = options.now ?? Date.now()
   const scope = captureActingScope()
-  const projects = new Map<string, ProjectTaskSources>()
+  // The same board twice would show each of its tasks twice.
   const listed = new Map<string, TaskSource>()
-  for (const cwd of cwds) {
-    const project = await projectTaskSources(cwd)
-    projects.set(cwd, project)
-    for (const source of project.sources) listed.set(taskSourceKey(source), source)
-  }
+  for (const source of sources) if (!listed.has(taskSourceKey(source))) listed.set(taskSourceKey(source), source)
   const sourceKeys = [...listed.keys()]
   for (const [sourceKey, source] of listed) {
     await ensureTaskSource(sourceKey, source)
@@ -152,18 +133,7 @@ export async function tasksSources(
     const lastRead = Math.max(attempts.get(attemptKey(personKey, sourceKey)) ?? 0, hasRead ? stored.get(sourceKey)?.fetchedAt ?? 0 : 0)
     if (options.refresh === 'force' || now - lastRead >= SOURCE_FRESH_MS) void readTaskSource(source, personKey, now)
   }
-  const answer: Record<string, TaskProjectSources> = {}
-  for (const [cwd, project] of projects) {
-    const sources: TaskProjectSources = {
-      sources: project.sources.map((source) => {
-        const sourceKey = taskSourceKey(source)
-        return sourceState(sourceKey, source, stored.get(sourceKey), access.get(sourceKey))
-      }),
-    }
-    if (project.defaultSourceKey) sources.defaultSourceKey = project.defaultSourceKey
-    answer[cwd] = sources
-  }
-  return answer
+  return [...listed].map(([sourceKey, source]) => sourceState(sourceKey, source, stored.get(sourceKey), access.get(sourceKey)))
 }
 
 /**

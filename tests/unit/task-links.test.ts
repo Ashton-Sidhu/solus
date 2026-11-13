@@ -1,86 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskProjectSources, TaskSessionLink, TaskSidebarPrLink, TaskSourceState } from '@solus/contracts/task-types'
-import {
-  hostOfSessionLink,
-  mergePrLinks,
-  mergeProjectSources,
-  mergeSessionLinks,
-  tasksInSources,
-} from '@solus/workspace-ui/contexts/tasks/task-projects'
-
-const REPO = 'github-repo:acme/app'
-const BOARD = 'github-project:acme/7'
-const JIRA = 'jira-project:cloud-1/SOL'
-
-function source(sourceKey: string, overrides: Partial<TaskSourceState> = {}): TaskSourceState {
-  return {
-    sourceKey,
-    source: { kind: 'github-repo', owner: 'acme', repo: 'app' },
-    label: sourceKey,
-    columns: [],
-    health: 'ok',
-    ...overrides,
-  }
-}
+import type { TaskSessionLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import { hostOfSessionLink, mergePrLinks, mergeSessionLinks } from '@solus/workspace-ui/contexts/tasks/task-links'
 
 function link(sessionId: string, linkedAt: number, sessionTitle: string | null = null): TaskSessionLink {
   return { sessionId, sessionTitle, provider: 'claude-code', model: null, startedAt: null, lastActivityAt: null, linkedAt }
 }
-
-describe('which tasks a project shows', () => {
-  const tasks = [
-    { id: 'repo', placements: [{ sourceKey: REPO, columnId: 'open' }] },
-    { id: 'repo-and-board', placements: [{ sourceKey: REPO, columnId: 'open' }, { sourceKey: BOARD, columnId: null }] },
-    { id: 'jira', placements: [{ sourceKey: JIRA, columnId: '1' }] },
-    { id: 'no-source', placements: [] },
-  ]
-
-  test('a project shows the tasks whose placements name one of its sources', () => {
-    // WHY: a task belongs to no project by itself (plan §4.2). The project
-    // config lists sources, and the placement is the only link between them.
-    expect(tasksInSources(tasks, new Set([BOARD])).map((task) => task.id)).toEqual(['repo-and-board'])
-    expect(tasksInSources(tasks, new Set([JIRA, BOARD])).map((task) => task.id)).toEqual(['repo-and-board', 'jira'])
-  })
-
-  test('a task in two sources of one project shows once', () => {
-    // WHY: an issue on the repository and on the board of one project is one
-    // task (decision 10). Two rows would break the keyed list.
-    expect(tasksInSources(tasks, new Set([REPO, BOARD])).map((task) => task.id)).toEqual(['repo', 'repo-and-board'])
-  })
-
-  test('a project with no task source has no tasks', () => {
-    // WHY: decision 11. Without the guard, a task with no placement would not
-    // match either, but the rule must hold for every task.
-    expect(tasksInSources(tasks, new Set())).toEqual([])
-  })
-})
-
-describe('the sources of one project across its checkouts', () => {
-  test('each source shows once, as the provider answered it most recently', () => {
-    // WHY: two checkouts of one repository list the same source, and each
-    // host reports its own read. A person wants the freshest label, columns
-    // and health, not the answer of whichever host is first.
-    const laptop: TaskProjectSources = { sources: [source(REPO, { fetchedAt: 100, label: 'old name' }), source(BOARD, { fetchedAt: 300 })] }
-    const workshop: TaskProjectSources = { sources: [source(REPO, { fetchedAt: 200, label: 'new name', health: 'reconnect' })] }
-
-    const merged = mergeProjectSources([laptop, workshop])
-
-    expect(merged.map((state) => state.sourceKey)).toEqual([REPO, BOARD])
-    expect(merged[0]).toMatchObject({ label: 'new name', health: 'reconnect', fetchedAt: 200 })
-    // The order of the answers does not decide.
-    expect(mergeProjectSources([workshop, laptop]).find((state) => state.sourceKey === REPO)?.label).toBe('new name')
-  })
-
-  test('a read that the provider answered beats a source that was never read', () => {
-    // WHY: a host that just learned of a source has no columns yet. Its empty
-    // state must not replace the columns that another host already read.
-    const neverRead: TaskProjectSources = { sources: [source(REPO, { label: 'never read' })] }
-    const read: TaskProjectSources = { sources: [source(REPO, { fetchedAt: 1, label: 'read' })] }
-
-    expect(mergeProjectSources([neverRead, read])[0].label).toBe('read')
-    expect(mergeProjectSources([read, neverRead])[0].label).toBe('read')
-  })
-})
 
 describe('session links of one task key from more than one host', () => {
   test('the links of the project host and of the Solus API become one list, newest first', () => {

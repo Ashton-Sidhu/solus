@@ -423,16 +423,13 @@
   useKeybinding("global.new-session-in-task", () =>
     void session.drafts.openSessionDraft({ via: "keybinding" }),
   );
-  // Starts a new task in the active session's project. The tasks page
-  // binds this id too, so this handler stands down while that page is up.
+  // Starts a new task. The tasks page binds this id too, so this handler
+  // stands down while that page is up.
   useKeybinding(
     "global.new-task",
-    () => {
-      const context = session.taskCreationContext;
-      if (context) session.composeNewTask({ serverId: context.serverId, projectRoot: context.projectKey }, "keybinding");
-    },
+    () => session.composeNewTask("keybinding"),
     {
-      enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
+      enabled: () => !session.router.at("tasks"),
     },
   );
   // The browser binds the same keys to its own history; the binding claims

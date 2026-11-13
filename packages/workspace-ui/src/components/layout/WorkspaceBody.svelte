@@ -19,6 +19,7 @@
   import { afterPaint } from "../../lib/after-paint";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SessionSidebarSkeleton from "../session/SessionSidebarSkeleton.svelte";
+  import PickerShellSkeleton from "../session/unified-picker/PickerShellSkeleton.svelte";
   import SidePanel from "./SidePanel.svelte";
   import SettingsDialog from "../settings/SettingsDialog.svelte";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
@@ -668,7 +669,6 @@
       collapsible
       onCollapse={closeSidebar}
       onExpand={openSidebar}
-      aria-hidden={!sidebarOpen}
       class="workspace-rail-pane"
     >
       {#await sidebarComponent}
@@ -689,6 +689,7 @@
         <SessionSidebar
           open={sidebarOpen}
           managedWidth
+          staysAsColumn
           onToggleCollapse={toggleSidebar}
         />
       {:catch}
@@ -742,7 +743,9 @@
                       data-conversation-space
                     >
                       {#if active && session.ui.unifiedPickerOpen}
-                        {#await import("../session/unified-picker/UnifiedPicker.svelte") then module}
+                        {#await import("../session/unified-picker/UnifiedPicker.svelte")}
+                          <PickerShellSkeleton onClose={() => (session.ui.unifiedPickerOpen = false)} />
+                        {:then module}
                           {@const UnifiedPicker = module.default}
                           <UnifiedPicker
                             open={active && session.ui.unifiedPickerOpen}
@@ -751,7 +754,7 @@
                             }}
                           />
                         {:catch}
-                          <p role="alert">Could not load the session picker.</p>
+                          <p role="alert">Could not load the search.</p>
                         {/await}
                       {/if}
 
@@ -956,8 +959,14 @@
        line. Both pane containers below spend it; nothing else should. */
     --solus-pane-gutter: 8px;
   }
+  /* A collapsed sidebar stops at its places column instead of at zero. The
+     pane is the same element in both states, so the icons do not move and the
+     content beside it slides on the pane's own curve. The floor holds in both
+     states: set only while collapsed, it would drop the moment the sidebar
+     opens, and the pane would grow from zero with the column cut away. */
   :global(.workspace-rail-pane) {
     background: var(--solus-container-bg);
+    min-width: var(--solus-places-column-w);
     transition: flex-grow 240ms cubic-bezier(0.2, 0, 0, 1);
   }
   :global(
@@ -1085,12 +1094,21 @@
   .content-column {
     padding: 0 var(--solus-pane-gutter) var(--solus-pane-gutter) 0;
   }
+  .workspace-body {
+    /* The places column a collapsed sidebar leaves on screen. A managed panel
+       is as wide as its pane, so the pane holds the whole card around the
+       column: a 4px inset and a 1px border on each side. Less, and the card
+       clips the column's hairline. */
+    --solus-places-column-w: calc(2.75rem + 10px);
+  }
   .workspace-body.sidebar-collapsed .content-column {
     padding-left: var(--solus-pane-gutter);
     /* The column's own distance from the window edge. The frame toggle is
        placed in the column but measured against the traffic lights, which
        are placed in the window. */
-    --solus-column-window-left: var(--solus-pane-gutter);
+    --solus-column-window-left: calc(
+      var(--solus-places-column-w) + var(--solus-pane-gutter)
+    );
   }
   /* With the sidebar collapsed the primary column is the leftmost chrome, so a
      primary-slot pane header or full-page view header sits under the traffic
@@ -1129,6 +1147,9 @@
   .workspace-body.page-flush .content-column {
     padding: 0;
     --solus-column-window-left: 0px;
+  }
+  .workspace-body.sidebar-collapsed.page-flush .content-column {
+    --solus-column-window-left: var(--solus-places-column-w);
   }
   .conversation-card {
     background: var(--solus-container-bg);

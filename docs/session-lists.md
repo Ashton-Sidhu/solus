@@ -37,6 +37,10 @@ is off.
 
 ## How the picker orders a search
 
+The picker is the Search place of the sidebar. It also lists works, pull
+requests, automations, and projects: see "Search types" in
+[unified search](plans/unified-search.md).
+
 The picker matches task titles, task bodies, task references, and session names
 on the client. It gets passages of what was said from the homes. A query of one
 character does not ask the homes: it matches almost every message, and the
@@ -59,10 +63,10 @@ that only starts a longer word ("tab" finds "Tab strip" before "table"). A
 short name that the query fills beats a long name. Recent, open work gets a
 small lift. The lift is too small to put a weaker match above a better one.
 
-When a session is a better match than tasks that come before it in the list,
-the best three rows of both kinds go into **Top hits**, above Tasks and
-Sessions. A row shows only once. A session is not lifted next to its own task,
-because the task's row resumes that session. **Newest first** lists the two
+When a session or a record is a better match than the rows that come before it
+in the list, the best three rows of every kind go into **Top hits**, above the
+sections. A row shows only once. A session is not lifted next to its own task,
+because the task's row resumes that session. **Newest first** lists the
 sections by date and has no Top hits.
 
 A session row in the list names its task, unless the session has the same name

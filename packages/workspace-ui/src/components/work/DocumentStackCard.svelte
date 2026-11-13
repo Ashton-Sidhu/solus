@@ -99,7 +99,6 @@
       target={{ kind: "work", targetScope: "", targetKey: entry.workId }}
       title={entry.title}
       serverId={linkContext?.serverId}
-      projectKey={linkContext?.projectKey}
       conversationTaskId={linkContext?.conversationTaskId}
     />
   {/each}

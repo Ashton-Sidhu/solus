@@ -5,11 +5,11 @@ import type { BoardRanks } from './lib/board-order'
 const STORAGE_KEY = 'solus.tasks.board-ranks'
 
 /**
- * Where each project's manually-placed board cards live.
+ * Where the manually-placed board cards live.
  *
  * Order is a per-viewer reading of a shared list — "this is what *I* am doing
  * next" — so it is kept client-side, rather than written back to the provider.
- * It is keyed by project and board view, because the columns of one view are
+ * It is keyed by board view, because the columns of one view are
  * not the columns of another. That also lets a GitHub issue be dragged beside
  * a Jira issue: neither provider has to own a field for it.
  *

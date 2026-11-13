@@ -168,13 +168,10 @@ export interface TaskSnooze {
   snoozeNote?: string
 }
 
-/** A new task. It is created on the provider, in `sourceKey` or in the
- *  project's default source. A GitHub Project source creates a draft item. */
+/** A new task. It is created on the provider, in one of the person's task
+ *  sources. A GitHub Project source creates a draft item. */
 export interface TaskCreateInput {
-  /** The project the task is created for: its config names the sources. */
-  cwd: string
-  /** One source of that project. Absent = the project's default source. */
-  sourceKey?: string
+  source: TaskSource
   title: string
   body?: string
   /** A column of the source to start in. Absent = where the provider starts a task. */
@@ -492,22 +489,15 @@ export interface TaskSourceState {
   refreshing?: boolean
 }
 
-/** The task sources of one project, in config order. */
-export interface TaskProjectSources {
-  sources: TaskSourceState[]
-  /** The `sourceKey` where a new task is created. Absent when the project has no source. */
-  defaultSourceKey?: string
-}
-
-/** What a person can choose as a task source for a project. */
+/** What a person can choose as a task source: what their GitHub and Jira connections list. */
 export interface TaskSourceOptions {
   github: {
     connected: boolean
     login?: string
     /** False when the connection cannot read Projects: connect GitHub again. */
     hasProjectScope?: boolean
-    /** The project's GitHub origin, the suggested first source. */
-    originRepository?: { owner: string; repo: string }
+    /** The repositories the person pushed to most recently. */
+    repositories: Array<{ owner: string; repo: string }>
     projects: Array<{ owner: string; number: number; title: string }>
   }
   jira: {

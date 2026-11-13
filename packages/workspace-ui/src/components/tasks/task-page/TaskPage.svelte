@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { projectDirLabel } from "../../../lib/paths";
   import { tick, untrack } from "svelte";
   import {
     getClientShellContext,
     getSurfaceContext,
     getPullRequestsContext,
     taskSourcesStore,
-    groupKeyFor,
   } from "../../../contexts";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -111,25 +109,13 @@
     if (surfaceVisible && detailsSettled && sessions.length) void store.repairWorkerTitles(taskId, sessions);
   });
 
-  // A task has no project of its own: the task sources of a project list it.
-  // The page works in the first project that lists the task, in a checkout of
-  // that project on a connected host.
+  // A task belongs to no project. The page reads files, images and pull
+  // requests in the checkout of a GitHub issue's repository on the task's
+  // host, else in the input bar's project.
   const taskServerId = $derived(store.get(taskId).serverId);
-  const listingProjectKey = $derived(task ? (store.projectKeysOf(task)[0] ?? null) : null);
-  const projectCwd = $derived.by(() => {
-    if (task && listingProjectKey) {
-      for (const placement of task.placements) {
-        const checkout = taskSourcesStore.checkoutForSource(listingProjectKey, placement.sourceKey);
-        if (checkout) return checkout.cwd;
-      }
-    }
-    return session.tasksProjectCwd ?? undefined;
-  });
-  const taskProjectKey = $derived(
-    listingProjectKey ??
-      (projectCwd && taskServerId ? groupKeyFor(taskServerId, projectCwd) : null),
+  const projectCwd = $derived(
+    session.projectRootOfTask(taskId) ?? session.tasksProjectCwd ?? undefined,
   );
-  const projectLabel = $derived(projectCwd ? projectDirLabel(projectCwd) : null);
 
   // The pinned render is open by default, so its body is fetched as soon as the
   // page is visible rather than on a disclosure the reader never has to press.
@@ -192,7 +178,7 @@
   const placements = $derived(task ? taskPlacementLabels(task, taskSourcesStore.sourceByKey) : []);
   const moveGroups = $derived(task ? taskMoveGroups(task, taskSourcesStore.sourceByKey) : []);
   const assigneeTarget = $derived({ taskId });
-  const labelCandidates = $derived(store.knownLabels(taskServerId, projectCwd));
+  const labelCandidates = $derived(store.knownLabels);
 
   let picking = $state(false);
   let refreshing = $state(false);
@@ -234,10 +220,7 @@
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
   // user actually saw underneath this one. ──
   const siblings = $derived(
-    sortTasks(
-      listingProjectKey ? store.tasksInProject(listingProjectKey) : [],
-      DEFAULT_TASK_SORT,
-    ),
+    sortTasks(store.tasks, DEFAULT_TASK_SORT),
   );
   const position = $derived(siblings.findIndex((t) => t.id === taskId));
   const previous = $derived(position > 0 ? siblings[position - 1] : null);
@@ -384,8 +367,6 @@
     <TaskSidebar
       {task}
       {variant}
-      {projectLabel}
-      projectKey={taskProjectKey}
       {locks}
       {placements}
       {moveGroups}
@@ -438,7 +419,6 @@
     {#if stacked}
       <TaskRecordBar
         {task}
-        {projectLabel}
         {refreshing}
         onRefresh={() => void refresh()}
         onPrevious={chromePrevious}

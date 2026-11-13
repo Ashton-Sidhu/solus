@@ -40,7 +40,7 @@
 
 <DropdownMenu.Sub bind:open>
   <DropdownMenu.SubTrigger
-    class="ml-auto shrink-0 gap-1.5"
+    class="ml-auto min-h-9 shrink-0 gap-1.5"
     disabled={!supportsPermissions}
     aria-label="Permission mode: {display.label}"
     data-picker-column="footer"

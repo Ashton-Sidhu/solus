@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    getSettingsContext,
     getWorkspaceContext,
     runtime,
     serversStore,
@@ -15,8 +16,10 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
   import DraftComposer from "./DraftComposer.svelte";
+  import DraftMark from "./DraftMark.svelte";
   import { draftHostGate, type DraftHostGate, type GatedHost } from "./lib/host-gate";
   import { liveActivityClock } from "../../lib/shared-clock";
+  import { useSkyScene } from "../../lib/sky-scene.svelte";
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
@@ -31,6 +34,9 @@
   }: RouteSurfaceProps<"draft"> = $props();
 
   const session = getWorkspaceContext();
+  // The new-tab home carries the colours of the sidebar's sky.
+  const theme = getSettingsContext();
+  const sky = useSkyScene(() => theme.skySceneChoice);
 
   // Send drops the draft the instant its session exists, but the bar is still
   // mid-send and goes on to clear the text it just dispatched. Its prompt is
@@ -211,6 +217,10 @@
   <!-- One question, then the composer. Everything a new session needs — project,
        task, model — sits on the bar directly below, so this stays a headline. -->
   <div class="relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3">
+    <!-- Full-page draft only, like the tips: the split composer has its own chrome. -->
+    {#if !isAside && theme.showsDraftMark}
+      <DraftMark scene={sky.current} />
+    {/if}
     <!-- The composer is what sits centred, at every width; the question rests
          on top of it rather than pushing it down, so the bar does not move as
          the headline wraps. The full-page new tab home is narrower than the

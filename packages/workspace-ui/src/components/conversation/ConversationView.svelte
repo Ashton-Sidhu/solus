@@ -82,7 +82,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
   import { showsBackgroundWork } from "@solus/client-core/background-work";
-  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationView");
 
@@ -171,12 +171,11 @@
   );
   const linkContext: TaskLinkContext = $derived({
     serverId: runHost(sess?.run),
-    projectKey: checkoutGit(sess?.run)?.repoRoot ?? checkoutPlace(sess?.run)?.path ?? null,
     conversationTaskId,
   });
   // An HTML block renders from deep inside the markdown tree, where these props
   // do not reach. Saving one as an artifact still has to file the work against
-  // this conversation's host and project rather than the active tab's.
+  // this conversation's host rather than the active tab's.
   setHtmlBlockOrigin(() => ({ tabId, linkContext }));
   const sessionHostId = $derived(runHost(sess?.run));
   const hostState = $derived(sessionHostId ? serversStore.readinessFor(sessionHostId) : null);

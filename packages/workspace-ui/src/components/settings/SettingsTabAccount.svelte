@@ -1,9 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear", "link", "computer", "hosts", "profile", "copy"];
-</script>
-
 <script lang="ts">
+  import { accountSearchWords as searchWords } from "./lib/settings-search-data";
   /**
    * Settings → Account & sync (plans/018 decision 9): the one place for the
    * account. Who is signed in, with sign out; this computer's link to Solus

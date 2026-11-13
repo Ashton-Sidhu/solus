@@ -17,6 +17,7 @@
   import type { PrChecksSummary } from "@solus/contracts/checks-types";
   import * as TooltipUI from "../ui/tooltip";
   import { ChangeBreakdown } from "../ui/change-breakdown";
+  import ReviewDecisionIcon from "../work/ReviewDecisionIcon.svelte";
 
   /** One pull request in the list: the lifecycle glyph, then a
    *  two-by-two grid. The title leads line one and the outcome — verdict,
@@ -36,6 +37,9 @@
   interface Props {
     row: PrRowSpec;
     split?: boolean;
+    /** Draw "Changes requested" as its icon alone, for a list with no room
+     *  for the words. The words stay the icon's label. */
+    iconVerdict?: boolean;
     selected?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
@@ -64,6 +68,7 @@
   let {
     row,
     split = false,
+    iconVerdict = false,
     selected = false,
     onSelect,
     onContextMenu,
@@ -144,6 +149,10 @@
         {#if row.verdict === "approved"}
           <span class="flex items-center {PR_VERDICT_TONE.approved}" role="img" aria-label="Approved" title="Approved">
             <UserCheckIcon size={14} />
+          </span>
+        {:else if row.verdict === "changes-requested" && iconVerdict}
+          <span class="flex items-center" role="img" aria-label="Changes requested" title="Changes requested">
+            <ReviewDecisionIcon decision="changes_requested" />
           </span>
         {:else if row.verdict === "changes-requested"}
           <span class="whitespace-nowrap {PR_VERDICT_TONE['changes-requested']}">Changes requested</span>

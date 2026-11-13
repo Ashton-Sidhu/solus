@@ -1,13 +1,11 @@
-import { resolveHomePath } from '../../../platform/paths'
-import { taskSessions } from '../../../data/tasks/task-sessions'
+import { taskSessions, tasksForSession } from '../../../data/tasks/task-sessions'
 import { z } from 'zod'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
 import { commentOnTask, createTask, getTask, moveTask, namedTaskStatus } from '../../../data/tasks/task'
 import { listTasks } from '../../../data/tasks/task-store'
-import { loadTaskSources } from '../../../data/tasks/task-source-store'
-import { projectTaskSources } from '../../../data/tasks/task-sources'
+import { loadTaskSources, taskSourceLabel } from '../../../data/tasks/task-source-store'
 import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreign-tasks'
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
 import { recordOutboxOp } from '../../../sync/outbox/outbox-store'
@@ -17,7 +15,9 @@ import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { hostUserKey } from '../../../host/host-user'
 import { captureActingScope } from '../../../vault/acting-scope'
 import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
-import { taskSourceKey } from '@solus/contracts/task-sources'
+import { inferTaskSourceKey, taskSourceKey, type TaskSource, type TaskSourceHints } from '@solus/contracts/task-sources'
+import { resolvePrimaryRepoRef } from '../../../git/git-helpers'
+import { resolveHomePath } from '../../../platform/paths'
 import type {
   TaskSessionLink,
   Task as TaskRecord,
@@ -67,10 +67,7 @@ const listTasksFields = {
     .enum(LIST_STATUS_VALUES)
     .optional()
     .describe("Filter by status category. Defaults to 'all'."),
-  scope: z
-    .enum(['project', 'all'])
-    .optional()
-    .describe("Defaults to this project's task sources; 'all' lists every task this host holds for you."),
+  source: z.string().optional().describe('Only this task source, by source key.'),
 }
 
 const createTaskFields = {
@@ -80,6 +77,7 @@ const createTaskFields = {
   labels: z.array(z.string()).optional().describe('Optional labels.'),
   due_date: z.string().optional().describe('Optional ISO due date, usually YYYY-MM-DD.'),
   column: z.string().optional().describe('Optional column to start in.'),
+  source: z.string().optional().describe('Task source key from list_tasks. Without it, the task goes to the source of the task this session works on, else to the GitHub repository of this checkout, else to the only source; with several sources and no such match, name one.'),
 }
 
 const commentTaskFields = {
@@ -104,20 +102,20 @@ const READ_TASK_DESC =
 const UPDATE_DESC =
   'Move a task to a status category (open, active, done) or to a named column. This writes to GitHub or Jira.'
 const LIST_TASKS_DESC =
-  'List the GitHub and Jira tasks of the calling project\'s task sources, with their task keys and status category.'
+  'List the GitHub and Jira tasks of your task sources, with their task keys and status category.'
 const CREATE_TASK_DESC =
-  'Create a real task on GitHub or Jira, in the default task source of the calling project. Other people see it at once.'
+  'Create a real task on GitHub or Jira, in one of your task sources. Other people see it at once.'
 const COMMENT_TASK_DESC =
   'Post a comment on a task on GitHub or Jira, for durable findings, status, or handoff notes.'
 // ─── Executor (one implementation behind every agent backend's tool surface) ───
 
 export interface TaskToolCtx {
-  /** The calling session's working directory: its project names the task sources. */
-  cwd: string
   /** The calling session; every row the tool writes names it. */
   sessionId?: string
   /** The calling agent, named on what the tool writes. */
   agentProvider?: AgentId
+  /** The session's folder, resolved: its repository says where a new task belongs. */
+  cwd?: string
 }
 
 interface TaskToolDeps {
@@ -136,7 +134,7 @@ interface TaskToolArgs {
   due_date?: unknown
   labels?: unknown
   priority?: unknown
-  scope?: unknown
+  source?: unknown
   status?: unknown
   task_id?: unknown
   title?: unknown
@@ -152,8 +150,6 @@ function taskLine(task: TaskSummary): string {
 interface TaskToolCall {
   args: TaskToolArgs
   deps: TaskToolDeps
-  /** The resolved working directory of the calling session: its project names the task sources. */
-  projectPath: string
   /** The person whose provider connections decide which task sources show. */
   personKey: string
 }
@@ -162,20 +158,23 @@ interface TaskToolCall {
 // person's own provider connections decide which task sources they see.
 const scope = ANY_ORGANIZATION
 
-async function listTasksTool({ args, projectPath, personKey }: TaskToolCall): Promise<TaskToolResult> {
+const NO_TASK_SOURCE = 'You have no task source. A person adds a GitHub or Jira task source on the Tasks page of Solus.'
+
+async function listTasksTool({ args, deps, personKey }: TaskToolCall): Promise<TaskToolResult> {
   const input = listTasksInputSchema.parse(args)
   const status = input.status ?? 'all'
+  // The person's own task sources, from the preferences the session's run was dispatched with.
+  const sources = sessionSettings(deps.ctx.sessionId)?.preferences?.taskSources
+  if (sources && !sources.length) return { ok: true, text: NO_TASK_SOURCE }
+  const sourceKeys = new Set(input.source ? [input.source.trim()] : sources?.map(taskSourceKey) ?? [])
+  // A run with no task sources in its preferences lists every task this host holds for the person.
   let tasks = await listTasks({ personKey, scope })
-  if ((input.scope ?? 'project') === 'project') {
-    const { sources } = await projectTaskSources(projectPath)
-    if (!sources.length) return { ok: true, text: 'This project has no task source. A person adds a GitHub or Jira task source in the Tasks page of Solus.' }
-    const sourceKeys = new Set(sources.map(taskSourceKey))
-    tasks = tasks.filter((task) => task.placements.some((placement) => sourceKeys.has(placement.sourceKey)))
-  }
+  if (sourceKeys.size) tasks = tasks.filter((task) => task.placements.some((placement) => sourceKeys.has(placement.sourceKey)))
   if (status !== 'all') tasks = tasks.filter((task) => task.category === status)
   const lines = tasks.slice(0, LIST_LIMIT).map(taskLine)
   const suffix = tasks.length > LIST_LIMIT ? `\n\nNote: ${tasks.length - LIST_LIMIT} more tasks matched. Narrow the list with status.` : ''
-  return { ok: true, text: lines.length ? `Tasks:\n${lines.join('\n')}${suffix}` : 'No tasks matched.' }
+  const header = sources?.length ? `Task sources: ${sources.map(taskSourceKey).join(', ')}\n\n` : ''
+  return { ok: true, text: `${header}${lines.length ? `Tasks:\n${lines.join('\n')}${suffix}` : 'No tasks matched.'}` }
 }
 
 async function readTaskTool({ args, deps }: TaskToolCall): Promise<TaskToolResult> {
@@ -232,21 +231,25 @@ async function updateTaskStatusTool({ args, deps }: TaskToolCall): Promise<TaskT
   return { ok: true, text: `Task ${moved.reference ?? moved.id} is now ${moved.state.name} (${moved.category}) on ${providerName(moved)}.` }
 }
 
-async function createTaskTool({ args, deps, projectPath, personKey }: TaskToolCall): Promise<TaskToolResult> {
+async function createTaskTool({ args, deps, personKey }: TaskToolCall): Promise<TaskToolResult> {
   const parsed = createTaskInputSchema.parse(args)
   const title = parsed.title.trim()
   if (!title) return { ok: false, text: 'create_task requires a non-empty title.' }
+  const sources = sessionSettings(deps.ctx.sessionId)?.preferences?.taskSources ?? []
+  if (!sources.length) return { ok: false, text: NO_TASK_SOURCE }
+  const chosen = await newTaskSource(parsed.source?.trim(), sources, deps.ctx)
+  if ('refusal' in chosen) return { ok: false, text: chosen.refusal }
+  const { source } = chosen
   const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
   const columnName = parsed.column?.trim().toLowerCase()
   let columnId: string | undefined
   if (columnName) {
-    const { defaultSourceKey } = await projectTaskSources(projectPath)
-    const source = defaultSourceKey ? (await loadTaskSources([defaultSourceKey])).get(defaultSourceKey) : undefined
-    columnId = source?.columns.find((column) => column.name.toLowerCase() === columnName)?.id
-    if (!columnId) return { ok: false, text: `The default task source of this project has no column "${parsed.column}".${source ? ` Its columns: ${source.columns.map((column) => column.name).join(', ')}.` : ''}` }
+    const stored = (await loadTaskSources([taskSourceKey(source)])).get(taskSourceKey(source))
+    columnId = stored?.columns.find((column) => column.name.toLowerCase() === columnName)?.id
+    if (!columnId) return { ok: false, text: `The task source ${taskSourceKey(source)} has no column "${parsed.column}".${stored ? ` Its columns: ${stored.columns.map((column) => column.name).join(', ')}.` : ''}` }
   }
   const task = await createTask({
-    cwd: resolveHomePath(projectPath),
+    source,
     title,
     body: parsed.body ?? '',
     priority: parsed.priority,
@@ -259,6 +262,45 @@ async function createTaskTool({ args, deps, projectPath, personKey }: TaskToolCa
     ok: true,
     text: `Created on ${providerName(task)}.\n\n${formatTaskForAgent(task, await columnNamesOf(task))}`,
   }
+}
+
+/** The source that `create_task` writes to: the one the agent names, else the
+ *  one the session points to (`inferTaskSourceKey`). A refusal names the
+ *  person's sources, so that the agent can name one. */
+async function newTaskSource(
+  named: string | undefined,
+  sources: readonly TaskSource[],
+  ctx: TaskToolCtx,
+): Promise<{ source: TaskSource } | { refusal: string }> {
+  const sourceKey = named || inferTaskSourceKey(sources.map(taskSourceKey), await newTaskHints(ctx))
+  const source = sources.find((candidate) => taskSourceKey(candidate) === sourceKey)
+  if (source) return { source }
+  return {
+    refusal: named
+      ? `"${named}" is not one of your task sources: ${await sourceChoices(sources)}.`
+      : `Name the task source with "source": neither the task of this session nor its repository is one of your sources. Your task sources: ${await sourceChoices(sources)}.`,
+  }
+}
+
+/** What the calling session says about where its new task belongs: the task
+ *  it works on, and the GitHub repository of its checkout. */
+async function newTaskHints(ctx: TaskToolCtx): Promise<TaskSourceHints> {
+  const [linked, repository] = await Promise.all([
+    ctx.sessionId ? tasksForSession(scope, ctx.sessionId) : null,
+    ctx.cwd ? resolvePrimaryRepoRef(ctx.cwd).catch(() => null) : null,
+  ])
+  return {
+    taskSourceKeys: linked?.task.placements.map((placement) => placement.sourceKey),
+    repository: repository?.host.toLowerCase() === 'github.com' ? { owner: repository.owner, repo: repository.repo } : null,
+  }
+}
+
+/** The person's sources as `key (label)`, so that an agent can name one. */
+async function sourceChoices(sources: readonly TaskSource[]): Promise<string> {
+  const stored = await loadTaskSources(sources.map(taskSourceKey))
+  return sources
+    .map((source) => `${taskSourceKey(source)} (${stored.get(taskSourceKey(source))?.label ?? taskSourceLabel(source)})`)
+    .join(', ')
 }
 
 async function commentTaskTool({ args, deps }: TaskToolCall): Promise<TaskToolResult> {
@@ -299,7 +341,7 @@ async function executeTaskTool(
   if (!tool) return { ok: false, text: `Unknown task tool: ${name}` }
   try {
     // The person the turn acts for; the host's own work reads as the host's user.
-    return await tool({ args, deps, projectPath: resolveHomePath(deps.ctx.cwd), personKey: captureActingScope()?.personKey ?? hostUserKey() })
+    return await tool({ args, deps, personKey: captureActingScope()?.personKey ?? hostUserKey() })
   } catch (err: unknown) {
     log.error('task_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Task tool error: ${err instanceof Error ? err.message : String(err)}` }
@@ -375,7 +417,7 @@ function taskAgentTool(
     inputFields,
     requiresApproval,
     execute: async (args, context) => executeTaskTool(name, args, {
-      ctx: { cwd: resolveHomePath(context.cwd), sessionId: context.sessionId(), agentProvider: context.provider },
+      ctx: { sessionId: context.sessionId(), agentProvider: context.provider, cwd: resolveHomePath(context.cwd) },
       onTaskCreated: (task) => context.emit({
         type: 'task_created',
         taskId: task.taskId,

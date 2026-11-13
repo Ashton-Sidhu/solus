@@ -35,7 +35,6 @@
     target={{ kind: "work", targetScope: "", targetKey: workId }}
     {title}
     serverId={linkContext?.serverId}
-    projectKey={linkContext?.projectKey}
     conversationTaskId={linkContext?.conversationTaskId}
     onlyWithTask
   />

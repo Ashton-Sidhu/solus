@@ -1,120 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  export const settingItems: SettingItem[] = [
-    {
-      id: "theme",
-      keywords: ["dark", "theme", "light", "appearance", "mode", "system"],
-    },
-    {
-      id: "font-family",
-      keywords: [
-        "font",
-        "family",
-        "typeface",
-        "inter",
-        "dm sans",
-        "system",
-        "geist",
-        "lora",
-        "serif",
-      ],
-    },
-    { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
-    {
-      id: "conversation-width",
-      keywords: ["conversation", "chat", "transcript", "width", "column", "wide", "narrow", "full", "layout"],
-    },
-    {
-      id: "sidebar-view",
-      keywords: ["sidebar", "view", "group", "project", "projects", "folder", "status", "working", "sessions"],
-    },
-    {
-      id: "project-panel-items",
-      keywords: ["project", "panel", "rail", "show", "hide", "sections", "rows", "environment", "git", "goal", "agents", "webhooks", "terminal", "usage", "browser"],
-    },
-    {
-      id: "reply-opacity",
-      keywords: ["reply", "assistant", "message", "text", "opacity", "contrast", "fade", "transcript"],
-    },
-    {
-      id: "font-smoothing",
-      keywords: ["font", "smoothing", "antialiased", "grayscale", "thin", "macos"],
-    },
-    {
-      id: "prompt-font-family",
-      keywords: [
-        "prompt",
-        "composer",
-        "input",
-        "draft",
-        "font",
-        "family",
-        "typeface",
-        "mono",
-      ],
-    },
-    {
-      id: "prompt-font-size",
-      keywords: ["prompt", "composer", "input", "draft", "font", "size"],
-    },
-    {
-      id: "document-font-family",
-      keywords: [
-        "document",
-        "plan",
-        "editor",
-        "font",
-        "family",
-        "typeface",
-        "writing",
-        "prose",
-      ],
-    },
-    {
-      id: "document-font-size",
-      keywords: [
-        "document",
-        "plan",
-        "editor",
-        "font",
-        "size",
-        "writing",
-        "prose",
-      ],
-    },
-    {
-      id: "code-font-family",
-      keywords: [
-        "code",
-        "font",
-        "mono",
-        "monospace",
-        "diff",
-        "typeface",
-        "sf mono",
-        "geist",
-        "fira",
-        "jetbrains",
-        "cascadia",
-      ],
-    },
-    {
-      id: "code-font-size",
-      keywords: ["code", "font", "size", "mono", "diff"],
-    },
-    {
-      id: "installed-fonts",
-      keywords: ["font", "installed", "typeface", "override", "synced", "device", "local"],
-    },
-  ];
-</script>
-
 <script lang="ts">
+  import { appearanceSettings as settingItems } from "./lib/settings-search-data";
   /** Theme and type are personal: no host frame, and they follow the person to
    *  every host (and every client, with sync on). An installed font is this
    *  device's override; Installed fonts shows it and turns it back. */
@@ -128,6 +13,7 @@
   } from "../../contexts/app/settings-display";
   import { getSettingsContext } from "../../contexts";
   import { MIN_ASSISTANT_TEXT_OPACITY, type ConversationWidth, type SidebarView } from "@solus/contracts/settings";
+  import type { SkySceneChoice } from "../../lib/sky-scene";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
@@ -156,6 +42,13 @@
   // Presets only; the picker adds every installed family behind them.
   const appFontPresets = APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
   const codeFontPresets = APP_CODE_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
+  const skySceneChoices: ReadonlyArray<{ value: SkySceneChoice; label: string }> = [
+    { value: "auto", label: "Time of day" },
+    { value: "dawn", label: "Dawn" },
+    { value: "day", label: "Day" },
+    { value: "dusk", label: "Dusk" },
+    { value: "night", label: "Night" },
+  ];
   const sidebarViews: ReadonlyArray<{ value: SidebarView; label: string }> = [
     { value: "status", label: "By status" },
     { value: "project", label: "By project" },
@@ -279,6 +172,54 @@
         side="bottom"
         align="end"
         focusOnClose="anchor"
+      />
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
+
+<!-- Decoration on this device: layout keys, not synced (docs/plans/sidebar-places-and-sky.md). -->
+<SettingsSection label="Sky" visible={["sky-scene", "sidebar-sky", "draft-mark"].some(isVisible)}>
+  <SettingsRow
+    label="Scene"
+    description="Time of day changes the scene at 05:00, 09:00, 17:00, and 21:00 on this device's clock. Or keep one scene."
+    visible={isVisible("sky-scene")}
+  >
+    {#snippet control()}
+      <SettingsSelect
+        options={skySceneChoices}
+        value={theme.skySceneChoice}
+        onSelect={(value) => theme.setLayout("skySceneChoice", value)}
+        ariaLabel="Sky scene"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Sky in the sidebar"
+    description="The picture behind the title bar of the session sidebar."
+    visible={isVisible("sidebar-sky")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.showsSidebarSky}
+        onCheckedChange={(next) => theme.setLayout("showsSidebarSky", next)}
+        size="default"
+        aria-label="Show the sky in the sidebar"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Mark on the new-tab home"
+    description="The Solus mark in dots behind the input bar of a new session, in the colours of the scene."
+    visible={isVisible("draft-mark")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.showsDraftMark}
+        onCheckedChange={(next) => theme.setLayout("showsDraftMark", next)}
+        size="default"
+        aria-label="Show the mark on the new-tab home"
       />
     {/snippet}
   </SettingsRow>

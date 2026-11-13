@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { githubIssue, REPO, repoRead } from './helpers/task-fixtures'
@@ -8,8 +9,10 @@ import { openTaskTestHost } from './helpers/task-test-host'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: a merged pull request finishes the work, so Solus closes the task on
-// GitHub or Jira. That is an outward write: it must happen only where a
-// project asked for it, and only when all the work of the task is merged.
+// GitHub or Jira. Tasks belong to no project (docs/tasks.md): the link to the
+// pull request is the request. That is an outward write, so the pull
+// request's own project can turn it off, and it happens only when all the work
+// of the task is merged.
 
 const BY = { kind: 'system' as const }
 const ISSUE = 'github:I_1'
@@ -33,23 +36,30 @@ beforeAll(async () => {
 afterEach(() => host.reset())
 afterAll(() => host.close())
 
-/** The issue is in the repository source, links pull request 7, and a project of this host lists the source. */
-async function linkedTask(config: { taskDoneOnMerge?: boolean } = {}): Promise<string> {
+/** The issue is in the repository source and links pull request 7. No project is on the host. */
+async function linkedTask(): Promise<void> {
   host.providers.answer(REPO, repoRead([githubIssue(1)]))
   await cache.storeSourceRead(REPO, repoRead([githubIssue(1)]))
-  const cwd = host.project([REPO])
-  writeFileSync(join(cwd, '.solus', 'config.json'), JSON.stringify({ version: 1, taskSources: [REPO], ...config }))
-  await manifest.recordProject(cwd)
   await attachments.linkTaskPullRequest('local', ISSUE, { number: 7, targetScope: PR.scope, url: PR.url }, BY)
-  return cwd
+}
+
+/** A listed project of this host whose `origin` is `remote`, with this project config. */
+async function listedProject(remote: string, config: { taskDoneOnMerge?: boolean }): Promise<void> {
+  const cwd = join(host.dataDir, `project-${remote.split('/').pop()}`)
+  mkdirSync(join(cwd, '.solus'), { recursive: true })
+  execFileSync('git', ['init', '-q', '.'], { cwd })
+  execFileSync('git', ['remote', 'add', 'origin', remote], { cwd })
+  writeFileSync(join(cwd, '.solus', 'config.json'), JSON.stringify({ version: 1, ...config }))
+  await manifest.recordProject(cwd)
 }
 
 const merged = (overrides: Partial<Parameters<typeof done.completeTasksForMergedPullRequest>[3]> = {}) =>
   done.completeTasksForMergedPullRequest('local', PR.scope, 7, { mergedAt: '2026-11-01T00:00:00Z', isSessionBusy: () => false, ...overrides })
 
 describe('a merged pull request finishes its task', () => {
-  test('the task moves to done on its provider when a project of the host lists its source', async () => {
+  test('the task moves to done on its provider, with no project on the host', async () => {
     await linkedTask()
+    expect(await manifest.listProjects()).toEqual([])
     expect(await merged()).toEqual([ISSUE])
     expect(host.providers.callsOf('setState:')).toEqual([`setState:${ISSUE}:done`])
     expect((await store.loadTask(ISSUE))?.category).toBe('done')
@@ -58,18 +68,17 @@ describe('a merged pull request finishes its task', () => {
     expect(host.providers.callsOf('setState:')).toHaveLength(1)
   })
 
-  test('a project that turned the rule off leaves the task open', async () => {
-    await linkedTask({ taskDoneOnMerge: false })
+  test('the project of the pull request can turn the rule off, and the task stays open', async () => {
+    await linkedTask()
+    await listedProject('https://github.com/acme/app.git', { taskDoneOnMerge: false })
     expect(await merged()).toEqual([])
     expect(host.providers.callsOf('setState:')).toEqual([])
   })
 
-  test('a task that no project of the host lists is left alone: nobody asked Solus to close it', async () => {
-    host.providers.hold(githubIssue(1))
-    await cache.storeProviderTask(githubIssue(1))
-    await attachments.linkTaskPullRequest('local', ISSUE, { number: 7, targetScope: PR.scope, url: PR.url }, BY)
-    expect(await merged()).toEqual([])
-    expect(host.providers.callsOf('setState:')).toEqual([])
+  test('a project of another repository that turned the rule off does not decide for this pull request', async () => {
+    await linkedTask()
+    await listedProject('https://github.com/acme/other.git', { taskDoneOnMerge: false })
+    expect(await merged()).toEqual([ISSUE])
   })
 
   test('the task stays open while a session still works, and while another linked pull request is not merged', async () => {

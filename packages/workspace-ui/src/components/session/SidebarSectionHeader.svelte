@@ -3,7 +3,7 @@
   import type { SidebarSection } from "./lib/sidebar-list-items";
 
   /** The header of a collapsible section of the sidebar list: Shared with you,
-   *  Working, Snoozed, or Completed. Both sidebar views use it. */
+   *  Pinned, Working, Snoozed, or Completed. Both sidebar views use it. */
   interface Props {
     section: SidebarSection;
     count: number;
@@ -59,17 +59,23 @@
     )}
   </div>
 {:else}
-  <!-- Working holds the rows whose agent is busy without you; it and
-       Completed take the same header. A section that opens the list
-       needs no space above it. -->
+  <!-- Working holds the rows whose agent is busy without you; it,
+       Pinned, and Completed take the same header. A section that opens
+       the list needs no space above it. -->
   <div
-    class="mt-2 first:mt-0 {section === 'completed' || (section === 'working' && !hasRowsBelow)
+    class="mt-2 first:mt-0 {section === 'completed' || ((section === 'working' || section === 'pinned') && !hasRowsBelow)
       ? ''
       : 'mb-1'}"
     data-sidebar-section-header={section}
   >
     {@render label(
-      section === "shared" ? "Shared with you" : section === "working" ? "Working" : "Completed",
+      section === "shared"
+        ? "Shared with you"
+        : section === "pinned"
+          ? "Pinned"
+          : section === "working"
+            ? "Working"
+            : "Completed",
       "text-muted-foreground",
       "hover:text-foreground",
     )}

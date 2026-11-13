@@ -20,8 +20,9 @@ import { devFixtures } from '../../apps/client/src/demo/fixtures/dev-fixture'
 import { registerBootHandlers } from '../../apps/client/src/demo/handlers/boot'
 import { registerPrHandlers } from '../../apps/client/src/demo/handlers/pr'
 import { registerTasksHandlers } from '../../apps/client/src/demo/handlers/tasks'
+import { demoTaskSettings } from '../../apps/client/src/demo/seed'
 import { parseTaskKey, taskSourceKey } from '@solus/contracts/task-sources'
-import type { Task, TaskDetails, TaskSidebarSnapshot } from '@solus/contracts/task-types'
+import type { Task, TaskDetails, TaskSidebarSnapshot, TaskSourceState } from '@solus/contracts/task-types'
 import type { PrReviewTarget, PullRequest, PullRequestOverview } from '@solus/contracts/providers'
 
 // The demo backend is the only implementation of the RPC surface that no
@@ -103,7 +104,6 @@ describe('demo task sources', () => {
     for (const source of demoFixtures.tasks.sources) {
       expect(source.sourceKey).toBe(taskSourceKey(source.source))
     }
-    expect(sourcesByKey.has(demoFixtures.tasks.defaultSourceKey!)).toBe(true)
   })
 
   test('each task has a task key and is in a column of a demo source', () => {
@@ -181,15 +181,27 @@ describe('demo task writes', () => {
 
   test('a new task is a draft in a GitHub Project and an issue in Jira', async () => {
     const { call } = demoTasks()
-    const draft = await call<Task>('tasksCreate', { cwd: '/home/demo/api-gateway', title: 'Try a sliding window' })
+    const githubProject = { kind: 'github-project', owner: 'acme', number: 4 }
+    const jiraBoard = { kind: 'jira-board', cloudId: 'acme-cloud', boardId: 12 }
+    const draft = await call<Task>('tasksCreate', { source: githubProject, title: 'Try a sliding window' })
     expect(draft).toMatchObject({ kind: 'draft', providerId: 'github', url: null })
     expect(draft.reference).toBeUndefined()
     expect(draft.placements).toEqual([{ sourceKey: githubSourceKey, columnId: 'backlog' }])
 
-    const issue = await call<Task>('tasksCreate', { cwd: '/home/demo/api-gateway', sourceKey: jiraSourceKey, title: 'Audit key scopes', columnId: 'in-progress' })
+    const issue = await call<Task>('tasksCreate', { source: jiraBoard, title: 'Audit key scopes', columnId: 'in-progress' })
     expect(issue).toMatchObject({ kind: 'issue', providerId: 'jira', category: 'active', state: { name: 'In Progress', category: 'active' } })
     expect(issue.reference).toMatch(/^ACME-\d+$/)
     expect(parseTaskKey(issue.id)).toMatchObject({ provider: 'jira', cloudId: 'acme-cloud' })
+  })
+
+  test('the demo settings name its two sources, so its board shows tasks', async () => {
+    // WHY: the sources are a personal setting (docs/tasks.md). A visitor with
+    // no source would see an empty Tasks page instead of the demo board.
+    const { call } = demoTasks()
+    const settings = demoTaskSettings(demoFixtures)
+    const states = await call<TaskSourceState[]>('tasksSources', settings.taskSources)
+    expect(states.map((state) => state.sourceKey)).toEqual([githubSourceKey, jiraSourceKey])
+    expect(states.every((state) => state.columns.length > 0)).toBe(true)
   })
 
   // A provider keeps its issues: only a draft item can go.

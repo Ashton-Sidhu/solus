@@ -86,7 +86,7 @@ export function taskSourceLabel(source: TaskSource): string {
   }
 }
 
-/** Make the row of a source that a project lists. A row that exists stays as it is. */
+/** Make the row of a source that a person wants. A row that exists stays as it is. */
 export async function ensureTaskSource(sourceKey: string, source: TaskSource, db: Db = database()): Promise<void> {
   await db.run(sql`
     INSERT INTO ${taskSources}(source_key, source, label) VALUES (${sourceKey}, ${JSON.stringify(source)}, ${taskSourceLabel(source)})

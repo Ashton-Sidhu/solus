@@ -46,8 +46,6 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import TaskPicker from "../input/TaskPicker.svelte";
   import type { PaneId } from "../../contexts/workspace/routing/location";
-  import TaskIcon from "../ui/TaskIcon.svelte";
-  import { taskOfTab } from "../../contexts/workspace/session-task-link";
   import ShareButton from "../sharing/ShareButton.svelte";
   import SessionPresence from "../presence/SessionPresence.svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
@@ -110,30 +108,10 @@
   const session = getWorkspaceContext();
   /** The band draws the leaf session; its share badge names it. */
   const bandSession = $derived(session.sessionFor(tabId));
-  // A member who may only read a shared session neither renames it nor links it to a task.
+  // A member who may only read a shared session cannot rename it.
   const canDrive = $derived(
     canDriveSession(session.serverIdFor(tabId), bandSession?.id),
   );
-  const linkedTask = $derived(taskOfTab(session, tabId));
-  let taskLinkOpen = $state(false);
-  let taskLinkAnchor = $state<HTMLButtonElement | null>(null);
-  $effect(() => {
-    if (draft) return;
-    const handler = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail : undefined;
-      if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
-      if (!taskLinkAnchor || taskLinkAnchor.offsetParent === null) return;
-      if (linkedTask) {
-        session.goToTask(linkedTask.id, "click");
-      } else {
-        menu = null;
-        taskLinkOpen = !taskLinkOpen;
-      }
-    };
-    window.addEventListener("solus:toggle-session-task-picker", handler);
-    return () =>
-      window.removeEventListener("solus:toggle-session-task-picker", handler);
-  });
   const sidebarStore = getSessionSidebarStore();
   let taskQuery = $state("");
 
@@ -403,13 +381,6 @@
 
   const isProjectPanelOpen = $derived(
     projectPanelOpen ?? frameChrome.projectPanelOpen,
-  );
-  const hasTrailingActions = $derived(
-    !!bandSession?.id ||
-      showNewSessionAction ||
-      (showProjectPanelAction && !isProjectPanelOpen) ||
-      !!onOpenAsPage ||
-      !!onClose,
   );
 
   function toggleProjectPanel() {
@@ -890,60 +861,14 @@
     {#if draft}
       <TaskPicker
         task={draft.task}
-        {projectKey}
-        serverId={projectHome(draft.run).serverId ?? runHost(draft.run)}
         onSelect={(next) => {
           if (draft) draft.task = next;
         }}
         onDismiss={() => requestInputFocus()}
         {paneId}
       />
-    {:else if bandSession && (linkedTask || canDrive)}
-      <button
-        type="button"
-        class={BAND_ACTION}
-        bind:this={taskLinkAnchor}
-        aria-haspopup={linkedTask ? undefined : "dialog"}
-        aria-expanded={linkedTask ? undefined : taskLinkOpen}
-        title={linkedTask ? `Open task: ${linkedTask.title}` : "Link to task"}
-        aria-label={linkedTask
-          ? `Open task: ${linkedTask.title}`
-          : "Link to task"}
-        onclick={() => {
-          if (linkedTask) {
-            session.goToTask(linkedTask.id, "click");
-          } else {
-            menu = null;
-            taskLinkOpen = !taskLinkOpen;
-          }
-        }}
-      >
-        <TaskIcon size={16} />
-      </button>
-      {#if taskLinkOpen && taskLinkAnchor}
-        {#await import("../session/LinkSessionTaskDialog.svelte") then { default: LinkSessionTaskDialog }}
-          <LinkSessionTaskDialog
-            {tabId}
-            anchor={taskLinkAnchor}
-            onClose={() => {
-              taskLinkOpen = false;
-            }}
-          />
-        {/await}
-      {/if}
     {/if}
-
-
-    {#if bandSession?.id && hasTrailingActions}
-      <span
-        class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] @max-[36rem]:hidden"
-        aria-hidden="true"
-      ></span>
-    {/if}
-
-    <!-- Share opens the trailing group, past the divider: the task's own
-         controls stay with the task on the left, and the verbs that arrange
-         the window sit here. It is the band's one labelled button, so a
+    <!-- Share opens the trailing group. It is the band's one labelled button, so a
          visitor finds it without hovering. -->
     {#if bandSession?.id}
       <!-- Who else is in the room, right before the control that decides who may

@@ -20,6 +20,9 @@
     isElevated?: boolean;
     minWidth?: number;
     maxWidth?: number;
+    /** Closed, the panel keeps its leading column on screen: the parent sizes
+     *  the pane to that column, and the panel clips at its right edge. */
+    staysAsColumn?: boolean;
     /** Disable width interpolation while a pointer directly controls the panel. */
     isResizing?: boolean;
     onAction?: () => void;
@@ -27,7 +30,16 @@
     actionTooltip?: string;
     actionAriaLabel?: string;
     background?: string;
+    /** Sits at the start of the header's action row. On macOS it starts one
+     *  gap after the native window buttons. */
+    headerLeading?: Snippet;
     headerActions?: Snippet;
+    /** The header sits on a picture that is dark in both themes, so its
+     *  controls read light. */
+    headerOnDark?: boolean;
+    /** Painted over the panel's surface and under all of its content. The
+     *  snippet positions itself against the panel. */
+    backdrop?: Snippet;
     children: Snippet;
   }
 
@@ -41,13 +53,17 @@
     isElevated = true,
     minWidth = 160,
     maxWidth = 400,
+    staysAsColumn = false,
     isResizing = false,
     onAction,
     actionIcon: ActionIcon = SidebarSimpleIcon,
     actionTooltip,
     actionAriaLabel,
     background,
+    headerLeading,
     headerActions,
+    headerOnDark = false,
+    backdrop,
     children,
   }: Props = $props();
 
@@ -64,7 +80,7 @@
 
 <div
   class="side-panel-shell"
-  class:side-panel-closed={!open}
+  class:side-panel-closed={!open && !staysAsColumn}
   class:side-panel-managed={managedWidth}
   class:side-panel-flush={flush}
   class:side-panel-resizing={isResizing}
@@ -76,9 +92,10 @@
       ? `${width - gutter}px`
       : undefined}
   style:width={managedWidth ? "100%" : open && width ? `${width}px` : undefined}
-  aria-hidden={!open}
+  aria-hidden={!open && !staysAsColumn}
 >
   <div
+    class:side-panel-root--column={!open && staysAsColumn}
     class="side-panel-root @container/rail flex h-full flex-col overflow-hidden bg-(--side-panel-bg,var(--solus-sidebar-bg)) [contain:layout_paint] {flush
  ? ''
  : 'rounded-2xl'} {flush
@@ -88,6 +105,13 @@
  : 'border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none'}"
     style:--side-panel-bg={panelBg}
   >
+    {#if backdrop}
+      <!-- Beneath the content, in the root's own stacking context, so the
+         backdrop can fade without painting over the rows. -->
+      <div class="side-panel-backdrop pointer-events-none absolute inset-0 -z-1">
+        {@render backdrop()}
+      </div>
+    {/if}
     <Sidebar.Provider {open}>
       <Sidebar.Root {side} collapsible="none" class="bg-transparent">
         <!-- Skipped entirely when the panel has no chrome of its own — the
@@ -97,11 +121,13 @@
              the same line and at the same size as the project rail's. Where the
              window's controls are inset over this corner the grid rule below
              takes the padding over and centres it on them instead. -->
-        {#if title || headerActions || onAction}
+        {#if title || headerLeading || headerActions || onAction}
           <Sidebar.Header
-          class="side-panel-header flex-row items-center gap-2 {title
+          class="side-panel-header flex-row items-center gap-2 {open
+ ? ''
+ : 'side-panel-header--clipped'} {title || headerLeading
  ? 'justify-between'
- : 'justify-end'} {flush
+ : 'justify-end'} {headerOnDark ? 'side-panel-header--on-dark' : ''} {flush
  ? 'border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2 py-0'
  : 'px-2.5 py-2'} {shell.hasInsetTitlebar &&
  side === 'left'
@@ -117,6 +143,11 @@
               class="side-panel-title text-xs font-medium text-(--solus-text-tertiary) uppercase"
               >{title}</span
             >
+          {/if}
+          {#if headerLeading}
+            <div class="side-panel-leading flex min-w-0 items-center">
+              {@render headerLeading()}
+            </div>
           {/if}
           <div class="side-panel-actions inline-flex items-center gap-1">
             {#if headerActions}
@@ -220,8 +251,53 @@
     height: 100%;
   }
 
+  /* A panel that stays as a column drops its surface when it closes: no
+     card, no backdrop, only the column on the pane's own background. The
+     surface fades on the pane's curve, so the change has no step. */
+  .side-panel-root {
+    transition:
+      background-color 240ms cubic-bezier(0.2, 0, 0, 1),
+      border-color 240ms cubic-bezier(0.2, 0, 0, 1),
+      box-shadow 240ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .side-panel-root.side-panel-root--column {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .side-panel-backdrop {
+    transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .side-panel-root--column > .side-panel-backdrop {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .side-panel-root,
+    .side-panel-backdrop {
+      transition: none;
+    }
+  }
+
   :global(.side-panel-header) {
     min-height: var(--solus-chrome-row-h, 2.5rem);
+    transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  /* A closed panel that stays as a column clips its header controls. They
+     fade as the pane narrows, and hide once the panel has closed, so Tab
+     cannot reach a control off screen. */
+  :global(.side-panel-header--clipped) {
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 180ms cubic-bezier(0.2, 0, 0, 1),
+      visibility 0s 240ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.side-panel-header),
+    :global(.side-panel-header--clipped) {
+      transition: none;
+    }
   }
 
   :global(.side-panel-header--mac-left) {
@@ -251,6 +327,32 @@
   :global(.side-panel-header--mac-left .side-panel-actions) {
     grid-column: 2;
     grid-row: 1;
+  }
+
+  :global(.side-panel-header--mac-left .side-panel-leading) {
+    grid-column: 1;
+    grid-row: 1;
+    /* Start 1.25rem after the native window buttons, so the leading content
+       reads as its own thing and not as a fourth button. The header's own
+       left padding and the panel's inset are already between them and this
+       box. */
+    margin-left: max(
+      0px,
+      calc(
+        var(--solus-traffic-light-end) + 1.25rem -
+          var(--side-panel-window-inset) - 1rem
+      )
+    );
+  }
+
+  /* The header's controls take their colours from these tokens, so a header
+     on a dark picture re-points them and every control follows. */
+  :global(.side-panel-header--on-dark) {
+    --solus-text-primary: #fff;
+    --solus-text-tertiary: rgb(255 255 255 / 0.72);
+    --solus-surface-hover: rgb(255 255 255 / 0.14);
+    --foreground: #fff;
+    --muted: rgb(255 255 255 / 0.14);
   }
 
 </style>

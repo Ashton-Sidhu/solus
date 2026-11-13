@@ -135,7 +135,6 @@ const DEFERRED_COMPONENTS = [
   // Menus and dialogs load when they first open.
   'packages/workspace-ui/src/components/session/SessionContextMenu.svelte',
   'packages/workspace-ui/src/components/session/LinkSessionTaskDialog.svelte',
-  'packages/workspace-ui/src/components/session/LinkPullRequestDialog.svelte',
   'packages/workspace-ui/src/components/servers/CopiedFilesDialog.svelte',
   'packages/workspace-ui/src/components/seats/SeatConnectPanel.svelte',
   // Surfaces the first screen does not show: a host to connect, a work, a
@@ -239,4 +238,29 @@ describe('startup import graph', () => {
       expect(DEFERRED_COMPONENTS.filter((file) => reached.has(file))).toEqual([])
     })
   }
+})
+
+// Opening General must not load the code for every closed settings section.
+// Search uses the same row data without importing those section components.
+describe('settings import graph', () => {
+  test('the settings frame loads without closed sections or their editors', () => {
+    const graph = staticGraph(['packages/workspace-ui/src/components/settings/SettingsPage.svelte'])
+    const reached = new Set([...graph.files].map((file) => relative(ROOT, file)))
+    const sections = [
+      'SettingsTabGeneral', 'SettingsTabAppearance', 'SettingsTabChat',
+      'SettingsTabNotifications', 'SettingsTabSessions', 'SettingsTabTasks',
+      'SettingsTabReview', 'SettingsTabTools', 'SettingsTabProviders',
+      'SettingsTabSkills', 'SettingsTabMcp', 'SettingsTabVoice',
+      'SettingsTabExperimental', 'SettingsTabTelemetry', 'SettingsTabSourceControl',
+      'SettingsTabKeybindings', 'SettingsTabAccount', 'SettingsTabAgentProfile',
+      'SettingsTabHost', 'SettingsTabOrganization', 'AnalyticsSettings', 'IntegrationAccounts',
+      'policy/PolicyPage',
+    ]
+    expect(sections.filter((section) => reached.has(`packages/workspace-ui/src/components/settings/${section}.svelte`))).toEqual([])
+    expect(reached.has('packages/workspace-ui/src/components/connections/ConnectionsPanel.svelte')).toBe(false)
+    expect(reached.has('packages/workspace-ui/src/components/devices/DeviceSettings.svelte')).toBe(false)
+    expect(reached.has('packages/workspace-ui/src/components/webhooks/SettingsTabWebhooks.svelte')).toBe(false)
+    expect(DEFERRED_PACKAGES.filter((name) => graph.packages.has(name))).toEqual([])
+    expect(reached.has('packages/workspace-ui/src/components/settings/lib/settings-search-data.ts')).toBe(true)
+  })
 })

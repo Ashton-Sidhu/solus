@@ -79,19 +79,6 @@ describe('browser evidence', () => {
   test('a finished task is not where the current change files its evidence', () => {
     const open = task({ id: 'github:I_open', category: 'active' })
     const done = task({ id: 'github:I_done', state: { name: 'Closed', category: 'done' }, category: 'done' })
-    expect(attachableTasks([open, done], [open, done]).map((entry) => entry.id)).toEqual(['github:I_open'])
-  })
-
-  test('a page files against the tasks of its own project, not every open task', () => {
-    // WHY: a task has no project of its own. The caller gives the tasks that
-    // the task sources of the page's project list.
-    const mine = task({ id: 'github:I_mine' })
-    const elsewhere = task({ id: 'github:I_elsewhere' })
-    expect(attachableTasks([mine, elsewhere], [mine]).map((entry) => entry.id)).toEqual(['github:I_mine'])
-    // A project that lists no open task must not silently empty the list and
-    // leave the person with nowhere to file.
-    expect(attachableTasks([mine, elsewhere], []).map((entry) => entry.id)).toEqual(['github:I_mine', 'github:I_elsewhere'])
-    const done = task({ id: 'github:I_done', category: 'done' })
-    expect(attachableTasks([mine, elsewhere], [done]).map((entry) => entry.id)).toEqual(['github:I_mine', 'github:I_elsewhere'])
+    expect(attachableTasks([open, done]).map((entry) => entry.id)).toEqual(['github:I_open'])
   })
 })

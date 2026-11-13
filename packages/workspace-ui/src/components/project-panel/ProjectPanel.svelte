@@ -29,7 +29,6 @@
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
-  import AgentsSection from "./AgentsSection.svelte";
   import WebhooksSection from "./WebhooksSection.svelte";
   import ProjectPanelItemsMenu from "./ProjectPanelItemsMenu.svelte";
   import {
@@ -42,7 +41,6 @@
   import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
   import { projectHome, projectRoot } from "../../contexts/workspace/run-location";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
-  import { sessionAgentMessages } from "./lib/rail-agents";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -182,7 +180,6 @@
   const gitShown = $derived(isSectionShown(hiddenItems, "git"));
   const gitSetupShown = $derived(isPanelItemShown(hiddenItems, "git.setup"));
   const goalShown = $derived(isSectionShown(hiddenItems, "goal"));
-  const agentsShown = $derived(isSectionShown(hiddenItems, "agents"));
   const webhooksShown = $derived(isSectionShown(hiddenItems, "webhooks"));
 
   // The project's webhooks: the section exists only while it has some.
@@ -197,14 +194,6 @@
 
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
-
-  // The Agents card exists only once the conversation has dispatched a
-  // sub-agent or started a session, so the read that decides it belongs here
-  // rather than in the card it would hide. A draft has no transcript and
-  // therefore no card.
-  const panelAgents = $derived(
-    agentsShown && panelSession ? sessionAgentMessages(panelSession.messages) : [],
-  );
 
   // A split chat mounts a second rail, so both instances register these ids and
   // the dispatcher fires only the first enabled handler. Each rail arms its
@@ -471,19 +460,6 @@
         sessionId={panelSession.id}
         collapsed={collapsedSections.goal}
         onToggle={() => toggleSection("goal")}
-        onResizePointerDown={startResize}
-        {hiddenItems}
-      />
-    {/if}
-    {#if panelSession && panelAgents.length > 0}
-      <!-- Only ever reached with a session behind it — an agent is something
-           a conversation dispatched, so the section opens it off that
-           conversation's tab. -->
-      <AgentsSection
-        tabId={sourceId}
-        messages={panelAgents}
-        collapsed={collapsedSections.agents}
-        onToggle={() => toggleSection("agents")}
         onResizePointerDown={startResize}
         {hiddenItems}
       />

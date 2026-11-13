@@ -1,218 +1,168 @@
-// The task sources of each project, as each host last read them.
+// The person's task sources, as the task host last read them.
 //
-// Loaded like the pull request list (docs/pull-request-list.md): one
-// `tasksSources` call per host for all its projects, and the host says when a
-// read ends (`tasks.sourcesChanged`). Nothing here polls. The tasks themselves
-// are in `TasksStore`; a source says which of them a project shows.
+// Tasks belong to no project (docs/tasks.md). The sources are a personal
+// setting, synced with the account, and the client sends them to one host: the
+// task host (`taskHostId`). The host reads each source and says when a read
+// ends (`tasks.sourcesChanged`). Nothing here polls. The tasks themselves are
+// in `TasksStore`.
 
-import { SvelteMap } from 'svelte/reactivity'
-import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { TaskProjectSources, TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
+import type { TaskSource } from '@solus/contracts/task-sources'
+import type { TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
+import type { PersonalSettings } from '@solus/contracts/settings'
 import { hosts } from '../hosts/hosts.svelte'
-import { projectsStore } from '../projects/projects.store.svelte'
-import { mergeProjectSources } from './task-projects'
 
 const SOURCES_CHANGED_DEBOUNCE_MS = 100
 
-export class TaskSourcesStore {
-  /** Each checkout's answer, keyed by `hostKey(serverId, cwd)`. */
-  private readonly sourcesByCheckout = new SvelteMap<string, TaskProjectSources>()
-  private readonly errorByHost = new SvelteMap<string, string>()
-  private readonly optionsByCheckout = new SvelteMap<string, TaskSourceOptions>()
-  private readonly optionsErrorByCheckout = new SvelteMap<string, string>()
-  private readonly optionLoads = new Map<string, Promise<TaskSourceOptions | null>>()
-  /** Folders a surface asked for that the host's project list does not hold. */
-  private readonly extraCwdsByHost = new Map<string, Set<string>>()
-  /** Bumped by each read of a host, so an older answer never replaces a newer one. */
-  private readonly readGenerations = new Map<string, number>()
-  private readonly changeTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  private pendingReads = $state(0)
-  private isStarted = false
+/** The part of the personal settings that names the person's task sources. */
+export interface TaskSourceSettings {
+  readonly values: Pick<PersonalSettings, 'taskSources'>
+  onChange(listener: (change: { set: object; reset: readonly string[] }) => void): () => void
+}
 
-  /** Read every host again when it reconnects and when it says its sources changed. */
+/**
+ * The one host that the client asks for the person's tasks and sources: the
+ * host of this device when it is connected and runs agents, else the primary
+ * connection when it runs agents. Null when no such host is connected. Only a
+ * host that runs agents has a provider connection to read GitHub and Jira; the
+ * organization's Solus API holds attachments only.
+ */
+export function taskHostId(): string | null {
+  const isReady = (serverId: string) =>
+    serverConnections.connectedServerIds().includes(serverId)
+    && serverConnections.readinessFor(serverId).readiness === 'ready'
+    && hosts.hasExecution(serverId)
+  const device = serverConnections.localServerId()
+  if (device && isReady(device)) return device
+  const primary = serverConnections.defaultServerId()
+  return primary && isReady(primary) ? primary : null
+}
+
+export class TaskSourcesStore {
+  /** The task host's last read of each of the person's sources. */
+  sources = $state<TaskSourceState[]>([])
+  /** Why the last read failed, or null. */
+  error = $state<string | null>(null)
+  /** What a person can choose as a source, or null until read. */
+  options = $state<TaskSourceOptions | null>(null)
+  optionsError = $state<string | null>(null)
+  /** The task host of the last read: undefined before the first read ends,
+   *  null when no task host was connected. */
+  host = $state<string | null | undefined>(undefined)
+
+  #settings: TaskSourceSettings | null = null
+  #optionLoad: Promise<TaskSourceOptions | null> | null = null
+  /** Bumped by each read, so an older answer never replaces a newer one. */
+  #readGeneration = 0
+  #changeTimer: ReturnType<typeof setTimeout> | null = null
+  #pendingReads = $state(0)
+  #isStarted = false
+
+  /** Read again when the task host says its sources changed, and when a host
+   *  that can be the task host becomes ready. */
   start(): void {
-    if (this.isStarted) return
-    this.isStarted = true
+    if (this.#isStarted) return
+    this.#isStarted = true
     subscribeAllHosts('tasks.sourcesChanged', (serverId) => {
+      if (serverId !== taskHostId()) return
       // One refresh of several sources ends as several events.
-      clearTimeout(this.changeTimers.get(serverId))
-      this.changeTimers.set(serverId, setTimeout(() => {
-        this.changeTimers.delete(serverId)
-        void this.loadHost(serverId)
-      }, SOURCES_CHANGED_DEBOUNCE_MS))
+      if (this.#changeTimer) clearTimeout(this.#changeTimer)
+      this.#changeTimer = setTimeout(() => {
+        this.#changeTimer = null
+        void this.load()
+      }, SOURCES_CHANGED_DEBOUNCE_MS)
     })
-    serverConnections.onReadinessChange((serverId, readiness) => {
-      if (readiness === 'ready') void this.loadHost(serverConnections.resolveId(serverId))
+    serverConnections.onReadinessChange((_serverId, readiness) => {
+      if (readiness === 'ready') void this.load()
     })
-    subscribeAllHosts('projects.changed', (serverId) => void this.loadHost(serverId))
+  }
+
+  /** Follow the person's settings: the sources are read from them, and read
+   *  again when they change. Returns the stop. */
+  useSources(settings: TaskSourceSettings): () => void {
+    this.#settings = settings
+    const stop = settings.onChange((change) => {
+      if ('taskSources' in change.set || change.reset.includes('taskSources')) void this.load()
+    })
+    return () => {
+      stop()
+      if (this.#settings === settings) this.#settings = null
+    }
   }
 
   // --- Answers ------------------------------------------------------------
 
-  /** True while a read is in flight, or while a host reads a source from its provider. */
+  /** The person's sources as their settings name them. Plain, so they cross IPC. */
+  get configured(): TaskSource[] {
+    // SAFETY: a snapshot keeps the value of the setting and drops its proxy only.
+    return $state.snapshot(this.#settings?.values.taskSources ?? []) as TaskSource[]
+  }
+
+  /** True while a read is in flight, or while the host reads a source from its provider. */
   get refreshing(): boolean {
-    if (this.pendingReads > 0) return true
-    for (const answer of this.sourcesByCheckout.values()) {
-      if (answer.sources.some((source) => source.refreshing)) return true
-    }
-    return false
+    return this.#pendingReads > 0 || this.sources.some((source) => source.refreshing)
   }
 
-  /** One checkout's sources, or null until its host answers. */
-  sourcesFor(serverId: string | null | undefined, cwd: string | null | undefined): TaskProjectSources | null {
-    return serverId && cwd ? (this.sourcesByCheckout.get(hostKey(serverId, cwd)) ?? null) : null
-  }
-
-  /** Why the last read of a host failed, or null. */
-  errorFor(serverId: string | null | undefined): string | null {
-    return serverId ? (this.errorByHost.get(serverId) ?? null) : null
-  }
-
-  /** The sources of one project across its checkouts, each once. */
-  sourcesOfProject(projectKey: string | null | undefined): TaskSourceState[] {
-    if (!projectKey) return []
-    return mergeProjectSources(this.answersOf(projectKey))
-  }
-
-  /** The source keys of each project that has a source. */
-  readonly sourceKeysByProject: Map<string, Set<string>> = $derived.by(() => {
-    const grouped = new Map<string, Set<string>>()
-    for (const [key, answer] of this.sourcesByCheckout) {
-      if (answer.sources.length === 0) continue
-      const { serverId, path } = splitHostKey(key)
-      const projectKey = projectsStore.projectKeyFor(serverId, path)
-      let sourceKeys = grouped.get(projectKey)
-      if (!sourceKeys) grouped.set(projectKey, (sourceKeys = new Set()))
-      for (const source of answer.sources) sourceKeys.add(source.sourceKey)
-    }
-    return grouped
-  })
-
-  /** The projects that list each source. One source can be in many projects. */
-  readonly projectKeysBySource: Map<string, string[]> = $derived.by(() => {
-    const grouped = new Map<string, string[]>()
-    for (const [projectKey, sourceKeys] of this.sourceKeysByProject) {
-      for (const sourceKey of sourceKeys) {
-        const projectKeys = grouped.get(sourceKey)
-        if (projectKeys) projectKeys.push(projectKey)
-        else grouped.set(sourceKey, [projectKey])
-      }
-    }
-    return grouped
-  })
-
-  /** A source as some host last read it, to name a task's placement. */
+  /** A source as the task host last read it, to name a task's placement. */
   readonly sourceByKey: Map<string, TaskSourceState> = $derived(
-    new Map(mergeProjectSources([...this.sourcesByCheckout.values()]).map((source) => [source.sourceKey, source])),
+    new Map(this.sources.map((source) => [source.sourceKey, source])),
   )
-
-  /** The checkout that a write for a project's source goes to: the first
-   *  checkout of the project, on a connected host, that lists the source. */
-  checkoutForSource(projectKey: string, sourceKey: string): { serverId: string; cwd: string } | null {
-    for (const checkout of projectsStore.checkoutsOf(projectKey)) {
-      if (serverConnections.readinessFor(checkout.serverId).readiness !== 'ready') continue
-      const answer = this.sourcesFor(checkout.serverId, checkout.projectRoot)
-      if (answer?.sources.some((source) => source.sourceKey === sourceKey)) {
-        return { serverId: checkout.serverId, cwd: checkout.projectRoot }
-      }
-    }
-    return null
-  }
-
-  private answersOf(projectKey: string): TaskProjectSources[] {
-    const answers: TaskProjectSources[] = []
-    for (const [key, answer] of this.sourcesByCheckout) {
-      const { serverId, path } = splitHostKey(key)
-      if (projectsStore.projectKeyFor(serverId, path) === projectKey) answers.push(answer)
-    }
-    return answers
-  }
 
   // --- Reads --------------------------------------------------------------
 
-  /** Read the sources of every connected host that runs projects. `force` is a
-   *  person's refresh: each host reads every source from its provider again. */
+  /** Read the person's sources on the task host. `force` is a person's
+   *  refresh: the host reads every source from its provider again. */
   async load(opts: { refresh?: 'force' } = {}): Promise<void> {
-    const serverIds = serverConnections.connectedServerIds().filter(
-      (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready',
-    )
-    await Promise.all(serverIds.map((serverId) => this.loadHost(serverId, opts)))
-  }
-
-  /** One request for all the projects of one host. `cwd` adds a folder that the
-   *  host's project list may not hold, such as the one a page is scoped to. */
-  async loadHost(serverId: string, opts: { refresh?: 'force'; cwd?: string } = {}): Promise<void> {
-    // Only a host that runs projects has a project config and a provider connection.
-    if (!hosts.hasExecution(serverId)) return
-    if (opts.cwd) {
-      const extra = this.extraCwdsByHost.get(serverId)
-      if (extra) extra.add(opts.cwd)
-      else this.extraCwdsByHost.set(serverId, new Set([opts.cwd]))
+    const generation = ++this.#readGeneration
+    const serverId = taskHostId()
+    const configured = this.configured
+    if (!serverId || configured.length === 0) {
+      this.sources = []
+      this.error = null
+      this.host = serverId
+      return
     }
-    const cwds = [...new Set([
-      ...projectsStore.projectsFor(serverId).map((project) => project.path),
-      ...(this.extraCwdsByHost.get(serverId) ?? []),
-    ])]
-    if (cwds.length === 0) return
-    const generation = (this.readGenerations.get(serverId) ?? 0) + 1
-    this.readGenerations.set(serverId, generation)
-    this.pendingReads++
+    this.#pendingReads++
     try {
       const answer = await serverConnections.apiFor(serverId)
-        .tasksSources(cwds, opts.refresh ? { refresh: opts.refresh } : undefined)
-      if (this.readGenerations.get(serverId) !== generation) return
-      this.errorByHost.delete(serverId)
-      const answered = new Set<string>()
-      for (const [cwd, sources] of Object.entries(answer)) {
-        const key = hostKey(serverId, cwd)
-        answered.add(key)
-        this.sourcesByCheckout.set(key, sources)
-      }
-      for (const key of this.sourcesByCheckout.keys()) {
-        if (splitHostKey(key).serverId === serverId && !answered.has(key)) this.sourcesByCheckout.delete(key)
-      }
+        .tasksSources(configured, opts.refresh ? { refresh: opts.refresh } : undefined)
+      if (this.#readGeneration !== generation) return
+      this.sources = answer
+      this.error = null
+      this.host = serverId
     } catch (error) {
-      if (this.readGenerations.get(serverId) !== generation) return
-      // The last answer stays on screen: a host that fails one read did not lose its sources.
-      this.errorByHost.set(serverId, error instanceof Error ? error.message : String(error))
+      if (this.#readGeneration !== generation) return
+      // The last answer stays on screen: a host that fails one read did not lose the sources.
+      this.error = error instanceof Error ? error.message : String(error)
+      this.host = serverId
     } finally {
-      this.pendingReads--
+      this.#pendingReads--
     }
   }
 
   // --- Source setup -------------------------------------------------------
 
-  /** What a person can choose as a source for one project, or null until read. */
-  optionsFor(serverId: string | null | undefined, cwd: string | null | undefined): TaskSourceOptions | null {
-    return serverId && cwd ? (this.optionsByCheckout.get(hostKey(serverId, cwd)) ?? null) : null
-  }
-
-  optionsErrorFor(serverId: string | null | undefined, cwd: string | null | undefined): string | null {
-    return serverId && cwd ? (this.optionsErrorByCheckout.get(hostKey(serverId, cwd)) ?? null) : null
-  }
-
   /** Read the choices when the source setup opens. Each open reads again: a
    *  person connects GitHub or Jira in between. */
-  loadOptions(serverId: string, cwd: string): Promise<TaskSourceOptions | null> {
-    const key = hostKey(serverId, cwd)
-    const pending = this.optionLoads.get(key)
-    if (pending) return pending
+  loadOptions(): Promise<TaskSourceOptions | null> {
+    if (this.#optionLoad) return this.#optionLoad
     const load = (async () => {
       try {
-        const options = await serverConnections.apiFor(serverId).tasksSourceOptions(cwd)
-        this.optionsByCheckout.set(key, options)
-        this.optionsErrorByCheckout.delete(key)
+        const serverId = taskHostId()
+        if (!serverId) throw new Error('No connected machine runs agents, so no machine can read GitHub or Jira.')
+        const options = await serverConnections.apiFor(serverId).tasksSourceOptions()
+        this.options = options
+        this.optionsError = null
         return options
       } catch (error) {
-        this.optionsErrorByCheckout.set(key, error instanceof Error ? error.message : String(error))
+        this.optionsError = error instanceof Error ? error.message : String(error)
         return null
       } finally {
-        this.optionLoads.delete(key)
+        this.#optionLoad = null
       }
     })()
-    this.optionLoads.set(key, load)
+    this.#optionLoad = load
     return load
   }
 }

@@ -624,7 +624,10 @@
   $effect(() => {
     const nav = pendingNavigate;
     const stream = streamRef;
-    if (!nav || !diff) return;
+    // A jump that arrives with a new scope waits for that scope's load. Until
+    // the load ends, `diff` and the stream are the old scope's, and the stream
+    // is about to unmount with the jump.
+    if (!nav || !diff || diffState.loading) return;
     showDiffView();
     revealFilteredFile(nav.path);
     if (!stream) return;

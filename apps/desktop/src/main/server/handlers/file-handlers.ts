@@ -294,10 +294,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
   server.register('openInEditor', async (args) => {
     const [ctx, request] = args
-    const { filePaths } = request
-    const editorId = ctx.settings.defaultEditor ?? request.editorId
+    const filePaths = request.filePaths.map(resolveHomePath)
+    const editorId = request.editorId
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? request.fallbackTerminalId
-    const cwd = request.cwd || (filePaths.length > 0 ? dirname(filePaths[0]) : undefined)
+    const cwd = request.cwd ? resolveHomePath(request.cwd) : (filePaths.length > 0 ? dirname(filePaths[0]) : undefined)
     log.info('rpc_open_in_editor', { editorId, fallbackTerminalId, cwd, filePaths })
 
     const app = editorApp(editorId)

@@ -524,11 +524,13 @@ describe('prChipForChoices', () => {
   })
 
   it('counts every linked PR and gives review attention priority', () => {
+    // WHY: the number names the pull request that gave the chip its colour.
+    // Naming the first link instead showed a merged #43 in review purple.
     expect(prChipForChoices([
       choice(43, 'merged'),
       choice(44, 'approvalRequested'),
       choice(45, 'open'),
-    ])).toEqual({ number: 43, count: 3, state: 'approvalRequested' })
+    ])).toEqual({ number: 44, count: 3, state: 'approvalRequested' })
   })
 
   it('still draws a pull request this client holds no record for', () => {
@@ -551,7 +553,7 @@ describe('prChipForChoices', () => {
     expect(prChipForChoices([
       choice(44, 'approvalRequested'),
       { ...choice(45, 'open'), requiredChecksFail: true },
-    ])?.state).toBe('checksFailing')
+    ])).toEqual({ number: 45, count: 2, state: 'checksFailing' })
     // A draft or a settled pull request is not waiting to merge.
     expect(prChipForChoices([{ ...choice(46, 'draft'), requiredChecksFail: true }])?.state).toBe('draft')
     expect(prChipForChoices([{ ...choice(47, 'merged'), requiredChecksFail: true }])?.state).toBe('merged')

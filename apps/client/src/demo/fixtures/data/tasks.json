@@ -24,7 +24,6 @@
       "health": "ok"
     }
   ],
-  "defaultSourceKey": "github-project:acme/4",
   "tasks": [
     {
       "id": "jira:acme-cloud:10214",

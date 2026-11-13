@@ -134,7 +134,7 @@ describe('session links', () => {
     expect(await sessions.tasksForSession('local', 'session-1')).toBeNull()
 
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    await sources.tasksSources([host.project([REPO])], ALICE)
+    await sources.tasksSources([REPO], ALICE)
     await sources.taskSourceReadsEnd()
     await attachments.linkTaskSession('local', 'github:I_1', 'session-2')
     const found = await sessions.tasksForSession('local', 'session-2')
@@ -175,7 +175,7 @@ describe('links', () => {
   test('the reverse read names each task on an edge: by its copy when the host has one, else by its key', async () => {
     // WHY: a conversation card says "Linked to acme/app#1 · Issue 1" from this read alone.
     host.providers.answer(REPO, repoRead([githubIssue(1, { state: { name: 'Closed', category: 'done' } })]))
-    await sources.tasksSources([host.project([REPO])], ALICE)
+    await sources.tasksSources([REPO], ALICE)
     await sources.taskSourceReadsEnd()
     await attachments.linkTask('local', 'github:I_1', { kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' }, BY)
     await attachments.linkTask('local', UNREAD, { kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' }, BY)

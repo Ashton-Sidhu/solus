@@ -53,7 +53,7 @@ export const tasks = defineTable('tasks', {
   comment_position: integer({ notNull: true, default: 0 }),
 })
 
-/** One task source, shared by each project that lists it. */
+/** One task source, shared by each person who reads it. */
 export const taskSources = defineTable('task_sources', {
   source_key: text({ primaryKey: true }),
   /** `TaskSource` JSON. */

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { sql } from 'drizzle-orm'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { taskSourceKey } from '@solus/contracts/task-sources'
+import { taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
 import { BOARD, boardRead, githubIssue, REPO, repoRead } from './helpers/task-fixtures'
 import { openTaskTestHost } from './helpers/task-test-host'
 
@@ -9,8 +9,9 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: the host's copy of tasks is shared by everyone on the host, and a
 // provider has rate limits. So the host owns freshness: it reads a source one
-// time for many projects and callers, and a person sees the tasks of a source
-// only after their own provider connection read it.
+// time for many callers, and a person sees the tasks of a source only after
+// their own provider connection read it. A source belongs to no project: the
+// caller names the sources of the person's settings.
 
 const ALICE = 'user:alice'
 const BOB = 'user:bob'
@@ -48,29 +49,27 @@ async function titlesFor(personKey: string): Promise<string[]> {
   return (await store.listTasks({ personKey, scope: 'local' })).map((task) => task.title).sort()
 }
 
-/** Ask for a project's sources as a person, and wait for the reads that the call started. */
-async function ask(cwd: string, personKey: string, options: { refresh?: 'stale' | 'force'; now?: number } = {}) {
-  const answer = await sources.tasksSources([cwd], personKey, options)
+/** Ask for task sources as a person, and wait for the reads that the call started. */
+async function ask(which: TaskSource[], personKey: string, options: { refresh?: 'stale' | 'force'; now?: number } = {}) {
+  const answer = await sources.tasksSources(which, personKey, options)
   await sources.taskSourceReadsEnd()
-  return answer[cwd]
+  return answer
 }
 
 describe('reading task sources', () => {
   test('the first call answers at once with a source that is refreshing, and the read fills it', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1), githubIssue(2, { state: { name: 'Closed', category: 'done' } })]))
-    const cwd = host.project([REPO])
     const changed: string[][] = []
     const stop = sources.onTaskSourcesChanged((sourceKeys) => changed.push(sourceKeys))
 
-    const first = (await sources.tasksSources([cwd], ALICE))[cwd]
+    const first = await sources.tasksSources([REPO], ALICE)
     await sources.taskSourceReadsEnd()
     // Never read for Alice: no columns, no time of a read, and the read is in flight.
-    expect(first.sources).toEqual([{ sourceKey: REPO_KEY, source: REPO, label: 'acme/app', columns: [], health: 'ok', refreshing: true }])
-    expect(first.defaultSourceKey).toBe(REPO_KEY)
+    expect(first).toEqual([{ sourceKey: REPO_KEY, source: REPO, label: 'acme/app', columns: [], health: 'ok', refreshing: true }])
 
     stop()
     expect(changed).toEqual([[REPO_KEY]])
-    const after = (await sources.tasksSources([cwd], ALICE))[cwd].sources[0]
+    const [after] = await sources.tasksSources([REPO], ALICE)
     expect(after.columns.map((column) => column.name)).toEqual(['Open', 'Closed'])
     expect(after.fetchedAt).toBeGreaterThan(0)
     expect(after.refreshing).toBeUndefined()
@@ -84,35 +83,33 @@ describe('reading task sources', () => {
 
   test('a fresh source is not read again, a stale one is, and force always reads', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    const cwd = host.project([REPO])
+    host.providers.answer(BOARD, boardRead([]))
     const start = Date.now()
-    await ask(cwd, ALICE, { now: start })
+    await ask([REPO], ALICE, { now: start })
     expect(host.providers.callsOf('read:')).toHaveLength(1)
 
-    // Within 30 s: a second panel, a reconnect, another project with the same source.
-    await ask(cwd, ALICE, { now: start + sources.SOURCE_FRESH_MS - 1_000 })
-    await ask(host.project([REPO]), ALICE, { now: start + sources.SOURCE_FRESH_MS - 1_000 })
-    expect(host.providers.callsOf('read:')).toHaveLength(1)
+    // Within 30 s: a second panel, a reconnect, another client with the same source.
+    await ask([REPO], ALICE, { now: start + sources.SOURCE_FRESH_MS - 1_000 })
+    await ask([BOARD, REPO], ALICE, { now: start + sources.SOURCE_FRESH_MS - 1_000 })
+    expect(host.providers.callsOf(`read:${REPO_KEY}`)).toHaveLength(1)
 
     const later = Date.now() + sources.SOURCE_FRESH_MS + 1
-    await ask(cwd, ALICE, { now: later })
-    expect(host.providers.callsOf('read:')).toHaveLength(2)
+    await ask([REPO], ALICE, { now: later })
+    expect(host.providers.callsOf(`read:${REPO_KEY}`)).toHaveLength(2)
 
     // Fresh again, but the person pressed Refresh.
-    await ask(cwd, ALICE, { refresh: 'force', now: later + 1 })
-    expect(host.providers.callsOf('read:')).toHaveLength(3)
+    await ask([REPO], ALICE, { refresh: 'force', now: later + 1 })
+    expect(host.providers.callsOf(`read:${REPO_KEY}`)).toHaveLength(3)
   })
 
   test('two callers during one read cause one provider read', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
     let open!: () => void
     host.providers.readGate = new Promise((resolve) => { open = resolve })
-    const cwd = host.project([REPO])
-    const otherProject = host.project([REPO, BOARD])
     host.providers.answer(BOARD, boardRead([]))
 
-    await sources.tasksSources([cwd], ALICE, { refresh: 'force' })
-    await sources.tasksSources([cwd, otherProject], ALICE, { refresh: 'force' })
+    await sources.tasksSources([REPO], ALICE, { refresh: 'force' })
+    await sources.tasksSources([REPO, BOARD], ALICE, { refresh: 'force' })
     open()
     await sources.taskSourceReadsEnd()
     expect(host.providers.callsOf(`read:${REPO_KEY}`)).toHaveLength(1)
@@ -120,22 +117,21 @@ describe('reading task sources', () => {
 
   test('a person sees the tasks of a source only after their own connection read it', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    const cwd = host.project([REPO])
-    await ask(cwd, ALICE)
+    await ask([REPO], ALICE)
     expect(await titlesFor(ALICE)).toEqual(['Issue 1'])
     // The copy is on the host, but Bob's connection never read the source.
     expect(await titlesFor(BOB)).toEqual([])
 
     // Bob's GitHub account cannot read the repository.
     host.providers.failure = Object.assign(new Error('Not Found'), { status: 404 })
-    await ask(cwd, BOB)
+    await ask([REPO], BOB)
     host.providers.failure = null
-    const refused = (await sources.tasksSources([cwd], BOB))[cwd].sources[0]
+    const [refused] = await sources.tasksSources([REPO], BOB)
     expect(refused).toMatchObject({ health: 'no_access', columns: [] })
     expect(refused.fetchedAt).toBeUndefined()
     expect(await titlesFor(BOB)).toEqual([])
     // Bob's refusal says nothing about Alice's connection.
-    expect((await sources.tasksSources([cwd], ALICE))[cwd].sources[0].health).toBe('ok')
+    expect((await sources.tasksSources([REPO], ALICE))[0].health).toBe('ok')
     expect(await titlesFor(ALICE)).toEqual(['Issue 1'])
   })
 
@@ -143,9 +139,8 @@ describe('reading task sources', () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
     let open!: () => void
     host.providers.readGate = new Promise((resolve) => { open = resolve })
-    const cwd = host.project([REPO])
-    await sources.tasksSources([cwd], ALICE)
-    await sources.tasksSources([cwd], BOB)
+    await sources.tasksSources([REPO], ALICE)
+    await sources.tasksSources([REPO], BOB)
     host.providers.readGate = null
     open()
     // Alice's read gave Bob nothing: only his own connection gives him access.
@@ -156,12 +151,11 @@ describe('reading task sources', () => {
 
   test('a failed read keeps the tasks the host had, and says why', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    const cwd = host.project([REPO])
-    await ask(cwd, ALICE)
+    await ask([REPO], ALICE)
 
     host.providers.failure = new Error('GitHub is not connected')
-    await ask(cwd, ALICE, { refresh: 'force' })
-    const failed = (await sources.tasksSources([cwd], ALICE))[cwd].sources[0]
+    await ask([REPO], ALICE, { refresh: 'force' })
+    const [failed] = await sources.tasksSources([REPO], ALICE)
     expect(failed).toMatchObject({ health: 'not_connected', message: 'Connect GitHub to read these tasks.' })
     // Offline, or signed out: the last copy still shows, with its columns.
     expect(failed.columns).toHaveLength(2)
@@ -170,13 +164,12 @@ describe('reading task sources', () => {
 
   test('a task that leaves a source leaves the list, and the read names what changed', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1), githubIssue(2)]))
-    const cwd = host.project([REPO])
-    await ask(cwd, ALICE)
+    await ask([REPO], ALICE)
     const named: Array<string | undefined> = []
     const stop = store.onTasksChanged((taskId) => named.push(taskId))
 
     host.providers.answer(REPO, repoRead([githubIssue(1, { title: 'Renamed', updatedAt: 3_000 })]))
-    await ask(cwd, ALICE, { refresh: 'force' })
+    await ask([REPO], ALICE, { refresh: 'force' })
     await new Promise((resolve) => setTimeout(resolve, 0))
     stop()
     expect(await titlesFor(ALICE)).toEqual(['Renamed'])
@@ -186,22 +179,27 @@ describe('reading task sources', () => {
 
   test('a truncated source says so', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)], true))
-    const cwd = host.project([REPO])
-    await ask(cwd, ALICE)
-    expect((await sources.tasksSources([cwd], ALICE))[cwd].sources[0].truncated).toBe(true)
+    await ask([REPO], ALICE)
+    expect((await sources.tasksSources([REPO], ALICE))[0].truncated).toBe(true)
   })
 
-  test('a project with no task source has none, and no default', async () => {
-    const cwd = host.project([])
-    expect((await sources.tasksSources([cwd], ALICE))[cwd]).toEqual({ sources: [] })
+  test('a person with no task source asks nothing of a provider', async () => {
+    expect(await sources.tasksSources([], ALICE)).toEqual([])
     expect(host.providers.calls).toEqual([])
+  })
+
+  test('the answer keeps the order of the person\'s sources, and names a source one time', async () => {
+    // The person orders their sources in settings; the same board twice would show each task twice.
+    host.providers.answer(REPO, repoRead([]))
+    host.providers.answer(BOARD, boardRead([]))
+    const answer = await ask([BOARD, REPO, { kind: 'github-repo', owner: 'ACME', repo: 'App' }], ALICE)
+    expect(answer.map((source) => source.sourceKey)).toEqual([taskSourceKey(BOARD), REPO_KEY])
   })
 
   test('the timer reads a wanted source again, and forgets a source nobody asked for in 15 minutes', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    const cwd = host.project([REPO])
     const start = Date.now()
-    await ask(cwd, ALICE, { now: start })
+    await ask([REPO], ALICE, { now: start })
 
     await sources.readWantedTaskSources(start + sources.SOURCE_POLL_MS)
     expect(host.providers.callsOf('read:')).toHaveLength(2)
@@ -214,7 +212,7 @@ describe('reading task sources', () => {
 describe('the task list of one reader', () => {
   test('a task that a session of the reader is linked to shows, also when the reader never read its source', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1), githubIssue(2)]))
-    await ask(host.project([REPO]), ALICE)
+    await ask([REPO], ALICE)
     // Bob has no GitHub access, but a session in his organization works on issue 2.
     await attachments.linkTaskSession('local', 'github:I_2', 'session-1')
 
@@ -244,8 +242,7 @@ describe('a task that leaves its source', () => {
     // WHY: the copy is a cache. A closed-and-forgotten issue must not stay on
     // the host for ever, but what Solus attached to a task must still find it.
     host.providers.answer(REPO, repoRead([githubIssue(1), githubIssue(2), githubIssue(3), githubIssue(4)]))
-    const cwd = host.project([REPO])
-    await ask(cwd, ALICE)
+    await ask([REPO], ALICE)
     await attachments.linkTaskSession('local', 'github:I_2', 'session-1')
     await attachments.linkTask('local', 'github:I_3', { kind: 'automation', targetKey: 'auto-1', title: 'Nightly' }, { kind: 'system' })
     host.providers.failure = new Error('socket hang up')
@@ -253,7 +250,7 @@ describe('a task that leaves its source', () => {
     host.providers.failure = null
 
     host.providers.answer(REPO, repoRead([]))
-    await ask(cwd, ALICE, { refresh: 'force' })
+    await ask([REPO], ALICE, { refresh: 'force' })
     expect(await store.loadTask('github:I_1')).toBeNull()
     expect((await store.loadTask('github:I_2'))?.placements).toEqual([])
     expect(await store.loadTask('github:I_3')).not.toBeNull()
@@ -268,9 +265,8 @@ describe('a task that only a search found', () => {
     const day = unheldMaxAge()
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
     host.providers.hold(githubIssue(50, { title: 'Old flaky spec' }), githubIssue(51, { title: 'Old flaky test' }), githubIssue(52, { title: 'Old flaky run' }))
-    const cwd = host.project([REPO])
-    await ask(cwd, ALICE)
-    expect((await tasks.searchTasks(cwd, 'old flaky')).map((task) => task.id).sort()).toEqual(['github:I_50', 'github:I_51', 'github:I_52'])
+    await ask([REPO], ALICE)
+    expect((await tasks.searchTasks([REPO], 'old flaky')).map((task) => task.id).sort()).toEqual(['github:I_50', 'github:I_51', 'github:I_52'])
     await attachments.linkTaskSession('local', 'github:I_51', 'session-1')
 
     // A read on the same day keeps the copies: the person may still open one.
@@ -326,8 +322,7 @@ describe('a task that became yours', () => {
   test('the notifications of a deleted draft go with it', async () => {
     const { githubDraft, BOARD, boardRead } = await import('./helpers/task-fixtures')
     host.providers.answer(BOARD, boardRead([{ task: githubDraft('DI_1'), columnId: null }]))
-    const cwd = host.project([BOARD])
-    await sources.tasksSources([cwd], ALICE)
+    await sources.tasksSources([BOARD], ALICE)
     await sources.taskSourceReadsEnd()
     await assignment.notifyTaskAssignments([{ taskId: 'github:DI_1', title: 'Draft', provider: 'github', assignee: 'octocat', updatedAt: 1 }], ALICE, async () => 'octocat')
     expect(await notificationsOf(ALICE)).toHaveLength(1)

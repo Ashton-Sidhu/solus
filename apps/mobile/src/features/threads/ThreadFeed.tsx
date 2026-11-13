@@ -182,7 +182,8 @@ const AssistantMessageRow = memo(function AssistantMessageRow(props: {
  * A host-sent caption, as desktop draws it (`HostNoticeRow`): one work-log row
  * with a glyph, a fixed label and the news in a few words, the full text
  * behind a press. The icon alone takes a colour, and only when the news needs
- * the agent.
+ * the agent. The wake starts a turn, as a prompt does, so the row sits on the
+ * prompts' side, at the right.
  */
 function HostNoticeRow(props: {
   readonly label: string;
@@ -208,8 +209,8 @@ function HostNoticeRow(props: {
         accessibilityLabel={`${props.label}, ${props.summary}`}
         onPress={() => setExpanded((value) => !value)}
       >
-        <View className="flex-1 py-1">
-          <View className="flex-row items-center gap-1.5">
+        <View className="flex-1 items-end py-1">
+          <View className="max-w-full flex-row items-center gap-1.5">
             <WorkLogIconSlot>
               <SymbolView
                 name={props.attention ? "exclamationmark.circle" : props.icon}
@@ -225,13 +226,13 @@ function HostNoticeRow(props: {
             {expanded || !props.summary ? null : props.marks ? (
               props.marks
             ) : (
-              <Text className="min-w-0 flex-1 text-sm text-foreground-muted opacity-70" numberOfLines={1}>
+              <Text className="min-w-0 shrink text-sm text-foreground-muted opacity-70" numberOfLines={1}>
                 {props.summary}
               </Text>
             )}
           </View>
           {expanded ? (
-            <View className="mt-1 pl-6">
+            <View className="mt-1 w-[85%]">
               {props.terminal ? (
                 <>
                   <Text className="text-sm leading-normal text-foreground">{props.terminal.line}</Text>

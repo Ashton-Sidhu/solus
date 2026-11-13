@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import type { PrepareSessionTaskResult } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
+import { MAX_TASK_SOURCES, taskSourceSchema } from '@solus/contracts/task-sources'
 import {
   commentOnTask,
   createTask,
@@ -47,6 +48,8 @@ const taskSidebarFilterSchema = z.object({
   taskIds: z.array(z.string()).max(MAX_SIDEBAR_TASK_IDS).optional(),
   since: z.string().max(200).optional(),
 }).nullish()
+/** The task sources a client sends from the person's settings: the host reads each one with a provider. */
+const taskSourcesSchema = z.array(taskSourceSchema).max(MAX_TASK_SOURCES)
 
 /**
  * The task RPCs (docs/plans/provider-owned-tasks.md §5). GitHub and Jira own
@@ -94,18 +97,15 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   startTaskSourcePolling()
 
   server.register('tasksSources', (args, ctx) => {
-    const [cwds, opts] = args
-    return tasksSources(cwds, readerOf(ctx).personKey, { refresh: opts?.refresh })
+    const [sources, opts] = args
+    return tasksSources(taskSourcesSchema.parse(sources), readerOf(ctx).personKey, { refresh: opts?.refresh })
   })
 
-  server.register('tasksSourceOptions', (args) => {
-    const [cwd] = args
-    return taskSourceOptions(cwd)
-  })
+  server.register('tasksSourceOptions', () => taskSourceOptions())
 
   server.register('tasksSearch', (args) => {
-    const [cwd, query] = args
-    return searchTasks(cwd, query)
+    const [sources, query] = args
+    return searchTasks(taskSourcesSchema.parse(sources), query)
   })
 
   server.register('tasksGet', (args, ctx) => {
@@ -115,7 +115,7 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
 
   server.register('tasksCreate', (args, ctx) => {
     const [input] = args
-    return createTask(input, readerOf(ctx).personKey)
+    return createTask({ ...input, source: taskSourceSchema.parse(input.source) }, readerOf(ctx).personKey)
   })
 
   server.register('tasksUpdate', (args) => {
@@ -155,7 +155,7 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
 
   server.register('tasksListAssigneeCandidates', (args) => {
     const [target] = args
-    return listTaskAssignees(target)
+    return listTaskAssignees('taskId' in target ? target : { source: taskSourceSchema.parse(target.source) })
   })
 
   server.register('tasksAttachArtifact', (args, ctx) => {

@@ -1,28 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
 import {
+  pickerProjectKeys,
   resolvePickerScope,
   scopeForChoice,
 } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-scope'
-import { pickerProjectKeys } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
-
-/** A task that the named task sources list. */
-function task(id: string, ...sourceKeys: string[]): Task {
-  return {
-    id,
-    providerId: 'github',
-    kind: 'issue',
-    title: id,
-    body: '',
-    url: null,
-    state: { name: 'Open', category: 'open' },
-    category: 'open',
-    placements: sourceKeys.map((sourceKey) => ({ sourceKey, columnId: null })),
-    labels: [],
-    writableFields: [],
-    updatedAt: 0,
-  }
-}
 
 /**
  * The picker opens where the user already is, and keeps doing so as the user
@@ -55,42 +36,17 @@ describe('picker scope', () => {
 })
 
 describe('picker project keys', () => {
-  const tasks = [
-    task('a', 'github-repo:me/model-routing'),
-    task('b', 'github-repo:me/solus'),
-    task('c', 'github-repo:me/solus', 'github-project:me/1'),
-  ]
-  // A project lists task sources. The board is a source of two projects.
-  const projectKeysBySource = new Map([
-    ['github-repo:me/model-routing', ['github.com/me/model-routing']],
-    ['github-repo:me/solus', ['github.com/me/solus']],
-    ['github-project:me/1', ['github.com/me/solus', 'github.com/me/site']],
-  ])
-  const projectKeysOf = (item: Task) => [...new Set(item.placements.flatMap((placement) => projectKeysBySource.get(placement.sourceKey) ?? []))]
-
-  test('each project that lists a task is one scope, offered once', () => {
-    // WHY: a task belongs to no project by itself. A source that two projects
-    // list puts its tasks in both scopes, and two tasks of one project must not
-    // offer that project two times.
-    expect(pickerProjectKeys(null, tasks, projectKeysOf, []))
-      .toEqual(['github.com/me/model-routing', 'github.com/me/solus', 'github.com/me/site'])
+  test('the composer’s project leads, then every known project, each once', () => {
+    // Leaving the composer's project out would make the default scope
+    // unnameable in its own menu, and a fresh project has no other trace.
+    expect(pickerProjectKeys('github.com/me/fresh', ['github.com/me/solus'])).toEqual(['github.com/me/fresh', 'github.com/me/solus'])
+    expect(pickerProjectKeys('github.com/me/solus', ['github.com/me/model-routing', 'github.com/me/solus']))
+      .toEqual(['github.com/me/solus', 'github.com/me/model-routing'])
   })
 
-  test('the composer’s project leads and is offered even with no task yet', () => {
-    // Leaving it out would make the default scope unnameable in its own menu.
-    expect(pickerProjectKeys('github.com/me/fresh', tasks, projectKeysOf, [])[0]).toBe('github.com/me/fresh')
-    expect(pickerProjectKeys('github.com/me/solus', tasks, projectKeysOf, []))
-      .toEqual(['github.com/me/solus', 'github.com/me/model-routing', 'github.com/me/site'])
-  })
-
-  test('a known project with no task is still offered, once', () => {
-    // A project whose work is all sessions has no task to name it.
-    expect(pickerProjectKeys(null, [tasks[0]], projectKeysOf, ['github.com/me/model-routing', 'github.com/me/sessions-only']))
-      .toEqual(['github.com/me/model-routing', 'github.com/me/sessions-only'])
-  })
-
-  test('a task that no known project lists adds no scope', () => {
-    // WHY: a task that only a session link brought here has no project to name.
-    expect(pickerProjectKeys(null, [task('loose')], projectKeysOf, [])).toEqual([])
+  test('a composer in no project offers the known projects', () => {
+    // WHY: a task belongs to no project, so tasks add no scope; the known
+    // projects are the only scopes.
+    expect(pickerProjectKeys(null, ['github.com/me/sessions-only'])).toEqual(['github.com/me/sessions-only'])
   })
 })

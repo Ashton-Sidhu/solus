@@ -31,6 +31,7 @@
     type MergeAction,
   } from "../pr-review/lib/merge-readiness";
   import { buildPrChecksFixPrompt } from "../pr-review/lib/pr-input-drafts";
+  import { prReference } from "./lib/card-pull-requests";
   import MenuRow, {
     type ActionRowIcon,
     type ActionRowItem,
@@ -59,6 +60,9 @@
     checks: ChecksPresentation | null;
     /** The owning tab and project panel are visible. */
     active: boolean;
+    /** `owner/repo` when the pull request is not in this checkout's
+     *  repository; null when it is. */
+    otherRepository?: string | null;
     /** Where this pull request stands among the session's, when it has
      *  several; null when it is the only one. */
     position?: { index: number; count: number } | null;
@@ -77,6 +81,7 @@
     api,
     checks,
     active,
+    otherRepository = null,
     position = null,
     onCycle,
     onMerged,
@@ -158,7 +163,21 @@
     });
   }
   const readiness = $derived(detail ? readinessOf(detail) : null);
-  const primary = $derived(readiness?.action ?? null);
+  // Fixing checks and resolving conflicts hand the pull request to an agent in
+  // a checkout of its repository. A pull request of another repository has no
+  // checkout here, so its blocker is reported, not offered as a move.
+  const handoffNeedsCheckout = $derived(
+    !!otherRepository &&
+      (readiness?.action?.kind === "fix-checks" ||
+        readiness?.action?.kind === "resolve-conflicts"),
+  );
+  const primary = $derived(handoffNeedsCheckout ? null : (readiness?.action ?? null));
+  const blockerNote = $derived(
+    handoffNeedsCheckout
+      ? `Open a checkout of ${otherRepository} to hand this to an agent.`
+      : readiness?.note || undefined,
+  );
+  const reference = $derived(prReference(pr.number, otherRepository));
   // Said in place of the blocker's headline: the host is already waiting on it.
   const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
 
@@ -372,7 +391,7 @@
       disabled: !primary || merging,
       tooltip: refreshingBeforeMerge
         ? "Checking the latest code-host state before merging."
-        : readiness.note || undefined,
+        : blockerNote,
     };
   });
 
@@ -478,17 +497,18 @@
     <button
       type="button"
       class="flex shrink-0 cursor-pointer items-center gap-1 rounded-sm font-normal tabular-nums text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      aria-label={`Pull request #${pr.number}, ${position.index + 1} of ${position.count}. Show the next linked pull request.`}
+      aria-label={`Pull request ${otherRepository ?? ""}#${pr.number}, ${position.index + 1} of ${position.count}. Show the next linked pull request.`}
       title="Show the next linked pull request"
       onclick={onCycle}
     >
-      #{pr.number}
+      {reference}
       <span class="text-(--solus-text-tertiary)">{position.index + 1}/{position.count}</span>
       <CaretRightIcon size={11} />
     </button>
   {:else}
-    <span class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
-      >#{pr.number}</span
+    <span
+      class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
+      title={otherRepository ?? undefined}>{reference}</span
     >
   {/if}
 </div>

@@ -13,7 +13,7 @@ export interface PickerSessionRef {
  * task still says who is working under it; a session or conversation row the
  * one session. A session with no host or id yet (a draft) has no room.
  */
-export function pickerRowSessions(row: PickerEntry): PickerSessionRef[] {
+export function pickerRowSessions(row: Exclude<PickerEntry, { kind: 'record' }>): PickerSessionRef[] {
   if (row.kind === 'conversation') {
     const serverId = row.hitServerId ?? row.meta.serverId
     return serverId ? [{ serverId, sessionId: row.meta.sessionId }] : []

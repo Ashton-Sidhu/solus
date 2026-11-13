@@ -33,3 +33,15 @@ describe('settings search', () => {
     expect(wordsMatch('voice', SOURCE_CONTROL_SEARCH_WORDS)).toBe(false)
   })
 })
+
+// A section's row filters and the navigation share these lists. Searching from
+// General must still find a closed section after its UI becomes lazy-loaded.
+test('closed sections remain searchable through their shared row data', async () => {
+  const data = await import('../../packages/workspace-ui/src/components/settings/lib/settings-search-data')
+  expect(wordsMatch('font', data.appearanceSettings.flatMap((row) => row.keywords))).toBe(true)
+  expect(wordsMatch('queue', data.sessionSettings.flatMap((row) => row.keywords))).toBe(true)
+  expect(wordsMatch('retention', data.hostSearchWords)).toBe(true)
+  expect(wordsMatch('ngrok', data.hostSearchWords)).toBe(true)
+  expect(wordsMatch('mobileconfig', data.policySearchWords)).toBe(true)
+  expect(wordsMatch('connector', data.mcpSearchWords)).toBe(true)
+})

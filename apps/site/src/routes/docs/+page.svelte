@@ -1163,8 +1163,8 @@ solus pair</div>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Navigation</h3>
 				{@render kbTable([
-					['⌘P', 'Session picker (web: ⌥⇧R)'],
-					['⌥⇧J', 'Session picker (alternative)'],
+					['⌘P', 'Search (web: ⌥⇧R)'],
+					['⌥⇧J', 'Search (alternative)'],
 					['⌘[ / ⌘]', 'Back / forward'],
 					['⌘⇧F', 'Search in project'],
 					['⌘E', 'Go to file'],

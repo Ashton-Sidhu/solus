@@ -15,7 +15,7 @@ function conversation(sessionId: string, entryIndex: number): PickerEntry {
 function listOf(sections: Array<[string, PickerEntry[]]>): PickerList {
   const rows: PickerRow[] = sections.flatMap(([section, entries]) => [{ kind: 'header', key: `header:${section}`, label: section, count: entries.length, hint: '' } as PickerRow, ...entries])
   const entries = sections.flatMap(([, entries]) => entries)
-  return { rows, entries, taskCount: 0, sessionCount: entries.length, hiddenTaskCount: 0 }
+  return { rows, entries, taskCount: 0, sessionCount: entries.length }
 }
 
 describe('session picker pick stats', () => {

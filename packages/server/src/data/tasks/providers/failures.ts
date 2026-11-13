@@ -13,6 +13,12 @@ export interface ProviderFailure {
 const statusSchema = z.object({ status: z.number() })
 const graphqlErrorsSchema = z.object({ errors: z.array(z.object({ type: z.string().optional() })) })
 
+/** GitHub refused a query because the connection lacks a scope (`read:project`). */
+export function isInsufficientScopes<Failure>(error: Failure): boolean {
+  const graphql = graphqlErrorsSchema.safeParse(error)
+  return graphql.success && graphql.data.errors.some((entry) => entry.type === 'INSUFFICIENT_SCOPES')
+}
+
 /**
  * Classify a failed provider call (docs/plans/provider-owned-tasks.md §5):
  * no connection is `not_connected`; a connection that lacks a permission, or
@@ -28,7 +34,7 @@ export function classifyProviderFailure<Failure>(error: Failure): ProviderFailur
   if (error instanceof GitHubReauthRequiredError) return { health: 'reconnect', message }
   const graphql = graphqlErrorsSchema.safeParse(error)
   const errorTypes = graphql.success ? graphql.data.errors.map((entry) => entry.type) : []
-  if (errorTypes.includes('INSUFFICIENT_SCOPES')) {
+  if (isInsufficientScopes(error)) {
     return { health: 'reconnect', message: 'Connect GitHub again to give Solus the permission that GitHub Projects need.' }
   }
   if (errorTypes.includes('FORBIDDEN') || errorTypes.includes('NOT_FOUND')) return { health: 'no_access', message }

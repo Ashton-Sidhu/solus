@@ -1,7 +1,8 @@
 <script lang="ts">
   import FileIcon from "../../ui/file-icon/FileIcon.svelte";
   import {
-    AppWindow as HtmlArtifactIcon,
+    LayoutTemplate as HtmlArtifactIcon,
+    Bot as StartedSessionIcon,
     LayoutGrid as AppIcon,
     CircleAlert as MissingIcon,
     FileText as DocumentIcon,
@@ -13,9 +14,7 @@
     Workflow as AutomationIcon,
   } from "@lucide/svelte";
   import type { SessionArtifact } from "@solus/contracts/session-artifacts";
-  import { artifactLinkedAt } from "../../../contexts/sessions/session-artifacts";
   import { highlightRuns } from "../../../lib/searchHighlight";
-  import { formatGeneratedFull, formatLedgerTime } from "../../workspace/lib/workspace-items";
   import { artifactDetail, artifactIconLabel, artifactTitle, artifactTooltip, pullRequestState } from "./lib/artifact-list";
 
   /**
@@ -27,13 +26,14 @@
     query: string;
     /** The artifact the session linked last, which takes a short wash. */
     highlighted: boolean;
+    /** The session this one started that linked it. Null when the session linked it itself. */
+    startedSessionTitle: string | null;
     onOpen: () => void;
   }
-  let { artifact, query, highlighted, onOpen }: Props = $props();
+  let { artifact, query, highlighted, startedSessionTitle, onOpen }: Props = $props();
 
   const titleRuns = $derived(highlightRuns(artifactTitle(artifact), query));
   const detail = $derived(artifactDetail(artifact));
-  const linkedAt = $derived(artifactLinkedAt(artifact));
   const iconLabel = $derived(artifactIconLabel(artifact));
   const prState = $derived(artifact.kind === "pull-request" ? (pullRequestState(artifact.link) ?? "unknown") : null);
 
@@ -67,9 +67,10 @@
 <button
   type="button"
   title={artifactTooltip(artifact)}
-  class="flex h-9 w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-left text-workspace-chrome text-foreground hover:bg-[var(--wash-2)] pointer-coarse:h-11 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {highlighted
+  class="flex h-9 w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-left text-workspace-chrome text-foreground hover:bg-[var(--wash-2)] pointer-coarse:h-11 focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) {highlighted
     ? 'transition-colors duration-[1400ms] ease-out starting:bg-(--solus-accent)/20 motion-reduce:transition-none'
-    : 'transition-colors duration-150'}"
+    : 'transition-colors duration-(--duration-base) ease-(--ease-premium)'}"
+  data-testid="artifacts-row"
   onclick={onOpen}
 >
   <span
@@ -106,7 +107,14 @@
       <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{detail}</span>
     {/if}
   </span>
-  <span class="shrink-0 text-xs tabular-nums text-muted-foreground" title="Linked {formatGeneratedFull(linkedAt)}">
-    {formatLedgerTime(linkedAt)}
-  </span>
+  {#if startedSessionTitle}
+    <span
+      class="flex size-4 shrink-0 items-center justify-center text-muted-foreground @max-[24rem]/card:hidden"
+      role="img"
+      aria-label="From {startedSessionTitle}"
+      title="From {startedSessionTitle}"
+    >
+      <StartedSessionIcon size={13} strokeWidth={1.75} />
+    </span>
+  {/if}
 </button>

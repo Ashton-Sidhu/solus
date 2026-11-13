@@ -20,17 +20,22 @@ import type {
   TaskSummary,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
+import type { TaskSource } from '@solus/contracts/task-sources'
 import { type DemoServer } from '../fixtures/types'
 import { type DemoStore } from '../store'
 
 /** What the demo's GitHub and Jira connections offer as a task source. The
- *  first Project and the first board are the two sources of the demo project. */
+ *  first Project and the first board are the two sources of the demo's
+ *  personal settings. */
 const DEMO_SOURCE_OPTIONS: TaskSourceOptions = {
   github: {
     connected: true,
     login: 'acme-dev',
     hasProjectScope: true,
-    originRepository: { owner: 'acme', repo: 'api-gateway' },
+    repositories: [
+      { owner: 'acme', repo: 'api-gateway' },
+      { owner: 'acme', repo: 'web' },
+    ],
     projects: [
       { owner: 'acme', number: 4, title: 'API Platform roadmap' },
       { owner: 'acme', number: 7, title: 'Developer experience' },
@@ -76,11 +81,9 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     backend.broadcast('tasks.sourcesChanged', { sourceKeys: task.placements.map((placement) => placement.sourceKey) })
   }
 
-  // Every demo project lists the same two sources: a GitHub Project and a Jira board.
-  backend.register('tasksSources', (args) => {
-    const sources = store.taskProjectSources()
-    return Object.fromEntries(arg<string[]>(args, 0).map((cwd) => [cwd, sources]))
-  })
+  // The visitor's personal settings name the sources: at first a GitHub
+  // Project and a Jira board (`seedDemoStorage`).
+  backend.register('tasksSources', (args) => store.taskSourceStates(arg<TaskSource[]>(args, 0)))
   backend.register('tasksSourceOptions', () => DEMO_SOURCE_OPTIONS)
   backend.register('tasksSearch', (args) => {
     const query = arg<string>(args, 1).trim().toLowerCase()

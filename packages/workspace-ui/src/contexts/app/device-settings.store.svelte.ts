@@ -14,6 +14,7 @@ import {
 import { clampZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
 import type { BindingOverrides } from '../../lib/keybindings/editing'
 import { KEYBINDINGS } from '../../lib/keybindings/manifest'
+import { SKY_SCENE_CHOICES, type SkySceneChoice } from '../../lib/sky-scene'
 
 const DEVICE_SETTINGS_KEY = 'solus.device-settings.v1'
 /** The layout keys. Every renderer of this origin reads it, so a zoom change reaches them all. */
@@ -112,6 +113,12 @@ const DEVICE_LAYOUT_FIELDS = {
   // The project the last session started in, and the host that holds it. A
   // server id only means something to the client that registered it.
   lastProject: layoutField<ProjectLocation | null>(projectLocationSchema.nullable().catch(null), null),
+  // Settings → Appearance → Sky (docs/plans/sidebar-places-and-sky.md). The
+  // scene the sidebar's sky and the new-tab home's mark show: `auto` follows
+  // the clock. Each picture can also be turned off.
+  skySceneChoice: layoutField<SkySceneChoice>(z.enum(SKY_SCENE_CHOICES).catch('auto'), 'auto'),
+  showsSidebarSky: layoutField(z.boolean().catch(true), true),
+  showsDraftMark: layoutField(z.boolean().catch(true), true),
   // First-run onboarding has already been through, or skipped.
   onboardingCompleted: layoutField(z.boolean().catch(false), false),
   // The browser's "Stay signed in" prompt was answered with Import or Don't show again.

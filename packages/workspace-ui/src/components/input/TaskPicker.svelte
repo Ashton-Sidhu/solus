@@ -13,7 +13,6 @@
   import { taskRef } from "../tasks/lib/tasks-api";
   import {
     ProviderTaskSearch,
-    searchableProjectRoot,
     tasksOnlyFound,
   } from "../../lib/provider-task-search.svelte";
   import TaskIcon from "../ui/TaskIcon.svelte";
@@ -21,9 +20,6 @@
   interface Props {
     /** Where the session this composer starts will be filed. */
     task: TaskTarget;
-    projectKey: string;
-    /** The host `projectKey` is a folder on. */
-    serverId: string;
     onSelect: (task: TaskTarget) => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;
@@ -32,24 +28,19 @@
     paneId?: string;
   }
 
-  let { task: target, projectKey, serverId, onSelect, onDismiss, paneId }: Props = $props();
+  let { task: target, onSelect, onDismiss, paneId }: Props = $props();
 
   const workspace = getWorkspaceContext();
   const selectedTask = $derived(
     target.kind === "existing" ? workspace.tasksStore.peek(target.taskId) : null,
   );
   const tasks = $derived(
-    workspace.tasksStore
-      .tasksForCheckout(serverId, projectKey)
-      .filter((task) => task.category !== "done"),
+    workspace.tasksStore.tasks.filter((task) => task.category !== "done"),
   );
   const taskSections = $derived(taskPickerSections(tasks));
   // The host lists at most a part of a large task source. A query also asks
   // the provider, and the tasks only it found show below the listed ones.
-  const providerSearch = new ProviderTaskSearch(() => {
-    const cwd = searchableProjectRoot(projectKey);
-    return cwd ? (text) => workspace.tasksStore.search(serverId, cwd, text) : null;
-  });
+  const providerSearch = new ProviderTaskSearch((text) => workspace.tasksStore.search(text));
   const foundTasks = $derived(tasksOnlyFound(providerSearch.results, tasks));
   const label = $derived(
     selectedTask?.title ?? "No task",

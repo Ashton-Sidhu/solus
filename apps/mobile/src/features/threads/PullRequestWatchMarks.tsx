@@ -33,7 +33,7 @@ export function PullRequestWatchMarks(props: {
   readonly marks: readonly PullRequestWatchMark[];
 }) {
   return (
-    <View className="min-w-0 flex-1 flex-row items-center gap-2.5 overflow-hidden opacity-70" importantForAccessibility="no-hide-descendants">
+    <View className="min-w-0 shrink flex-row items-center gap-2.5 overflow-hidden opacity-70" importantForAccessibility="no-hide-descendants">
       <Text className="text-sm text-foreground-muted">#{props.wake.number}</Text>
       {props.marks.map((mark) => (
         <View key={mark.kind} className="flex-row items-center gap-1">

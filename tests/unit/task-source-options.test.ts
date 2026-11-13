@@ -23,13 +23,17 @@ const VIEWER_PROJECTS = {
   },
 }
 
+const VIEWER_REPOSITORIES = {
+  viewer: { repositories: { nodes: [{ owner: { login: 'acme' }, name: 'app' }, null, { owner: { login: 'octocat' }, name: 'dotfiles' }] } },
+}
+
 /** Connections that all work. A test replaces the part it is about. */
 function deps(overrides: Partial<TaskSourceOptionsDeps> = {}): TaskSourceOptionsDeps {
   return {
     githubStatus: async () => ({ connected: true, login: 'octocat', scopes: ['repo', 'project'] }),
     hasGithubCredential: async () => true,
     // SAFETY: the options read calls only `graphql` of the client.
-    github: (_operation, run) => run({ graphql: async () => VIEWER_PROJECTS } as never),
+    github: (_operation, run) => run({ graphql: async (query: string) => query.includes('repositories(') ? VIEWER_REPOSITORIES : VIEWER_PROJECTS } as never),
     jiraSite: async () => ({ cloudId: 'site', siteUrl: 'https://acme.atlassian.net' }),
     jira: {
       // SAFETY: each path answers the payload its schema reads.
@@ -38,19 +42,20 @@ function deps(overrides: Partial<TaskSourceOptionsDeps> = {}): TaskSourceOptions
         : { values: [{ key: 'SOL', name: 'Solus' }] }),
       siteUrl: async () => 'https://acme.atlassian.net',
     },
-    originRepository: async () => ({ owner: 'acme', repo: 'app' }),
     ...overrides,
   }
 }
 
 describe('what a person can choose as a task source', () => {
-  test('with both connections: the origin repository, the open Projects of the person and their organizations, the Jira projects and boards', async () => {
-    const options = await taskSourceOptions('/project', deps())
+  test('with both connections: the recent repositories, the open Projects of the person and their organizations, the Jira projects and boards', async () => {
+    // No project is named: a task source belongs to the person, not to a project.
+    const options = await taskSourceOptions(deps())
     expect(options.github).toEqual({
       connected: true,
       login: 'octocat',
       hasProjectScope: true,
-      originRepository: { owner: 'acme', repo: 'app' },
+      // The repositories the person pushed to most recently, in GitHub's order.
+      repositories: [{ owner: 'acme', repo: 'app' }, { owner: 'octocat', repo: 'dotfiles' }],
       // A closed Project is not offered; an organization's Projects follow the person's own.
       projects: [{ owner: 'octocat', number: 7, title: 'Roadmap' }, { owner: 'acme', number: 2, title: 'Platform' }],
     })
@@ -63,33 +68,37 @@ describe('what a person can choose as a task source', () => {
     })
   })
 
-  test('not connected: each provider says so, asks nothing, and the origin repository is still the suggestion', async () => {
+  test('not connected: each provider says so and asks nothing', async () => {
     const calls: string[] = []
-    const options = await taskSourceOptions('/project', deps({
+    const options = await taskSourceOptions(deps({
       githubStatus: async () => ({ connected: false }),
       hasGithubCredential: async () => false,
       github: async () => { calls.push('github'); throw new Error('GitHub is not connected') },
       jiraSite: async () => null,
       jira: { request: async () => { calls.push('jira'); throw new Error('not reached') }, siteUrl: async () => null },
     }))
-    expect(options.github).toEqual({ connected: false, originRepository: { owner: 'acme', repo: 'app' }, projects: [] })
+    expect(options.github).toEqual({ connected: false, repositories: [], projects: [] })
     expect(options.jira).toEqual({ connected: false, projects: [], boards: [] })
     expect(calls).toEqual([])
   })
 
   test('a GitHub connection made before Projects existed says to connect again, and Projects are not asked for', async () => {
     const calls: string[] = []
-    const options = await taskSourceOptions('/project', deps({
+    const options = await taskSourceOptions(deps({
       githubStatus: async () => ({ connected: true, login: 'octocat', scopes: ['repo'] }),
-      github: async () => { calls.push('github'); throw new Error('not reached') },
+      github: (operation, run) => {
+        calls.push(operation)
+        return run({ graphql: async () => VIEWER_REPOSITORIES } as never)
+      },
     }))
-    expect(options.github).toMatchObject({ connected: true, hasProjectScope: false, projects: [] })
-    expect(calls).toEqual([])
+    // The repositories still list: they need no `project` scope.
+    expect(options.github).toMatchObject({ connected: true, hasProjectScope: false, repositories: [{ owner: 'acme', repo: 'app' }, { owner: 'octocat', repo: 'dotfiles' }], projects: [] })
+    expect(calls).toEqual(['list_github_task_repositories'])
   })
 
   test('a credential with no scope list that GitHub refuses for Projects also says to connect again', async () => {
     // `gh` signs in with scopes Solus cannot read: GitHub's own refusal is the answer.
-    const options = await taskSourceOptions('/project', deps({
+    const options = await taskSourceOptions(deps({
       githubStatus: async () => ({ connected: false }),
       github: async () => { throw Object.assign(new Error('Your token has not been granted the required scopes'), { errors: [{ type: 'INSUFFICIENT_SCOPES' }] }) },
     }))
@@ -97,7 +106,7 @@ describe('what a person can choose as a task source', () => {
   })
 
   test('boards that Jira refuses give a reason, and the projects still list', async () => {
-    const options = await taskSourceOptions('/project', deps({
+    const options = await taskSourceOptions(deps({
       jira: {
         request: async (request, schema) => {
           if (request.path.startsWith('/rest/agile/')) throw new JiraRequestError(403, 'Forbidden')

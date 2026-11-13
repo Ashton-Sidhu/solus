@@ -29,10 +29,8 @@
     tasks: Task[];
     /** What the board plots: one source's columns, or every source by status category. */
     view: BoardView;
-    /** Scopes the saved card order; null while no project is open. */
-    projectKey: string | null;
     /**
-     * Whether `tasks` is the project's whole board rather than a search or
+     * Whether `tasks` is the whole board rather than a search or
      * filter result. Reordering renumbers the column it lands in, so it is only
      * meaningful when the cards on screen *are* the column.
      */
@@ -54,7 +52,6 @@
   let {
     tasks,
     view,
-    projectKey,
     canReorder,
     selectedKey,
     onOpen,
@@ -72,9 +69,9 @@
   const PAGE = 25;
   const revealed = new SvelteMap<string, number>();
 
-  // The columns of one view are not the columns of another, so each view of a
-  // project keeps its own card order.
-  const orderKey = $derived(projectKey ? `${projectKey}\n${boardViewId(view)}` : null);
+  // The columns of one view are not the columns of another, so each view
+  // keeps its own card order.
+  const orderKey = $derived(boardViewId(view));
   const ranks = $derived(boardOrder.ranksFor(orderKey));
   const columns = $derived(
     buildBoard(tasks, view).map((col) => {

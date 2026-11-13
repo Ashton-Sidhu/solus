@@ -1,13 +1,13 @@
 import type { ListProjectOption } from '../../ui/list-page/list-page'
 import type { DraftRow } from './draft-list'
-import { draftItem, sectionItems, taskItem, type SidebarListItem } from './sidebar-list-items'
+import { draftItem, pinnedItems, sectionItems, taskItem, type PinnedEntry, type SidebarListItem } from './sidebar-list-items'
 import type { SidebarTask } from './task-list'
 
 /**
  * The sidebar's project view (docs/plans/sidebar-project-view.md): the
  * person's open sessions and drafts in one folder per project. A draft leads
  * its folder, because it is the prompt the person is about to send there. The
- * Shared with you, Snoozed, and Completed sections stay below, as in the
+ * Shared with you, Pinned, Snoozed, and Completed sections stay below, as in the
  * status view. There is no Working section: a busy session stays in its
  * project's folder, and its row shows that it works.
  */
@@ -107,9 +107,11 @@ export function buildProjectFolders(input: ProjectFolderInput): ProjectFolderRow
 
 export interface ProjectListInput extends ProjectFolderInput {
   shared: readonly SidebarTask[]
+  pinned: readonly PinnedEntry[]
   snoozed: readonly SidebarTask[]
   completed: readonly SidebarTask[]
   isSharedOpen: boolean
+  isPinnedOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
 }
@@ -125,6 +127,7 @@ export function buildProjectListItems(input: ProjectListInput): SidebarListItem[
   }
   items.push(
     ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
+    ...pinnedItems(input.pinned, input.isPinnedOpen, input.shelfRevealTaskId),
     ...sectionItems('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
     ...sectionItems('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),
   )

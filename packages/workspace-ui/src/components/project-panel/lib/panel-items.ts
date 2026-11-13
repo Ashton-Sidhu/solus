@@ -16,7 +16,7 @@ export const PROJECT_PANEL_SECTIONS = [
     label: "Environment",
     rows: [
       { id: "environment.project", label: "Project" },
-      { id: "environment.terminal", label: "Terminal" },
+      { id: "environment.terminal", label: "Open in" },
       { id: "environment.view", label: "Browser, builds, and artifacts" },
       { id: "environment.usage", label: "Usage" },
     ],
@@ -43,14 +43,6 @@ export const PROJECT_PANEL_SECTIONS = [
       { id: "goal.objective", label: "Objective" },
       { id: "goal.details", label: "Cost and time" },
       { id: "goal.budget", label: "Token budget" },
-    ],
-  },
-  {
-    id: "agents",
-    label: "Agents",
-    rows: [
-      { id: "agents.running", label: "Running agents" },
-      { id: "agents.previous", label: "Previous agents" },
     ],
   },
   { id: "webhooks", label: "Webhooks", rows: [] },

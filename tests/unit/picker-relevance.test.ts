@@ -51,7 +51,6 @@ function build(
     conversations: options.conversations,
     recentSessions: options.recentSessions,
     sessionsFor: (item) => sessions[item.id] ?? [],
-    expandedTaskIds: new Set(),
   })
 }
 

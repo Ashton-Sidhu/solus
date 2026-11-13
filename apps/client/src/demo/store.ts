@@ -32,7 +32,6 @@ import type {
   TaskLink,
   TaskLinkInput,
   TaskMoveTarget,
-  TaskProjectSources,
   TaskSessionLink,
   TaskSessionRole,
   TaskSourceState,
@@ -581,45 +580,29 @@ export class DemoStore {
     }
   }
 
-  /** What a visitor changed in the task source setup. Null until the first save. */
+  /** What a visitor saved in the project config. Null until the first save. */
   private savedProjectConfig: ProjectConfig | null = null
 
-  /** The demo project's config: its task sources are the ones the fixture read, until a visitor changes them. */
   projectConfig(): ProjectConfig {
-    return this.savedProjectConfig ?? {
-      version: 1,
-      taskSources: this.fixtures.tasks.sources.map(({ source }) => source),
-      defaultTaskSource: this.fixtures.tasks.defaultSourceKey,
-    }
+    return this.savedProjectConfig ?? { version: 1 }
   }
 
-  /** Keep a visitor's change of the task sources for this visit. */
   saveProjectConfig(config: ProjectConfig): ProjectConfig {
-    const taskSources = config.taskSources ?? []
-    const sourceKeys = taskSources.map(taskSourceKey)
-    this.savedProjectConfig = {
-      ...config,
-      taskSources,
-      defaultTaskSource: config.defaultTaskSource && sourceKeys.includes(config.defaultTaskSource) ? config.defaultTaskSource : sourceKeys[0],
-    }
-    return this.savedProjectConfig
+    this.savedProjectConfig = config
+    return config
   }
 
-  /** Every demo project lists the same sources, and each read of them is fresh.
+  /** The demo's read of the sources a visitor's settings name, each read fresh.
    *  A source that a visitor added has no fixture: it reads as an empty source. */
-  taskProjectSources(): TaskProjectSources {
+  taskSourceStates(sources: readonly TaskSource[]): TaskSourceState[] {
     const fetchedAt = Date.now()
-    const config = this.projectConfig()
-    return {
-      sources: (config.taskSources ?? []).map((source) => {
-        const sourceKey = taskSourceKey(source)
-        const read = this.taskSource(sourceKey)
-        return read
-          ? { ...read, fetchedAt }
-          : { sourceKey, source, label: demoSourceLabel(source), columns: DEMO_ADDED_SOURCE_COLUMNS, health: 'ok' as const, fetchedAt }
-      }),
-      defaultSourceKey: config.defaultTaskSource,
-    }
+    return sources.map((source) => ({ ...this.taskSourceState(source), fetchedAt }))
+  }
+
+  private taskSourceState(source: TaskSource): TaskSourceState {
+    const sourceKey = taskSourceKey(source)
+    return this.taskSource(sourceKey)
+      ?? { sourceKey, source, label: demoSourceLabel(source), columns: DEMO_ADDED_SOURCE_COLUMNS, health: 'ok' }
   }
 
   listTasks(): Task[] {
@@ -702,8 +685,7 @@ export class DemoStore {
 
   /** A GitHub Project source makes a draft item; a Jira source makes an issue. */
   createTask(input: TaskCreateInput): Task {
-    const source = this.taskSource(input.sourceKey ?? this.fixtures.tasks.defaultSourceKey ?? '')
-    if (!source) throw new Error('The project has no task source to create the task in.')
+    const source = this.taskSourceState(input.source)
     if (input.columnId !== undefined && !source.columns.some((column) => column.id === input.columnId)) {
       throw new Error(`Column not found: ${input.columnId}`)
     }

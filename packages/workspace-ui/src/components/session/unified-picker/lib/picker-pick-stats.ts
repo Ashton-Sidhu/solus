@@ -46,7 +46,14 @@ function sectionOf(list: PickerList, entry: PickerEntry): SolusEventMap['session
 
 function matchedIn(entry: PickerEntry): string {
   if (entry.kind === 'task') return entry.matchedIn ?? 'none'
+  if (entry.kind === 'record') return entry.passage ? 'evidence' : 'title'
   return entry.reason?.field ?? 'none'
+}
+
+/** What was chosen: a task, a session, or the type of a record. */
+function kindOf(entry: PickerEntry): SolusEventMap['session_search_picked']['kind'] {
+  if (entry.kind !== 'record') return entry.kind
+  return entry.record.type === 'pullRequest' ? 'pull_request' : entry.record.type
 }
 
 /** Whether this query was chosen from before, and for the same row. Records this choice. */
@@ -91,7 +98,7 @@ export function pickedEvent(input: {
   return {
     position: input.entry.entryIndex + 1,
     section: sectionOf(input.list, input.entry),
-    kind: input.entry.kind,
+    kind: kindOf(input.entry),
     matched_in: matchedIn(input.entry),
     query_words: words.length,
     sort: input.sort,

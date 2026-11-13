@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { parseTaskKey, taskKey, taskSourceKey, type TaskRef, type TaskStatusCategory } from '@solus/contracts/task-sources'
+import { parseTaskKey, taskKey, taskSourceKey, type TaskRef, type TaskSource, type TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {
   Task,
   TaskAssigneeCandidate,
@@ -42,7 +42,7 @@ import {
 } from './task-comments'
 import { taskSessions } from './task-sessions'
 import { loadTaskSource, loadTaskSources, sourceItemsOfTask, type StoredTaskSource } from './task-source-store'
-import { projectTaskSources, readTaskSource } from './task-sources'
+import { readTaskSource } from './task-sources'
 import { database, emitChanged, loadTask, loadTaskSummaries, taskHomeOf } from './task-store'
 
 /**
@@ -264,21 +264,15 @@ export async function moveTaskToStatus(taskId: string, status: string): Promise<
 }
 
 /**
- * Create a task on the provider, in `sourceKey` or in the default source of
- * the project. A project with no task source has no place for a task, and the
- * error says so. `personKey` is whose connection reads the source when the
- * host has not read it yet.
+ * Create a task on the provider, in one of the person's task sources. The
+ * caller names the source; no project is needed. `personKey` is whose
+ * connection reads the source when the host has not read it yet.
  */
 export async function createTask(input: TaskCreateInput, personKey: string): Promise<Task> {
   const title = input.title.trim()
   if (!title) throw new Error('Task title cannot be empty.')
-  const project = await projectTaskSources(input.cwd)
-  if (!project.sources.length) {
-    throw new Error('This project has no task source. Add a GitHub or Jira task source to the project, then create the task.')
-  }
-  const sourceKey = input.sourceKey ?? project.defaultSourceKey
-  const source = project.sources.find((candidate) => taskSourceKey(candidate) === sourceKey)
-  if (!source || !sourceKey) throw new Error(`The task source ${input.sourceKey} is not one of this project's task sources.`)
+  const { source } = input
+  const sourceKey = taskSourceKey(source)
   // A board write needs what a read of the board gives (the Project's id, the board's project).
   let stored = await loadTaskSource(sourceKey)
   if (stored?.fetchedAt == null) {
@@ -393,32 +387,29 @@ export async function deleteTaskComment(scope: RecordScope, taskId: string, comm
   return taskDetails(scope, taskId)
 }
 
-/** The people the provider permits to be assigned: for one task, or for a new task in one source of a project. */
-export async function listTaskAssignees(target: { taskId: string } | { cwd: string; sourceKey: string }): Promise<TaskAssigneeCandidate[]> {
+/** The people the provider permits to be assigned: for one task, or for a new task in one source. */
+export async function listTaskAssignees(target: { taskId: string } | { source: TaskSource }): Promise<TaskAssigneeCandidate[]> {
   try {
     if ('taskId' in target) {
       const { home } = await writableTask(target.taskId)
       return await taskAdapters().provider(home.provider).assignees(home)
     }
-    const source = (await projectTaskSources(target.cwd)).sources.find((candidate) => taskSourceKey(candidate) === target.sourceKey)
-    if (!source) throw new Error(`The task source ${target.sourceKey} is not one of this project's task sources.`)
-    return await taskAdapters().source(source.kind).assignees(source)
+    return await taskAdapters().source(target.source.kind).assignees(target.source)
   } catch (error) {
     throw taskWriteError(error)
   }
 }
 
 /**
- * Ask the provider for the tasks of a project's sources that match `query`:
+ * Ask the provider for the tasks of these sources that match `query`:
  * the only way to reach a task that a truncated source did not list. Each
  * found task gets a copy on this host, so a link or a session can name it. A
  * source that fails is left out; when each source fails the first error is
  * thrown.
  */
-export async function searchTasks(cwd: string, query: string): Promise<TaskSummary[]> {
+export async function searchTasks(sources: readonly TaskSource[], query: string): Promise<TaskSummary[]> {
   const text = query.trim()
   if (!text) return []
-  const { sources } = await projectTaskSources(cwd)
   const stored = await loadTaskSources(sources.map(taskSourceKey))
   const found = new Map<string, { sourceKey: string; columnId: string | null }>()
   let firstError: Error | null = null

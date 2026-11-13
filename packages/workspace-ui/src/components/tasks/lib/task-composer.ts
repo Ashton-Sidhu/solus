@@ -1,21 +1,9 @@
 // Pure, non-reactive helpers for the task composer: the "Create another"
-// preference, due-date quick presets, and roving-focus keyboard navigation for the property pickers.
+// preference, the last source chosen, due-date quick presets, and roving-focus
+// keyboard navigation for the property pickers.
 // Kept out of the .svelte file per the renderer guidelines so the component stays
 // markup + thin handlers.
-import type { TaskPriority } from '@solus/contracts/task-types'
 import type { TaskSource } from '@solus/contracts/task-sources'
-
-/** What the composer hands to the page: a new task for one source of the
- *  project. The page adds the project (`TaskCreateInput.cwd`). */
-export interface TaskComposerInput {
-  sourceKey: string
-  columnId?: string
-  title: string
-  body: string
-  dueDate?: string
-  priority?: TaskPriority
-  labels?: string[]
-}
 
 /** Which optional fields the composer shows for a source. */
 export interface TaskComposerFields {
@@ -58,6 +46,26 @@ export function loadCreateAnother(): boolean {
 export function saveCreateAnother(on: boolean): void {
   try {
     localStorage.setItem(ANOTHER_KEY, on ? '1' : '0')
+  } catch {
+    // ignore
+  }
+}
+
+const LAST_SOURCE_KEY = 'solus:task-composer-last-source'
+
+/** The source of the person's last new task on this device: the composer's
+ *  hint when nothing on screen names a source (`inferTaskSourceKey`). */
+export function loadLastTaskSource(): string | null {
+  try {
+    return localStorage.getItem(LAST_SOURCE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function saveLastTaskSource(sourceKey: string): void {
+  try {
+    localStorage.setItem(LAST_SOURCE_KEY, sourceKey)
   } catch {
     // ignore
   }

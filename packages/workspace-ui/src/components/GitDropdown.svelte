@@ -38,9 +38,10 @@
      *  branches that still need a worktree on that host. */
     run?: RunConfig;
     initialView?: View;
-    /** The composer's trigger sits at the bottom of the window and the project
-     *  panel's at the right edge, so each list opens away from its own edge. */
+    /** The composer opens upward; the project panel opens below its row. */
     side?: "top" | "bottom" | "left";
+    /** Match a full row anchor in the project panel. */
+    matchTriggerWidth?: boolean;
     /** `create` asks for a new branch named by the search. */
     onSelectBranch: (branch: string, options?: { create?: boolean }) => void;
     onSelectWorktree: (worktree: WorktreeEntry) => void;
@@ -65,6 +66,7 @@
     run,
     initialView = "branches",
     side = "bottom",
+    matchTriggerWidth = false,
     onSelectBranch,
     onSelectWorktree,
     onSelectNewWorktree,
@@ -286,7 +288,7 @@
       collisionPadding={8}
       onCloseAutoFocus={handleCloseAutoFocus}
       onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}
-      class="menu-surface z-[10002] w-[min(19.75rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
+      class={`menu-surface z-[10002] ${matchTriggerWidth ? "w-(--bits-popover-anchor-width)" : "w-[min(19.75rem,calc(100vw-2rem))]"} gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome`}
     >
       {#if view === "worktrees"}
         <Command.Root>

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { TaskSourceState } from '@solus/contracts/task-types'
 import {
   matchesTaskQuery,
-  sourceNotices,
+  sourcesFailure,
   sourcesSyncState,
   withProviderMatches,
 } from '@solus/workspace-ui/components/tasks/lib/tasks-page'
@@ -86,23 +86,56 @@ describe('how fresh the tasks on screen are', () => {
   })
 })
 
-describe('the notices of the sources on screen', () => {
-  test('a healthy source that the host read whole says nothing', () => {
-    expect(sourceNotices([source('app')])).toEqual([])
+describe('what the page says when task sources cannot be read', () => {
+  test('healthy sources, and a source that is only truncated, are no failure', () => {
+    // WHY: a truncated source is read; the filter bar says that search reaches
+    // the rest. Only a source that cannot be read takes the page or a toast.
+    expect(sourcesFailure([source('app'), source('docs', { truncated: true })])).toBeNull()
   })
 
-  test('each source that cannot be read, or is truncated, gets one line with its name', () => {
-    // WHY: a project can mix sources. "Reconnect" alone does not say which
-    // provider connection to repair.
-    const notices = sourceNotices([
+  test('a GitHub source that needs a connection asks to connect GitHub, and names the source', () => {
+    // WHY: the repair of a missing or weak connection is to connect the
+    // provider. "Couldn't load tasks" with Retry would send the person around
+    // in a circle.
+    const failure = sourcesFailure([
       source('app'),
       source('site', { health: 'reconnect', message: 'The GitHub connection cannot read Projects.' }),
-      source('docs', { truncated: true }),
     ])
 
-    expect(notices).toEqual([
-      { sourceKey: 'github-repo:acme/site', tone: 'failure', text: 'acme/site: Reconnect. The GitHub connection cannot read Projects.' },
-      { sourceKey: 'github-repo:acme/docs', tone: 'warning', text: 'acme/docs: Truncated. This source holds more tasks than Solus read. Search reaches the rest.' },
-    ])
+    expect(failure).toMatchObject({
+      kind: 'github-auth',
+      title: 'Connect GitHub to load tasks.',
+      detail: 'acme/site: The GitHub connection cannot read Projects.',
+    })
+  })
+
+  test('a Jira source that needs a connection asks to connect Atlassian', () => {
+    const jira = source('board', {
+      sourceKey: 'jira-board:site/12',
+      source: { kind: 'jira-board', cloudId: 'site', boardId: 12 },
+      label: 'ACME board',
+      health: 'not_connected',
+    })
+    expect(sourcesFailure([jira])?.kind).toBe('jira-auth')
+  })
+
+  test('a source that GitHub refused or that failed is a plain failure, with Retry', () => {
+    expect(sourcesFailure([source('app', { health: 'no_access', message: 'No access.' })]))
+      .toMatchObject({ kind: 'generic', title: 'Couldn’t load tasks.' })
+  })
+
+  test('several failed sources are named in one sentence', () => {
+    const failure = sourcesFailure([source('app', { health: 'error' }), source('site', { health: 'no_access' })])
+    expect(failure?.detail).toBe('2 task sources cannot be read: acme/app, acme/site.')
+  })
+
+  test('the same failure keeps its key, and a new way to fail changes it', () => {
+    // WHY: while tasks show, a failure is said in a toast. The same failure on
+    // each read must not toast again; a new one must.
+    const first = sourcesFailure([source('app', { health: 'error' })])
+    const again = sourcesFailure([source('app', { health: 'error', message: 'Timeout.' })])
+    const worse = sourcesFailure([source('app', { health: 'reconnect' })])
+    expect(again?.key).toBe(first?.key)
+    expect(worse?.key).not.toBe(first?.key)
   })
 })

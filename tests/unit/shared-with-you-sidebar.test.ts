@@ -38,19 +38,29 @@ describe('the section a row is in', () => {
     // WHY: rule 1 — the owner decides the section. A shared session that runs,
     // that its owner settled, that is snoozed, or that is open in a tab must not
     // mix with the reader's own Sessions, Working, Snoozed, or Completed.
-    expect(sidebarSectionOf(row('idle', { share: share() }))).toBe('shared')
-    expect(sidebarSectionOf(row('running', { share: share(), status: 'running' }))).toBe('shared')
-    expect(sidebarSectionOf(row('open-tab', { share: share(), tabIds: ['tab-1'], status: 'running' }))).toBe('shared')
-    expect(sidebarSectionOf(row('settled', { share: share(), lifecycle: 'completed', status: 'done' }))).toBe('shared')
-    expect(sidebarSectionOf(row('snoozed', { share: share(), lifecycle: 'snoozed' }))).toBe('shared')
+    expect(sidebarSectionOf(row('idle', { share: share() }), false)).toBe('shared')
+    expect(sidebarSectionOf(row('running', { share: share(), status: 'running' }), false)).toBe('shared')
+    expect(sidebarSectionOf(row('open-tab', { share: share(), tabIds: ['tab-1'], status: 'running' }), false)).toBe('shared')
+    expect(sidebarSectionOf(row('settled', { share: share(), lifecycle: 'completed', status: 'done' }), false)).toBe('shared')
+    expect(sidebarSectionOf(row('snoozed', { share: share(), lifecycle: 'snoozed' }), false)).toBe('shared')
   })
 
   test('the reader\'s own rows keep their sections', () => {
-    expect(sidebarSectionOf(row('mine'))).toBe('sessions')
-    expect(sidebarSectionOf(row('busy', { status: 'running' }))).toBe('working')
-    expect(sidebarSectionOf(row('task-chip', { taskId: 'task', status: 'running' }))).toBe('working')
-    expect(sidebarSectionOf(row('later', { lifecycle: 'snoozed' }))).toBe('snoozed')
-    expect(sidebarSectionOf(row('done', { lifecycle: 'completed' }))).toBe('completed')
+    expect(sidebarSectionOf(row('mine'), false)).toBe('sessions')
+    expect(sidebarSectionOf(row('busy', { status: 'running' }), false)).toBe('working')
+    expect(sidebarSectionOf(row('task-chip', { taskId: 'task', status: 'running' }), false)).toBe('working')
+    expect(sidebarSectionOf(row('later', { lifecycle: 'snoozed' }), false)).toBe('snoozed')
+    expect(sidebarSectionOf(row('done', { lifecycle: 'completed' }), false)).toBe('completed')
+  })
+
+  test('a pinned session is in Pinned in every state, and in no other section', () => {
+    // WHY: a session shows in one section only. The person chose to pin it,
+    // so its state does not move it out of Pinned.
+    expect(sidebarSectionOf(row('mine'), true)).toBe('pinned')
+    expect(sidebarSectionOf(row('busy', { status: 'running' }), true)).toBe('pinned')
+    expect(sidebarSectionOf(row('later', { lifecycle: 'snoozed' }), true)).toBe('pinned')
+    expect(sidebarSectionOf(row('done', { lifecycle: 'completed' }), true)).toBe('pinned')
+    expect(sidebarSectionOf(row('theirs', { share: share() }), true)).toBe('pinned')
   })
 
   test('rows go newest grant first, and a session no direct share gave goes by its activity', () => {
@@ -67,10 +77,12 @@ describe('the section a row is in', () => {
       drafts: [],
       sessions: [row('mine')],
       shared: [row('theirs', { share: share() })],
+      pinned: [],
       working: [row('busy', { status: 'running' })],
       snoozed: [],
       completed: [],
       isSharedOpen: true,
+      isPinnedOpen: true,
       isWorkingOpen: true,
       isSnoozedOpen: false,
       isCompletedOpen: false,
@@ -97,10 +109,10 @@ describe('a listed session\'s row', () => {
     store.lifecycleNow = 0
     store.session = { tasksStore: { taskForSession: (sessionId: string) => sessionId === 'linked' ? { id: 'task', title: 'Task' } : undefined } }
     const linked = store.buildListedSessionRow(listed('linked'))
-    expect(sidebarSectionOf(linked)).toBe('shared')
+    expect(sidebarSectionOf(linked, false)).toBe('shared')
     expect(linked.linkedTask).toEqual({ taskId: 'task', title: 'Task' })
     const loose = store.buildListedSessionRow(listed('loose'))
-    expect(sidebarSectionOf(loose)).toBe('shared')
+    expect(sidebarSectionOf(loose, false)).toBe('shared')
     // Never opened: the row carries the unread dot.
     expect(loose.unread).toBe(true)
   })

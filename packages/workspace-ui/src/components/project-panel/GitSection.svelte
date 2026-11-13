@@ -3,7 +3,7 @@
   import { localApi } from "@solus/client-core/local-api";
   import {
     ArrowDownToLine as GitPullIcon,
-    ChevronRight as CaretRightIcon,
+    ChevronDown as CaretDownIcon,
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
     CloudUpload as CloudArrowUpIcon,
@@ -56,6 +56,12 @@
   import { useGitSectionReads } from "./lib/git-section-reads.svelte";
   import { mergeConflictDraft } from "./lib/merge-conflict-draft";
   import { changesRow, filesText } from "./lib/changes-row";
+  import {
+    cardPullRequests,
+    checksReads,
+    prReference,
+    type CardPullRequest,
+  } from "./lib/card-pull-requests";
   import { isGitActionRowShown, isPanelItemShown } from "./lib/panel-items";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import {
@@ -397,53 +403,50 @@
 
   // --- The session's pull requests -----------------------------------------
   // The card lists every open pull request the session links, the branch's own
-  // among them (docs/plans/session-pull-requests.md): a session on two layers
-  // of a stack, or one an agent linked to a pull request on another branch,
+  // among them, in whichever repository it is (docs/plans/session-pull-requests.md):
+  // a session on two layers of a stack, or one that changed two repositories,
   // sees each. The branch's own pull request keeps its full group; the others
-  // take one row each, so the card grows a row per link, not a group. Only this
-  // repository's pull requests are here: the store files a pushed row under
-  // each project that reads its repository, and a number means nothing
-  // outside its repository.
+  // take one row each, so the card grows a row per link, not a group. A pull
+  // request of another repository is read through that repository, and the
+  // card names the repository beside its number.
   const sessionId = $derived(session.sessionFor(sourceId)?.id ?? null);
   const sessionLinks = $derived(sessionPullRequestsStore.linksFor(sessionId));
-  const cardPrs = $derived.by(() => {
-    const prs: PullRequest[] = activePr ? [activePr] : [];
-    const project = pullRequests.projects.at(prServerId, prProjectScope);
-    const repository = project?.repositoryKey?.toLowerCase();
-    if (!project || !repository) return prs;
-    for (const link of sessionLinks) {
-      if (link.repository !== repository || prs.some((pr) => pr.number === link.number)) continue;
-      const pr = project.prFor(link.number);
-      if (pr?.state === "open") prs.push(pr);
-    }
-    return prs;
-  });
+  const cardPrs = $derived(
+    cardPullRequests({
+      branchPr: activePr,
+      links: sessionLinks,
+      projectRepository: pullRequests.projects.at(prServerId, prProjectScope)?.repositoryKey,
+      primaryRemoteUrl: repositorySetupStore.statusFor(detailServerId, env.cwd)?.primaryRemoteUrl,
+      projectCtx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+      prIn: (ctx, number) =>
+        pullRequests.projects.at(prServerId, projectScopeOf(ctx.session))?.prFor(number) ?? null,
+    }),
+  );
   // Which pull request the group shows. The branch's own until a person
   // chooses another; a change of branch or project goes back to it, so the
   // group never keeps a choice made on another checkout.
-  let chosenPrNumber = $state<number | null>(null);
+  let chosenPrKey = $state<string | null>(null);
   $effect(() => {
     void currentBranch;
     void prProjectScope;
-    chosenPrNumber = null;
+    chosenPrKey = null;
   });
   const shownPr = $derived(
-    cardPrs.find((pr) => pr.number === chosenPrNumber) ?? cardPrs[0] ?? null,
+    cardPrs.find((card) => card.key === chosenPrKey) ?? cardPrs[0] ?? null,
   );
-  const otherPrs = $derived(cardPrs.filter((pr) => pr !== shownPr));
+  const otherPrs = $derived(cardPrs.filter((card) => card !== shownPr));
   /** Show the pull request after the shown one, around to the first. */
   function cycleShownPr() {
     if (!shownPr || cardPrs.length < 2) return;
     const index = cardPrs.indexOf(shownPr);
-    chosenPrNumber = cardPrs[(index + 1) % cardPrs.length]!.number;
+    chosenPrKey = cardPrs[(index + 1) % cardPrs.length]!.key;
     requestInputFocus();
   }
 
   // CI state colours the glyph. `checksPresentation` is the same reading the PRs
   // page shows, so the two surfaces can't disagree — including its refusal to
   // assert a result computed against a head the branch has since moved past.
-  function checksFor(pr: PullRequest) {
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+  function checksFor({ pr, ctx }: CardPullRequest) {
     return checksPresentation(
       pullRequests.checks.summaryFor(prServerId, ctx, pr.number),
       pr.headSha,
@@ -471,26 +474,26 @@
     review: "review",
     neutral: undefined,
   } satisfies Record<ReturnType<typeof readinessTone>, ActionRowItem["iconTone"]>;
-  function linkedPrRow(pr: PullRequest): ActionRowItem {
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+  function linkedPrRow(card: CardPullRequest): ActionRowItem {
+    const { pr, ctx, otherRepository } = card;
     const checksLoadFailed = pullRequests.checks.loadFailedFor(prServerId, ctx);
     const readiness = mergeReadiness({
       detail: pr,
       checks: pullRequests.checks.summaryFor(prServerId, ctx, pr.number),
       checksLoadFailed,
     });
-    const checks = checksFor(pr);
+    const checks = checksFor(card);
     const status = prStatusGlyph(prStatusOf(pr));
     return {
-      key: `pr-linked-${pr.number}`,
+      key: `pr-linked-${card.key}`,
       label: pr.title,
       icon: status.icon,
       iconTone: READINESS_ICON_TONE[readinessTone(readiness.key)],
       phase: "idle",
       badgeIcon: CHECKS_GLYPH[checks.state].icon,
       badgeIconTone: CHECKS_GLYPH[checks.state].tone,
-      badge: `#${pr.number}`,
-      tooltip: `${status.label} · ${readiness.headline} · ${checks.label}`,
+      badge: prReference(pr.number, otherRepository),
+      tooltip: `${otherRepository ? `${otherRepository} · ` : ""}${status.label} · ${readiness.headline} · ${checks.label}`,
     };
   }
   const otherPrRows = $derived(otherPrs.map(linkedPrRow));
@@ -536,15 +539,15 @@
   let requestedChecksFor: string | null = null;
   $effect(() => {
     if (!active || !cardPrs.length) return;
-    const numbers = cardPrs.map((pr) => pr.number);
-    const key = JSON.stringify([prServerId, prProjectScope, numbers]);
+    const key = JSON.stringify([prServerId, prProjectScope, cardPrs.map((card) => card.key)]);
     if (requestedChecksFor === key) return;
     requestedChecksFor = key;
     const api = prApi;
     const serverId = prServerId;
+    const reads = checksReads(cardPrs);
     untrack(() => {
-      const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
-      void pullRequests.checks.load(api, serverId, ctx, numbers).catch(() => {});
+      for (const { ctx, numbers } of reads)
+        void pullRequests.checks.load(api, serverId, ctx, numbers).catch(() => {});
     });
   });
 
@@ -751,7 +754,7 @@
     <div class="row-wrap">
       {#if def.caretAction}
         {@const caret = def.caretAction}
-        {@const CaretIcon = caret.icon ?? CaretRightIcon}
+        {@const CaretIcon = caret.icon ?? CaretDownIcon}
         {@const menuOpen =
           !!caret.menu && rowMenuOpen && openMenuKey === caret.menu}
         <div class="split-row">
@@ -783,8 +786,9 @@
        rows: a divider, then what to do with the shown pull request. -->
   {#if shownPr && isPanelItemShown(hiddenItems, "git.pullRequest")}
     <LinkedPullRequestRows
-      pr={shownPr}
-      ctx={session.ctxForEnvironment(env.cwd, env.checkout, sourceId)}
+      pr={shownPr.pr}
+      ctx={shownPr.ctx}
+      otherRepository={shownPr.otherRepository}
       serverId={prServerId}
       api={prApi}
       checks={checksFor(shownPr)}
@@ -810,11 +814,11 @@
         >{otherPrRows.length}</span
       >
     </div>
-    {#each otherPrs as pr, index (pr.number)}
+    {#each otherPrs as card, index (card.key)}
       <MenuRow
         item={otherPrRows[index]!}
         onActivate={() => {
-          chosenPrNumber = pr.number;
+          chosenPrKey = card.key;
           requestInputFocus();
         }}
       />
@@ -824,10 +828,10 @@
 <DropdownMenu.Root bind:open={rowMenuOpen}>
   <DropdownMenu.Content
     customAnchor={openRowEl}
-    side="left"
+    side="bottom"
     align="start"
-    sideOffset={10}
-    alignOffset={-6}
+    sideOffset={4}
+    alignOffset={0}
     collisionPadding={8}
     onInteractOutside={(event) => {
       // The caret is the menu's trigger — let its click toggle the menu rather
@@ -840,7 +844,6 @@
       event.preventDefault();
       requestInputFocus();
     }}
-    class="w-[min(16.5rem,calc(100vw-2rem))]"
   >
     {#if openMenuKey === "commit"}
       {#each model.commit.steps as step (step.key)}

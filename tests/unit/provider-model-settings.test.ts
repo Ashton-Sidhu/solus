@@ -6,6 +6,17 @@ import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { newSessionModel } from '../../apps/mobile/src/features/conversation/lib/run-settings'
 
 describe('provider settings', () => {
+  test('new sessions use High for each built-in default model and keep an explicit reasoning choice', () => {
+    const store = new PersonalSettingsStore(memoryKeyValueStore())
+    for (const provider of ['claude-code', 'codex'] as const) {
+      const model = providerDefaultModel(provider)!
+      expect(providerModelOptions(provider, model).reasoningEffort).toBe('high')
+      expect(newSessionModel(provider, store.current()).reasoningEffort).toBe('high')
+      store.saveModelOptions(provider, model, { reasoningEffort: 'max', contextWindow: null, fastMode: false })
+      expect(newSessionModel(provider, store.current()).reasoningEffort).toBe('max')
+    }
+  })
+
   test('changing and resetting one provider preserves the other and the default provider', () => {
     const storage = memoryKeyValueStore()
     const store = new PersonalSettingsStore(storage)

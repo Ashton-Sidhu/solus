@@ -83,8 +83,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { GoalSync } from './goal-sync'
-import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
-import { taskProjectRoot } from '../../lib/task-project'
+import { taskRepositoryKey } from '../../lib/task-project'
 import { workTitleForMarkdownFile } from '../../components/files/lib/markdown-file'
 import type { WorkspaceFileRef } from '../../components/files/lib/save-file-as-work'
 import {
@@ -548,14 +547,6 @@ export class WorkspaceContext implements SurfaceContext {
     this.scopeOpenProjectPage({ serverId: projectHome(run).serverId, projectRoot: worktreeProjectRoot(root) })
     return true
   }
-  /** The visible input bar's task environment, including its base project and
-   * checkout. A draft has no active session, so resolve through `activeRun` —
-   * the same source the input header uses — rather than the tab behind it. */
-  get taskCreationContext(): TaskCreationContext | null {
-    const run = this.activeRun ?? this.defaultRunConfig
-    return taskCreationContextFor(projectHome(run).serverId, checkoutPlace(run).path, checkoutGit(run))
-  }
-
   projectDefaultBranchFor(run: RunConfig): string | null {
     const place = checkoutPlace(run)
     const directory = checkoutGit(run)?.repoRoot ?? place.path
@@ -572,26 +563,20 @@ export class WorkspaceContext implements SurfaceContext {
     return { serverId: place.serverId, projectRoot: worktreeProjectRoot(directory) }
   }
 
-  /** The folder of a task's project on the host that reads the task, for a
-   *  call that names a working directory. Null when that host holds no
-   *  checkout of a project that lists the task. */
+  /** The folder of a GitHub issue's repository on the host that reads the
+   *  task, for a call that names a working directory. A task belongs to no
+   *  project, so null when the task names no repository or that host holds no
+   *  checkout of it. */
   projectRootOfTask(taskId: string): string | null {
     const task = this.tasksStore.get(taskId)
-    return taskProjectRoot(
-      this.tasksStore.projectKeysOf(task),
-      task.serverId,
-      (projectKey) => projectsStore.checkoutsOf(projectKey),
-    )
+    const repositoryKey = taskRepositoryKey(task)
+    if (!repositoryKey || !task.serverId) return null
+    return projectsStore.checkoutsOf(repositoryKey)
+      .find((checkout) => checkout.serverId === task.serverId)?.projectRoot ?? null
   }
 
-  /** A task is created on its provider by the host that has the project: only
-   *  that host has the project's task sources and a provider connection. A
-   *  project that no known host holds cannot take a new task. */
-  taskContextForProject(checkout: ProjectRef | null): TaskCreationContext | null {
-    return checkout ? taskCreationContextFor(checkout.serverId, checkout.projectRoot, null) : null
-  }
-
-  /** The base project whose tasks the page lists, as a path on the input bar's host. */
+  /** The input bar's project folder, on the input bar's host: the folder a
+   *  task editor's @-file menu reads. Tasks themselves belong to no project. */
   get tasksProjectCwd(): string | null {
     return this.activeCheckout?.projectRoot ?? null
   }
@@ -1942,15 +1927,14 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   /** The Tasks page must open its composer: `composeNewTask` asked for it. The
-   *  Tasks page reads this when it is open, opens the composer for the project
-   *  its header shows, and sets it back to false. */
+   *  Tasks page reads this when it is open, opens the composer, and sets it
+   *  back to false. */
   taskComposerRequested = $state(false)
 
-  /** New task: open the Tasks page on one project, with its composer open. A
-   *  task is created on its provider, so it needs a title and a project that
-   *  has a task source; the composer asks for both. */
-  composeNewTask(project: ProjectRef, via: Via = 'click'): void {
-    this.scopeOpenProjectPage(project)
+  /** New task: open the Tasks page with its composer open. A task is created
+   *  on its provider, in one of the person's task sources; the composer asks
+   *  for the title and the source. */
+  composeNewTask(via: Via = 'click'): void {
     this.taskComposerRequested = true
     this.openTasks(via)
   }

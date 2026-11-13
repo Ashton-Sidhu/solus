@@ -1,19 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  export const settingItems: SettingItem[] = [
-    { id: "code-editor", keywords: ["code", "editor", "vscode", "ide", "open"] },
-    { id: "terminal", keywords: ["terminal", "shell", "command", "console", "tmux", "fallback"] },
-    { id: "code-intel", keywords: ["code", "intelligence", "scip", "index", "definition", "references", "symbol", "navigation", "typescript", "python", "go", "rust"] },
-    { id: "typesafe", keywords: ["typesafe", "auto", "model", "api", "key", "credential"] },
-  ];
-</script>
-
 <script lang="ts">
+  import { toolSettings as settingItems } from "./lib/settings-search-data";
   import {
     ChevronDown as CaretDownIcon,
     CircleCheck as CircleCheckIcon,

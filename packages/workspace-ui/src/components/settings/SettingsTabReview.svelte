@@ -1,22 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  export const settingItems: SettingItem[] = [
-    { id: "review-generate-on-open", keywords: ["review", "guide", "generate", "open", "automatic", "agent"] },
-    { id: "review-warming", keywords: ["review", "guide", "warm", "background", "prefetch", "worktree"] },
-    { id: "review-agent", keywords: ["review", "companion", "agent", "code review", "backend", "claude", "codex"] },
-    { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
-    { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
-    { id: "review-instructions", keywords: ["review", "guide", "instructions", "prompt", "custom"] },
-    { id: "review-lenses", keywords: ["review", "lens", "lenses", "artifact", "html", "prompt", "visualize", "custom"] },
-  ];
-</script>
-
 <script lang="ts">
+  import { reviewSettings as settingItems } from "./lib/settings-search-data";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS, projectScopeOf, type AgentId } from "@solus/contracts/types";

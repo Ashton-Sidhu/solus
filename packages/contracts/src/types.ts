@@ -7,7 +7,6 @@ import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState } from './git-types'
 import type { TaskSnapshot } from './task-types'
-import type { TaskSource } from './task-sources'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { DeviceRunProfile } from './device-types'
@@ -2967,12 +2966,6 @@ export interface ProjectConfig {
   version: 1
   /** Move a task to done when its linked pull request merges. */
   taskDoneOnMerge?: boolean
-  /** Where this project reads its tasks from. Absent or empty = the project
-   *  has no tasks (docs/plans/provider-owned-tasks.md). */
-  taskSources?: TaskSource[]
-  /** The `taskSourceKey` of the source where a new task is created. Always
-   *  names an entry of `taskSources`. */
-  defaultTaskSource?: string
   /** Overrides the host's worktree branch naming for this project. Absent =
    *  the host setting. */
   worktreeBranchNaming?: WorktreeBranchNaming

@@ -75,8 +75,6 @@ export interface DemoFixtures {
   tasks: {
     /** The task sources of the demo project, as a healthy read left them. */
     sources: TaskSourceState[]
-    /** The source where a new task is created. */
-    defaultSourceKey?: string
     tasks: Task[]
     /** Keyed, as `sessions` and `links` are, by task key. */
     comments: Record<string, TaskComment[]>

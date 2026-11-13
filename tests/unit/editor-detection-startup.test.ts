@@ -1,5 +1,5 @@
-import { expect, mock, test } from 'bun:test'
-import { tmpdir } from 'os'
+import { expect, mock, spyOn, test } from 'bun:test'
+import { homedir, tmpdir } from 'os'
 import type { DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
 import { EDITOR_APPS } from '../../apps/desktop/src/main/editor-apps'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -15,7 +15,7 @@ const probes: Array<{ bin: string; path: string }> = []
 let bundles: string[] = []
 
 mock.module('electron', () => ({
-  app: { isPackaged: false, getPath: () => tmpdir() },
+  app: { isPackaged: false, getPath: () => tmpdir(), once() {} },
   dialog: {},
   shell: {},
   utilityProcess: { fork: () => ({ on() {}, postMessage() {}, kill() {} }) },
@@ -23,6 +23,7 @@ mock.module('electron', () => ({
   desktopCapturer: {},
   nativeImage: {},
   screen: {},
+  powerSaveBlocker: {},
 }))
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const cliEnv = await import('@solus/server/cli-env')
@@ -82,4 +83,24 @@ test('Linux detection keeps terminal editors, installed terminal commands, and t
   const tools = await detected('linux', '/login/bin:/usr/bin')
   expect(tools.editors.map((editor) => editor.id)).toEqual(['vscode', 'nvim'])
   expect(tools.terminals.map((terminal) => terminal.id)).toEqual(['default-terminal', 'ghostty'])
+})
+
+test('Open in launches the requested editor even when Settings names another editor', async () => {
+  const { desktopPlatform } = await import('@solus/desktop-main/platform/desktop-platform')
+  const open = spyOn(desktopPlatform.editors, 'open').mockResolvedValue(true)
+  let launch!: (...args: Parameters<import('@solus/contracts/host-api').SolusAPI['openInEditor']>) => Promise<boolean>
+  const server = { register(method: string, handler: (args: unknown[]) => Promise<boolean>) {
+    if (method === 'openInEditor') launch = (...args) => handler(args)
+  } }
+  try {
+    registerFileHandlers(server as unknown as Parameters<typeof registerFileHandlers>[0], {} as Parameters<typeof registerFileHandlers>[1])
+    const ctx = { settings: { defaultEditor: 'cursor' } } as Parameters<typeof launch>[0]
+    expect(await launch(ctx, { editorId: 'zed', filePaths: ['/project/worktree'], cwd: '/project/worktree' })).toBe(true)
+    expect(open.mock.calls[0]?.[0].id).toBe('zed')
+    expect(open.mock.calls[0]?.[1]).toEqual(['/project/worktree'])
+    expect(await launch(ctx, { editorId: 'zed', filePaths: ['~'], cwd: '~' })).toBe(true)
+    expect(open.mock.calls[1]?.[1]).toEqual([homedir()])
+  } finally {
+    open.mockRestore()
+  }
 })

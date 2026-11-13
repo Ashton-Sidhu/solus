@@ -19,6 +19,7 @@ import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.co
 import { SessionRecords, setSessionRecords } from '../workspace/session-records.svelte'
 import { type ClientShellContext, setClientShellContext } from './client-shell.svelte'
 import { setSurfaceContext } from './surface-context.svelte'
+import { taskSourcesStore } from '../tasks/task-sources.store.svelte'
 import { StatusBarContext, setStatusBarContext } from './status-bar.context.svelte'
 import { PlanStore, setPlanStore } from '../plans/plan.store.svelte'
 import { SessionEnvironmentStore, setSessionEnvironmentStore } from '../git/session-environment.store.svelte'
@@ -89,6 +90,8 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   // The Settings rows that point to the account read its status through the same requests.
   accountVaultStore.usePort({ requests: accountAgentProfileRequests })
   onDestroy(hostSettingsStore.start())
+  // The person's task sources are a personal setting; the task host reads them (docs/tasks.md).
+  onDestroy(taskSourcesStore.useSources(settings.personal))
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
   const sessionEnvironmentStore = new SessionEnvironmentStore(checkoutStore)

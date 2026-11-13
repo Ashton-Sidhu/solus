@@ -83,7 +83,8 @@ that must outlive the session is an automation (`create_automation`). See
   of the turn becomes a background task (`background_task_started`, keyed by
   the command item). When it completes, the host settles the task and queues a
   "Background command" wake prompt. Every client draws that wake as a host
-  notice row (`HostNoticeRow`): a terminal glyph, "Background command", and
+  notice row (`HostNoticeRow`), right-aligned with the prompts because it
+  starts a turn: a terminal glyph, "Background command", and
   the command with its exit ("bun test · exit 1"); the output tail opens from
   the row as the terminal showed it (`ui/terminal-output`, shared with the
   device build log) — the theme's terminal panel, mono, the tool's own colours

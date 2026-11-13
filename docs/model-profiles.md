@@ -10,7 +10,12 @@ New sessions and provider handoffs use the saved options for their selected
 model. These preferences are stored on the host and shared with desktop, web,
 and mobile clients. A model with no saved choice uses its profile defaults;
 saved options that its current profile no longer supports also use defaults.
+The built-in default models for Claude Code and Codex use High reasoning.
 Auto keeps its own defaults until the host selects a concrete model.
+
+In Settings → Providers, Models and Default model options are below Instance,
+before Runtime and Environment. On mobile, Default model options opens the
+model settings screen.
 
 ## Release a model without a new build
 

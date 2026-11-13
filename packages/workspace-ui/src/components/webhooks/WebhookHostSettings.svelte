@@ -1,8 +1,3 @@
-<script module lang="ts">
-  /** Search words, read by the settings page through the Host page. */
-  export const searchWords = ["webhook", "public url", "hold", "offline", "reverse proxy", "ngrok"];
-</script>
-
 <script lang="ts">
   /** The host's webhook settings (docs/plans/webhooks.md §2.2, §2.3): its public
    *  URL, and for a linked host whether Solus Cloud holds requests while it is

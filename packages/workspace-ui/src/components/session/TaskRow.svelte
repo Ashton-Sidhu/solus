@@ -94,10 +94,11 @@
     onClose: () => void;
     onOpenPr: (choice: TaskPrChoice) => void;
     onWarmPr?: (choice: TaskPrChoice) => void;
-    /** Open a pull request's own menu. */
-    onMorePr: (event: MouseEvent, choice: TaskPrChoice) => void;
     /** The way to unlink a pull request from this row, or null when it has none. */
     onUnlinkPr?: (choice: TaskPrChoice) => (() => void) | null;
+    /** Links another pull request to the row's session; absent when the
+     *  viewer may not change it. */
+    onLinkPr?: (url: string) => Promise<void>;
     onSelectSession: (session: SidebarSessionChild) => void;
     onMoreSession: (event: MouseEvent, session: SidebarSessionChild) => void;
     onCloseSession: (session: SidebarSessionChild) => void;
@@ -135,8 +136,8 @@
     onClose,
     onOpenPr,
     onWarmPr,
-    onMorePr,
     onUnlinkPr,
+    onLinkPr,
     onSelectSession,
     onMoreSession,
     onCloseSession,
@@ -681,7 +682,7 @@
             ? 'opacity-75 group-hover/row:opacity-100'
             : ''}"
         >
-          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} startedSessions={hasStartedSessions ? nestedSessions : []} onOpenSession={onSelectSession} />
+          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onWarm={onWarmPr} onUnlink={onUnlinkPr} onLink={onLinkPr} startedSessions={hasStartedSessions ? nestedSessions : []} onOpenSession={onSelectSession} />
         </span>
       {/if}
       {@render trailingSlot()}
@@ -793,7 +794,7 @@
                 ? 'opacity-75 group-hover/row:opacity-100'
                 : ''}"
             >
-              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} startedSessions={hasStartedSessions ? nestedSessions : []} onOpenSession={onSelectSession} />
+              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onWarm={onWarmPr} onUnlink={onUnlinkPr} onLink={onLinkPr} startedSessions={hasStartedSessions ? nestedSessions : []} onOpenSession={onSelectSession} />
             </span>
           {/if}
           {@render startedSessionsChip()}

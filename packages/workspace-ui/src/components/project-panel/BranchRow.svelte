@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    ChevronRight as CaretRightIcon,
+    ChevronDown as CaretDownIcon,
     GitBranch as GitBranchIcon,
     GitFork as GitForkIcon,
   } from "@lucide/svelte";
@@ -152,14 +152,15 @@
       disabled={!currentBranch || !canSwitch}
       onclick={() => (branchPickerOpen = !branchPickerOpen)}
     >
-      <CaretRightIcon size={11} />
+      <CaretDownIcon size={11} />
     </button>
   </div>
   {#if currentBranch}
     <GitDropdown
       bind:open={branchPickerOpen}
-      side="left"
-      triggerEl={branchTriggerEl}
+      side="bottom"
+      matchTriggerWidth
+      triggerEl={branchTriggerEl?.parentElement ?? branchTriggerEl}
       displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? dispatchStartLabel : currentBranch)}
       selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch(sectionRun) ?? currentBranch}
       workingDirectory={branchRepoRoot}

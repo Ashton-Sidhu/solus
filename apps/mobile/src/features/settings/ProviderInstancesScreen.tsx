@@ -53,7 +53,7 @@ export function ProviderInstancesScreen({ route, navigation }: ScreenProps<"Prov
         </AppText>
       </AppText>
       {projectPath ? <ProjectProvidersSection projectPath={projectPath} state={{ client, view, readiness }} /> : <>
-      {instance && view.snapshot ? <><ProviderInstanceAccountSection instanceId={instance.id} client={client} view={view} /><InstanceEditor key={`${hostId}:${instance.id}`} instance={instance} revision={view.snapshot.revision} client={client} saving={view.saving} /></> : !instanceId && view.snapshot ? <>
+      {instance && view.snapshot ? <><ProviderInstanceAccountSection instanceId={instance.id} client={client} view={view} /><InstanceEditor key={`${hostId}:${instance.id}`} instance={instance} revision={view.snapshot.revision} client={client} saving={view.saving} navigation={navigation} hostId={hostId} /></> : !instanceId && view.snapshot ? <>
         <SettingsNote>These instances are private to your Solus user on this host.</SettingsNote>
         <SettingsSection title="Providers">
           {view.snapshot.instances.map((item) => <View key={item.id}>
@@ -73,13 +73,13 @@ export function ProviderInstancesScreen({ route, navigation }: ScreenProps<"Prov
           <SettingsActionRow icon="plus" label="Add" disabled={view.saving || !name.trim()} onPress={() => { void add(); }} />
         </SettingsSection> : null}
       </> : instanceId && !view.loading ? <SettingsNote>This provider instance is no longer available.</SettingsNote> : null}
-      {instance && view.snapshot ? <InstanceActions instance={instance} snapshot={view.snapshot} client={client} saving={view.saving} navigation={navigation} hostId={hostId} /> : null}
+      {instance && view.snapshot ? <InstanceActions instance={instance} snapshot={view.snapshot} client={client} saving={view.saving} navigation={navigation} /> : null}
       </>}
     </ScreenScrollView>
   </SettingsScreen>;
 }
 
-function InstanceEditor({ instance, revision, client, saving }: { instance: ProviderInstance; revision: number; client: ProviderInstancesClient; saving: boolean }) {
+function InstanceEditor({ instance, revision, client, saving, navigation, hostId }: { instance: ProviderInstance; revision: number; client: ProviderInstancesClient; saving: boolean; navigation: ScreenProps<"ProviderInstances">["navigation"]; hostId: string }) {
   const [draft, setDraft] = useState(() => structuredClone(instance));
   const [expectedRevision, setExpectedRevision] = useState(revision);
   const stale = revision !== expectedRevision;
@@ -95,6 +95,10 @@ function InstanceEditor({ instance, revision, client, saving }: { instance: Prov
     <SettingsSection title="Instance">
       <Field label="Display name" value={draft.displayName} onChange={(displayName) => patch({ displayName })} />
       <SettingsSwitchRow label="Enabled" value={draft.enabled} onValueChange={(enabled) => patch({ enabled })} />
+    </SettingsSection>
+    <ProviderInstanceModelsSection instance={draft} onChange={setDraft} />
+    <SettingsSection title="Default model options">
+      <SettingsRow icon="sparkles" label="Provider model default" onPress={() => navigation.navigate("ProviderSettings", { provider: instance.provider, hostId, instanceId: instance.id })} />
     </SettingsSection>
     <SettingsSection title="Runtime">
       <Field label="Binary path" value={draft.binaryPath} placeholder={draft.provider === "codex" ? "codex" : "claude"} onChange={(binaryPath) => patch({ binaryPath })} />
@@ -121,7 +125,6 @@ function InstanceEditor({ instance, revision, client, saving }: { instance: Prov
       </View>)}
       <SettingsActionRow icon="plus" label="Add variable" onPress={() => patch({ environment: [...draft.environment, { name: "", value: "", sensitive: true }] })} />
     </SettingsSection>
-    <ProviderInstanceModelsSection instance={draft} onChange={setDraft} />
     {dirty || stale ? <SettingsSection title="Unsaved changes">
       {stale ? <SettingsActionRow icon="arrow.clockwise" label="Reload settings" onPress={() => { setDraft(structuredClone(instance)); setExpectedRevision(revision); }} /> : <>
         <SettingsActionRow icon="checkmark" label="Save provider settings" disabled={saving} loading={saving} onPress={() => { void save(); }} />
@@ -139,10 +142,9 @@ function Field({ label, value, placeholder, sensitive, onChange }: { label: stri
   </View>;
 }
 
-function InstanceActions({ instance, snapshot, client, saving, navigation, hostId }: { hostId: string; instance: ProviderInstance; snapshot: ProviderInstancesSnapshot; client: ProviderInstancesClient; saving: boolean; navigation: ScreenProps<"ProviderInstances">["navigation"] }) {
+function InstanceActions({ instance, snapshot, client, saving, navigation }: { instance: ProviderInstance; snapshot: ProviderInstancesSnapshot; client: ProviderInstancesClient; saving: boolean; navigation: ScreenProps<"ProviderInstances">["navigation"] }) {
   return <SettingsSection title="Instance actions">
         {snapshot.selected[instance.provider] !== instance.id ? <SettingsActionRow icon="checkmark" label="Use for new sessions" disabled={saving || !instance.enabled} onPress={() => { void client.write({ expectedRevision: snapshot.revision, change: { kind: "select", instanceId: instance.id } }); }} /> : null}
-        <SettingsRow icon="sparkles" label="Provider model default" onPress={() => navigation.navigate("ProviderSettings", { provider: instance.provider, hostId, instanceId: instance.id })} />
         {instance.id !== "codex" && instance.id !== "claude-code" ? <SettingsActionRow icon="trash" label="Remove instance" tone="danger" disabled={saving} onPress={() => { void client.write({ expectedRevision: snapshot.revision, change: { kind: "remove", instanceId: instance.id } }).then((saved) => { if (saved) navigation.goBack(); }); }} /> : null}
       </SettingsSection>;
 }

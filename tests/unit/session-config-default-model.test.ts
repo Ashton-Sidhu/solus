@@ -184,7 +184,7 @@ describe('default model preference', () => {
     const controller = await makeController(makeSettings({ codex: 'claude-opus-5' }, 'codex'))
 
     expect(controller.globalDefaults.modelConfig.modelId).toBe('gpt-6-astra')
-    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('medium')
+    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('high')
     expect(controller.globalDefaults.modelConfig.contextWindow).toBe(1050000)
   })
 
@@ -539,7 +539,7 @@ describe('remembered model options', () => {
     } } } as Session
     const controller = await makeController(settings, session)
     controller.updateModelConfig({ reasoningEffort: 'max', fastMode: true }, 'tab-1')
-    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('medium')
+    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('high')
     const fresh = await makeController(settings)
     expect(fresh.globalDefaults.modelConfig.reasoningEffort).toBe('max')
     expect(fresh.globalDefaults.modelConfig.fastMode).toBe(true)

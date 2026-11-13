@@ -11,7 +11,8 @@ import type { ExternalCommentCommand, WorkExternalComments } from './work-commen
 import type { WorkCommentCommand } from './comment-commands'
 import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, BranchRef, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkListingMeta, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus, IgnoredProjectFiles, WorktreeIncludeChange, CopiedProjectFile } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrFilterChoice, PrFilterField, PrInterest, PrLabel, PrListPage, PrProjectCursor, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
-import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskAttachments, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskMoveTarget, TaskProjectSources, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskSourceOptions, TaskSummary, TaskUpdatePatch } from './task-types'
+import type { TaskSource } from './task-sources'
+import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskAttachments, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskMoveTarget, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskSourceOptions, TaskSourceState, TaskSummary, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionArtifacts } from './session-artifacts'
@@ -913,18 +914,19 @@ export interface SolusAPI {
   getPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
 
   /**
-   * The task sources of each project, as this host last read them for the
-   * caller (docs/plans/provider-owned-tasks.md §5). The call also says that the
-   * caller wants these sources: the host reads each one that is not fresh, or
-   * every one with `refresh: 'force'`, and `tasks.sourcesChanged` says when a
-   * read ends. The tasks themselves come with `tasksSidebarSnapshot`.
+   * The person's task sources, as this host last read them for the caller
+   * (docs/tasks.md). Tasks belong to no project: the client sends the sources
+   * from the person's settings. The call also says that the caller wants these
+   * sources: the host reads each one that is not fresh, or every one with
+   * `refresh: 'force'`, and `tasks.sourcesChanged` says when a read ends. The
+   * tasks themselves come with `tasksSidebarSnapshot`.
    */
-  tasksSources(cwds: string[], opts?: { refresh?: 'stale' | 'force' }): Promise<Record<string, TaskProjectSources>>
-  /** What the caller can choose as a task source for one project. */
-  tasksSourceOptions(cwd: string): Promise<TaskSourceOptions>
-  /** Ask the provider for the tasks of a project's sources that match `query`.
+  tasksSources(sources: TaskSource[], opts?: { refresh?: 'stale' | 'force' }): Promise<TaskSourceState[]>
+  /** What the caller can choose as a task source. */
+  tasksSourceOptions(): Promise<TaskSourceOptions>
+  /** Ask the provider for the tasks of these sources that match `query`.
    *  The only way to reach a task that a truncated source did not list. */
-  tasksSearch(cwd: string, query: string): Promise<TaskSummary[]>
+  tasksSearch(sources: TaskSource[], query: string): Promise<TaskSummary[]>
   tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
   tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
@@ -959,8 +961,8 @@ export interface SolusAPI {
   /** Discard an unsent comment. A sent comment is deleted on the provider, not here. */
   tasksDeleteComment(id: string, commentId: string): Promise<TaskDetails>
   /** The people the provider permits to be assigned: for one task, or for a
-   *  new task in one source of a project. */
-  tasksListAssigneeCandidates(target: { taskId: string } | { cwd: string; sourceKey: string }): Promise<TaskAssigneeCandidate[]>
+   *  new task in one source. */
+  tasksListAssigneeCandidates(target: { taskId: string } | { source: TaskSource }): Promise<TaskAssigneeCandidate[]>
   tasksLinkSession(
     taskId: string,
     sessionId: string,

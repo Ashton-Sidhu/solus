@@ -38,9 +38,9 @@ beforeAll(async () => {
 afterEach(() => host.reset())
 afterAll(() => host.close())
 
-/** Read the sources of a project as the caller of `ctx`, through the RPC a client uses. */
+/** Read these task sources as the caller of `ctx`, through the RPC a client uses. */
 async function readSources(which: Array<typeof REPO>, ctx: HandlerCtx = TEST_HANDLER_CTX): Promise<void> {
-  await server.handle('tasksSources', [[host.project(which)], { refresh: 'force' }], ctx)
+  await server.handle('tasksSources', [which, { refresh: 'force' }], ctx)
   await sources.taskSourceReadsEnd()
 }
 
@@ -142,5 +142,18 @@ describe('task list resume', () => {
     expect(whole.tasks).toHaveLength(1)
     expect(whole.tasks[0].pr).toEqual({ url: 'https://github.com/acme/app/pull/42', number: 42 })
     expect(whole.prLinkListsByTask?.[KEPT]?.[0]?.number).toBe(42)
+  })
+})
+
+describe('the task sources a client sends', () => {
+  test('a source that is not a task source is refused before a provider is asked', async () => {
+    // WHY: tasks are projectless, so the client sends the sources of the
+    // person's settings. The host reads each one with a provider, and must not
+    // read what no settings could hold.
+    // SAFETY: a malformed source, as a client of another version could send it.
+    const malformed = [{ kind: 'trello', board: 'x' }] as never
+    await expect(server.handle('tasksSources', [malformed, { refresh: 'force' }], TEST_HANDLER_CTX)).rejects.toThrow()
+    await expect(server.handle('tasksSearch', [malformed, 'crash'], TEST_HANDLER_CTX)).rejects.toThrow()
+    expect(host.providers.calls).toEqual([])
   })
 })

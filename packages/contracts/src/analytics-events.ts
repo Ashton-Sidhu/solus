@@ -43,7 +43,7 @@ export interface SolusEventMap {
     /** 1 for the first row the keyboard reaches. */
     position: number
     section: 'top' | 'tasks' | 'sessions' | 'messages' | 'other' | 'none'
-    kind: 'task' | 'session' | 'conversation'
+    kind: 'task' | 'session' | 'conversation' | 'work' | 'pull_request' | 'automation' | 'project' | 'action'
     matched_in: string
     query_words: number
     sort: 'relevance' | 'recency'

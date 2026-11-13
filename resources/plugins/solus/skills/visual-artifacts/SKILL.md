@@ -125,6 +125,8 @@ The base stylesheet sets the html background, color, and a 14px font from these,
 
 The frame is the page: it is as wide as the conversation, the side pane, or the share view. Follow the layout rules in the `render_artifact` description: they apply to a fence and to a saved work. Lay out to the full container width. Do not put the root in a fixed or maximum-width column. Limit only the line length of prose (for example `max-width: 70ch` on a paragraph). Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Provide labels, visible keyboard focus, keyboard alternatives for dragging, and chart summaries or tables. Pair color with labels or shapes. Include the instructions, units, and assumptions needed to understand a saved visual.
 
+For plots, graphs, and charts, show data details on hover. Include the series, exact value with units, and the date or category. Show the same details on keyboard focus and touch selection. Do not require a click to inspect a value with a pointer or rely only on the browser's native tooltip. Keep the details within the frame and retain a chart summary or data table.
+
 Use finite transitions only when they clarify change; respect reduced motion. No continuous decorative animation or repeated entrance effects on input changes.
 
 ## Verification
@@ -133,6 +135,7 @@ The bundle command checks types and packaging, not visual correctness or safety 
 - First load, a representative control, reset, boundary values, empty selections, and invalid input.
 - Copy-back output matches the preview and remains selectable without clipboard permission.
 - Narrow and desktop layouts, keyboard focus, light and dark legibility.
+- Chart details on hover, keyboard focus, and touch selection; values and units match the plotted data, and details stay within the frame.
 - No fake live status, hidden runtime failures, secrets, unsupported persistence claims, or missing assets.
 
 Use authorized browser tools when available; do not start a server without agreement. Inspect the final compiled payload, not only source. An ordinary browser preview does not prove Solus sandbox behavior. State any unverified runtime behavior. Do not create duplicate saved works for testing.

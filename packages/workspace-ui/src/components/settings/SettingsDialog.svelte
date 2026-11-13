@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import { settingsSectionLoaders } from "./lib/settings-section-loaders";
   import { Dialog } from "bits-ui";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -7,6 +9,8 @@
 
   const session = getWorkspaceContext();
   const page = import("./SettingsPage.svelte");
+  // Load the first section in parallel with the frame. The section shows its own load error.
+  void settingsSectionLoaders[untrack(() => session.settingsTab)]().catch(() => {});
   let content = $state<HTMLDivElement | null>(null);
   useScope("settings-dialog", { exclusive: true, pre: true });
 
@@ -25,7 +29,7 @@
       data-settings-dialog
       onOpenAutoFocus={(event) => { event.preventDefault(); content?.focus(); }}
       onCloseAutoFocus={(event) => { event.preventDefault(); requestInputFocus(); }}
-      class="no-drag @container/pane fixed top-1/2 left-1/2 z-50 flex h-[min(76rem,calc(100dvh-2rem))] w-[min(104rem,calc(100%-2rem))] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl outline-none dark:shadow-none [--solus-page-top-inset:0px]"
+      class="no-drag @container/pane fixed top-1/2 left-1/2 z-50 flex h-[min(76rem,88dvh)] w-[min(104rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl outline-none dark:shadow-none [--solus-page-top-inset:0px]"
     >
       <Dialog.Title class="sr-only">Settings</Dialog.Title>
       <Dialog.Description class="sr-only">Change Solus settings. Close to return to your workspace.</Dialog.Description>

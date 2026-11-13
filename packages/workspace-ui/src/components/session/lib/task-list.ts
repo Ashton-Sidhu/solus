@@ -495,12 +495,17 @@ export function isInWorkingSection(row: Pick<SidebarTask, 'status' | 'share'>): 
 }
 
 /**
- * The one section a row is in. Another person's session is in Shared with you
- * whatever its state: running, settled, or snoozed
- * (docs/plans/shared-with-you.md §2). The reader's own rows go by their
- * lifecycle, then by whether their agent is busy.
+ * The one section a row is in: a session never shows in two. A pinned session
+ * is in Pinned whatever its state, because the person chose its place. Another
+ * person's session is in Shared with you whatever its state: running, settled,
+ * or snoozed (docs/plans/shared-with-you.md §2). The reader's own rows go by
+ * their lifecycle, then by whether their agent is busy.
  */
-export function sidebarSectionOf(row: Pick<SidebarTask, 'status' | 'share' | 'lifecycle'>): SidebarSection {
+export function sidebarSectionOf(
+  row: Pick<SidebarTask, 'status' | 'share' | 'lifecycle'>,
+  isPinned: boolean,
+): SidebarSection {
+  if (isPinned) return 'pinned'
   if (row.share) return 'shared'
   if (row.lifecycle === 'snoozed') return 'snoozed'
   if (row.lifecycle === 'completed') return 'completed'
@@ -724,10 +729,12 @@ export function prChipState(pr: Pick<PullRequest, 'state' | 'draft'> & { needsMy
  * work; only an entirely merged set reads as merged.
  *
  * Missing status remains unknown, so an incomplete set cannot claim all PRs
- * are merged or closed. Known active work still determines the attention tone. */
+ * are merged or closed. Known active work still determines the attention tone.
+ *
+ * The number is the pull request that gave the set its state, so the number
+ * and the colour beside it describe the same pull request. */
 export function prChipForChoices(choices: readonly TaskPrChoice[]): PrChip | null {
-  const first = choices[0]
-  if (!first) return null
+  if (!choices.length) return null
   const states = choices.map((choice): PrChipState => {
     const state = choice.pullRequest ? prChipState(choice.pullRequest) : 'unknown'
     return (state === 'open' || state === 'approvalRequested') && choice.requiredChecksFail ? 'checksFailing' : state
@@ -745,7 +752,7 @@ export function prChipForChoices(choices: readonly TaskPrChoice[]): PrChip | nul
             : states.every((candidate) => candidate === 'merged')
               ? 'merged'
               : 'closed'
-  return { number: first.number, count: choices.length, state }
+  return { number: choices[states.indexOf(state)]!.number, count: choices.length, state }
 }
 
 export function pullRequestForBranches(

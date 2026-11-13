@@ -1,9 +1,9 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { taskSourceKey } from '@solus/contracts/task-sources'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
+import { resolveRepoRef } from '../../git/git-helpers'
 import { createLogger } from '../../logger'
 import { loadProjectConfig } from '../../project-config/project-config'
 import { listProjects } from '../../project-config/projects-manifest'
@@ -12,7 +12,6 @@ import { scopeClause } from '../scope'
 import { moveTask } from './task'
 import { linkedPullRequestIsMerged, readTaskLinks, type PrLinkTarget } from './task-links'
 import { taskSessions } from './task-sessions'
-import { sourceItemsOfTask } from './task-source-store'
 import { loadTask } from './task-store'
 
 const log = createLogger('main', 'task-done-on-merge')
@@ -37,11 +36,13 @@ const taskIdRowSchema = z.object({ task_id: z.string() })
  * last saw, never from the network; a link it has not seen merged leaves the
  * task alone (`linkedPullRequestIsMerged`).
  *
- * A task has no project of its own. The rule is on for a task when a project
- * of this host (a listed project, or the checkout of one of the task's working
- * sessions) lists a source of the task and does not set `taskDoneOnMerge` to
- * false. A task that no such project lists is left alone: nobody asked Solus
- * to close it.
+ * A task has no project of its own, and its sources are the person's
+ * (docs/tasks.md). The link is the request: a task that links the pull
+ * request, itself or through a working session, asked Solus to finish it. The
+ * pull request's project can say no: a project of this host (a listed
+ * project, or the checkout of one of the task's working sessions) whose
+ * `origin` is the pull request's repository and that sets `taskDoneOnMerge` to
+ * false leaves the task alone.
  *
  * This is the one place the rule lives. Called by the merge handler, which has
  * authoritative success, and by `PrSync` for a merge made outside Solus. A
@@ -76,11 +77,11 @@ export async function completeTasksForMergedPullRequest(
   const completed: string[] = []
   for (const { task_id: taskId } of rows) {
     const task = await loadTask(taskId)
-    // A task this host never read has no copy to judge, and no source that a project lists.
+    // A task this host never read has no copy to judge.
     if (!task || task.category === 'done') continue
     const working = ((await taskSessions(scope, taskId))[taskId] ?? []).filter((link) => link.role !== 'referenced')
     if (working.some((link) => completion.isSessionBusy(link.sessionId))) continue
-    if (!(await doneOnMergeApplies(taskId, working.flatMap((link) => link.checkoutPath && !link.executionServerId ? [link.checkoutPath] : [])))) continue
+    if (await projectTurnedRuleOff(repository, working.flatMap((link) => link.checkoutPath && !link.executionServerId ? [link.checkoutPath] : []))) continue
     const others = (await readTaskLinks(db, scope, taskId)).flatMap((link) => {
       if (link.kind !== 'pr') return []
       const linkedNumber = Number(link.targetKey)
@@ -105,15 +106,18 @@ export async function completeTasksForMergedPullRequest(
   return completed
 }
 
-/** A project of this host, or of one of these checkouts, lists a source of the task and keeps the rule on. */
-async function doneOnMergeApplies(taskId: string, checkoutPaths: readonly string[]): Promise<boolean> {
-  const taskSources = new Set((await sourceItemsOfTask(taskId)).map((item) => item.sourceKey))
-  if (!taskSources.size) return false
+/**
+ * Whether the pull request's project sets `taskDoneOnMerge` to false: a
+ * listed project of this host, or the project of one of these checkouts,
+ * whose `origin` is `repository`. Only a project that turned the rule off
+ * asks git for its origin.
+ */
+async function projectTurnedRuleOff(repository: string, checkoutPaths: readonly string[]): Promise<boolean> {
   const listed = (await listProjects()).map((project) => project.path)
   for (const root of new Set([...checkoutPaths.map(worktreeProjectRoot), ...listed])) {
-    const config = await loadProjectConfig(root)
-    if (config?.taskDoneOnMerge === false) continue
-    if (config?.taskSources?.some((source) => taskSources.has(taskSourceKey(source)))) return true
+    if ((await loadProjectConfig(root))?.taskDoneOnMerge !== false) continue
+    const origin = await resolveRepoRef(root).catch(() => null)
+    if (origin && `${origin.host}/${origin.owner}/${origin.repo}`.toLowerCase() === repository) return true
   }
   return false
 }

@@ -89,7 +89,6 @@ interface Scene {
   tasks?: Task[]
   sources?: TaskSourceState[]
   running?: string[]
-  showsEveryProject?: boolean
   homes?: Map<string, string>
 }
 
@@ -98,7 +97,7 @@ function scene(options: Scene = {}) {
   const answers = new Map<string, PromiseWithResolvers<Task[]>>()
   const providerSearch = new ProviderTaskSearch({
     // SAFETY: the search reads only `search` of the store.
-    search: (_serverId: string, _cwd: string, query: string) => {
+    search: (query: string) => {
       searches.push(query)
       const answer = Promise.withResolvers<Task[]>()
       answers.set(query, answer)
@@ -111,9 +110,7 @@ function scene(options: Scene = {}) {
     sources: () => options.sources ?? [repo, board],
     now: () => NOW,
     runningSessionsFor: (taskId) => (options.running?.includes(taskId) ? 1 : 0),
-    projectLabelFor: () => 'acme/app',
     homeFor: (taskId) => options.homes?.get(taskId) ?? null,
-    showsEveryProject: () => options.showsEveryProject ?? false,
     providerSearch,
   })
   return { view, providerSearch, searches, answers }
@@ -174,6 +171,31 @@ describe('all sources of the project', () => {
   test('a task can be moved to each status category', () => {
     const { view } = scene()
     expect(view.moveOptions.map((column) => column.id)).toEqual(['open', 'active', 'done'])
+  })
+})
+
+describe('the sources the person has', () => {
+  test('a task of a source that the person removed does not show', () => {
+    // WHY: the host keeps the tasks of a removed source until its next read.
+    // The page shows the person's sources, not what the host still holds.
+    const { view } = scene({ sources: [repo] })
+
+    expect(view.searched.map((row) => row.id)).toEqual(['repo-only', 'on-both'])
+    expect(view.allSourcesCount).toBe(2)
+  })
+
+  test('each source says how many tasks it holds for the search', () => {
+    // WHY: the strip of sources is how a person sees what each one holds. A
+    // task on two sources counts on each, and once in All.
+    const { view } = scene()
+    expect(view.allSourcesCount).toBe(4)
+    expect(view.sourceCounts.get(REPO)).toBe(2)
+    expect(view.sourceCounts.get(BOARD)).toBe(3)
+
+    view.query = 'payment'
+    expect(view.allSourcesCount).toBe(1)
+    expect(view.sourceCounts.get(REPO)).toBe(1)
+    expect(view.sourceCounts.get(BOARD)).toBeUndefined()
   })
 })
 
@@ -247,18 +269,18 @@ describe('one source on screen', () => {
     expect(view.board).toEqual({ kind: 'all' })
   })
 
-  test('the notices and the freshness are those of the source on screen', () => {
-    // WHY: a broken board must not put its warning on the view of the
+  test('the failure and the freshness are those of the source on screen', () => {
+    // WHY: a broken board must not put its failure on the view of the
     // repository, which is read and complete.
     const brokenBoard: TaskSourceState = { ...board, health: 'reconnect', truncated: true, fetchedAt: NOW - 3_600_000 }
     const { view } = scene({ sources: [repo, brokenBoard] })
 
-    expect(view.notices.map((notice) => notice.sourceKey)).toEqual([BOARD])
+    expect(view.failure?.key).toBe(`${BOARD}:reconnect`)
     expect(view.syncState).toEqual({ syncedAt: NOW - 3_600_000, fromCache: true })
     expect(view.truncated).toBe(true)
 
     view.showSource(REPO)
-    expect(view.notices).toEqual([])
+    expect(view.failure).toBeNull()
     expect(view.syncState).toEqual({ syncedAt: NOW - 60_000, fromCache: false })
     expect(view.truncated).toBe(false)
     expect(view.truncationNote).toBeNull()
@@ -333,21 +355,17 @@ describe('the filters', () => {
 })
 
 describe('where a row says it lives', () => {
-  test('one project on one machine draws no place column', () => {
+  test('tasks read by this machine draw no place column', () => {
     const { view } = scene()
     expect(view.groups.flatMap((group) => group.rows).every((row) => row.place === undefined)).toBe(true)
   })
 
-  test('every project, or a task read by another host, gives each row the cell', () => {
-    // WHY: the list is a table. Each row has the cell or none has it.
-    const everyProject = scene({ showsEveryProject: true }).view
-    expect(everyProject.groups[0].rows.map((row) => row.place)).toEqual([
-      { project: 'acme/app', host: null },
-      { project: 'acme/app', host: null },
-    ])
-
+  test('a task read by another host gives each row the cell, and no row names a project', () => {
+    // WHY: the list is a table. Each row has the cell or none has it. A task
+    // belongs to no project, so the cell names only the host.
     const remote = scene({ homes: new Map([['on-both', 'Workshop']]) }).view
     expect(remote.groups.flatMap((group) => group.rows).map((row) => row.place?.host ?? null)).toEqual([null, null, 'Workshop'])
+    expect(remote.groups.flatMap((group) => group.rows).every((row) => row.place?.project === null)).toBe(true)
   })
 })
 
@@ -361,9 +379,9 @@ describe('search of the provider', () => {
     jest.useFakeTimers()
     const { providerSearch, searches } = scene()
 
-    providerSearch.request('local', '/work/app', 'pay')
+    providerSearch.request('pay')
     jest.advanceTimersByTime(200)
-    providerSearch.request('local', '/work/app', ' payment ')
+    providerSearch.request(' payment ')
     expect(providerSearch.searching).toBe(true)
     jest.advanceTimersByTime(349)
     expect(searches).toEqual([])
@@ -380,7 +398,7 @@ describe('search of the provider', () => {
     view.query = 'payment'
     expect(view.truncationNote).toBe('not every task is loaded · search reaches the rest')
 
-    providerSearch.request('local', '/work/app', view.query)
+    providerSearch.request(view.query)
     expect(view.truncationNote).toBe('searching the provider…')
     jest.advanceTimersByTime(350)
     answers.get('payment')?.resolve([fromProvider, repoOnly])
@@ -400,7 +418,7 @@ describe('search of the provider', () => {
     const { view, providerSearch, answers } = scene({ sources: [truncatedRepo, board] })
     view.showSource(BOARD)
     view.query = 'payment'
-    providerSearch.request('local', '/work/app', view.query)
+    providerSearch.request(view.query)
     jest.advanceTimersByTime(350)
     answers.get('payment')?.resolve([fromProvider])
     await flush()
@@ -413,9 +431,9 @@ describe('search of the provider', () => {
     // not replace the answer for "payment".
     jest.useFakeTimers()
     const { providerSearch, answers } = scene()
-    providerSearch.request('local', '/work/app', 'pay')
+    providerSearch.request('pay')
     jest.advanceTimersByTime(350)
-    providerSearch.request('local', '/work/app', 'payment')
+    providerSearch.request('payment')
     jest.advanceTimersByTime(350)
 
     answers.get('payment')?.resolve([fromProvider])
@@ -434,7 +452,7 @@ describe('search of the provider', () => {
     jest.useFakeTimers()
     const { view, providerSearch, answers, searches } = scene({ sources: [truncatedRepo, board] })
     view.query = 'payment'
-    providerSearch.request('local', '/work/app', view.query)
+    providerSearch.request(view.query)
     jest.advanceTimersByTime(350)
     answers.get('payment')?.reject(new Error('GitHub rate limit'))
     await flush()
@@ -446,7 +464,7 @@ describe('search of the provider', () => {
 
     // A text that the provider failed to answer is not asked again until it
     // changes: a re-render with the same text must not repeat a failing call.
-    providerSearch.request('local', '/work/app', 'payment')
+    providerSearch.request('payment')
     jest.advanceTimersByTime(350)
     expect(searches).toEqual(['payment'])
     expect(providerSearch.error).toBe('GitHub rate limit')
@@ -458,14 +476,14 @@ describe('search of the provider', () => {
     // and the page must not show a search that runs.
     jest.useFakeTimers()
     const { providerSearch, answers, searches } = scene()
-    providerSearch.request('local', '/work/app', 'payment')
+    providerSearch.request('payment')
     jest.advanceTimersByTime(350)
     answers.get('payment')?.resolve([fromProvider])
     await flush()
 
-    providerSearch.request('local', '/work/app', 'payments')
+    providerSearch.request('payments')
     expect(providerSearch.searching).toBe(true)
-    providerSearch.request('local', '/work/app', 'payment')
+    providerSearch.request('payment')
     jest.advanceTimersByTime(350)
 
     expect(searches).toEqual(['payment'])
@@ -476,9 +494,9 @@ describe('search of the provider', () => {
   test('an empty search box forgets the search, also one that waits for its answer', async () => {
     jest.useFakeTimers()
     const { providerSearch, answers, searches } = scene()
-    providerSearch.request('local', '/work/app', 'payment')
+    providerSearch.request('payment')
     jest.advanceTimersByTime(350)
-    providerSearch.request('local', '/work/app', '   ')
+    providerSearch.request('   ')
     answers.get('payment')?.resolve([fromProvider])
     await flush()
 
@@ -487,8 +505,8 @@ describe('search of the provider', () => {
     expect(providerSearch.searching).toBe(false)
 
     // A text that was typed and removed before the pause ended is not sent.
-    providerSearch.request('local', '/work/app', 'refund')
-    providerSearch.request('local', '/work/app', '')
+    providerSearch.request('refund')
+    providerSearch.request('')
     jest.advanceTimersByTime(350)
     expect(searches).toEqual(['payment'])
   })

@@ -1,8 +1,3 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["webhook", "hook", "github", "sender", "delivery", "deliveries", "url", "trigger", "event", "organization", "admin"];
-</script>
-
 <script lang="ts">
   /** Settings → Webhooks (docs/plans/webhooks.md §4): one table for the webhooks
    *  of every connected host. A member of an organization also gets the

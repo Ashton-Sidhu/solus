@@ -1,8 +1,3 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["mcp", "server", "catalog", "integrations.sh", "remote tools", "connector"];
-</script>
-
 <script lang="ts">
   /**
    * The MCP page (docs/integrations.md): the servers installed on one host, and

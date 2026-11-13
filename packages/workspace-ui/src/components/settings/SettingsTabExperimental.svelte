@@ -1,11 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const settingItems = [
-    { id: "auto-voice", keywords: ["voice", "dictation", "automatic", "listen", "beta"] },
-  ];
-</script>
-
 <script lang="ts">
+  import { experimentalSettings as settingItems } from "./lib/settings-search-data";
   import { getSettingsContext } from "../../contexts";
   import { Switch } from "../ui/switch";
   import SettingsRow from "./SettingsRow.svelte";

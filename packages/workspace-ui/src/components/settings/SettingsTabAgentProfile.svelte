@@ -1,9 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["agent profile", "profile", "instructions", "extra", "system prompt", "custom", "subagents", "commands", "prompts", "skills", "mcp", "servers", "conflict"];
-</script>
-
 <script lang="ts">
+  import { agentProfileSearchWords as searchWords } from "./lib/settings-search-data";
   /**
    * Settings → Agent profile (plans/020-agent-profile.md §3): the person's
    * instructions (a personal setting every prompt carries), and their skills,

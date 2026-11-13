@@ -57,8 +57,8 @@ export const KEYBINDINGS = {
   'global.zoom-reset':        { combo: { mod: true, code: 'Digit0' },                     scope: 'global',             label: 'Reset zoom',               group: 'View' },
   'global.history-back':      { combo: { mod: true, code: 'BracketLeft' },              scope: 'global',             label: 'Back',                     group: 'Navigation' },
   'global.history-forward':   { combo: { mod: true, code: 'BracketRight' },             scope: 'global',             label: 'Forward',                  group: 'Navigation' },
-  'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Session picker',           group: 'Navigation' },
-  'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Session picker (alt)',     group: 'Navigation' },
+  'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Search',                   group: 'Navigation' },
+  'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Search (alt)',             group: 'Navigation' },
   'global.task-picker':       { combo: { alt: true, shift: true, code: 'KeyF' },          scope: 'global',             label: 'Task picker',              group: 'Navigation' },
   'global.focus-sidebar-task-search': { combo: { ctrl: true, code: 'Slash' }, nonMac: { mod: true, shift: true, code: 'Slash' }, scope: 'global',             label: 'Focus sidebar task search', group: 'Tasks' },
   'global.cycle-perm-mode':   { combo: { alt: true, shift: true, code: 'Tab' },           scope: 'global',             label: 'Cycle permission mode',    group: 'Agent' },
@@ -201,7 +201,6 @@ export const KEYBINDINGS = {
 
   // ── Tasks ───────────────────────────────────────────────────────────────────
   'tasks.close':                  { combo: { code: 'Escape' },                             scope: 'tasks',              label: 'Close',                    group: 'Tasks' },
-  'tasks.current-project':        { combo: { alt: true, code: 'KeyC' },                    scope: 'tasks',              label: 'Current project',          group: 'Tasks' },
 
   // ── Pull Requests ──────────────────────────────────────────────────────────
   'prs.close':                    { combo: { code: 'Escape' },                             scope: 'prs',                label: 'Close',                    group: 'Pull Requests' },
@@ -227,9 +226,9 @@ export const KEYBINDINGS = {
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },
 
-  // ── Task picker ────────────────────────────────────────────────────────────
+  // ── Search (the unified picker) ────────────────────────────────────────────
   'task-picker.choose-project':   { combo: { alt: true, code: 'KeyA' },                    scope: 'task-picker',        label: 'Choose project scope',     group: 'Palette' },
-  'task-picker.result-type':     { combo: { alt: true, code: 'KeyT' }, scope: 'task-picker', label: 'Picker result type', group: 'Palette' },
+  'task-picker.row-actions':      { combo: { alt: true, code: 'Enter' },                   scope: 'task-picker',        label: 'Row actions',              group: 'Palette' },
   'task-picker.search-options':   { combo: { alt: true, code: 'KeyS' },                    scope: 'task-picker',        label: 'Sort and search options',  group: 'Palette' },
 
   // ── Project search ─────────────────────────────────────────────────────────
@@ -266,7 +265,6 @@ export const KEYBINDINGS = {
   'global.open-document':         { combo: null,                                           scope: 'global',             label: 'Open document…',           group: 'Navigation' },
   'global.open-automation':       { combo: null,                                           scope: 'global',             label: 'Open automation…',         group: 'Navigation' },
   'global.open-task':             { combo: null,                                           scope: 'global',             label: 'Open task…',               group: 'Navigation' },
-  'global.create-task-in':        { combo: null,                                           scope: 'global',             label: 'Create task in project…',  group: 'Tasks' },
   // The composer's own task chip, not `global.task-picker` — that one navigates
   // to a task, this one files the session the focused composer is about to start.
   'global.session-task-picker':   { combo: null,                                           scope: 'global',             label: 'Choose task for this session', group: 'Tasks' },

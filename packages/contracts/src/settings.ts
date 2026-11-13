@@ -38,6 +38,7 @@ import {
   type TerminalAppId,
 } from './types'
 import { DEFAULT_WORKTREE_BRANCH_NAMING, worktreeBranchNamingSchema } from './worktree-branch-naming'
+import { MAX_TASK_SOURCES, taskSourceSchema } from './task-sources'
 
 // ─── Vocabulary ───
 
@@ -205,6 +206,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
   projectPanelHiddenItems: z.array(z.string().min(1).max(MAX_PROJECT_PANEL_ITEM_ID)).max(MAX_PROJECT_PANEL_HIDDEN_ITEMS).describe('The rows and sections that the project panel on desktop and web does not show, by id: a section (environment, git, goal, agents, webhooks) or a row kind in one (environment.terminal, git.branch, goal.budget, agents.previous, and others). Empty shows all.'),
   /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
   leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new lead session starts on. Null uses the default for new sessions.'),
+  taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads tasks from: GitHub repositories, GitHub Projects, Jira projects and Jira boards. Tasks belong to no Solus project (docs/tasks.md).'),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
   /** Rules added after the built-in lead contract (docs/plans/task-conversation.md, Orchestrator). */
   leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a lead session.'),
@@ -298,6 +300,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sidebarView: 'status',
   projectPanelHiddenItems: [],
   leadModel: null,
+  taskSources: [],
   agentTaskLifecyclePolicy: 'moderate',
   leadInstructions: defaultLeadInstructions(DEFAULT_MODEL_ROUTING),
   workerModel: null,
@@ -340,6 +343,8 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'modelInstructions',
   'leadModel',
   'agentTaskLifecyclePolicy',
+  // An agent on the host lists and creates tasks in the person's own sources.
+  'taskSources',
   'leadInstructions',
   'workerModel',
   'textGenerationModel',
@@ -409,6 +414,9 @@ export const CLIENT_DEVICE_LAYOUT_KEYS = [
   'splitProjectPanelCollapsed',
   'sidebarProjectFilter',
   'lastProject',
+  'skySceneChoice',
+  'showsSidebarSky',
+  'showsDraftMark',
   'onboardingCompleted',
   'browserCookiePromptDismissed',
 ] as const

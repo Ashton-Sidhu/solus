@@ -20,11 +20,6 @@ export interface TaskSession {
   session: SidebarSessionChild
 }
 
-/** The task a session belongs to, and whether that task is in scope. */
-export interface SessionOwner extends TaskSession {
-  inScope: boolean
-}
-
 /** One listing of the Sessions section, before it is given its row index. A
  *  name hit is the better claim on relevance — it is the session's title — so
  *  the listing keeps its tier even once a content hit takes the row. */
@@ -93,7 +88,7 @@ export function matchedSessions(
   nameHits: readonly TaskSession[],
   unclaimed: readonly SessionListing[],
   conversations: readonly SessionSearchResult[],
-  ownerBySessionId: ReadonlyMap<string, SessionOwner>,
+  ownerBySessionId: ReadonlyMap<string, TaskSession>,
   sort: PickerSort,
   search: SearchQuery,
   now: number,
@@ -121,7 +116,6 @@ export function matchedSessions(
   for (const result of conversations) {
     const key = sessionIdentity(result.session)
     const owner = ownerBySessionId.get(key)
-    if (owner && !owner.inScope) continue
     let listing = byKey.get(key) ?? found.get(key)
     if (!listing) {
       listing = foundListing(result, owner, search, now)
@@ -134,7 +128,7 @@ export function matchedSessions(
 
 /** A listing for a session only a host found: by its words, or by a title or
  *  metadata this client does not hold. */
-function foundListing(result: SessionSearchResult, owner: SessionOwner | undefined, search: SearchQuery, now: number): SessionListing {
+function foundListing(result: SessionSearchResult, owner: TaskSession | undefined, search: SearchQuery, now: number): SessionListing {
   if (owner) {
     const ts = owner.session.lastActivityAt
     return { kind: 'session', task: owner.task, session: owner.session, ts, relevance: { tier: 'evidence', score: activityScore(ts || owner.task.updatedAt, now, isDone(owner.task)) } }
@@ -174,7 +168,7 @@ function mergeSessionPassages(listing: SessionListing, result: SessionSearchResu
 /** The sessions no task claims that the filters keep, as listings dated by their last activity. */
 export function unclaimedSessions(
   recent: readonly SessionMeta[],
-  ownerBySessionId: ReadonlyMap<string, SessionOwner>,
+  ownerBySessionId: ReadonlyMap<string, TaskSession>,
   filters: PickerFilters,
   now: number,
 ): SessionListing[] {

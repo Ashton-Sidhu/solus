@@ -1,9 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, jest, test } from 'bun:test'
-import {
-  ProviderTaskSearch,
-  searchableProjectRoot,
-  tasksOnlyFound,
-} from '@solus/workspace-ui/lib/provider-task-search.svelte'
+import { ProviderTaskSearch, tasksOnlyFound } from '@solus/workspace-ui/lib/provider-task-search.svelte'
 
 interface Found { id: string }
 
@@ -25,7 +21,7 @@ describe('a task picker search on the provider', () => {
     // WHY: each search is a provider call with a rate limit. A call for each
     // key press spends the limit on queries nobody wanted.
     const asked: string[] = []
-    const search = new ProviderTaskSearch<Found>(() => async (query) => { asked.push(query); return [{ id: query }] })
+    const search = new ProviderTaskSearch<Found>(async (query) => { asked.push(query); return [{ id: query }] })
     search.request('au')
     search.request('auth')
     expect(search.searching).toBe(true)
@@ -40,7 +36,7 @@ describe('a task picker search on the provider', () => {
     // WHY: provider answers arrive out of order. The list must show the tasks
     // for the text in the box.
     const answers = new Map<string, (found: Found[]) => void>()
-    const search = new ProviderTaskSearch<Found>(() => (query) => new Promise((resolve) => { answers.set(query, resolve) }))
+    const search = new ProviderTaskSearch<Found>((query) => new Promise((resolve) => { answers.set(query, resolve) }))
     search.request('old query')
     jest.advanceTimersByTime(1_000)
     search.request('new query')
@@ -53,7 +49,7 @@ describe('a task picker search on the provider', () => {
 
   test('a short or empty query clears the results and asks nothing', async () => {
     let calls = 0
-    const search = new ProviderTaskSearch<Found>(() => async () => { calls++; return [{ id: 'found' }] })
+    const search = new ProviderTaskSearch<Found>(async () => { calls++; return [{ id: 'found' }] })
     search.request('auth')
     jest.advanceTimersByTime(1_000)
     await settle()
@@ -66,7 +62,7 @@ describe('a task picker search on the provider', () => {
   })
 
   test('a failed search says why and shows no stale task', async () => {
-    const search = new ProviderTaskSearch<Found>(() => async () => { throw new Error('GitHub is not connected') })
+    const search = new ProviderTaskSearch<Found>(async () => { throw new Error('GitHub is not connected') })
     search.request('auth')
     jest.advanceTimersByTime(1_000)
     await settle()
@@ -74,22 +70,10 @@ describe('a task picker search on the provider', () => {
     expect(search.results).toEqual([])
     expect(search.searching).toBe(false)
   })
-
-  test('asks nothing where there is no project to search', () => {
-    const search = new ProviderTaskSearch<Found>(() => null)
-    search.request('auth')
-    expect(search.searching).toBe(false)
-  })
 })
 
 describe('what a task picker adds from a provider search', () => {
   test('a task the picker lists already shows one time', () => {
     expect(tasksOnlyFound([{ id: 'github:1' }, { id: 'github:2' }], [{ id: 'github:1' }])).toEqual([{ id: 'github:2' }])
-  })
-
-  test('a session with no folder has no project to search', () => {
-    expect(searchableProjectRoot('~')).toBeNull()
-    expect(searchableProjectRoot(null)).toBeNull()
-    expect(searchableProjectRoot('/workspace/app')).toBe('/workspace/app')
   })
 })

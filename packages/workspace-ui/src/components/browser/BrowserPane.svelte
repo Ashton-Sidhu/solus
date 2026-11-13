@@ -357,15 +357,7 @@
   const pageWorktree = $derived(
     entry?.page.target.kind === "url" ? entry.page.target.worktreePath : undefined,
   );
-  const evidenceTasks = $derived(
-    attachableTasks(
-      session.tasksStore.tasks,
-      session.tasksStore.tasksForCheckout(
-        entry?.serverId,
-        evidenceOptions?.worktreePath ?? pageWorktree,
-      ),
-    ),
-  );
+  const evidenceTasks = $derived(attachableTasks(session.tasksStore.tasks));
   let capturing = $state(false);
   /** Bumped once per completed capture, so the stage can flash the shutter. A
    *  count rather than a flag: two captures in a row must play twice. */

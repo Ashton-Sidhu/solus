@@ -1,25 +1,27 @@
 import { isChat } from '@solus/contracts/chat'
 import { CHAT_LABEL } from '../../../../lib/paths'
-import type { PickerResultType } from './picker-preferences'
+import { isRecordResultType, listsSessions, PICKER_RESULT_LABELS, type PickerRecordResultType, type PickerResultType } from './picker-result-types'
 import type { Task } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import { plainSnippet } from '@solus/contracts/search-snippet'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
 import type { PreviewHitTarget } from '../../../../lib/preview.svelte'
+import { PR_LIST_ROW_HEIGHT } from '../../../prs/lib/prs-list-view'
 import { taskPickerSections } from '../../../tasks/lib/task-picker-sections'
 import { isDone } from '../../../tasks/lib/tasks-list-view'
 import { taskRef } from '../../../tasks/lib/tasks-api'
 import { SearchQuery } from '@solus/contracts/search-query'
-import { flattenedLower, PICKER_SORT_HINTS, type PickerSort } from './picker-search'
-import { activityScore, compareRelevance, nameScore, topHits, type Relevance } from './picker-relevance'
+import { flattenedLower, matchWindow, PICKER_SORT_HINTS, type PickerSort } from './picker-search'
+import { activityScore, compareRelevance, nameScore, topHits, type Relevance, type TopHits } from './picker-relevance'
+import { matchActions, rankRecords, recordKey, recordTimestamp, RECORD_SECTION_ORDER, type PickerAction, type PickerRecord, type RankedRecord } from './picker-records'
 import { activeSince, keepsArchive, keepsHost, keepsSession, keepsTask, NO_PICKER_FILTERS, type PickerFilters } from './picker-filters'
 import {
   compareListings,
   matchedSessions,
   sessionIdentity,
   unclaimedSessions,
+  type MatchedSessions,
   type SessionListing,
-  type SessionOwner,
   type TaskSession,
 } from './picker-session-listings'
 import { hostPathBaseName } from '@solus/contracts/host-path'
@@ -48,14 +50,15 @@ export interface ConversationHit {
 }
 
 /**
- * A rendered row. Tasks and their expanded sessions share one `entryIndex`
+ * A rendered row. Every row the keyboard can land on shares one `entryIndex`
  * sequence, so the arrow keys walk past headers and ⏎ always means "the thing
- * under the cursor" whether that is a task or one of its sessions.
+ * under the cursor" whatever kind it is.
  *
  * A conversation row is a session no task claims: found by what was said in
  * it, or listed among the newest while the box is empty. A session a task does
  * claim is a session row whether its name or its words matched; the hit, when
- * there is one, rides on the row.
+ * there is one, rides on the row. A record row is a work, a pull request, an
+ * automation, a project or an action (`picker-records.ts`).
  */
 export type PickerRow =
   | {
@@ -72,7 +75,6 @@ export type PickerRow =
       entryIndex: number
       task: Task
       sessions: SidebarSessionChild[]
-      expanded: boolean
       /** Under a query, why this task is listed. */
       matchedIn?: TaskMatchField
       /** The passage of the body the query hit, when the title did not. */
@@ -84,10 +86,6 @@ export type PickerRow =
       entryIndex: number
       task: Task
       session: SidebarSessionChild
-      /** Drawn under its task with a spine. A query lists sessions flat instead. */
-      nested: boolean
-      /** Ends the spine at this row rather than running it into the next task. */
-      isLast: boolean
       /** Under a query, the words found in the session's messages. Absent when
        *  only its name matched. */
       hit?: ConversationHit
@@ -107,6 +105,14 @@ export type PickerRow =
       reason?: import('@solus/contracts/session-search').SessionSearchReason
     }
   | {
+      kind: 'record'
+      key: string
+      entryIndex: number
+      record: PickerRecord
+      /** Under a query, the passage that holds the words when the title does not. */
+      passage?: string
+    }
+  | {
       /** The end of a list the hosts answer in pages. When it comes into view
        *  the next page is read; the keyboard reaches it by reaching the end. */
       kind: 'more'
@@ -118,13 +124,8 @@ export type PickerRow =
 /** A row the keyboard can land on: everything except a section header and the list's end. */
 export type PickerEntry = Exclude<PickerRow, { kind: 'header' | 'more' }>
 
-/**
- * Whether a task row is a group the reader opens: any task with a session,
- * unless the query matched the task itself.
- */
-export function isTaskGroup(row: Extract<PickerRow, { kind: 'task' }>): boolean {
-  return !row.matchedIn && row.sessions.length > 0
-}
+/** A row that is one session: a task's, or one no task claims. */
+export type PickerSessionEntry = Extract<PickerEntry, { kind: 'session' | 'conversation' }>
 
 /** What a conversation row is called: the name the user or the agent gave the
  *  session, else its opening message, else its slug. */
@@ -142,31 +143,6 @@ export function conversationProjectLabel(meta: SessionMeta): string {
   // A chat's folder is named for its session id, which is no place to show.
   if (meta.place === 'chat') return CHAT_LABEL
   return hostPathBaseName(meta.projectRoot || meta.cwd || '') || '~'
-}
-
-/**
- * The projects the picker can scope to, by project key, each once.
- *
- * Built from the picker's own list rather than from the sidebar's columns: a
- * project can hold plenty of work and still have no sidebar row on this
- * client, and a scope you cannot reach is not a scope. The composer's own
- * project leads and is always offered — a fresh project with no task yet must
- * still be nameable. Every project with a task follows, then every known
- * project: a project whose work is all sessions must still be a scope.
- */
-export function pickerProjectKeys(
-  currentProjectKey: string | null,
-  tasks: readonly Task[],
-  projectKeysOf: (task: Task) => readonly string[],
-  knownProjectKeys: Iterable<string>,
-): string[] {
-  const keys = new Set<string>()
-  if (currentProjectKey) keys.add(currentProjectKey)
-  for (const task of tasks) {
-    for (const projectKey of projectKeysOf(task)) keys.add(projectKey)
-  }
-  for (const projectKey of knownProjectKeys) keys.add(projectKey)
-  return [...keys]
 }
 
 /**
@@ -190,32 +166,14 @@ export function sessionMatches(session: SidebarSessionChild, search: SearchQuery
   return search.isEmpty || !!search.matchName(session.label)
 }
 
-/** The passage of `text` around the earliest word of the query, whitespace
- *  collapsed, with ellipses where it was cut. The row's second line. */
-export function matchWindow(text: string, search: SearchQuery): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  const at = search.firstHit(flat)
-  if (at < 0) return flat.slice(0, 100)
-  const start = Math.max(0, at - 32)
-  const end = Math.min(flat.length, at + 72)
-  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
-}
-
 export interface PickerRowsInput {
   tasks: Task[]
   query: string
   /** Which kinds of result the picker lists. */
   resultType?: PickerResultType
-  /** Scope the list to one project, or null to list every project. */
-  projectKey?: string | null
-  /** The projects whose task sources list a task (`tasksStore.projectKeysOf`).
-   *  A task is in the scope when one of them is the scope. With no answer, a
-   *  scope keeps no task. */
-  projectKeysOf?: (task: Task) => readonly string[]
   /** How each section under a query is ordered. Relevance by default. */
   sort?: PickerSort
   sessionsFor: (task: Task) => SidebarSessionChild[]
-  expandedTaskIds: ReadonlySet<string>
   /** Sessions that match the query, from every host searched, in the pages
    *  read so far. Only read under a query. */
   conversations?: readonly SessionSearchResult[]
@@ -227,6 +185,10 @@ export interface PickerRowsInput {
   recentSessions?: readonly SessionMeta[]
   /** Task id → the passage of its comment that holds the query's words. */
   commentPassages?: ReadonlyMap<string, string>
+  /** The works, pull requests, automations and projects in the scope. */
+  records?: readonly PickerRecord[]
+  /** The commands the list ends with when it lists every type. */
+  actions?: readonly PickerAction[]
   /** What the reader narrowed the list to. None by default. */
   filters?: PickerFilters
   /** The clock recency is scored against. Now by default. */
@@ -234,22 +196,23 @@ export interface PickerRowsInput {
 }
 
 /**
- * Build the list.
+ * Build the list (docs/plans/unified-search.md, "Search types").
  *
- * With no query, tasks and the sessions no task claims are peers: one Recent
- * section, newest first, and a task shows its sessions only when the reader
- * opened it. Listing tasks alone, a session made without a task
- * (task-conversation.md §8) could only be found by a query. The Tasks result
- * type keeps the tasks in their lifecycle sections.
+ * With no query, every type opens on Recents: the newest sessions and works,
+ * a short list of what the reader last worked on, then the actions. Tasks,
+ * pull requests, automations and projects are not in Recents: other people
+ * change them, so their dates do not say what the reader did. Each type's own
+ * list holds all of its rows: every session, the tasks in their lifecycle
+ * sections, and each kind of record newest first.
  *
  * A query replaces that with sections in a fixed order, each stating its
  * own rule: tasks the query hit; then sessions it hit by name, flat, one row
- * per session; then In messages, the sessions only a host found. The names are
- * matched here on each keystroke, and the hosts answer later, so a host's
- * answer adds a passage to a row already listed but never moves it: what it
- * alone found is listed below. A matching session remains visible even if its
- * task matches. Tasks do not expand under a query. Every section takes the
- * reader's order: best match first, or newest.
+ * per session; then each kind of record; then In messages, the sessions only a
+ * host found. The names are matched here on each keystroke, and the hosts
+ * answer later, so a host's answer adds a passage to a row already listed but
+ * never moves it: what it alone found is listed below. A matching session
+ * remains visible even if its task matches. Every section takes the reader's
+ * order: best match first, or newest.
  *
  * Best match first also lifts the best few rows found by name into Top hits,
  * above the sections. Without it the best session sat under every task
@@ -262,29 +225,31 @@ export interface PickerList {
   entries: PickerEntry[]
   /** Tasks listed, for the footer. */
   taskCount: number
-  /** Sessions listed or folded under listed tasks, and those the hosts hold
-   *  beyond the pages read, for the footer. */
+  /** Sessions listed, and those the hosts hold beyond the pages read, for
+   *  the footer. */
   sessionCount: number
-  /** Tasks the query kept but the project scope removed. Zero when unscoped.
-   *  The scope control states this so widening is a known quantity rather than
-   *  a guess. */
-  hiddenTaskCount: number
+  /** Works, pull requests, automations and projects listed, for the footer. */
+  recordCount: number
 }
+
+/** How many rows Recents holds: a glance, not a list to read through. */
+export const RECENTS_SHOWN = 10
 
 /**
  * Row heights, in CSS pixels, for the virtualiser.
  *
  * The list is virtualised, so a row's height has to be known before it is
  * painted; these are the same numbers the row markup sets, and a change to one
- * has to move with the other. The last session under a task carries the nest's
- * bottom padding so the spine can stop short of the next task. A flat session
- * row is a two-line row like a task's.
+ * has to move with the other. An action has one line, a pull request has the
+ * height of its row on the pull requests page, and every other row the
+ * keyboard lands on has two lines.
  */
 export function pickerRowHeight(row: PickerRow): number {
   if (row.kind === 'header' || row.kind === 'more') return 32
-  if (row.kind === 'task' || row.kind === 'conversation') return 44
-  if (!row.nested) return 44
-  return row.isLast ? 36 : 32
+  if (row.kind !== 'record') return 44
+  // A pull request is drawn by the row of the pull requests page, at its height.
+  if (row.record.type === 'pullRequest') return PR_LIST_ROW_HEIGHT
+  return row.record.type === 'action' ? 36 : 44
 }
 
 interface KeptTask {
@@ -309,51 +274,64 @@ function narrowing(input: PickerRowsInput) {
   return { filters, since: activeSince(filters, input.now ?? Date.now()) }
 }
 
-/** Remember whose each session is, an in-scope task first, so a host's hit
- *  can find its task without a second pass. */
-function rememberOwners(owners: Map<string, SessionOwner>, task: Task, sessions: readonly SidebarSessionChild[], inScope: boolean): void {
+/** Remember whose each session is, the first task first, so a host's hit can
+ *  find its task without a second pass. */
+function rememberOwners(owners: Map<string, TaskSession>, task: Task, sessions: readonly SidebarSessionChild[]): void {
   for (const session of sessions) {
     if (!session.sessionId) continue
     const key = sessionIdentity(session)
-    const held = owners.get(key)
-    if (!held || (!held.inScope && inScope)) owners.set(key, { task, session, inScope })
+    if (!owners.has(key)) owners.set(key, { task, session })
   }
 }
 
-/** The tasks the query and scope keep, and the sessions a query's words name. */
-function keepMatches(input: PickerRowsInput, search: SearchQuery) {
-  const scope = input.projectKey ?? null
-  const projectKeysOf = input.projectKeysOf ?? (() => [])
+/** The tasks the query keeps, and the sessions a query's words name. A task
+ *  belongs to no project, so the project scope keeps every task. With an empty
+ *  box, the list of every type holds no task rows: it opens on Recents. */
+function keepMatches(input: PickerRowsInput, type: PickerResultType, search: SearchQuery) {
   const kept: KeptTask[] = []
   const nameHits: TaskSession[] = []
   // Every task's sessions are read anyway; remember whose each is so a
   // conversation hit can find its task without a second pass.
-  const ownerBySessionId = new Map<string, SessionOwner>()
-  let hiddenTaskCount = 0
+  const ownerBySessionId = new Map<string, TaskSession>()
   const { filters, since } = narrowing(input)
+  const listsTaskRows = type === 'tasks' || (type === 'all' && !search.isEmpty)
   for (const task of input.tasks) {
     const sessions = input.sessionsFor(task).filter((session) => session.sessionId || session.tabId)
-    const inScope = !scope || projectKeysOf(task).includes(scope)
-    rememberOwners(ownerBySessionId, task, sessions, inScope)
-    const matchedIn = input.resultType === 'sessions' || !keepsTask(task, filters, since)
+    rememberOwners(ownerBySessionId, task, sessions)
+    const matchedIn = !listsTaskRows || !keepsTask(task, filters, since)
       ? null
       : taskMatchField(task, search, input.commentPassages?.get(task.id))
-    const matchingSessions = input.resultType !== 'tasks' && (!search.isEmpty || input.resultType === 'sessions')
+    const matchingSessions = listsSessions(type)
       ? sessions.filter((session) => sessionMatches(session, search) && keepsSession(session, session.lastActivityAt, filters, since))
       : []
     if (!matchedIn && matchingSessions.length === 0) continue
-    if (!inScope) {
-      hiddenTaskCount += 1
-      continue
-    }
     if (matchedIn) kept.push({ task, sessions, matchedIn })
     for (const session of matchingSessions) nameHits.push({ task, session })
   }
-  return { kept, nameHits, ownerBySessionId, hiddenTaskCount }
+  return { kept, nameHits, ownerBySessionId }
 }
 
 /** A task this relevant. */
 type RankedTask = KeptTask & { relevance: Relevance }
+
+/** A row Top hits can lift: a task, a session, or a record. */
+type TopRow = RankedTask | SessionListing | RankedRecord
+
+/** The task a liftable row is, or belongs to. Null for a session no task claims and for a record. */
+function taskIdOfTopRow(row: TopRow): string | null {
+  if ('record' in row) return null
+  if ('matchedIn' in row) return row.task.id
+  return row.kind === 'session' ? row.task.id : null
+}
+
+/** A session whose task is already lifted, or whose task already has a session
+ *  lifted: the task's row opens that session, and two rows with one name spend
+ *  a place the reader needed. */
+function repeatsLiftedTask(row: TopRow, lifted: readonly TopRow[]): boolean {
+  if ('record' in row || 'matchedIn' in row) return false
+  const taskId = taskIdOfTopRow(row)
+  return taskId !== null && lifted.some((other) => taskIdOfTopRow(other) === taskId)
+}
 
 /** The list under construction: rows in order, and the ones the keyboard lands on. */
 function rowWriter(input: PickerRowsInput) {
@@ -363,33 +341,21 @@ function rowWriter(input: PickerRowsInput) {
     rows.push(row)
     entries.push(row)
   }
+  const header = (row: Extract<PickerRow, { kind: 'header' }>) => rows.push(row)
 
-  const task = (item: KeptTask, expanded: boolean, search: SearchQuery) => {
+  const task = (item: KeptTask, search: SearchQuery) => {
     const { task } = item
     const row: PickerEntry = {
       kind: 'task',
       key: `task:${task.id}`,
       entryIndex: entries.length,
       task,
-      sessions: input.resultType === 'tasks' ? [] : item.sessions,
-      expanded: search.isEmpty && input.resultType !== 'tasks' && expanded,
+      sessions: item.sessions,
     }
     if (!search.isEmpty) row.matchedIn = item.matchedIn
     if (!search.isEmpty && item.matchedIn === 'body') row.bodySnippet = matchWindow(task.body ?? '', search)
     if (!search.isEmpty && item.matchedIn === 'comment') row.bodySnippet = matchWindow(plainSnippet(input.commentPassages?.get(task.id) ?? ''), search)
     push(row)
-    if (!expanded || !search.isEmpty || input.resultType === 'tasks') return
-    item.sessions.forEach((session, index) => {
-      push({
-        kind: 'session',
-        key: `session:${task.id}:${session.sessionId ?? session.tabId ?? index}`,
-        entryIndex: entries.length,
-        task,
-        session,
-        nested: true,
-        isLast: index === item.sessions.length - 1,
-      })
-    })
   }
 
   const listing = (listing: SessionListing) => {
@@ -413,8 +379,6 @@ function rowWriter(input: PickerRowsInput) {
       entryIndex: entries.length,
       task,
       session,
-      nested: false,
-      isLast: false,
     }
     if (listing.hit) row.hit = listing.hit
     row.additionalMatches = listing.additionalMatches
@@ -423,24 +387,41 @@ function rowWriter(input: PickerRowsInput) {
     push(row)
   }
 
+  const record = (ranked: Pick<RankedRecord, 'record' | 'passage'>) => {
+    const row: PickerEntry = { kind: 'record', key: recordKey(ranked.record), entryIndex: entries.length, record: ranked.record }
+    if (ranked.passage) row.passage = ranked.passage
+    push(row)
+  }
+
+  /** The commands the list ends with. They have no order to state. */
+  const actions = (actions: readonly PickerAction[]) => {
+    if (!actions.length) return
+    header({ kind: 'header', key: 'header:actions', label: 'Actions', count: actions.length, hint: '' })
+    for (const action of actions) record({ record: { type: 'action', action } })
+  }
+
   return {
     rows,
     entries,
-    header: (row: Extract<PickerRow, { kind: 'header' }>) => rows.push(row),
+    header,
     end: (row: Extract<PickerRow, { kind: 'more' }>) => rows.push(row),
     task,
     listing,
+    record,
+    actions,
   }
 }
 
 export function buildPickerRows(input: PickerRowsInput): PickerList {
   const search = new SearchQuery(input.query)
-  const matches = keepMatches(input, search)
-  const { kept, hiddenTaskCount } = matches
+  const type = input.resultType ?? 'all'
   const writer = rowWriter(input)
-  if (!search.isEmpty || input.resultType === 'sessions') return queryList(input, search, matches, writer)
-  if (input.resultType !== 'tasks') return recentList(input, matches, writer)
+  if (isRecordResultType(type)) return recordList(input, type, search, writer)
+  const matches = keepMatches(input, type, search)
+  if (type === 'all' && search.isEmpty) return recentList(input, matches, writer)
+  if (!search.isEmpty || type === 'sessions') return queryList(input, type, search, matches, writer)
 
+  const { kept } = matches
   for (const section of lifecycleSections(kept)) {
     writer.header({
       kind: 'header',
@@ -449,105 +430,180 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       count: section.items.length,
       hint: PICKER_SORT_HINTS.recency,
     })
-    for (const item of section.items) {
-      writer.task(item, input.expandedTaskIds.has(item.task.id), NO_QUERY)
-    }
+    for (const item of section.items) writer.task(item, NO_QUERY)
   }
   return {
     rows: writer.rows,
     entries: writer.entries,
     taskCount: kept.length,
     sessionCount: 0,
-    hiddenTaskCount,
+    recordCount: 0,
   }
 }
 
-/** The unqueried list: tasks and unclaimed sessions in one section, newest first. */
+/** Every session, a task's or not, as listings, newest first. */
+function everySession(
+  input: PickerRowsInput,
+  { nameHits, ownerBySessionId }: ReturnType<typeof keepMatches>,
+  now: number,
+): SessionListing[] {
+  const { named } = matchedSessions(nameHits, [], [], ownerBySessionId, 'recency', NO_QUERY, now)
+  named.push(...unclaimedSessions(input.recentSessions ?? [], ownerBySessionId, narrowing(input).filters, now))
+  return named.sort(compareListings('recency'))
+}
+
+/** The list of every type while the box is empty: Recents, then the actions. */
 function recentList(
   input: PickerRowsInput,
-  { kept, ownerBySessionId, hiddenTaskCount }: ReturnType<typeof keepMatches>,
+  matches: ReturnType<typeof keepMatches>,
   writer: ReturnType<typeof rowWriter>,
 ): PickerList {
-  const sessions = unclaimedSessions(input.recentSessions ?? [], ownerBySessionId, input.filters ?? NO_PICKER_FILTERS, input.now ?? Date.now())
-  const items = [
-    ...kept.map((item) => ({ ts: item.task.updatedAt, item, listing: null })),
-    ...sessions.map((listing) => ({ ts: listing.ts, item: null, listing })),
-  ].sort((a, b) => b.ts - a.ts)
-  if (items.length) {
+  const now = input.now ?? Date.now()
+  const { since } = narrowing(input)
+  const works = (input.records ?? []).filter((record) => record.type === 'work' && (since === undefined || recordTimestamp(record) >= since))
+  const recents = [
+    ...everySession(input, matches, now).map((listing) => ({ ts: listing.ts, listing, record: null })),
+    ...works.map((record) => ({ ts: recordTimestamp(record), listing: null, record })),
+  ].sort((a, b) => b.ts - a.ts).slice(0, RECENTS_SHOWN)
+  if (recents.length) {
     writer.header({
       kind: 'header',
-      key: 'header:recent',
-      label: 'Recent',
-      count: items.length,
+      key: 'header:recents',
+      label: 'Recents',
+      count: recents.length,
       hint: PICKER_SORT_HINTS.recency,
     })
   }
-  for (const { item, listing } of items) {
-    if (item) writer.task(item, input.expandedTaskIds.has(item.task.id), NO_QUERY)
-    else writer.listing(listing!)
+  for (const { listing, record } of recents) {
+    if (listing) writer.listing(listing)
+    else writer.record({ record })
   }
+  writer.actions(input.actions ?? [])
+  const sessionCount = recents.filter((recent) => recent.listing).length
   return {
     rows: writer.rows,
     entries: writer.entries,
-    taskCount: kept.length,
-    sessionCount: kept.reduce((sum, item) => sum + item.sessions.length, 0) + sessions.length,
-    hiddenTaskCount,
+    taskCount: 0,
+    sessionCount,
+    recordCount: recents.length - sessionCount,
+  }
+}
+
+/** What a section of records is called. With an empty box the pull requests
+ *  listed are the open ones; a query asks the code host for every state. */
+function recordSectionLabel(type: PickerRecordResultType, search: SearchQuery): string {
+  return type === 'pullRequests' && search.isEmpty ? 'Open pull requests' : PICKER_RESULT_LABELS[type]
+}
+
+/** One section of records. */
+function writeRecordsSection(
+  writer: ReturnType<typeof rowWriter>,
+  type: PickerRecordResultType,
+  ranked: readonly RankedRecord[],
+  search: SearchQuery,
+  sort: PickerSort,
+): void {
+  if (!ranked.length) return
+  writer.header({
+    kind: 'header',
+    key: `header:${type}`,
+    label: recordSectionLabel(type, search),
+    count: ranked.length,
+    // Projects have no date: with an empty box they keep the order of every project list.
+    hint: type === 'projects' && search.isEmpty ? '' : PICKER_SORT_HINTS[sort],
+  })
+  ranked.forEach(writer.record)
+}
+
+/** The list of one kind of record: all of them newest first, or the ones a query keeps. */
+function recordList(
+  input: PickerRowsInput,
+  type: PickerRecordResultType,
+  search: SearchQuery,
+  writer: ReturnType<typeof rowWriter>,
+): PickerList {
+  const sort = !search.isEmpty ? input.sort ?? 'relevance' : 'recency'
+  const ranked = rankRecords(input.records ?? [], search, sort, input.now ?? Date.now(), narrowing(input).since).get(type) ?? []
+  writeRecordsSection(writer, type, ranked, search, sort)
+  return { rows: writer.rows, entries: writer.entries, taskCount: 0, sessionCount: 0, recordCount: ranked.length }
+}
+
+const NO_TOP_HITS: TopHits<TopRow> = { order: [], lifted: new Set() }
+
+/** The sessions of a list under a query: the ones this client found by name,
+ *  and the ones only a host found. With an empty box, every session. */
+function queriedSessions(
+  input: PickerRowsInput,
+  type: PickerResultType,
+  search: SearchQuery,
+  matches: ReturnType<typeof keepMatches>,
+  sort: PickerSort,
+  now: number,
+): MatchedSessions {
+  if (search.isEmpty) return { named: everySession(input, matches, now), inMessages: [] }
+  if (!listsSessions(type)) return { named: [], inMessages: [] }
+  const { filters } = narrowing(input)
+  return matchedSessions(
+    matches.nameHits,
+    unclaimedSessions(input.recentSessions ?? [], matches.ownerBySessionId, filters, now),
+    // A host's record can open on another machine, so the Host filter is
+    // checked against the machine each hit opens on.
+    (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters) && keepsArchive(result.session.archived, filters)),
+    matches.ownerBySessionId,
+    sort,
+    search,
+    now,
+  )
+}
+
+/** The rows lifted above the sections, each drawn as the kind it is. */
+function writeTopHits(writer: ReturnType<typeof rowWriter>, top: TopHits<TopRow>, search: SearchQuery): void {
+  if (!top.order.length) return
+  writer.header({
+    kind: 'header',
+    key: 'header:top',
+    label: 'Top hits',
+    count: top.order.length,
+    hint: PICKER_SORT_HINTS.relevance,
+  })
+  for (const hit of top.order) {
+    if ('record' in hit) writer.record(hit)
+    else if ('matchedIn' in hit) writer.task(hit, search)
+    else writer.listing(hit)
   }
 }
 
 /** The list under a query — or every session, when only sessions are listed. */
 function queryList(
   input: PickerRowsInput,
+  type: PickerResultType,
   search: SearchQuery,
-  { kept, nameHits, ownerBySessionId, hiddenTaskCount }: ReturnType<typeof keepMatches>,
+  matches: ReturnType<typeof keepMatches>,
   writer: ReturnType<typeof rowWriter>,
 ): PickerList {
+  const { kept } = matches
   const sort = !search.isEmpty ? input.sort ?? 'relevance' : 'recency'
   const now = input.now ?? Date.now()
-  const { filters } = narrowing(input)
+  const { since } = narrowing(input)
   // Input order is newest first. Relevance ranks with a stable sort, so
   // recency stays the tiebreak; recency keeps the input order as it is.
   const scoredTasks: RankedTask[] = kept.map((item) => ({ ...item, relevance: taskRelevance(item, search, now) }))
   const rankedTasks = sort === 'relevance'
     ? scoredTasks.toSorted((a, b) => compareRelevance(a.relevance, b.relevance))
     : scoredTasks
-  const unclaimed = unclaimedSessions(input.recentSessions ?? [], ownerBySessionId, filters, now)
-  const { named: listings, inMessages } = input.resultType === 'tasks' ? { named: [], inMessages: [] } : matchedSessions(
-    nameHits,
-    !search.isEmpty ? unclaimed : [],
-    // A host's record can open on another machine, so the Host filter is
-    // checked against the machine each hit opens on.
-    !search.isEmpty ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters) && keepsArchive(result.session.archived, filters)) : [],
-    ownerBySessionId,
-    sort,
-    search,
-    now,
-  )
-  if (search.isEmpty) {
-    listings.push(...unclaimed)
-    listings.sort(compareListings(sort))
-  }
-  const remaining = remainingSessions(input, search)
+  const { named: listings, inMessages } = queriedSessions(input, type, search, matches, sort, now)
+  const remaining = listsSessions(type) && !search.isEmpty ? input.conversationsRemaining ?? 0 : 0
+  const recordsByType = type === 'all' ? rankRecords(input.records ?? [], search, sort, now, since) : new Map<PickerRecordResultType, RankedRecord[]>()
+  const recordSections = RECORD_SECTION_ORDER.map((recordType) => ({ recordType, ranked: recordsByType.get(recordType) ?? [] }))
 
-  // Only rows this client found by name are ranked into Top hits and the two
+  // Only rows this client found by name are ranked into Top hits and the
   // sections under it: a host's answer comes later and must not move them.
-  // Matching sessions have their own rows; expanding a task here would repeat them.
-  const top = topHits(sort === 'relevance' ? rankedTasks : [], listings, (listing) => listing.kind === 'session' ? listing.task.id : null)
-  if (top.order.length) {
-    writer.header({
-      kind: 'header',
-      key: 'header:top',
-      label: 'Top hits',
-      count: top.order.length,
-      hint: PICKER_SORT_HINTS.relevance,
-    })
-    for (const hit of top.order) {
-      if ('matchedIn' in hit) writer.task(hit, false, search)
-      else writer.listing(hit)
-    }
-  }
+  const top = sort === 'relevance'
+    ? topHits<TopRow>([rankedTasks, listings, ...recordSections.map((section) => section.ranked)], repeatsLiftedTask)
+    : NO_TOP_HITS
+  writeTopHits(writer, top, search)
 
-  const restTasks = rankedTasks.filter((item) => !top.tasks.has(item))
+  const restTasks = rankedTasks.filter((item) => !top.lifted.has(item))
   if (restTasks.length) {
     writer.header({
       kind: 'header',
@@ -556,10 +612,15 @@ function queryList(
       count: restTasks.length,
       hint: PICKER_SORT_HINTS[sort],
     })
-    for (const item of restTasks) writer.task(item, false, search)
+    for (const item of restTasks) writer.task(item, search)
   }
 
-  writeSessionsSection(writer, 'sessions', 'Sessions', listings.filter((listing) => !top.sessions.has(listing)), 0, sort)
+  writeSessionsSection(writer, 'sessions', 'Sessions', listings.filter((listing) => !top.lifted.has(listing)), 0, sort)
+  for (const { recordType, ranked } of recordSections) {
+    writeRecordsSection(writer, recordType, ranked.filter((record) => !top.lifted.has(record)), search, sort)
+  }
+  // Before In messages: that section has no end until the hosts' last page.
+  if (type === 'all') writer.actions(matchActions(input.actions ?? [], search))
   writeSessionsSection(writer, 'messages', 'In messages', inMessages, remaining, sort)
 
   return {
@@ -567,14 +628,8 @@ function queryList(
     entries: writer.entries,
     taskCount: rankedTasks.length,
     sessionCount: listings.length + inMessages.length + remaining,
-    hiddenTaskCount,
+    recordCount: recordSections.reduce((sum, section) => sum + section.ranked.length, 0),
   }
-}
-
-/** Matching sessions the hosts hold beyond the pages read, when the list shows sessions under a query. */
-function remainingSessions(input: PickerRowsInput, search: SearchQuery): number {
-  if (input.resultType === 'tasks' || search.isEmpty) return 0
-  return input.conversationsRemaining ?? 0
 }
 
 /** A section of sessions, and the end row that reads the matches the hosts
@@ -623,7 +678,7 @@ function lifecycleSections(kept: readonly KeptTask[]): LifecycleSection[] {
  * shows the session's ends as it always has.
  */
 export function previewHitTarget(entry: PickerEntry | null): PreviewHitTarget | null {
-  if (!entry || entry.kind === 'task') return null
+  if (!entry || entry.kind === 'task' || entry.kind === 'record') return null
   if (entry.kind === 'conversation') {
     const serverId = entry.meta.serverId
     return serverId && entry.hit
@@ -642,54 +697,38 @@ export function selectedRowIndex(rows: readonly PickerRow[], selectedIndex: numb
   return rows.findIndex((row) => 'entryIndex' in row && row.entryIndex === selectedIndex)
 }
 
-/**
- * Where `→` goes: a collapsed task opens, an open one steps into its first
- * session. Null when the key has nothing to do.
- */
-export function expandTarget(
-  entry: PickerEntry | undefined,
-): { action: 'expand'; taskId: string } | { action: 'step' } | null {
-  if (entry?.kind !== 'task' || !isTaskGroup(entry)) return null
-  return entry.expanded ? { action: 'step' } : { action: 'expand', taskId: entry.task.id }
+const COUNT_NOUNS = {
+  sessions: ['session', 'sessions'],
+  tasks: ['task', 'tasks'],
+  works: ['work', 'works'],
+  pullRequests: ['pull request', 'pull requests'],
+  automations: ['automation', 'automations'],
+  projects: ['project', 'projects'],
+} satisfies Record<Exclude<PickerResultType, 'all'>, [string, string]>
+
+/** The total under the list. Recents is a selection, not a count, so the list
+ *  of every type says nothing until a query gives it results to count. */
+export function pickerCountLabel(list: PickerList, type: PickerResultType, isQueried: boolean): string {
+  const total = list.taskCount + list.sessionCount + list.recordCount
+  if (type === 'all') return isQueried ? `${total} ${total === 1 ? 'result' : 'results'}` : ''
+  const [one, many] = COUNT_NOUNS[type]
+  return `${total} ${total === 1 ? one : many}`
 }
 
-/**
- * Where `←` goes: a nested session returns to its task, an open task closes.
- * The parent index is looked up in the built list, so it can never point at
- * a row the query has since removed.
- */
-export function collapseTarget(
-  entries: readonly PickerEntry[],
-  selectedIndex: number,
-): { action: 'select'; entryIndex: number } | { action: 'collapse'; taskId: string } | null {
-  const entry = entries[selectedIndex]
-  if (!entry) return null
-  if (entry.kind === 'session') {
-    if (!entry.nested) return null
-    const parentIndex = entries.findIndex(
-      (candidate) => candidate.kind === 'task' && candidate.task.id === entry.task.id,
-    )
-    return parentIndex >= 0 ? { action: 'select', entryIndex: parentIndex } : null
-  }
-  if (entry.kind === 'conversation') return null
-  return entry.expanded ? { action: 'collapse', taskId: entry.task.id } : null
-}
-
-
-export function pickerSessionTitle(row: Exclude<PickerEntry, { kind: 'task' }>): string {
+export function pickerSessionTitle(row: PickerSessionEntry): string {
   return row.kind === 'session' ? row.session.label : conversationTitle(row.meta)
 }
 
-/** The task a flat session row belongs to, for its byline. Null for a session
+/** The task a session row belongs to, for its byline. Null for a session
  *  no task claims, and for one named after its task: the name already says it. */
-export function pickerSessionTaskTitle(row: Exclude<PickerEntry, { kind: 'task' }>): string | null {
+export function pickerSessionTaskTitle(row: PickerSessionEntry): string | null {
   if (row.kind !== 'session') return null
   return flattenedLower(row.task.title) === flattenedLower(row.session.label) ? null : row.task.title
 }
 
 /** The folder the session ran in. A task has no folder of its own: its
  *  session names one. */
-export function pickerSessionProject(row: Exclude<PickerEntry, { kind: 'task' }>): string {
+export function pickerSessionProject(row: PickerSessionEntry): string {
   if (row.kind !== 'session') return conversationProjectLabel(row.meta)
   const projectKey = row.session.projectKey
   if (isChat(projectKey)) return CHAT_LABEL
@@ -697,11 +736,11 @@ export function pickerSessionProject(row: Exclude<PickerEntry, { kind: 'task' }>
 }
 
 /** The host the session ran on. */
-export function pickerSessionServerId(row: Exclude<PickerEntry, { kind: 'task' }>): string | null | undefined {
+export function pickerSessionServerId(row: PickerSessionEntry): string | null | undefined {
   return row.kind === 'session' ? row.session.serverId : row.meta.serverId
 }
 
-export function pickerSessionActivity(row: Exclude<PickerEntry, { kind: 'task' }>): number {
+export function pickerSessionActivity(row: PickerSessionEntry): number {
   return row.kind === 'session'
     ? row.session.lastActivityAt || row.task.updatedAt
     : Date.parse(row.meta.lastTimestamp) || row.hit?.ts || 0

@@ -1,39 +1,5 @@
-<script module lang="ts">
-  export const settingItems = [
-    {
-      id: "response-streaming",
-      keywords: ["response", "streaming", "paragraph", "buffered", "text"],
-    },
-    {
-      id: "turn-diff-summary",
-      keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
-    },
-    {
-      id: "keep-turn-diff-summary",
-      keywords: ["diff", "summary", "changed", "files", "turn", "earlier", "keep", "history"],
-    },
-    {
-      id: "show-tool-calls",
-      keywords: ["tool", "calls", "steps", "activity", "transcript", "simple", "hide"],
-    },
-    {
-      id: "collapse-composer",
-      keywords: [
-        "collapse",
-        "composer",
-        "input",
-        "bar",
-        "toolbar",
-        "focus",
-        "idle",
-        "compact",
-        "minimize",
-      ],
-    },
-  ];
-</script>
-
 <script lang="ts">
+  import { chatSettings as settingItems } from "./lib/settings-search-data";
   import type { ResponseStreamingMode } from "@solus/contracts/settings";
   import { getSettingsContext } from "../../contexts";
   import { Switch } from "../ui/switch";

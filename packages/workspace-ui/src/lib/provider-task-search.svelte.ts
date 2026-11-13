@@ -19,17 +19,16 @@ export class ProviderTaskSearch<T extends { id: string }> {
   /** Bumped by each request, so an older answer never replaces a newer one. */
   private generation = 0
 
-  /** `search` is null where there is no project to search: a chat, or a
-   *  session with no folder. */
-  constructor(private readonly search: () => ((query: string) => Promise<T[]>) | null) {}
+  /** `search` asks the provider. A task belongs to no project, so every
+   *  picker searches the person's task sources. */
+  constructor(private readonly search: (query: string) => Promise<T[]>) {}
 
   /** Ask the provider once the person stops typing. An empty or short query
    *  clears the results. */
   request(query: string): void {
     this.cancel()
     const text = query.trim()
-    const search = this.search()
-    if (text.length < MIN_QUERY_LENGTH || !search) {
+    if (text.length < MIN_QUERY_LENGTH) {
       this.results = []
       return
     }
@@ -37,13 +36,13 @@ export class ProviderTaskSearch<T extends { id: string }> {
     this.searching = true
     this.timer = setTimeout(() => {
       this.timer = null
-      void this.ask(search, text, generation)
+      void this.ask(text, generation)
     }, SEARCH_DEBOUNCE_MS)
   }
 
-  private async ask(search: (query: string) => Promise<T[]>, text: string, generation: number): Promise<void> {
+  private async ask(text: string, generation: number): Promise<void> {
     try {
-      const results = await search(text)
+      const results = await this.search(text)
       if (generation !== this.generation) return
       this.results = results
     } catch (error) {
@@ -70,7 +69,3 @@ export function tasksOnlyFound<T extends { id: string }>(found: readonly T[], li
   return found.filter((task) => !listedIds.has(task.id))
 }
 
-/** The folder a provider search names, or null where there is no project. */
-export function searchableProjectRoot(projectRoot: string | null | undefined): string | null {
-  return projectRoot && projectRoot !== '~' ? projectRoot : null
-}

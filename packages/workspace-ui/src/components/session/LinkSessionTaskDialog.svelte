@@ -4,7 +4,6 @@
   import type { Task } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
   import { linkTabToTask } from "../../contexts/workspace/session-task-link";
-  import { environmentProjectKey } from "../../contexts/git/session-environment.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import * as Command from "../ui/command";
@@ -15,10 +14,8 @@
   import { taskRef } from "../tasks/lib/tasks-api";
   import {
     ProviderTaskSearch,
-    searchableProjectRoot,
     tasksOnlyFound,
   } from "../../lib/provider-task-search.svelte";
-  import { projectHome } from "../../contexts/workspace/run-location";
 
   /**
    * Pick the task a session belongs to. The link is made at once, so the
@@ -36,25 +33,11 @@
   let { tabId, onClose, anchor = null }: Props = $props();
 
   const session = getWorkspaceContext();
-  const sess = $derived(session.sessionFor(tabId));
-  const projectKey = $derived(
-    sess
-      ? environmentProjectKey(session.environment.environmentFor(sess.run), sess.run)
-      : "~",
-  );
-  const serverId = $derived(projectHome(sess?.run)?.serverId ?? session.serverIdFor(tabId));
-  const tasks = $derived(
-    session.tasksStore
-      .tasksForCheckout(serverId, projectKey)
-      .filter((task) => task.category !== "done"),
-  );
+  const tasks = $derived(session.tasksStore.tasks.filter((task) => task.category !== "done"));
   const sections = $derived(taskPickerSections(tasks));
   // The host lists at most a part of a large task source. A query also asks
   // the provider, and the tasks only it found show below the listed ones.
-  const providerSearch = new ProviderTaskSearch(() => {
-    const cwd = searchableProjectRoot(projectKey);
-    return cwd && serverId ? (text) => session.tasksStore.search(serverId, cwd, text) : null;
-  });
+  const providerSearch = new ProviderTaskSearch((text) => session.tasksStore.search(text));
   const foundTasks = $derived(tasksOnlyFound(providerSearch.results, tasks));
 
   let query = $state("");

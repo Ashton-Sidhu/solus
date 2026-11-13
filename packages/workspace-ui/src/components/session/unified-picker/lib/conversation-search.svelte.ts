@@ -15,7 +15,8 @@ import { hosts } from '../../../../contexts/hosts/hosts.svelte'
 import { serversStore } from '../../../../contexts/connections/servers.store.svelte'
 import { toasts } from '../../../../lib/toasts'
 import { activeSince, type PickerFilters } from './picker-filters'
-import type { PickerResultType } from './picker-preferences'
+import { listsRecords, listsSessions, listsTasks, type PickerResultType } from './picker-result-types'
+import { PullRequestSearch, type PullRequestSearchProject } from './pull-request-search.svelte'
 import type { PickerSearchMode } from './picker-search'
 import { isAbsoluteHostPath } from '@solus/contracts/host-path'
 
@@ -353,22 +354,26 @@ export interface PickerSearchInput {
   mode: PickerSearchMode
   filters: PickerFilters
   now: number
+  /** The projects of the scope whose pull requests a connected host can read. */
+  pullRequestProjects: readonly PullRequestSearchProject[]
 }
 
 /**
  * The picker's searches of the hosts, and which of them a list needs: sessions
- * by name or by what was said, every session while the box is empty, and task
- * comments. Keywords mode asks for names only (unified-search.md §8); a list of
- * tasks asks for no session, and a list of sessions for no comment.
+ * by name or by what was said, every session while the box is empty, task
+ * comments, and pull requests. Keywords mode asks for names only
+ * (unified-search.md §8). A type asks only for what it lists: a list of tasks
+ * asks for no session, and a list of works asks no host for anything.
  */
 export class PickerSearches {
   readonly sessions = new ConversationSearch()
   readonly everySession = new RecentSessions()
   readonly comments = new TaskCommentSearch()
+  readonly pullRequests = new PullRequestSearch()
 
   /** Ask again for what the box, the scope and the choices now say. */
   update(input: PickerSearchInput): void {
-    if (input.resultType === 'tasks') this.sessions.reset()
+    if (!listsSessions(input.resultType)) this.sessions.reset()
     else {
       this.sessions.search(input.query, input.scope, {
         namesOnly: input.mode === 'keywords',
@@ -377,17 +382,16 @@ export class PickerSearches {
         serverId: input.filters.host === 'any' ? undefined : input.filters.host,
       })
     }
-    if (input.resultType === 'sessions' || input.mode === 'keywords') this.comments.reset()
+    if (!listsTasks(input.resultType) || input.mode === 'keywords') this.comments.reset()
     else this.comments.search(input.query, input.scope)
-  }
-
-  /** Read every session of the scope, for the list while the box is empty. */
-  loadEverySession(scope: string | null, resultType: PickerResultType): void {
-    if (resultType !== 'tasks') void this.everySession.load(scope)
+    // An empty box that lists every type shows Recents, which hold no pull request.
+    if (!listsRecords(input.resultType, 'pullRequests') || (input.resultType === 'all' && !input.query.trim())) this.pullRequests.reset()
+    else this.pullRequests.search(input.query, input.pullRequestProjects)
   }
 
   reset(): void {
     this.sessions.reset()
     this.comments.reset()
+    this.pullRequests.reset()
   }
 }

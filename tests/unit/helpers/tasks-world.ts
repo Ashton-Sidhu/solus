@@ -5,16 +5,16 @@ import type {
   TaskSourceState,
   TaskSummary,
 } from '@solus/contracts/task-types'
+import type { TaskSource } from '@solus/contracts/task-sources'
 import { singleHostServerConnections } from './server-connections-mock'
 import { SvelteRunes } from './svelte-runes'
 
 /**
  * The renderer's task stores on Svelte's real runtime, with fake hosts.
  *
- * `Task.sessions`, `Task.prLinks` and the project groupings of the task
- * sources are `$derived`. A rune stand-in that computes them once would freeze
+ * `Task.sessions`, `Task.prLinks` and the sources by key are `$derived`. A rune stand-in that computes them once would freeze
  * them at their first value, so the stores are compiled as the app compiles
- * them. Each world has its own connection registry, hosts and projects, so one
+ * them. Each world has its own connection registry, hosts and settings, so one
  * test cannot change what another reads. Each world also compiles into its own
  * directory: Bun does not see a file that appears in a directory after the
  * first import from it.
@@ -23,21 +23,9 @@ import { SvelteRunes } from './svelte-runes'
 type TasksStoreClass = typeof import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')['TasksStore']
 type TaskSourcesStore = import('@solus/workspace-ui/contexts/tasks/task-sources.store.svelte').TaskSourcesStore
 
-/** One checkout of a project on one host, as the project list holds it. */
-export interface WorldCheckout {
-  serverId: string
-  path: string
-  projectKey: string
-}
-
 interface WorldGlobals {
   serverConnections: object
   hosts: { hasCollaboration(serverId: string): boolean; hasExecution(serverId: string): boolean }
-  projectsStore: {
-    projectKeyFor(serverId: string, path: string): string
-    projectsFor(serverId: string): Array<{ path: string }>
-    checkoutsOf(projectKey: string): Array<{ serverId: string; projectRoot: string }>
-  }
   taskSnoozesStore: {
     start(): void
     get(taskId: string): TaskSnooze | undefined
@@ -55,12 +43,12 @@ export interface TasksWorld {
   connectHost(serverId: string, api: object): void
   /** Hosts that hold only attachments, such as the organization's Solus API. */
   attachmentOnlyHosts: Set<string>
-  /** The project list of every host. Set it before the sources load. */
-  checkouts: WorldCheckout[]
   snoozes: Map<string, TaskSnooze>
   snoozeCalls: Array<{ serverId: string; taskId: string; until: number | null; note: string }>
   TasksStore: TasksStoreClass
   taskSourcesStore: TaskSourcesStore
+  /** Change the person's task sources, as a write of their settings does. */
+  setSources(sources: TaskSource[]): void
   /** The compiled `task.svelte.ts` and `tasks.store.svelte.ts`, for a test that compiles a reader of them. */
   modules: { task: string; tasksStore: string; taskSources: string; connections: string }
 }
@@ -87,7 +75,6 @@ export async function createTasksWorld(): Promise<TasksWorld> {
     },
   }
   const attachmentOnlyHosts = new Set<string>()
-  const checkouts: WorldCheckout[] = []
   const snoozes = new Map<string, TaskSnooze>()
   const snoozeCalls: TasksWorld['snoozeCalls'] = []
   worlds.push({
@@ -95,14 +82,6 @@ export async function createTasksWorld(): Promise<TasksWorld> {
     hosts: {
       hasCollaboration: () => true,
       hasExecution: (serverId) => !attachmentOnlyHosts.has(serverId),
-    },
-    projectsStore: {
-      projectKeyFor: (serverId, path) =>
-        checkouts.find((checkout) => checkout.serverId === serverId && checkout.path === path)?.projectKey ?? path,
-      projectsFor: (serverId) => checkouts.filter((checkout) => checkout.serverId === serverId).map(({ path }) => ({ path })),
-      checkoutsOf: (projectKey) => checkouts
-        .filter((checkout) => checkout.projectKey === projectKey)
-        .map(({ serverId, path }) => ({ serverId, projectRoot: path })),
     },
     taskSnoozesStore: {
       start: () => {},
@@ -115,7 +94,6 @@ export async function createTasksWorld(): Promise<TasksWorld> {
   const stub = (name: string, source: string) => runes.module(`${name}-${index}`, source)
   const connectionsModule = stub('connections', `export const serverConnections = ${world}.serverConnections`)
   const hostsModule = stub('hosts', `export const hosts = ${world}.hosts`)
-  const projectsModule = stub('projects', `export const projectsStore = ${world}.projectsStore`)
   const snoozesModule = stub('snoozes', `export const taskSnoozesStore = ${world}.taskSnoozesStore`)
   // The same rule as `attemptServerId` in `lib/sessionUtils`, which imports icons.
   const sessionUtilsModule = stub('session-utils', `
@@ -128,10 +106,10 @@ export async function createTasksWorld(): Promise<TasksWorld> {
     '@solus/client-core/host-key': file('packages/client-core/src/host-key.ts'),
     '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
     '../hosts/hosts.svelte': hostsModule,
-    '../projects/projects.store.svelte': projectsModule,
     './task-snoozes.store.svelte': snoozesModule,
     './task-reconcile': file(`${tasks}/task-reconcile.ts`),
-    './task-projects': file(`${tasks}/task-projects.ts`),
+    './task-links': file(`${tasks}/task-links.ts`),
+    '@solus/contracts/task-sources': file('packages/contracts/src/task-sources.ts'),
   }
   const hostEventsModule = runes.source(`host-events-${index}`, 'packages/client-core/src/host-events.ts', {
     './server-connections': connectionsModule,
@@ -150,6 +128,16 @@ export async function createTasksWorld(): Promise<TasksWorld> {
 
   const { TasksStore } = await import(tasksStore) as { TasksStore: TasksStoreClass }
   const { taskSourcesStore } = await import(taskSources) as { taskSourcesStore: TaskSourcesStore }
+  // The person's settings: no source until a test names some.
+  const settingsListeners = new Set<(change: { set: object; reset: readonly string[] }) => void>()
+  const settings = {
+    values: { taskSources: [] as TaskSource[] },
+    onChange: (listener: (change: { set: object; reset: readonly string[] }) => void) => {
+      settingsListeners.add(listener)
+      return () => { settingsListeners.delete(listener) }
+    },
+  }
+  taskSourcesStore.useSources(settings)
   return {
     connections: base,
     connectHost: (serverId, api) => {
@@ -157,11 +145,14 @@ export async function createTasksWorld(): Promise<TasksWorld> {
       for (const listener of [...connectionListeners]) listener(connection)
     },
     attachmentOnlyHosts,
-    checkouts,
     snoozes,
     snoozeCalls,
     TasksStore,
     taskSourcesStore,
+    setSources: (sources) => {
+      settings.values = { taskSources: sources }
+      for (const listener of [...settingsListeners]) listener({ set: { taskSources: sources }, reset: [] })
+    },
     modules: { task, tasksStore, taskSources, connections: connectionsModule },
   }
 }

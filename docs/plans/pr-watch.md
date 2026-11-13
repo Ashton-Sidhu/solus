@@ -134,7 +134,9 @@ belongs to a session, not to a task.
     characters with HTML comments removed. It ends with what to do and how to
     stop the watch. Every client draws the wake as a host notice row
     (`HostNoticeRow`, shared with the background command wake), not a prompt
-    bubble: an eye, the words "Pull request watch", the pull request number,
+    bubble. The wake starts a turn, as a prompt does, so the row is
+    right-aligned with the prompts; on the left it would read as more of the
+    agent's answer. The row shows an eye, the words "Pull request watch", the pull request number,
     and each piece of news as an icon with a count ("#42 ⊗ 3 💬 2"). The
     icon's colour gives the state: red for failing, a conflict or a close;
     green for passing; amber for no checks yet; violet for comments; muted

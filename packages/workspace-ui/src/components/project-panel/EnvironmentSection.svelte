@@ -2,7 +2,7 @@
   import {
     Boxes as ArtifactIcon,
     Check as CheckIcon,
-    ChevronRight as CaretRightIcon,
+    ChevronDown as CaretDownIcon,
     Folder as FolderIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
@@ -13,7 +13,6 @@
     getPullRequestsContext,
     getWorkspaceContext,
     serversStore,
-    toolsStore,
     groupKeyFor,
     hosts,
   } from "../../contexts";
@@ -25,10 +24,10 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { projectDirLabel } from "../../lib/paths";
   import { toasts } from "../../lib/toasts";
-  import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
+  import OpenInRow from "./OpenInRow.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import MenuRow, { type ActionRowIcon, type ActionRowItem } from "./MenuRow.svelte";
+  import MenuRow, { type ActionRowIcon } from "./MenuRow.svelte";
   import FileManagerIcon from "./FileManagerIcon.svelte";
   import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
   import UsageMeters from "./UsageMeters.svelte";
@@ -155,28 +154,6 @@
     openView(target);
   }
 
-  const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
-    () => !terminalShown ? [] : [
-      {
-        key: "terminal",
-        label: "Terminal",
-        // Show the configured terminal icon until inspection or use resolves
-        // the terminal already attached to the shared session.
-        badge: toolsStore.resolvedTerminal?.name,
-        icon: TerminalAppLogo,
-        hint: comboHint("orb.open-terminal"),
-        phase: "idle",
-        disabled: !!hostAffinity || !(me?.may("host.terminal") ?? true),
-        tooltip: hostAffinity
-          ? `Runs on ${host?.label} — not available for remote sessions`
-          : undefined,
-        run: () => {
-          actions.openTerminal();
-          requestInputFocus();
-        },
-      },
-    ],
-  );
 </script>
 
 <div class="env">
@@ -226,20 +203,14 @@
           openInMenuOpen = true;
         }}
       >
-        <CaretRightIcon size={11} />
+        <CaretDownIcon size={11} />
       </button>
     </div>
   {/if}
   <div class="menu-list">
-    {#each actionRows as row (row.key)}
-        <MenuRow
-          item={row}
-          onInspect={() => {
-            if (active && row.key === "terminal") void toolsStore.refreshResolvedTerminal(session.settings.fallbackTerminal);
-          }}
-          onActivate={row.run}
-        />
-    {/each}
+    {#if terminalShown}
+      <OpenInRow {sourceId} {active} openTerminal={() => actions.openTerminal()} />
+    {/if}
     <!-- One row for what the environment shows. The row opens this session's
          view; the caret lets the user choose another, kept for the session. -->
     {#if viewShown}
@@ -276,18 +247,18 @@
           viewMenuOpen = true;
         }}
       >
-        <CaretRightIcon size={11} />
+        <CaretDownIcon size={11} />
       </button>
     </div>
     {/if}
   </div>
   <DropdownMenu.Root bind:open={viewMenuOpen}>
     <DropdownMenu.Content
-      customAnchor={viewMenuAnchor}
-      side="left"
+      customAnchor={viewMenuAnchor?.parentElement ?? viewMenuAnchor}
+      side="bottom"
       align="start"
-      sideOffset={10}
-      alignOffset={-6}
+      sideOffset={4}
+      alignOffset={0}
       collisionPadding={8}
       onInteractOutside={(event) => {
         if (viewMenuAnchor?.contains(event.target as Node | null)) event.preventDefault();
@@ -314,11 +285,11 @@
   </DropdownMenu.Root>
   <DropdownMenu.Root bind:open={openInMenuOpen}>
     <DropdownMenu.Content
-      customAnchor={openInAnchor}
-      side="left"
+      customAnchor={openInAnchor?.parentElement ?? openInAnchor}
+      side="bottom"
       align="start"
-      sideOffset={10}
-      alignOffset={-6}
+      sideOffset={4}
+      alignOffset={0}
       collisionPadding={8}
       onInteractOutside={(event) => {
         // The caret is the menu's trigger — let its click toggle the menu rather

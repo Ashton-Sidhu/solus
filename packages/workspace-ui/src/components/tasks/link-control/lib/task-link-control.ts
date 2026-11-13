@@ -7,11 +7,10 @@ import { taskRef } from '../../lib/tasks-api'
  */
 
 /** Where a card's conversation lives, handed down by the transcript so every
- *  card in it files links on the same host, scopes the picker to the same
- *  project, and offers the same one-click task. */
+ *  card in it files links on the same host and offers the same one-click
+ *  task. A task belongs to no project, so the picker lists every task. */
 export interface TaskLinkContext {
   serverId?: string
-  projectKey?: string | null
   conversationTaskId?: string | null
 }
 

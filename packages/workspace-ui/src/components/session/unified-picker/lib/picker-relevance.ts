@@ -56,51 +56,42 @@ interface Ranked {
 }
 
 /**
- * The best rows of both kinds, best first, from two lists already in that
- * order. A session whose task is already lifted is left in its section: the
- * task's row opens that session, and two rows with one name spent a place the
- * reader needed. Empty unless a lifted session would otherwise sit below the
- * first few rows — when the sections already open on the best rows, a third
+ * The best rows of every section, best first, from sections that are each
+ * already in that order and given in the order they are listed. A row that
+ * `repeats` one already lifted is left in its section: it would spend a place
+ * the reader needed. Empty unless a lifted row would otherwise sit below the
+ * first few rows — when the list already opens on the best rows, one more
  * heading only moves them down.
  */
-export interface TopHits<T, S> {
-  tasks: Set<T>
-  sessions: Set<S>
-  /** Both kinds, in the order they are listed. */
-  order: Array<T | S>
+export interface TopHits<R> {
+  /** The lifted rows, in the order they are listed. */
+  order: R[]
+  lifted: Set<R>
 }
 
-export function topHits<T extends Ranked & { task: { id: string } }, S extends Ranked>(
-  tasks: readonly T[],
-  sessions: readonly S[],
-  taskIdOf: (session: S) => string | null,
-): TopHits<T, S> {
-  const none: TopHits<T, S> = { tasks: new Set(), sessions: new Set(), order: [] }
-  if (!tasks.length || !sessions.length) return none
-  const picked: TopHits<T, S> = { tasks: new Set(), sessions: new Set(), order: [] }
-  const liftedTaskIds = new Set<string>()
+export function topHits<R extends Ranked>(
+  sections: readonly (readonly R[])[],
+  repeats: (row: R, lifted: readonly R[]) => boolean = () => false,
+): TopHits<R> {
+  const cursors = sections.map(() => 0)
+  const order: R[] = []
   let isBuried = false
-  let taskAt = 0
-  let sessionAt = 0
-  while (picked.order.length < TOP_HIT_COUNT && (taskAt < tasks.length || sessionAt < sessions.length)) {
-    const task = tasks[taskAt]
-    const session = sessions[sessionAt]
-    // A tie goes to the task: its row resumes its latest session.
-    if (task && (!session || compareRelevance(task.relevance, session.relevance) <= 0)) {
-      taskAt += 1
-      picked.tasks.add(task)
-      picked.order.push(task)
-      liftedTaskIds.add(task.task.id)
-      continue
+  while (order.length < TOP_HIT_COUNT) {
+    let best = -1
+    for (let index = 0; index < sections.length; index++) {
+      const row = sections[index]![cursors[index]!]
+      // A tie goes to the earlier section: a task's row resumes its latest session.
+      if (row && (best < 0 || compareRelevance(row.relevance, sections[best]![cursors[best]!]!.relevance) < 0)) best = index
     }
-    sessionAt += 1
-    const taskId = taskIdOf(session!)
-    if (taskId && liftedTaskIds.has(taskId)) continue
-    picked.sessions.add(session!)
-    picked.order.push(session!)
-    if (taskId) liftedTaskIds.add(taskId)
-    // Under the sections it would follow every task.
-    if (tasks.length + sessionAt > TOP_HIT_COUNT) isBuried = true
+    if (best < 0) break
+    const row = sections[best]![cursors[best]!]!
+    cursors[best]! += 1
+    if (repeats(row, order)) continue
+    order.push(row)
+    // Under the sections it would follow every row of the sections above it.
+    // The rows of the first section already lead the list.
+    const rowsAbove = sections.slice(0, best).reduce((sum, section) => sum + section.length, 0)
+    if (rowsAbove > 0 && rowsAbove + cursors[best]! > TOP_HIT_COUNT) isBuried = true
   }
-  return isBuried ? picked : none
+  return isBuried ? { order, lifted: new Set(order) } : { order: [], lifted: new Set() }
 }

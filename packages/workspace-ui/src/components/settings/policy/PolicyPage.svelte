@@ -1,9 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["policy", "managed", "mdm", "lock", "permission", "limit", "insights", "host policy", "export", "import", "mobileconfig", "registry"];
-</script>
-
 <script lang="ts">
+  import { policySearchWords as searchWords } from "../lib/settings-search-data";
   /** Settings → Policy (plans/030 §7): the MDM policy of this host, read-only;
    *  the organization policy and the host policies, which owners edit and
    *  assign; and a document anyone can build and export for MDM. Each save is

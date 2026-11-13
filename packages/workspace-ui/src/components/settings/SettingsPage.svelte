@@ -44,42 +44,35 @@
   import { Button } from "../ui/button";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { SearchField } from "../ui/search-field";
+  import SettingsSections from "./SettingsSections.svelte";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
-  import SettingsTabChat, { settingItems as chatSearch } from "./SettingsTabChat.svelte";
-  import SettingsTabSessions, { settingItems as sessionsSearch } from "./SettingsTabSessions.svelte";
-  import SettingsTabGeneral, { settingItems as generalSearch } from "./SettingsTabGeneral.svelte";
-  import SettingsTabAppearance, { settingItems as appearanceSearch } from "./SettingsTabAppearance.svelte";
-  import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
-  import SettingsTabTasks, { settingItems as tasksSearch } from "./SettingsTabTasks.svelte";
-  import SettingsTabReview, { settingItems as reviewSearch } from "./SettingsTabReview.svelte";
-  import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
-  import SettingsTabTools, { settingItems as toolsSearch } from "./SettingsTabTools.svelte";
-  import SettingsTabProviders from "./SettingsTabProviders.svelte";
-  import IntegrationAccounts from "./IntegrationAccounts.svelte";
-  import SettingsTabSkills from "./SettingsTabSkills.svelte";
-  import SettingsTabMcp, { searchWords as mcpSearch } from "./SettingsTabMcp.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
-  import VoiceDictionaryField from "./VoiceDictionaryField.svelte";
-  import SettingsTabVoice from "./SettingsTabVoice.svelte";
-  import SettingsTabExperimental, { settingItems as experimentalSearch } from "./SettingsTabExperimental.svelte";
-  import SettingsTabTelemetry, { settingItems as telemetrySearch } from "./SettingsTabTelemetry.svelte";
-  import AnalyticsSettings, { searchWords as analyticsSearch } from "./AnalyticsSettings.svelte";
+  import {
+    chatSettings as chatSearch,
+    sessionSettings as sessionsSearch,
+    generalSettings as generalSearch,
+    appearanceSettings as appearanceSearch,
+    taskSettings as tasksSearch,
+    reviewSettings as reviewSearch,
+    toolSettings as toolsSearch,
+    mcpSearchWords as mcpSearch,
+    experimentalSettings as experimentalSearch,
+    telemetrySettings as telemetrySearch,
+    analyticsSearchWords as analyticsSearch,
+    accountSearchWords as accountSearch,
+    agentProfileSearchWords as agentProfileSearch,
+    hostSearchWords as hostSearch,
+    organizationSearchWords as organizationSearch,
+    policySearchWords as policySearch,
+    webhooksSearchWords as webhooksSearch
+  } from "./lib/settings-search-data";
   import { APP_NOTICE_ROWS, NOTIFICATION_CHANNEL_ROWS, SESSION_EVENT_ROWS } from "./lib/notification-settings";
   import { SOURCE_CONTROL_SEARCH_WORDS, dataMatches, wordsMatch } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { openFolder } from "../../contexts/workspace/run-location";
   import SettingsProjectScope from "./SettingsProjectScope.svelte";
   import { supportsProjectScope } from "./lib/settings-scope";
-  import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
-  import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
-  import SettingsTabAccount, { searchWords as accountSearch } from "./SettingsTabAccount.svelte";
-  import SettingsTabAgentProfile, { searchWords as agentProfileSearch } from "./SettingsTabAgentProfile.svelte";
   import { agentProfileSearchWords } from "./agent-profile/lib/agent-profile-entries";
-  import SettingsTabHost, { searchWords as hostSearch } from "./SettingsTabHost.svelte";
-  import SettingsTabOrganization, { searchWords as organizationSearch } from "./SettingsTabOrganization.svelte";
-  import PolicyPage, { searchWords as policySearch } from "./policy/PolicyPage.svelte";
-  import DeviceSettings from "../devices/DeviceSettings.svelte";
-  import SettingsTabWebhooks, { searchWords as webhooksSearch } from "../webhooks/SettingsTabWebhooks.svelte";
   import { settingsHost } from "./lib/settings-host.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
@@ -523,104 +516,7 @@
   {/if}
 {/snippet}
 
-{#snippet tabContent()}
-  {#if session.settingsTab === "source-control" && selectedSettingsHost && selectedSettingsApi}
-    <div class="flex flex-col gap-5">
-      {@render scopeControl()}
-    <SettingsTabSourceControl
-      serverId={selectedSettingsHost.serverId}
-      api={selectedSettingsApi}
-      projectCwd={session.settingsProjectCwd}
-    />
-    </div>
-  {:else if session.settingsTab === "general" && selectedSettingsHost && selectedSettingsApi}
-    <SettingsTabGeneral
-      searchQuery={pageQuery}
-      serverId={selectedSettingsHost.serverId}
-      api={selectedSettingsApi}
-      hostLabel={selectedSettingsHost.label}
-    />
-  {:else if session.settingsTab === "chat"}
-    <SettingsTabChat searchQuery={pageQuery} />
-  {:else if session.settingsTab === "sessions"}
-    <SettingsTabSessions searchQuery={pageQuery} serverId={selectedSettingsHost?.serverId} />
-  {:else if session.settingsTab === "tasks"}
-    <SettingsTabTasks searchQuery={pageQuery} />
-  {:else if session.settingsTab === "account"}
-    <SettingsTabAccount searchQuery={pageQuery} />
-  {:else if session.settingsTab === "agent-profile"}
-    <SettingsTabAgentProfile searchQuery={pageQuery} />
-  {:else if session.settingsTab === "organization"}
-    <SettingsTabOrganization searchQuery={pageQuery} />
-  {:else if session.settingsTab === "policy"}
-    <PolicyPage searchQuery={pageQuery} serverId={selectedSettingsHost?.serverId ?? null} />
-  {:else if session.settingsTab === "host" && selectedSettingsHost}
-    <SettingsTabHost searchQuery={pageQuery} serverId={selectedSettingsHost.serverId} />
-  {:else if session.settingsTab === "appearance"}
-    <SettingsTabAppearance searchQuery={pageQuery} />
-  {:else if session.settingsTab === "notifications"}
-    <SettingsTabNotifications searchQuery={pageQuery} />
-  {:else if session.settingsTab === "review"}
-    <SettingsTabReview searchQuery={pageQuery} />
-  {:else if session.settingsTab === "voice"}
-    {#if selectedSettingsHost && selectedSettingsApi}
-    <SettingsTabVoice
-      serverId={selectedSettingsHost.serverId}
-      hostLabel={selectedSettingsHost.label}
-    />
-    {:else}
-      <VoiceDictionaryField />
-    {/if}
-  {:else if session.settingsTab === "telemetry"}
-    <AnalyticsSettings searchQuery={pageQuery} host={selectedSettingsHost} />
-    {#if selectedSettingsHost && selectedSettingsApi}
-      <SettingsTabTelemetry
-        searchQuery={pageQuery}
-        serverId={selectedSettingsHost.serverId}
-        api={selectedSettingsApi}
-      />
-    {/if}
-  {:else if session.settingsTab === "experimental"}
-    <SettingsTabExperimental searchQuery={pageQuery} />
-  {:else if session.settingsTab === "providers"}
-    <SettingsTabProviders serverId={selectedSettingsHost?.serverId} projectCwd={session.settingsProjectCwd} {scopeControl} />
-  {:else if session.settingsTab === "api-access"}
-    <ConnectionsPanel />
-  {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
-    <SettingsTabTools
-      searchQuery={pageQuery}
-      serverId={selectedSettingsHost.serverId}
-      api={selectedSettingsApi}
-      hostLabel={selectedSettingsHost.label}
-    />
-  {:else if session.settingsTab === "integrations" && selectedSettingsHost}
-    {#key selectedSettingsHost.serverId}
-      <IntegrationAccounts serverId={selectedSettingsHost.serverId} />
-    {/key}
-  {:else if session.settingsTab === "mcp" && selectedSettingsHost}
-    {#key selectedSettingsHost.serverId}
-      <SettingsTabMcp
-        searchQuery={pageQuery}
-        serverId={selectedSettingsHost.serverId}
-        hostLabel={selectedSettingsHost.label}
-      />
-    {/key}
-  {:else if session.settingsTab === "skills" && selectedSettingsHost && selectedSettingsApi}
-    <SettingsTabSkills
-      serverId={selectedSettingsHost.serverId}
-      api={selectedSettingsApi}
-      hostLabel={selectedSettingsHost.label}
-    />
-  {:else if session.settingsTab === "devices" && selectedSettingsHost}
-    {#key selectedSettingsHost.serverId}
-      <DeviceSettings serverId={selectedSettingsHost.serverId} />
-    {/key}
-  {:else if session.settingsTab === "webhooks"}
-    <SettingsTabWebhooks />
-  {:else if session.settingsTab === "keybindings"}
-    <SettingsTabKeybindings bind:searchQuery={() => pageQuery, setSearchQuery} />
-  {/if}
-{/snippet}
+
 
 {#snippet hostFrame()}
   {#if selectedSettingsHost}
@@ -829,7 +725,7 @@
           </header>
         {/if}
         <div class="flex flex-col gap-10">
-          {@render tabContent()}
+          <SettingsSections {pageQuery} {selectedSettingsHost} {selectedSettingsApi} {scopeControl} {setSearchQuery} />
         </div>
       </div>
     </div>

@@ -12,7 +12,6 @@ import {
   dedupePrChoices,
   reconcileSidebarTasks,
   sessionRowLifecycle,
-  isInWorkingSection,
   sidebarSectionOf,
   sortSharedRows,
   projectFilterChoices,
@@ -33,10 +32,11 @@ import { CHATS_GROUP_KEY, groupKeyFor } from '../projects/projects.store.svelte'
 import { CHAT_LABEL } from '../../lib/paths'
 import { isChat } from '@solus/contracts/chat'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
-import { pickerProjectKeys } from '../../components/session/unified-picker/lib/picker-rows'
+import { pickerProjectKeys } from '../../components/session/unified-picker/lib/picker-scope'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
 import { delegatedRows, nestedRowParents } from '../../components/session/lib/session-tree'
 import { SidebarReturnOrder } from '../../components/session/lib/sidebar-return-order'
+import type { PinnedEntry, SidebarSection } from '../../components/session/lib/sidebar-list-items'
 import {
   attemptServerId,
   findOpenTabForSession,
@@ -492,8 +492,6 @@ export class SessionSidebarStore {
   pickerProjectOptions: ListProjectOption[] = $derived.by(() =>
     this.session.projectOptionsFor(pickerProjectKeys(
       this.currentProjectKey,
-      this.session.tasksStore.tasks,
-      (task) => this.session.tasksStore.projectKeysOf(task),
       this.session.logicalProjects.map((project) => project.key),
     )).map((option) => ({ ...option, available: true })),
   )
@@ -534,14 +532,14 @@ export class SessionSidebarStore {
    *  A settled or snoozed session is on its shelf. Another person's session is
    *  in Shared with you. */
   sessionRows: SidebarTask[] = $derived(sortRowsByReturn(
-    this.openRows.filter((row) => sidebarSectionOf(row) === 'sessions'),
+    this.openRows.filter((row) => this.sectionOf(row) === 'sessions'),
     (row) => this.returnOrder.returnedAt(row),
   ))
 
   /** The Working section: open sessions whose agent is busy without the user,
    *  in the order they arrived. A row leaves it when it comes back to the
    *  user, and lands on top of the sessions. */
-  workingRows: SidebarTask[] = $derived(this.openRows.filter(isInWorkingSection))
+  workingRows: SidebarTask[] = $derived(this.openRows.filter((row) => this.sectionOf(row) === 'working'))
 
   /** Shared with you (docs/plans/shared-with-you.md): other people's sessions
    *  in this person's list, until they complete it, newest grant first. A row with
@@ -550,19 +548,40 @@ export class SessionSidebarStore {
   sharedRows: SidebarTask[] = $derived.by(() => {
     const parked = this.parkedSessionTabIds
     return sortSharedRows(this.inFilter(this.withoutNested(this.catalogTasks).filter((row) =>
-      sidebarSectionOf(row) === 'shared' && !row.tabIds.some((tabId) => parked.has(tabId)),
+      this.sectionOf(row) === 'shared' && !row.tabIds.some((tabId) => parked.has(tabId)),
     )))
   })
 
   snoozedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => sidebarSectionOf(task) === 'snoozed'))
+    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => this.sectionOf(task) === 'snoozed'))
       .toSorted((a, b) => a.snoozedUntil - b.snoozedUntil || a.id.localeCompare(b.id)),
   )
   /** The Completed shelf: settled sessions, newest first. */
   completedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => sidebarSectionOf(task) === 'completed'))
+    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => this.sectionOf(task) === 'completed'))
       .toSorted((a, b) => b.completedAt - a.completedAt || a.id.localeCompare(b.id)),
   )
+
+  /** The Pinned section, in pin order: each pin with the row that stands for
+   *  its session, or none when the list has no row for it (a closed session).
+   *  A pinned session shows here and nowhere else, Drafts included. Pins are
+   *  the person's own choice, so the project scope does not hide them. */
+  pinnedEntries: PinnedEntry[] = $derived.by(() => {
+    const rowByPin = new Map<PinnedSession, SidebarTask>()
+    for (const row of this.withoutNested(this.catalogTasks)) {
+      const pin = this.pinFor(this.sessionIdOfRow(row), row.serverId)
+      if (pin) rowByPin.set(pin, row)
+    }
+    return this.pinnedSessions.map((pin) => ({ pin, row: rowByPin.get(pin) ?? null }))
+  })
+
+  /** The rows of the Pinned section, in its order. */
+  pinnedRows: SidebarTask[] = $derived(this.pinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])))
+
+  /** The one section a row is in (`sidebarSectionOf`). */
+  private sectionOf(row: SidebarTask): SidebarSection {
+    return sidebarSectionOf(row, this.pinFor(this.sessionIdOfRow(row), row.serverId) !== null)
+  }
 
   /** The filter's own choices, over every project the column knows about. */
   projectFilterChoices: ProjectFilterChoice[] = $derived(
@@ -656,7 +675,8 @@ export class SessionSidebarStore {
     }
     for (const tabId of this.parkedSessionTabIds) {
       const session = this.session.sessionFor(tabId)
-      if (!session) continue
+      // A pinned session keeps its row in Pinned, with its unsent prompt.
+      if (!session || this.isPinned(session.id, runHost(session.run))) continue
       const projectKey = environmentProjectKey(this.session.environment.environmentFor(session.run), session.run)
       const groupKey = runGroupKey(session.run, projectKey)
       if (filter && projectKey !== '~' && groupKey !== filter) continue
@@ -739,10 +759,22 @@ export class SessionSidebarStore {
   prChoicesFor(task: SidebarTask): TaskPrChoice[] {
     const serverId = task.serverId
     if (!serverId) return []
-    const choices = dedupePrChoices([
-      ...this.sessionPrChoices(task, serverId),
-      ...this.mountedPrChoices(task, serverId),
-    ])
+    return this.withRequiredChecks(serverId, dedupePrChoices([
+      ...this.sessionPrChoices(this.sessionIdOfRow(task), serverId, task.projectKey),
+      ...this.mountedPrChoices(task.tabIds, serverId, task.projectKey),
+    ]))
+  }
+
+  /** The same set for a surface that names a session rather than a sidebar
+   *  row: the session menu, wherever it opens. */
+  prChoicesForSession(serverId: string, sessionId: string, tabId: string | null): TaskPrChoice[] {
+    return this.withRequiredChecks(serverId, dedupePrChoices([
+      ...this.sessionPrChoices(sessionId, serverId, null),
+      ...this.mountedPrChoices(tabId ? [tabId] : [], serverId, null),
+    ]))
+  }
+
+  private withRequiredChecks(serverId: string, choices: TaskPrChoice[]): TaskPrChoice[] {
     for (const choice of choices) choice.requiredChecksFail = this.requiredChecksFail(serverId, choice)
     return choices
   }
@@ -764,25 +796,14 @@ export class SessionSidebarStore {
   }
 
   /**
-   * The durable link behind a row's pull request, when the row can remove it:
-   * the session's own link. A pull request the row only reads from its
-   * checkout has no link to remove.
+   * Removes a session's pull request, or null when the session has no link to
+   * remove: a pull request read only from the checkout's branch is not linked.
    */
-  private unlinkablePullRequest(task: SidebarTask, choice: TaskPrChoice): (() => Promise<void>) | null {
-    const link = sessionPullRequestsStore.linksFor(this.sessionIdOfRow(task))
+  pullRequestUnlink(serverId: string | null, sessionId: string | null, choice: TaskPrChoice): (() => Promise<void>) | null {
+    const link = sessionPullRequestsStore.linksFor(sessionId)
       .find((candidate) => candidate.number === choice.number && candidate.repository === choice.targetScope.toLowerCase())
-    if (!link || !task.serverId) return null
-    const serverId = task.serverId
+    if (!link || !serverId) return null
     return () => sessionPullRequestsStore.unlink(serverId, link)
-  }
-
-  canUnlinkPullRequest(task: SidebarTask, choice: TaskPrChoice): boolean {
-    return this.unlinkablePullRequest(task, choice) !== null
-  }
-
-  /** Remove a pull request from the row that shows it. */
-  async unlinkPullRequest(task: SidebarTask, choice: TaskPrChoice): Promise<void> {
-    await this.unlinkablePullRequest(task, choice)?.()
   }
 
   /** The one session a session row stands for. */
@@ -795,9 +816,9 @@ export class SessionSidebarStore {
    * The pull requests a session row's own session links
    * (docs/plans/session-pull-requests.md).
    */
-  private sessionPrChoices(task: SidebarTask, serverId: string): TaskPrChoice[] {
-    return sessionPullRequestsStore.linksFor(this.sessionIdOfRow(task)).flatMap((link) => {
-      const pr = this.pullRequestProjects.linkedPr(serverId, sessionPrLink(link), task.projectKey)
+  private sessionPrChoices(sessionId: string | null, serverId: string, projectKey: string | null): TaskPrChoice[] {
+    return sessionPullRequestsStore.linksFor(sessionId).flatMap((link) => {
+      const pr = this.pullRequestProjects.linkedPr(serverId, sessionPrLink(link), projectKey)
       return pr ? [pr] : []
     })
   }
@@ -812,13 +833,13 @@ export class SessionSidebarStore {
    * tab — a derived chip, not a claim. A worktree's observation is durable and
    * arrives through `sessionPrChoices` instead, where deduplication meets it.
    */
-  private mountedPrChoices(task: SidebarTask, serverId: string): TaskPrChoice[] {
-    return this.mountedPrObservations(task).flatMap((observation) => {
+  private mountedPrChoices(tabIds: readonly string[], serverId: string, projectKey: string | null): TaskPrChoice[] {
+    return this.mountedPrObservations(tabIds).flatMap((observation) => {
       const parsedUrl = observation.prUrl ? parseGitHubPullRequestUrl(observation.prUrl) : null
       if (!parsedUrl) return []
       const pr = this.pullRequestProjects.linkedPr(serverId, {
         number: parsedUrl.number, url: parsedUrl.url,
-      }, task.projectKey)
+      }, projectKey)
       return pr ? [pr] : []
     })
   }
@@ -826,8 +847,8 @@ export class SessionSidebarStore {
   /** The Git section's detailed status is the canonical detector for mounted
    * sessions. The sidebar reads that same result instead of maintaining a
    * second branch-to-PR opinion. */
-  private mountedPrObservations(task: SidebarTask): MountedPrObservation[] {
-    return task.tabIds.flatMap((tabId) => {
+  private mountedPrObservations(tabIds: readonly string[]): MountedPrObservation[] {
+    return tabIds.flatMap((tabId) => {
       const session = this.session.sessionFor(tabId)
       if (!session) return []
       const environment = this.session.environment.environmentFor(session.run)
@@ -936,13 +957,18 @@ export class SessionSidebarStore {
     }))
   }
 
-  isPinned(sessionId: string | null | undefined, serverId?: string): boolean {
-    if (!sessionId || !serverId) return false
+  isPinned(sessionId: string | null | undefined, serverId?: string | null): boolean {
+    return this.pinFor(sessionId, serverId) !== null
+  }
+
+  /** The pin of a session on its host, or null when it has none. */
+  pinFor(sessionId: string | null | undefined, serverId: string | null | undefined): PinnedSession | null {
+    if (!sessionId || !serverId) return null
     const resolvedServerId = serverConnections.resolveId(serverId)
-    return this.pinnedSessions.some((pin) =>
+    return this.pinnedSessions.find((pin) =>
       pin.sessionId === sessionId
       && pin.serverId === resolvedServerId,
-    )
+    ) ?? null
   }
 
   openTabIdForPinned(pin: PinnedSession): string | null {
@@ -1280,7 +1306,7 @@ export class SessionSidebarStore {
    *  one on screen, in the order the column lists them, wrapping at the ends.
    *  With no row on screen, start from the top or the bottom. */
   async selectAdjacentRow(delta: 1 | -1): Promise<void> {
-    const rows = [...this.sessionRows, ...this.sharedRows, ...this.workingRows]
+    const rows = [...this.sessionRows, ...this.sharedRows, ...this.pinnedRows, ...this.workingRows]
     if (!rows.length) return
     const index = rows.findIndex((row) => row.id === this.onScreenRowId)
     const next = index === -1
@@ -1308,7 +1334,7 @@ export class SessionSidebarStore {
   closeTabs(tabIds: string[], via: Via = 'click'): void {
     const activeTabId = this.session.activeTabId
     const closesActiveTab = tabIds.includes(activeTabId)
-    const openRows = [...this.sessionRows, ...this.sharedRows, ...this.workingRows]
+    const openRows = [...this.sessionRows, ...this.sharedRows, ...this.pinnedRows, ...this.workingRows]
     const sidebarTasks = [
       ...openRows,
       ...this.snoozedTasks,

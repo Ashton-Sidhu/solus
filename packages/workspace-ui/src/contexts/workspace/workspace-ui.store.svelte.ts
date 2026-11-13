@@ -1,4 +1,4 @@
-import { loadPickerResultType, savePickerResultType, type PickerResultType } from '../../components/session/unified-picker/lib/picker-preferences'
+import type { PickerResultType } from '../../components/session/unified-picker/lib/picker-result-types'
 import { SvelteSet } from 'svelte/reactivity'
 import type { PickerScope } from '../../components/session/unified-picker/lib/picker-scope'
 import type { PickerSearchMode, PickerSort } from '../../components/session/unified-picker/lib/picker-search'
@@ -13,15 +13,14 @@ import { loadProjectPageScope, saveProjectPageScope } from '../projects/page-sco
  * `routing/route-registry.ts`.
  */
 /** What a link prompt links: see `WorkspaceUiStore.linkPrompt`. */
-export type LinkPrompt =
-  | { kind: 'session-task'; tabId: string }
-  | { kind: 'session-pull-request'; tabId: string }
-  | { kind: 'task-pull-request'; taskId: string }
+export type LinkPrompt = { kind: 'session-task'; tabId: string }
 
 export class WorkspaceUiStore {
-  /** The one picker over tasks and their sessions. Tasks and sessions were two
-   *  overlays with two flags until they became one list; a caller that used to
-   *  want "the session picker" or "the task picker" wants this. */
+  /** The search: one picker over sessions, tasks, works, pull requests,
+   *  automations and projects (docs/plans/unified-search.md). Tasks and
+   *  sessions were two overlays with two flags until they became one list; a
+   *  caller that used to want "the session picker" or "the task picker" wants
+   *  this. */
   unifiedPickerOpen = $state(false)
   /** What project that picker is scoped to. Lives here, not in the component,
    *  because the picker is mounted separately per layout and per surface. */
@@ -32,14 +31,9 @@ export class WorkspaceUiStore {
   pickerSearchMode = $state<PickerSearchMode>('full-text')
   /** What the picker's list is narrowed to (docs/plans/unified-search.md). */
   pickerFilters = $state<PickerFilters>(NO_PICKER_FILTERS)
-  private resultType = $state(loadPickerResultType())
-
-  get pickerResultType(): PickerResultType { return this.resultType }
-
-  set pickerResultType(value: PickerResultType) {
-    this.resultType = value
-    savePickerResultType(value)
-  }
+  /** Which type of result the picker lists. A choice for one visit: the
+   *  picker sets it back to every type each time it opens. */
+  pickerResultType = $state<PickerResultType>('all')
 
   /** The rename prompt: the tab whose session is being named. `null` = closed.
    *  Lives here so every surface's context menu can open the one dialog. */

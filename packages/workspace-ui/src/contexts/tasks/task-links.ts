@@ -1,49 +1,12 @@
-// Which tasks a project shows, and what one client knows about a task from
-// more than one host. Pure: the stores read these from `$derived`.
-//
-// A task belongs to no project by itself. A project lists task sources, and a
-// task is in the project when one of its placements names one of those sources
-// (docs/plans/provider-owned-tasks.md §4.2).
+// What one client knows about a task from more than one host. Pure: the
+// stores read these from `$derived`.
 
-import type {
-  TaskPlacement,
-  TaskProjectSources,
-  TaskSessionLink,
-  TaskSidebarPrLink,
-  TaskSourceState,
-} from '@solus/contracts/task-types'
-
-/** The tasks that one of `sourceKeys` lists, in their given order. */
-export function tasksInSources<T extends { placements: readonly TaskPlacement[] }>(
-  tasks: readonly T[],
-  sourceKeys: ReadonlySet<string>,
-): T[] {
-  if (sourceKeys.size === 0) return []
-  return tasks.filter((task) => task.placements.some((placement) => sourceKeys.has(placement.sourceKey)))
-}
-
-/**
- * The sources of one project, each once, from the answers of its checkouts.
- *
- * Two checkouts of one repository can list the same source, and each host
- * reports its own read of it. The read that the provider answered most
- * recently is the one a person wants to see.
- */
-export function mergeProjectSources(answers: readonly TaskProjectSources[]): TaskSourceState[] {
-  const bySourceKey = new Map<string, TaskSourceState>()
-  for (const answer of answers) {
-    for (const source of answer.sources) {
-      const held = bySourceKey.get(source.sourceKey)
-      if (!held || (source.fetchedAt ?? 0) > (held.fetchedAt ?? 0)) bySourceKey.set(source.sourceKey, source)
-    }
-  }
-  return [...bySourceKey.values()]
-}
+import type { TaskSessionLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
 
 /**
  * One list of session links from the lists that each host holds for a task.
  *
- * The project host and the organization's Solus API can both hold a link to
+ * The task host and the organization's Solus API can both hold a link to
  * the same session. The first host in `hostOrder` wins, so a link does not
  * change when a second host answers later. The newest link is first.
  */

@@ -32,9 +32,9 @@ const FIELD_VALUES = `
   }
 `
 
-// `projectItems` gives the Projects v2 values of the issue (priority, due date)
-// and the field definitions of each Project, which decide `writableFields`.
-const ISSUE_FIELDS = `
+// The fields of an issue that a connection without the `read:project` scope
+// can read. A plain repository source needs nothing more.
+const ISSUE_BASE_FIELDS = `
   id
   number
   title
@@ -47,6 +47,13 @@ const ISSUE_FIELDS = `
   labels(first: 20) { nodes { name } }
   assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
   parent { number title url }
+`
+
+// `projectItems` gives the Projects v2 values of the issue (priority, due date)
+// and the field definitions of each Project, which decide `writableFields`.
+// GitHub refuses the whole query when the connection lacks `read:project`.
+const ISSUE_FIELDS = `
+  ${ISSUE_BASE_FIELDS}
   projectItems(first: 10) {
     nodes {
       id
@@ -65,7 +72,26 @@ const DRAFT_FIELDS = `
   assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
 `
 
-export const LIST_ISSUES_QUERY = `
+/**
+ * The issue queries in two variants: with the Projects v2 values of each issue,
+ * and without them for a connection that lacks the `read:project` scope
+ * (`withoutProjectScope` in `providers/github.ts`).
+ */
+export interface IssueQueries {
+  listIssues: string
+  issueByNumber: string
+  taskNode: string
+}
+
+function issueQueries(issueFields: string, draftFields: string): IssueQueries {
+  return {
+    listIssues: listIssuesQuery(issueFields),
+    issueByNumber: issueByNumberQuery(issueFields),
+    taskNode: taskNodeQuery(issueFields, draftFields),
+  }
+}
+
+const listIssuesQuery = (issueFields: string) => `
   query($owner: String!, $repo: String!, $states: [IssueState!], $cursor: String) {
     repository(owner: $owner, name: $repo) {
       issues(
@@ -75,18 +101,18 @@ export const LIST_ISSUES_QUERY = `
         orderBy: { field: UPDATED_AT, direction: DESC }
       ) {
         pageInfo { hasNextPage endCursor }
-        nodes { ${ISSUE_FIELDS} }
+        nodes { ${issueFields} }
       }
     }
   }
 `
 
 /** One issue by its number, for the read after a write (a `TaskHome` has no node id). */
-export const ISSUE_BY_NUMBER_QUERY = `
+const issueByNumberQuery = (issueFields: string) => `
   query($owner: String!, $repo: String!, $number: Int!) {
     repository(owner: $owner, name: $repo) {
       issue(number: $number) {
-        ${ISSUE_FIELDS}
+        ${issueFields}
         parent { body }
       }
     }
@@ -94,18 +120,26 @@ export const ISSUE_BY_NUMBER_QUERY = `
 `
 
 /** One task by its stable id: an issue with its comments, or a draft with its board item. */
-export const TASK_NODE_QUERY = `
+const taskNodeQuery = (issueFields: string, draftFields: string) => `
   query($id: ID!) {
     node(id: $id) {
       __typename
       ... on Issue {
-        ${ISSUE_FIELDS}
+        ${issueFields}
         parent { body }
         comments(first: 100) {
           totalCount
           nodes { id author { login } body createdAt }
         }
       }
+${draftFields}
+    }
+  }
+`
+
+/** The draft branch of the task node query. A draft lives only on a Project,
+ *  so a connection without `read:project` cannot read one. */
+const DRAFT_NODE_FIELDS = `
       ... on DraftIssue {
         ${DRAFT_FIELDS}
         projectV2Items(first: 1) {
@@ -116,9 +150,12 @@ export const TASK_NODE_QUERY = `
           }
         }
       }
-    }
-  }
 `
+
+/** The issue queries with the Projects v2 values: the normal reads. */
+export const ISSUE_QUERIES = issueQueries(ISSUE_FIELDS, DRAFT_NODE_FIELDS)
+/** The issue queries a connection without `read:project` can run. */
+export const PLAIN_ISSUE_QUERIES = issueQueries(ISSUE_BASE_FIELDS, '')
 
 /** One board item with its draft, for a write to a draft (the draft id is not in `TaskHome`). */
 export const DRAFT_ITEM_QUERY = `
@@ -290,7 +327,8 @@ export interface IssueNode {
   assignees: AssigneeNodes
   /** The epic. Only a read of one task selects `body`. */
   parent: { number: number; title: string; url: string; body?: string | null } | null
-  projectItems: { nodes: Array<IssueProjectItemNode | null> }
+  /** Absent when the connection lacks `read:project`: the issue reads as off every board. */
+  projectItems?: { nodes: Array<IssueProjectItemNode | null> }
   /** Only in the read of one task by its id. */
   comments?: { totalCount: number; nodes: CommentNode[] }
 }
@@ -469,7 +507,7 @@ function readProjectFields(items: IssueProjectItemNode[]) {
 
 /** The board items of an issue that the viewer can see. */
 export function projectItemsOf(node: IssueNode): IssueProjectItemNode[] {
-  return presentNodes(node.projectItems.nodes)
+  return node.projectItems ? presentNodes(node.projectItems.nodes) : []
 }
 
 /** A GitHub issue takes a priority or a due date only when a Project it is on has that field. */

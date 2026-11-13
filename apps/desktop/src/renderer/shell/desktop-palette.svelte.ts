@@ -19,7 +19,6 @@ import {
   Keyboard as KeyboardIcon,
   GitBranch as GitBranchIcon,
   GitFork as TreeStructureIcon,
-  Folder as FolderIcon,
   FolderOpen as FolderOpenIcon,
   Unplug as PlugsIcon,
   Search as MagnifyingGlassIcon,
@@ -44,7 +43,6 @@ import { artifactsPaletteCommands } from "@solus/workspace-ui/components/session
 import { appsPaletteCommands } from "@solus/workspace-ui/components/app/lib/app-commands";
 import {
   activeSessionShareTarget,
-  projectsStore,
   serversStore,
   hosts,
   sharesStore,
@@ -56,7 +54,7 @@ import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
 import { worktreeProjectRoot } from "@solus/contracts/types";
-import type { PlanDescriptor, ProjectEntry } from "@solus/contracts/types";
+import type { PlanDescriptor } from "@solus/contracts/types";
 import type { PullRequest } from "@solus/contracts/providers";
 
 import { serverConnections } from "@solus/client-core/server-connections";
@@ -69,7 +67,6 @@ import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
 import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
 
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
-import { hostPathBaseName } from "@solus/contracts/host-path";
 
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 import type { DesktopDialogs } from "./desktop-dialogs.svelte";
@@ -169,13 +166,7 @@ export function createDesktopPalette(
   // state (the descriptor list isn't otherwise reactive); works and automations
   // are read straight from their reactive stores after triggering a refresh.
   let palettePlans = $state<PlanDescriptor[]>([]);
-  // Known projects for the "Create task in…" sub-page, refreshed when the palette
-  // opens so the list mirrors what the projects manifest currently holds.
-  let paletteProjects = $state<ProjectEntry[]>([]);
-  // The host those projects were listed from: it creates a task of one of them.
-  let paletteProjectsServerId = $state<string | null>(null);
   function loadOpenPages() {
-    const taskCwd = session.tasksProjectCwd;
     const ctx = session.ctx;
     session.planStore
       .getDescriptors(undefined, true, ctx)
@@ -187,22 +178,7 @@ export function createDesktopPalette(
       });
     void session.worksStore.loadAll();
     void session.automationsStore.loadAll();
-    if (taskCwd) void session.tasksStore.ensureLoaded();
-    const projectApi = session.apiForContext(ctx);
-    const projectServerId = serverConnections.serverIdForApi(projectApi);
-    projectsStore
-      .loadProjectsFor(
-        projectServerId,
-        projectApi,
-        { force: true },
-      )
-      .then((ps) => {
-        paletteProjects = ps;
-        paletteProjectsServerId = projectServerId;
-      })
-      .catch(() => {
-        paletteProjects = [];
-      });
+    void session.tasksStore.ensureLoaded();
   }
 
   // Seed command set for the editor command palette. Intentionally a small,
@@ -621,52 +597,23 @@ export function createDesktopPalette(
       keywords: ["automation", "schedule", "cron", "open"],
       children: automationChildren,
     });
-    // Create a task — one entry scoped to the status-bar project, plus a sub-page
-    // to pick any other known project. Both open the Tasks page composer
-    // (`composeNewTask`).
-    const taskContext = session.taskCreationContext;
-    const taskCwd = taskContext?.projectKey ?? null;
-    if (taskContext && taskCwd) {
-      const taskProjectName = hostPathBaseName(taskCwd) || taskCwd;
-      commands.push({
-        id: "create-task",
-        label: `Create task in ${taskProjectName}`,
-        group: "Tasks",
-        icon: TaskIcon,
-        hint: comboHint("global.new-task"),
-        keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
-        run: () => session.composeNewTask({ serverId: taskContext.serverId, projectRoot: taskCwd }, "palette"),
-      });
-    }
-    const projectsServerId = paletteProjectsServerId;
-    const createTaskInChildren: Command[] = projectsServerId
-      ? paletteProjects.map((p) => ({
-          id: `create-task-in:${p.path}`,
-          label:
-            p.folderName || hostPathBaseName(p.path) || p.path,
-          group: "Projects",
-          icon: FolderIcon,
-          keywords: [p.folderName, p.path],
-          run: () => session.composeNewTask({ serverId: projectsServerId, projectRoot: p.path }, "palette"),
-        }))
-      : [];
+    // Create a task: it opens the Tasks page composer (`composeNewTask`).
+    // A task belongs to no project; the composer asks for its task source.
     commands.push({
-      id: "create-task-in",
-      label: "Create task in…",
+      id: "create-task",
+      label: "Create task",
       group: "Tasks",
       icon: TaskIcon,
-      keywords: ["task", "create", "new", "todo", "issue", "project"],
-      children: createTaskInChildren,
+      hint: comboHint("global.new-task"),
+      keywords: ["task", "create", "new", "todo", "issue"],
+      run: () => session.composeNewTask("palette"),
     });
 
     // Open any existing task (opens its detail). Like the other parent
     // commands, surface this the instant the palette opens so it never waits on
-    // the tasks provider; children stream in once the store loads for this
-    // project. Only the active project's tasks count (the store is scoped to one
-    // cwd, so anything else is stale).
-    const tasksLoadedForProject = !!taskCwd && session.tasksStore.loaded;
-    const goToTaskChildren: Command[] = tasksLoadedForProject
-      ? session.tasksStore.tasksForCheckout(session.activeCheckout?.serverId, taskCwd).map((t) => ({
+    // the tasks provider; children stream in once the store loads.
+    const goToTaskChildren: Command[] = session.tasksStore.loaded
+      ? session.tasksStore.tasks.map((t) => ({
           id: `go-to-task:${t.id}`,
           label: t.title,
           group: "Tasks",
@@ -675,16 +622,14 @@ export function createDesktopPalette(
           run: () => session.goToTask(t.id),
         }))
       : [];
-    if (taskCwd) {
-      commands.push({
-        id: "go-to-task",
-        label: "Open task…",
-        group: "View",
-        icon: TaskIcon,
-        keywords: ["task", "go", "open", "find", "jump", "issue", "ticket"],
-        children: goToTaskChildren,
-      });
-    }
+    commands.push({
+      id: "go-to-task",
+      label: "Open task…",
+      group: "View",
+      icon: TaskIcon,
+      keywords: ["task", "go", "open", "find", "jump", "issue", "ticket"],
+      children: goToTaskChildren,
+    });
 
     commands.push({
       id: "open-prs",

@@ -91,6 +91,7 @@ describe('session sidebar dismissal', () => {
       sessionRows: [],
       workingRows: [],
       sharedRows: [],
+      pinnedRows: [],
       snoozedTasks: [],
       completedTasks: [],
       activeTasks: [],

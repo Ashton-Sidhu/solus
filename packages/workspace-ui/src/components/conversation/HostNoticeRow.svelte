@@ -16,7 +16,9 @@
    * label, and the news in a few words, with the full text folded behind the
    * row. The host's work is context for the agent's next turn, not a person's
    * words, so it is a caption, not a bubble of prose. The glyph alone takes a
-   * colour, and only when the news needs the agent.
+   * colour, and only when the news needs the agent. The wake starts a turn, as
+   * a prompt does, so the caption sits on the prompts' side: on the left it
+   * would read as one more line of the agent's answer.
    */
   interface Props {
     message: Message;
@@ -79,7 +81,7 @@
 {#snippet host(triggerProps: HTMLAttributes<HTMLDivElement>)}
 <div
   {...triggerProps}
-  class="activity-host {skipMotion ? '' : 'animate-msg-in-side'}"
+  class="activity-host {skipMotion ? '' : 'animate-msg-in-up'}"
   data-testid={testid}
   data-nav-msg-id={message.id}
 >
@@ -89,6 +91,7 @@
     target={view.expanded || !summary ? undefined : summaryText}
     proseTarget
     glyphClass={attention ? "is-destructive" : ""}
+    endAligned
     {glyph}
     detail={body}
   >
@@ -111,7 +114,7 @@
       {/snippet}
     </TooltipUI.Trigger>
     {#if !view.expanded}
-      <TooltipUI.Content side="top" align="start" value={tooltip} />
+      <TooltipUI.Content side="top" align="end" value={tooltip} />
     {/if}
   </TooltipUI.Root>
 {:else}

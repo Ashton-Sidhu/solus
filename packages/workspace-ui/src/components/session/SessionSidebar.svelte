@@ -1,29 +1,19 @@
 <script lang="ts">
-  import TaskIcon from "../ui/TaskIcon.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
-  import { localApi } from "@solus/client-core/local-api";
   import { onMount, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
-    LibraryBig as BooksIcon,
-    Clock as ClockIcon,
-    Pin as PushPinIcon,
-    RefreshCw as ArrowsClockwiseIcon,
-    ChartBar as ChartBarIcon,
-    GitPullRequest as GitPullRequestIcon,
     Plus as PlusIcon,
     FolderPlus as FolderPlusIcon,
     Search as MagnifyingGlassIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { projectScopeOf, type PinnedSession } from "@solus/contracts/types";
+  import type { PinnedSession } from "@solus/contracts/types";
   import {
     getSettingsContext,
-    getPullRequestsContext,
     getWorkspaceContext,
     getSessionSidebarStore,
-    groupKeyFor,
     hosts,
     runtime,
   } from "../../contexts";
@@ -39,16 +29,17 @@
     SIDEBAR_MAX_WIDTH,
     SIDEBAR_MIN_WIDTH,
   } from "../layout/lib/workspace-body";
-  import * as Sidebar from "../ui/sidebar";
   import SessionContextMenu from "./SessionContextMenu.svelte";
-  import PrContextMenu from "./PrContextMenu.svelte";
   import TaskActionBar from "./TaskActionBar.svelte";
   import TaskRow from "./TaskRow.svelte";
+  import PinnedSessionRow from "./PinnedSessionRow.svelte";
   import SessionStatusView from "./SessionStatusView.svelte";
   import SessionProjectView from "./SessionProjectView.svelte";
   import type { SidebarListShared } from "./SidebarList.svelte";
-  import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
-  import SidebarAccountFooter from "./SidebarAccountFooter.svelte";
+  import SidebarBrand from "./SidebarBrand.svelte";
+  import SidebarPlaces from "./SidebarPlaces.svelte";
+  import SidebarSky from "./SidebarSky.svelte";
+  import { SKY_HEADER_DROP_REM } from "./lib/sidebar-sky";
   import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
   import {
     taskSnoozeToastLabel,
@@ -59,6 +50,7 @@
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
+  import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
   import { sharesStore } from "../../contexts/sharing/shares.store.svelte";
   import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
   import { writeSessionDrag } from "../../lib/session-drag";
@@ -76,21 +68,27 @@
     type TaskPrChoice,
     type SidebarTask,
   } from "./lib/task-list";
-  import type { SidebarListInput, SidebarSection } from "./lib/sidebar-list-items";
+  import {
+    filterPinnedEntries,
+    type SidebarListInput,
+    type SidebarSection,
+  } from "./lib/sidebar-list-items";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
-  import * as TooltipUI from "../ui/tooltip";
-  import * as Popover from "../ui/popover";
-  import { Button } from "../ui/button";
+  import { isDarkSkyScene } from "../../lib/sky-scene";
+  import { useSkyScene } from "../../lib/sky-scene.svelte";
 
   interface Props {
     open?: boolean;
     managedWidth?: boolean;
+    /** Closed, the places column stays on screen (`SidePanel`). */
+    staysAsColumn?: boolean;
     onToggleCollapse?: () => void;
     onSessionSelect?: () => void;
   }
   let {
     open = true,
     managedWidth = false,
+    staysAsColumn = false,
     onToggleCollapse,
     onSessionSelect,
   }: Props = $props();
@@ -98,26 +96,14 @@
   const session = getWorkspaceContext();
   // A share link's guest reads only the shared session: the workspace pages are not theirs (host-sharing.md §10).
   const isGuest = $derived(hosts.runOn?.me.isGuest ?? false);
-  const pullRequests = getPullRequestsContext();
   const theme = getSettingsContext();
   const sidebarStore = getSessionSidebarStore();
-  const needsReviewCount = $derived(
-    pullRequests.needsReview.countFor(
-      session.serverIdForContext(session.ctx),
-      session.ctx,
-    ),
-  );
-  // Keyed on the host and the project alone: `session.ctx` is a new object on
-  // every session event, and the interest only changes with these two.
-  const needsReviewServerId = $derived(session.serverIdForContext(session.ctx));
-  const needsReviewScope = $derived(projectScopeOf(session.ctx.session));
-  $effect(() => {
-    void needsReviewServerId;
-    void needsReviewScope;
-    return untrack(() => pullRequests.needsReview.wantShown(session));
-  });
-  // Works a teammate asked the reader to review, on every host.
-  const reviewInboxCount = $derived(session.worksStore.reviews.inbox.length);
+  // The title bar's sky shows the scene the person chose, or the clock's.
+  // Dusk and night are dark in both themes. With the sky off the title bar is
+  // plain and the content keeps no room for it.
+  const sky = useSkyScene(() => theme.skySceneChoice);
+  const isOnDarkSky = $derived(theme.showsSidebarSky && isDarkSkyScene(sky.current));
+  const canStartSession = $derived(hosts.runOn?.me.may("host.sessions.start") ?? true);
 
   let scrollEl: HTMLDivElement | undefined = $state();
   let sessionContextMenu = $state<
@@ -135,13 +121,6 @@
         sessionId: string;
         serverId: string | null;
         row: SidebarTask | null;
-        x: number;
-        y: number;
-      }
-    | {
-        kind: "pull-request";
-        row: SidebarTask;
-        choice: TaskPrChoice;
         x: number;
         y: number;
       }
@@ -164,9 +143,10 @@
     renamingTabId = null;
     requestInputFocus();
   }
-  let savedSessionsOpen = $state(false);
   /** Open by default, and opened again when a new share arrives. */
   let sharedSectionOpen = $state(true);
+  /** Open by default: a pin is a session the person wants at hand. */
+  let pinnedSectionOpen = $state(true);
   /** Closed by default: busy rows stay out of the way until they need you. */
   let workingSectionOpen = $state(false);
   let snoozedShelfOpen = $state(false);
@@ -175,6 +155,7 @@
   function toggleSection(section: SidebarSection) {
     let isOpen: boolean;
     if (section === "shared") isOpen = sharedSectionOpen = !sharedSectionOpen;
+    else if (section === "pinned") isOpen = pinnedSectionOpen = !pinnedSectionOpen;
     else if (section === "working") isOpen = workingSectionOpen = !workingSectionOpen;
     else if (section === "snoozed") isOpen = snoozedShelfOpen = !snoozedShelfOpen;
     else isOpen = completedShelfOpen = !completedShelfOpen;
@@ -218,10 +199,18 @@
   const searchedWorkingRows = $derived(
     filterSidebarTasks(sidebarStore.workingRows, taskQuery),
   );
-  /** Every open row in list order: sessions, shared, then working rows.
-   *  Selection ranges, bulk actions and "the next row" all read this one
-   *  order. */
-  const openRows = $derived([...searchedSessionRows, ...searchedSharedRows, ...searchedWorkingRows]);
+  const searchedPinnedEntries = $derived(
+    filterPinnedEntries(sidebarStore.pinnedEntries, taskQuery),
+  );
+  /** Every open row in list order: sessions, shared, pinned, then working
+   *  rows. Selection ranges, bulk actions and "the next row" all read this
+   *  one order. */
+  const openRows = $derived([
+    ...searchedSessionRows,
+    ...searchedSharedRows,
+    ...searchedPinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])),
+    ...searchedWorkingRows,
+  ]);
   const isSearching = $derived(taskQuery.trim().length > 0);
   const searchedSnoozedTasks = $derived(
     filterSidebarTasks(sidebarStore.snoozedTasks, taskQuery),
@@ -248,10 +237,12 @@
     drafts: sidebarStore.draftRows,
     sessions: searchedSessionRows,
     shared: searchedSharedRows,
+    pinned: searchedPinnedEntries,
     working: searchedWorkingRows,
     snoozed: searchedSnoozedTasks,
     completed: searchedCompletedTasks,
     isSharedOpen: sharedSectionOpen || isSearching,
+    isPinnedOpen: pinnedSectionOpen || isSearching,
     isWorkingOpen: workingSectionOpen || isSearching,
     isSnoozedOpen: snoozedShelfOpen,
     isCompletedOpen: isCompletedShelfExpanded,
@@ -262,6 +253,7 @@
     motionMs: theme.sidebarMotionMs,
     isLoading: !session.tasksStore.loaded,
     taskRow,
+    pinnedRow,
     onOpenDraft: openDraft,
     onDiscardDraft: discardDraft,
     onToggleSection: toggleSection,
@@ -282,14 +274,6 @@
     () => taskSearchEl?.focus(),
     { enabled: () => open },
   );
-
-  // Top-nav cluster (Workspace / Automations / …). These are static places,
-  // not tasks — but they sit on the same spine: their icons occupy the 16px
-  // column a task's disclosure lives in, and their labels start exactly where a
-  // task title does, so the whole column reads as one list of one shape.
-  // A static total, in the same muted mono as every other number in the column.
-  // A filled badge here would be the brightest thing above the list and would
-  // compete with the status marks, which are what the eye is meant to count.
 
   onMount(() => {
     const clock = window.setInterval(() => {
@@ -344,13 +328,15 @@
     requestInputFocus();
   }
 
-  function togglePrs() {
-    session.togglePrs();
-    requestInputFocus();
-  }
-
   function newSession() {
     session.drafts.openSessionDraft({ freshTask: true, via: "click" });
+  }
+
+  /** The brand in the title bar and the New draft button both start here. */
+  function startDraft() {
+    newSession();
+    requestInputFocus();
+    onSessionSelect?.();
   }
 
   function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
@@ -366,13 +352,25 @@
   /** Remove a pull request from the row that shows it, or null when the row
    *  only reads it from its checkout and holds no link to remove. */
   function unlinkRowPr(row: SidebarTask, choice: TaskPrChoice): (() => void) | null {
-    if (!sidebarStore.canUnlinkPullRequest(row, choice)) return null;
+    const unlink = sidebarStore.pullRequestUnlink(row.serverId, sidebarStore.sessionIdOfRow(row), choice);
+    if (!unlink) return null;
     return () =>
-      void sidebarStore.unlinkPullRequest(row, choice).catch((error) =>
+      void unlink().catch((error) =>
         toasts.error("Couldn't unlink pull request", {
           description: error instanceof Error ? error.message : String(error),
         }),
       );
+  }
+
+  /** Link a pull request to the row's session by its URL, or nothing when the
+   *  viewer may not change that session or it has not reached its agent yet. */
+  function linkRowPr(row: SidebarTask): ((url: string) => Promise<void>) | undefined {
+    const sessionId = sidebarStore.sessionIdOfRow(row);
+    const serverId = row.serverId;
+    const tabSession = row.tabIds[0] ? session.sessionFor(row.tabIds[0]) : null;
+    if (!sessionId || !serverId || (tabSession && !tabSession.agentSessionId)) return undefined;
+    if (!canDriveSession(serverId, sessionId)) return undefined;
+    return (url) => sessionPullRequestsStore.link(serverId, sessionId, url);
   }
 
   /** A draft row goes back to the composer it was left in, with the caret in it
@@ -775,17 +773,6 @@
     return () => void openPinnedSessionInSplit(pin);
   }
 
-  function openPrChoice(choice: TaskPrChoice) {
-    return () => openTaskPr(choice);
-  }
-
-  function openPrChoiceOnWeb(choice: TaskPrChoice) {
-    return () => {
-      const url = choice.url ?? choice.pullRequest?.url;
-      if (url) void localApi.openExternal(url);
-    };
-  }
-
   function openRowContextMenu(
     event: MouseEvent | PointerEvent,
     task: SidebarTask,
@@ -844,6 +831,23 @@
   }
 </script>
 
+{#snippet pinnedRow(pin: PinnedSession)}
+  {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
+  <PinnedSessionRow
+    {pin}
+    isCurrentSession={!!openTabId && openTabId === session.onScreenTabId}
+    onOpen={() => {
+      void sidebarStore.openPinnedSession(pin);
+      onSessionSelect?.();
+    }}
+    onUnpin={() => {
+      void sidebarStore.unpinSession(pin);
+      requestInputFocus();
+    }}
+    onMore={(event) => openSessionContextMenu(event, { kind: "pinned", pin })}
+  />
+{/snippet}
+
 {#snippet taskRow(task: SidebarTask, inFolder: boolean)}
   {@const prChoices = sidebarStore.prChoicesFor(task)}
   <TaskRow
@@ -877,14 +881,7 @@
     onOpenPr={openTaskPr}
     onWarmPr={warmTaskPr}
     onUnlinkPr={(choice) => unlinkRowPr(task, choice)}
-    onMorePr={(event, choice) =>
-      (sessionContextMenu = {
-        kind: "pull-request",
-        row: task,
-        choice,
-        x: event.clientX,
-        y: event.clientY,
-      })}
+    onLinkPr={linkRowPr(task)}
     onSelectSession={selectSession}
     onMoreSession={openChildContextMenu}
     onDragRow={runtime.isTouchDevice ? undefined : (event) => dragRow(event, task)}
@@ -897,6 +894,7 @@
   side="left"
   {open}
   {managedWidth}
+  {staysAsColumn}
   isElevated={false}
   minWidth={SIDEBAR_MIN_WIDTH}
   maxWidth={SIDEBAR_MAX_WIDTH}
@@ -904,170 +902,37 @@
   actionTooltip={`Collapse sidebar (${comboHint("global.toggle-sidebar")})`}
   actionAriaLabel="Collapse sidebar"
   background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
+  headerOnDark={isOnDarkSky}
 >
+  {#snippet backdrop()}
+    {#if theme.showsSidebarSky}
+      <SidebarSky scene={sky.current} />
+    {/if}
+  {/snippet}
+  {#snippet headerLeading()}
+    <SidebarBrand onDarkSky={isOnDarkSky} onclick={canStartSession ? startDraft : undefined} />
+  {/snippet}
   {#snippet headerActions()}
     <HistoryNavButtons />
   {/snippet}
-  <!-- The one filled control in the column, kept compact so it leads without
-      overpowering the navigation below it. -->
 
-  <Sidebar.Group class="flex-shrink-0 p-0">
-    <Sidebar.GroupContent class="px-3.5 @max-[15rem]:px-2.5">
-      <Sidebar.Menu class="gap-0.5">
-        {#if !isGuest}
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            size="sm"
-            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'folio',
-            )
-              ? 'text-foreground'
-              : ''}"
-            isActive={session.router.at("folio")}
-            onclick={() => session.toggleFolio()}
-          >
-            <span class="flex shrink-0 items-center"
-              ><BooksIcon size={14} /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome">Workspace</span
-            >
-            {#if reviewInboxCount > 0}
-              <span
-                class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
-                title={`${reviewInboxCount} ${reviewInboxCount === 1 ? "work needs" : "works need"} your review`}
-                aria-label={`${reviewInboxCount} need your review`}
-                data-testid="work-review-inbox-count"
-                >{reviewInboxCount > 99 ? "99+" : reviewInboxCount}</span
-              >
-            {:else}
-              <span
-                class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-                >{comboHint("global.toggle-workspace")}</span
-              >
-            {/if}
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            size="sm"
-            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'automations',
-            )
-              ? 'text-foreground'
-              : ''}"
-            isActive={session.router.at("automations")}
-            onclick={() => session.toggleAutomations()}
-          >
-            <span class="flex shrink-0 items-center"
-              ><ArrowsClockwiseIcon size={14} /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome"
-              >Automations</span
-            >
-            <span
-              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-              >{comboHint("global.toggle-automations")}</span
-            >
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            size="sm"
-            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'insights',
-            )
-              ? 'text-foreground'
-              : ''}"
-            isActive={session.router.at("insights")}
-            onclick={() => session.toggleInsights()}
-          >
-            <span class="flex shrink-0 items-center"
-              ><ChartBarIcon size={14} /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome">Insights</span>
-            <span
-              class="shrink-0 font-mono text-menu-meta opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-              >{comboHint("global.toggle-insights")}</span
-            >
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            size="sm"
-            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'prs',
-            )
-              ? 'text-foreground'
-              : ''}"
-            isActive={session.router.at("prs")}
-            onclick={togglePrs}
-          >
-            <span class="flex shrink-0 items-center"
-              ><GitPullRequestIcon size={14} /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome"
-              >Pull requests</span
-            >
-            {#if needsReviewCount > 0}
-              <span
-                class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
-                title={`${needsReviewCount} pull ${needsReviewCount === 1 ? "request needs" : "requests need"} your review`}
-                aria-label={`${needsReviewCount} need your review`}
-                >{needsReviewCount > 99 ? "99+" : needsReviewCount}</span
-              >
-            {/if}
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            size="sm"
-            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground {session.router.at(
-              'tasks',
-            )
-              ? 'text-foreground'
-              : ''}"
-            isActive={session.router.at("tasks")}
-            onclick={() => session.toggleTasks()}
-          >
-            <span class="flex shrink-0 items-center"
-              ><TaskIcon size={14} /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome">Tasks</span>
-            <span
-              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-              >{comboHint("global.toggle-tasks")}</span
-            >
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        {/if}
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            size="sm"
-            class="group flex h-7 w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg bg-transparent pr-2 pl-[0.125rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
-            onclick={() =>
-              window.dispatchEvent(
-                new CustomEvent("solus:toggle-session-picker"),
-              )}
-          >
-            <span class="flex shrink-0 items-center"
-              ><ClockIcon size={14} /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome">History</span>
-            <span
-              class="shrink-0 text-xs opacity-0 transition-opacity duration-[120ms] group-hover:opacity-70"
-              >{comboHint("global.session-picker")}</span
-            >
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-      </Sidebar.Menu>
-    </Sidebar.GroupContent>
-  </Sidebar.Group>
-
-  <!-- Separate navigation from task controls. -->
+  <!-- The places run down the left edge; the search, the bulk bar, and the
+       list fill the column beside them. -->
   <div
-    class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
-  ></div>
-
+    class="flex min-h-0 flex-1"
+    style:margin-top={theme.showsSidebarSky ? `${SKY_HEADER_DROP_REM}rem` : undefined}
+  >
+  <SidebarPlaces />
+  <!-- Closed, the list is clipped away beside the places column. The pane
+       narrows it on every frame of the slide, so it fades rather than show
+       its rows squeezing, and hides once the pane has closed, so its rows
+       stop painting and Tab skips them. -->
+  <div
+    class="flex min-w-0 flex-1 flex-col {open
+      ? 'transition-opacity duration-180 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none'
+      : 'invisible opacity-0 [transition:opacity_180ms_cubic-bezier(0.2,0,0,1),visibility_0s_240ms] motion-reduce:transition-none'}"
+    aria-hidden={!open}
+  >
   <div class="flex-shrink-0">
     {#snippet taskSearch()}
       <label
@@ -1126,17 +991,13 @@
           <FolderPlusIcon class="size-4" />
         </button>
       {/if}
-      {#if hosts.runOn?.me.may("host.sessions.start") ?? true}
+      {#if canStartSession}
       <button
         type="button"
         class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="New draft"
         title="New draft"
-        onclick={() => {
-          newSession();
-          requestInputFocus();
-          onSessionSelect?.();
-        }}
+        onclick={startDraft}
       >
         <PlusIcon class="size-4" />
       </button>
@@ -1218,128 +1079,9 @@
     {/if}
   </div>
 
-  <!-- Separate the task list from the footer. -->
-  <div
-    class="mx-3.5 h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
-  ></div>
-  <Sidebar.Footer
-    class="relative flex-shrink-0 px-3.5 py-2 @max-[15rem]:px-2.5"
-  >
-    <Sidebar.Menu class="gap-0.5">
-      <SidebarAccountFooter {savedSessions} />
-    </Sidebar.Menu>
-  </Sidebar.Footer>
+  </div>
+  </div>
 </SidePanel>
-
-<!-- The pinned sessions, behind a footer button. -->
-{#snippet savedSessions()}
-  {#if sidebarStore.pinnedSessions.length > 0}
-    <Popover.Root
-      bind:open={savedSessionsOpen}
-      onOpenChange={(next) => {
-        if (!next) requestInputFocus();
-      }}
-    >
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <Popover.Trigger {...tooltipProps}>
-              {#snippet child({ props })}
-                <Button
-                  {...props}
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Saved sessions, {sidebarStore.pinnedSessions.length}"
-                  class="relative rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground data-[state=open]:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] data-[state=open]:text-foreground"
-                >
-                  <PushPinIcon size={15} />
-                  <span
-                    class="pointer-events-none absolute top-0.5 right-0.5 text-[0.5625rem] leading-none font-medium text-muted-foreground tabular-nums opacity-70"
-                    aria-hidden="true"
-                    >{sidebarStore.pinnedSessions.length}</span
-                  >
-                </Button>
-              {/snippet}
-            </Popover.Trigger>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content side="top" value="Saved sessions" />
-      </TooltipUI.Root>
-      <Popover.Content
-        side="top"
-        align="start"
-        sideOffset={6}
-        collisionPadding={8}
-        aria-label="Saved sessions"
-        class="max-h-[min(24rem,calc(100vh-2rem))] w-[min(18rem,calc(100vw-2rem))] gap-0.5 overflow-y-auto p-1.5"
-      >
-        {#each sidebarStore.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
-          {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
-          {@const isActive =
-            !!openTabId && openTabId === session.onScreenTabId}
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props: tooltipProps })}
-                <div
-                  {...tooltipProps}
-                  class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded-lg px-2 transition-[background] duration-150 hover:bg-accent"
-                  role="button"
-                  tabindex="0"
-                  onclick={() => {
-                    savedSessionsOpen = false;
-                    void sidebarStore.openPinnedSession(pin);
-                    onSessionSelect?.();
-                  }}
-                  onkeydown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      savedSessionsOpen = false;
-                      void sidebarStore.openPinnedSession(pin);
-                      onSessionSelect?.();
-                    }
-                  }}
-                  oncontextmenu={(event) =>
-                    openSessionContextMenu(event, { kind: "pinned", pin })}
-                >
-                  <span
-                    class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap {isActive
-                      ? 'font-medium text-foreground'
-                      : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
-                    >{pin.title}</span
-                  >
-                  <button
-                    class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground pointer-coarse:flex"
-                    aria-label="Unpin session"
-                    title="Unpin"
-                    onclick={(event) => {
-                      event.stopPropagation();
-                      // The popover stays open for the next pin. The
-                      // last unpin removes it, so focus goes back.
-                      const isLastPin =
-                        sidebarStore.pinnedSessions.length === 1;
-                      void sidebarStore.unpinSession(pin);
-                      if (isLastPin) requestInputFocus();
-                    }}
-                  >
-                    <PushPinIcon size={14} weight="fill" />
-                  </button>
-                </div>
-              {/snippet}
-            </TooltipUI.Trigger>
-            <SessionSidebarTooltip
-              title={pin.title}
-              projectKey={pin.cwd}
-              groupKey={groupKeyFor(pin.serverId ?? "", pin.cwd)}
-              serverId={pin.serverId}
-              provider={pin.provider}
-              modelId={pin.model}
-            />
-          </TooltipUI.Root>
-        {/each}
-      </Popover.Content>
-    </Popover.Root>
-  {/if}
-{/snippet}
 
 {#if sessionContextMenu}
   {#if sessionContextMenu.kind === "tab"}
@@ -1364,17 +1106,6 @@
       sessionId={sessionContextMenu.sessionId}
       serverId={sessionContextMenu.serverId}
       rowActions={listedRow ? listedRowActions(listedRow) : null}
-      onClose={closeSessionContextMenu}
-    />
-  {:else if sessionContextMenu.kind === "pull-request"}
-    {@const prMenu = sessionContextMenu}
-    <PrContextMenu
-      x={prMenu.x}
-      y={prMenu.y}
-      choice={prMenu.choice}
-      onOpen={openPrChoice(prMenu.choice)}
-      onOpenWeb={openPrChoiceOnWeb(prMenu.choice)}
-      onUnlink={unlinkRowPr(prMenu.row, prMenu.choice) ?? undefined}
       onClose={closeSessionContextMenu}
     />
   {:else}

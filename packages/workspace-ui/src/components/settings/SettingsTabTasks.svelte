@@ -1,23 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  export const settingItems: SettingItem[] = [
-    {
-      id: "task-lifecycle",
-      keywords: ["agent", "task", "ticket", "lifecycle", "status", "done", "autonomous", "moderate"],
-    },
-    {
-      id: "completed-retention",
-      keywords: ["task", "completed", "done", "sidebar", "history", "days", "retention"],
-    },
-  ];
-</script>
-
 <script lang="ts">
+  import { taskSettings as settingItems } from "./lib/settings-search-data";
   import type { AgentTaskLifecyclePolicy } from "@solus/contracts/types";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";

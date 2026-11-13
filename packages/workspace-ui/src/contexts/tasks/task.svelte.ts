@@ -46,7 +46,7 @@ import type {
 } from '@solus/contracts/task-types'
 import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import { sameEpic, samePlacements, samePr, samePrLinks, sameStrings } from './task-reconcile'
-import { hostOfSessionLink, mergePrLinks, mergeSessionLinks } from './task-projects'
+import { hostOfSessionLink, mergePrLinks, mergeSessionLinks } from './task-links'
 import type { TasksStore } from './tasks.store.svelte'
 
 export class Task implements TaskRecord {

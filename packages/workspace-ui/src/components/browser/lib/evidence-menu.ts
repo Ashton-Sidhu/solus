@@ -28,13 +28,11 @@ export interface EvidenceChoice {
   target?: BrowserEvidenceTarget
 }
 
-/** Tasks worth filing against: the tasks of the page's project that are not
- *  done. A done task is not where the evidence for the current change belongs.
- *  A page whose project lists no such task offers every task that is not done,
- *  so scoping never leaves the person with nowhere to file. */
-export function attachableTasks<T extends Pick<Task, 'category'>>(tasks: readonly T[], projectTasks: readonly T[]): T[] {
-  const scoped = projectTasks.filter((task) => task.category !== 'done')
-  return scoped.length ? scoped : tasks.filter((task) => task.category !== 'done')
+/** Tasks worth filing against: the tasks that are not done. A done task is
+ *  not where the evidence for the current change belongs. A task belongs to
+ *  no project, so the page's project does not narrow the list. */
+export function attachableTasks<T extends Pick<Task, 'category'>>(tasks: readonly T[]): T[] {
+  return tasks.filter((task) => task.category !== 'done')
 }
 
 /** `tasks` is the answer of `attachableTasks`. */

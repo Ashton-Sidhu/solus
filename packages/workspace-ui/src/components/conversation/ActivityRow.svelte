@@ -34,6 +34,9 @@
     stacked?: boolean;
     /** This row is nested under the turn-level activity summary. */
     nested?: boolean;
+    /** The row starts a turn, as a prompt does, so it sits on the prompts'
+     *  side of the column: right-aligned, with its detail rule on the right. */
+    endAligned?: boolean;
     expanded?: boolean;
     /** Absent means there is nothing folded away. The whole row is the
      *  disclosure — there is no chevron; hover and the detail's rule say it opens. */
@@ -53,13 +56,14 @@
     glyphClass = "",
     stacked = false,
     nested = false,
+    endAligned = false,
     expanded = false,
     onToggle,
     testid,
   }: Props = $props();
 </script>
 
-<div class="activity-block" {@attach pauseWhenOffscreen}>
+<div class="activity-block" class:is-end={endAligned} {@attach pauseWhenOffscreen}>
   <div
     class="activity-row"
     class:is-static={!onToggle}
@@ -127,6 +131,24 @@
     --activity-icon-size: var(--text-tool-step);
   }
 
+  /* The row takes its content's width at the right of the column. The chassis
+     still overhangs both ends, so the last mark lines up with the prompts. */
+  .activity-block.is-end {
+    align-items: flex-end;
+  }
+
+  .is-end .activity-row {
+    width: auto;
+    max-width: calc(100% + 1.5rem);
+  }
+
+  /* No width to grow into: each part keeps its own width and truncates only
+     when the column is narrower than the row. */
+  .is-end .activity-disclose,
+  .is-end .activity-target {
+    flex: 0 1 auto;
+  }
+
   /* A defined edge rather than a floating patch of grey: the same chip chassis
      the dispatch card uses — barely-there fill under a hairline ring. */
   .activity-row:not(.is-static):hover {
@@ -163,14 +185,16 @@
   }
 
   /* The 22px slot the icon cluster, the spinner and the stop glyph all share, so
-     nothing moves horizontally when the run ends. */
+     nothing moves horizontally when the run ends. A lone glyph starts at the
+     slot's left edge, as a cluster does, so it lines up with the prose above
+     and below instead of floating a few pixels into the column. */
   .activity-glyph {
     display: inline-flex;
     min-width: 1.375rem;
     height: 1.125rem;
     flex-shrink: 0;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.3125rem;
     color: var(--muted-foreground);
   }
@@ -244,11 +268,20 @@
     text-align: right;
   }
 
-  /* The rule drops from the centre of the 22px glyph slot. */
+  /* The rule drops from the centre of the first glyph. */
   .activity-detail {
-    margin: 0.125rem 0 0 0.6875rem;
+    margin: 0.125rem 0 0 0.375rem;
     padding-left: 0.75rem;
     border-left: 0.0625rem solid
+      color-mix(in oklch, var(--foreground) 9%, transparent);
+  }
+
+  .is-end .activity-detail {
+    max-width: 85%;
+    margin: 0.125rem 0.375rem 0 0;
+    padding: 0 0.75rem 0 0;
+    border-left: none;
+    border-right: 0.0625rem solid
       color-mix(in oklch, var(--foreground) 9%, transparent);
   }
 

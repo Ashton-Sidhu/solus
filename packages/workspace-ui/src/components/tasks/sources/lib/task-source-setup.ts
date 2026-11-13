@@ -1,11 +1,11 @@
-// The task sources of a project, as the source setup shows and changes them.
-// Shaping only: the save itself is a project config write, and the host reads
-// the sources again after it (docs/plans/provider-owned-tasks.md §4.2, §7).
-import type { ProjectConfig } from '@solus/contracts/types'
+// The person's task sources, as the source setup shows and changes them.
+// Shaping only: the save itself is a write of the personal settings, and the
+// task host reads the sources again after it (docs/tasks.md).
+import type { PersonalSettings } from '@solus/contracts/settings'
 import { MAX_TASK_SOURCES, taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
 import type { TaskSourceHealth, TaskSourceOptions, TaskSourceState } from '@solus/contracts/task-types'
 
-type TaskSourceConfig = Pick<ProjectConfig, 'taskSources' | 'defaultTaskSource'>
+type TaskSourceConfig = Pick<PersonalSettings, 'taskSources'>
 
 /** What each source kind is called. A board is a source that has columns. */
 export const SOURCE_KIND_NAMES = {
@@ -29,51 +29,21 @@ export function taskSourceLabel(source: TaskSource): string {
   }
 }
 
-// ── Changes of the project config ──
+// ── Changes of the personal settings ──
 
-/**
- * Add a source to a project. The first source becomes the default source, so
- * a project with sources always has one. Null when the project lists the
- * source already or holds the most sources a project can.
- */
+/** Add a source. Null when the person has the source already or has the most
+ *  sources a person can. */
 export function withTaskSource(config: TaskSourceConfig, source: TaskSource): TaskSourceConfig | null {
-  const sources = config.taskSources ?? []
+  const sources = config.taskSources
   const sourceKey = taskSourceKey(source)
   if (sources.length >= MAX_TASK_SOURCES) return null
   if (sources.some((held) => taskSourceKey(held) === sourceKey)) return null
-  return {
-    taskSources: [...sources, source],
-    defaultTaskSource: defaultSourceKeyOf(config) ?? sourceKey,
-  }
+  return { taskSources: [...sources, source] }
 }
 
-/**
- * Remove a source from a project. When it was the default source, the first
- * source that stays becomes the default. A project with no source has no
- * default source and no tasks.
- */
+/** Remove a source. A person with no source has no tasks. */
 export function withoutTaskSource(config: TaskSourceConfig, sourceKey: string): TaskSourceConfig {
-  const sources = (config.taskSources ?? []).filter((held) => taskSourceKey(held) !== sourceKey)
-  const heldDefault = defaultSourceKeyOf(config)
-  const defaultSource = heldDefault && heldDefault !== sourceKey ? heldDefault : sources[0] ? taskSourceKey(sources[0]) : undefined
-  return { taskSources: sources, defaultTaskSource: defaultSource }
-}
-
-/** Make one of the project's sources the default source. Null when the project
- *  does not list it. */
-export function withDefaultTaskSource(config: TaskSourceConfig, sourceKey: string): TaskSourceConfig | null {
-  const sources = config.taskSources ?? []
-  if (!sources.some((held) => taskSourceKey(held) === sourceKey)) return null
-  return { taskSources: sources, defaultTaskSource: sourceKey }
-}
-
-/** The default source of a config: the one it names, when the project still
- *  lists it, else the first source. */
-export function defaultSourceKeyOf(config: TaskSourceConfig): string | undefined {
-  const sourceKeys = (config.taskSources ?? []).map(taskSourceKey)
-  return config.defaultTaskSource && sourceKeys.includes(config.defaultTaskSource)
-    ? config.defaultTaskSource
-    : sourceKeys[0]
+  return { taskSources: config.taskSources.filter((held) => taskSourceKey(held) !== sourceKey) }
 }
 
 // ── Health ──
@@ -88,8 +58,9 @@ export interface SourceHealthNote {
 }
 
 const HEALTH_NOTES = {
-  not_connected: { label: 'Not connected', tone: 'failure', message: 'Connect the provider in Settings to read this source.' },
-  reconnect: { label: 'Reconnect', tone: 'failure', message: 'The connection lacks a permission this source needs. Connect the provider again in Settings.' },
+  not_connected: { label: 'Not connected', tone: 'failure', message: 'Connect the provider to read this source.' },
+  // The words of a connection everywhere else (`connectionStatusText`).
+  reconnect: { label: 'Needs sign-in', tone: 'failure', message: 'The connection lacks a permission this source needs.' },
   no_access: { label: 'No access', tone: 'failure', message: 'Your provider account cannot read this source.' },
   error: { label: 'Read failed', tone: 'failure', message: 'The provider did not answer the last read.' },
 } satisfies Record<Exclude<TaskSourceHealth, 'ok'>, SourceHealthNote>
@@ -114,36 +85,27 @@ export function sourceHealthNote(state: Pick<TaskSourceState, 'health' | 'messag
   return null
 }
 
-// ── The header control ──
+// ── The strip of sources ──
 
-export interface SourceSetupTrigger {
+/** One source on the strip of the Tasks page: as the settings name it, and as
+ *  the task host last read it. */
+export interface SourceStripRow {
+  sourceKey: string
+  source: TaskSource
+  /** The host's label, or the source in words before the host reads it. */
   label: string
-  title: string
-  /** The project has no source: the control invites rather than reports. */
-  unset: boolean
-  /** A source cannot be read, so the control shows a warning mark. */
-  needsAttention: boolean
+  /** The host's last read. Null for a source that the host has not read yet. */
+  state: TaskSourceState | null
 }
 
-export function sourceSetupTrigger(sources: readonly TaskSourceState[]): SourceSetupTrigger {
-  if (sources.length === 0) {
-    return {
-      label: 'Add a task source',
-      title: 'This project has no task source. Add a GitHub repository, a GitHub Project, a Jira project or a Jira board.',
-      unset: true,
-      needsAttention: false,
-    }
-  }
-  const unhealthy = sources.filter((source) => source.health !== 'ok')
-  const label = sources.length === 1 ? sources[0].label : `${sources.length} task sources`
-  return {
-    label,
-    title: unhealthy.length
-      ? `${unhealthy.length} of ${sources.length} task source${sources.length === 1 ? '' : 's'} cannot be read`
-      : `Tasks of this project come from ${sources.map((source) => source.label).join(', ')}`,
-    unset: false,
-    needsAttention: unhealthy.length > 0,
-  }
+/** The person's sources, in the order they added them. A source that the host
+ *  has not read yet is on the strip at once, with its own label. */
+export function sourceStripRows(config: TaskSourceConfig, states: readonly TaskSourceState[]): SourceStripRow[] {
+  return config.taskSources.map((source) => {
+    const sourceKey = taskSourceKey(source)
+    const state = states.find((candidate) => candidate.sourceKey === sourceKey) ?? null
+    return { sourceKey, source, label: state?.label ?? taskSourceLabel(source), state }
+  })
 }
 
 // ── What can be added ──
@@ -172,8 +134,8 @@ export const SOURCE_KIND_SHORT_NAMES = {
 } satisfies Record<TaskSource['kind'], string>
 
 /**
- * The sources a person can add to a project, by kind, without the sources the
- * project lists already. The detail of a choice says its kind, so the menu
+ * The sources a person can add, by kind, without the sources the person has
+ * already. The detail of a choice says its kind, so the menu
  * needs no heading for each kind.
  */
 export function sourceChoiceGroups(
@@ -195,11 +157,13 @@ export function sourceChoiceGroups(
   })
 
   const { github, jira } = options
-  const origin = github.originRepository
   const cloudId = jira.cloudId
 
   return [
-    group('github-repo', origin ? [{ source: { kind: 'github-repo', owner: origin.owner, repo: origin.repo }, label: `${origin.owner}/${origin.repo}`, detail: 'origin' }] : []),
+    group('github-repo', github.repositories.map((repository) => ({
+      source: { kind: 'github-repo', owner: repository.owner, repo: repository.repo },
+      label: `${repository.owner}/${repository.repo}`,
+    }))),
     group('github-project', github.projects.map((project) => ({
       source: { kind: 'github-project', owner: project.owner, number: project.number },
       label: project.title,
@@ -254,8 +218,8 @@ const GITHUB_RESERVED_OWNERS = new Set(['orgs', 'users'])
 /**
  * The source that a typed or pasted text names, or null.
  *
- * The choices that the host lists are the origin repository and the Projects
- * the connection can see. A person can also want another repository, or a
+ * The choices that the host lists are the repositories the person pushed to
+ * most recently and the Projects the connection can see. A person can also want another repository, or a
  * Project the list did not reach, so the setup takes:
  *
  * - `owner/repo`
@@ -310,7 +274,7 @@ function githubPathSegments(text: string): string[] | null {
 
 /**
  * The choice for a typed or pasted source, or null when the text names no
- * source or names one that the project lists already. When the menu offers
+ * source or names one that the person has already. When the menu offers
  * the source too, the answer is the offered choice: it has the host's label,
  * and a pasted URL does not match that label as search text.
  */

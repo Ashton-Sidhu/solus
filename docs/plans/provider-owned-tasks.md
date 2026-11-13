@@ -1,7 +1,16 @@
 # Provider-owned tasks: GitHub and Jira are the only task stores
 
 Status: implemented, 2026-11-10 (approved 2026-11-09). §11 lists where the build
-differs from this plan. User documentation: [Tasks](../tasks.md). This plan replaces the
+differs from this plan.
+
+> **2026-11-11: tasks are projectless; sources are personal settings.** A task
+> source is the person's own, not a project's. The sources are in the personal
+> settings (`taskSources`; the `defaultTaskSource` of the first version is
+> gone: the work says where a new task goes), which sync with the account
+> and reach the host with each prompt in the execution preferences. The project
+> config no longer has `taskSources` or `defaultTaskSource`; a file that still
+> has them reads without them. Decisions 4, 9, 10 and 11, §4.2, §5, §6 and §11
+> are corrected below. `taskDoneOnMerge` stays in the project config. User documentation: [Tasks](../tasks.md). This plan replaces the
 local-first task model (`docs/plans/task-conversation.md` keeps its rules for
 session links; its "native entity" storage does not stay). There are no users
 and no tasks to keep, so this plan removes the old code and does not migrate
@@ -63,8 +72,9 @@ proposals that follow from them.
 2. The provider is the source of truth. The host keeps a task cache for fast and
    offline reads. A write goes to the provider.
 3. No data migration. A schema migration drops the old tables.
-4. A project lists its task sources in its project config. A project can have
-   many sources. One source can be in many projects.
+4. A person lists their task sources in their personal settings (2026-11-11;
+   it was the project config). A person can have many sources. One source can
+   be the source of many people. A task belongs to no project.
 5. The source kinds are boards (GitHub Projects, Jira boards) and also the
    current scopes (the origin repository's issues, a Jira project).
 6. The organization cloud keeps attachments only. It does not store tasks or a
@@ -74,11 +84,12 @@ proposals that follow from them.
 8. Each comment is a provider comment. Solus keeps only a queue of comments that
    are not sent yet. From a GitHub Project, Solus shows issues and draft items,
    not pull requests.
-9. A project can mix GitHub and Jira sources.
-10. A task that is in more than one source of a project shows one time in a
+9. A person can mix GitHub and Jira sources.
+10. A task that is in more than one source of the person shows one time in a
     mixed view. It shows in each board's own view with that board's column.
-11. A project with no task source has no tasks. The Tasks page shows the source
-    setup. `create_task` answers with an error that names the missing source.
+11. A person with no task source has no tasks. The Tasks page shows the source
+    setup. `create_task` answers with an error that says to add a source on the
+    Tasks page.
 12. Tasks load like pull requests (`docs/plans/pr-sync.md`): the host owns
     freshness, a client reads all its projects in one request per host, and the
     host tells clients what changed.
@@ -120,7 +131,7 @@ Each attachment table keys on the task key. `resource_links.source_id`,
 `personal_resource_state.resource_id` and `comment_threads.subject_id` are
 strings already, so only the values change.
 
-### 4.2 Task sources in the project config
+### 4.2 Task sources in the personal settings
 
 ```ts
 type TaskSource =
@@ -129,24 +140,32 @@ type TaskSource =
   | { kind: 'jira-project'; cloudId: string; projectKey: string }
   | { kind: 'jira-board'; cloudId: string; boardId: number }
 
+// Personal settings (`packages/contracts/src/settings.ts`), also execution preferences.
+interface PersonalSettings {
+  taskSources: TaskSource[]
+  defaultTaskSource: string | null // a source key; null = the first source
+}
+
 interface ProjectConfig {
-  taskSources?: TaskSource[]
-  defaultTaskSource?: string // a source key
   taskDoneOnMerge?: boolean
 }
 ```
 
+2026-11-11: the sources were in the project config. They are now the person's
+own. A project config that still has `taskSources` or `defaultTaskSource` reads
+without them.
+
 The types and the key functions are in `packages/contracts/src/task-sources.ts`.
 
 `taskProvider`, `taskProviderConfig` and `tasksAutoPushComments` are removed.
-A `github-repo` source is no longer forced to equal the origin remote; the
-origin repository is the suggested first source.
+A `github-repo` source is no longer forced to equal the origin remote. The
+source setup suggests the repositories that the person pushed to most recently.
 
-A **source key** names a source independent of a project
+A **source key** names a source independent of a person
 (`github-project:<owner>/<number>`, `jira-board:<cloudId>/<boardId>`), so two
-projects that list the same board share one cache and one poll. A source has no
-other id: the default source is named by its source key. A project with sources
-always has a default source; it is the first source when the config names none.
+people who read the same board share one cache and one poll. A source has no
+other id: the default source is named by its source key. A default that names
+no source of the person gives the first source.
 
 ### 4.3 A task is not a Solus resource
 
@@ -234,11 +253,15 @@ columnId)`, and a GitHub Project adapter has `remove(item)` for a draft.
 - `tasksSidebarSnapshot` stays the one list read for a host, with its revision
   resume (`docs/plans/task-snapshot-resume.md`). It answers each task the
   caller's sources list, and each task a visible session is linked to.
-- `tasksSources(cwds)` answers the sources of each project and tells the host
-  that the caller wants them. The host reads a source that is older than 30 s
-  (each one with `refresh: 'force'`), and reads the wanted sources again every
-  5 minutes while a client asked for them in the last 15 minutes. Two projects
-  with the same source cause one read.
+- `tasksSources(sources)` takes the person's sources from the client and
+  answers their state, in the given order, and tells the host that the caller
+  wants them. The host reads a source that is older than 30 s (each one with
+  `refresh: 'force'`), and reads the wanted sources again every 5 minutes while
+  a client asked for them in the last 15 minutes. Two callers with the same
+  source cause one read. `tasksSearch(sources, query)`,
+  `tasksCreate({ source, ... })` and `tasksListAssigneeCandidates({ source })`
+  also name the source; `tasksSourceOptions()` names no project. The host
+  checks the shape of each source that a client sends.
 - After a read the host broadcasts `tasks.sourcesChanged { sourceKeys }`, and
   `tasks.invalidated` for the tasks that changed. A client resumes its snapshot.
 - `tasksGet(id)` reads one task from the provider with its comments, updates
@@ -257,7 +280,7 @@ RPC surface after the change (`packages/contracts/src/host-api.ts`):
 
 | Plane | Methods |
 |---|---|
-| execution (needs this machine's connection and project config) | `tasksSources`, `tasksSourceOptions`, `tasksSearch`, `tasksGet`, `tasksCreate`, `tasksUpdate`, `tasksMove`, `tasksDelete`, `tasksMarkRead`, `tasksComment`, `tasksRetryComment`, `tasksDeleteComment`, `tasksListAssigneeCandidates`, `tasksAttachArtifact` |
+| execution (needs this machine's connection) | `tasksSources`, `tasksSourceOptions`, `tasksSearch`, `tasksGet`, `tasksCreate`, `tasksUpdate`, `tasksMove`, `tasksDelete`, `tasksMarkRead`, `tasksComment`, `tasksRetryComment`, `tasksDeleteComment`, `tasksListAssigneeCandidates`, `tasksAttachArtifact` |
 | collaboration (attachments; also served by the Solus API) | `tasksSidebarSnapshot`, `tasksSearchComments`, `tasksAttachments`, `tasksSnooze`, `tasksSnoozes`, `tasksLinkSession`, `tasksUnlinkSession`, `tasksSessions`, `tasksForSession`, `tasksPrepareForSession`, `tasksSnapshot`, `tasksLink`, `tasksUnlink`, `tasksLinkedTo` |
 
 Removed: `tasksProviderStatus`, `inboxListUpstream`, `tasksListUpstream`,
@@ -275,7 +298,7 @@ capability; `PUT /links` and `DELETE /links` stay and take a task key.
 | Session links (`task-sessions.ts`) | Same rules (`working`, `referenced`); keyed by task key. No promote step. A link needs no row in `tasks`. |
 | Links to works, plans, automations, PRs | Keyed by task key. |
 | Snooze | Keyed by task key; needs no row. |
-| Agent tools | `list_tasks` and `read_task` read the host's copy (`read_task` reads the provider first). `create_task` creates in the default source of the session's project. `update_task_status` takes a status category or a column name. `comment_task` posts to the provider. The lifecycle policy stays. The descriptions say that these write to GitHub or Jira. On an organization machine the tools work the same way, with the acting person's connection; they do not call the Solus API. |
+| Agent tools | `list_tasks` and `read_task` read the host's copy (`read_task` reads the provider first). `create_task` creates in a source of the person that the agent names by its source key, else in the source the session points to (its task, its checkout's repository, the only source), else answers with the sources; `list_tasks` lists the tasks of the person's sources (2026-11-11; it was the session's project). `update_task_status` takes a status category or a column name. `comment_task` posts to the provider. The lifecycle policy stays. The descriptions say that these write to GitHub or Jira. On an organization machine the tools work the same way, with the acting person's connection; they do not call the Solus API. |
 | Task packet (`task-context.ts`) | Built from the host's copy of the task and its attachments. |
 | Dispatch (`foreign-tasks.ts`) | The snapshot still ships with the prompt. The owner host applies `comment` and `set-status` operations as provider writes. |
 | Finished task | A task whose category becomes `done` settles its working sessions, as before. A follow-up prompt to a session of a finished task does not reopen the task on the provider (`tasksRecordActivity` is removed). |
@@ -307,7 +330,13 @@ Desktop and web (shared Svelte UI):
 - **Tasks page**: a source switcher: each source of the project, and All
   sources. A source view shows the provider's columns. All sources groups by
   status category (Open, Active, Done). All projects works as on the pull
-  request list.
+  request list. (2026-11-11: the switcher and the source setup are one row of
+  source chips above the search field. Each chip shows its task count and a
+  warning when it cannot be read; the warning is the repair, an × removes
+  with Undo; the last chip adds a source. The header has no source control.
+  There is no default source: a new task goes to a source of the task the
+  work is about, else of the checkout's GitHub repository, else of the last
+  new task on the device, else the only source; `inferTaskSourceKey`.)
 - **Composer**: creates in the default source; the person can choose another
   source. Fields follow what that source can take.
 - **Task page**: no publish target, no sync state, no "local" badge. An issue
@@ -381,7 +410,7 @@ that the sections above do not, or says it in another way.
 - A move to a status category on GitHub closes or reopens the issue, and then
   sets the first column of that category on each GitHub Project that lists the
   task **and is a task source on this host**. The host knows a Project only
-  from its own cache, so a Project that no project on the host lists does not
+  from its own cache, so a Project that no person on the host has read does not
   change. A draft item has no issue state; only its columns move.
 - A move to a status category on Jira makes one legal workflow transition to a
   status of that category, and fails with an error when the workflow has none.
@@ -391,11 +420,13 @@ that the sections above do not, or says it in another way.
 
 **Done on merge (§6)**
 
-- The rule is on by default. A task has no project of its own, so the rule
-  applies to a task when a project of this host (a listed project, or the
-  checkout of one of the task's working sessions) lists a source of the task
-  and does not set `taskDoneOnMerge` to `false`. A task that no such project
-  lists is left alone.
+- The rule is on by default, and needs no project (2026-11-11). A task that
+  links the merged pull request, directly or through a working session, moves
+  to `done`. The pull request's project can turn it off: a project of this host
+  (a listed project, or the checkout of one of the task's working sessions)
+  whose `origin` is the pull request's repository and that sets
+  `taskDoneOnMerge` to `false`. Before 2026-11-11 the rule applied only when a
+  project of the host listed a source of the task.
 - A task moves to `done` only when each pull request it links is merged, and
   not while a working session of the task is in the middle of a turn.
 
@@ -411,8 +442,10 @@ that the sections above do not, or says it in another way.
 - The source setup also takes a source that `tasksSourceOptions` does not
   list: `owner/repo`, a `github.com` repository URL, or a GitHub Project URL
   (`parseManualTaskSource`). The host reports the health after the first read.
-- `tasksSourceOptions` offers only the `origin` repository as a GitHub
-  repository. Each other repository is added by manual entry.
+- `tasksSourceOptions` offers the 50 repositories that the person pushed to
+  most recently (owner, collaborator or organization member), newest first
+  (2026-11-11; it was the project's `origin` repository). Another repository
+  is added by manual entry.
 - A client merges the attachments of one task key from more than one host.
   Session links and pull request links come with each host's
   `tasksSidebarSnapshot`. For a task page, the client also calls

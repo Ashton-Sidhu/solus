@@ -183,7 +183,7 @@ The rail's Git card shows one pull request with its review guide, checks, and
 next move (`GitSection`, `LinkedPullRequestRows`): the branch's own until a
 person chooses another, and the first linked one when the branch has none.
 Under it, as "Also linked", one row for each other open pull request the
-session links in the project's repository, read as the list and the review
+session links, in any repository, read as the list and the review
 pane read one: the lifecycle as the glyph's shape (open, draft), mergeability
 as its tone (`readinessTone`: red cannot merge, green can, purple merged), the
 checks as a tinted glyph before the number, and the title. A row brings its
@@ -192,14 +192,25 @@ number (`#412 1/3 ›`) cycles to the next one; the card grows one row per
 link, not one group. The choice is the tab's and goes back to the branch's
 own pull request when the branch or project changes. It keeps the
 session's links in interest while it is shown, so a linked pull request the
-project has not read yet is pushed to it. A link in another repository is not
-on the card: a number means nothing outside its repository, and the card acts
-on this project's checkout. On desktop and web, the session sidebar row
-shows the links. The "N PRs" chip's list unlinks a row with its hover ×,
-or with Delete or Backspace on the highlighted row; a single chip unlinks
-from its right-click menu. The session menu opens the link dialog, which lists
-the session's links as the chip's list does, each with the same ×; the item
-reads "Pull Requests…" while the session has links. On
+project has not read yet is pushed to it. A link in another repository is on
+the card too (2026-11-12). It is read and changed through its repository (the
+host resolves a `host/owner/repo` scope), and the card names it by repository
+and number (`site#52`), because a number means nothing outside its repository.
+Merge, auto-merge, ready for review, update branch, the review guide, and the
+checks work as they do for this repository. Fix checks and resolve conflicts
+need a checkout of that repository, so the card reports that blocker and does
+not offer the move. On desktop and web, the session sidebar row
+shows the links on one chip, which names the pull request that gave it its
+colour (2026-11-12). One menu, `PullRequestsMenu`, opens, unlinks, and links
+them; there is no link dialog. The chip opens it: a click when there is more
+than one pull request, a right-click always. The session menu shows it as its
+"Pull Requests" submenu, so every surface that opens the session menu can link
+one. Each pull request is two lines, the title and then `#N · state` (with the
+repository, `site#52`, once the session spans two); open ones come first and
+merged or closed ones after a divider. ↗ opens it on the web and × unlinks
+it; Delete or Backspace unlinks the highlighted row. A pull request read only
+from the checkout's branch says "on this branch" and has no ×. The last row,
+"Link pull request…", turns into a URL field in place. On
 the phone, the thread row's menu has "Unlink #N", or an "Unlink Pull Request"
 submenu with one item per link.
 
@@ -283,20 +294,20 @@ reads from a session.
 - `contexts/workspace/session-task-link.ts` links a mounted session to a task
   at once, and unlinks it.
 - `WorkspaceUiStore.linkPrompt` opens `SessionLinkPrompts` (mounted once by
-  desktop and by web): `LinkSessionTaskDialog` and `LinkPullRequestDialog`.
+  desktop and by web): `LinkSessionTaskDialog`.
+- `PullRequestsMenu` is the content of a session's pull request menu, in the
+  sidebar chip (`PrChip`) and in the session menu's submenu.
 - `contexts/workspace/session-list.store.svelte.ts` holds each host's session
   list with each session's state (`docs/plans/session-archive.md`).
   `SessionSidebarStore` reads it: a session row takes its shelf from it
   (`sessionRowLifecycle`), and a listed session with no conversation here gets
   a row that opens the session. A task row takes its shelf from the task's
   status. The client keeps no done mark and no snooze of its own.
-- `SessionContextMenu`: Link to task… or Open task and Unlink from task; Link
-  pull request…; Snooze and Mark done on a session's own row.
+- `SessionContextMenu`: Link to task… or Open task and Unlink from task; the
+  Pull Requests submenu; Snooze and Mark done on a session's own row.
 - `TaskContextMenu`: task actions and Link pull request…; the single-session
   items and Snooze are removed. The task picker has no Snooze. A task is
   marked done with the check on its row, as before.
-- `PrContextMenu` on a pull request chip: Review, Open on GitHub, Copy link,
-  Unlink.
 - Phone: the task sheet has Link to task / Unlink from task and Link pull
   request. The Snooze tile and the Snooze button show only for a session.
 

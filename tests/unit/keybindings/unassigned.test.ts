@@ -18,7 +18,6 @@ const UNASSIGNED: BindingId[] = [
   'global.open-document',
   'global.open-automation',
   'global.open-task',
-  'global.create-task-in',
   'global.permission-menu',
   'global.add-server',
   'global.find-hosts',

@@ -31,9 +31,8 @@
     addLabel,
     labelSuggestions,
     composerFieldsFor,
-    type TaskComposerInput,
   } from "./lib/task-composer";
-  import type { TaskPriority, TaskSourceState } from "@solus/contracts/task-types";
+  import type { TaskCreateInput, TaskPriority, TaskSourceState } from "@solus/contracts/task-types";
   import { taskSourceProvider } from "@solus/contracts/task-sources";
   import { formatComboText } from "../../lib/keybindings/match";
 
@@ -48,24 +47,24 @@
   };
 
   interface Props {
-    /** The task sources of the project, in config order. The task is created
-     *  on the provider, in one of them. */
+    /** The person's task sources. The task is created on the provider, in
+     *  one of them. */
     sources: TaskSourceState[];
-    /** The source to preselect: the project's default source, or the source
+    /** The source to preselect: the person's default source, or the source
      *  whose board the composer was opened from. */
     initialSourceKey?: string;
     /** A column of the preselected source to start in (when adding into a
      *  board column). Absent = where the provider starts a task. */
     initialColumnId?: string;
-    /** Known project labels, offered as suggestions in the labels picker. */
+    /** Labels in use on the tasks, offered as suggestions in the labels picker. */
     knownLabels?: string[];
-    /** Project directory for @-file / #-plan / %-work / !-PR autocomplete. */
+    /** The input bar's project folder, for @-file / #-plan / %-work / !-PR autocomplete. */
     workingDirectory?: string;
     /** Agent provider whose built-in slash commands populate the body's / menu. */
     provider: AgentId;
     /** Performs the write. Throws on failure (the caller surfaces a toast); on
      *  success the composer owns dismissal (so "Create more" can stay open). */
-    onCreate: (input: TaskComposerInput) => Promise<void> | void;
+    onCreate: (input: TaskCreateInput) => Promise<void> | void;
     /** Fires after a successful create, once the composer has dismissed — so a
      *  caller can hand off to another surface. Not called while "Create more"
      *  keeps the composer open. */
@@ -196,7 +195,7 @@
     saving = true;
     try {
       await onCreate({
-        sourceKey: source.sourceKey,
+        source: source.source,
         columnId: column?.id,
         title: title.trim(),
         body: description.trim(),

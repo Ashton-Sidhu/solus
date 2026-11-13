@@ -42,6 +42,8 @@
     {#snippet control()}<Switch checked={draft.enabled} onCheckedChange={(value) => (draft.enabled = value)} aria-label="Enable provider instance" />{/snippet}
   </SettingsRow>
 </SettingsSection>
+<ProviderInstanceModels bind:instance={draft} />
+<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />
 <SettingsSection label="Runtime">
   <SettingsRow label="Binary path" description="Executable name or absolute path on this host. Leave empty to use the installed CLI." managed={launch.binaryPath}>
     {#snippet control()}<Input aria-label="Provider binary path" bind:value={draft.binaryPath} placeholder={draft.provider === "codex" ? "codex" : "claude"} />{/snippet}
@@ -89,7 +91,6 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
-<ProviderInstanceModels bind:instance={draft} />
 {#if isDirty || revision !== expectedRevision}
 <div class="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-3 rounded-xl border border-border/50 bg-background/95 px-4 py-3 shadow-sm">
   <p role="status" class="min-w-0 flex-1 text-sm text-muted-foreground">
@@ -103,4 +104,3 @@
   {/if}
 </div>
 {/if}
-<ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />

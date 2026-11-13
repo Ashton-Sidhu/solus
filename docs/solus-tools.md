@@ -103,16 +103,25 @@ the person the turn acts for. This is the same on a personal host and on an
 organization machine: a task tool never calls the Solus API. A task id is a
 task key (`github:<node id>` or `jira:<site>:<issue id>`).
 
-- `list_tasks` lists the tasks of the task sources of the calling project, with
-  their task keys and status category (`open`, `active`, `done`). It reads the
+Tasks belong to no project. The task sources are the person's own: they reach
+the host with each prompt in the execution preferences (`taskSources`), so
+the calling session's folder does not limit them.
+
+- `list_tasks` lists the tasks of the person's task sources, with their task
+  keys and status category (`open`, `active`, `done`), and names the source
+  keys. `status` and `source` (a source key) limit the list. It reads the
   host's copy only.
 - `read_task` asks the provider for one task and answers its description,
   state, columns, epic, comments, linked items, and linked session IDs. When
   the provider does not answer, it answers the host's last copy and says so.
-- `create_task` creates a real task in the default task source of the calling
-  project: a GitHub issue, a draft item of a GitHub Project, or a Jira issue.
-  A project with no task source gives an error that says so. It takes a
-  permission prompt in a supervised session.
+- `create_task` creates a real task in the source that `source` names by its
+  source key: a GitHub issue, a draft item of a GitHub Project, or a Jira
+  issue. Without `source`, the task goes to a source of the task the session
+  works on, else to the source of the GitHub repository of the session's
+  checkout, else to the person's only source. With several sources and no such
+  match, it creates nothing and answers with the person's sources, so the
+  agent names one. A source that is not one of the person's is refused. With no task source, it gives an error that says to add
+  one on the Tasks page. It takes a permission prompt in a supervised session.
 - `update_task_status` takes a status category or the exact name of a column of
   a board that lists the task. A category closes or reopens a GitHub issue and
   moves it on each GitHub Project that lists it; a Jira issue makes a legal

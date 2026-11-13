@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -41,7 +41,6 @@ let taskStore: typeof import('@solus/server/data/tasks/task-store')
 let tasks: typeof import('@solus/server/data/tasks/task')
 /** GitHub for the tasks of this file: finishing a task is a provider write, here to a fake provider. */
 let taskProviders: FakeTaskProviders
-let projectDir: string
 let nextIssue = 0
 let links: typeof import('@solus/server/data/tasks/task-links')
 let PrSync: typeof import('@solus/server/prs/pr-sync')['PrSync']
@@ -54,17 +53,13 @@ beforeAll(async () => {
   tasks = await import('@solus/server/data/tasks/task')
   links = await import('@solus/server/data/tasks/task-links')
   ;({ PrSync } = await import('@solus/server/prs/pr-sync'))
-  // One project of this host lists the repository source, with done-on-merge on (the default).
+  // No project of this host decides: a task that links a merged pull request is done (docs/tasks.md).
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
-  projectDir = join(dataDir, 'project')
-  mkdirSync(join(projectDir, '.solus'), { recursive: true })
-  writeFileSync(join(projectDir, '.solus', 'config.json'), JSON.stringify({ version: 1, taskSources: [TASK_REPO] }))
-  await (await import('@solus/server/project-config/projects-manifest')).recordProject(projectDir)
   taskProviders = new FakeTaskProviders()
   ;(await import('@solus/server/data/tasks/providers/registry')).useTaskAdaptersForTests(taskProviders.adapters())
 })
 
-/** A task of the project's repository source: an open GitHub issue that the host has a copy of. */
+/** A task of the repository source: an open GitHub issue that the host has a copy of. */
 async function sourceTask() {
   const issue = githubIssue(++nextIssue)
   taskProviders.hold(issue)

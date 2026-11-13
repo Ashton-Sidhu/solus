@@ -8,7 +8,7 @@ const PROVIDER_SEARCH_DEBOUNCE_MS = 350
  *
  * A truncated source did not list every task, so filtering what is loaded
  * answers "of the tasks the host read" while looking like it answered "in the
- * project". The text then goes to the provider too. Debounced, because this is
+ * source". The text then goes to the provider too. Debounced, because this is
  * a keystroke handler and the far end is a network search. The results are
  * the page's own: they are not part of the task list.
  */
@@ -26,8 +26,8 @@ export class ProviderTaskSearch {
 
   constructor(private readonly store: TasksStore) {}
 
-  /** Ask the provider for a project's tasks that match, after a pause in typing. */
-  request(serverId: string, cwd: string, query: string): void {
+  /** Ask the provider for the tasks of the person's sources that match, after a pause in typing. */
+  request(query: string): void {
     const trimmed = query.trim()
     if (this.#timer) clearTimeout(this.#timer)
     if (!trimmed) {
@@ -46,15 +46,15 @@ export class ProviderTaskSearch {
     this.searching = true
     this.#timer = setTimeout(() => {
       this.#timer = null
-      void this.#search(serverId, cwd, trimmed, generation)
+      void this.#search(trimmed, generation)
     }, PROVIDER_SEARCH_DEBOUNCE_MS)
   }
 
-  async #search(serverId: string, cwd: string, query: string, generation: number): Promise<void> {
+  async #search(query: string, generation: number): Promise<void> {
     let results: Task[] = []
     let failure: string | null = null
     try {
-      results = await this.store.search(serverId, cwd, query)
+      results = await this.store.search(query)
     } catch (error) {
       // The listed matches stay on screen; the page says the provider did not answer.
       failure = error instanceof Error ? error.message : String(error)
@@ -66,7 +66,7 @@ export class ProviderTaskSearch {
     this.searching = false
   }
 
-  /** Forget the search: the box is empty, or the page shows another project. */
+  /** Forget the search: the box is empty, or no source is truncated. */
   clear(): void {
     if (this.#timer) clearTimeout(this.#timer)
     this.#timer = null

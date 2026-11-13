@@ -1,7 +1,6 @@
 import type { GitCheckout, IpcContext, RunConfig, Session } from '@solus/contracts/types'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { LogicalProject, ProjectPageScope, ProjectRef } from '../projects/project-catalog'
-import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import type { WorksStore, WorkListing } from '../works/works.store.svelte'
 import type { OutboxStore } from '../outbox/outbox.store.svelte'
@@ -43,7 +42,7 @@ export interface SurfaceContext {
   apiForSession(sessionId: string): HostApi
   /** Who the reader is on a host, so a transcript names only someone else. */
   readonly presence?: Pick<typeof presenceStore, 'currentUserId'>
-  /** The project the task board is scoped to; null with no runner. */
+  /** The input bar's project folder, which a task editor's @-file menu reads; null with no runner. */
   readonly tasksProjectCwd: string | null
   readonly pluginCommands: Session['pluginCommands']
   /** The session the person is in, when this client has one. */
@@ -55,13 +54,11 @@ export interface SurfaceContext {
   readonly ctx: IpcContext
   /** The run the input bar names; undefined with no input bar. */
   readonly activeRun: RunConfig | undefined
-  /** The project a new task files against; null where a task cannot be made. */
-  readonly taskCreationContext: TaskCreationContext | null
   /** The checkout the input bar is in, as a host and repository root; null with none. */
   readonly activeCheckout: ProjectRef | null
-  /** Where a new task of a project is created: the host of `checkout`, which
-   *  has the project's task sources. Null for a project no known host holds. */
-  taskContextForProject(checkout: ProjectRef | null): TaskCreationContext | null
+  /** The folder of a GitHub issue's repository on the host that reads the
+   *  task; null when the task names no repository or that host has no checkout. */
+  projectRootOfTask(taskId: string): string | null
   /** Scope the project pages to the input bar's project; false when it names none. */
   scopePageToCurrentProject(): boolean
   /** Scope the project pages to one project, by its key. */

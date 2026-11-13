@@ -1,6 +1,7 @@
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
 import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import type { TaskLink, TaskPrSnapshot, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { IpcContext } from '@solus/contracts/types'
 
 export type PrLink = TaskLink | TaskSidebarPrLink
 
@@ -32,6 +33,12 @@ export function linkedPrIdentity(link: PrLink, fallbackScope: string | null): Om
     title: link.title || `#${number}`,
     url: parsed?.url ?? link.url ?? null,
   }
+}
+
+/** A context that reads one repository's pull requests rather than a
+ *  checkout's: the host resolves a `host/owner/repo` scope to the repository. */
+export function repositoryContext(ctx: IpcContext, repository: string): IpcContext {
+  return { ...ctx, session: { ...ctx.session, projectPath: repository, workingDirectory: repository, gitContext: null } }
 }
 
 /** Prefer a newer saved host observation to a stale client response. At equal

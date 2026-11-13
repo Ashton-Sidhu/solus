@@ -20,7 +20,7 @@ import { loadSessionTranscript } from './session-transcript'
 import { measureOpenStep } from '../../lib/mount-timing'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
-import { taskProjectKey } from '../../lib/task-project'
+import { guessTaskProject } from '../../lib/task-project'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/review-guide.store.svelte'
@@ -606,23 +606,29 @@ export class SessionOpening {
    * draft until Send creates the session, so leaving the composer does not
    * leave an empty tab behind.
    *
-   * The draft opens in a project that lists the task: the project the pages
-   * are scoped to when the task is in it, else the first one. It opens on the
-   * host that reads the task when that host has a checkout of the project; the
-   * run-on rule (`openRepositoryDraft`) chooses another checkout when it has
-   * none. A task that no known project lists opens a draft with no folder.
+   * A task belongs to no project, so the draft opens in a guess
+   * (`guessTaskProject`): the checkout of a GitHub issue's repository on a
+   * connected host, else the project of the input bar. The person can change
+   * the project on the draft before Send. With no guess, the draft opens with
+   * no folder.
    */
   async openTaskSession(task: Task): Promise<void> {
     this.taskOpenCount++
     const model = this.workspace.tasksStore.get(task.id)
     const taskServerId = model.serverId ?? undefined
-    const pageScope = this.workspace.projectPageScope
-    const projectKey = taskProjectKey(
-      this.workspace.tasksStore.projectKeysOf(model),
-      pageScope.kind === 'project' ? pageScope.key : null,
+    const inputBar = this.workspace.activeCheckout
+    const inputBarProjectKey = inputBar ? projectsStore.projectKeyFor(inputBar.serverId, inputBar.projectRoot) : null
+    const projectKey = guessTaskProject(
+      model,
+      (repositoryKey) => projectsStore.checkoutsOf(repositoryKey)
+        .some((checkout) => serversStore.readinessFor(checkout.serverId).readiness === 'ready'),
+      inputBarProjectKey,
     )
     if (projectKey && taskServerId) {
-      this.openRepositoryDraft(projectKey, { taskId: task.id, taskServerId }, taskServerId)
+      // The input bar's project runs where the input bar is; a repository runs
+      // where the run-on rule finds its checkout.
+      const preferredServerId = projectKey === inputBarProjectKey ? inputBar?.serverId : undefined
+      this.openRepositoryDraft(projectKey, { taskId: task.id, taskServerId }, preferredServerId)
     } else {
       this.workspace.drafts.openSessionDraft({ taskId: task.id, taskServerId, target: 'leading', serverId: taskServerId }, '~')
     }

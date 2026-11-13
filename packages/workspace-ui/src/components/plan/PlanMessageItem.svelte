@@ -154,7 +154,6 @@
       target={linkTarget}
       title={ref.title ?? ""}
       serverId={linkContext?.serverId}
-      projectKey={linkContext?.projectKey}
       conversationTaskId={linkContext?.conversationTaskId}
     />
   {/if}

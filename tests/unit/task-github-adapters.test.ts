@@ -441,6 +441,40 @@ describe('a GitHub repository source', () => {
     expect(graphqlCalls[0]?.query).not.toContain('parent { body }')
   })
 
+  test('a connection without the `read:project` scope still reads the issues of a repository', async () => {
+    // WHY: a repository source needs no Project. Its issue query also asks for
+    // their board values, and GitHub refuses that whole query without
+    // `read:project`. The source then showed "Reconnect" and no issue at all.
+    const scopeError = Object.assign(new Error('Your token has not been granted the required scopes'), {
+      errors: [{ type: 'INSUFFICIENT_SCOPES' }],
+    })
+    const { run, graphqlCalls } = fakeGithub(({ query, variables }) => {
+      if (query.includes('projectItems')) throw scopeError
+      const { projectItems: _withoutBoards, ...plainIssue } = issueNode()
+      return {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: variables.states?.toString() === 'OPEN' ? [plainIssue] : [],
+          },
+        },
+      }
+    })
+
+    const read = await new GitHubRepoSource(run).read(REPO_SOURCE)
+
+    expect(read.items.map((item) => item.task.reference)).toEqual(['acme/app#7'])
+    // Without board values the issue is off every board: no priority or due date write.
+    expect(read.items[0]?.task.writableFields).toEqual(['title', 'body', 'labels', 'assignee'])
+    expect(graphqlCalls.filter((call) => !call.query.includes('projectItems'))).toHaveLength(2)
+  })
+
+  test('a failure that is not the missing scope is not read again without the board values', async () => {
+    const { run, graphqlCalls } = fakeGithub(() => { throw new Error('GitHub is down') })
+    await expect(new GitHubRepoSource(run).read(REPO_SOURCE)).rejects.toThrow('GitHub is down')
+    expect(graphqlCalls).toHaveLength(1)
+  })
+
   test('stops at the cap and says that the repository holds more', async () => {
     let page = 0
     const { run } = fakeGithub(() => {

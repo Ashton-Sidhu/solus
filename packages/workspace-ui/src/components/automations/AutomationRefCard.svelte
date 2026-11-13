@@ -86,7 +86,6 @@
       target={{ kind: "automation", targetScope: "", targetKey: ref.automationId }}
       title={ref.name}
       serverId={linkContext?.serverId}
-      projectKey={linkContext?.projectKey}
       conversationTaskId={linkContext?.conversationTaskId}
     />
   {/snippet}

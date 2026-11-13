@@ -1,45 +1,45 @@
 import { describe, expect, test } from 'bun:test'
-import { taskProjectKey, taskProjectRoot } from '@solus/workspace-ui/lib/task-project'
+import { guessTaskProject, taskRepositoryKey } from '@solus/workspace-ui/lib/task-project'
 
-describe('the one project a surface names for a task', () => {
-  test('is the project the person is in when that project lists the task', () => {
-    // WHY: one task source can be in many projects. A session started from a
-    // task must open in the project the person looks at, not in the first one
-    // that happens to list the same board.
-    expect(taskProjectKey(['github.com/acme/app', 'github.com/acme/site'], 'github.com/acme/site')).toBe('github.com/acme/site')
+// A task belongs to no project (docs/tasks.md). A session started from a task
+// opens in a guess, which the person can change on the draft before Send.
+
+const checkedOut = new Set(['github.com/acme/app'])
+const hasConnectedCheckout = (projectKey: string) => checkedOut.has(projectKey)
+const INPUT_BAR = 'github.com/acme/site'
+
+describe('the project a session from a task starts in', () => {
+  test('a GitHub issue opens in the checkout of its repository', () => {
+    // WHY: the agent works where the issue's code is. The input bar can be in
+    // another project, and a session there would change the wrong code.
+    expect(guessTaskProject({ providerId: 'github', reference: 'acme/app#12' }, hasConnectedCheckout, INPUT_BAR))
+      .toBe('github.com/acme/app')
+    // A repository key is lowercase, as the project catalog keys it.
+    expect(guessTaskProject({ providerId: 'github', reference: 'Acme/App#12' }, hasConnectedCheckout, INPUT_BAR))
+      .toBe('github.com/acme/app')
   })
 
-  test('is the first project that lists the task when the preferred one does not', () => {
-    expect(taskProjectKey(['github.com/acme/app', 'github.com/acme/site'], 'github.com/acme/docs')).toBe('github.com/acme/app')
-    expect(taskProjectKey(['github.com/acme/app'], null)).toBe('github.com/acme/app')
+  test('a GitHub issue of a repository that no connected host has opens in the input bar\'s project', () => {
+    // WHY: a project with no connected checkout has nowhere to run. The
+    // project the person works in now is the better guess, and they can change it.
+    expect(guessTaskProject({ providerId: 'github', reference: 'acme/unknown#3' }, hasConnectedCheckout, INPUT_BAR))
+      .toBe(INPUT_BAR)
   })
 
-  test('is none for a task that no known project lists', () => {
-    // A task that only a session link brought to this client has no project.
-    expect(taskProjectKey([], 'github.com/acme/app')).toBeNull()
+  test('a Jira issue and a draft item open in the input bar\'s project', () => {
+    // WHY: neither names a repository, so only the person's current project
+    // is a guess.
+    expect(guessTaskProject({ providerId: 'jira', reference: 'SOL-4' }, hasConnectedCheckout, INPUT_BAR)).toBe(INPUT_BAR)
+    expect(guessTaskProject({ providerId: 'github' }, hasConnectedCheckout, INPUT_BAR)).toBe(INPUT_BAR)
+    expect(guessTaskProject({ providerId: 'jira', reference: 'SOL-4' }, hasConnectedCheckout, null)).toBeNull()
   })
 })
 
-describe('the folder of a task on the host that reads it', () => {
-  const checkouts = new Map([
-    ['github.com/acme/app', [{ serverId: 'laptop', projectRoot: '/Users/me/app' }, { serverId: 'server', projectRoot: '/srv/app' }]],
-    ['github.com/acme/site', [{ serverId: 'server', projectRoot: '/srv/site' }]],
-  ])
-  const checkoutsOf = (projectKey: string) => checkouts.get(projectKey) ?? []
-
-  test('is the checkout on that host, never a path of another host', () => {
-    // WHY: a path names a folder on one host only. A call that sends the
-    // laptop's path to the server reads a folder that is not there.
-    expect(taskProjectRoot(['github.com/acme/app'], 'server', checkoutsOf)).toBe('/srv/app')
-    expect(taskProjectRoot(['github.com/acme/app'], 'laptop', checkoutsOf)).toBe('/Users/me/app')
-  })
-
-  test('looks in each project that lists the task', () => {
-    expect(taskProjectRoot(['github.com/acme/docs', 'github.com/acme/site'], 'server', checkoutsOf)).toBe('/srv/site')
-  })
-
-  test('is none when the host has no checkout, or no host reads the task yet', () => {
-    expect(taskProjectRoot(['github.com/acme/site'], 'laptop', checkoutsOf)).toBeNull()
-    expect(taskProjectRoot(['github.com/acme/app'], null, checkoutsOf)).toBeNull()
+describe('the repository of a task', () => {
+  test('only a GitHub issue reference names a repository', () => {
+    expect(taskRepositoryKey({ providerId: 'github', reference: 'acme/app#12' })).toBe('github.com/acme/app')
+    // A Jira key has the same `X-1` look as nothing GitHub writes, and no repository.
+    expect(taskRepositoryKey({ providerId: 'jira', reference: 'SOL-4' })).toBeNull()
+    expect(taskRepositoryKey({ providerId: 'github', reference: 'not a reference' })).toBeNull()
   })
 })

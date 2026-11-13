@@ -4,7 +4,7 @@
       "label": "Opus 5.5",
       "isDefault": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultracode"],
-      "defaultReasoningEffort": "medium",
+      "defaultReasoningEffort": "high",
       "supportsFastMode": false,
       "contextWindows": [1000000],
       "defaultContextWindow": 1000000
@@ -123,7 +123,7 @@
       "label": "Gpt 6 Astra",
       "isDefault": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
-      "defaultReasoningEffort": "medium",
+      "defaultReasoningEffort": "high",
       "supportsFastMode": true,
       "contextWindows": [1050000],
       "defaultContextWindow": 1050000

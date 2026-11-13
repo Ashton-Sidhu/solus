@@ -5,7 +5,6 @@ import type { SessionStatus } from '@solus/contracts/types'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { attemptServerId } from '../../lib/sessionUtils'
 import { hosts } from '../hosts/hosts.svelte'
-import { projectsStore } from '../projects/projects.store.svelte'
 import type {
   PrepareSessionTaskRequest,
   PrepareSessionTaskResult,
@@ -21,8 +20,8 @@ import type {
 import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
 import { Task } from './task.svelte'
 import { taskSnoozesStore } from './task-snoozes.store.svelte'
-import { taskSourcesStore } from './task-sources.store.svelte'
-import { tasksInSources } from './task-projects'
+import { taskHostId, taskSourcesStore } from './task-sources.store.svelte'
+import { taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
 
 const INVALIDATION_DEBOUNCE_MS = 100
 const TASK_DELETE_CONCURRENCY = 8
@@ -54,8 +53,8 @@ function splitLinkTargetKey(key: string): [TaskLinkTarget['kind'], string, strin
  * Every task this client knows anything about, and how far each read has got.
  *
  * GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). Each
- * host keeps a copy of the tasks that its projects' task sources list, and the
- * Solus attachments of a task key. This store merges every connected host's
+ * host keeps a copy of the tasks that the person's task sources list, and the
+ * Solus attachments of a task key. A task belongs to no project (docs/tasks.md). This store merges every connected host's
  * snapshot into one list. A task is one task key, so two hosts that read the
  * same issue describe the same `Task`; the first of them in catalog order
  * reads and writes it. A host that holds only attachments (the organization's
@@ -64,9 +63,8 @@ function splitLinkTargetKey(key: string): [TaskLinkTarget['kind'], string, strin
  * Nothing here is about one task. What is known about a task, and everything
  * that can be done to it, lives on `Task` and is reached through `get(id)`.
  *
- * What is left is the collection, and it is left here for one of three reasons.
- * It is about **which tasks exist** (`load`, the groupings, the Undo batch). It
- * is about a **project** rather than a task (which tasks its sources list). Or
+ * What is left is the collection, and it is left here for one of two reasons.
+ * It is about **which tasks exist** (`load`, the groupings, the Undo batch). Or
  * it is about a **session**, answering "which task owns this one"
  * (`taskForSession`, the binding reads) — the reverse direction is a task's own
  * `sessions`. `create` and `prepareForSession` sit here because a task that does
@@ -147,41 +145,12 @@ export class TasksStore {
     if (!this.listedTasks.some((row) => row.id === task.id)) this.listedTasks.push(task)
   }
 
-  /** The projects whose task sources list a task. One source can be in many
-   *  projects, so a task can be in more than one. */
-  projectKeysOf(task: Pick<Task, 'placements'>): string[] {
-    const projectKeys = new Set<string>()
-    for (const placement of task.placements) {
-      for (const projectKey of taskSourcesStore.projectKeysBySource.get(placement.sourceKey) ?? []) {
-        projectKeys.add(projectKey)
-      }
-    }
-    return [...projectKeys]
-  }
-
-  /** The tasks that the task sources of one project list. */
-  tasksInProject(projectKey: string | null | undefined): Task[] {
-    if (!projectKey) return []
-    const sourceKeys = taskSourcesStore.sourceKeysByProject.get(projectKey)
-    return sourceKeys ? tasksInSources(this.tasks, sourceKeys) : []
-  }
-
-  /** Every task of these projects, each once, and every task that no known
-   *  project lists (a task that only a session link brought here) — the
-   *  every-project list has no other page to leave those on. */
-  tasksInProjects(projectKeys: ReadonlySet<string>): Task[] {
-    return this.tasks.filter((task) => {
-      const taskProjectKeys = this.projectKeysOf(task)
-      return taskProjectKeys.length === 0 || taskProjectKeys.some((projectKey) => projectKeys.has(projectKey))
-    })
-  }
-
   /** The tasks that are not done. */
   upNext: Task[] = $derived(this.tasks.filter((task) => task.category !== 'done'))
 
   // --- Assignee candidates ----------------------------------------------
   // The people a provider permits a task to be assigned to: for one task, or
-  // for a new task in one source of a project. Keyed by `assigneeTargetKey`.
+  // for a new task in one task source. Keyed by `assigneeTargetKey`.
 
   private assigneeCandidatesByTarget = new SvelteMap<string, TaskAssigneeCandidate[]>()
   private assigneeCandidatesLoadingByTarget = new SvelteMap<string, boolean>()
@@ -615,17 +584,10 @@ export class TasksStore {
     this.knownTaskCount++
   }
 
-  /** The tasks of the project a checkout belongs to. */
-  tasksForCheckout(serverId: string | null | undefined, path: string | null | undefined): Task[] {
-    if (!serverId || !path) return []
-    return this.tasksInProject(projectsStore.projectKeyFor(serverId, path))
-  }
-
-  /** Every label in use across a project's tasks, in name order. What a label
+  /** Every label in use across the tasks, in name order. What a label
    *  picker offers beside the labels the task already carries. */
-  knownLabels(serverId: string | null | undefined, path: string | null | undefined): string[] {
-    return Array.from(new Set(this.tasksForCheckout(serverId, path).flatMap((task) => task.labels)))
-      .sort((a, b) => a.localeCompare(b))
+  get knownLabels(): string[] {
+    return Array.from(new Set(this.tasks.flatMap((task) => task.labels))).sort((a, b) => a.localeCompare(b))
   }
 
   taskForSession(sessionId: string | null | undefined): Task | null {
@@ -656,11 +618,9 @@ export class TasksStore {
     this.assigneeCandidatesErrorByTarget.delete(key)
     const load = (async () => {
       try {
-        const serverId = 'taskId' in target ? await this.get(target.taskId).ownerHost() : target.serverId
-        if (!serverId) throw new Error('No connected host has this task.')
-        const candidates = await serverConnections.apiFor(serverId).tasksListAssigneeCandidates(
-          'taskId' in target ? { taskId: target.taskId } : { cwd: target.cwd, sourceKey: target.sourceKey },
-        )
+        const serverId = 'taskId' in target ? await this.get(target.taskId).ownerHost() : taskHostId()
+        if (!serverId) throw new Error('No connected host can read this task source.')
+        const candidates = await serverConnections.apiFor(serverId).tasksListAssigneeCandidates(target)
         this.assigneeCandidatesByTarget.set(key, candidates)
         return candidates
       } catch (error) {
@@ -760,15 +720,17 @@ export class TasksStore {
   }
 
   /**
-   * Ask the provider for the tasks of a project's sources that match a query.
+   * Ask the provider for the tasks of the person's sources that match a query.
    *
    * The only way to reach a task that a truncated source did not list: an issue
    * nobody has touched this month is exactly the one being looked for. The
    * answers are tasks to act on, but they do not join the list; the next
    * snapshot decides what the list holds.
    */
-  async search(serverId: string, cwd: string, query: string): Promise<Task[]> {
-    const found = await serverConnections.apiFor(serverId).tasksSearch(cwd, query)
+  async search(query: string): Promise<Task[]> {
+    const serverId = taskHostId()
+    if (!serverId) throw new Error('No connected machine runs agents, so no machine can search GitHub or Jira.')
+    const found = await serverConnections.apiFor(serverId).tasksSearch(taskSourcesStore.configured, query)
     return found.map((record) => {
       const task = this.get(record.id)
       return task.hydrate(record, task.serverId ? undefined : serverId)
@@ -838,10 +800,11 @@ export class TasksStore {
     return hydrated ?? this.taskForSession(sessionId)
   }
 
-  /** Create a task on the provider, in a source of the project `input.cwd`.
-   *  `serverId` names the host that has that project: a path alone does not
-   *  name a host. A failed create throws and nothing is listed. */
-  async create(input: TaskCreateInput, serverId: string): Promise<Task> {
+  /** Create a task on the provider, in one of the person's sources, through
+   *  the task host. A failed create throws and nothing is listed. */
+  async create(input: TaskCreateInput): Promise<Task> {
+    const serverId = taskHostId()
+    if (!serverId) throw new Error('No connected machine runs agents, so no machine can create the task.')
     const created = await serverConnections.apiFor(serverId).tasksCreate(input)
     const task = this.get(created.id).hydrate(created, serverId)
     this.taskIdsOn(this.listedTaskIdsByHost, serverId).add(task.id)
@@ -929,11 +892,11 @@ export class TasksStore {
 }
 
 /** Whose assignee candidates to read: the people for one task, or for a new
- *  task in one source of a project on one host. */
+ *  task in one task source. */
 export type TaskAssigneeTarget =
   | { taskId: string }
-  | { serverId: string; cwd: string; sourceKey: string }
+  | { source: TaskSource }
 
 function assigneeTargetKey(target: TaskAssigneeTarget): string {
-  return 'taskId' in target ? `task:${target.taskId}` : `source:${hostKey(target.serverId, target.cwd)}:${target.sourceKey}`
+  return 'taskId' in target ? `task:${target.taskId}` : `source:${taskSourceKey(target.source)}`
 }

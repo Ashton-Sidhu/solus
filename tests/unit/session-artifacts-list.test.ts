@@ -6,14 +6,11 @@ import {
   artifactIconLabel,
   artifactKindLabel,
   artifactMatchesQuery,
-  artifactSections,
   artifactTitle,
   artifactTooltip,
-  effectiveFilter,
   fileRouteParams,
-  filterChips,
 } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-list'
-import { artifactKey, newestAddedKey } from '@solus/workspace-ui/contexts/sessions/session-artifacts'
+import { newestAddedKey } from '@solus/workspace-ui/contexts/sessions/session-artifacts'
 import { openArtifact } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-open'
 import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
@@ -35,56 +32,7 @@ function pr(number: number, linkedAt: number, extra: Partial<SessionPullRequestL
 
 const work = (workId: string, linkedAt: number): SessionArtifact => ({ kind: 'work', workId, title: `Work ${workId}`, workType: 'slides', linkedAt })
 const file = (path: string, linkedAt: number): SessionArtifact => ({ kind: 'file', hostId: 'h1', path, title: path, linkedAt })
-const image = (path: string, linkedAt: number): SessionArtifact => ({ kind: 'image', hostId: 'h1', path, title: path, linkedAt })
 const app = (appId: string, linkedAt: number, title = `App ${appId}`): SessionArtifact => ({ kind: 'app', hostId: 'h1', appId, slug: `slug-${appId}`, title, linkedAt })
-
-describe('artifact filter chips', () => {
-  test('All counts every artifact, own and children, and a kind with no items has no chip', () => {
-    // WHY: a chip that filters to nothing is a dead end; All must count what the list holds.
-    const artifacts: SessionArtifacts = {
-      own: [pr(1, 1), work('w1', 2)],
-      children: [{ sessionId: 'c1', title: 'Child', items: [file('/repo/a.ts', 3)] }],
-    }
-    expect(filterChips(artifacts).map((chip) => [chip.filter, chip.count])).toEqual([
-      ['all', 3],
-      ['pull-request', 1],
-      ['work', 1],
-      ['file', 1],
-    ])
-  })
-
-  test('a filter whose kind emptied falls back to All', () => {
-    const chips = filterChips({ own: [work('w1', 1)], children: [] })
-    expect(effectiveFilter('image', chips)).toBe('all')
-    expect(effectiveFilter('work', chips)).toBe('work')
-  })
-})
-
-describe('artifact sections', () => {
-  test('a plain session groups by kind, newest first, and leaves out empty kinds', () => {
-    const sections = artifactSections({ own: [file('/r/a', 1), pr(7, 5), file('/r/b', 9)], children: [] }, 'all')
-    expect(sections.map((section) => section.title)).toEqual(['Pull requests', 'Files'])
-    expect(sections[1]!.items.map(artifactKey)).toEqual(['file:h1:/r/b', 'file:h1:/r/a'])
-  })
-
-  test('a lead shows its own first, then one section per child by name', () => {
-    // WHY: a lead's work is spread over the sessions it started; each child's
-    // output must stay under that child's name, after the lead's own.
-    const artifacts: SessionArtifacts = {
-      own: [work('w1', 1)],
-      children: [
-        { sessionId: 'c1', title: 'Fix login', items: [pr(2, 2)] },
-        { sessionId: 'c2', title: null, items: [image('/r/shot.png', 3)] },
-      ],
-    }
-    expect(artifactSections(artifacts, 'all').map((section) => [section.key, section.title])).toEqual([
-      ['own', 'This session'],
-      ['session:c1', 'Fix login'],
-      ['session:c2', 'Untitled session'],
-    ])
-    expect(artifactSections(artifacts, 'pull-request').map((section) => section.key)).toEqual(['session:c1'])
-  })
-})
 
 describe('artifact rows', () => {
   test('a file shows its base name and keeps the full path in the tooltip', () => {
@@ -122,13 +70,9 @@ describe('artifact rows', () => {
 })
 
 describe('an app the session linked', () => {
-  test('it has its own section after the works, its own chip, and a row named by its title', () => {
+  test('its row is named by its title and says that it is an app', () => {
     // WHY: an app is a kind of its own (docs/plans/apps.md decision 18). It must
-    // not fold into the works, whose rows open a document.
-    const artifacts: SessionArtifacts = { own: [file('/r/a', 1), app('app_1', 2, 'Notes'), work('w1', 3)], children: [] }
-    expect(artifactSections(artifacts, 'all').map((section) => section.title)).toEqual(['Works', 'Apps', 'Files'])
-    expect(filterChips(artifacts).map((chip) => [chip.filter, chip.label, chip.count])).toContainEqual(['app', 'Apps', 1])
-    expect(artifactSections(artifacts, 'app').map((section) => section.items.map(artifactKey))).toEqual([['app:h1:app_1']])
+    // not read as a work, whose rows open a document.
     expect(artifactTitle(app('app_1', 1, 'Notes'))).toBe('Notes')
     expect(artifactTitle(app('app_1', 1, ''))).toBe('Untitled')
     expect(artifactKindLabel(app('app_1', 1))).toBe('App')
@@ -166,18 +110,6 @@ describe('artifact search', () => {
     expect(artifactMatchesQuery(work('w1', 1), 'slides')).toBe(true)
     expect(artifactMatchesQuery(work('w1', 1), 'diagram')).toBe(false)
     expect(artifactMatchesQuery(work('w1', 1), '   ')).toBe(true)
-  })
-
-  test('sections keep only what the search finds, under the kind filter, and drop the empty ones', () => {
-    const artifacts: SessionArtifacts = {
-      own: [file('/r/login.ts', 1), pr(3, 2, { title: 'Fix login' })],
-      children: [{ sessionId: 'c1', title: 'Child', items: [file('/r/other.ts', 3)] }],
-    }
-    expect(artifactSections(artifacts, 'all', 'login').map((section) => [section.key, section.items.map(artifactKey)])).toEqual([
-      ['own', ['pull-request:github.com/acme/app#3', 'file:h1:/r/login.ts']],
-    ])
-    expect(artifactSections(artifacts, 'file', 'login').map((section) => section.items.map(artifactKey))).toEqual([['file:h1:/r/login.ts']])
-    expect(artifactSections({ own: artifacts.own, children: [] }, 'all', 'login').map((section) => section.title)).toEqual(['Pull requests', 'Files'])
   })
 })
 

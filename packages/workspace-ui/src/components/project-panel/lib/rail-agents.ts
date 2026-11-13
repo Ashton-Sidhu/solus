@@ -45,6 +45,8 @@ export interface RailAgentRow {
   ref: AgentConversationRef | null
   /** Nothing to open or stop yet: the session's provider has not started. */
   pending: boolean
+  /** When the session dispatched it: a sub-agent's call, or the first card of a started session. */
+  startedAt: number
 }
 
 export interface RailAgentList {
@@ -83,10 +85,11 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
     tooltip: tooltipFor(row.name, link.label, [row.activity, row.target].filter(Boolean).join(' ')),
     ref: null,
     pending: false,
+    startedAt: message.timestamp,
   }
 }
 
-function sessionAgentRow(ref: AgentConversationRef, now: number, context: RailAgentContext): RailAgentRow {
+function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: number, context: RailAgentContext): RailAgentRow {
   const meta = context.metaFor(ref.sessionId)
   const pending = isPendingAgent(ref)
   const link = agentConversationLink(ref, agentConversationCardState(ref), pending)
@@ -104,6 +107,7 @@ function sessionAgentRow(ref: AgentConversationRef, now: number, context: RailAg
     tooltip: tooltipFor(title, link.label, [link.detail, provenance].filter(Boolean).join(' · ')),
     ref,
     pending,
+    startedAt,
   }
 }
 
@@ -111,20 +115,20 @@ export function railAgentList(messages: Message[], now: number, context: RailAge
   // A session the conversation talks to across turns has one card per turn;
   // the last one says where it stands now, the first one when it started.
   const sessions = new Map<string, { ref: AgentConversationRef; startedAt: number }>()
-  const rows: { row: RailAgentRow; startedAt: number }[] = []
+  const rows: RailAgentRow[] = []
   for (const message of messages) {
     const ref = message.agentConversationRef
     if (ref) {
       const startedAt = sessions.get(ref.sessionId)?.startedAt ?? message.timestamp
       sessions.set(ref.sessionId, { ref, startedAt })
     } else {
-      rows.push({ row: subagentAgentRow(message, now, context), startedAt: message.timestamp })
+      rows.push(subagentAgentRow(message, now, context))
     }
   }
   for (const { ref, startedAt } of sessions.values()) {
-    rows.push({ row: sessionAgentRow(ref, now, context), startedAt })
+    rows.push(sessionAgentRow(ref, startedAt, now, context))
   }
-  const ordered = rows.sort((a, b) => b.startedAt - a.startedAt).map(({ row }) => row)
+  const ordered = rows.sort((a, b) => b.startedAt - a.startedAt)
   const active = ordered.filter((row) => row.tone === 'live')
   const previous = ordered.filter((row) => row.tone !== 'live')
   const failed = previous.filter((row) => row.tone === 'failed').length

@@ -1,9 +1,5 @@
-<script module lang="ts">
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["organization", "owner", "member", "projects", "repositories"];
-</script>
-
 <script lang="ts">
+  import { organizationSearchWords as searchWords } from "./lib/settings-search-data";
   /** Organization: what an organization holds in Solus Cloud for its members.
    *  What its work may do — Insights, limits, locked settings — is its policy,
    *  on Settings → Policy (plans/030 §7). Hosts, packages, and the setup script

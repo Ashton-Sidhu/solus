@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -467,8 +467,10 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     providers.answer(REPO, repoRead([]))
     const { useTaskAdaptersForTests } = await import('@solus/server/data/tasks/providers/registry')
     useTaskAdaptersForTests(providers.adapters())
-    mkdirSync(join(dataDir, '.solus'), { recursive: true })
-    writeFileSync(join(dataDir, '.solus', 'config.json'), JSON.stringify({ version: 1, taskSources: [REPO] }))
+    // The task source is the person's own, from the preferences the run carries.
+    const settings = await import('@solus/server/execution/sessions/session-settings')
+    const recorded = settings.sessionSettings('s-new')
+    settings.recordSessionSettings('s-new', { organizationId: recorded?.organizationId ?? 'A', preferences: { ...recorded?.preferences, taskSources: [REPO] } })
     const api = fakeOrganizationApi('A')
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
     try {
@@ -479,7 +481,7 @@ describe('an agent\'s record tools follow its session\'s home', () => {
     } finally {
       uninstall()
       useTaskAdaptersForTests(null)
-      rmSync(join(dataDir, '.solus'), { recursive: true, force: true })
+      if (recorded) settings.recordSessionSettings('s-new', recorded)
     }
   })
 

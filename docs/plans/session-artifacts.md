@@ -1,12 +1,16 @@
 # Session artifacts: what a session produced
 
-Status: implemented, 2026-10-28. Desktop, web, and mobile.
+Status: implemented, 2026-10-28. Desktop, web, and mobile. The session view
+(decisions 10 to 16) is implemented on desktop and web, 2026-11-12; the phone
+keeps the list of decisions 1 to 7 until its screen is built.
 
-The **Artifacts** surface lists what a session produced or linked: pull
-requests, works, files, images, and automations. For a session that started
-other sessions (a lead), it also lists the artifacts of each session below it
-in its delegation tree under that session's name, so a person never opens worker transcripts to find a pull
-request. Nothing new is stored: the read joins records that already exist.
+The **Artifacts** surface shows what happened in a session: its turns as a
+timeline, the files it changed, the agents it started, and what it produced or
+linked (pull requests, works, files, images, and automations). For a session
+that started other sessions (a lead), it also shows what each session below it
+in its delegation tree linked, so a person never opens worker transcripts to
+find a pull request. Nothing new is stored: the surface joins records that
+already exist.
 
 ## Vocabulary
 
@@ -21,7 +25,19 @@ request. Nothing new is stored: the read joins records that already exist.
   below it in its delegation tree: the sessions it started, oldest started
   first, then the ones they started, level by level.
 
-Do not call the surface a tab, a panel, or a page.
+- **turn timeline** — the plot at the top of the surface: the session's tool
+  calls over its working time, cut into turns. It is not the session timeline
+  an agent reads with `read_session`, and not a pull request's activity
+  timeline.
+- **turn** — the stretch from one prompt to the next, as the conversation cuts
+  it. A notice the agent SDK injects opens no turn.
+- **scope** — what the surface shows: the whole session, or one turn.
+- **tile** — one of the scope's four numbers: changed files, agents, pull
+  requests, and works and files. A tile is also the kind filter.
+- **card** — one kind's rows under the tiles.
+
+Do not call the surface a tab, a panel, or a page. Do not call a turn a step
+or a message, and do not call the scope a filter: the kind is the filter.
 
 ## Decisions
 
@@ -91,9 +107,74 @@ Do not call the surface a tab, a panel, or a page.
    turn shows no row, and a delegate's links stay on its card. An image the
    turn's gallery shows gets no chip, so it shows once.
 
+10. **The surface is the session, not only its links.** Under one head (the
+    session's name, how it stands, its branch) it shows a scope card (the
+    timeline, then the tiles) and one card for each kind: Changes, Agents, Pull
+    requests, and Works and files. A card's label closes it. On a pane of
+    44rem or wider the cards take two columns, so a row is never wider than a
+    narrow pane. One model orders and scopes the rows on every client
+    (`packages/client-core/src/session-overview.ts`).
+11. **The turn timeline is working time, and a divider starts each turn.**
+    Each bar is one round span (15 seconds to an hour; the finest whose bars
+    fit the pane), as tall as the tool calls that started in it; a span with
+    none is a dot, so the line runs on. A bar is full height at the count that
+    19 bars in 20 stay under, and never under 10 calls: one burst does not
+    press the other bars flat, and a quiet session is not a row of full bars.
+    A divider stands where each turn starts and runs down beside the turn's
+    start time, so a turn reads as one column. The times are short: the half
+    of the day shows on the first label and where it changes, and a turn on a
+    later day than the one before it names its day. The caption names the span
+    in words, and pointing at a bar reads out its time and its count in the
+    same place. A turn takes the bars its work took. The wait before the next
+    prompt is one dot, however long it was, because a session left for a night
+    would otherwise be one empty line. A wait of an hour or more is a break:
+    it takes a few dots, and the line says how long it was (`3h`, `2d`). When
+    the bars do not fit at the coarsest span, the plot scrolls and starts at
+    its end (`packages/client-core/src/turn-timeline.ts`).
+12. **Selecting a turn scopes everything under the turn timeline.** The tiles count
+    the turn and the cards show only its rows. A link, an agent, or a
+    checkpoint carries a time and no turn id, so it is in the turn whose prompt
+    is the last one before it (the rule of decision 9). The scope names its
+    turn by the prompt's message id, so it holds when earlier history loads.
+    Selecting the turn again, Escape, or the clear control returns to the
+    whole session. Left and right arrow keys step through the turns.
+13. **The tiles count the scope, not the search.** A search looks for a row; it
+    does not change how much the turn did. A tile's marks say how its rows
+    stand (running, done, failed; open, draft, merged).
+14. **Changes are the session's own, from git.** The whole session reads
+    `diffStats` with scope `session`; a turn reads the checkpoint written in it
+    (`listTurnSnapshots`, then `diffStats` with scope `turn`). Until git
+    answers, and for a turn with no checkpoint, the rows are the paths the
+    transcript names, with no counts: unknown reads as unknown, never as zero.
+    The rows are the directory tree the conversation's changed-files card
+    draws (`buildDiffSummaryTree`). A change of eight files or fewer, and a
+    search, show the files at once; a larger change opens on its folders. A
+    file row opens that file's diff in the review surface. Over the tree, a
+    change of more than one kind (Code, Tests, Mocks, Generated, Docs: the
+    kinds the review surface filters by, `changedFileKind`) shows a thin line
+    with each kind's part of the changed lines, and a chip for each kind.
+    Selecting a chip shows only that kind in the tree; the card's count and
+    totals stay those of the whole change.
+15. **Agents are the session's sub-agents and the sessions it started**, as the
+    project panel's Agents card lists them (`railAgentList`). A started
+    session's row shows counts of what it linked. A row opens the sub-agent or
+    the session.
+16. **The transcript is read on the client, so it needs the conversation open.**
+    The timeline, the agents, and the changed files show for a session that
+    has a conversation in this workspace. For any other session (a started
+    session opened from its card) the surface shows the linked artifacts and
+    says why. When the conversation holds only its recent history, the timeline
+    covers what is loaded, and a control in its caption loads the remainder. The transcript is
+    scanned once for each appended message, and never for a streamed token.
+
 ## Verification
 
 - Unit: the read joins the four sources, tags images, orders newest first, and
   groups children with their titles; the events fire on link and unlink
-  (`session-artifacts`). The renderer's grouping and filtering helpers, the
+  (`session-artifacts`). The renderer's row text and search helpers, the
   auto-open rule, and the keybinding manifest.
+- Unit: the timeline picks the finest span that fits, keeps a wait to one bar,
+  and counts each call in its turn's bar (`turn-timeline`). The scope puts a
+  link, an agent, and a checkpoint in one turn; changes order by size and keep
+  unknown counts unknown; the transcript scan cuts turns where the
+  conversation does; the tiles count each kind (`session-overview`).

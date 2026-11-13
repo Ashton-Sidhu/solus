@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  checkPullRequestUrl,
-  linkedPullRequestTitle,
-  taskPullRequestLink,
-} from '@solus/workspace-ui/components/session/lib/link-pull-request'
+import { checkPullRequestUrl } from '@solus/workspace-ui/components/session/lib/link-pull-request'
 
 describe('linking a pull request by its URL', () => {
   test('an empty field is not an error', () => {
@@ -12,7 +8,7 @@ describe('linking a pull request by its URL', () => {
 
   test('a bare number or an issue is refused', () => {
     // WHY: a number names no repository, so the link could land on the wrong
-    // pull request. The dialog takes the page's URL only.
+    // pull request. The menu's field takes the page's URL only.
     expect(checkPullRequestUrl('412')).toEqual({ kind: 'invalid' })
     expect(checkPullRequestUrl('https://github.com/acme/solus/issues/412')).toEqual({ kind: 'invalid' })
   })
@@ -23,24 +19,5 @@ describe('linking a pull request by its URL', () => {
       url: 'https://github.com/acme/solus/pull/412',
       label: 'acme/solus #412',
     })
-  })
-
-  test('a task link names the repository in lower case, as the host stores it', () => {
-    expect(taskPullRequestLink('https://github.com/Acme/Solus/pull/412')).toEqual({
-      kind: 'pr',
-      targetScope: 'github.com/acme/solus',
-      targetKey: '412',
-      url: 'https://github.com/Acme/Solus/pull/412',
-    })
-    expect(taskPullRequestLink('not a url')).toBeNull()
-  })
-})
-
-describe('linkedPullRequestTitle', () => {
-  test('names a pull request PR sync has not read by its repository, as the URL spells it', () => {
-    // WHY: the repository key is lowercase; `github.com/berriai/litellm` reads as noise in a list.
-    const url = 'https://github.com/BerriAI/litellm/pull/48668'
-    expect(linkedPullRequestTitle({ title: '', url, repository: 'github.com/berriai/litellm' })).toBe('BerriAI/litellm')
-    expect(linkedPullRequestTitle({ title: 'fix(chatgpt): send system input', url, repository: 'github.com/berriai/litellm' })).toBe('fix(chatgpt): send system input')
   })
 })

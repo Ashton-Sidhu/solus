@@ -27,21 +27,7 @@ describe('where a browser capture can be filed', () => {
       task({ id: 'active', category: 'active' }),
       task({ id: 'done', category: 'done' }),
     ]
-    expect(attachableTasks(tasks, tasks).map((entry) => entry.id)).toEqual(['active'])
-  })
-
-  test('a page files against the tasks of its own project, not every task', () => {
-    const mine = task({ id: 'mine' })
-    const elsewhere = task({ id: 'elsewhere' })
-    expect(attachableTasks([mine, elsewhere], [mine]).map((entry) => entry.id)).toEqual(['mine'])
-  })
-
-  test('a page whose project lists no open task still has somewhere to file', () => {
-    // WHY: a page with no project, or a project with no task source, cannot be
-    // scoped. Scoping must not silently empty the list.
-    const tasks = [task({ id: 'mine' }), task({ id: 'elsewhere' })]
-    expect(attachableTasks(tasks, []).map((entry) => entry.id)).toEqual(['mine', 'elsewhere'])
-    expect(attachableTasks(tasks, [task({ id: 'closed', category: 'done' })]).map((entry) => entry.id)).toEqual(['mine', 'elsewhere'])
+    expect(attachableTasks(tasks).map((entry) => entry.id)).toEqual(['active'])
   })
 
   test('a task row says the provider\'s own word for its state', () => {

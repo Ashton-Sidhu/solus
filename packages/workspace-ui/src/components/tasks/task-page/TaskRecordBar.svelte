@@ -24,9 +24,6 @@
    */
   interface Props {
     task: Task;
-    /** Which project the list behind this page is showing. Null when no
-     *  project of this client lists the task. */
-    projectLabel: string | null;
     /** A read of the task from its provider is on its way. */
     refreshing: boolean;
     /** Read the task from its provider again. */
@@ -45,7 +42,6 @@
 
   let {
     task,
-    projectLabel,
     refreshing,
     onRefresh,
     onPrevious,
@@ -80,7 +76,7 @@
       {taskRef(task)}
     </span>
     <span class="max-w-full truncate text-xs text-muted-foreground">
-      {projectLabel ?? providerName} · Tasks
+      {providerName} · Tasks
     </span>
   </div>
 

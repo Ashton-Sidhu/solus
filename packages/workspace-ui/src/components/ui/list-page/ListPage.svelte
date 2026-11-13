@@ -44,6 +44,9 @@
     /** Page-specific chips at the far end of the crumb line — provider
      *  identity, a bulk-selection count. Never anything that filters. */
     actions?: Snippet;
+    /** What the page holds, one choice on screen at a time (the Tasks page's
+     *  sources). Fixed, over the narrowing row. */
+    scopes?: Snippet;
     /** The narrowing row: search, filter chips, sort. Fixed, under the crumb. */
     filters?: Snippet;
     /** `filters` is a 32px toolbar (a search card and menu buttons) rather than
@@ -89,6 +92,7 @@
     primaryAction,
     onClose,
     actions,
+    scopes,
     filters,
     toolbarFilters = false,
     children,
@@ -155,6 +159,10 @@
           {onClose}
         />
       </div>
+    {/if}
+
+    {#if scopes}
+      <div class="shrink-0 pb-2.5 {condensed && !hideHeader ? 'hidden' : ''}">{@render scopes()}</div>
     {/if}
 
     <!-- ── Row 2: everything that narrows, and the one action that creates ── -->

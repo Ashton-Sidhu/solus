@@ -1,53 +1,5 @@
-<script module lang="ts">
-  export const settingItems = [
-    {
-      id: "text-generation-model",
-      keywords: [
-        "model",
-        "text",
-        "generation",
-        "background",
-        "session",
-        "name",
-        "metadata",
-        "writing",
-      ],
-    },
-    {
-      id: "sidebar-motion",
-      keywords: [
-        "sidebar",
-        "animation",
-        "motion",
-        "speed",
-        "duration",
-        "slide",
-        "fade",
-        "ms",
-      ],
-    },
-    {
-      id: "projects-base",
-      keywords: [
-        "project",
-        "projects",
-        "folder",
-        "directory",
-        "base",
-        "start",
-        "open",
-        "picker",
-        "path",
-      ],
-    },
-    {
-      id: "about",
-      keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
-    },
-  ];
-</script>
-
 <script lang="ts">
+  import { generalSettings as settingItems } from "./lib/settings-search-data";
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
   import { MAX_SIDEBAR_MOTION_MS } from "@solus/contracts/settings";

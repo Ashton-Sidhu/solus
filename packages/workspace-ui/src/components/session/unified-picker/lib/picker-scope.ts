@@ -37,3 +37,22 @@ export function scopeForChoice(
   if (projectKey === currentProjectKey) return { kind: 'current' }
   return { kind: 'project', projectKey }
 }
+
+/**
+ * The projects the picker can scope to, by project key, each once.
+ *
+ * Built from every known project rather than from the sidebar's columns: a
+ * project can hold plenty of work and still have no sidebar row on this
+ * client, and a scope you cannot reach is not a scope. The composer's own
+ * project leads and is always offered — a fresh project must still be
+ * nameable. A task belongs to no project, so tasks add no scope.
+ */
+export function pickerProjectKeys(
+  currentProjectKey: string | null,
+  knownProjectKeys: Iterable<string>,
+): string[] {
+  const keys = new Set<string>()
+  if (currentProjectKey) keys.add(currentProjectKey)
+  for (const projectKey of knownProjectKeys) keys.add(projectKey)
+  return [...keys]
+}

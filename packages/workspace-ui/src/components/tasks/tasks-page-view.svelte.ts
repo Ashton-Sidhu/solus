@@ -15,30 +15,29 @@ import {
 import { isTaskSnoozed, openColumnIds, taskGroups } from './lib/tasks-list-view'
 import {
   matchesTaskQuery,
-  sourceNotices,
+  sourcesFailure,
   sourcesSyncState,
+  taskCountsBySource,
+  tasksOfSources,
   withProviderMatches,
-  type SourceNotice,
+  type SourcesFailure,
   type SourcesSyncState,
 } from './lib/tasks-page'
 import type { ProviderTaskSearch } from './lib/provider-search.svelte'
 
-/** What the Tasks page hands to its view: the tasks and sources of the scope
- *  on screen, and the facts only the page can read. */
+/** What the Tasks page hands to its view: the tasks and sources of the
+ *  person, and the facts only the page can read. */
 interface TasksPageViewInput {
-  /** The tasks of the project on screen, or of every project. */
+  /** The tasks the task host holds for the person. The view keeps the ones
+   *  that a source in `sources` lists. */
   tasks: () => Task[]
-  /** The task sources of the project on screen. Empty for every project. */
+  /** The person's task sources, as the task host read them. */
   sources: () => TaskSourceState[]
   now: () => number
   /** Sessions whose agent works on the task now, not every linked one. */
   runningSessionsFor: (taskId: string) => number
-  /** The project a row names, when the page shows more than one. */
-  projectLabelFor: (taskId: string) => string | null
   /** The host a row names, when the task is not read by this machine. */
   homeFor: (taskId: string) => string | null
-  /** The page shows every project, so each row names its project. */
-  showsEveryProject: () => boolean
   providerSearch: ProviderTaskSearch
 }
 
@@ -90,7 +89,7 @@ export class TasksPageView {
   /** The sources whose tasks are on screen. */
   readonly sources: TaskSourceState[] = $derived.by(() => (this.source ? [this.source] : this.#input.sources()))
   /** A source that cannot be read, or one that holds more tasks than the host read. */
-  readonly notices: SourceNotice[] = $derived(sourceNotices(this.sources))
+  readonly failure: SourcesFailure | null = $derived(sourcesFailure(this.sources))
   readonly truncated: boolean = $derived(this.sources.some((source) => source.truncated))
   readonly syncState: SourcesSyncState = $derived(sourcesSyncState(this.sources))
 
@@ -112,15 +111,31 @@ export class TasksPageView {
     return Date.parse(`${task.dueDate}T23:59:59`) < this.#input.now()
   }
 
-  /** The tasks that the search keeps. A source view shows the tasks that the
-   *  source lists; the mixed view shows each task of the project one time. */
-  readonly searched: Task[] = $derived.by(() => {
+  /** The tasks of every source that match the search, before the source on
+   *  screen narrows them. The source strip counts these. */
+  readonly #matched: Task[] = $derived.by(() => {
     const { providerSearch } = this.#input
-    return withProviderMatches(
-      this.#input.tasks().filter((task) => matchesTaskQuery(task, this.query)),
-      providerSearch.query === this.query.trim() ? providerSearch.results : [],
-    ).filter((task) => boardColumnIdOf(task, this.board) !== null)
+    const sourceKeys = new Set(this.#input.sources().map((source) => source.sourceKey))
+    return tasksOfSources(
+      withProviderMatches(
+        this.#input.tasks().filter((task) => matchesTaskQuery(task, this.query)),
+        providerSearch.query === this.query.trim() ? providerSearch.results : [],
+      ),
+      sourceKeys,
+    )
   })
+
+  /** The tasks that the search keeps. A source view shows the tasks that the
+   *  source lists; the mixed view shows each task one time. */
+  readonly searched: Task[] = $derived(this.#matched.filter((task) => boardColumnIdOf(task, this.board) !== null))
+
+  readonly #matchedInView: Task[] = $derived(
+    this.#matched.filter((task) => isTaskSnoozed(task, this.#input.now()) === this.snoozedOnly),
+  )
+  /** How many tasks each source holds for the search and the snooze filter. */
+  readonly sourceCounts: Map<string, number> = $derived(taskCountsBySource(this.#matchedInView))
+  /** How many tasks every source together holds; a task on two sources counts once. */
+  readonly allSourcesCount: number = $derived(this.#matchedInView.length)
 
   /** The snoozed tasks, or every other task: the list shows one of the two. */
   readonly inView: Task[] = $derived.by(() =>
@@ -210,17 +225,18 @@ export class TasksPageView {
   // --- Rows ---------------------------------------------------------------
 
   /**
-   * The list is a table: project and host take one column of their own. The
-   * column is drawn only when some row has something to put in it, and then on
-   * every row, so the cells stay on one x.
+   * The list is a table: the host takes one column of its own. A task belongs
+   * to no project, so the column names no project. It is drawn only when some
+   * row has something to put in it, and then on every row, so the cells stay
+   * on one x.
    */
   readonly #showPlaceColumn: boolean = $derived.by(
-    () => this.#input.showsEveryProject() || this.visibleTasks.some((task) => this.#input.homeFor(task.id) !== null),
+    () => this.visibleTasks.some((task) => this.#input.homeFor(task.id) !== null),
   )
 
   #placeFor = (taskId: string): ListRowPlace | undefined => {
     if (!this.#showPlaceColumn) return undefined
-    return { project: this.#input.projectLabelFor(taskId), host: this.#input.homeFor(taskId) }
+    return { project: null, host: this.#input.homeFor(taskId) }
   }
 
   /** One section for each column of the view that has a row. */

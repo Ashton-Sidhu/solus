@@ -31,8 +31,6 @@
     url?: string | null;
     /** Where the conversation lives — the host that owns its tasks. */
     serverId?: string;
-    /** The conversation's project, which scopes the picker's live tasks. */
-    projectKey?: string | null;
     /** The task the conversation itself belongs to: the one-click target. */
     conversationTaskId?: string | null;
     /** Draw nothing while no task links the target and the conversation has
@@ -40,7 +38,7 @@
     onlyWithTask?: boolean;
   }
 
-  let { target, title, url, serverId, projectKey, conversationTaskId, onlyWithTask = false }: Props = $props();
+  let { target, title, url, serverId, conversationTaskId, onlyWithTask = false }: Props = $props();
 
   const session = getSurfaceContext();
   const store = session.tasksStore;
@@ -70,7 +68,7 @@
   let triggerEl = $state<HTMLButtonElement | null>(null);
 
   const candidates = $derived(
-    (projectKey ? store.tasksForCheckout(serverId, projectKey) : store.tasks)
+    store.tasks
       .filter((task) => task.category !== "done")
       .map((task) => ({ taskId: task.id, title: task.title, category: task.category, reference: task.reference })),
   );

@@ -2,26 +2,34 @@ import { z } from 'zod'
 import type { TaskSourceOptions } from '@solus/contracts/task-types'
 import type { AuthStatus } from '@solus/contracts/types'
 import { connectedSite } from '../../atlassian/api'
-import { resolveRepoRef } from '../../git/git-helpers'
 import { createLogger } from '../../logger'
-import { resolveHomePath } from '../../platform/paths'
-import { resolveProjectRoot } from '../../project-config/project-config'
 import { githubCredentials } from '../../providers/github/credentials'
 import { classifyProviderFailure } from './providers/failures'
 import { githubRun, jiraTransport } from './providers/registry'
 import type { GithubRun, JiraTransport } from './providers/types'
 
 /**
- * What a person can choose as a task source for a project
+ * What a person can choose as a task source
  * (docs/plans/provider-owned-tasks.md §7): their GitHub and Jira connections,
- * the project's GitHub origin, and the boards those connections reach. Each
- * list is read live and is bounded; nothing here is kept.
+ * the repositories they pushed to most recently, and the boards those
+ * connections reach. A task source belongs to no project, so nothing here
+ * reads a project. Each list is read live and is bounded; nothing here is kept.
  */
 
 const log = createLogger('main', 'task-source-options')
 
-/** The most Projects, Jira projects or boards one answer lists. */
+/** The most repositories, Projects, Jira projects or boards one answer lists. */
 const MAX_OPTIONS = 50
+
+const VIEWER_REPOSITORIES_QUERY = `
+  query {
+    viewer {
+      repositories(first: ${MAX_OPTIONS}, orderBy: { field: PUSHED_AT, direction: DESC }, affiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]) {
+        nodes { owner { login } name }
+      }
+    }
+  }
+`
 
 const VIEWER_PROJECTS_QUERY = `
   query {
@@ -37,6 +45,13 @@ const VIEWER_PROJECTS_QUERY = `
 
 const projectNodesSchema = z.object({
   nodes: z.array(z.object({ number: z.number(), title: z.string(), closed: z.boolean().nullish() }).nullable()),
+})
+const viewerRepositoriesSchema = z.object({
+  viewer: z.object({
+    repositories: z.object({
+      nodes: z.array(z.object({ owner: z.object({ login: z.string() }), name: z.string() }).nullable()),
+    }),
+  }),
 })
 const viewerProjectsSchema = z.object({
   viewer: z.object({
@@ -66,8 +81,6 @@ export interface TaskSourceOptionsDeps {
   /** The connected Jira site, or null. */
   jiraSite(): Promise<{ cloudId: string; siteUrl: string } | null>
   jira: JiraTransport
-  /** The GitHub repository of the project's `origin`, or null. */
-  originRepository(cwd: string): Promise<{ owner: string; repo: string } | null>
 }
 
 const defaultDeps: TaskSourceOptionsDeps = {
@@ -76,14 +89,18 @@ const defaultDeps: TaskSourceOptionsDeps = {
   github: githubRun,
   jiraSite: () => connectedSite('jira'),
   jira: jiraTransport,
-  async originRepository(cwd) {
-    const origin = await resolveRepoRef(resolveProjectRoot(resolveHomePath(cwd))).catch(() => null)
-    return origin && origin.host.toLowerCase() === 'github.com' ? { owner: origin.owner, repo: origin.repo } : null
-  },
 }
 
 type GithubOptions = TaskSourceOptions['github']
 type JiraOptions = TaskSourceOptions['jira']
+
+/** The repositories the person pushed to most recently, the newest first. */
+async function githubRepositories(github: GithubRun): Promise<GithubOptions['repositories']> {
+  const answer = viewerRepositoriesSchema.parse(await github('list_github_task_repositories', ({ graphql }) => graphql(VIEWER_REPOSITORIES_QUERY)))
+  return answer.viewer.repositories.nodes
+    .flatMap((repository) => repository ? [{ owner: repository.owner.login, repo: repository.name }] : [])
+    .slice(0, MAX_OPTIONS)
+}
 
 /** The open Projects that the person and their organizations own, the person's own first. */
 async function githubProjects(github: GithubRun): Promise<GithubOptions['projects']> {
@@ -102,26 +119,27 @@ async function githubProjects(github: GithubRun): Promise<GithubOptions['project
   return projects.slice(0, MAX_OPTIONS)
 }
 
-async function githubOptions(cwd: string, deps: TaskSourceOptionsDeps): Promise<GithubOptions> {
+async function githubOptions(deps: TaskSourceOptionsDeps): Promise<GithubOptions> {
   const status = await deps.githubStatus()
   // `gh` can be the person's only GitHub credential: it has no stored login, and it still reads tasks.
   const connected = status.connected || await deps.hasGithubCredential()
-  const options: GithubOptions = { connected, projects: [] }
+  const options: GithubOptions = { connected, repositories: [], projects: [] }
   if (status.login) options.login = status.login
   if (status.scopes) options.hasProjectScope = status.scopes.includes('project') || status.scopes.includes('read:project')
-  const origin = await deps.originRepository(cwd)
-  if (origin) options.originRepository = origin
   if (!connected) return options
-  // A connection that says it has no `project` scope cannot list Projects: do not ask.
-  if (options.hasProjectScope === false) return options
-  try {
-    options.projects = await githubProjects(deps.github)
-  } catch (error) {
-    const failure = classifyProviderFailure(error)
-    // A token with no `project` scope cannot list Projects: the person connects again.
-    if (failure.health === 'reconnect') options.hasProjectScope = false
-    log.warn('task_source_github_projects_unreadable', { health: failure.health, error: failure.message })
-  }
+  await Promise.all([
+    githubRepositories(deps.github).then((repositories) => { options.repositories = repositories }, (error: unknown) => {
+      const failure = classifyProviderFailure(error)
+      log.warn('task_source_github_repositories_unreadable', { health: failure.health, error: failure.message })
+    }),
+    // A connection that says it has no `project` scope cannot list Projects: do not ask.
+    options.hasProjectScope === false ? null : githubProjects(deps.github).then((projects) => { options.projects = projects }, (error: unknown) => {
+      const failure = classifyProviderFailure(error)
+      // A token with no `project` scope cannot list Projects: the person connects again.
+      if (failure.health === 'reconnect') options.hasProjectScope = false
+      log.warn('task_source_github_projects_unreadable', { health: failure.health, error: failure.message })
+    }),
+  ])
   return options
 }
 
@@ -158,8 +176,8 @@ async function jiraOptions(deps: TaskSourceOptionsDeps): Promise<JiraOptions> {
   return options
 }
 
-/** What the caller can choose as a task source for the project that holds `cwd`. */
-export async function taskSourceOptions(cwd: string, deps: TaskSourceOptionsDeps = defaultDeps): Promise<TaskSourceOptions> {
-  const [github, jira] = await Promise.all([githubOptions(cwd, deps), jiraOptions(deps)])
+/** What the caller can choose as a task source. */
+export async function taskSourceOptions(deps: TaskSourceOptionsDeps = defaultDeps): Promise<TaskSourceOptions> {
+  const [github, jira] = await Promise.all([githubOptions(deps), jiraOptions(deps)])
   return { github, jira }
 }

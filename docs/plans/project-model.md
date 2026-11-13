@@ -106,4 +106,4 @@ project, and does not ask a host that has no checkout.
 
 Lists that choose a **folder on one host** are not project lists, and they
 stay per host: the directory picker and its recent folders, Settings →
-Projects, the palette's "Create task in…", and device builds.
+Projects, and device builds. Tasks belong to no project (docs/tasks.md).

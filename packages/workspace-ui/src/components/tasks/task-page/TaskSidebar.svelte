@@ -6,7 +6,6 @@
     TaskUpdatePatch,
   } from "@solus/contracts/task-types";
   import { GROUP, ROW, ROW_LABEL, VALUE, VALUE_BUTTON } from "./lib/sidebar-styles";
-  import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { SourceLogo } from "../../ui/list-page";
   import {
     CATEGORY_META,
@@ -35,11 +34,6 @@
      *  panel opened under the task's title where the rail has folded. The panel
      *  takes the column's rhythm. */
     variant?: "column" | "panel";
-    /** The task's project, as a person reads it. Null when no project of this
-     *  client lists the task. */
-    projectLabel: string | null;
-    /** The task's project, as `projectsStore` keys it. */
-    projectKey?: string | null;
     /** Why each field editor is disabled (`taskFieldLocks`). */
     locks: TaskFieldLocks;
     /** The task's column in each source that lists it. */
@@ -60,8 +54,6 @@
   let {
     task,
     variant = "column",
-    projectLabel,
-    projectKey,
     locks,
     placements,
     moveGroups,
@@ -187,18 +179,6 @@
         onSelect={(assignee) => void onSave({ assignee })}
       />
     </div>
-
-    {#if projectLabel}
-      <div class={ROW}>
-        <span class={ROW_LABEL}>Project</span>
-        <span class="{VALUE} min-w-0">
-          {#if projectKey}
-            <ProjectFavicon {projectKey} class="size-3" />
-          {/if}
-          <span class="truncate">{projectLabel}</span>
-        </span>
-      </div>
-    {/if}
 
     <div class={ROW}>
       <span class={ROW_LABEL}>Provider</span>

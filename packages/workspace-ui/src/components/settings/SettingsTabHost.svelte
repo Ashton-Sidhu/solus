@@ -1,10 +1,3 @@
-<script module lang="ts">
-  import { searchWords as webhookWords } from "../webhooks/WebhookHostSettings.svelte";
-  const retentionWords = ["automation", "archived", "recording", "video", "delete", "retention", "days", "history"];
-  /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = [...retentionWords, ...webhookWords];
-</script>
-
 <script lang="ts">
   /** The selected host's own settings: they apply to all work on that machine
    *  and to everyone who uses it. Choosing another host here changes none of

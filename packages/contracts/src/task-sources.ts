@@ -44,6 +44,35 @@ export function taskSourceProvider(source: TaskSource): TaskRef['provider'] {
   return source.kind === 'github-repo' || source.kind === 'github-project' ? 'github' : 'jira'
 }
 
+/** What tells where a new task belongs when nobody names a source. */
+export interface TaskSourceHints {
+  /** The sources that list the task the work is about, such as the task a session works on. */
+  taskSourceKeys?: readonly string[]
+  /** The GitHub repository that the work is done in: the checkout of a session. */
+  repository?: { owner: string; repo: string } | null
+  /** The source that the person chose for their last new task. */
+  lastSourceKey?: string | null
+}
+
+/**
+ * The source that a new task goes to when nobody names one (docs/tasks.md).
+ * There is no default source to set: the work says where its task belongs.
+ * In this order: a source of the task the work is about, in the person's order
+ * of sources; the source of the GitHub repository the work is done in; the
+ * source the person chose last; the person's only source. Null when no hint
+ * names one of several sources: then the person or the agent chooses.
+ */
+export function inferTaskSourceKey(sourceKeys: readonly string[], hints: TaskSourceHints = {}): string | null {
+  const ofTask = sourceKeys.find((sourceKey) => hints.taskSourceKeys?.includes(sourceKey))
+  if (ofTask) return ofTask
+  if (hints.repository) {
+    const ofRepository = taskSourceKey({ kind: 'github-repo', ...hints.repository })
+    if (sourceKeys.includes(ofRepository)) return ofRepository
+  }
+  if (hints.lastSourceKey && sourceKeys.includes(hints.lastSourceKey)) return hints.lastSourceKey
+  return sourceKeys.length === 1 ? sourceKeys[0] : null
+}
+
 /**
  * The identity of a task. `id` is the provider's stable id, not the reference
  * a person reads: a GitHub issue keeps its node id when it moves to another

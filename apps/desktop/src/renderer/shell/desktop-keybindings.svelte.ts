@@ -116,17 +116,13 @@ export function installDesktopKeybindings(
   useKeybinding("global.new-session-in-task", () => {
     session.drafts.openSessionDraft({ via: "keybinding" });
   });
-  // Starts a new task in the active session's project. The tasks page
-  // binds this id too — it knows which project its header is pinned to — so
-  // this handler stands down while that page is up.
+  // Starts a new task. The tasks page binds this id too, so this handler
+  // stands down while that page is up.
   useKeybinding(
     "global.new-task",
-    () => {
-      const context = session.taskCreationContext;
-      if (context) session.composeNewTask({ serverId: context.serverId, projectRoot: context.projectKey }, "keybinding");
-    },
+    () => session.composeNewTask("keybinding"),
     {
-      enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
+      enabled: () => !session.router.at("tasks"),
     },
   );
 
@@ -440,14 +436,6 @@ export function installDesktopKeybindings(
   useKeybinding(
     "global.open-task",
     () => actions.openCommandPalette({ id: "go-to-task", title: "Open task" }),
-    {
-      // The sub-page is only built for the project the tasks store is scoped to.
-      enabled: () => paletteAvailable && !!session.tasksProjectCwd,
-    },
-  );
-  useKeybinding(
-    "global.create-task-in",
-    () => actions.openCommandPalette({ id: "create-task-in", title: "Create task in" }),
     { enabled: () => paletteAvailable },
   );
   useKeybinding("global.permission-menu", () => {

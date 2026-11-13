@@ -588,7 +588,7 @@
       // — it only ever says "never wider than the window".
       modelOnly
         ? "w-[min(21.5rem,calc(100vw-2rem))]"
-        : "w-[min(31rem,calc(100vw-2rem))]",
+        : "w-[min(34rem,calc(100vw-2rem))]",
     )}
     onOpenAutoFocus={(event) => {
       event.preventDefault();
@@ -609,7 +609,7 @@
              another line. Picking an agent keeps the picker up so its models can
              follow. The title sits on a wrapper because a disabled row takes no
              pointer. -->
-        <DropdownMenu.RadioGroup value={activeAgent} aria-label="Agent" class="flex w-11 shrink-0 flex-col items-center gap-1 rounded-l-[inherit] bg-(--solus-menu-footer-bg) p-1.5">
+        <DropdownMenu.RadioGroup value={activeAgent} aria-label="Agent" class="flex w-12 shrink-0 flex-col items-center gap-1 rounded-l-[inherit] bg-(--solus-menu-footer-bg) p-1.5">
           {#each agentRows as agent (agent.id)}
             <span class="block" title={agent.enabled ? agent.label : `${agent.label}: ${agent.policyDenial ? "Not allowed" : "Not installed"}`}>
               <DropdownMenu.RadioItem
@@ -622,9 +622,9 @@
                 onSelect={() => selectAgent(agent.id)}
                 onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
                 onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
-                class="size-8 justify-center p-0 data-[state=checked]:bg-(--solus-surface-hover) [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
+                class="size-9 justify-center p-0 data-[state=checked]:bg-(--solus-surface-hover) [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
               >
-                <span class="flex size-4 shrink-0 items-center justify-center {agent.id === activeAgent ? (agent.id === 'codex' ? '' : 'text-(--solus-accent)') : 'opacity-55 grayscale'}" aria-hidden="true">
+                <span class="flex size-4.5 shrink-0 items-center justify-center [&_svg]:size-4.5 {agent.id === activeAgent ? (agent.id === 'codex' ? '' : 'text-(--solus-accent)') : 'opacity-55 grayscale'}" aria-hidden="true">
                   {@render agentMark(agent.id, "currentColor")}
                 </span>
               </DropdownMenu.RadioItem>
@@ -633,7 +633,10 @@
         </DropdownMenu.RadioGroup>
       {/if}
       <div class="min-w-0 flex-1">
-      <div class="flex items-stretch">
+      <!-- At least 20rem tall, so the picker reads as a panel rather than a
+           strip, and an open legacy list has room before it scrolls. A deeper
+           set of reasoning levels can still make it taller. -->
+      <div class={cn("flex items-stretch", !modelOnly && "min-h-80")}>
       <!-- Beside the Reasoning column the model list takes no height of its
            own: it scrolls inside the column's reserved height, so opening the
            legacy list or switching agent never resizes the popup. -->
@@ -672,6 +675,7 @@
                 hoveredLevel = null;
               }}
               data-menu-preview={previewedModelId === model.id ? "" : undefined}
+              class="min-h-9"
             >
               <span class="min-w-0 flex-1 truncate" title={model.label}>{model.label}</span>
               {#if denial}<span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not allowed</span>{/if}
@@ -694,6 +698,7 @@
               onSelect={() => (legacyExpanded = !legacyExpanded)}
               onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
               onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+              class="min-h-9"
             >
               <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)">Legacy models</span>
               <span class="shrink-0 text-(--solus-text-tertiary)">{modelSections.legacy.length}</span>
@@ -719,6 +724,7 @@
                     hoveredLevel = null;
                   }}
                   data-menu-preview={previewedModelId === model.id ? "" : undefined}
+                  class="min-h-9"
                 >
                   <span class="min-w-0 flex-1 truncate" title={model.label}>{model.label}</span>
                   {#if denial}<span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not allowed</span>{/if}
@@ -740,6 +746,7 @@
               onSelect={() => pickModel(AUTO_MODEL_ID)}
               onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
               onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+              class="min-h-9"
             >
               <span class="min-w-0 flex-1 truncate">Auto</span>
               {#if autoNeedsKey}
@@ -755,13 +762,16 @@
         <!-- Short of the footer line, so the two never meet in a T. -->
         <div class="my-2 w-px shrink-0 bg-(--solus-menu-hairline)"></div>
 
-        <div class="flex w-[184px] shrink-0 flex-col p-1.5">
+        <div class="flex w-[200px] shrink-0 flex-col p-1.5">
           <DropdownMenu.RadioGroup value={isAuto || previewReasoning ? "" : reasoningEffort}>
             <!-- Which model these levels belong to is said by the model row,
                  which keeps its wash (`data-menu-preview`) while its levels
                  are on offer — not by the heading. -->
             <DropdownMenu.GroupHeading>Reasoning</DropdownMenu.GroupHeading>
-            <div style="min-height:{reservedLevelRows * 2}rem">
+            <!-- This picker's rows are 2.25rem (`min-h-9`), a step above the
+                 shared 2rem menu row. The reservation must match them, or the
+                 column resizes under the cursor. -->
+            <div style="min-height:{reservedLevelRows * 2.25}rem">
               {#each shownReasoningLevels as level (level)}
                 <!-- No entry stagger: this list re-renders as the cursor moves down
                      the model column, and replaying the animation — the tail rows
@@ -777,6 +787,7 @@
                   onpointerenter={() => (hoveredLevel = level)}
                   data-menu-current={previewReasoning === level ? "" : undefined}
                   style="animation:none"
+                  class="min-h-9"
                 >
                   <span class="min-w-0 flex-1 truncate">{REASONING_EFFORT_LABELS[level] ?? level}</span>
                   {#if previewReasoning === level}
@@ -793,7 +804,7 @@
           <DropdownMenu.RadioGroup value={activeAgent}>
             <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
             {#each agentRows as agent (agent.id)}
-              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)}>
+              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} title={agent.enabled ? undefined : agent.reason} closeOnSelect={pickClosesModelPicker("agent")} onSelect={() => selectAgent(agent.id)} class="min-h-9">
                 {@render agentMenuMark(agent.id)}
                 <span class="min-w-0 flex-1 truncate">{agent.label}</span>
               </DropdownMenu.RadioItem>
@@ -826,7 +837,7 @@
               data-picker-value={AUTO_MODEL_ID}
               closeOnSelect={pickClosesModelPicker("model")}
               onSelect={() => pickModel(AUTO_MODEL_ID)}
-              class="gap-1.5 pr-2.5 data-[state=checked]:bg-(--solus-accent-light) [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
+              class="min-h-9 gap-1.5 pr-2.5 data-[state=checked]:bg-(--solus-accent-light) [&_[data-slot=dropdown-menu-radio-item-indicator]]:hidden"
             >
               <SparklesIcon class={isAuto ? "text-(--solus-accent)" : "text-(--solus-text-tertiary)"} />
               <span class="shrink-0">Auto</span>

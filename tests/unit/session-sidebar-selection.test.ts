@@ -56,7 +56,7 @@ describe('selecting a sidebar row', () => {
 })
 
 // WHY: the next/previous-session keys must walk the rows in the order the
-// sidebar lists them — sessions, shared with you, then working — not the order tabs
+// sidebar lists them — sessions, shared with you, pinned, then working — not the order tabs
 // were opened. Otherwise the key jumps to a row that is not the one below.
 describe('next and previous session keys', () => {
   function harness(onScreenTaskId: string | null) {
@@ -66,6 +66,7 @@ describe('next and previous session keys', () => {
     Object.defineProperties(store, {
       sessionRows: { value: [row('session-a'), row('session-b')] },
       sharedRows: { value: [row('shared')] },
+      pinnedRows: { value: [row('pinned')] },
       workingRows: { value: [row('working')] },
       onScreenTaskId: { value: onScreenTaskId },
       onScreenRowId: { value: onScreenTaskId },
@@ -81,7 +82,11 @@ describe('next and previous session keys', () => {
 
     const shared = harness('shared')
     await shared.store.selectAdjacentRow(1)
-    expect(shared.opened).toEqual(['working'])
+    expect(shared.opened).toEqual(['pinned'])
+
+    const pinned = harness('pinned')
+    await pinned.store.selectAdjacentRow(1)
+    expect(pinned.opened).toEqual(['working'])
 
     const last = harness('working')
     await last.store.selectAdjacentRow(1)

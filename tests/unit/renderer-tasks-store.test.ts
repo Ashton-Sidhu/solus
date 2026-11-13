@@ -9,7 +9,6 @@ import type {
 } from '@solus/contracts/task-types'
 import {
   BOARD_SOURCE_KEY,
-  JIRA_SOURCE_KEY,
   REPO_SOURCE_KEY,
   createTasksWorld,
   disposeTasksWorlds,
@@ -185,18 +184,18 @@ describe('renderer task hydration', () => {
     })
     const store = new world.TasksStore()
     await store.ensureLoaded()
-    const target = { serverId: 'local', cwd: '/workspace/solus', sourceKey: REPO_SOURCE_KEY }
+    const target = { source: sourceState(REPO_SOURCE_KEY).source }
 
     expect(calls).toHaveLength(0)
     await store.loadAssigneeCandidates(target)
     await store.loadAssigneeCandidates(target)
 
-    expect(calls).toEqual([{ cwd: '/workspace/solus', sourceKey: REPO_SOURCE_KEY }])
+    expect(calls).toEqual([target])
     expect(store.assigneeCandidates(target)).toEqual([
       { login: 'octocat', avatarUrl: 'https://avatars.test/octocat' },
     ])
-    // Another source of the same project has its own people.
-    expect(store.assigneeCandidates({ ...target, sourceKey: BOARD_SOURCE_KEY })).toEqual([])
+    // Another source has its own people.
+    expect(store.assigneeCandidates({ source: sourceState(BOARD_SOURCE_KEY).source })).toEqual([])
 
     await store.loadAssigneeCandidates({ taskId: TASK })
     expect(calls.at(-1)).toEqual({ taskId: TASK })
@@ -223,36 +222,37 @@ describe('renderer task hydration', () => {
     expect(store.get('github:I_referrer').sessions.map((attempt) => attempt.sessionId)).toEqual(['shared-session'])
   })
 
-  test('creates a new task on the host it names, not the host that already holds the path', async () => {
-    // WHY: two hosts can hold the same project path. The default host already
-    // listing `/workspace/app` says nothing about the project the user chose on
-    // host B; inferring the host from the path created a remote project's
-    // first task with the wrong machine's project config.
+  test('creates a new task through the task host, in the source it names', async () => {
+    // WHY: a task belongs to no project, so no project names a host. The task
+    // host — this device when it runs agents — has the provider connection
+    // that reads the person's sources. Another connected host must not take
+    // the write only because it is the primary connection.
     const world = await createTasksWorld()
-    const createdOn: string[] = []
-    world.connections.registerPrimary('host-a', {
+    const created: Array<{ serverId: string; input: unknown }> = []
+    world.connections.registerPrimary('workshop', {
       tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksCreate: async () => {
-        createdOn.push('host-a')
-        return issueRecord('github:I_created_a')
+      tasksCreate: async (input: unknown) => {
+        created.push({ serverId: 'workshop', input })
+        return issueRecord('github:I_created_workshop')
       },
     })
-    world.connections.registerHost('host-b', {
+    world.connections.registerHost('local', {
       tasksSidebarSnapshot: async () => snapshotOf([]),
-      tasksCreate: async () => {
-        createdOn.push('host-b')
-        return issueRecord('github:I_created_b')
+      tasksCreate: async (input: unknown) => {
+        created.push({ serverId: 'local', input })
+        return issueRecord('github:I_created_local')
       },
     })
     const store = new world.TasksStore()
     await store.ensureLoaded()
+    const source = sourceState(REPO_SOURCE_KEY).source
 
-    const created = await store.create({ cwd: '/workspace/app', title: 'On B' }, 'host-b')
+    const task = await store.create({ source, title: 'On this device' })
 
-    expect(createdOn).toEqual(['host-b'])
-    expect(store.get(created.id).serverId).toBe('host-b')
+    expect(created).toEqual([{ serverId: 'local', input: { source, title: 'On this device' } }])
+    expect(store.get(task.id).serverId).toBe('local')
     // The provider took the task, so the list shows it before the next snapshot.
-    expect(store.tasks.map((row) => row.id)).toContain('github:I_created_b')
+    expect(store.tasks.map((row) => row.id)).toContain('github:I_created_local')
   })
 
   test('a create that the provider refuses throws and lists nothing', async () => {
@@ -1513,20 +1513,24 @@ describe('provider search', () => {
     // snapshot decides what the list holds: a match that joined the list would
     // stay there after the search box was cleared.
     const world = await createTasksWorld()
-    const searches: Array<[string, string]> = []
+    const repo = sourceState(REPO_SOURCE_KEY).source
+    world.setSources([repo])
+    const searches: Array<[unknown, string]> = []
     world.connections.registerPrimary('local', {
       tasksSidebarSnapshot: async () => snapshotOf([issueRow()]),
-      tasksSearch: async (cwd: string, query: string) => {
-        searches.push([cwd, query])
+      tasksSources: async () => [sourceState(REPO_SOURCE_KEY)],
+      tasksSearch: async (sources: unknown, query: string) => {
+        searches.push([sources, query])
         return [issueRow(TASK, { title: 'Listed, with a newer title' }), issueRow('github:I_old', { title: 'An old payment bug' })]
       },
     })
     const store = new world.TasksStore()
     await store.ensureLoaded()
 
-    const found = await store.search('local', '/workspace/app', 'payment')
+    const found = await store.search('payment')
 
-    expect(searches).toEqual([['/workspace/app', 'payment']])
+    // The search names the person's sources: no project names them.
+    expect(searches).toEqual([[[repo], 'payment']])
     expect(found.map((task) => task.id)).toEqual([TASK, 'github:I_old'])
     // The match of a listed task is the listed task itself.
     expect(found[0]).toBe(store.get(TASK))
@@ -1538,18 +1542,18 @@ describe('provider search', () => {
   })
 
   test('a match keeps the host that already reads the task', async () => {
-    // WHY: two hosts can search the same source. The answer of the second
-    // must not move the task's writes to another machine.
+    // WHY: the task host searches, and another host can read the same task.
+    // The search answer must not move the task's writes to another machine.
     const world = await createTasksWorld()
     world.connections.registerPrimary('first', { tasksSidebarSnapshot: async () => snapshotOf([issueRow()]) })
-    world.connections.registerHost('second', {
+    world.connections.registerHost('local', {
       tasksSidebarSnapshot: async () => snapshotOf([]),
       tasksSearch: async () => [issueRow()],
     })
     const store = new world.TasksStore()
     await store.ensureLoaded()
 
-    const [found] = await store.search('second', '/workspace/app', 'hydrated')
+    const [found] = await store.search('hydrated')
     expect(found.serverId).toBe('first')
   })
 })
@@ -1613,89 +1617,21 @@ describe('conversation-card reverse links', () => {
   })
 })
 
-describe('which tasks a project shows', () => {
-  // A task belongs to no project by itself: a project lists task sources, and
-  // a task is in the project when one of its placements names one of them.
-  const APP = 'github.com/acme/app'
-  const OTHER = 'github.com/acme/other'
-
-  async function twoProjects() {
+describe('which tasks the store lists', () => {
+  test('the label picker offers every label in use, each once, in name order', async () => {
+    // WHY: a task belongs to no project, so no project narrows the labels. A
+    // label that one task uses is a label the person can give another.
     const world = await createTasksWorld()
-    world.checkouts.push(
-      { serverId: 'local', path: '/work/app', projectKey: APP },
-      { serverId: 'local', path: '/work/other', projectKey: OTHER },
-    )
-    const sources = {
-      '/work/app': { sources: [sourceState(REPO_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)], defaultSourceKey: REPO_SOURCE_KEY },
-      '/work/other': { sources: [sourceState(JIRA_SOURCE_KEY)], defaultSourceKey: JIRA_SOURCE_KEY },
-    }
     world.connections.registerPrimary('local', {
       tasksSidebarSnapshot: async () => snapshotOf([
         issueRow('github:I_repo', { labels: ['bug'] }),
-        issueRow('github:I_both', {
-          labels: ['design', 'bug'],
-          placements: [{ sourceKey: REPO_SOURCE_KEY, columnId: 'open' }, { sourceKey: BOARD_SOURCE_KEY, columnId: 'opt-doing' }],
-        }),
-        issueRow('jira:cloud-1:10001', { providerId: 'jira', reference: 'SOL-1', labels: ['backend'], placements: [{ sourceKey: JIRA_SOURCE_KEY, columnId: '1' }] }),
-        issueRow('github:I_linked_only', { placements: [] }),
+        issueRow('jira:cloud-1:10001', { providerId: 'jira', reference: 'SOL-1', labels: ['backend', 'bug'] }),
       ]),
-      tasksSources: async () => sources,
     })
     const store = new world.TasksStore()
     await store.ensureLoaded()
-    await world.taskSourcesStore.load()
-    return { world, store, sources }
-  }
 
-  const ids = (tasks: Array<{ id: string }>) => tasks.map(({ id }) => id).sort()
-
-  test('a project shows the tasks that its sources list, each once', async () => {
-    // WHY: `Task.projectKey` is gone. The project config names the sources, so
-    // membership follows the placements. A task on the repository and on the
-    // board of one project is one task, not two rows.
-    const { store } = await twoProjects()
-
-    expect(ids(store.tasksInProject(APP))).toEqual(['github:I_both', 'github:I_repo'])
-    expect(ids(store.tasksInProject(OTHER))).toEqual(['jira:cloud-1:10001'])
-    expect(store.tasksInProject('github.com/acme/no-sources')).toEqual([])
-    expect(store.tasksInProject(null)).toEqual([])
-    expect(ids(store.tasksForCheckout('local', '/work/app'))).toEqual(['github:I_both', 'github:I_repo'])
-  })
-
-  test('a task is in each project that lists one of its sources', async () => {
-    // WHY: one board can be a source of two projects. The task is then a task
-    // of both, and a session draft for it can open in either.
-    const { world, store, sources } = await twoProjects()
-    expect(store.projectKeysOf(store.get('github:I_both'))).toEqual([APP])
-    expect(store.projectKeysOf(store.get('github:I_linked_only'))).toEqual([])
-
-    sources['/work/other'] = { sources: [sourceState(JIRA_SOURCE_KEY), sourceState(BOARD_SOURCE_KEY)], defaultSourceKey: JIRA_SOURCE_KEY }
-    await world.taskSourcesStore.load()
-
-    expect(store.projectKeysOf(store.get('github:I_both')).sort()).toEqual([APP, OTHER])
-    expect(ids(store.tasksInProject(OTHER))).toEqual(['github:I_both', 'jira:cloud-1:10001'])
-  })
-
-  test('the every-project list holds each task of the given projects, and each task that no project lists', async () => {
-    // WHY: a task that only a session link brought to this client is in no
-    // project. The every-project list is the only page that can show it, so
-    // it must not drop it. Finished tasks are filtered by the page, not here.
-    const { store } = await twoProjects()
-    const list = (projectKeys: string[]) => ids(store.tasksInProjects(new Set(projectKeys)))
-
-    expect(list([APP])).toEqual(['github:I_both', 'github:I_linked_only', 'github:I_repo'])
-    expect(list([APP, OTHER])).toEqual(['github:I_both', 'github:I_linked_only', 'github:I_repo', 'jira:cloud-1:10001'])
-    expect(list([])).toEqual(['github:I_linked_only'])
-  })
-
-  test('the label picker offers the labels in use in the project of the checkout', async () => {
-    // WHY: labels of another project's tasks are not labels the provider of
-    // this project knows.
-    const { store } = await twoProjects()
-
-    expect(store.knownLabels('local', '/work/app')).toEqual(['bug', 'design'])
-    expect(store.knownLabels('local', '/work/other')).toEqual(['backend'])
-    expect(store.knownLabels(null, '/work/app')).toEqual([])
+    expect(store.knownLabels).toEqual(['backend', 'bug'])
   })
 
   test('up next holds the tasks that are not done', async () => {

@@ -17,6 +17,8 @@
     Moon as MoonIcon,
     Unlink as UnlinkIcon,
     Pen as PencilSimpleIcon,
+    Pin as PinIcon,
+    PinOff as PinOffIcon,
     RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
     Share as ShareIcon,
@@ -34,6 +36,9 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { checkoutGit } from "../../contexts/workspace/run-location";
   import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
+  import PullRequestsMenu from "./PullRequestsMenu.svelte";
+  import { taskPrNavigation } from "./lib/pr-navigation";
+  import type { TaskPrChoice } from "./lib/task-list";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
   import { referenceSessionsInPrompt } from "../../lib/session-drag";
@@ -304,10 +309,55 @@
     requestInputFocus();
   }
 
-  function linkPullRequest() {
+  // The session's pull requests, in the same menu its sidebar chip opens: the
+  // one place to open, unlink, and link them (docs/plans/session-pull-requests.md).
+  const pullRequestServerId = $derived(tabId ? session.serverIdFor(tabId) : serverId);
+  const pullRequestChoices = $derived(
+    sess && pullRequestServerId
+      ? sidebarStore.prChoicesForSession(pullRequestServerId, sess.id, tabId)
+      : [],
+  );
+
+  function openPullRequest(choice: TaskPrChoice) {
+    onClose();
+    const { route, sourceUrl } = taskPrNavigation(choice);
+    session.openRoute(route, { sourceUrl, via: "click" });
+  }
+
+  function unlinkPullRequest(choice: TaskPrChoice): (() => void) | null {
+    const unlink = sidebarStore.pullRequestUnlink(pullRequestServerId, sess?.id ?? null, choice);
+    if (!unlink) return null;
+    return () =>
+      void unlink().catch((error) =>
+        toasts.error("Couldn't unlink pull request", {
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
+  }
+
+  async function linkPullRequest(url: string) {
+    if (!sess || !pullRequestServerId) return;
+    await sessionPullRequestsStore.link(pullRequestServerId, sess.id, url);
+  }
+
+  /** A pinned session sits in the sidebar's Pinned section. Unpinning needs
+   *  only the pin; pinning needs an open tab, which names what the pin keeps. */
+  const pin = $derived(sidebarStore.pinFor(sess?.id ?? sessionId, unreadServerId));
+  const canPin = $derived(!pin && !!tabId && !!sess?.agentSessionId);
+
+  async function togglePin() {
+    const targetPin = pin;
     const targetTabId = tabId;
     onClose();
-    if (targetTabId) session.ui.linkPrompt = { kind: "session-pull-request", tabId: targetTabId };
+    try {
+      if (targetPin) await sidebarStore.unpinSession(targetPin);
+      else if (targetTabId) await sidebarStore.togglePinnedSession(targetTabId);
+    } catch (error) {
+      toasts.error(targetPin ? "Couldn't unpin the session" : "Couldn't pin the session", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+    requestInputFocus();
   }
 
   /** Sharing needs the session's host, which only an open tab names. */
@@ -487,12 +537,36 @@
         </ContextMenu.Item>
       {/if}
       {#if canDrive && sess?.agentSessionId}
-        <ContextMenu.Item onSelect={linkPullRequest}>
-          <GitPullRequestIcon />
-          {sessionPullRequestsStore.linksFor(sess.id).length ? "Pull Requests…" : "Link Pull Request…"}
-        </ContextMenu.Item>
+        <ContextMenu.Sub>
+          <ContextMenu.SubTrigger>
+            <GitPullRequestIcon />
+            Pull Requests
+            {#if pullRequestChoices.length}
+              <ContextMenu.Shortcut class="tabular-nums">{pullRequestChoices.length}</ContextMenu.Shortcut>
+            {/if}
+          </ContextMenu.SubTrigger>
+          <ContextMenu.SubContent class="w-[min(20rem,calc(100vw-2rem))] max-h-96 overflow-y-auto overscroll-contain">
+            <PullRequestsMenu
+              choices={pullRequestChoices}
+              onOpen={openPullRequest}
+              onUnlink={unlinkPullRequest}
+              onLink={linkPullRequest}
+            />
+          </ContextMenu.SubContent>
+        </ContextMenu.Sub>
       {/if}
       <ContextMenu.Separator />
+    {/if}
+    {#if pin || canPin}
+      <ContextMenu.Item onSelect={() => void togglePin()}>
+        {#if pin}
+          <PinOffIcon />
+          Unpin
+        {:else}
+          <PinIcon />
+          Pin
+        {/if}
+      </ContextMenu.Item>
     {/if}
     {#if tabId && canDrive}
       <ContextMenu.Item onSelect={startRename}>

@@ -3,59 +3,67 @@
   import { sessionSearchNavigation } from "@solus/client-core/session-search-navigation";
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
-  import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import VirtualList from "../../ui/list-page/VirtualList.svelte";
-  import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
+  import { Search as MagnifyingGlassIcon, X as CloseIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { readSessionMeta } from "@solus/client-core/session-meta";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
-  import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import type { SessionMeta } from "@solus/contracts/types";
   import {
+    getPullRequestsContext,
     getSessionSidebarStore,
     getWorkspaceContext,
+    hosts,
+    projectsStore,
     runtime,
+    serversStore,
   } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
-  import { blurActiveTextInputOnMobile } from "../../../lib/inputFocus";
+  import { blurActiveTextInputOnMobile, requestInputFocus } from "../../../lib/inputFocus";
+  import { comboHint } from "../../../lib/keybindings/manifest";
   import { useKeybinding, useScope } from "../../../lib/keybindings/use-keybinding.svelte";
-  import { createSessionPreviewStore } from "../../../lib/preview.svelte";
-  import { boundHitWindow } from "../../../lib/sessionPreviewMessages";
-  import type { AttentionState, PickerEntry as PreviewSource } from "../../../lib/sessionUtils";
+  import type { AttentionState } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
+  import { automationProjectKey } from "../../automations/lib/automation-projects";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
   import { portal } from "../../portal";
+  import { prProjectTargets } from "../../prs/lib/pr-cross-project";
+  import { Button } from "../../ui/button";
   import { Input } from "../../ui/input";
-  import { relativeTime } from "../../tasks/lib/tasks-api";
-  import SessionContextMenu from "../SessionContextMenu.svelte";
-  import SessionPreview from "../SessionPreview.svelte";
-  import TaskContextMenu from "../TaskContextMenu.svelte";
-  import PickerActionBar from "./PickerActionBar.svelte";
-  import PickerResultMenu from "./PickerResultMenu.svelte";
-  import { PICKER_RESULT_LABELS, type PickerResultType } from "./lib/picker-preferences";
+  import PickerKeyHints from "./PickerKeyHints.svelte";
+  import PickerListSkeleton from "./PickerListSkeleton.svelte";
+  import PickerPreviewColumn from "./PickerPreviewColumn.svelte";
+  import PickerRowMenus from "./PickerRowMenus.svelte";
   import PickerSearchOptions from "./PickerSearchOptions.svelte";
-  import TaskPreviewPane from "./TaskPreviewPane.svelte";
+  import PickerTypeTabs from "./PickerTypeTabs.svelte";
   import UnifiedPickerRow from "./UnifiedPickerRow.svelte";
   import { ListProjectSwitcher } from "../../ui/list-page";
   import { resolvePickerScope, scopeForChoice } from "./lib/picker-scope";
   import { PickerSearches } from "./lib/conversation-search.svelte";
   import { mergeSessionHomes, type SessionHomeHosts } from "../lib/session-home";
-  import { serversStore } from "../../../contexts";
-  import { sessionListStore } from "../../../contexts/workspace/session-list.store.svelte";
   import type { PickerSearchMode, PickerSort } from "./lib/picker-search";
   import type { PickerFilters } from "./lib/picker-filters";
+  import { pickerEmptyMessage, pickerListLoading, type PickerEmptyState } from "./lib/picker-empty";
+  import {
+    adjacentResultType,
+    GUEST_PICKER_RESULT_TYPES,
+    listsRecords,
+    PICKER_RESULT_LABELS,
+    PICKER_RESULT_PLACEHOLDERS,
+    PICKER_RESULT_TYPES,
+    typeStepOf,
+    type PickerResultType,
+  } from "./lib/picker-result-types";
+  import type { PickerAction, PickerRecord } from "./lib/picker-records";
+  import { automationRecords, entryOpenLabel, hasActionBar, workRecords } from "./lib/picker-record-view";
+  import { openPickerRecord } from "./lib/picker-record-actions";
+  import { hasRowMenu, rowMenuFor, type PickerRowMenu } from "./lib/picker-row-menu";
+  import type { PullRequestSearchProject } from "./lib/pull-request-search.svelte";
   import {
     buildPickerRows,
-    collapseTarget,
-    conversationProjectLabel,
-    conversationTitle,
-    expandTarget,
+    pickerCountLabel,
     pickerRowHeight,
-    previewHitTarget,
-    pickerSessionActivity,
     selectedRowIndex,
-    isTaskGroup,
     type PickerEntry,
     type PickerRow,
   } from "./lib/picker-rows";
@@ -64,6 +72,11 @@
   import { track } from "../../../lib/analytics";
   import type { Via } from "@solus/contracts/analytics-events";
 
+  /**
+   * The search (docs/plans/unified-search.md): one box over sessions, tasks,
+   * works, pull requests, automations and projects, with a tab for each type,
+   * the list on the left and the preview of the row the cursor is on beside it.
+   */
   interface Props {
     open: boolean;
     onClose: () => void;
@@ -74,8 +87,8 @@
 
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
+  const pullRequests = getPullRequestsContext();
   const layer = getPopoverLayer();
-  const preview = createSessionPreviewStore();
   // What was said, not just what things are called, and every session while
   // the box is empty. The title match is instant and local; the hosts' answer
   // lands a beat later.
@@ -88,21 +101,15 @@
   let wasOpen = false;
   let scopeMenuOpen = $state(false);
   let searchOptionsOpen = $state(false);
-  let resultMenuOpen = $state(false);
+  /** The menu of a row's own actions, opened by a right click or by its key. */
+  let rowMenu = $state<PickerRowMenu | null>(null);
 
-  let taskContextMenu = $state<{ task: Task; x: number; y: number } | null>(null);
-  /** A session row's menu: a session of a task, or a conversation the
-   *  hosts listed, which can be archived or returned to the list. */
-  let sessionContextMenu = $state<{
-    session: Pick<SidebarSessionChild, "tabId" | "sessionId" | "serverId" | "attention">;
-    /** The conversation's record, which the menu archives or returns. */
-    conversation: SessionMeta | null;
-    x: number;
-    y: number;
-  } | null>(null);
-  /** Which tasks the reader opened. A search opens its own hits on top of
-   *  these without touching them, so clearing the query restores the tree. */
-  const expandedTaskIds = new SvelteSet<string>();
+  // A share link's guest reads only the shared session: the works, pull
+  // requests, automations and projects are not theirs (host-sharing.md §10).
+  const isGuest = $derived(hosts.runOn?.me.isGuest ?? false);
+  const resultTypes = $derived(isGuest ? GUEST_PICKER_RESULT_TYPES : PICKER_RESULT_TYPES);
+  const resultType = $derived(session.ui.pickerResultType);
+  const isQueried = $derived(!!query.trim());
 
   // Newest work first, and the row now states the date it is sorted by, so the
   // order is readable rather than something you have to take on trust.
@@ -159,17 +166,104 @@
   const scopeProject = $derived(
     projectOptions.find((option) => option.key === scopeProjectKey) ?? null,
   );
+
+  // ── Records: works, pull requests, automations, projects ──
+  // Each kind is read from its own store, in the scope, and only for a type
+  // that lists it. None depends on the box, so a keystroke builds none again;
+  // the pull requests alone follow the query, because the code host answers it.
+  const workRecordsInScope = $derived(
+    isGuest || !listsRecords(resultType, "works")
+      ? []
+      : workRecords(
+          session.worksStore.visibleWorks.filter((work) => session.worksStore.pendingWorkDelete?.id !== work.id),
+          {
+            keyOf: (work) => {
+              const serverId = session.worksStore.hostFor(work.id);
+              return serverId && work.cwd ? projectsStore.projectKeyFor(serverId, work.cwd) : work.cwd;
+            },
+            optionsFor: (projectKeys) => session.projectOptionsFor(projectKeys),
+          },
+          {
+            summaryOf: (workId) => session.worksStore.reviews.summaries.get(workId),
+            awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
+          },
+          scopeProjectKey,
+        ),
+  );
+  const automationRecordsInScope = $derived(
+    isGuest || !listsRecords(resultType, "automations")
+      ? []
+      : automationRecords(
+          session.automationsStore.visibleItems,
+          (automation) =>
+            automationProjectKey(
+              automation.action.cwd,
+              session.automationsStore.hostFor(automation.id),
+              (serverId, path) => projectsStore.projectKeyFor(serverId, path),
+            ),
+          scopeProjectKey,
+        ),
+  );
+  const projectRecords = $derived<PickerRecord[]>(
+    isGuest || !listsRecords(resultType, "projects")
+      ? []
+      : projectOptions.map((project) => ({ type: "project", project })),
+  );
+  const pullRequestRecords = $derived.by((): PickerRecord[] => {
+    const hostMatched = searches.pullRequests.answers(query);
+    return searches.pullRequests.results.map((found) => ({ type: "pullRequest", found, hostMatched }));
+  });
+  const records = $derived([
+    ...workRecordsInScope,
+    ...pullRequestRecords,
+    ...automationRecordsInScope,
+    ...projectRecords,
+  ]);
+  /** The projects of the scope whose pull requests a connected host can read,
+   *  each asked through the pull request context. A local-only project has
+   *  none. The Solus API serves records, not repositories, so it is never that
+   *  host. */
+  function pullRequestProjects(): PullRequestSearchProject[] {
+    if (isGuest) return [];
+    const options = scopeProject ? [scopeProject] : scopeProjectKey ? [] : projectOptions;
+    return prProjectTargets(options.filter((option) => !option.localOnly), {
+      isOnlineCheckout: (serverId) => !isSolusApiId(serverId) && serversStore.readinessFor(serverId).readiness === "ready",
+      apiFor: (serverId) => serverConnections.apiFor(serverId),
+      ctxFor: (projectRoot) => session.ctxForDirectory(projectRoot),
+    }).map((target) => ({
+      serverId: target.serverId,
+      projectRoot: target.projectRoot,
+      label: target.label,
+      query: (filter) => pullRequests.projects.get(target.api, target.serverId, target.ctx).query(filter),
+    }));
+  }
+  const actions = $derived<PickerAction[]>(
+    isGuest
+      ? []
+      : [
+          {
+            id: "new-session",
+            label: "New session",
+            hint: comboHint("global.new-session"),
+            run: () => {
+              session.drafts.openSessionDraft({ freshTask: true, via: "palette" });
+              requestInputFocus();
+            },
+          },
+        ],
+  );
+
   const list = $derived(
     buildPickerRows({
-      tasks, query, sessionsFor, expandedTaskIds,
-      resultType: session.ui.pickerResultType,
-      projectKey: scopeProjectKey,
-      projectKeysOf: (task) => session.tasksStore.projectKeysOf(task),
+      tasks, query, sessionsFor,
+      resultType,
       sort: session.ui.pickerSort,
       conversations: conversationHits,
       conversationsRemaining: searches.sessions.remaining,
       recentSessions: recentSessionMetas,
       commentPassages: searches.comments.passages,
+      records,
+      actions,
       filters: session.ui.pickerFilters,
     }),
   );
@@ -179,16 +273,6 @@
   const selectedEntry = $derived<PickerEntry | null>(
     list.entries[Math.min(selectedIndex, list.entries.length - 1)] ?? null,
   );
-  const selectedConversation = $derived(
-    selectedEntry?.kind === "conversation" ? selectedEntry : null,
-  );
-  const selectedTask = $derived(
-    selectedEntry && selectedEntry.kind !== "conversation" ? selectedEntry.task : null,
-  );
-  const selectedSession = $derived(
-    selectedEntry?.kind === "session" ? selectedEntry.session : null,
-  );
-
   // The virtual list needs every row height before paint.
   const rowSizes = $derived(list.rows.map(pickerRowHeight));
   // A persistent target snaps back on later row-size updates.
@@ -203,79 +287,6 @@
     await tick();
     if (requestId === scrollRequestId) scrollTargetIndex = undefined;
   }
-
-  // A session already in a tab previews from its live transcript. A durable
-  // one needs its metadata first; that read is made once per session and kept
-  // for the visit, so arrowing back over a row costs nothing the second time.
-  const sessionMetas = new SvelteMap<string, SessionMeta | null>();
-  const metaReadsInFlight = new Set<string>();
-
-  function metaKey(child: SidebarSessionChild): string | null {
-    return child.serverId && child.sessionId ? `${child.serverId}:${child.sessionId}` : null;
-  }
-  /**
-   * What a session row's ordinary preview reads from: its live tab when it
-   * has one with messages, else its durable metadata once that has been read.
-   * Null while the read is in flight — this starts it — or when it failed.
-   */
-  function previewSourceFor(target: SidebarSessionChild): PreviewSource | null {
-    const tabId = target.tabId;
-    const tabSession = tabId ? session.sessionFor(tabId) : null;
-    // An empty restored tab is not proof that its durable session has no messages.
-    if (tabId && tabSession?.messages.length) {
-      return { kind: "open", tabId, tab: session.tabs[tabId], session: tabSession };
-    }
-    const key = metaKey(target);
-    if (!key) return null;
-    if (!sessionMetas.has(key)) {
-      if (!metaReadsInFlight.has(key)) {
-        metaReadsInFlight.add(key);
-        void readSessionMeta(target.serverId!, target.sessionId!).then((meta) => {
-          metaReadsInFlight.delete(key);
-          sessionMetas.set(key, meta);
-        });
-      }
-      return null;
-    }
-    const meta = sessionMetas.get(key);
-    return meta ? { kind: "history", meta } : null;
-  }
-
-  $effect(() => {
-    const entry = selectedEntry;
-    if (!open || !entry || entry.kind === "task") {
-      preview.reset();
-      return;
-    }
-    const stillSelected = () => selectedEntry === entry;
-    // The hit already carries the session's metadata, host stamped.
-    const source =
-      entry.kind === "conversation"
-        ? ({ kind: "history", meta: entry.meta } satisfies PreviewSource)
-        : previewSourceFor(entry.session);
-    // A row found by its words opens on those words; the session's ends are
-    // only the fallback for a passage the index has since dropped.
-    const hit = previewHitTarget(entry);
-    if (hit) preview.showHit(hit, source, session.ctx, stillSelected);
-    else if (source) preview.show(source, session.ctx, stillSelected);
-    else preview.reset();
-  });
-
-  const previewLoading = $derived.by(() => {
-    const entry = selectedEntry;
-    if (!entry || entry.kind === "task") return false;
-    if (entry.kind === "conversation" || entry.hit) return preview.loading;
-    const target = entry.session;
-    const tabId = target.tabId;
-    const tabSession = tabId && session.tabs[tabId] ? session.sessionFor(tabId) : null;
-    if (tabId && tabSession?.messages.length) return preview.loading;
-    const key = metaKey(target);
-    return preview.loading || (!!key && !sessionMetas.has(key));
-  });
-  // Bounded against the live query, so the marks follow what is in the box.
-  const previewHitWindow = $derived(
-    preview.hitWindow ? boundHitWindow(preview.hitWindow, query) : null,
-  );
 
   $effect(() => {
     void query;
@@ -295,13 +306,8 @@
       mode: session.ui.pickerSearchMode,
       filters: session.ui.pickerFilters,
       now: Date.now(),
+      pullRequestProjects: pullRequestProjects(),
     });
-  }
-
-  // Read on open and on a new scope, not on each keystroke: a query lists
-  // what it found instead.
-  function loadEverySession(): void {
-    searches.loadEverySession(scopeProjectKey, session.ui.pickerResultType);
   }
 
   function setQuery(value: string): void {
@@ -319,28 +325,35 @@
     query = "";
     selectedKey = null;
     untrack(() => {
+      // A type is a choice for one visit: the search opens on every type.
+      session.ui.pickerResultType = "all";
       searchHosts();
-      loadEverySession();
+      // Every session of the scope: Recents and the Sessions type list them,
+      // and a query matches their names. Read on open and on a new scope, not
+      // on each keystroke.
+      void searches.everySession.load(scopeProjectKey);
+      if (!isGuest) {
+        session.worksStore.ensureListed();
+        void session.automationsStore.loadAll();
+      }
     });
     void session.tasksStore.ensureLoaded();
     blurActiveTextInputOnMobile();
     tick().then(() => {
-      selectIndex(0, true);
+      // The cursor is not pinned to a row here: until the reader moves it, it
+      // stays on the first row while the hosts' answers arrive above it.
+      void scrollSelectionIntoView();
       if (!runtime.shouldSuppressFocus) searchEl?.focus();
       else pickerEl?.focus();
     });
   });
 
   function close(): void {
-    taskContextMenu = null;
-    sessionContextMenu = null;
+    rowMenu = null;
     scopeMenuOpen = false;
     searchOptionsOpen = false;
-    resultMenuOpen = false;
     open = false;
-    preview.reset();
     searches.reset();
-    sessionMetas.clear();
     onClose();
     requestAnimationFrame(() => blurActiveTextInputOnMobile());
   }
@@ -350,12 +363,14 @@
   // The scope exists so this one binding outranks the ⌥A a review surface
   // underneath the picker also claims.
   useScope("task-picker", { active: () => open });
-  useKeybinding("task-picker.choose-project", () => (scopeMenuOpen = true), {
+  useKeybinding("task-picker.choose-project", () => { scopeMenuOpen = true; }, {
     enabled: () => open && projectOptions.length > 0,
   });
-  useKeybinding("task-picker.result-type", () => (resultMenuOpen = true), { enabled: () => open });
-  useKeybinding("task-picker.search-options", () => (searchOptionsOpen = true), {
+  useKeybinding("task-picker.search-options", () => { searchOptionsOpen = true; }, {
     enabled: () => open,
+  });
+  useKeybinding("task-picker.row-actions", openRowActions, {
+    enabled: () => open && hasRowMenu(selectedEntry),
   });
 
   /** The order and the search mode are held on the workspace, like the scope,
@@ -390,17 +405,22 @@
   function chooseProject(projectKey: string | null): void {
     session.ui.pickerScope = scopeForChoice(projectKey, currentProjectKey);
     searchHosts();
-    loadEverySession();
+    // For every type: the reader can change the type after the scope, and must
+    // not find the sessions of the scope they left.
+    void searches.everySession.load(scopeProjectKey);
     scopeMenuOpen = false;
     selectedKey = null;
     void scrollSelectionIntoView();
     searchEl?.focus();
   }
 
-  function chooseResultType(resultType: PickerResultType): void {
-    session.ui.pickerResultType = resultType;
+  /** The type keeps the query: the same words, read against another kind.
+   *  Every session of the scope was read when the search opened, and each
+   *  type that lists sessions reads that one list. */
+  function chooseResultType(type: PickerResultType): void {
+    session.ui.pickerResultType = type;
     searchHosts();
-    loadEverySession();
+    searchEl?.focus();
   }
 
   /** ⏎ on a task: open its task page. */
@@ -430,43 +450,13 @@
     });
   }
 
-  function toggleTask(taskId: string): void {
-    if (expandedTaskIds.has(taskId)) {
-      expandedTaskIds.delete(taskId);
-    } else {
-      expandedTaskIds.add(taskId);
-    }
-  }
-
-  /** A task row reveals its sessions without committing to one of them. */
-  function expandTaskEntry(entry: PickerEntry): boolean {
-    if (entry.kind !== "task" || entry.sessions.length === 0) return false;
-    selectIndex(entry.entryIndex);
-    expandedTaskIds.add(entry.task.id);
-    return true;
-  }
-
-  /** A task-row click owns both sides of its disclosure state. */
-  function toggleTaskEntry(entry: PickerEntry): boolean {
-    if (entry.kind !== "task" || entry.sessions.length === 0) return false;
-    selectIndex(entry.entryIndex);
-    toggleTask(entry.task.id);
-    return true;
-  }
-
-  /** Move the cursor by row identity without changing task disclosure. */
+  /** Move the cursor by row identity. */
   function selectIndex(entryIndex: number, shouldScroll = false): void {
     const boundedIndex = Math.max(0, Math.min(entryIndex, list.entries.length - 1));
     const entry = list.entries[boundedIndex];
     selectedKey = entry?.key ?? null;
     if (shouldScroll) void scrollSelectionIntoView();
   }
-
-  // ── Managing a task without leaving the picker ──
-  // Every move below is the same one the sidebar's row menu makes, on the same
-  // store calls, so a task looks identical whichever surface changed it. The
-  // picker stays open for status and unread — they are edits to a row
-  // you are still choosing between — and closes for anything that navigates.
 
   function openTaskPage(task: Task): void {
     const taskId = task.id;
@@ -507,65 +497,20 @@
     }
   }
 
-  async function moveTask(task: Task, category: TaskStatusCategory): Promise<void> {
-    try {
-      await session.tasksStore.get(task.id).move({ category });
-    } catch (error) {
-      toasts.error("Couldn't update status", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /** Only a draft can be deleted (`Task.canDelete`). */
-  function deleteTask(task: Task): void {
-    const pending = session.tasksStore.softRemove([task.id]);
-    if (!pending.length) return;
-    toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
-      onDismiss: () =>
-        session.tasksStore.commitPending(pending).catch((error) =>
-          toasts.error("Couldn't delete task", {
-            description: error instanceof Error ? error.message : String(error),
-          })),
-    });
-  }
-
   function openContextMenu(event: MouseEvent, entry: PickerEntry): void {
     event.preventDefault();
     event.stopPropagation();
     selectIndex(entry.entryIndex);
-    if (entry.kind === "task") {
-      sessionContextMenu = null;
-      taskContextMenu = { task: entry.task, x: event.clientX, y: event.clientY };
-    } else if (entry.kind === "session") {
-      taskContextMenu = null;
-      sessionContextMenu = { session: entry.session, conversation: null, x: event.clientX, y: event.clientY };
-    } else if (entry.kind === "conversation" && entry.meta.serverId) {
-      taskContextMenu = null;
-      sessionContextMenu = {
-        session: { sessionId: entry.meta.sessionId, serverId: entry.meta.serverId, attention: null },
-        conversation: entry.meta,
-        x: event.clientX,
-        y: event.clientY,
-      };
-    }
+    rowMenu = rowMenuFor(entry, event.clientX, event.clientY);
   }
 
-  /** Archive a conversation the hosts listed, or return it to the list
-   *  (docs/plans/session-archive.md). Its row keeps its place, with its mark. */
-  function archiveActions(conversation: SessionMeta | null) {
-    const serverId = conversation?.serverId;
-    if (!conversation || !serverId) return {};
-    const setArchived = (isArchived: boolean) => {
-      void sessionListStore.setArchived({ serverId, sessionId: conversation.sessionId, organizationId: conversation.organizationId, publication: conversation.publication }, isArchived)
-        .then(() => { conversation.archived = isArchived || undefined; })
-        .catch((error) => toasts.error(isArchived ? "Couldn't archive it" : "Couldn't return it to the list", {
-          description: error instanceof Error ? error.message : String(error),
-        }));
-    };
-    return conversation.archived
-      ? { onUnarchive: () => setArchived(false) }
-      : { onArchive: () => setArchived(true) };
+  /** The row's menu from the keyboard, hung under the row the cursor is on. */
+  function openRowActions(): void {
+    const entry = selectedEntry;
+    const rowEl = pickerEl?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
+    if (!entry || !rowEl) return;
+    const box = rowEl.getBoundingClientRect();
+    rowMenu = rowMenuFor(entry, box.left + 24, box.bottom);
   }
 
   // Selection follows a pointer that *moves*, not one a row scrolls under:
@@ -583,6 +528,11 @@
 
   function activate(entry: PickerEntry, via: Via): void {
     recordPick(entry, via);
+    if (entry.kind === "record") {
+      close();
+      openPickerRecord(session, entry.record, via);
+      return;
+    }
     if (entry.kind !== "task" && entry.reason?.field === "messages" && entry.hit?.target) {
       const serverId = entry.kind === "conversation" ? entry.meta.serverId : entry.session.serverId;
       const sessionId = entry.kind === "conversation" ? entry.meta.sessionId : entry.session.sessionId;
@@ -593,37 +543,23 @@
     else select(entry.task);
   }
 
+  /** A click on a task that has sessions resumes its latest one, as its
+   *  action bar says. ⏎ opens the task's page. */
   function clickEntry(entry: PickerEntry): void {
-    if (entry.kind === "task" && !isTaskGroup(entry) && entry.sessions[0]) {
+    if (entry.kind === "task" && entry.sessions[0]) {
       recordPick(entry, "click");
       selectSession(entry.sessions[0]);
       return;
     }
-    if (toggleTaskEntry(entry)) return;
     activate(entry, "click");
   }
 
-  function stepIn(): void {
-    const target = expandTarget(selectedEntry ?? undefined);
-    if (!target) return;
-    if (target.action === "expand") expandedTaskIds.add(target.taskId);
-    else selectIndex(selectedIndex + 1, true);
-  }
-
-  function stepOut(): void {
-    const target = collapseTarget(list.entries, selectedIndex);
-    if (!target) return;
-    if (target.action === "select") selectIndex(target.entryIndex, true);
-    else {
-      expandedTaskIds.delete(target.taskId);
-    }
-  }
-
   function handleKeyDown(event: KeyboardEvent): void {
-    // While a row menu is up it owns the keyboard, including the Escape that
+    // While a menu is up it owns the keyboard, including the Escape that
     // dismisses it — arrowing the list underneath would move the selection
     // away from the row the open surface is acting on.
-    if (taskContextMenu || sessionContextMenu || scopeMenuOpen || searchOptionsOpen || resultMenuOpen) return;
+    if (rowMenu || scopeMenuOpen || searchOptionsOpen) return;
+    const typeStep = typeStepOf(event);
     if (event.key === "Escape") {
       event.preventDefault();
       close();
@@ -633,19 +569,10 @@
     } else if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey)) {
       event.preventDefault();
       selectIndex(selectedIndex - 1, true);
-    } else if (event.key === "ArrowRight") {
+    } else if (typeStep) {
       event.preventDefault();
-      stepIn();
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      stepOut();
-    } else if (event.key === " " && selectedEntry?.kind === "task" && event.target !== searchEl) {
-      // Space expands the selected task only from the list. The keydown from
-      // the search field bubbles up to this dialog too; claiming it there
-      // would eat every space the user types into the query.
-      event.preventDefault();
-      expandTaskEntry(selectedEntry);
-    } else if (event.key === "Enter" && selectedEntry) {
+      chooseResultType(adjacentResultType(resultTypes, resultType, typeStep));
+    } else if (event.key === "Enter" && !event.altKey && selectedEntry) {
       event.preventDefault();
       activate(selectedEntry, "keybinding");
     }
@@ -666,54 +593,42 @@
     close();
   }
 
-  const counts = $derived.by(() => {
-    const sessions = `${list.sessionCount} ${list.sessionCount === 1 ? "session" : "sessions"}`;
-    const base = session.ui.pickerResultType === "sessions"
-      ? sessions
-      : session.ui.pickerResultType === "tasks" ? `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"}`
-      : `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${sessions}`;
-    // What the scope withheld, so widening it is a known quantity.
-    return scopeProject && list.hiddenTaskCount > 0
-      ? `${base} · ${list.hiddenTaskCount} more in other projects`
-      : base;
-  });
-  const isSearchingConversations = $derived(!!query.trim() && searches.sessions.loading);
+  const counts = $derived(pickerCountLabel(list, resultType, isQueried));
+  const isSearchingHosts = $derived(
+    isQueried && (searches.sessions.loading || (listsRecords(resultType, "pullRequests") && searches.pullRequests.loading)),
+  );
   /** A host answered while still reading its sessions for the first time. */
-  const isIndexingConversations = $derived(!!query.trim() && !searches.sessions.loading && searches.sessions.indexing);
+  const isIndexingConversations = $derived(isQueried && !searches.sessions.loading && searches.sessions.indexing);
 
-  /** An empty list has to say *why* it is empty, because the project scope is
-   *  the most likely reason and ⌥A is the answer. */
-  const emptyMessage = $derived.by(() => {
-    if (session.tasksStore.loading) return "Loading tasks…";
-    if (!query.trim() && searches.everySession.loading && session.ui.pickerResultType !== "tasks") return "Loading sessions…";
-    // An empty list must not claim there is nothing when a host did not answer.
-    if (!query.trim() && session.ui.pickerResultType !== "tasks" && searches.everySession.error) return `Could not read sessions: ${searches.everySession.error}`;
-    if (!query.trim() && session.ui.pickerResultType !== "tasks" && searches.everySession.asked === 0) return "No host to read sessions from";
-    if (!query.trim() && session.ui.pickerResultType !== "tasks" && searches.everySession.asked && searches.everySession.passedOver === searches.everySession.asked) {
-      return `No connected host has a checkout of ${scopeProject?.label ?? "this project"}`;
-    }
-    const where = scopeProject ? ` in ${scopeProject.label}` : "";
-    if (isSearchingConversations) return "Searching conversations…";
-    // The toast names the hosts; the list only must not claim there is nothing.
-    if (searches.sessions.errors.length) return "Search incomplete: not every host answered";
-    if (isIndexingConversations && session.ui.pickerResultType !== "tasks") return "Indexing sessions… Search again in a moment";
-    if (session.ui.pickerResultType === "sessions") {
-      return query.trim() ? `No sessions match “${query}”${where}` : `No sessions${where} yet`;
-    }
-    if (session.ui.pickerResultType === "tasks") {
-      return query.trim() ? `No tasks match “${query}”${where}` : `No tasks${where} yet`;
-    }
-    if (query.trim()) return `No tasks or conversations match “${query}”${where}`;
-    return `No tasks or sessions${where} yet`;
+  // The reads behind the list, for a list that is empty: placeholder rows
+  // while one of them can still fill it, then the reason it is empty.
+  const emptyState = $derived<PickerEmptyState>({
+    type: resultType,
+    query,
+    scopeLabel: scopeProject?.label ?? null,
+    tasksLoading: session.tasksStore.loading,
+    everySession: searches.everySession,
+    sessionSearch: {
+      loading: searches.sessions.loading,
+      hasErrors: searches.sessions.errors.length > 0,
+      indexing: searches.sessions.indexing,
+    },
+    worksLoading: session.worksStore.listLoading,
+    automationsLoading: session.automationsStore.loading,
+    pullRequests: {
+      loading: searches.pullRequests.loading,
+      error: searches.pullRequests.error,
+      projectCount: untrack(pullRequestProjects).length,
+    },
   });
+  const isListLoading = $derived(list.entries.length === 0 && pickerListLoading(emptyState));
+  const emptyMessage = $derived(pickerEmptyMessage(emptyState));
 </script>
 
 {#snippet pickerContent()}
   <!-- The same band the command palette opens with: one 53px line, the field
-       leading, the one control that acts on it at the far end. -->
-  <div
-    class="flex h-[3.3125rem] shrink-0 items-center gap-3 border-b border-(--solus-menu-hairline) px-5"
-  >
+       leading, the controls that act on it at the far end. -->
+  <div class="flex h-[3.3125rem] shrink-0 items-center gap-3 px-5">
     <!-- The scope leads the search the way a project crumb leads a page title:
          `<project> | search`. The same control every list page scopes with,
          in its crumb form, which opens its menu from its own left edge — the
@@ -743,17 +658,12 @@
       bind:ref={searchEl}
       bind:value={() => query, setQuery}
       type="text"
-      placeholder={session.ui.pickerResultType === "sessions" ? "Search sessions…" : session.ui.pickerResultType === "tasks" ? "Search tasks…" : "Search work in solus…"}
+      placeholder={PICKER_RESULT_PLACEHOLDERS[resultType]}
+      aria-label="Search"
       class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-(--solus-accent) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent"
     />
-    <!-- The order and the mode, last on the row, at the far end of the box
-         they act on. The counts live under the list alone. -->
-    <PickerResultMenu
-      value={session.ui.pickerResultType}
-      onChange={chooseResultType}
-      portalTarget={layer.el}
-      bind:open={resultMenuOpen}
-    />
+    <!-- The order, the mode and the filters, at the far end of the box they
+         act on. The counts live under the list alone. -->
     <PickerSearchOptions
       sort={session.ui.pickerSort}
       mode={session.ui.pickerSearchMode}
@@ -764,6 +674,15 @@
       portalTarget={layer.el}
       bind:open={searchOptionsOpen}
     />
+    {#if !inline}
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground" aria-label="Close search" onclick={close}>
+        <CloseIcon size={16} />
+      </Button>
+    {/if}
+  </div>
+  <!-- The types, under the box: what kind of thing the words are read against. -->
+  <div class="flex shrink-0 items-center border-b border-(--solus-menu-hairline) px-4 pb-2.5">
+    <PickerTypeTabs types={resultTypes} value={resultType} onChange={chooseResultType} />
   </div>
 
   <div class="flex min-h-0 flex-1 overflow-hidden">
@@ -771,8 +690,10 @@
     <div
       class="flex w-1/2 shrink-0 flex-col overflow-hidden border-r border-(--solus-menu-hairline) px-2 pt-2"
     >
-      <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label={PICKER_RESULT_LABELS[session.ui.pickerResultType]}>
-        {#if list.entries.length === 0}
+      <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label={PICKER_RESULT_LABELS[resultType]}>
+        {#if isListLoading}
+          <PickerListSkeleton label={isQueried ? "Searching" : `Loading ${PICKER_RESULT_LABELS[resultType].toLowerCase()}`} />
+        {:else if list.entries.length === 0}
           <div class="flex h-full items-center justify-center px-5 text-center text-workspace-chrome text-muted-foreground">
             {emptyMessage}
           </div>
@@ -794,7 +715,6 @@
                 attention={rowAttention(row)}
                 onActivate={clickEntry}
                 onHover={hoverEntry}
-                onToggle={toggleTask}
                 onContextMenu={openContextMenu}
                 onReachEnd={() => void searches.sessions.loadMore()}
               />
@@ -802,152 +722,71 @@
           </VirtualList>
         {/if}
       </div>
-      <!-- The hosts answer a beat after the title matches paint. Say so, or a
-           list that then grows a section looks like it changed its mind. -->
-      {#if isSearchingConversations && list.entries.length > 0}
-        <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
-          Searching conversations…
-        </div>
-      {:else if isIndexingConversations && list.entries.length > 0}
-        <!-- A machine's first index sweep: its hits are real but not all of them. -->
-        <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
-          Indexing sessions… Some conversations may be missing
-        </div>
-      {:else if list.entries.length > 0}
-        <!-- The total sits under the list it counts, in the same line the
-             search notices use while they have something to say. -->
-        <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground tabular-nums">
-          {counts}
-        </div>
-      {/if}
-    </div>
-
-    <!-- The preview scrolls; the action bar under it does not, so what you can
-         do to the row is always one reach away however long its body runs. -->
-    <div class="flex min-w-0 flex-1 flex-col">
-      <div class="min-h-0 flex-1 overflow-hidden">
-        {#if selectedConversation}
-          {@const conversation = selectedConversation}
-          <SessionPreview
-            preview={preview.snapshot}
-            hitWindow={previewHitWindow}
-            additionalMatches={selectedEntry?.kind !== "task" ? selectedEntry?.additionalMatches : []}
-            loading={previewLoading}
-            title={conversationTitle(conversation.meta)}
-            byline={conversationProjectLabel(conversation.meta)}
-            timeAgo={relativeTime(pickerSessionActivity(conversation))}
-            {query}
-          />
-        {:else if selectedEntry?.kind === "session" && selectedTask}
-          {@const picked = selectedEntry}
-          <!-- Dated by the hit when there is one, as the row is. -->
-          <SessionPreview
-            preview={preview.snapshot}
-            hitWindow={previewHitWindow}
-            additionalMatches={selectedEntry?.kind !== "task" ? selectedEntry?.additionalMatches : []}
-            loading={previewLoading}
-            title={picked.session.label}
-            byline={selectedTask.title}
-            timeAgo={relativeTime(pickerSessionActivity(picked))}
-            attention={picked.session.attention}
-            {query}
-          />
-        {:else if selectedTask}
-          <div class="h-full overflow-y-auto px-6 pt-[22px] pb-4">
-            <TaskPreviewPane
-              task={selectedTask}
-              sessions={sessionsFor(selectedTask)}
-              onSelectSession={selectSession}
-              onOpenLink={(link) => openLinkedItem(selectedTask, link)}
-              onOpenExternal={openLinkedExternal}
-              onUnlink={(link) => void unlinkItem(link)}
-              {query}
-            />
-          </div>
+      <!-- The foot of the list: the keys that work on it, and at its end the
+           total, or what the hosts are still doing. The hosts answer a beat
+           after the title matches paint. Say so, or a list that then grows a
+           section looks like it changed its mind. -->
+      <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 px-2.5 pt-2 pb-3 text-micro text-muted-foreground">
+        <PickerKeyHints
+          hasRowActions={hasRowMenu(selectedEntry)}
+          hasProjects={projectOptions.length > 0}
+          openLabel={selectedEntry && !hasActionBar(selectedEntry) ? entryOpenLabel(selectedEntry) : ""}
+        />
+        {#if list.entries.length > 0}
+          <span class="ml-auto shrink-0 whitespace-nowrap tabular-nums" aria-live="polite">
+            {#if isSearchingHosts}
+              Searching the hosts…
+            {:else if isIndexingConversations}
+              <!-- A machine's first index sweep: its hits are real but not all of them. -->
+              Indexing sessions… Some may be missing
+            {:else}
+              {counts}
+            {/if}
+          </span>
         {/if}
       </div>
-      {#if selectedSession && selectedTask}
-        {@const picked = selectedSession}
-        <div class="shrink-0 border-t border-[var(--hairline)] px-3.5 py-2.5">
-          <PickerActionBar
-            task={selectedTask}
-            portalTarget={layer.el}
-            primaryLabel="Resume"
-            onPrimary={() => selectedEntry ? activate(selectedEntry, "click") : selectSession(picked)}
-            onOpenTask={openTaskPage}
-            onOpenSource={openOnProvider}
-          />
-        </div>
-      {:else if selectedTask}
-        {@const picked = selectedTask}
-        {@const hasSessions = sessionsFor(picked).length > 0}
-        <div class="shrink-0 border-t border-[var(--hairline)] px-3.5 py-2.5">
-          <PickerActionBar
-            task={picked}
-            portalTarget={layer.el}
-            primaryLabel={hasSessions ? "Resume latest" : "Open new draft"}
-            onPrimary={() => select(picked)}
-            secondaryLabel={hasSessions ? "New draft" : undefined}
-            onSecondary={hasSessions ? () => startDraft(picked) : undefined}
-            onOpenTask={openTaskPage}
-            onOpenSource={openOnProvider}
-          />
-        </div>
-      {/if}
     </div>
-  </div>
 
+    <PickerPreviewColumn
+      entry={selectedEntry}
+      loading={isListLoading}
+      {query}
+      {sessionsFor}
+      portalTarget={layer.el}
+      onActivate={(entry) => activate(entry, "click")}
+      onSelectSession={selectSession}
+      onSelectTask={select}
+      onStartDraft={startDraft}
+      onOpenTaskPage={openTaskPage}
+      onOpenSource={openOnProvider}
+      onOpenLink={openLinkedItem}
+      onOpenExternal={openLinkedExternal}
+      onUnlink={(link) => void unlinkItem(link)}
+    />
+  </div>
 {/snippet}
 
-{#if open && taskContextMenu}
-  {@const menuTask = taskContextMenu.task}
-  {@const hasSessions = sessionsFor(menuTask).length > 0}
-  <TaskContextMenu
-    x={taskContextMenu.x}
-    y={taskContextMenu.y}
-    task={menuTask}
-    hasLinkedSession={hasSessions}
-    isRunning={false}
-    onStart={() => select(menuTask)}
-    onResume={hasSessions ? () => resumeTask(menuTask) : undefined}
-    onOpenTask={() => openTaskPage(menuTask)}
-    onOpenSource={menuTask.url ? () => openOnProvider(menuTask) : undefined}
-    onSetStatus={(category) => void moveTask(menuTask, category)}
-    onDelete={session.tasksStore.get(menuTask.id).canDelete ? () => deleteTask(menuTask) : undefined}
+{#if open}
+  <PickerRowMenus
+    bind:menu={rowMenu}
+    {sessionsFor}
     portalTarget={layer.el}
-    onClose={() => (taskContextMenu = null)}
-  />
-{/if}
-
-{#if open && sessionContextMenu}
-  {@const menuSession = sessionContextMenu.session}
-  <SessionContextMenu
-    x={sessionContextMenu.x}
-    y={sessionContextMenu.y}
-    tabId={menuSession.tabId ?? null}
-    sessionId={menuSession.sessionId ?? null}
-    serverId={menuSession.serverId ?? null}
-    showSplit
-    rowActions={{
-      onStop: menuSession.attention === "running" && menuSession.tabId
-        ? () => session.controls.interruptTabSession(menuSession.tabId!)
-        : undefined,
-      ...archiveActions(sessionContextMenu.conversation),
-    }}
-    portalTarget={layer.el}
-    onClose={() => (sessionContextMenu = null)}
+    onStart={select}
+    onResume={resumeTask}
+    onOpenTask={openTaskPage}
+    onOpenSource={openOnProvider}
   />
 {/if}
 
 {#if open && inline}
-  <div bind:this={pickerEl} class="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent text-menu outline-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown} transition:fly={{ y: 8, duration: 160 }}>
+  <div bind:this={pickerEl} class="flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent text-menu outline-none" role="dialog" aria-label="Search" tabindex="-1" onkeydown={handleKeyDown} transition:fly={{ y: 8, duration: 160 }}>
     {@render pickerContent()}
   </div>
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain modal-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]" role="presentation" onmousedown={handleScrimPointerDown}>
     <!-- `text-menu`, not the chrome rung, for the same reason the command
          palette holds it: this is a decision surface. -->
-    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards]" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-menu bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards]" role="dialog" aria-label="Search" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

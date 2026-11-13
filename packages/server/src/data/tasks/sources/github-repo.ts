@@ -1,9 +1,8 @@
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate } from '@solus/contracts/task-types'
-import { createRepoIssue, GitHubTaskProvider, listRepoAssignees } from '../providers/github'
+import { createRepoIssue, GitHubTaskProvider, listRepoAssignees, withoutProjectScope } from '../providers/github'
 import {
   issueToTask,
-  LIST_ISSUES_QUERY,
   pushToCap,
   repoSourceItem,
   restIssueToTask,
@@ -54,12 +53,12 @@ export class GitHubRepoSource implements TaskSourceAdapter {
       outer: for (const states of [['OPEN'], ['CLOSED']]) {
         let cursor: string | null = null
         for (;;) {
-          const res: ListIssuesResponse = await graphql<ListIssuesResponse>(LIST_ISSUES_QUERY, {
+          const res: ListIssuesResponse = await withoutProjectScope((queries) => graphql<ListIssuesResponse>(queries.listIssues, {
             owner,
             repo,
             states,
             cursor,
-          })
+          }))
           const page = res.repository.issues
           truncated = pushToCap(items, page.nodes.map((node) => repoSourceItem(issueToTask(node))))
           if (truncated) break outer

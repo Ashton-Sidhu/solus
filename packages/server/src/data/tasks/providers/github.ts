@@ -7,6 +7,7 @@ import {
   uploadGithubAsset,
 } from '../../../providers/github/asset-upload'
 import { publishedAssetUrl, recordAssetPublication } from '../asset-publications'
+import { isInsufficientScopes } from './failures'
 import { assetReferencesIn, withPublishedAssets, type AssetReference } from '../task-assets'
 import {
   CLEAR_PROJECT_FIELD_MUTATION,
@@ -15,7 +16,8 @@ import {
   DRAFT_ITEM_QUERY,
   draftToTask,
   DUE_FIELD_RE,
-  ISSUE_BY_NUMBER_QUERY,
+  ISSUE_QUERIES,
+  PLAIN_ISSUE_QUERIES,
   issueState,
   issueToTask,
   priorityFromLabels,
@@ -25,7 +27,7 @@ import {
   restIssueToTask,
   SET_PROJECT_FIELD_MUTATION,
   statusValueOf,
-  TASK_NODE_QUERY,
+  type IssueQueries,
   UPDATE_DRAFT_MUTATION,
   USER_ID_QUERY,
   type DraftItemResponse,
@@ -53,6 +55,21 @@ type Graphql = GitHubClient['graphql']
 type IssueHome = Extract<TaskHome, { provider: 'github'; kind: 'issue' }>
 type DraftHome = Extract<TaskHome, { provider: 'github'; kind: 'draft' }>
 
+/**
+ * Run an issue read with the Projects v2 values, and again without them when
+ * the connection lacks the `read:project` scope. A repository and an issue do
+ * not need that scope; only their board values do. The issue then reads as off
+ * every board, so it takes no priority or due date write.
+ */
+export async function withoutProjectScope<Result>(read: (queries: IssueQueries) => Promise<Result>): Promise<Result> {
+  try {
+    return await read(ISSUE_QUERIES)
+  } catch (error) {
+    if (!isInsufficientScopes(error)) throw error
+    return read(PLAIN_ISSUE_QUERIES)
+  }
+}
+
 function githubHome(home: TaskHome): IssueHome | DraftHome {
   if (home.provider !== 'github') throw new Error(`The GitHub task provider cannot write to a ${home.provider} task.`)
   return home
@@ -64,11 +81,11 @@ function issueReference(home: IssueHome): string {
 
 /** Read one issue by its number. GitHub reads follow a repository rename. */
 export async function readIssueNode(graphql: Graphql, home: IssueHome): Promise<IssueNode> {
-  const res = await graphql<IssueByNumberResponse>(ISSUE_BY_NUMBER_QUERY, {
+  const res = await withoutProjectScope((queries) => graphql<IssueByNumberResponse>(queries.issueByNumber, {
     owner: home.owner,
     repo: home.repo,
     number: home.number,
-  })
+  }))
   const issue = res.repository?.issue
   if (!issue) {
     throw new TaskProviderError(
@@ -203,7 +220,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
   async fetch(ref: TaskRef): Promise<ProviderTaskDetails> {
     if (ref.provider !== 'github') throw new Error(`The GitHub task provider cannot read a ${ref.provider} task.`)
     return this.run('get_github_task', async ({ graphql }) => {
-      const { node } = await graphql<TaskNodeResponse>(TASK_NODE_QUERY, { id: ref.id })
+      const { node } = await withoutProjectScope((queries) => graphql<TaskNodeResponse>(queries.taskNode, { id: ref.id }))
       if (node?.__typename === 'Issue') {
         const comments = node.comments ?? { totalCount: 0, nodes: [] }
         return {

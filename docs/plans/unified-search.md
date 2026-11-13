@@ -13,9 +13,14 @@ Current before/after results are in [Session search benchmark](session-search-be
 > project scope does not narrow the comment search. Task status in the filters
 > is the status category.
 
-The picker defaults to sessions only on desktop and web. The result menu can
-include tasks or show tasks only, and the client remembers an explicit choice.
-Native session search already shows sessions only.
+> **2026-11-12.** The picker is now **Search**: one search of sessions, tasks,
+> works, pull requests, automations, and projects. It replaces the History
+> place of the sidebar. See "Search types" below. That section replaces the
+> result menu, the remembered result type, and the task rows that opened to
+> show their sessions. The other rules of this plan stay.
+
+Search opens on the All type on desktop and web. Native session search shows
+sessions only (see "Search types", decision 9).
 
 The picker lists tasks and sessions as peers (`task-conversation.md` §8: a
 session has no task of its own). Search must treat them the same way: a person
@@ -121,7 +126,124 @@ pause in typing.
     Original messages stay intact. There is one session matching model, with
     no alternate legacy search path.
 
+## Search types
+
+Search is the place a person finds a thing in Solus by its name or by what it
+says. The History place of the sidebar opened the picker of sessions and
+tasks. The same key and the same place now open Search.
+
+### Vocabulary
+
+- **Search** — the surface: the box, the type tabs, the list, and the preview.
+  In code it is the unified picker (`components/session/unified-picker/`).
+- **type** — the kind of result the list holds: All, Sessions, Tasks, Works,
+  Pull requests, Automations, Projects. A tab for each type is below the box.
+- **record** — a row that is not a task and not a session: a work, a pull
+  request, an automation, a project, or an action (`picker-records.ts`).
+- **Recents** — the list of the All type while the box is empty.
+- **action** — a command at the end of the list. There is one: New session.
+- **preview** — the pane beside the list. It shows the row the cursor is on.
+
+### Decisions
+
+1. **One box, a tab for each type.** The All type lists every type. Each other
+   type lists one kind. ← and → change the type, as do the tabs. The query
+   stays when the type changes: the same words are read against another kind.
+   Search opens on All each time. A type is a choice for one visit, so the
+   client does not remember it.
+2. **Recents.** With an empty box, All shows the ten newest sessions and works,
+   then the actions. Recents is what the person last worked on. Tasks, pull
+   requests, automations, and projects are not in Recents: other people change
+   them, so their dates do not say what the person did.
+3. **Each type lists all of its rows.** Sessions: every session of the scope.
+   Tasks: the tasks in their lifecycle sections. Works and Automations: newest
+   first. Pull requests: the open pull requests. Projects: the order of every
+   project list.
+4. **Rows are flat.** A task row does not open to show its sessions. The
+   preview of a task lists its sessions, and each one opens from there.
+5. **Records are matched on the client**, by the word rule that tasks and
+   sessions follow. The words in a title are a name hit. The words in a work's
+   preview text, an automation's instructions, a project's folder, or a pull
+   request's branch or author are evidence, and the row shows the passage. A
+   pull request number, typed whole, is that pull request.
+6. **Pull requests are asked of the code host.** An empty box reads the first
+   page of open pull requests of each project in the scope. A query of two
+   characters or more asks the code host, which searches every state and the
+   text this client does not hold. Each project is asked through the pull
+   request context (`ProjectPrs.query`), so the rows reach the index and the
+   list of the Pull requests page is not changed. The All type asks only under
+   a query. The answers are kept only while Search is open.
+7. **Sections under a query, in order:** Top hits, Tasks, Sessions, Works, Pull
+   requests, Automations, Projects, Actions, In messages. Top hits lifts the
+   best three rows of any kind when a lifted row would otherwise be below the
+   first rows. An action is listed when the query names it.
+8. **Every row has a preview.** A session shows its transcript, a task shows
+   its page in small, a work shows the start of its document, a pull request
+   shows its state, branches, size, and description, an automation shows its
+   schedule and instructions, and a project shows its folder and host. The
+   preview of an artifact or an app shows its text: it does not run the page.
+   ⏎ opens the row where its own page opens it. On a project, ⏎ starts a new
+   session in that project.
+9. **Clients.** Desktop and web share Search. The native app has session search
+   on Home and its own Workspace, Pull requests, and Tasks screens. A search of
+   every type on the native app is not built. This is an open product decision.
+10. **A guest of a share link** has the All and Sessions types only.
+
+### Scope and filters
+
+- The project scope narrows sessions (as before), works, automations, and the
+  projects that pull requests are read from. It does not narrow tasks or the
+  Projects type.
+- Updated narrows every record that has a date. A project has none.
+- Task status, Agent, Host, and Archive keep their meanings. They do not
+  narrow records.
+
+### Keys
+
+| Key | Action |
+|---|---|
+| ↑ ↓ (or Tab, ⇧Tab) | Move the cursor |
+| ← → | Change the type. With a modifier, the arrows move the caret |
+| ⏎ | Open the row |
+| ⌥⏎ | Open the menu of a task or session row |
+| ⌥A | Choose the project scope |
+| ⌥S | Order, search mode, and filters |
+| Esc | Close |
+
+The foot of the list shows these keys. They are absent for a touch pointer. The
+preview of a task, of a task's session, or of a pull request has a floating bar
+at its foot with the actions of the row, and the primary button of that bar
+shows what ⏎ does. A row with one action has no bar: the foot of the list shows
+what ⏎ does to it.
+
+A pull request row is the row of the Pull requests page (`PrListRow`, built by
+`prRow`), so the two surfaces cannot disagree. Its icon is its state: open,
+draft, merged, or closed. A mark at the corner of the icon shows a conflict
+with the base branch. The row also shows the review verdict, the checks, the
+size of the change, and the author. The verdict is an icon with no words,
+because the list has half the width of the card. The checks icon opens the
+check runs. The row is taller than the other rows of the search, and it does
+not mark the words of the query.
+
+### Loading states
+
+- While the code of Search loads, a frame of the same size shows placeholders
+  for the box, the types, the list, and the preview.
+- While a read that can fill an empty list is in flight, the list shows
+  placeholder rows and the preview shows a placeholder. Only the reads of the
+  type in view count (`pickerListLoading`): the Tasks type does not wait for
+  the sessions.
+- When the reads end with no rows, the list says why it is empty. It does not
+  say "no pull requests" before the code host answers.
+- When the list has rows and a host is still searching, the rows stay and the
+  foot of the list says "Searching the hosts…".
+
 ## Known differences
+
+- Search does not find the text of a work's whole body. It reads the title and
+  the preview text that the host lists.
+- With every project in the scope, a query asks the code host one time for each
+  project.
 
 - An upstream provider comment is not stored on the host, so only Solus
   comments are searched.

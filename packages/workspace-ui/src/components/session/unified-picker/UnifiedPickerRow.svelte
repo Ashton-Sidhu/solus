@@ -1,8 +1,5 @@
 <script lang="ts">
-  import {
-    ChevronRight as ChevronRightIcon,
-    MessagesSquare as ChatsIcon,
-  } from "@lucide/svelte";
+  import { MessagesSquare as ChatsIcon } from "@lucide/svelte";
   import { snippetRuns } from "@solus/contracts/search-snippet";
   import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
@@ -16,23 +13,27 @@
   import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../../servers/lib/managed-host";
   import { peopleOnSessions, pickerRowSessions } from "./lib/picker-presence";
+  import { recordTimestamp, recordTitle } from "./lib/picker-records";
+  import { recordDetail } from "./lib/picker-record-view";
+  import PickerPullRequestRow from "./PickerPullRequestRow.svelte";
+  import PickerRecordIcon from "./PickerRecordIcon.svelte";
   import {
     pickerSessionTitle,
     pickerSessionProject,
     pickerSessionActivity,
     pickerSessionServerId,
     pickerSessionTaskTitle,
-    isTaskGroup,
     type PickerEntry,
     type PickerRow,
   } from "./lib/picker-rows";
 
   /**
-   * One row of the virtualised list: a section header, a task, a session
-   * nested under its task, or the end of a list the hosts answer in pages. The
-   * virtualiser hands each row its position in `style`; the row's own height
-   * has to agree with `pickerRowHeight`, which is where the numbers in the
-   * classes below come from.
+   * One row of the virtualised list: a section header, a task, a session, a
+   * record (a work, a pull request, an automation, a project, an action), or
+   * the end of a list the hosts answer in pages. The virtualiser hands each
+   * row its position in `style`; the row's own height has to agree with
+   * `pickerRowHeight`, which is where the numbers in the classes below come
+   * from.
    *
    * Names are marked by the query's words, the rule the list matched them by.
    * A passage from a host comes marked by the host, by the same rule.
@@ -47,7 +48,6 @@
     attention: AttentionState;
     onActivate: (entry: PickerEntry) => void;
     onHover: (event: PointerEvent, entry: PickerEntry) => void;
-    onToggle: (taskId: string) => void;
     onContextMenu: (event: MouseEvent, entry: PickerEntry) => void;
     /** The end row came into view: read the next page. */
     onReachEnd: () => void;
@@ -60,7 +60,6 @@
     attention,
     onActivate,
     onHover,
-    onToggle,
     onContextMenu,
     onReachEnd,
   }: Props = $props();
@@ -77,7 +76,7 @@
   // Who is working here, from the host's own roster, the same faces the sidebar
   // row shows: a task row gathers everyone in any of its sessions.
   const people = $derived(
-    row.kind === "header" || row.kind === "more"
+    row.kind === "header" || row.kind === "more" || row.kind === "record"
       ? []
       : peopleOnSessions(pickerRowSessions(row), (serverId, focus) => presenceStore.peopleFocusedOn(serverId, focus)),
   );
@@ -134,15 +133,15 @@
     <span>{row.label}</span>
     <span class="font-mono tabular-nums opacity-60">{row.count}</span>
     <span class="h-px flex-1 bg-(--solus-menu-hairline)" aria-hidden="true"></span>
-    <!-- The rule the section is in. Stated on every header so the order is
-         something you read, not something you work out from the dates. -->
-    <span class="shrink-0 normal-case opacity-70">{row.hint}</span>
+    <!-- The rule the section is in. Stated on every header that has one, so
+         the order is something you read, not something you work out from the
+         dates. -->
+    {#if row.hint}<span class="shrink-0 normal-case opacity-70">{row.hint}</span>{/if}
   </div>
 {:else if row.kind === "task"}
   {@const task = row.task}
   {@const isSelected = row.entryIndex === selectedIndex}
   {@const isRunning = row.sessions.some((child) => child.attention === "running")}
-  {@const isGroup = isTaskGroup(row)}
   <div
     class="relative h-11 overflow-hidden rounded-lg"
     {style}
@@ -150,35 +149,12 @@
     <!-- The command palette's row: `menu-row` paints the hover ink, and the
          cursor sits in the same neutral wash every hover surface uses, with the
          title stepping to full ink. A done task dims its contents. -->
-    <div
-      class="menu-row group/row relative flex h-full items-center rounded-lg pr-3 data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? '*:opacity-60' : ''}"
-      data-selected={isSelected ? '' : undefined}
-    >
-    <!-- The disclosure can also collapse a task after the full row opens it.
-         It keeps its width when a task is not a group, because a ragged left
-         edge is harder to scan than an empty gutter. -->
-    <button
-      type="button"
-      class="flex h-full w-6 shrink-0 cursor-pointer items-center justify-center text-(--solus-text-tertiary)"
-      aria-label={row.expanded ? `Collapse ${task.title}` : `Expand ${task.title}`}
-      aria-expanded={row.expanded}
-      disabled={!isGroup}
-      onclick={(event) => {
-        event.stopPropagation();
-        onToggle(task.id);
-      }}
-    >
-      <ChevronRightIcon
-        size={10}
-        class="shrink-0 transition-[transform,opacity] duration-150 {row.expanded ? 'rotate-90' : ''} {isGroup ? '' : 'opacity-0'}"
-      />
-    </button>
     <button
       type="button"
       role="option"
       aria-selected={isSelected}
-      aria-expanded={isGroup ? row.expanded : undefined}
-      class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden text-left"
+      data-selected={isSelected ? '' : undefined}
+      class="menu-row group/row flex h-full w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg pr-3 pl-6 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? '*:opacity-60' : ''}"
       onclick={() => onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
@@ -216,8 +192,7 @@
           {relativeTime(task.updatedAt)}
         </span>
       {/if}
-      </button>
-    </div>
+    </button>
   </div>
 {:else if row.kind === "more"}
   <div
@@ -228,11 +203,61 @@
   >
     Loading {row.remaining} more {row.remaining === 1 ? "session" : "sessions"}…
   </div>
-{:else if row.kind === "conversation" || !row.nested}
+{:else if row.kind === "record"}
   {@const isSelected = row.entryIndex === selectedIndex}
-  <!-- The same geometry as a task row: a name, and under it the passage the
-       words were found in — the evidence, so the reader can tell the hits
-       apart without arrowing onto each one. -->
+  {@const record = row.record}
+  {#if record.type === "pullRequest"}
+    <!-- A pull request is the row of the pull requests page itself: its state
+         and conflicts, the verdict, the checks, the churn and the author. The
+         pointer selects it when it moves, as it does every other row. -->
+    <div {style} data-testid="picker-record-row" data-record-type="pullRequest" onpointermove={(event) => onHover(event, row)} role="presentation">
+      <PickerPullRequestRow found={record.found} rowKey={row.key} selected={isSelected} onSelect={() => onActivate(row)} />
+    </div>
+  {:else}
+    {@const updatedAt = recordTimestamp(record)}
+    <!-- An action has one line; every other record has the two lines of a task
+         row: its name, and under it the passage the words were found in, or
+         where the record lives. -->
+    <div class="relative overflow-hidden rounded-lg {record.type === 'action' ? 'h-9' : 'h-11'}" {style}>
+      <button
+        type="button"
+        role="option"
+        aria-selected={isSelected}
+        data-selected={isSelected ? '' : undefined}
+        data-testid="picker-record-row"
+        data-record-type={record.type}
+        class="menu-row group/row flex h-full w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg pr-3 pl-6 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!"
+        onclick={() => onActivate(row)}
+        onpointermove={(event) => onHover(event, row)}
+      >
+        <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)">
+          <PickerRecordIcon {record} size={13} />
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
+            >{@render marked(highlightWordRuns(recordTitle(record), query))}</span
+          >
+          {#if record.type !== "action"}
+            <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
+              >{@render marked(highlightWordRuns(row.passage ?? recordDetail(record), query))}</span
+            >
+          {/if}
+        </span>
+        {#if record.type === "action" && record.action.hint}
+          <span class="shrink-0 whitespace-nowrap font-mono text-micro text-(--solus-text-tertiary)">{record.action.hint}</span>
+        {:else if updatedAt}
+          <span class="shrink-0 whitespace-nowrap text-micro tabular-nums text-(--solus-text-tertiary)">
+            {relativeTime(updatedAt)}
+          </span>
+        {/if}
+      </button>
+    </div>
+  {/if}
+{:else}
+  {@const isSelected = row.entryIndex === selectedIndex}
+  <!-- A session, a task's or not. The same geometry as a task row: a name,
+       and under it the passage the words were found in — the evidence, so the
+       reader can tell the hits apart without arrowing onto each one. -->
   <div class="relative h-11 overflow-hidden rounded-lg" {style}>
     <button
       type="button"
@@ -264,43 +289,6 @@
       <PresenceStack {people} size={16} max={3} />
       <!-- Its task, so two sessions with one name under two tasks can be told apart. -->
       {@render byline(pickerSessionTaskTitle(row), relativeTime(pickerSessionActivity(row)))}
-    </button>
-  </div>
-{:else}
-  {@const child = row.session}
-  {@const isSelected = row.entryIndex === selectedIndex}
-  {@const isRunning = child.attention === "running"}
-  <div class="relative pl-12 {row.isLast ? 'pb-1' : ''}" {style}>
-    <!-- The spine the sidebar draws under a task, repeated here so the two
-         surfaces read as the same tree. It stops at the last child's centre
-         rather than running past it into the next task. -->
-    <span
-      class="absolute top-0 left-[37px] w-px bg-[var(--hairline-strong)] {row.isLast ? 'h-4' : 'bottom-0'}"
-      aria-hidden="true"
-    ></span>
-    <button
-      type="button"
-      role="option"
-      aria-selected={isSelected}
-      data-selected={isSelected ? '' : undefined}
-      class="menu-row flex h-8 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg pr-3 pl-2 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!"
-      onclick={() => onActivate(row)}
-      onpointermove={(event) => onHover(event, row)}
-      oncontextmenu={(event) => onContextMenu(event, row)}
-    >
-      <SessionStatusGlyph attention={child.attention} />
-      <span class="min-w-0 flex-1">
-        <span class="block truncate {isRunning || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}"
-          >{@render marked(highlightWordRuns(child.label, query))}{#if child.runnerOffline}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-runner-offline">runner offline</span>{/if}</span
-        >
-      </span>
-      <PresenceStack {people} size={14} max={2} />
-      {#if remoteHost}
-        <span class="flex max-w-[35%] min-w-0 shrink-0 text-micro text-(--solus-text-tertiary)">{@render hostMark()}</span>
-      {/if}
-      <span class="min-w-11 shrink-0 whitespace-nowrap text-right text-micro tabular-nums text-(--solus-text-tertiary)">
-        {relativeTime(child.lastActivityAt || row.task.updatedAt)}
-      </span>
     </button>
   </div>
 {/if}

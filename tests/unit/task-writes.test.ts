@@ -40,11 +40,9 @@ afterEach(() => host.reset())
 afterAll(() => host.close())
 
 /** Read these sources into the host's copy as Alice. */
-async function readSources(...which: Array<typeof REPO>): Promise<string> {
-  const cwd = host.project(which)
-  await sources.tasksSources([cwd], ALICE)
+async function readSources(...which: Array<typeof REPO>): Promise<void> {
+  await sources.tasksSources(which, ALICE)
   await sources.taskSourceReadsEnd()
-  return cwd
 }
 
 async function settledAt(sessionId: string): Promise<number | null> {
@@ -179,31 +177,29 @@ describe('moving a task', () => {
 })
 
 describe('creating and deleting a task', () => {
-  test('a new task is created in the default source of the project and shows in it', async () => {
+  test('a new task is created in the source the person names, with no project on the host', async () => {
+    // Tasks are projectless (docs/tasks.md): the source comes from the person's
+    // settings, and no project or project config is needed.
+    const manifest = await import('@solus/server/project-config/projects-manifest')
+    expect(await manifest.listProjects()).toEqual([])
     host.providers.answer(REPO, repoRead([]))
     host.providers.answer(BOARD, boardRead([]))
-    const cwd = host.project([REPO, BOARD], BOARD_KEY)
 
-    const created = await tasks.createTask({ cwd, title: 'Plan the launch' }, ALICE)
-    // The default source is a GitHub Project, so the task is a draft item.
+    const created = await tasks.createTask({ source: BOARD, title: 'Plan the launch' }, ALICE)
+    // The source is a GitHub Project, so the task is a draft item.
     expect(created).toMatchObject({ kind: 'draft', title: 'Plan the launch', url: null })
     expect(created.placements).toEqual([{ sourceKey: BOARD_KEY, columnId: null }])
     expect(host.providers.callsOf('create:')).toEqual([`create:${BOARD_KEY}`])
     expect((await store.listTasks({ personKey: ALICE, scope: 'local' })).map((task) => task.id)).toEqual([created.id])
 
-    const inRepo = await tasks.createTask({ cwd, title: 'Fix the crash', sourceKey: REPO_KEY }, ALICE)
+    const inRepo = await tasks.createTask({ source: REPO, title: 'Fix the crash' }, ALICE)
     expect(inRepo).toMatchObject({ kind: 'issue', placements: [{ sourceKey: REPO_KEY, columnId: 'open' }] })
   })
 
-  test('a project with no task source has no place for a task, and the error says so', async () => {
-    const cwd = host.project([])
-    await expect(tasks.createTask({ cwd, title: 'Nowhere' }, ALICE)).rejects.toThrow('This project has no task source')
-    expect(host.providers.calls).toEqual([])
-  })
-
-  test('a source of another project is refused', async () => {
-    const cwd = host.project([REPO])
-    await expect(tasks.createTask({ cwd, title: 'Elsewhere', sourceKey: BOARD_KEY }, ALICE)).rejects.toThrow('is not one of this project')
+  test('a column that the source does not have is refused before the provider is asked', async () => {
+    host.providers.answer(REPO, repoRead([]))
+    await expect(tasks.createTask({ source: REPO, title: 'Somewhere', columnId: 'no-such-column' }, ALICE)).rejects.toThrow('has no such column')
+    expect(host.providers.callsOf('create:')).toEqual([])
   })
 
   test('only a draft item can be deleted; an issue is closed or moved', async () => {
@@ -340,12 +336,12 @@ describe('a finished task ends the work of its sessions', () => {
 
   test('a source read that finds the task closed on the provider settles its session too', async () => {
     host.providers.answer(REPO, repoRead([githubIssue(1)]))
-    const cwd = await readSources(REPO)
+    await readSources(REPO)
     await attachments.linkTaskSession('local', ISSUE, 'session-1')
 
     // Somebody closed the issue on GitHub.
     host.providers.answer(REPO, repoRead([githubIssue(1, { state: { name: 'Closed', category: 'done' }, updatedAt: 3_000 })]))
-    await sources.tasksSources([cwd], ALICE, { refresh: 'force' })
+    await sources.tasksSources([REPO], ALICE, { refresh: 'force' })
     await sources.taskSourceReadsEnd()
     expect(await settledAt('session-1')).not.toBeNull()
   })

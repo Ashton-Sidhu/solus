@@ -45,7 +45,7 @@ export const SCOPE_LABELS = {
   'plan-action-bar': 'Plan review',
   'pr-review': 'Pull request review',
   'command-palette': 'Command palette',
-  'task-picker': 'Task picker',
+  'task-picker': 'Search',
   'go-to-file': 'Go to file',
   'project-search': 'Project search',
   'shortcuts-help': 'Keyboard shortcuts',

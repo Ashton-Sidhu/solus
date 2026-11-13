@@ -1,5 +1,6 @@
 <script module lang="ts">
   import type { Snippet } from "svelte";
+  import type { PinnedSession } from "@solus/contracts/types";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
   import type { SidebarSection } from "./lib/sidebar-list-items";
   import type { SidebarTask } from "./lib/task-list";
@@ -12,6 +13,8 @@
     isLoading: boolean;
     /** Draws a row; the flag says it sits in a project folder. */
     taskRow: Snippet<[SidebarTask, boolean]>;
+    /** Draws a row of the Pinned section. */
+    pinnedRow: Snippet<[PinnedSession]>;
     onOpenDraft: (draft: DraftRowModel) => void;
     onDiscardDraft: (draft: DraftRowModel) => void;
     onToggleSection: (section: SidebarSection) => void;
@@ -50,6 +53,7 @@
     motionMs,
     isLoading,
     taskRow,
+    pinnedRow,
     folderHeader,
     onOpenDraft,
     onDiscardDraft,
@@ -158,11 +162,15 @@
           isOpen={item.isOpen}
           canToggle={item.canToggle}
           followsHeader={items[index - 1]?.kind === "header"}
-          hasRowsBelow={items[index + 1]?.kind === "task"}
+          hasRowsBelow={items[index + 1]?.kind === "task" || items[index + 1]?.kind === "pinned"}
           onToggle={() => onToggleSection(item.section)}
         />
       {:else if item.kind === "folder"}
         {@render folderHeader?.(item.folder)}
+      {:else if item.kind === "pinned"}
+        <div data-sidebar-section="pinned" class="-mx-2 px-2">
+          {@render pinnedRow(item.pin)}
+        </div>
       {:else}
         <!-- `content-visibility: auto` contains each row, so a change in
              one row never lays out the whole window, and rows below the
@@ -176,7 +184,8 @@
           data-sidebar-section={item.section}
           class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.folderKey === undefined && (item.section === 'sessions' ||
           item.section === 'shared' ||
-          item.section === 'working')
+          item.section === 'working' ||
+          (item.section === 'pinned' && item.key.endsWith(':card')))
             ? '[contain-intrinsic-size:auto_62px]'
             : '[contain-intrinsic-size:auto_36px]'} {item.section === 'completed' ? 'opacity-80' : ''}"
         >

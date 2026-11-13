@@ -19,7 +19,7 @@ import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/con
 import { SvelteMap } from 'svelte/reactivity'
 import { detached, ProjectPrs, projectPrsKey } from './project-prs.svelte'
 import { afterStartupTranscriptPaint } from '../workspace/startup-transcript'
-import { linkedPrIdentity, latestPrObservation, type LinkedPr, type PrLink } from './linked-pr'
+import { linkedPrIdentity, latestPrObservation, repositoryContext, type LinkedPr, type PrLink } from './linked-pr'
 import { readPrListSnapshot, writePrListSnapshot } from '../../components/prs/lib/pr-list-memory'
 
 /** One project to read. Carries the handle needed to create its entry. */
@@ -239,10 +239,7 @@ export class PrsStore {
       interests.push({ kind: 'pull-request', number: identity.number })
       byScope.set(identity.targetScope, interests)
     }
-    const releases = [...byScope].map(([scope, interests]) => this.want(api, serverId, {
-      ...ctx,
-      session: { ...ctx.session, projectPath: scope, workingDirectory: scope, gitContext: null },
-    }, interests))
+    const releases = [...byScope].map(([scope, interests]) => this.want(api, serverId, repositoryContext(ctx, scope), interests))
     return () => { for (const release of releases) release() }
   }
 
