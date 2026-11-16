@@ -39,6 +39,7 @@ import type { IntegrationAuthFinishedEvent, IntegrationChangedEvent, Integration
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { UplinkStatus } from './uplink'
+import type { TailscaleServeStatus } from './host-api'
 import type { WorkReviewsChanged } from './work-review'
 import type { NotificationsChanged } from './notification-hub'
 import type { WorkLiveAwarenessEvent, WorkLiveStateEvent, WorkLiveUpdateEvent } from './work-live'
@@ -230,6 +231,7 @@ export interface HostEventMap {
   'host.organizationsChanged': HostOrganizationsStatus
   /** The policies that govern work on this host changed (plans/030 §5.2). The whole summary, as `hostPolicy` answers it. */
   'host.policyChanged': PolicySet
+  'host.tailscaleServeChanged': TailscaleServeStatus
 }
 
 export type HostEventName = keyof HostEventMap
@@ -329,6 +331,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's registration, its link, or its tunnel changed state." },
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
   'host.policyChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: 'The policies that govern work on this host changed.' },
+  'host.tailscaleServeChanged': { owner: 'connections', category: 'snapshot', recovery: 'reload', description: 'The Tailscale HTTPS state changed.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 export const hostEventEnvelopeSchema = z.object({

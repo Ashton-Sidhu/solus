@@ -3,7 +3,7 @@ import type { HostEventSubscriber } from '@solus/client-core/host-event-subscrib
 import { answersAsSavedHost } from '@solus/client-core/host-link'
 import { HostSupervisor, type DialOutcome } from '@solus/client-core/host-supervisor'
 import { WsTransport } from '@solus/client-core/ws-transport'
-import { chooseRoute, dialableRoutes, mergeRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
+import { carriesTokenInClear, chooseRoute, dialableRoutes, mergeRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { DirectoryHost } from '@solus/contracts/uplink'
@@ -82,6 +82,11 @@ const CALL_TIMEOUT_MS = 30_000
 
 const NO_REACH = 'This host reaches no other host for you. Link both hosts to your Solus account, or connect to both hosts from one of your devices so they are introduced.'
 
+/** LAN HTTP remains supported for hosts on one private network. */
+export function safeHostDialRoute(route: HostRoute): boolean {
+  return route.kind === 'lan' || !carriesTokenInClear(route)
+}
+
 interface Connection {
   /** The target as last listed; its routes can change while the connection lives. */
   routing: { target: HostTarget }
@@ -116,7 +121,7 @@ export class RemoteHosts {
 
   /** One dial, on the route that answers first as the target. No route proved the target: no credential goes anywhere. */
   private async dial(target: HostTarget, transport: WsTransport, report: (outcome: DialOutcome) => void): Promise<void> {
-    const routes = dialableRoutes(target.routes, '', this.selfInstallationId())
+    const routes = dialableRoutes(target.routes, '', this.selfInstallationId()).filter(safeHostDialRoute)
     const route = await chooseRoute(routes, (url, signal) => this.answersAsTarget(target, url, signal))
     if (!route) {
       report({ kind: 'dial-failed' })
@@ -234,8 +239,8 @@ export class RemoteHosts {
     }
     const reconnected = new Set<() => void>()
     let hasConnected = false
-    const [first] = dialableRoutes(host.routes, '', this.selfInstallationId())
-    if (!first) return { error: `This host has no route to ${host.label}.` }
+    const [first] = dialableRoutes(host.routes, '', this.selfInstallationId()).filter(safeHostDialRoute)
+    if (!first) return { error: `${host.label} has no secure route from this host. Use its Tailscale address or its HTTPS address.` }
     const routing = { target: host }
     const transport = new WsTransport({
       serverUrl: first.url,

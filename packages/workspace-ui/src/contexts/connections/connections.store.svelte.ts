@@ -29,6 +29,14 @@ export interface ConnectionSession {
 }
 
 export class ConnectionsStore {
+  constructor() {
+    subscribeAllHosts('host.tailscaleServeChanged', (serverId, status) => {
+      if (this.metadataServerId === serverId && this.serverInfo) {
+        this.serverInfo.tailscaleServe = status
+        void this.refreshServerMetadata(serverId)
+      }
+    })
+  }
   // One host's server settings at a time: every method names its host
   // explicitly (the Settings page passes its selected host).
   serverInfo = $state<ConnectionsServerInfo | null>(null)
@@ -37,6 +45,9 @@ export class ConnectionsStore {
   activePair = $state<PairToken | null>(null)
   refreshing = $state(false)
   remoteAccessUpdating = $state(false)
+  remoteAccessError = $state<string | null>(null)
+  tailscaleServeUpdating = $state(false)
+  tailscaleServeError = $state<string | null>(null)
   trustLocalNetworkUpdating = $state(false)
   private metadataServerId: string | null = null
 
@@ -59,6 +70,8 @@ export class ConnectionsStore {
   async refreshServerMetadata(serverId: string): Promise<void> {
     if (this.metadataServerId !== serverId) {
       this.metadataServerId = serverId
+      this.remoteAccessError = null
+      this.tailscaleServeError = null
       this.serverInfo = null
       this.endpoints = []
       this.sessions = []
@@ -92,8 +105,9 @@ export class ConnectionsStore {
     }
   }
 
-  async setRemoteAccess(serverId: string, remoteAccess: boolean): Promise<void> {
+  async setRemoteAccess(serverId: string, remoteAccess: import('@solus/contracts/host-api').RemoteAccessMode): Promise<void> {
     if (!this.serverInfo || this.remoteAccessUpdating) return
+    this.remoteAccessError = null
     const previousRemoteAccess = this.serverInfo.remoteAccess
     this.serverInfo.remoteAccess = remoteAccess
     this.remoteAccessUpdating = true
@@ -107,9 +121,28 @@ export class ConnectionsStore {
       await this.refreshServerMetadata(serverId)
     } catch (e) {
       this.serverInfo.remoteAccess = previousRemoteAccess
+      this.remoteAccessError = e instanceof Error ? e.message : String(e)
       console.error('set remote access failed', e)
     } finally {
       this.remoteAccessUpdating = false
+    }
+  }
+
+  async setTailscaleServe(serverId: string, enabled: boolean, port: number): Promise<void> {
+    if (!this.serverInfo || this.tailscaleServeUpdating) return
+    this.tailscaleServeUpdating = true
+    this.tailscaleServeError = null
+    try {
+      const api = serverConnections.apiFor(serverId)
+      const status = enabled
+        ? await api.connectionsEnableTailscaleServe({ port })
+        : await api.connectionsDisableTailscaleServe()
+      if (this.metadataServerId === serverId && this.serverInfo) this.serverInfo.tailscaleServe = status
+      await this.refreshServerMetadata(serverId)
+    } catch (error) {
+      this.tailscaleServeError = error instanceof Error ? error.message : String(error)
+    } finally {
+      this.tailscaleServeUpdating = false
     }
   }
 

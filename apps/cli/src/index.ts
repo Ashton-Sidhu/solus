@@ -18,15 +18,22 @@ import { runSetup, serviceEnvFor } from './lib/setup'
 import { reportStatus } from './lib/status'
 import { restartService, serviceStatus, startService, stopService, uninstallService } from './lib/service'
 import { bestEndpoint, extractGitCredentialAction, formatPairBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
+import { hostedPairLink } from '@solus/client-core/pairing'
 import packageJson from '../../../package.json'
 
 interface CommonOptions {
   dataDir: string
 }
 
+interface PairOptions extends CommonOptions {
+  tailscale: boolean
+  tailscaleServePort: number
+}
+
 interface StartOptions extends CommonOptions {
   host?: string
   port?: string
+  remoteAccess?: 'off' | 'private' | 'any'
 }
 
 interface SetupOptions extends CommonOptions {
@@ -88,7 +95,7 @@ async function main(argv: string[]): Promise<void> {
       await logs(parseLogsOptions(rest))
       return
     case 'pair':
-      await pair(parseCommonOptions(rest))
+      await pair(parsePairOptions(rest))
       return
     case 'connect':
       await connect(rest)
@@ -130,11 +137,11 @@ ${DESKTOP_USAGE}`)
 
 Usage:
   solus setup [--data-dir PATH] [--link CODE] [--cloud-url URL]
-  solus start [--data-dir PATH] [--host HOST] [--port PORT]
+  solus start [--data-dir PATH] [--host HOST] [--port PORT] [--remote-access off|private|any]
   solus status [--data-dir PATH]
   solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
   solus logs [--data-dir PATH] [--lines N]
-  solus pair [--data-dir PATH]
+  solus pair [--data-dir PATH] [--tailscale] [--tailscale-serve-port N]
   solus connect [--data-dir PATH] [--code CODE] [--cloud-url URL] [--no-open]
   solus connect status [--data-dir PATH] [--json]
   solus connect remove ORGANIZATION_ID [--data-dir PATH]
@@ -170,7 +177,7 @@ async function withOnboarding(paths: RuntimePaths, run: (deps: OnboardingDeps) =
       log: (line) => console.log(line),
       connect: connectHost,
       status: connectStatus,
-      pairLines: () => pairLines(paths),
+      pairLines: () => pairLines(paths, { dataDir: paths.dataDir, tailscale: false, tailscaleServePort: 443 }),
       setUpProvider,
     })
   } finally {
@@ -290,16 +297,28 @@ async function logs(opts: LogsOptions): Promise<void> {
   followFile(paths.logFile, end, (chunk) => process.stdout.write(chunk))
 }
 
-async function pair(opts: CommonOptions): Promise<void> {
-  console.log((await pairLines(runtimePaths(opts.dataDir))).join('\n'))
+async function pair(opts: PairOptions): Promise<void> {
+  console.log((await pairLines(runtimePaths(opts.dataDir), opts)).join('\n'))
 }
 
-async function pairLines(paths: RuntimePaths): Promise<string[]> {
+async function pairLines(paths: RuntimePaths, opts: PairOptions): Promise<string[]> {
   const lock = readLockFile(paths.lockFile)
   if (!lock || !isProcessAlive(lock.pid)) throw new Error('Solus server is not running')
 
   const signingKey = readSigningKey(paths.dataDir)
   if (!signingKey) throw new Error(`No server signing key found at ${join(paths.dataDir, 'server-keys.json')}`)
+
+  let serveUrl: string | null = null
+  if (opts.tailscale) {
+    const serveResponse = await fetch(`${serverBaseUrl(lock)}/pair/serve`, {
+      method: 'POST',
+      headers: { ...createAdminHeaders(signingKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port: opts.tailscaleServePort }),
+    })
+    const result = await serveResponse.json() as { url?: string; error?: string }
+    if (!serveResponse.ok || !result.url) throw new Error(result.error ?? 'Tailscale HTTPS did not start.')
+    serveUrl = result.url
+  }
 
   const response = await fetch(`${serverBaseUrl(lock)}/pair/open`, {
     method: 'POST',
@@ -315,7 +334,19 @@ async function pairLines(paths: RuntimePaths): Promise<string[]> {
     port: lock.port,
   }
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
-  const pairUrl = `${baseUrl}/pair#token=${body.token}`
+  if (serveUrl) {
+    let ready = false
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const probe = await fetch(`${serveUrl}/health`, { signal: AbortSignal.timeout(2500) })
+        const health = await probe.json() as { installationId?: string }
+        if (probe.ok && health.installationId === body.installationId) { ready = true; break }
+      } catch { /* The first certificate can take time. */ }
+      if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    if (!ready) throw new Error('Tailscale HTTPS did not answer as this host. Check `tailscale serve status`, then try again.')
+  }
+  const pairUrl = serveUrl ? hostedPairLink(serveUrl, body.token) : `${baseUrl}/pair#token=${body.token}`
   return [
     'Pair a client with this server',
     ...formatPairBlock(pairUrl, body.code, Number(body.expiresAt), body.fingerprint),
@@ -326,6 +357,7 @@ async function pairLines(paths: RuntimePaths): Promise<string[]> {
     renderQrAscii(pairUrl),
     '',
     'Run `solus pair` for a new code.',
+    ...(serveUrl ? [`To remove this mapping, run \`tailscale serve --https=${opts.tailscaleServePort} --set-path=/ off\`.`] : []),
   ]
 }
 
@@ -387,6 +419,10 @@ function parseStartOptions(args: string[]): StartOptions {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
     '--host': { value: (value) => { opts.host = value } },
     '--port': { value: (value) => { opts.port = String(parsePort(value, '--port')) } },
+    '--remote-access': { value: (value) => {
+      if (value !== 'off' && value !== 'private' && value !== 'any') throw new Error('--remote-access requires off, private, or any')
+      opts.remoteAccess = value
+    } },
   }, (arg) => new Error(`Unknown start option: ${arg}`))
   return opts
 }
@@ -396,6 +432,21 @@ function parseCommonOptions(args: string[]): CommonOptions {
   parseFlags(args, {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
   }, (arg) => new Error(`Unknown option: ${arg}`))
+  return opts
+}
+
+function parsePairOptions(args: string[]): PairOptions {
+  const opts: PairOptions = { dataDir: defaultDataDir(), tailscale: false, tailscaleServePort: 443 }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--tailscale': { set: () => { opts.tailscale = true } },
+    '--tailscale-serve-port': { value: (value) => {
+      const port = parsePort(value, '--tailscale-serve-port')
+      if (port === 0) throw new Error('The Tailscale HTTPS port must be from 1 to 65535.')
+      opts.tailscaleServePort = port
+      opts.tailscale = true
+    } },
+  }, (arg) => new Error(`Unknown pair option: ${arg}`))
   return opts
 }
 
@@ -477,6 +528,7 @@ function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
   }
   if (opts.host) env.SOLUS_HOST = opts.host
   if (opts.port) env.SOLUS_PORT = opts.port
+  if (opts.remoteAccess) env.SOLUS_REMOTE_ACCESS = opts.remoteAccess
   return env
 }
 

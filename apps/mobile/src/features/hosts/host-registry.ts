@@ -184,11 +184,11 @@ export class HostRegistry {
   }
 
   /** Saves a host paired on this device. Other hosts are kept. */
-  async savePaired(input: { id: string; label: string; hasUserLabel?: boolean; url: string; os?: HostOperatingSystem; identityKey?: string }, sessionToken: string): Promise<NativeHost> {
+  async savePaired(input: { id: string; label: string; hasUserLabel?: boolean; url: string; os?: HostOperatingSystem; identityKey?: string; onTailnet?: boolean }, sessionToken: string): Promise<NativeHost> {
     await this.secrets.set(tokenKey(input.id), sessionToken)
     this.tokens.set(input.id, sessionToken)
     const existing = this.host(input.id)
-    const routes = mergeRoutes(existing?.routes ?? [], [routeForUrl(input.url)], 'pairing', Date.now())
+    const routes = mergeRoutes(existing?.routes ?? [], [routeForUrl(input.url, input.onTailnet)], 'pairing', Date.now())
     const host: NativeHost = {
       ...existing,
       id: input.id,

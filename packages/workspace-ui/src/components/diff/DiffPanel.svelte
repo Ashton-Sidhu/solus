@@ -50,6 +50,7 @@
     setInlineCommentDraft,
   } from "./diff-comment-draft.store.svelte";
   import { openInConfiguredEditor } from "../../lib/openExternalEditor";
+  import { REMOTE_EDITOR_IDS } from "../../lib/remote-editor-link";
   import {
     useKeybinding,
     useScope,
@@ -238,10 +239,13 @@
   const sess = $derived(session.sessionFor(tabId));
   const getApi = () => getApiProp?.() ?? session.apiFor(tabId);
   const editorServerId = $derived(serverConnections.serverIdForApi(getApi()));
+  const editorHostInfo = $derived(hosts.get(editorServerId)?.serverInfo);
   const canOpenInEditor = $derived(
     !!theme.defaultEditor &&
-      hostPolicy.isClientMachine(editorServerId) &&
-      supportsEditor(hosts.get(editorServerId)?.capabilityRecord, theme.defaultEditor),
+      (hostPolicy.isClientMachine(editorServerId)
+        ? supportsEditor(hosts.get(editorServerId)?.capabilityRecord, theme.defaultEditor)
+        : REMOTE_EDITOR_IDS.some((id) => id === theme.defaultEditor) &&
+          editorHostInfo?.state === 'ready' && !!editorHostInfo.value.sshTarget),
   );
 
   // The in-progress inline-comment draft. Owned here and shared down to

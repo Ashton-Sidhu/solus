@@ -10,8 +10,8 @@ import { isApiMode } from '../host/api-mode'
  *
  * - The machine itself: a loopback caller already has the same filesystem
  *   access as the server, so a pairing code protects nothing.
- * - The host's own tailnet: tailscale has already identity-checked every
- *   member device, which is exactly the trust the 6-digit code establishes.
+ * - The host's own tailnet devices: Tailscale identifies the owner; shared-in
+ *   devices and peers owned by another user still need to pair.
  * - The local network, only when the owner opted in via the
  *   "trust my local network" server setting: a shared network is not an
  *   identity, so this is never the default.

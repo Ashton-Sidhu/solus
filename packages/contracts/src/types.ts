@@ -43,6 +43,7 @@ export const AGENT_BIN: AgentBinaries = {
  * the clients: an address a user types without a port means this one, not 80.
  */
 export const DEFAULT_SERVER_PORT = 3000
+export const DEFAULT_DESKTOP_SERVER_PORT = 3001
 
 /** Finder on macOS, File Explorer on Windows and WSL, the desktop's default on Linux. */
 export type FileManagerKind = 'finder' | 'file-explorer' | 'files'

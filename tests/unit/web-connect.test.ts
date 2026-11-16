@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { classifyConnectInput, pairTokenFromLocation, probeServer } from '../../apps/client/src/lib/connect'
+import { classifyConnectInput, pairTokenFromLocation, pairHostFromLocation, probeServer } from '../../apps/client/src/lib/connect'
+import { hostedPairLink } from '@solus/client-core/pairing'
+import { unreachableMessage } from '../../apps/client/src/lib/add-host'
 
 describe('classifyConnectInput', () => {
   test('a full pairing link pairs directly, with the token from the fragment', () => {
@@ -36,6 +38,12 @@ describe('classifyConnectInput', () => {
 })
 
 describe('pairTokenFromLocation', () => {
+  test('a hosted link names only a Tailscale HTTPS host', () => {
+    const link = hostedPairLink('https://box.tail.ts.net:8443', 'tok')
+    expect(pairTokenFromLocation(link)).toBe('tok')
+    expect(pairHostFromLocation(link)).toBe('https://box.tail.ts.net:8443')
+    expect(pairHostFromLocation('https://app.solus.sh/pair?host=evil.example#token=tok')).toBeNull()
+  })
   test('extracts the token when the SPA is opened at /pair', () => {
     expect(pairTokenFromLocation('http://192.168.1.42:51234/pair#token=tok')).toBe('tok')
   })
@@ -87,5 +95,36 @@ describe('probeServer auth advertisement', () => {
     expect(health.ok).toBe(true)
     expect(health.requireAuth).toBe(false)
     expect(health.os).toBeUndefined()
+  })
+})
+
+describe('the add-host form says why a typed address gave no host (tailscale-support.md D2)', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  test('the probe tells a failed request from a server that answered', async () => {
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    expect(await probeServer('http://100.64.0.2:3000')).toEqual({ ok: false, unreachable: 'other' })
+    globalThis.fetch = (async () => new Response('not found', { status: 404 })) as unknown as typeof fetch
+    expect(await probeServer('http://100.64.0.2:3000')).toEqual({ ok: false })
+  })
+
+  test('a probe that runs out of time says so', async () => {
+    globalThis.fetch = ((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+    })) as unknown as typeof fetch
+    expect(await probeServer('http://100.64.0.2:3000', 0)).toEqual({ ok: false, unreachable: 'timeout' })
+  })
+
+  test('each reason gets its own message', () => {
+    const url = 'http://100.64.0.2:3000'
+    expect(unreachableMessage(url, { ok: false }, 'http:')).toContain('it is not a Solus host')
+    expect(unreachableMessage(url, { ok: false, unreachable: 'other' }, 'https:')).toContain('served over https')
+    expect(unreachableMessage(url, { ok: false, unreachable: 'timeout' }, 'http:')).toContain('Tailscale or your Wi-Fi')
+    expect(unreachableMessage(url, { ok: false, unreachable: 'refused' }, 'http:')).toContain('often uses 3000')
+    expect(unreachableMessage(url, { ok: false, unreachable: 'other' }, 'http:')).toContain('No Solus server answered')
   })
 })

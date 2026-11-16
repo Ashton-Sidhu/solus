@@ -31,11 +31,11 @@ describe('remote access settings', () => {
       value: { solus: {
         connectionsSetRemoteAccess: async () => {
           await rebind
-          return { remoteAccess: false, host: '127.0.0.1', port: 3000, allowLan: false, requireAuth: false }
+          return { remoteAccess: 'off', host: '127.0.0.1', port: 3000, allowLan: false, requireAuth: false }
         },
         connectionsGetServerInfo: async () => ({
           installationId: 'test',
-          remoteAccess: false,
+          remoteAccess: 'off',
           host: '127.0.0.1',
           port: 3000,
           allowLan: false,
@@ -51,7 +51,7 @@ describe('remote access settings', () => {
     const store = new ConnectionsStore()
     store.serverInfo = {
       installationId: 'test',
-      remoteAccess: true,
+      remoteAccess: 'any',
       host: '0.0.0.0',
       port: 3000,
       allowLan: true,
@@ -60,9 +60,9 @@ describe('remote access settings', () => {
       hostKind: 'personal',
     }
 
-    const update = store.setRemoteAccess('local', false)
+    const update = store.setRemoteAccess('local', 'off')
 
-    expect(store.serverInfo.remoteAccess).toBe(false)
+    expect(store.serverInfo.remoteAccess).toBe('off')
     expect(store.remoteAccessUpdating).toBe(true)
 
     finishRebind()

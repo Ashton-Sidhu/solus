@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, urlHost } from '@solus/client-core/pairing'
+import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
 import { replaceModelProfiles, type AgentId, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
@@ -55,6 +56,8 @@ export interface PlatformAdapters {
   secrets: SecretStore
   fetch: typeof fetch
   readAddress?: AddressReader
+  /** A GET that keeps the system's error text, for the add-host check; `fetch` when absent. */
+  nativeGet?: typeof fetch
   createTransport(options: WsTransportOptions): HostTransport
   openBrowser(url: string): Promise<void>
   /** What this device calls itself to a host and to the account, e.g. "Ada's iPhone". */
@@ -285,9 +288,22 @@ export class SolusApp {
     return !!this.platform.scanLocalNetwork
   }
 
-  /** Hosts on the local network that this device has not paired yet. */
+  /**
+   * Hosts on the local network or the tailnet that this device has not paired yet.
+   * The phone cannot read the tailnet, so each connected host is asked for the
+   * tailnet hosts it sees (docs/plans/tailscale-support.md D3). A managed host
+   * advertises no tailnet routes, so it is not asked.
+   */
   async scanNearby(): Promise<DiscoveredServer[]> {
-    const found = await this.platform.scanLocalNetwork?.() ?? []
+    const hosts = this.connections.readyConnections().filter((connection) => {
+      const uplink = this.registry.host(connection.hostId)?.uplink
+      return uplink?.kind !== 'managed' && uplink?.category !== 'managed'
+    })
+    const [own, fromHosts] = await Promise.all([
+      this.platform.scanLocalNetwork?.() ?? [],
+      askHostsToDiscover(hosts.map((connection) => () => connection.api.discoverServers())),
+    ])
+    const found = mergeDiscovered(own, fromHosts)
     // A directory host found here is dialed here (ADR 0001 §2.2 rule 9).
     this.registry.applyNearby(found)
     return found.filter((server) => !this.registry.host(server.installationId)?.paired)
@@ -295,7 +311,7 @@ export class SolusApp {
 
   /** The host at an address, shown to the person before pairing. */
   preview(url: string): Promise<PreviewResult> {
-    return previewHost(this.platform.fetch, url)
+    return previewHost(this.platform.nativeGet ?? this.platform.fetch, url)
   }
 
   async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string): Promise<NativeHost> {
@@ -306,6 +322,7 @@ export class SolusApp {
       serverLabel,
       reportedName: preview.name,
       fetchImpl: this.platform.fetch,
+      onTailnet: preview.onTailnet,
     })
     return this.registry.savePaired({
       id: server.id,
@@ -314,6 +331,7 @@ export class SolusApp {
       url: server.routes[0]?.url ?? preview.url,
       os: server.os,
       identityKey: server.identityKey,
+      onTailnet: preview.onTailnet,
     }, sessionToken)
   }
 

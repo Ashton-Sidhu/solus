@@ -4,6 +4,7 @@ import type { AddressAnswer, HostConnectionCheck, RouteAnswer } from './host-con
 import { routeAnswerText } from './host-connection-check'
 import { hostDiagnosticRows, type HostDiagnostics } from './host-diagnostics'
 import { hostReadinessCopy } from './host-readiness'
+import { unreachableCause, type UnreachableCause } from './host-unreachable'
 
 /**
  * Where the connection to a host stopped, from this device
@@ -235,9 +236,24 @@ function readDirectRoutes(evidence: Evidence, routes: HostConnectionCheck['route
     return
   }
   if (routes.length === 0) return
+  // The request's own error can name why (docs/plans/tailscale-support.md D2).
+  const causeOf = (answer: RouteAnswer): UnreachableCause | null => answer.kind === 'no-answer' && answer.error ? unreachableCause(new Error(answer.error), false) : null
+  const blocked = routes.filter((route) => causeOf(route.answer) === 'insecure-blocked')
+  if (blocked.length > 0) {
+    evidence.failed('device', 'It blocked a plain-HTTP connection', {
+      headline: `This app blocked a plain-HTTP connection to ${host}`,
+      steps: ['Update Solus on this device. A newer version can reach your hosts over plain HTTP.', 'Or add the host by an HTTPS address.'],
+    })
+  }
+  const rest = routes.filter((route) => !blocked.includes(route))
+  if (rest.length === 0) return
+  const refused = rest.filter((route) => causeOf(route.answer) === 'refused')
   evidence.failed('host', 'No answer from this device', {
     headline: `${host} did not answer at its address`,
-    steps: routeSteps(host, routes.map((route) => route.kind)),
+    steps: [
+      ...routeSteps(host, rest.map((route) => route.kind)),
+      ...refused.map((route) => `Nothing listens at ${route.url}. Check the port; a Solus host often uses 3000.`),
+    ],
   })
 }
 

@@ -148,11 +148,14 @@ import { LOCAL_ORGANIZATION_ID } from './admission/principal'
 import { resolveRoles, type SolusRole } from './host/roles'
 import { hostOperatingSystem } from './platform/host-operating-system'
 import { hostDisplayName } from './platform/host-display-name'
-import { effectiveRemoteAccess, effectiveTrustLocalNetwork, getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './host/settings'
+import { effectiveRemoteAccess, effectiveTrustLocalNetwork, getServerSettings, setRemoteAccess, setTrustLocalNetwork, setTailscaleServe, assertTailscaleServeAllowed } from './host/settings'
+import { TailscaleServe } from './host/tailscale-serve'
 import { capabilityDeniedMessage } from '@solus/contracts/policy'
 import type { HostStanding } from './host/organizations'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-policy'
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
+import { remoteAddressAdmission } from './transport/private-network-access'
+import type { RemoteAccessMode } from '@solus/contracts/host-api'
 import { readHostLinkEnv } from './host/host-link-env'
 import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
@@ -193,7 +196,8 @@ import { RemoteHosts } from './execution/orchestration/remote-hosts'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
 import type { AccountReach, ReachActor, ReachRequest } from './execution/orchestration/remote-hosts'
-import { advertisedRoutes, readTailscaleExitNode } from './transport/endpoints'
+import { advertisedRoutes, readTailscaleExitNode, readTailscaleStatus } from './transport/endpoints'
+import { setOwnMagicDnsName } from './transport/web-page-requests'
 import { orchestrateSessions } from './execution/orchestration/orchestrate-sessions'
 import { onAnnotationsChanged } from './annotations/annotation-events'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -472,15 +476,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   useHostPolicyStore(policyStore)
   const remoteBindOptions = () => {
     const rule = hostPolicies().hostSetting('remoteAccess')
-    return rule?.value === false
-      ? { remoteAllowed: false, refusal: capabilityDeniedMessage(rule.source, 'remote access').replace(/\.$/, '') }
+    return effectiveRemoteAccess() === 'off'
+      ? { remoteAllowed: false, refusal: rule ? capabilityDeniedMessage(rule.source, 'remote access').replace(/\.$/, '') : 'Remote access is off' }
       : {}
   }
   const initial = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess: effectiveRemoteAccess(), ...remoteBindOptions() })
+  const allowRemoteAddress = remoteAddressAdmission(effectiveRemoteAccess)
   let host = initial.host
+  let boundRemoteAccess = effectiveRemoteAccess()
   let requireAuth = initial.requireAuth || credentialAlwaysRequired
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
+  const tailscaleServe = new TailscaleServe()
+  setOwnMagicDnsName((await readTailscaleStatus())?.Self?.DNSName ?? null)
+  if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(port)
 
   const server = new SolusServer()
   const roles = resolveServerRoles(apiMode)
@@ -1696,6 +1705,23 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     sweepExpiredReceipts(Date.now()).catch((err) => log.warn('operation_receipts_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 60 * 60 * 1000).unref()
 
+  async function enableServe(port: number) {
+    assertTailscaleServeAllowed(true, port)
+    const previous = getServerSettings().tailscaleServe
+    const status = await tailscaleServe.enable(port, actualPort)
+    if (previous.enabled && previous.port !== port) {
+      try { await tailscaleServe.disable(previous.port, actualPort) }
+      catch (error) {
+        await tailscaleServe.disable(port, actualPort).catch(() => {})
+        throw error
+      }
+    }
+    setTailscaleServe(true, port)
+    tailscaleServe.startRepair(port, actualPort, (next) => { void events.broadcast('host.tailscaleServeChanged', next) })
+    void events.broadcast('host.tailscaleServeChanged', status)
+    return status
+  }
+
   const { server: http, requestListener, solusApiRouter, doors } = buildHttpServer({
     solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
@@ -1707,10 +1733,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getPort: () => actualPort,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
+    allowRemoteAddress,
     isTunnelRequest,
     deviceHub: devices.hubProxy,
     // No pairing door on a managed host or the workspace service: a grant is the only credential there.
     pairingDisabled: credentialAlwaysRequired,
+    enableTailscaleServe: async (port) => ({ url: (await enableServe(port)).url }),
     isApiMode: apiMode,
     verifyAccessToken: verifyHostAccessToken,
     establishDelegation: establishPresented,
@@ -1813,6 +1841,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The host socket answers `/ws` upgrades (`attachWebSocketTransport`); the device
   // hub proxy answers its own. Nothing else upgrades.
   http.on('upgrade', (request, socket, head) => {
+    if (!isHostSocketPath(request.url) && !allowRemoteAddress(request.socket.remoteAddress)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+      return
+    }
     if (!isHostSocketPath(request.url) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   let ws = attachWebSocketTransport(http, server, {
@@ -1822,6 +1854,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     doors,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
+    allowRemoteAddress,
     isTunnelRequest,
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
@@ -1910,6 +1943,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   actualPort = await listenWithRetries(port)
+  const serveSetting = getServerSettings().tailscaleServe
+  if (serveSetting.enabled && effectiveRemoteAccess() !== 'off') {
+    void tailscaleServe.enable(serveSetting.port, actualPort).then(async () => {
+      if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(actualPort)
+      else tailscaleServe.startRepair(serveSetting.port, actualPort, (status) => { void events.broadcast('host.tailscaleServeChanged', status) })
+    })
+      .catch((error) => log.warn('tailscale_serve_start_failed', { error: error instanceof Error ? error.message : String(error) }))
+  }
 
   if (actualPort !== port) {
     log.info('server_bound_fallback_port', { host, port: actualPort, defaultPort: port })
@@ -1946,7 +1987,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     close: async () => {},
   }
   let lanDiscovery: LanDiscoveryService
-  if (isLanDiscoveryDisabled() || hostPolicies().hostSetting('remoteAccess')?.value === false) {
+  if (isLanDiscoveryDisabled() || effectiveRemoteAccess() === 'off') {
     log.info('lan_discovery_skipped')
     lanDiscovery = noLanDiscovery
   } else {
@@ -1963,12 +2004,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }
   }
 
-  async function rebind(remoteAccess: boolean): Promise<void> {
+  async function rebind(remoteAccess: RemoteAccessMode): Promise<void> {
+    if (remoteAccess === 'off') {
+      tailscaleServe.stopRepair()
+      await tailscaleServe.removeMappingsToPort(actualPort)
+    }
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess, ...remoteBindOptions() })
     const nextRequireAuth = next.requireAuth || credentialAlwaysRequired
-    if (next.host === host && nextRequireAuth === requireAuth) return
+    if (next.host === host && nextRequireAuth === requireAuth && remoteAccess === boundRemoteAccess) return
     host = next.host
     requireAuth = nextRequireAuth
+    boundRemoteAccess = remoteAccess
     lock?.release()
     // Existing WS connections (including the one carrying this very toggle)
     // keep the plain http.close() callback from ever firing, since Node waits
@@ -1977,6 +2023,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     try { ws.close() } catch (err) { log.warn('ws_close_failed_during_rebind', { error: err instanceof Error ? err.message : String(err) }) }
     await new Promise<void>((resolve) => http.close(() => resolve()))
     actualPort = await listenWithRetries(actualPort)
+    const serveSettingAfterBind = getServerSettings().tailscaleServe
+    if (remoteAccess !== 'off' && serveSettingAfterBind.enabled) {
+      void tailscaleServe.enable(serveSettingAfterBind.port, actualPort)
+        .then(async () => {
+          if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(actualPort)
+          else tailscaleServe.startRepair(serveSettingAfterBind.port, actualPort, (status) => { void events.broadcast('host.tailscaleServeChanged', status) })
+        })
+        .catch((error) => log.warn('tailscale_serve_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
+    }
     ws = attachWebSocketTransport(http, server, {
       clientEvents,
       browserFrames,
@@ -1984,6 +2039,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       doors,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
+      allowRemoteAddress,
       isTunnelRequest,
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
@@ -2048,6 +2104,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       await rebind(next.remoteAccess)
       return { ...next, host, port: actualPort, allowLan: !isLoopbackHost(host), requireAuth }
     },
+    getTailscaleServe: () => {
+      const setting = getServerSettings().tailscaleServe
+      return tailscaleServe.status(setting.enabled, setting.port, actualPort)
+    },
+    enableTailscaleServe: enableServe,
+    disableTailscaleServe: async () => {
+      const setting = getServerSettings().tailscaleServe
+      assertTailscaleServeAllowed(false, setting.port)
+      await tailscaleServe.disable(setting.port, actualPort)
+      setTailscaleServe(false, setting.port)
+      const status = await tailscaleServe.status(false, setting.port, actualPort)
+      void events.broadcast('host.tailscaleServeChanged', status)
+      return status
+    },
     // Trust is evaluated per request, so no rebind: the next connection
     // attempt simply reads the new policy.
     setTrustLocalNetwork: (trustLocalNetwork) => ({
@@ -2084,6 +2154,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     shutdown: () => {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
+        await tailscaleServe.shutdown(actualPort).catch((error) => log.warn('tailscale_serve_shutdown_failed', { error: error instanceof Error ? error.message : String(error) }))
         remoteHosts.close()
         forwardedHosts.closeAll()
         stopAutomationScheduler()

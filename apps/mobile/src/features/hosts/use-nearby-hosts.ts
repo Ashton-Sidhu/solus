@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { DiscoveredServer } from '@solus/contracts/types'
 
 import { useApp } from '../../app/app-context'
+import { OS_LABELS } from './lib/pairing-bridge'
 
 export interface NearbyHosts {
   /** False on a build without the native scanner: the section is then absent. */
@@ -13,7 +14,7 @@ export interface NearbyHosts {
   scan(): void
 }
 
-/** Unpaired hosts on this device's local network, scanned when the screen opens and on request. */
+/** Unpaired hosts on this device's local network or tailnet, scanned when the screen opens and on request. */
 export function useNearbyHosts(): NearbyHosts {
   const app = useApp()
   const [hosts, setHosts] = useState<DiscoveredServer[]>([])
@@ -34,6 +35,11 @@ export function useNearbyHosts(): NearbyHosts {
   useEffect(() => { scan() }, [scan])
 
   return { canScan: app.canScanNearby, hosts, isScanning, hasScanned, scan }
+}
+
+/** The line under a nearby host's name: its address, its system, and "Tailscale" when it was found on the tailnet, as the desktop Discover list says. */
+export function nearbyHostDetail(server: Pick<DiscoveredServer, 'host' | 'os' | 'source'>): string {
+  return [server.host, server.os ? OS_LABELS[server.os] : null, server.source === 'tailnet' ? 'Tailscale' : null].filter(Boolean).join(' · ')
 }
 
 /** The address a nearby host is paired at. */

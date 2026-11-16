@@ -14,6 +14,7 @@ import type { HostConnections } from '../features/hosts/host-connections'
 import { authSessionAuthorizer } from '../features/account/auth-session-authorizer'
 import type { KeyValueStore, SecretStore } from './ports'
 import { scanLocalNetwork } from './lan-scan'
+import { nativeGet } from './native-get'
 import { sqlitePullRequestCache } from './pull-request-cache-sqlite'
 import { readNativeAddress } from './read-native-address'
 
@@ -82,6 +83,7 @@ export const expoPlatform: PlatformAdapters = {
   secrets,
   fetch: (input, init) => fetch(input, init),
   readAddress: readNativeAddress,
+  nativeGet,
   createTransport: (options) => new WsTransport(options),
   openBrowser: async (url) => {
     await WebBrowser.openBrowserAsync(url)

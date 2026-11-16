@@ -50,7 +50,7 @@ import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_OUTCOME_HEADER } from '@solus/contracts
 import type { WebhookReceiver } from '../execution/webhooks/receiver'
 import type { AppServiceApi } from '../apps/deployments/app-service-api'
 import { APP_SERVICE_PATH_PREFIX } from '@solus/contracts/app-deployments'
-import { couldBeForgedByWebPage } from './web-page-requests'
+import { couldBeForgedByWebPage, isServeRequest, requestOrigin } from './web-page-requests'
 
 const log = createLogger('main', 'http')
 
@@ -75,11 +75,15 @@ export interface HttpServerOptions {
   /** Requester addresses allowed past a require-auth bind without a token
    *  (the machine itself, the host's own tailnet). Untrusted when absent. */
   isTrustedRequester?: (address: string) => Promise<boolean>
+  /** Admission by the socket's remote address, before any HTTP route runs. */
+  allowRemoteAddress?: (address: string | undefined) => boolean
   /** True for a request that arrived through the tunnel's proxied listener. It is
    *  loopback on the wire and must never be trusted for it; pairing is not offered there. */
   isTunnelRequest?: (incoming: IncomingMessage) => boolean
   /** A managed machine (docs/plans/managed-hosts.md §1) and the workspace service alike: pairing does not exist, on either listener. */
   pairingDisabled?: boolean
+  /** Local CLI command, admitted with the same admin signature as `/pair/open`. */
+  enableTailscaleServe?: (port: number) => Promise<{ url: string | null }>
   /** API mode (cloud-service-model.md §15): only a member's token or a host's delegated token is a credential; owners do not exist. */
   isApiMode?: boolean
   /** Verifies an account-plane access token (plans/010-standard-oauth.md) presented in a socket's handshake, as an HTTP bearer, or on a runner route.
@@ -203,6 +207,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.notFound((c) => c.json({ error: 'not found' }, 404))
 
   const viaTunnel = (c: Ctx): boolean => opts.isTunnelRequest?.(c.env.incoming) ?? false
+  const viaServe = (c: Ctx): boolean => isServeRequest(c.env.incoming.socket.remoteAddress, c.env.incoming.headers)
   // A managed host has no pairing door at all: a grant is the only credential, so
   // the routes answer as if they were never there.
   if (opts.pairingDisabled) {
@@ -247,7 +252,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
    *  trusted requesters (loopback, the host's own tailnet). A tunnel caller is
    *  loopback on the wire and gets no relaxation of any kind. */
   const authRequiredFor = async (c: Ctx): Promise<boolean> => {
-    if (viaTunnel(c)) return true
+    if (viaTunnel(c) || viaServe(c)) return true
     // A page on another site, or a DNS-rebound name, never acts without a credential.
     if (couldBeForgedByWebPage({ host: c.req.header('host'), origin: c.req.header('origin') })) return true
     if (!(opts.requireAuth?.() ?? true)) return false
@@ -375,8 +380,19 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       expiresAt: pairToken.expiresAt,
       fingerprint: getServerFingerprint(),
       installationId: getInstallationId(),
+      requestOrigin: requestOrigin(c.env.incoming.socket.remoteAddress, c.env.incoming.headers),
       endpoints: await listReachableEndpoints(currentHost(), currentPort()),
     })
+  })
+
+  app.post('/pair/serve', async (c) => {
+    if (opts.pairingDisabled) return c.notFound()
+    if (!verifyPairOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
+    if (!opts.enableTailscaleServe) return c.json({ error: 'Tailscale HTTPS is not available.' }, 400)
+    const body = await readJson(c, z.object({ port: z.number().int().min(1).max(65535) }))
+    if (!body) return c.json({ error: 'Enter a valid HTTPS port.' }, 400)
+    try { return c.json(await opts.enableTailscaleServe(body.port)) }
+    catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, 400) }
   })
 
   app.post('/upload', async (c) => {
@@ -557,7 +573,13 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
 
   const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
-  const server = createServer(HTTP_SERVER_TIMEOUTS, requestListener)
+  const server = createServer(HTTP_SERVER_TIMEOUTS, (request, response) => {
+    if (opts.allowRemoteAddress?.(request.socket.remoteAddress) === false) {
+      response.writeHead(403).end()
+      return
+    }
+    requestListener(request, response)
+  })
   return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })), solusApiRouter, doors }
 }
 

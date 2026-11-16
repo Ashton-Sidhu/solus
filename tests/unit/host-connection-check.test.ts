@@ -27,7 +27,7 @@ describe('readAddress', () => {
     expect(await readAddress(browserFetch(true), 'https://h.solus.sh/health', signal())).toEqual({ kind: 'opaque' })
   })
 
-  test('nothing at the address is no answer', async () => {
+  test('nothing at the address is no answer, with the error text kept', async () => {
     expect(await readAddress(browserFetch(false), 'https://h.solus.sh/health', signal())).toEqual({ kind: 'no-answer', error: 'Failed to fetch' })
   })
 

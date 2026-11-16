@@ -13,11 +13,13 @@ import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
-import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, RemoteAccessMode, TailscaleServeStatus } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
 import { memberUsers } from '../../host/member-users'
 import { recentEventLoopStall } from '../../host/event-loop-stalls'
+import { isCloudMachine } from '../../host/cloud-machine'
+import { sshTarget } from '../../host/ssh-target'
 import type { IntroducedHosts } from '../../execution/orchestration/introduced-hosts'
 import { z } from 'zod'
 
@@ -29,7 +31,10 @@ export interface ConnectionsDeps {
   /** Returns currently-connected WebSocket clients. */
   getActiveSessions(): ActiveConnectionSession[]
   discoverLanServers(): Promise<DiscoveredServer[]>
-  setRemoteAccess(remoteAccess: boolean): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  setRemoteAccess(remoteAccess: RemoteAccessMode): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  getTailscaleServe(): Promise<TailscaleServeStatus>
+  enableTailscaleServe(port: number): Promise<TailscaleServeStatus>
+  disableTailscaleServe(): Promise<TailscaleServeStatus>
   setTrustLocalNetwork(trustLocalNetwork: boolean): { trustLocalNetwork: boolean }
   /** The hosts this host was introduced to (docs/plans/host-reach.md §4). */
   introducedHosts: Pick<IntroducedHosts, 'list' | 'issue' | 'accept' | 'forget' | 'allow'>
@@ -80,14 +85,19 @@ export function aggregateConnectionSessionsByDevice(sessions: ActiveConnectionSe
 }
 
 export function registerConnectionsHandlers(server: SolusServer, deps: ConnectionsDeps): void {
+  void isCloudMachine()
   server.register('connectionsGetServerInfo', async (_args, ctx) => {
     const info = deps.getServerInfo()
     const principal = ctx.principal
     // What this connection may do here, so every control disables exactly when the gate would refuse (permissions.md).
+    const routes = await advertisedRoutes(info.host, info.port)
     const answer: ConnectionsServerInfo = {
       ...info,
       installationId: getInstallationId(),
-      routes: await advertisedRoutes(info.host, info.port),
+      routes,
+      cloudWithoutTailnet: await isCloudMachine() && !routes.some((route) => route.kind === 'tailnet'),
+      tailscaleServe: await deps.getTailscaleServe(),
+      sshTarget: await sshTarget(),
       identityKey: hostIdentity().publicKey(),
       principal: wirePrincipalKind(principal),
       permissions: permissionsFor(principal),
@@ -171,8 +181,12 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsSetRemoteAccess', async (args) => {
     const [{ remoteAccess }] = args
-    return deps.setRemoteAccess(remoteAccess === true)
+    return deps.setRemoteAccess(remoteAccess === 'off' || remoteAccess === 'private' ? remoteAccess : 'any')
   })
+
+  server.register('connectionsGetTailscaleServe', () => deps.getTailscaleServe())
+  server.register('connectionsEnableTailscaleServe', (args) => deps.enableTailscaleServe(args[0].port))
+  server.register('connectionsDisableTailscaleServe', () => deps.disableTailscaleServe())
 
   server.register('connectionsSetTrustLocalNetwork', (args) => {
     const [{ trustLocalNetwork }] = args

@@ -4,11 +4,11 @@ import { ActivityIndicator, Pressable, View } from "react-native";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ConnectOptionCard } from "../connection/ConnectOptionCard";
-import { OS_LABELS } from "./lib/pairing-bridge";
-import type { NearbyHosts } from "./use-nearby-hosts";
+import { nearbyHostDetail, type NearbyHosts } from "./use-nearby-hosts";
 
 /**
- * Solus hosts on this phone's network that it has not paired yet. A tap
+ * Solus hosts on this phone's network, or on the tailnet as a connected host
+ * sees it, that it has not paired yet. A tap
  * opens pairing with the host already chosen, so only its code is left to type.
  */
 export function NearbyHostsSection({
@@ -24,14 +24,14 @@ export function NearbyHostsSection({
     <View collapsable={false} className="gap-2">
       <View className="flex-row items-center justify-between px-1">
         <Text className="text-sm font-t3-medium text-foreground-muted" accessibilityRole="header">
-          On this network
+          Nearby
         </Text>
         {nearby.isScanning ? (
           <ActivityIndicator accessibilityLabel="Looking for hosts" colorClassName="accent-icon-muted" />
         ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Scan the network again"
+            accessibilityLabel="Scan again"
             hitSlop={10}
             className="min-h-8 flex-row items-center gap-1 active:opacity-70"
             onPress={nearby.scan}
@@ -46,14 +46,14 @@ export function NearbyHostsSection({
           key={server.installationId}
           icon="desktopcomputer"
           title={server.name}
-          detail={[server.host, server.os ? OS_LABELS[server.os] : null].filter(Boolean).join(" · ")}
+          detail={nearbyHostDetail(server)}
           onPress={() => onSelect(server)}
         />
       ))}
       {nearby.hosts.length === 0 && nearby.hasScanned && !nearby.isScanning ? (
         <Text className="px-1 text-[13px] leading-normal text-foreground-muted">
-          No unpaired hosts found. The computer must run Solus on this Wi-Fi network, with access from other
-          devices turned on.
+          No unpaired hosts found on this Wi-Fi network or on your tailnet. This device finds tailnet hosts
+          only through a host it is connected to.
         </Text>
       ) : null}
     </View>

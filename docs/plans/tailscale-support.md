@@ -222,49 +222,59 @@ anyone on the network path can read the token. Rule for host-to-host dials:
 This is `carriesTokenInClear` (`host-routes.ts:165`) applied in `remote-hosts.ts`.
 T3 Code has the same rule for its peer links (`PeerLinks.ts`).
 
-## 4. Phase 2: HTTPS through Tailscale Serve (needs its own plan)
+## 4. Phase 2: HTTPS through Tailscale Serve
 
-Phase 2 is the T3 Code feature set. It is needed for the `app.solus.sh` web client,
-which cannot dial `http:` routes (mixed content, `host-routes.ts:196`). It also stops
-iOS needing D1 for tailnet routes. Requirements to plan:
+### D2-1. Setting and state
 
-- A server setting and a `solus pair --tailscale` flag that run
-  `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`. Before that, check
-  that MagicDNS is on and that HTTPS certificates are on (`Self.CapMap` has
-  `https`). Wait up to 5 s for the first certificate.
-- Ownership: read `tailscale serve status --json` first. Refuse when another service
-  holds the port. Repair a mapping whose target port no longer listens. On shutdown,
-  remove only a mapping this host made.
-- Probe `https://<magicdns>/health` and advertise it as a `tailnet` route only after
-  it answers with this host's `installationId`.
-- **Server changes that Serve needs:**
-  - `couldBeForgedByWebPage` must accept this machine's own MagicDNS name
-    (`web-page-requests.ts:25`).
-  - A request that comes through Serve arrives from loopback. It must not get
-    loopback trust: treat it as `viaTunnel` is treated today (`http.ts:251`).
-  - Read `X-Forwarded-Proto` and `X-Forwarded-Host` for links that the server builds.
-- Desktop and web Settings: a "Tailscale HTTPS" switch in the host's Access section,
-  with setup errors in plain words. Mobile: the same switch in `HostAccessSections`.
-- **CLI errors in plain words.** Map the `tailscale serve` stderr to causes:
-  not running, not logged in, HTTPS certificates off, permission denied, and a
-  target that macOS cannot proxy. On Linux, "permission denied" shows the fix:
-  "Run `sudo tailscale set --operator=$USER`, then try again." (T3 Code
-  `packages/tailscale/src/tailscale.ts:45-76`, `pair.ts`.)
-- **Managed policy.** When a policy forbids remote access, the host turns off every
-  Serve mapping that points to its port before it binds. If a mapping stays (for
-  example, it is under an old machine name, or Tailscale does not answer), the host
-  does not start and says why: "A Tailscale Serve mapping still publishes this host.
-  Run `tailscale serve --https=<port> off`, or open Tailscale and finish its setup."
-  A missing CLI, a stopped daemon, or a logged-out daemon counts as no mapping. (T3
-  Code `policy/managedLimits.ts`.)
-- **Hosted pairing link.** With Serve on, the pairing QR can be
-  `https://app.solus.sh/pair?host=<machine>.<tailnet>.ts.net#token=<token>`. The
-  hosted web client reads `host`, checks `https://<host>/health`, and pairs. Today the
-  web client reads only `/pair#token=` on the host's own origin
-  (`apps/client/src/lib/connect.ts:19`). On a phone, the same link must open the Solus
-  app if it is installed: this needs an associated domain (`applinks:app.solus.sh`),
-  which `app.json` does not have yet. Until then the QR keeps the `solus://pair` form
-  for the app.
+Store `tailscaleServe: { enabled: boolean, port: number }` with host settings. Port is
+443 by default and must be an integer from 1 to 65535. A separate status read says
+whether Tailscale is ready, whether the mapping is active, its URL, and a plain-word
+error. A setting does not claim that a broken mapping works.
+
+### D2-2. One Serve owner
+
+`host/tailscale-serve.ts` owns CLI calls, status parsing, mapping setup, repair,
+and removal. It reuses the endpoint module's status read and CLI path lookup. A
+root mapping to `http://127.0.0.1:<this server port>` is ours; another target is
+not. An unknown mapping is never replaced. A dead own mapping is repaired every
+30 seconds. Shutdown removes only a mapping this process made. The command runner
+and clock are injected for tests. CLI stderr maps to fixed safe messages.
+
+### D2-3. Policy before bind
+
+When effective remote access is Off, remove all Serve mappings to this server port
+before the listener binds. A missing CLI or a stopped or logged-out daemon means
+there is no active mapping. If a mapping remains, refuse startup with the command
+that removes it. Managed policy locks the control when it fixes remote access Off.
+
+### D2-4. Proxy trust
+
+A loopback request with this machine's MagicDNS Host or Tailscale forwarding
+headers is a proxy request. It needs a credential, like a tunnel request, on HTTP
+and WebSocket. A loopback client can forge these headers only to lose implicit
+trust. Forwarded protocol and host affect generated links only for loopback
+requests. The own MagicDNS name is accepted by the web-page request guard.
+
+### D2-5. Route and link
+
+Probe the HTTPS URL's `/health` for this installation ID before adding a `tailnet`
+route. A failed probe does not advertise it. Pairing prefers this URL when it is
+valid. The hosted link carries the MagicDNS host (and a nondefault HTTPS port) in `?host=` and the token
+in the fragment. Web and mobile check that host's `/health` before pairing.
+
+### D2-6. Controls and command
+
+Desktop and web share the Access control; mobile has the same state and actions.
+The control shows the port, URL, current state, errors, policy lock, and a confirm
+step before disable. `solus pair --tailscale [--tailscale-serve-port N]` enables
+Serve, makes five certificate probes one second apart, and prints the HTTPS pair
+link and removal command. The setting and command use the same server owner.
+
+### D2-7. Verification
+
+Focused tests cover status ownership, repair, shutdown, policy, the route probe,
+proxy trust on HTTP and WebSocket, and link parsing. Typecheck contracts, server,
+client-core, workspace UI, and mobile. Do not run Serve on this machine.
 
 ## 4a. Phase 3: open a remote host's files in a local editor over SSH (needs its own plan)
 
@@ -444,3 +454,20 @@ route 1 within `EARLIER_ROUTE_RECHECK_MS`.
 - Developer sharing over the tailnet (gap row 25).
 - Protecting `tailscaled` from the Linux out-of-memory killer.
 - Server-to-server tailnet discovery (`RemoteHosts`).
+
+## 12. Execution record (2026-11-16)
+
+- `tailscale/server-core` (`85b115c6b`): tailnet status and endpoint handling, discovery ports, own-device trust, cloud routes, CLI lookup, desktop pair URL removal, and Windows guidance.
+- `tailscale/access-modes` (`bc68bbe60`): Off, Private, and Any access modes, address admission, access controls, CLI flags, and host-to-host route rules.
+- `tailscale/client-reach` (`06deeb8d1`): iOS ATS, connection error causes, mobile and web discovery, pairing kind, route failover, and troubleshooting guidance.
+- `tailscale/editor-links` (`e4f2256d4`): SSH target data, remote editor links, and editor guidance.
+- `tailscale/serve` (`4829bf988`): Tailscale HTTPS setting, Serve ownership and policy cleanup, verified route, proxy trust, CLI pairing, hosted links, and Access controls on all clients.
+
+Open items:
+
+- D9 needs a `ConnectionsServerInfo` field and a client notice for cloud hosts without a tailnet address.
+- Web keeps the default host's LAN discovery results, as before.
+- D1 must be checked on a phone after an iOS build.
+- Editor links have not been tried with installed editors.
+- The `apple-app-site-association` file for `app.solus.sh` is served outside this repository. It must name `sh.solus.mobile` and the `/pair` path before iOS can open the hosted pair link in the app.
+- Tailscale HTTPS has not been tried against a live tailnet or an installed iOS app. This phase used injected CLI results and local request tests only.

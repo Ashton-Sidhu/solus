@@ -72,7 +72,7 @@ is nothing to bring to Windows.
 | Atomic writes retry `rename` on `EBUSY`/`EPERM`/`EACCES` (20 × 100 ms), stop if the target changed or is read-only | 14 sites write temp + `rename` with no retry | 7.1 |
 | Codex managed install: `x86_64-pc-windows-msvc` asset, a `tar` that is not MSYS tar, `rename` retried for antivirus | Codex is installed with `npm install -g` only; no managed install on any platform | n/a (keep npm; fix the shim) |
 | Claude install on Windows uses the PowerShell installer | `curl … install.sh \| bash` | 7.1 |
-| Tailscale: `tailscale.exe`; a longer status timeout because `taskkill` is slow | Looks in three POSIX folders only | 7.2 |
+| Tailscale: `tailscale.exe`; a longer status timeout because `taskkill` is slow | Finds the Windows CLI in Program Files or PATH | 7.2 |
 | cloudflared on Windows (for T3 Connect) | No win32 asset in `cloudflared.ts` | 7.2 |
 | SSH askpass: a `.cmd` plus `.ps1` helper, no `DISPLAY`, no `chmod` | A `#!/bin/sh` askpass script | 7.2 |
 | Terminal: node-pty on ConPTY, `TERM` default, kill without a signal | Solus has no terminal feature; providers talk over stdio | n/a |
@@ -99,7 +99,7 @@ is nothing to bring to Windows.
 | --- | --- | --- |
 | NSIS installers for x64 and arm64, built and signed on Linux, native checks on Windows runners, updater manifests merged into one `latest.yml`. Solus ships x64 only (§6) | `mac` target only; `afterPack.js` reads the `.app` bundle; `release.yml` has one macOS job; the feed has `latest-mac.yml` only | 7.3 |
 | winget (`T3Tools.T3Code`) and scoop (`extras/t3code`) | Homebrew cask only | 7.5 |
-| `t3` command from Settings → About → Install: writes `bin\t3.cmd` under the app folder (`ELECTRON_RUN_AS_NODE=1`, `chcp 65001` for non-ASCII paths, refuses to overwrite a file without its marker) and adds the folder to the user PATH; Remove undoes it | `electron . pair-url` exists; no installed command on any platform | 7.3 |
+| `t3` command from Settings → About → Install: writes `bin\t3.cmd` under the app folder (`ELECTRON_RUN_AS_NODE=1`, `chcp 65001` for non-ASCII paths, refuses to overwrite a file without its marker) and adds the folder to the user PATH; Remove undoes it | The obsolete `electron . pair-url` command was removed; no installed command on any platform | 7.3 |
 | PATH for the bundled server: two PowerShell probes once (no-profile, and profile for `FNM_DIR`), merged with known CLI folders, written into `process.env`; the server child skips its own probe (`shellEnvironmentPrepared`) | `importLoginShellEnv()` runs `/bin/zsh`; the in-process server probes again | 7.3 |
 | Notification badge: `setOverlayIcon` on Windows, `setBadgeCount` elsewhere; cleared when a window has focus | `app.setBadgeCount` on every platform (no-op on Windows) | 7.3 |
 | Reveal and focus: Windows blocks focus stealing, so a Win32 foreground activation (`ffi-rs`) and a focus worker bring the window up after the summon shortcut | `app.focus({ steal: true })` on macOS only; nothing on Windows | 7.3 (start with `app.focus()` + `moveTop()`; `ffi-rs` only if that is not enough) |
@@ -212,7 +212,7 @@ Lines are from the checkout of 2026-10-23.
    `test.yml` has no Windows job.
 9. `platform/secrets.ts:43–75`: the standalone server stores secrets as JSON
    files protected by `0o600`, which Windows ignores.
-10. `transport/endpoints.ts:10` looks for Tailscale in three POSIX folders.
+10. `transport/endpoints.ts` finds Tailscale in Program Files or PATH on Windows.
 11. `transport/ssh-bootstrap.ts:22–29` writes a `#!/bin/sh` askpass script.
 12. There is no provider binary-path setting.
 
@@ -618,7 +618,7 @@ Each step is one pull request or a small set. A step ends with its proof (§8).
    encoding.
 
 The known gaps after this step: no `solus` command, no logon task, plaintext
-secrets, no uplink, no Tailscale detection.
+secrets and no uplink. Tailscale detection works when the CLI is installed.
 
 ### 7.2 Step 2: the Windows server package and the `solus` command
 
@@ -628,8 +628,7 @@ secrets, no uplink, no Tailscale detection.
    (§5.10). `server-release.ts` asks for `.zip` on win32.
 4. `scripts/install.ps1` (§5.10). Add it to the site beside `install.sh`.
 5. `cloudflared.ts` win32 asset (`cloudflared-windows-amd64.exe`).
-   `endpoints.ts` adds
-   `%ProgramFiles%\Tailscale\tailscale.exe` and a longer status bound.
+   `endpoints.ts` already finds `%ProgramFiles%\Tailscale\tailscale.exe` or PATH and uses a longer status bound.
 6. `solus logs` reads the file with Node instead of `tail`. `connect.ts` opens
    a browser through `platform/opener.ts`.
 7. The SSH askpass helper as `.cmd` plus `.ps1` on win32, with no `chmod`
@@ -729,8 +728,7 @@ Windows file system says so and skips elsewhere.
 
 - Step 1 stores standalone-server secrets as plaintext files on Windows. Keep
   the data folder on a BitLocker drive until §5.11 ships.
-- Step 1 has no uplink and no Tailscale detection on Windows. Pair over the
-  LAN.
+- Step 1 has no uplink on Windows. Tailscale detection works when its CLI is installed.
 - `remoteAccess` binds `0.0.0.0` and the LAN discovery socket binds UDP 34117.
   Each triggers one Windows Firewall prompt the first time.
 - Chrome cookie import stays refused on Windows (ADR 0026), as in T3 Code.

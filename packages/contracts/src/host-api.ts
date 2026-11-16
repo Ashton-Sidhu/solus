@@ -145,6 +145,16 @@ export interface HostEventLoopStall {
   cpuCount: number
 }
 
+export type RemoteAccessMode = 'off' | 'private' | 'any'
+
+export interface TailscaleServeStatus {
+  enabled: boolean
+  port: number
+  state: 'off' | 'ready' | 'active' | 'other' | 'error'
+  url: string | null
+  error: string | null
+}
+
 export interface ConnectionsServerInfo {
   /** Account-owned integration settings; absent for signed-out local access. */
   accountConnectionsUrl?: string
@@ -154,9 +164,14 @@ export interface ConnectionsServerInfo {
   installationId: string
   /** Where other machines reach this host (docs/plans/host-routes.md D2); a client saves them as `host` routes. */
   routes: HostRoute[]
+  /** A cloud VM without a usable tailnet address needs a connection hint. */
+  cloudWithoutTailnet?: boolean
+  tailscaleServe?: TailscaleServeStatus
+  /** MagicDNS SSH destination for an editor on the client machine. Absent when SSH is not available. */
+  sshTarget?: { host: string; user: string }
   /** The host's identity key (D3); a client that has none saves it. Absent on an organization's workspace service, which is not a machine and is reached only over `https:`. */
   identityKey?: string
-  remoteAccess: boolean
+  remoteAccess: RemoteAccessMode
   requireAuth: boolean
   trustLocalNetwork: boolean
   /** `managed` when Solus cloud provisioned this host (managed-hosts.md §1): the link is system-owned and pairing does not exist;
@@ -424,7 +439,10 @@ export interface SolusAPI {
   /** Removes a host from the list. */
   hostListRemove(id: string): Promise<void>
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
-  connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  connectionsSetRemoteAccess(args: { remoteAccess: RemoteAccessMode }): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  connectionsGetTailscaleServe(): Promise<TailscaleServeStatus>
+  connectionsEnableTailscaleServe(args: { port: number }): Promise<TailscaleServeStatus>
+  connectionsDisableTailscaleServe(): Promise<TailscaleServeStatus>
   connectionsSetTrustLocalNetwork(args: { trustLocalNetwork: boolean }): Promise<{ trustLocalNetwork: boolean }>
   /**
    * The next access token for this socket (docs/adr/0001-standard-authentication.md rule 4).

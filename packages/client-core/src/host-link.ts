@@ -280,7 +280,10 @@ export class HostLink {
         this.reportDialFailed()
         return
       }
-      if (route) this.aimAt(route.url)
+      // With no answer, the retry starts again from the first route a dial may try
+      // unproven, not from the route that failed last (docs/plans/tailscale-support.md D12).
+      const aim = route ?? dialable.find((candidate) => !routeNeedsProof(candidate))
+      if (aim) this.aimAt(aim.url)
       this.chosenUrl = route?.url ?? null
       this.transport.start({ hostConfirmed: route !== null })
     })()

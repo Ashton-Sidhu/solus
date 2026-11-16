@@ -21,7 +21,7 @@ import { MAX_WEB_TOKEN_HOSTS } from '@solus/contracts/uplink'
 import { WEB_SIGN_OUT_CHANNEL, WebTokenSession } from '@solus/client-core/web-token-session'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
-import { pairTokenFromLocation } from './lib/connect'
+import { pairTokenFromLocation, pairHostFromLocation, probeServer } from './lib/connect'
 import { probeServingOrigin } from './lib/add-host'
 import { cloudOrigin } from './lib/cloud-origin.svelte'
 import { webState } from './lib/web-state.svelte'
@@ -222,8 +222,9 @@ installWindowSolusApi(createNoHostSolusApi())
  * this browser at once, as before.
  */
 function offerAppOrPair(pairToken: string): void {
+  const hostUrl = pairHostFromLocation(location.href)
   if (!matchMedia('(pointer: coarse)').matches) {
-    void pairFromLocation(pairToken)
+    void pairFromLocation(pairToken, hostUrl)
     return
   }
   const appLink = appPairLink(location.href)
@@ -236,19 +237,20 @@ function offerAppOrPair(pairToken: string): void {
         appLink,
         onContinue: () => {
           void unmount(page)
-          void pairFromLocation(pairToken)
+          void pairFromLocation(pairToken, hostUrl)
         },
       },
     })
   })
 }
 
-async function pairFromLocation(pairToken: string): Promise<void> {
+async function pairFromLocation(pairToken: string, hostUrl: string | null): Promise<void> {
   history.replaceState({}, '', '/')
   try {
+    if (hostUrl && !(await probeServer(hostUrl)).ok) throw new Error('This Tailscale host did not answer.')
     void loadWorkspaceApp().catch(() => {})
     const { server } = await pairServer({
-      url: location.origin,
+      url: hostUrl ?? location.origin,
       pairToken,
       deviceLabel: defaultDeviceLabel(),
     })

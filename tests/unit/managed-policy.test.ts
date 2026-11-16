@@ -68,6 +68,9 @@ describe('the policy document', () => {
     expect(model.ok).toBe(false)
     const trust = validatePolicyDocument(doc('A', { host: { remoteAccess: false, trustLocalNetwork: true } }), 'mdm')
     expect(trust.ok).toBe(false)
+    expect(validatePolicyDocument(doc('A', { host: { remoteAccess: 'off', trustLocalNetwork: true } }), 'mdm').ok).toBe(false)
+    expect(validatePolicyDocument(doc('A', { host: { remoteAccess: 'private' } }), 'mdm').ok).toBe(true)
+    expect(validatePolicyDocument(doc('A', { host: { remoteAccess: true } }), 'mdm').ok).toBe(true)
   })
 
   test('the fingerprint input does not change with key order', () => {

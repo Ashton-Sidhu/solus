@@ -274,6 +274,9 @@ export const RPC_INVOKE_METHODS = [
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
+  'connectionsGetTailscaleServe',
+  'connectionsEnableTailscaleServe',
+  'connectionsDisableTailscaleServe',
   'connectionsSetTrustLocalNetwork',
   // The next access token on an open socket (docs/adr/0001-standard-authentication.md rule 4)
   'authRenew',

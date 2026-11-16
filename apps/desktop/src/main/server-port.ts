@@ -1,4 +1,4 @@
-export const DEFAULT_DESKTOP_SERVER_PORT = 3001
+import { DEFAULT_DESKTOP_SERVER_PORT } from '@solus/contracts/types'
 
 export function desktopServerPort(configuredPort = process.env.SOLUS_PORT): number {
   return parseInt(configuredPort ?? '') || DEFAULT_DESKTOP_SERVER_PORT
