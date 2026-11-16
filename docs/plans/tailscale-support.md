@@ -461,6 +461,7 @@ route 1 within `EARLIER_ROUTE_RECHECK_MS`.
 - `tailscale/access-modes` (`bc68bbe60`): Off, Private, and Any access modes, address admission, access controls, CLI flags, and host-to-host route rules.
 - `tailscale/client-reach` (`06deeb8d1`): iOS ATS, connection error causes, mobile and web discovery, pairing kind, route failover, and troubleshooting guidance.
 - `tailscale/editor-links` (`e4f2256d4`): SSH target data, remote editor links, and editor guidance.
+- `tailscale/serve` (`4829bf988`): Tailscale HTTPS setting, Serve ownership and policy cleanup, verified route, proxy trust, CLI pairing, hosted links, and Access controls on all clients.
 
 Open items:
 
@@ -468,3 +469,5 @@ Open items:
 - Web keeps the default host's LAN discovery results, as before.
 - D1 must be checked on a phone after an iOS build.
 - Editor links have not been tried with installed editors.
+- The `apple-app-site-association` file for `app.solus.sh` is served outside this repository. It must name `sh.solus.mobile` and the `/pair` path before iOS can open the hosted pair link in the app.
+- Tailscale HTTPS has not been tried against a live tailnet or an installed iOS app. This phase used injected CLI results and local request tests only.
