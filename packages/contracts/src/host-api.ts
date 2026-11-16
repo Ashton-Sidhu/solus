@@ -139,6 +139,8 @@ export interface ConnectionsServerInfo {
   installationId: string
   /** Where other machines reach this host (docs/plans/host-routes.md D2); a client saves them as `host` routes. */
   routes: HostRoute[]
+  /** MagicDNS SSH destination for an editor on the client machine. Absent when SSH is not available. */
+  sshTarget?: { host: string; user: string }
   /** The host's identity key (D3); a client that has none saves it. Absent on an organization's workspace service, which is not a machine and is reached only over `https:`. */
   identityKey?: string
   remoteAccess: boolean

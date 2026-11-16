@@ -18,6 +18,7 @@ import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
 import { memberUsers } from '../../host/member-users'
 import { recentEventLoopStall } from '../../host/event-loop-stalls'
+import { sshTarget } from '../../host/ssh-target'
 import type { IntroducedHosts } from '../../execution/orchestration/introduced-hosts'
 import { z } from 'zod'
 
@@ -88,6 +89,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
       ...info,
       installationId: getInstallationId(),
       routes: await advertisedRoutes(info.host, info.port),
+      sshTarget: await sshTarget(),
       identityKey: hostIdentity().publicKey(),
       principal: wirePrincipalKind(principal),
       permissions: permissionsFor(principal),

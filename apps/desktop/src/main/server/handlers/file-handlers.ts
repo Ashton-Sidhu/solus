@@ -10,7 +10,7 @@ import type { AgentId, DetectedEditor } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
 import { IMAGE_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@solus/contracts/media-types'
-import { localEditorFileUrl } from '@solus/contracts/local-editor-links'
+import { localEditorFileUrl, remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
 import { voiceTranscriptionOptionsSchema } from '@solus/contracts/voice-dictionary'
 import { transcribeAudio, warmTranscription, startVoiceStream, feedVoiceStream, finishVoiceStream, cancelVoiceStream } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
@@ -98,7 +98,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const [url, options] = args
     try {
       // A web page, or a file link of a local editor such as vscode://file/...
-      const target = /^https?:\/\//i.test(url) ? url : localEditorFileUrl(url)
+      const target = /^https?:\/\//i.test(url) ? url : localEditorFileUrl(url) ?? remoteEditorFileUrl(url)
       if (!target) return false
       await shell.openExternal(target)
       if (options?.hideAppAfterOpen) deps.hideAppWindow()

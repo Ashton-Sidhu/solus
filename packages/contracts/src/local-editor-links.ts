@@ -22,3 +22,17 @@ export function localEditorFileUrl(href: string): string | null {
   if (url.host !== 'file' || url.username || url.password || url.pathname.length <= 1) return null
   return `${scheme}:${href.trim().slice(url.protocol.length)}`
 }
+
+/** Only the SSH link forms made by the remote Open in action may reach the OS. */
+export function remoteEditorFileUrl(href: string): string | null {
+  let url: URL
+  try { url = new URL(href.trim()) } catch { return null }
+  if (url.username || url.password || url.port || url.search || url.hash) return null
+  const scheme = url.protocol.slice(0, -1).toLowerCase()
+  if (scheme === 'zed') {
+    return url.host === 'ssh' && /^\/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\/\S+/.test(url.pathname) ? href.trim() : null
+  }
+  if (scheme !== 'vscode' && scheme !== 'cursor') return null
+  return url.host === 'vscode-remote' && /^\/ssh-remote\+[A-Za-z0-9._%+-]+%40[A-Za-z0-9.-]+\/\S+/i.test(url.pathname)
+    ? href.trim() : null
+}

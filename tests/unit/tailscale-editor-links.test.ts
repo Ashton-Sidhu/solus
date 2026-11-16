@@ -1,0 +1,36 @@
+import { expect, test } from 'bun:test'
+import { remoteEditorLink } from '../../packages/workspace-ui/src/lib/remote-editor-link'
+import { sshTargetFromStatus, tailscaleSshFromPrefs } from '../../packages/server/src/host/ssh-target'
+import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
+
+const target = { host: 'box.tail.ts.net', user: 'dev' }
+
+test('remote editor links preserve the SSH destination and encode path segments', () => {
+  expect(remoteEditorLink('vscode', target, '/home/dev/my project/a+b.ts'))
+    .toBe('vscode://vscode-remote/ssh-remote+dev%40box.tail.ts.net/home/dev/my%20project/a%2Bb.ts')
+  expect(remoteEditorLink('cursor', target, '/work/app'))
+    .toBe('cursor://vscode-remote/ssh-remote+dev%40box.tail.ts.net/work/app')
+  expect(remoteEditorLink('zed', target, '/work/app'))
+    .toBe('zed://ssh/dev@box.tail.ts.net/work/app')
+  expect(remoteEditorLink('vim', target, '/work/app')).toBeNull()
+  expect(remoteEditorLink('vscode', target, 'relative/path')).toBeNull()
+  for (const editor of ['vscode', 'cursor', 'zed'] as const) {
+    expect(remoteEditorFileUrl(remoteEditorLink(editor, target, '/work/app')!)).not.toBeNull()
+  }
+  expect(remoteEditorFileUrl('zed://ssh/user:secret@box.tail.ts.net/work')).toBeNull()
+  expect(remoteEditorFileUrl('vscode://vscode-remote/ssh-remote+dev%40box.tail.ts.net/work?cmd=run')).toBeNull()
+})
+
+test('the host advertises a MagicDNS target only when SSH works', () => {
+  const status = { Self: { DNSName: 'box.tail.ts.net.', TailscaleIPs: ['100.100.1.2'] } }
+  expect(sshTargetFromStatus(status, 'dev', true, false)).toEqual(target)
+  expect(sshTargetFromStatus(status, 'dev', false, true)).toEqual(target)
+  expect(sshTargetFromStatus(status, 'dev', false, false)).toBeUndefined()
+  expect(sshTargetFromStatus({ Self: { TailscaleIPs: ['100.100.1.2'] } }, 'dev', true, false)).toBeUndefined()
+})
+
+test('Tailscale SSH requires both prefs', () => {
+  expect(tailscaleSshFromPrefs({ RunSSH: true, WantRunning: true })).toBe(true)
+  expect(tailscaleSshFromPrefs({ RunSSH: true, WantRunning: false })).toBe(false)
+  expect(tailscaleSshFromPrefs({ RunSSH: true })).toBe(false)
+})
