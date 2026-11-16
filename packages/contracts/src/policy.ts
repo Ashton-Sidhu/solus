@@ -95,7 +95,7 @@ export const managedHostSettingsSchema = z.object({
   /** The host's analytics and the desktop app's on this machine. */
   analyticsEnabled: z.boolean(),
   /** false: loopback only; no LAN discovery, pairing, pair links, or host introductions. */
-  remoteAccess: z.boolean(),
+  remoteAccess: z.union([z.enum(['off', 'private', 'any']), z.boolean()]),
   trustLocalNetwork: z.boolean(),
   /** false: no Solus Cloud tunnel. Registration still works. */
   cloudTunnel: z.boolean(),
@@ -180,7 +180,7 @@ function crossKeyIssues(document: z.output<typeof policyDocumentFields>, kind: P
   if (kind === 'organization' && document.host) issues.push({ path: ['host'], message: 'An organization policy cannot hold host settings. Put them in a host policy.' })
   const mode = document.sessions?.settings?.defaultPermissionMode
   if (mode && isPermissionModeAbove(mode, document.sessions?.limits?.maxPermissionMode)) issues.push({ path: ['sessions', 'settings', 'defaultPermissionMode'], message: 'The default mode cannot be above maxPermissionMode.' })
-  if (document.host?.remoteAccess === false && document.host.trustLocalNetwork === true) issues.push({ path: ['host', 'trustLocalNetwork'], message: 'trustLocalNetwork cannot be true when remoteAccess is false.' })
+  if ((document.host?.remoteAccess === false || document.host?.remoteAccess === 'off') && document.host.trustLocalNetwork === true) issues.push({ path: ['host', 'trustLocalNetwork'], message: 'trustLocalNetwork cannot be true when remoteAccess is off.' })
   return [...issues, ...lockedModelIssues(document)]
 }
 

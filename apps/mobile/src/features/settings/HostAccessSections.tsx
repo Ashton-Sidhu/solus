@@ -23,6 +23,7 @@ import { canChangeAccess, networkNote, type HostAccessSnapshot } from "./host-ac
 import type { HostPolicies } from "@solus/contracts/host-policies";
 import { hostLockMessage, pairingLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
+import type { RemoteAccessMode } from "@solus/contracts/host-api";
 
 /**
  * The sections of a host's Access screen below its Solus Cloud link, in the
@@ -92,7 +93,7 @@ export function HostOrganizationsSection(props: {
 export function HostNetworkSection(props: {
   readonly access: HostAccessSnapshot;
   readonly policy: HostPolicies | null;
-  readonly onRemoteAccess: (next: boolean) => void;
+  readonly onRemoteAccess: (next: RemoteAccessMode) => void;
   readonly onTrustLocalNetwork: (next: boolean) => void;
 }) {
   const { info, busy } = props.access;
@@ -100,22 +101,28 @@ export function HostNetworkSection(props: {
   // A host key a policy sets is inert for everyone; the host refuses the change too (plans/030 §6.7).
   const remoteAccessLock = hostLockMessage(props.policy, "remoteAccess");
   const trustLocalNetworkLock = hostLockMessage(props.policy, "trustLocalNetwork");
-  const address = info.remoteAccess
+  const address = info.remoteAccess !== 'off'
     ? props.access.endpoints.find((endpoint) => endpoint.kind !== "loopback")
     : undefined;
 
   return (
     <View className="gap-3">
       <SettingsSection title="Network">
-        <SettingsSwitchRow
-          icon="globe"
-          label="Allow remote connections"
-          subtitle="Remote devices must pair before connecting."
-          value={info.remoteAccess}
-          disabled={locked || remoteAccessLock !== null}
-          onValueChange={props.onRemoteAccess}
-        />
-        {info.remoteAccess ? (
+        <Text>Remote access</Text>
+        {([['off', 'Off'], ['private', 'Private networks only'], ['any', 'Anyone who can reach this host']] as const).map(([mode, label]) => (
+          <Pressable
+            key={mode}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: info.remoteAccess === mode, disabled: locked || remoteAccessLock !== null }}
+            disabled={locked || remoteAccessLock !== null}
+            onPress={() => props.onRemoteAccess(mode)}
+            className="rounded-lg border border-border px-4 py-3 disabled:opacity-50"
+          >
+            <Text>{info.remoteAccess === mode ? '● ' : '○ '}{label}</Text>
+          </Pressable>
+        ))}
+        {info.remoteAccess === 'private' ? <SettingsNote>Only devices on your local network or tailnet can connect.</SettingsNote> : null}
+        {info.remoteAccess !== 'off' ? (
           <SettingsSwitchRow
             icon="house"
             label="Trust my local network"

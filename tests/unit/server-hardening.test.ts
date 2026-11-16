@@ -24,7 +24,7 @@ describe('server bind/auth coupling', () => {
 
   test('defaults to loopback without auth when remote access is off', () => {
     delete process.env.SOLUS_HOST
-    expect(resolveEffectiveServerOptions({ remoteAccess: false })).toEqual({
+    expect(resolveEffectiveServerOptions({ remoteAccess: 'off' })).toEqual({
       host: '127.0.0.1',
       requireAuth: false,
     })
@@ -32,15 +32,20 @@ describe('server bind/auth coupling', () => {
 
   test('remote access binds all interfaces and forces auth', () => {
     delete process.env.SOLUS_HOST
-    expect(resolveEffectiveServerOptions({ remoteAccess: true, requireAuth: false })).toEqual({
+    expect(resolveEffectiveServerOptions({ remoteAccess: 'any', requireAuth: false })).toEqual({
       host: '0.0.0.0',
       requireAuth: true,
     })
   })
 
+  test('private access also binds all interfaces and forces auth', () => {
+    delete process.env.SOLUS_HOST
+    expect(resolveEffectiveServerOptions({ remoteAccess: 'private', requireAuth: false })).toEqual({ host: '0.0.0.0', requireAuth: true })
+  })
+
   test('non-loopback env override forces auth even when opts disable it', () => {
     process.env.SOLUS_HOST = '192.168.1.40'
-    expect(resolveEffectiveServerOptions({ remoteAccess: false, requireAuth: false })).toEqual({
+    expect(resolveEffectiveServerOptions({ remoteAccess: 'off', requireAuth: false })).toEqual({
       host: '192.168.1.40',
       requireAuth: true,
     })

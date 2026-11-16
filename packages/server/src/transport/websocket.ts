@@ -161,6 +161,8 @@ export function attachWebSocketTransport(
     /** Requester addresses allowed past a require-auth bind without a token
      *  (the machine itself, the host's own tailnet). Untrusted when absent. */
     isTrustedRequester?: (address: string | undefined) => Promise<boolean>
+    /** Admission by the socket's remote address, before a WebSocket upgrade. */
+    allowRemoteAddress?: (address: string | undefined) => boolean
     /** True for a request that arrived through the tunnel's proxied listener.
      *  Such a request is loopback on the wire and must never be trusted for it. */
     isTunnelRequest?: (request: IncomingMessage) => boolean
@@ -217,6 +219,10 @@ export function attachWebSocketTransport(
   heartbeat.unref?.()
 
   const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
+    if (opts.allowRemoteAddress?.(request.socket.remoteAddress) === false) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+      return
+    }
     // The listener a request came in on is the only trustworthy origin marker:
     // whatever a client sent under this header is replaced before admission reads it.
     if (opts.isTunnelRequest?.(request)) request.headers[VIA_TUNNEL_HEADER] = '1'
@@ -241,6 +247,10 @@ export function attachWebSocketTransport(
   // 426, never a page or a record route. The handlers that exist now run after this check.
   const requestListeners = http.listeners('request')
   const onHttpRequest = (request: IncomingMessage, response: ServerResponse): void => {
+    if (opts.allowRemoteAddress?.(request.socket.remoteAddress) === false) {
+      response.writeHead(403).end()
+      return
+    }
     if (isHostSocketPath(request.url)) {
       response.writeHead(426, { upgrade: 'websocket', connection: 'Upgrade' }).end()
       return

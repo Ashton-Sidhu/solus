@@ -104,7 +104,7 @@ export class HostPolicies {
   /** Why a capability a host key turns off cannot be used, or null when it can. */
   capabilityDenial(key: 'remoteAccess' | 'cloudTunnel', capability: string): PolicyRefusal | null {
     const rule = this.hostSetting(key)
-    if (!rule || rule.value) return null
+    if (!rule || (key === 'remoteAccess' ? rule.value !== false && rule.value !== 'off' : rule.value)) return null
     return { code: key === 'remoteAccess' ? 'REMOTE_ACCESS_NOT_ALLOWED' : 'CLOUD_TUNNEL_NOT_ALLOWED', message: capabilityDeniedMessage(rule.source, capability) }
   }
 

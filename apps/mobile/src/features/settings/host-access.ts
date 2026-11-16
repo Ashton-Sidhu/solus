@@ -84,7 +84,7 @@ export class HostAccess {
     }
   }
 
-  async setRemoteAccess(hostId: string, remoteAccess: boolean): Promise<void> {
+  async setRemoteAccess(hostId: string, remoteAccess: import('@solus/contracts/host-api').RemoteAccessMode): Promise<void> {
     await this.change(hostId, 'remote-access', async (api, snapshot) => {
       const answer = await api.connectionsSetRemoteAccess({ remoteAccess })
       return { info: { ...snapshot.info, ...answer }, endpoints: await api.connectionsListEndpoints() }

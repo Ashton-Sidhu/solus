@@ -143,6 +143,8 @@ import { capabilityDeniedMessage } from '@solus/contracts/policy'
 import type { HostStanding } from './host/organizations'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './transport/bind-policy'
 import { isTrustedRequesterAddress } from './transport/trusted-requesters'
+import { remoteAddressAdmission } from './transport/private-network-access'
+import type { RemoteAccessMode } from '@solus/contracts/host-api'
 import { readHostLinkEnv } from './host/host-link-env'
 import { attachWebSocketTransport, isHostSocketPath } from './transport/websocket'
 import { ResponseReceiptBudget } from './transport/response-receipt-cache'
@@ -451,12 +453,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   useHostPolicyStore(policyStore)
   const remoteBindOptions = () => {
     const rule = hostPolicies().hostSetting('remoteAccess')
-    return rule?.value === false
-      ? { remoteAllowed: false, refusal: capabilityDeniedMessage(rule.source, 'remote access').replace(/\.$/, '') }
+    return effectiveRemoteAccess() === 'off'
+      ? { remoteAllowed: false, refusal: rule ? capabilityDeniedMessage(rule.source, 'remote access').replace(/\.$/, '') : 'Remote access is off' }
       : {}
   }
   const initial = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess: effectiveRemoteAccess(), ...remoteBindOptions() })
+  const allowRemoteAddress = remoteAddressAdmission(effectiveRemoteAccess)
   let host = initial.host
+  let boundRemoteAccess = effectiveRemoteAccess()
   let requireAuth = initial.requireAuth || credentialAlwaysRequired
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
@@ -1612,6 +1616,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getPort: () => actualPort,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
+    allowRemoteAddress,
     isTunnelRequest,
     deviceHub: devices.hubProxy,
     // No pairing door on a managed host or the workspace service: a grant is the only credential there.
@@ -1717,6 +1722,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The host socket answers `/ws` upgrades (`attachWebSocketTransport`); the device
   // hub proxy answers its own. Nothing else upgrades.
   http.on('upgrade', (request, socket, head) => {
+    if (!isHostSocketPath(request.url) && !allowRemoteAddress(request.socket.remoteAddress)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+      return
+    }
     if (!isHostSocketPath(request.url) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   let ws = attachWebSocketTransport(http, server, {
@@ -1726,6 +1735,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     doors,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
+    allowRemoteAddress,
     isTunnelRequest,
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
@@ -1850,7 +1860,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     close: async () => {},
   }
   let lanDiscovery: LanDiscoveryService
-  if (isLanDiscoveryDisabled() || hostPolicies().hostSetting('remoteAccess')?.value === false) {
+  if (isLanDiscoveryDisabled() || effectiveRemoteAccess() === 'off') {
     log.info('lan_discovery_skipped')
     lanDiscovery = noLanDiscovery
   } else {
@@ -1867,12 +1877,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }
   }
 
-  async function rebind(remoteAccess: boolean): Promise<void> {
+  async function rebind(remoteAccess: RemoteAccessMode): Promise<void> {
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess, ...remoteBindOptions() })
     const nextRequireAuth = next.requireAuth || credentialAlwaysRequired
-    if (next.host === host && nextRequireAuth === requireAuth) return
+    if (next.host === host && nextRequireAuth === requireAuth && remoteAccess === boundRemoteAccess) return
     host = next.host
     requireAuth = nextRequireAuth
+    boundRemoteAccess = remoteAccess
     lock?.release()
     // Existing WS connections (including the one carrying this very toggle)
     // keep the plain http.close() callback from ever firing, since Node waits
@@ -1888,6 +1899,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       doors,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
+      allowRemoteAddress,
       isTunnelRequest,
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {

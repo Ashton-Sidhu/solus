@@ -73,6 +73,8 @@ export interface HttpServerOptions {
   /** Requester addresses allowed past a require-auth bind without a token
    *  (the machine itself, the host's own tailnet). Untrusted when absent. */
   isTrustedRequester?: (address: string) => Promise<boolean>
+  /** Admission by the socket's remote address, before any HTTP route runs. */
+  allowRemoteAddress?: (address: string | undefined) => boolean
   /** True for a request that arrived through the tunnel's proxied listener. It is
    *  loopback on the wire and must never be trusted for it; pairing is not offered there. */
   isTunnelRequest?: (incoming: IncomingMessage) => boolean
@@ -529,7 +531,13 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
 
   const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
-  const server = createServer(HTTP_SERVER_TIMEOUTS, requestListener)
+  const server = createServer(HTTP_SERVER_TIMEOUTS, (request, response) => {
+    if (opts.allowRemoteAddress?.(request.socket.remoteAddress) === false) {
+      response.writeHead(403).end()
+      return
+    }
+    requestListener(request, response)
+  })
   return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })), solusApiRouter, doors }
 }
 

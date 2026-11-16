@@ -37,6 +37,7 @@ export class ConnectionsStore {
   activePair = $state<PairToken | null>(null)
   refreshing = $state(false)
   remoteAccessUpdating = $state(false)
+  remoteAccessError = $state<string | null>(null)
   trustLocalNetworkUpdating = $state(false)
   private metadataServerId: string | null = null
 
@@ -59,6 +60,7 @@ export class ConnectionsStore {
   async refreshServerMetadata(serverId: string): Promise<void> {
     if (this.metadataServerId !== serverId) {
       this.metadataServerId = serverId
+      this.remoteAccessError = null
       this.serverInfo = null
       this.endpoints = []
       this.sessions = []
@@ -92,8 +94,9 @@ export class ConnectionsStore {
     }
   }
 
-  async setRemoteAccess(serverId: string, remoteAccess: boolean): Promise<void> {
+  async setRemoteAccess(serverId: string, remoteAccess: import('@solus/contracts/host-api').RemoteAccessMode): Promise<void> {
     if (!this.serverInfo || this.remoteAccessUpdating) return
+    this.remoteAccessError = null
     const previousRemoteAccess = this.serverInfo.remoteAccess
     this.serverInfo.remoteAccess = remoteAccess
     this.remoteAccessUpdating = true
@@ -107,6 +110,7 @@ export class ConnectionsStore {
       await this.refreshServerMetadata(serverId)
     } catch (e) {
       this.serverInfo.remoteAccess = previousRemoteAccess
+      this.remoteAccessError = e instanceof Error ? e.message : String(e)
       console.error('set remote access failed', e)
     } finally {
       this.remoteAccessUpdating = false
