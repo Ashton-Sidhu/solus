@@ -298,9 +298,14 @@ export class HostConnections {
     return this.connections.get(hostId)?.transport.serverUrl ?? null
   }
 
+  /** The hosts this phone is connected to now. */
+  readyConnections(): HostConnection[] {
+    return [...this.connections.values()].filter((connection) => connection.state.readiness === 'ready')
+  }
+
   /** The connected hosts where this phone is the local owner. */
   private async ownedHosts(): Promise<IntroducerHost[]> {
-    const connected = [...this.connections.values()].filter((connection) => connection.state.readiness === 'ready')
+    const connected = this.readyConnections()
     const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
       const info = await connection.facts.when('serverInfo').catch(() => null)
       const host = this.deps.registry.host(connection.hostId)

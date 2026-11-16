@@ -181,6 +181,60 @@ The host has only direct addresses, and none of them answered this device.
 3. For a Tailscale address, make sure that Tailscale is on, on both machines.
 4. For an SSH forward, add the host again. The forward may have stopped.
 
+## This app blocked a plain-HTTP connection
+
+The iOS app refused to open a plain `http:` address. iOS App Transport Security does
+this. Older builds of the app allow plain HTTP only to local network addresses, and a
+Tailscale address (`100.x.y.z`) is not one of them. On Wi-Fi the app can still use the
+host's local address, so the problem shows only on mobile data.
+
+1. Update Solus on this device. Current builds allow plain HTTP to your own hosts.
+2. Or add the host by an `https:` address.
+
+## Reach a host over Tailscale
+
+Tailscale puts your devices on one private network, the tailnet. A phone on mobile
+data reaches its host through the tailnet. WireGuard encrypts the traffic, and the
+app sends its credential on a plain-HTTP address only after the host proves its
+identity.
+
+### Set up
+
+1. Install Tailscale on the host and on each device, and sign in to the same
+   tailnet on all of them. Turn Tailscale on.
+2. On the host, open Settings → Hosts → this computer → Access. A host that sees its
+   Tailscale address gives a pairing link with that address.
+3. Pair the device: scan the QR code, or type the Tailscale address
+   (`100.x.y.z:<port>`) and the pairing code.
+
+### Ports
+
+A Solus host listens on one port:
+
+- **3000**: the standalone server (`solus` on a server or a Linux machine).
+- **3001**: the desktop app, when it hosts Solus.
+
+A host started with `SOLUS_PORT` uses that port. Use the port the Access page shows.
+
+### Find tailnet hosts from the phone
+
+The phone cannot read the tailnet. The hosts it is connected to can, so the app asks
+each connected host for the Solus hosts on the tailnet. Add Host lists them under
+**Nearby** with the label **Tailscale**. A phone with no connected host cannot find
+tailnet hosts: for the first host, scan its code or type its address.
+
+### Check from Safari
+
+On the phone, open `http://<tailscale-ip>:<port>/health` in Safari, for example
+`http://100.87.157.17:3001/health`.
+
+- Safari shows a short JSON answer with `"ok":true`: the tailnet and the host work.
+  If the app still cannot connect, update the app (see
+  [This app blocked a plain-HTTP connection](#this-app-blocked-a-plain-http-connection)).
+- Safari cannot open the page: make sure that Tailscale is on, on the phone and on
+  the host, and that the port is correct. On the host, run
+  `tailscale status` to see its Tailscale address.
+
 ## The host needs pairing again
 
 The host answered and refused this device. Select **Pair again**.

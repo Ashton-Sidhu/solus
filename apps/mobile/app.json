@@ -18,7 +18,10 @@
       "requireFullScreen": false,
       "infoPlist": {
         "NSCameraUsageDescription": "Solus uses the camera only to scan a host's pairing code.",
-        "NSLocalNetworkUsageDescription": "Solus connects to Solus hosts on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSLocalNetworkUsageDescription": "Solus connects to Solus hosts on your local network or tailnet.",
         "NSPhotoLibraryAddUsageDescription": "Solus adds an image to your photos only when you choose Save image."
       }
     },

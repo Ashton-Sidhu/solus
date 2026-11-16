@@ -3,7 +3,7 @@ import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { loadServers, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import { track } from '@solus/workspace-ui/lib/analytics'
-import { classifyConnectInput, probeServer } from './connect'
+import { classifyConnectInput, probeServer, type ProbedServer } from './connect'
 
 /** A Solus server offered to the user without them having to name it. */
 export interface OfferedHost {
@@ -37,9 +37,20 @@ export async function probeServingOrigin(origin: string): Promise<ServingOrigin 
   return { offered: { url: origin, name }, entry, saved: saved ?? null }
 }
 
-function unreachableMessage(url: string): string {
-  if (location.protocol === 'https:' && url.startsWith('http://')) {
+/** Why a typed address gave no Solus host, from what the probe saw (docs/plans/tailscale-support.md D2). */
+export function unreachableMessage(url: string, health: ProbedServer, pageProtocol: string): string {
+  if (!health.unreachable) {
+    return `A server answered at ${urlHost(url)}, but it is not a Solus host. Check the port shown in Settings → Hosts → Access on the host.`
+  }
+  // A browser hides a mixed-content block as a plain network error.
+  if (health.unreachable === 'insecure-blocked' || (pageProtocol === 'https:' && url.startsWith('http://'))) {
     return `This page is served over https, so it cannot reach ${urlHost(url)} over plain http. Open Solus from the host's own address instead.`
+  }
+  if (health.unreachable === 'timeout') {
+    return `${urlHost(url)} did not answer in time. Check that Tailscale or your Wi-Fi is on, on this device and on the host.`
+  }
+  if (health.unreachable === 'refused') {
+    return `Nothing listens at ${urlHost(url)}. Check the port; a Solus host often uses 3000.`
   }
   return `No Solus server answered at ${urlHost(url)}. Check the address and port shown in Settings → Hosts → Access on the host.`
 }
@@ -80,7 +91,7 @@ export async function addHostFromInput({
       }))
     } else {
       const health = await probeServer(classified.url)
-      if (!health.ok) throw new Error(unreachableMessage(classified.url))
+      if (!health.ok) throw new Error(unreachableMessage(classified.url, health, location.protocol))
       // A host that trusts this device by network position pairs without a code.
       const trusted = health.requireAuth === false
       if (!trusted && !/^\d{6}$/.test(trimmedCode)) {
